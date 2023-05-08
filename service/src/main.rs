@@ -5,15 +5,19 @@ use actix_web::{
     web::{self, Bytes, Data},
     App, HttpResponse, HttpServer, Responder, middleware,
 };
-use futures::StreamExt;
-use reqwest::StatusCode;
-use std::{error::Error, time::Duration};
+use std::{error::Error, time::Duration, sync::Arc, env};
 use actix_ratelimit::{RateLimiter, MemoryStore, MemoryStoreActor};
 
 use crate::query_processor::{FreeQuery, QueryProcessor, SubgraphDeploymentID};
 use server::{ServerOptions, index, subgraph_queries, network_queries};
+use common::database::create_pg_pool;
+
 mod query_processor;
+mod query_fee;
 mod server;
+mod receipt_collector;
+mod common;
+mod util;
 
 /// Create Indexer service App
 ///
@@ -30,12 +34,14 @@ mod server;
 #[actix_web::main]
 async fn main() -> Result<(), std::io::Error> {
     env_logger::init();
-    // let store = MemoryStore::new();
-    // let ratelimiter = RateLimiter::new(
-    //                         MemoryStoreActor::from(store.clone()).start())
-    //                     .with_interval(Duration::from_secs(60))
-    //                     .with_max_requests(100);
-    
+
+    let database_url = env::var("DATABASE_URL").expect("Postgres URL required.");
+    // Create config for user input args
+    // DATABASE_URL required for using query_as macro
+    let pg_pool = create_pg_pool(&database_url);
+    let arc_pool = Arc::new(pg_pool);
+
+    let connection = arc_pool.get().expect("Failed to get connection from pool");
 
     // Proper initiation of server, query processor
     // server health check, graph-node instance connection check

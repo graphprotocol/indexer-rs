@@ -143,13 +143,6 @@ impl GraphNodeInstance {
         }
     }
 
-    // async fn make_get_request(&self, endpoint: &str) -> Result<reqwest::Response, reqwest::Error> {
-    //     self.client
-    //         .get(&format!("{}/{}", self.base_url, endpoint))
-    //         .send()
-    //         .await
-    // }
-
     async fn subgraph_query(
         &self,
         endpoint: &str,
