@@ -4,7 +4,7 @@ use actix_web::{
     get, post,
     test::TestRequest,
     web::{self, Bytes, Data},
-    App, HttpResponse, HttpServer, Responder, middleware,
+    App, HttpResponse, HttpServer, Responder, middleware, http::header,
 };
 use util::package_version;
 use std::{error::Error, time::Duration, sync::Arc, env};
