@@ -78,6 +78,7 @@ pub enum IndexerErrorCode {
     IE071,
     IE072,
     IE073,
+    IE074,
 }
 
 impl fmt::Display for IndexerErrorCode {
@@ -156,6 +157,7 @@ impl fmt::Display for IndexerErrorCode {
             IndexerErrorCode::IE071 => write!(f, "IE071"),
             IndexerErrorCode::IE072 => write!(f, "IE072"),
             IndexerErrorCode::IE073 => write!(f, "IE073"),
+            IndexerErrorCode::IE074 => write!(f, "IE074"),
         }
     }
 }
@@ -235,7 +237,8 @@ impl IndexerErrorCode {
             Self::IE070 => "Failed to query latest valid epoch and block hash'",
             Self::IE071 => "Add Epoch subgraph support for non-protocol chains'",
             Self::IE072 => "Failed to execute batch tx (contract: staking)'",
-            Self::IE073 => "Failed to query subgraph features from indexing statuses endpoint'",
+            Self::IE073 => "Failed to query subgraph features from indexing statuses endpoint",
+            Self::IE074 => "Failed to resolve the release version",
         }
     }
 

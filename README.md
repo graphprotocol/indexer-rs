@@ -23,9 +23,9 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
       - [ ] derive, cache, and look up attestation signers
         - [ ] contracts - connect by network chain id
           - [ ] network provider
-      - [x] validate receipt format (need validating)
-      - [x] parse receipt (need validating)
-      - [x] validate signature (need validating)
+      - [x] validate receipt format (need unit tests)
+      - [x] parse receipt (need unit tests)
+      - [x] validate signature (need unit tests)
       - [ ] store
     - [ ] monitor eligible allocations
       - [ ] network subgraph

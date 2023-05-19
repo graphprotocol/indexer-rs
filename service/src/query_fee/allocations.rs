@@ -102,8 +102,6 @@ impl ReceiptManager for AllocationReceiptManager {
     }
 }
 
-
-
 impl AllocationReceiptManager {
     pub fn new(
         sequelize: PgPool,

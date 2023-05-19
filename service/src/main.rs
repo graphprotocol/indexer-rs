@@ -4,8 +4,9 @@ use actix_web::{
     get, post,
     test::TestRequest,
     web::{self, Bytes, Data},
-    App, HttpResponse, HttpServer, Responder, middleware, http::header,
+    App, HttpResponse, HttpServer, Responder, middleware,
 };
+use util::package_version;
 use std::{error::Error, time::Duration, sync::Arc, env};
 use actix_ratelimit::{RateLimiter, MemoryStore, MemoryStoreActor};
 
@@ -43,6 +44,7 @@ async fn main() -> Result<(), std::io::Error> {
     let arc_pool = Arc::new(pg_pool);
 
     let connection = arc_pool.get().expect("Failed to get connection from pool");
+    let release  = package_version().expect("Failed to resolve for release version");
 
     // Proper initiation of server, query processor
     // server health check, graph-node instance connection check
@@ -50,6 +52,7 @@ async fn main() -> Result<(), std::io::Error> {
 
     let service_options = ServerOptions::new(
         Some(8080),
+        release,
         query_processor,
         Some("free_query_auth_token".to_string()),
         "graph_node_status_endpoint".to_string(),

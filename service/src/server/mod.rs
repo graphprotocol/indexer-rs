@@ -1,4 +1,4 @@
-use crate::query_processor::{QueryProcessor, SubgraphDeploymentID, FreeQuery};
+use crate::{query_processor::{QueryProcessor, SubgraphDeploymentID, FreeQuery}, util::PackageVersion};
 use actix_web::{
     body::{BoxBody, EitherBody},
     get, post,
@@ -8,6 +8,8 @@ use actix_web::{
 };
 use reqwest::StatusCode;
 
+mod status;
+
 /// Endpoint for health checks
 #[get("/")]
 pub async fn index() -> HttpResponse {
@@ -15,6 +17,12 @@ pub async fn index() -> HttpResponse {
     let request = TestRequest::default().to_http_request();
     let response = responder.respond_to(&request).map_into_boxed_body();
     response
+}
+
+// Endpoint for package version
+#[get("/version")]
+async fn version(server: web::Data<ServerOptions>,) -> impl Responder {
+    HttpResponse::Ok().json(server.release.clone())
 }
 
 /// ADD: Endpoint for version, Endpoint for the public status API
@@ -80,6 +88,7 @@ pub async fn network_queries(
 #[derive(Debug, Clone)]
 pub struct ServerOptions {
     pub port: Option<u32>,
+    pub release: PackageVersion,
     pub query_processor: QueryProcessor,
     pub free_query_auth_token: Option<String>,
     pub graph_node_status_endpoint: String,
@@ -93,6 +102,7 @@ pub struct ServerOptions {
 impl ServerOptions {
     pub fn new(
         port: Option<u32>,
+        release: PackageVersion,
         query_processor: QueryProcessor,
         free_query_auth_token: Option<String>,
         graph_node_status_endpoint: String,
@@ -100,6 +110,6 @@ impl ServerOptions {
         network_subgraph_auth_token: Option<String>,
         serve_network_subgraph: bool,
     ) -> Self {
-        ServerOptions { port, query_processor, free_query_auth_token, graph_node_status_endpoint, operator_public_key, network_subgraph_auth_token, serve_network_subgraph }
+        ServerOptions { port, release, query_processor, free_query_auth_token, graph_node_status_endpoint, operator_public_key, network_subgraph_auth_token, serve_network_subgraph }
     }
 }
