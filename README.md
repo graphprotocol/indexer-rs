@@ -8,7 +8,7 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
 
 - [ ] Server path routing
   - [x] basic structure
-  - [ ] CORS
+  - [x] CORS
   - [ ] Rate limiting levels
   - [ ] Logger stream
 - [ ] Query processor

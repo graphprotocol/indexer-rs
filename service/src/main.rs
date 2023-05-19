@@ -1,9 +1,10 @@
+use actix_cors::Cors;
 use actix_web::{
     body::{BoxBody, EitherBody},
     get, post,
     test::TestRequest,
     web::{self, Bytes, Data},
-    App, HttpResponse, HttpServer, Responder, middleware,
+    App, HttpResponse, HttpServer, Responder, middleware, http::header,
 };
 use std::{error::Error, time::Duration, sync::Arc, env};
 use actix_ratelimit::{RateLimiter, MemoryStore, MemoryStoreActor};
@@ -61,6 +62,13 @@ async fn main() -> Result<(), std::io::Error> {
     HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
+            .wrap(
+                Cors::default()
+                    .send_wildcard()
+                    .allowed_methods(vec!["GET", "POST"])
+                    .allowed_headers(vec![header::CONTENT_TYPE, header::ACCEPT])
+                    .max_age(3600),
+            )
             .app_data(Data::new(service_options.clone()))
             .service(index)
             .service(subgraph_queries)
