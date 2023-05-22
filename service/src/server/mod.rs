@@ -1,89 +1,74 @@
 use crate::{query_processor::{QueryProcessor, SubgraphDeploymentID, FreeQuery}, util::PackageVersion};
-use actix_web::{
-    body::{BoxBody, EitherBody},
-    get, post,
-    test::TestRequest,
-    web::{self, Bytes, Data},
-    App, HttpResponse, HttpServer, Responder,
-};
-use reqwest::StatusCode;
 
-mod status;
+pub mod routes;
+// mod status_server;
 
-/// Endpoint for health checks
-#[get("/")]
-pub async fn index() -> HttpResponse {
-    let responder = "Ready to roll!".customize().with_status(StatusCode::OK);
-    let request = TestRequest::default().to_http_request();
-    let response = responder.respond_to(&request).map_into_boxed_body();
-    response
-}
 
-// Endpoint for package version
-#[get("/version")]
-async fn version(server: web::Data<ServerOptions>,) -> impl Responder {
-    HttpResponse::Ok().json(server.release.clone())
-}
+// // Endpoint for the public status API
+// #[get("/status")]
+// async fn status(
+//     server: web::Data<ServerOptions>,
+//     // graph_node_status_endpoint: Data<GraphStatusEndpoint>,
+//     query: web::Bytes,
+// ) -> impl Responder {
+//     // Implementation for creating status server
+//     // Replace `createStatusServer` with your logic
+//     match response {
+//         Ok(result) => HttpResponse::Ok().json(result),
+//         Err(error) => HttpResponse::InternalServerError().json(error),
+//     }
+// }
+
+// // Endpoint for subgraph health checks
+// #[post("/subgraphs/health")]
+// async fn subgraph_health(
+//     graph_node_status_endpoint: Data<GraphStatusEndpoint>,
+// ) -> impl Responder {
+//     // Implementation for creating deployment health server
+//     // Replace `createDeploymentHealthServer` with your logic
+//     let response = createDeploymentHealthServer(graph_node_status_endpoint.get_ref()).await;
+//     match response {
+//         Ok(result) => HttpResponse::Ok().json(result),
+//         Err(error) => HttpResponse::InternalServerError().json(error),
+//     }
+// }
+
+// // Endpoint for the public cost API
+// #[post("/cost")]
+// async fn cost(
+//     indexer_management_client: Data<IndexerManagementClient>,
+//     metrics: Data<Metrics>,
+//     payload: Json<CostPayload>,
+// ) -> impl Responder {
+//     // Implementation for creating cost server
+//     // Replace `createCostServer` with your logic
+//     let response = createCostServer(indexer_management_client.get_ref(), metrics.get_ref(), payload.into_inner()).await;
+//     match response {
+//         Ok(result) => HttpResponse::Ok().json(result),
+//         Err(error) => HttpResponse::InternalServerError().json(error),
+//     }
+// }
+
+// // Endpoint for operator information
+// #[post("/operator")]
+// async fn operator_info(
+//     operator_public_key: Data<OperatorPublicKey>,
+//     payload: Json<OperatorInfoPayload>,
+// ) -> impl Responder {
+//     // Implementation for creating operator server
+//     // Replace `createOperatorServer` with your logic
+//     let response = createOperatorServer(operator_public_key.get_ref(), payload.into_inner()).await;
+//     match response {
+//         Ok(result) => HttpResponse::Ok().json(result),
+//         Err(error) => HttpResponse::InternalServerError().json(error),
+//     }
+// }
 
 /// ADD: Endpoint for version, Endpoint for the public status API
 /// public cost API, operator information
 /// subgraph health checks, network subgraph queries
 
-// Endpoint for subgraph queries
-#[post("/subgraphs/id/{id}")]
-pub async fn subgraph_queries(
-    server: web::Data<ServerOptions>,
-    id: web::Path<String>,
-    query: web::Bytes,
-) -> impl Responder {
-    let query_string = String::from_utf8(query.to_vec()).expect("Could not accept JSON body");
 
-    // Initialize id into a subgraph deployment ID and make a freeQuery to graph node
-    let subgraph_deployment_id = SubgraphDeploymentID::new(id.clone());
-    let free_query = FreeQuery {
-        subgraph_deployment_id,
-        query: query_string,
-    };
-
-    let res = server.query_processor
-        .execute_free_query(free_query)
-        .await
-        .expect("Failed to execute free query");
-    // take response and send back as json
-    match res.status {
-        200 => HttpResponse::Ok()
-            .content_type("application/json")
-            .body(res.result.graphQLResponse),
-        _ => HttpResponse::BadRequest()
-            .content_type("application/json")
-            .body("Bad subgraph query".to_string()),
-    }
-}
-
-// Endpoint for subgraph queries
-#[post("/network")]
-pub async fn network_queries(
-    server: web::Data<ServerOptions>,
-    query: web::Bytes,
-) -> impl Responder {
-    println!("routing");
-    let query_string = String::from_utf8(query.to_vec()).expect("Could not accept JSON body");
-
-    // make query to network subgraph - should have endpoint as an input from the environmental variable but just use as a constant here for now
-    let request = server.query_processor.execute_network_free_query(
-        query_string,
-    ).await.expect("Failed to execute free network subgraph query");
-    
-    // take response and send back as json
-    match request.status {
-        200 => HttpResponse::Ok()
-            .content_type("application/json")
-            .body(request.result.graphQLResponse),
-        _ => HttpResponse::BadRequest()
-            .content_type("application/json")
-            .body("Bad subgraph query".to_string()),
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct ServerOptions {

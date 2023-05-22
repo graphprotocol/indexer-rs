@@ -1,17 +1,30 @@
-use actix_cors::Cors;
-use actix_web::{
-    body::{BoxBody, EitherBody},
-    get, post,
-    test::TestRequest,
-    web::{self, Bytes, Data},
-    App, HttpResponse, HttpServer, Responder, middleware, http::header,
-};
+use tracing::info;
 use util::package_version;
 use std::{error::Error, time::Duration, sync::Arc, env};
-use actix_ratelimit::{RateLimiter, MemoryStore, MemoryStoreActor};
+use axum::{ Router, Server, Extension, routing::post};
+use model::QueryRoot;
+use async_graphql::{EmptyMutation, EmptySubscription, Schema};
+use tower_http::cors::CorsLayer;
+use axum::{
+    error_handling::HandleErrorLayer,
+    extract::{Path, Query},
+    http::{StatusCode, Method},
+    response::IntoResponse,
+    routing::{get, patch},
+    Json, 
+};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    sync::{RwLock},
+};
+use tower::{BoxError, ServiceBuilder};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use uuid::Uuid;
 
 use crate::query_processor::{FreeQuery, QueryProcessor, SubgraphDeploymentID};
-use server::{ServerOptions, index, subgraph_queries, network_queries};
+// use server::{ServerOptions, index, subgraph_queries, network_queries};
+use server::{ServerOptions, routes};
 use common::database::create_pg_pool;
 
 mod query_processor;
@@ -20,6 +33,7 @@ mod server;
 mod receipt_collector;
 mod common;
 mod util;
+mod model;
 
 /// Create Indexer service App
 ///
@@ -33,9 +47,16 @@ mod util;
 /// Route the requests as a FreeQuery
 ///
 /// Return response from Query Processor
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
-    env_logger::init();
+    // env_logger::init();
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "service=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     let database_url = env::var("DATABASE_URL").expect("Postgres URL required.");
     // Create config for user input args
@@ -60,26 +81,45 @@ async fn main() -> Result<(), std::io::Error> {
         Some("network_subgraph_auth_token".to_string()),
         true
     );
-    
-    // secure App, add logger, 
-    HttpServer::new(move || {
-        App::new()
-            .wrap(middleware::Logger::default())
-            .wrap(
-                Cors::default()
-                    .send_wildcard()
-                    .allowed_methods(vec!["GET", "POST"])
-                    .allowed_headers(vec![header::CONTENT_TYPE, header::ACCEPT])
-                    .max_age(3600),
-            )
-            .app_data(Data::new(service_options.clone()))
-            .service(index)
-            .service(subgraph_queries)
-            .service(network_queries)
-            .default_service(web::to(|| HttpResponse::NotFound()))
-    })
-    .bind(("127.0.0.1", 8080))?
-    .run()
-    .await
+
+    let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription).finish();
+
+    info!("Initialized server options");
+    let app = Router::new()
+        .route("/", get(routes::basic::index))
+        .route("/health", get(routes::basic::health))
+        .route("/version", get(routes::basic::version))
+        .route("/subgraphs/id/:id", post(routes::subgraphs::subgraph_queries))
+        .route("/network", post(routes::network::network_queries))
+        .nest("/operator", routes::basic::create_operator_server(service_options.clone()))
+        .layer(Extension(schema))
+        .layer(Extension(service_options))
+        .layer(
+            CorsLayer::new()
+                .allow_methods([Method::GET, Method::POST]),
+        )
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(|error: BoxError| async move {
+                    if error.is::<tower::timeout::error::Elapsed>() {
+                        Ok(StatusCode::REQUEST_TIMEOUT)
+                    } else {
+                        Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Unhandled internal error: {}", error),
+                        ))
+                    }
+                }))
+                .timeout(Duration::from_secs(10))
+                .into_inner(),
+        );
+
+    info!("Initialized server app at 0.0.0.0::8080");
+    Server::bind(&"0.0.0.0:8080".parse().unwrap())
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+
+    Ok(())
 }
 

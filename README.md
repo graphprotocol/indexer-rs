@@ -14,9 +14,12 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
 - [ ] Query processor
   - [x] graph node query endpoint at specific subgraph path
   - [x] wrap request to and response from graph node
+  - [ ] subgraph health check
   - [ ] extract receipt header
   - [ ] Free query
+    - [x] Query struct
     - [ ] Free query auth token check
+    - [x] Query routes + responses
   - [ ] Paid query
     - [ ] receipts graphQL schema
     - [ ] Allocation receipt manager
@@ -35,10 +38,11 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
 - [ ] Cost server
   - [ ] Cost graphQL schema
   - [ ] query indexer management client for Cost model
-- [ ] Constant service paths
-  - [ ] status check
-  - [ ] versions
-  - [ ] operator public key
+- [x] Constant service paths
+  - [x] health
+  - [x] ready to roll
+  - [x] versions
+  - [x] operator public key
 - [x] Import indexer native
 - [ ] Metrics
 
@@ -61,3 +65,25 @@ Temporarily live inside the indexer-service package under `src/types`
 
 - Address
 - readNumber
+
+
+### Dependency choices
+
+- switching from actix-web to axum for the service server
+
+
+### Quick attempts
+
+Running locally with command
+```
+
+
+```
+
+After service start up, try with command 
+```
+curl -X POST \
+	-H 'Content-Type: application/json' \
+  --data '{"query": "{_meta{block{number}}}"}' \
+	http://127.0.0.1:8080/subgraphs/id/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
+```

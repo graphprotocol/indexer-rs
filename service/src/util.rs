@@ -1,6 +1,7 @@
 use std::env;
 use lazy_static::lazy_static;
 use serde::Serialize;
+use tracing::info;
 use std::collections::HashMap;
 use std::fs;
 use toml::Value;
@@ -22,7 +23,7 @@ pub struct PackageVersion {
 
 /// Read the manfiest
 fn read_manifest() -> Result<Value, IndexerError> {
-    let toml_string = fs::read_to_string("Cargo.toml").map_err(|e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
+    let toml_string = fs::read_to_string("service/Cargo.toml").map_err(|e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
     let toml_value: Value = toml::from_str(&toml_string).map_err(|e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
     Ok(toml_value)
 }
@@ -46,7 +47,7 @@ pub fn package_version() -> Result<PackageVersion, IndexerError> {
                 None => HashMap::new(),
             },
         };
-        println!("{:?}", release);
+        info!("Running package version {:#?}", release);
 
         Ok(release)
     })
