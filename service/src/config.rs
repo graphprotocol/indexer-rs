@@ -86,7 +86,7 @@ pub struct IndexerInfrastructure {
         default_value_t = 7600,
         help = "Port to serve queries at"
     )]
-    pub port: usize,
+    pub port: u32,
     #[clap(
         long,
         value_name = "metrics-port",

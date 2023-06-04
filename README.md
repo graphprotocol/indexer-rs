@@ -46,8 +46,10 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
   - [x] versions
   - [x] operator public key
 - [x] Import indexer native
-- [ ] Metrics
-- [ ] CLI args
+- [x] Metrics
+  - [ ] Basic indexer service metrics
+  - [ ] Add cost model metrics 
+- [x] CLI args
 - [ ] App profiling
   - [ ] No gcloud profiling, can use `perf` to collect performance data.
 

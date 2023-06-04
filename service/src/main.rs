@@ -69,22 +69,21 @@ async fn main() -> Result<(), std::io::Error> {
     // Proper initiation of server, query processor
     // server health check, graph-node instance connection check
     let query_processor = QueryProcessor::new(
-        "http://127.0.0.1:8000",
-        "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli",
+        &config.indexer_infrastructure.graph_node_query_endpoint,
+        &config.network_subgraph.network_subgraph_endpoint,
     );
 
     // Start indexer service basic metrics
     tokio::spawn(handle_serve_metrics(String::from("http://0.0.0.0"), config.indexer_infrastructure.metrics_port));
-
     let service_options = ServerOptions::new(
-        Some(8080),
+        Some(config.indexer_infrastructure.port),
         release,
         query_processor,
-        Some("free_query_auth_token".to_string()),
-        "graph_node_status_endpoint".to_string(),
-        "operator_public_key".to_string(),
-        Some("network_subgraph_auth_token".to_string()),
-        true,
+        config.indexer_infrastructure.free_query_auth_token,
+        config.indexer_infrastructure.graph_node_status_endpoint,
+        "operator_public_key".to_string(), // use mnemonic to build wallet and then get public key
+        config.network_subgraph.network_subgraph_auth_token,
+        config.network_subgraph.serve_network_subgraph,
     );
 
     let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription).finish();
