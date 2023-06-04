@@ -1,4 +1,5 @@
-use ethers_core::utils::hex;
+use ethers::signers::{Wallet, WalletError, LocalWallet, MnemonicBuilder, coins_bip39::English};
+use ethers_core::{utils::hex, k256::ecdsa::SigningKey};
 use sha3::{Digest, Keccak256};
 
 /// A normalized address in checksum format.
@@ -9,4 +10,12 @@ pub fn to_address(s: impl AsRef<str>) -> Address {
     let mut address = s.as_ref().to_ascii_lowercase();
     let hash = &Keccak256::digest(&address);
     hex::encode(hash)
+}
+
+
+/// Build Wallet from Private key or Mnemonic
+pub fn build_wallet(value: &str) -> Result<Wallet<SigningKey>, WalletError> {
+    value
+        .parse::<LocalWallet>()
+        .or(MnemonicBuilder::<English>::default().phrase(value).build())
 }

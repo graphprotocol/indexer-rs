@@ -16,13 +16,13 @@ use crate::{common::address::build_wallet, util::init_tracing, query_processor::
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
     #[command(flatten)]
-    ethereum: Ethereum,
+    pub ethereum: Ethereum,
     #[command(flatten)]
-    indexer_infrastructure: IndexerInfrastructure,
+    pub indexer_infrastructure: IndexerInfrastructure,
     #[command(flatten)]
-    postgres: Postgres,
+    pub postgres: Postgres,
     #[command(flatten)]
-    network_subgraph: NetworkSubgraph,
+    pub network_subgraph: NetworkSubgraph,
 
     /// some regular input
     #[arg(group = "input")]
@@ -44,7 +44,7 @@ pub struct Cli {
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
 #[group(required = true, multiple = true)]
-struct Ethereum {
+pub struct Ethereum {
     #[clap(
         long,
         value_name = "ethereum-node-provider",
@@ -78,7 +78,7 @@ struct Ethereum {
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
 #[group(required = true, multiple = true)]
-struct IndexerInfrastructure {
+pub struct IndexerInfrastructure {
     #[clap(
         long,
         value_name = "port",
@@ -94,7 +94,7 @@ struct IndexerInfrastructure {
         default_value_t = 7300,
         help = "Port to serve Prometheus metrics at"
     )]
-    pub metrics_port: usize,
+    pub metrics_port: u16,
     #[clap(
         long,
         value_name = "graph-node-query-endpoint",
@@ -139,7 +139,7 @@ struct IndexerInfrastructure {
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
 #[group(required = true, multiple = true)]
-struct Postgres {
+pub struct Postgres {
     #[clap(
         long,
         value_name = "postgres-host",
@@ -183,7 +183,7 @@ struct Postgres {
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
 #[group(required = true, multiple = true)]
-struct NetworkSubgraph {
+pub struct NetworkSubgraph {
     #[clap(
         long,
         value_name = "network-subgraph-deployment",
@@ -282,7 +282,7 @@ pub enum ConfigError {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize)]
-enum LogLevel {
+pub enum LogLevel {
     Trace,
     Debug,
     Info,

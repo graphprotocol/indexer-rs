@@ -2546,13 +2546,17 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8603921e1f54ef386189335f288441af761e0fc61bcb552168d9cedfe63ebc70"
 dependencies = [
+ "hyper",
  "indexmap",
+ "ipnet",
  "metrics",
  "metrics-util",
  "parking_lot",
  "portable-atomic 0.3.20",
  "quanta",
  "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3854,9 +3858,12 @@ dependencies = [
  "lazy_static",
  "libsecp256k1",
  "log",
+ "metrics-exporter-prometheus",
  "native",
  "num-bigint",
+ "once_cell",
  "opentelemetry",
+ "prometheus",
  "regex",
  "reqwest",
  "secp256k1",
