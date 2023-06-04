@@ -49,20 +49,6 @@ pub mod routes;
 //     }
 // }
 
-// // Endpoint for operator information
-// #[post("/operator")]
-// async fn operator_info(
-//     operator_public_key: Data<OperatorPublicKey>,
-//     payload: Json<OperatorInfoPayload>,
-// ) -> impl Responder {
-//     // Implementation for creating operator server
-//     // Replace `createOperatorServer` with your logic
-//     let response = createOperatorServer(operator_public_key.get_ref(), payload.into_inner()).await;
-//     match response {
-//         Ok(result) => HttpResponse::Ok().json(result),
-//         Err(error) => HttpResponse::InternalServerError().json(error),
-//     }
-// }
 
 /// ADD: Endpoint for version, Endpoint for the public status API
 /// public cost API, operator information

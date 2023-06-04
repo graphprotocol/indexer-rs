@@ -1,7 +1,8 @@
 use std::env;
 use lazy_static::lazy_static;
 use serde::Serialize;
-use tracing::info;
+use tracing::{info, subscriber::{SetGlobalDefaultError, set_global_default}};
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use std::collections::HashMap;
 use std::fs;
 use toml::Value;
@@ -53,3 +54,23 @@ pub fn package_version() -> Result<PackageVersion, IndexerError> {
     })
 }
 
+
+/// Sets up tracing, allows log level to be set from the environment variables
+pub fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
+    let filter = EnvFilter::from_default_env();
+
+    let subscriber_builder: tracing_subscriber::fmt::SubscriberBuilder<
+        tracing_subscriber::fmt::format::DefaultFields,
+        tracing_subscriber::fmt::format::Format,
+        EnvFilter,
+    > = FmtSubscriber::builder().with_env_filter(filter);
+
+    match format.as_str() {
+        "json" => set_global_default(subscriber_builder.json().finish()),
+        "full" => set_global_default(subscriber_builder.finish()),
+        "compact" => set_global_default(subscriber_builder.compact().finish()),
+        _ => set_global_default(
+            subscriber_builder.with_ansi(true).pretty().finish(),
+        ),
+    }
+}

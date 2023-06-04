@@ -16,6 +16,8 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
   - [x] wrap request to and response from graph node
   - [ ] subgraph health check
   - [ ] extract receipt header
+  - [ ] extract graph-attestable from header
+  - [ ] query timing logs
   - [ ] Free query
     - [x] Query struct
     - [ ] Free query auth token check
@@ -45,6 +47,9 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
   - [x] operator public key
 - [x] Import indexer native
 - [ ] Metrics
+- [ ] CLI args
+- [ ] App profiling
+  - [ ] No gcloud profiling, can use `perf` to collect performance data.
 
 ### Indexer common components
 
@@ -55,9 +60,11 @@ Temporarily live inside the indexer-service package under `src/common`.
 
 Linked dependency could not be linked directly with git url "https://github.com/graphprotocol/indexer" and path "packages/indexer-native/native" at the same time, and could not access it on crates.io. So copid the folder to local repo with the version at https://github.com/graphprotocol/indexer/blob/972658b3ce8c512ad7b4dc575d29cd9d5377e3fe/packages/indexer-native/native.
 
-Since indexer-service will be written in Rust, neon build and util has been removed. 
+Since indexer-service will be written in Rust and no need for typescript, indexer-native's neon build and util has been removed. 
 
-Use component `NativeSignatureVerifier` as `SignatureVerifier`
+Component `NativeSignatureVerifier` renamed to `SignatureVerifier`.
+
+Separate package in the workspace under 'native'.
 
 ### common-ts components
 
@@ -70,7 +77,7 @@ Temporarily live inside the indexer-service package under `src/types`
 ### Dependency choices
 
 - switching from actix-web to axum for the service server
-
+- App profiling should utilize `perf`, flamegraphs or cpu profilers, and benches to track and collect performance data. The typescript implementation uses `gcloud-profile`
 
 ### Quick attempts
 

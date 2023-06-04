@@ -140,7 +140,7 @@ impl AllocationReceiptManager {
     async fn flush_outstanding(&mut self) -> Result<(), IndexerError> {
         let mut count = self.flush_queue.len();
 
-        while (count > 0) {
+        while count > 0 {
             count -= 1;
 
             // Swap and pop
