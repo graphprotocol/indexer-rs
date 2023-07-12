@@ -20,7 +20,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use util::package_version;
 use uuid::Uuid;
 
-use crate::{query_processor::{FreeQuery, QueryProcessor, SubgraphDeploymentID}, config::Cli, metrics::handle_serve_metrics};
+use crate::{query_processor::{FreeQuery, QueryProcessor, SubgraphDeploymentID}, config::Cli, metrics::handle_serve_metrics, util::public_key};
 // use server::{ServerOptions, index, subgraph_queries, network_queries};
 use common::database::create_pg_pool;
 use server::{routes, ServerOptions};
@@ -31,7 +31,6 @@ mod graph_node;
 mod model;
 mod query_fee;
 mod query_processor;
-mod receipt_collector;
 mod server;
 mod util;
 mod metrics;
@@ -54,16 +53,6 @@ async fn main() -> Result<(), std::io::Error> {
 
     // Parse basic configurations
     let config = Cli::args();
-
-    // let database_url = env::var("DATABASE_URL").expect("Postgres URL required.");
-    // // Create config for user input args
-    // // DATABASE_URL required for using query_as macro
-    // let pg_pool = create_pg_pool(&database_url);
-    // let arc_pool = Arc::new(pg_pool);
-
-    // let connection = arc_pool.get().expect("Failed to get connection from pool");
-    
-    
     let release = package_version().expect("Failed to resolve for release version");
 
     // Proper initiation of server, query processor
@@ -81,7 +70,7 @@ async fn main() -> Result<(), std::io::Error> {
         query_processor,
         config.indexer_infrastructure.free_query_auth_token,
         config.indexer_infrastructure.graph_node_status_endpoint,
-        "operator_public_key".to_string(), // use mnemonic to build wallet and then get public key
+        public_key(&config.ethereum.mnemonic).expect("Failed to initiate with operator wallet"),
         config.network_subgraph.network_subgraph_auth_token,
         config.network_subgraph.serve_network_subgraph,
     );

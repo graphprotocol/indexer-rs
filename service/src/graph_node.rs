@@ -41,6 +41,7 @@ impl GraphNodeInstance {
         let response = request.send().await?.text().await?;
         Ok(UnattestedQueryResult {
             graphQLResponse: response,
+            attestable: true
         })
     }
 
@@ -61,37 +62,7 @@ impl GraphNodeInstance {
         let response_text = response.text().await?;
         Ok(UnattestedQueryResult {
             graphQLResponse: response_text,
+            attestable: false,
         })
-        // let response_json: serde_json::Value = response.json()?;
-
-        // match response_body.errors.as_deref() {
-        //     Some([]) | None => {
-        //         METRICS.set_subgraph_indexing_errors(false);
-        //     }
-        //     Some(errors) => {
-        //         // We only deal with the first error and ignore the rest.
-        //         let e = &errors[0];
-        //         if e.message == "indexing_error" {
-        //             METRICS.set_subgraph_indexing_errors(true);
-        //             return Err(SubgraphQueryError::IndexingError);
-        //         } else {
-        //             return Err(SubgraphQueryError::Other(anyhow::anyhow!("{}", e.message)));
-        //         }
-        //     }
-        // }
-
-        // let data = if let Some(data) = response_body.data {
-        //     data
-        // } else {
-        //     return Err(SubgraphQueryError::Other(anyhow::anyhow!(
-        //         "No response data"
-        //     )));
-        // };
-
-        // // Validate status
-        // if !response.status().is_success() {
-        //     let status = response.status();
-        //     return QueryError::Transport;
-        // }
     }
 }

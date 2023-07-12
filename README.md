@@ -2,6 +2,12 @@
 
 Experimental rust impl for The Graph [indexer service](https://github.com/graphprotocol/indexer/tree/main/packages/indexer-service)
 
+## Dependency choices
+
+- switching from actix-web to `axum` for the service server
+- App profiling should utilize `perf`, flamegraphs or cpu profilers, and benches to track and collect performance data. The typescript implementation uses `gcloud-profile`
+- Consider replacing and adding parts from TAP manager
+
 > Don't know if receipt validation is actually correct, need testing
 
 ## Components checklist (basic, not extensive)
@@ -9,19 +15,23 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
 - [ ] Server path routing
   - [x] basic structure
   - [x] CORS
+  - [x] timeouts
   - [ ] Rate limiting levels
   - [ ] Logger stream
 - [ ] Query processor
   - [x] graph node query endpoint at specific subgraph path
   - [x] wrap request to and response from graph node
-  - [ ] subgraph health check
-  - [ ] extract receipt header
-  - [ ] extract graph-attestable from header
-  - [ ] query timing logs
-  - [ ] Free query
+  - [x] extract receipt header
+  - [x] Free query
     - [x] Query struct
-    - [ ] Free query auth token check
+    - [x] Free query auth token check
     - [x] Query routes + responses
+    - [x] set `graph-attestable` in response header to `true`
+  - [x] Network subgraph query
+    - [x] Query struct
+    - [x] serve network subgraph boolean + auth token check
+    - [x] Query routes + responses
+    - [x] set `graph-attestable` in response header to `false`
   - [ ] Paid query
     - [ ] receipts graphQL schema
     - [ ] Allocation receipt manager
@@ -32,9 +42,12 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
       - [x] parse receipt (need unit tests)
       - [x] validate signature (need unit tests)
       - [ ] store
+    - [ ] extract graph-attestable from graph node response header
     - [ ] monitor eligible allocations
       - [ ] network subgraph
       - [ ] operator wallet -> indexer address
+  - [ ] subgraph health check
+  - [ ] query timing logs
 - [ ] Deployment health server / status server
   - [ ] indexing status resolver - to query indexingStatuses
 - [ ] Cost server
@@ -45,9 +58,11 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
   - [x] ready to roll
   - [x] versions
   - [x] operator public key
+    - [x] validate mnemonics to public key
 - [x] Import indexer native
-- [x] Metrics
-  - [ ] Basic indexer service metrics
+- [ ] Metrics
+  - [x] Metrics setup
+  - [x] serve basic indexer service metrics
   - [ ] Add cost model metrics 
 - [x] CLI args
 - [ ] App profiling
@@ -74,12 +89,6 @@ Temporarily live inside the indexer-service package under `src/types`
 
 - Address
 - readNumber
-
-
-### Dependency choices
-
-- switching from actix-web to axum for the service server
-- App profiling should utilize `perf`, flamegraphs or cpu profilers, and benches to track and collect performance data. The typescript implementation uses `gcloud-profile`
 
 ### Quick attempts
 

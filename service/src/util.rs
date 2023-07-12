@@ -1,4 +1,8 @@
 use std::env;
+use ethers::signers::{
+    coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
+};
+use ethers_core::k256::ecdsa::SigningKey;
 use lazy_static::lazy_static;
 use serde::Serialize;
 use tracing::{info, subscriber::{SetGlobalDefaultError, set_global_default}};
@@ -54,6 +58,25 @@ pub fn package_version() -> Result<PackageVersion, IndexerError> {
     })
 }
 
+pub fn build_wallet(value: &str) -> Result<Wallet<SigningKey>, WalletError> {
+    value
+        .parse::<LocalWallet>()
+        .or(MnemonicBuilder::<English>::default().phrase(value).build())
+}
+
+/// Get wallet public address to String
+pub fn wallet_address(wallet: &Wallet<SigningKey>) -> String {
+    format!("{:?}", wallet.address())
+}
+
+/// Validate that private key as an Eth wallet
+pub fn public_key(value: &str) -> Result<String, WalletError> {
+    // The wallet can be stored instead of the original private key
+    let wallet = build_wallet(value)?;
+    let addr = wallet_address(&wallet);
+    info!(address = addr, "Resolved Graphcast id");
+    Ok(addr)
+}
 
 /// Sets up tracing, allows log level to be set from the environment variables
 pub fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {

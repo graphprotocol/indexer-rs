@@ -1,1 +1,0 @@
-pub mod receipt_collector;

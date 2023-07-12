@@ -91,6 +91,7 @@ pub struct QueryResult {
 #[derive(Debug, Clone)]
 pub struct UnattestedQueryResult {
     pub graphQLResponse: String,
+    pub attestable: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]

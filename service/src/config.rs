@@ -5,7 +5,7 @@ use tracing::{debug, info};
 use ethers::signers::WalletError;
 use clap::{Args, Parser, CommandFactory, command, ValueEnum, error::ErrorKind};
 
-use crate::{common::address::build_wallet, util::init_tracing, query_processor::QueryError};
+use crate::{common::address::build_wallet, util::{init_tracing, wallet_address}, query_processor::QueryError};
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize, Default)]
 #[clap(

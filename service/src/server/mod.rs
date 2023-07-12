@@ -1,7 +1,40 @@
 use crate::{query_processor::{QueryProcessor, SubgraphDeploymentID, FreeQuery}, util::PackageVersion};
 
 pub mod routes;
-// mod status_server;
+
+#[derive(Debug, Clone)]
+pub struct ServerOptions {
+    pub port: Option<u32>,
+    pub release: PackageVersion,
+    pub query_processor: QueryProcessor,
+    pub free_query_auth_token: Option<String>,
+    pub graph_node_status_endpoint: String,
+    // pub indexer_management_client: IndexerManagementClient,
+    pub operator_public_key: String,
+    // pub network_subgraph: NetworkSubgraph,
+    pub network_subgraph_auth_token: Option<String>,
+    pub serve_network_subgraph: bool,
+}
+
+impl ServerOptions {
+    pub fn new(
+        port: Option<u32>,
+        release: PackageVersion,
+        query_processor: QueryProcessor,
+        free_query_auth_token: Option<String>,
+        graph_node_status_endpoint: String,
+        operator_public_key: String,
+        network_subgraph_auth_token: Option<String>,
+        serve_network_subgraph: bool,
+    ) -> Self {
+        ServerOptions { port, release, query_processor, free_query_auth_token, graph_node_status_endpoint, operator_public_key, network_subgraph_auth_token, serve_network_subgraph }
+    }
+}
+
+
+
+// ADD: Endpoint for public status API, public cost API, information
+// subgraph health checks
 
 
 // // Endpoint for the public status API
@@ -48,39 +81,3 @@ pub mod routes;
 //         Err(error) => HttpResponse::InternalServerError().json(error),
 //     }
 // }
-
-
-/// ADD: Endpoint for version, Endpoint for the public status API
-/// public cost API, operator information
-/// subgraph health checks, network subgraph queries
-
-
-
-#[derive(Debug, Clone)]
-pub struct ServerOptions {
-    pub port: Option<u32>,
-    pub release: PackageVersion,
-    pub query_processor: QueryProcessor,
-    pub free_query_auth_token: Option<String>,
-    pub graph_node_status_endpoint: String,
-    // pub indexer_management_client: IndexerManagementClient,
-    pub operator_public_key: String,
-    // pub network_subgraph: NetworkSubgraph,
-    pub network_subgraph_auth_token: Option<String>,
-    pub serve_network_subgraph: bool,
-}
-
-impl ServerOptions {
-    pub fn new(
-        port: Option<u32>,
-        release: PackageVersion,
-        query_processor: QueryProcessor,
-        free_query_auth_token: Option<String>,
-        graph_node_status_endpoint: String,
-        operator_public_key: String,
-        network_subgraph_auth_token: Option<String>,
-        serve_network_subgraph: bool,
-    ) -> Self {
-        ServerOptions { port, release, query_processor, free_query_auth_token, graph_node_status_endpoint, operator_public_key, network_subgraph_auth_token, serve_network_subgraph }
-    }
-}
