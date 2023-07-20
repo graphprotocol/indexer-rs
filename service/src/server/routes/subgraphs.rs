@@ -66,7 +66,7 @@ pub async fn subgraph_queries(
         // take response and send back as json
         match res.status {
             200 => {
-                let response_body = res.result.graphQLResponse;
+                let response_body = res.result.graphql_response;
                 let attestable = res.result.attestable.to_string();
                 (
                     StatusCode::OK,

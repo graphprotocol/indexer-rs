@@ -40,7 +40,7 @@ pub async fn network_queries(
     // take response and send back as json
     match request.status {
         200 => {
-            let response_body = request.result.graphQLResponse;
+            let response_body = request.result.graphql_response;
             (
                 StatusCode::OK,
                 axum::response::AppendHeaders([(

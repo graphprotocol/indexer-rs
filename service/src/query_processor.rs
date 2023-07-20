@@ -29,12 +29,12 @@ impl ToString for SubgraphName {
 }
 
 /// Security: Input validation
-pub fn bytes32Check() -> Regex {
+pub fn bytes32_check() -> Regex {
     Regex::new(r"^0x[0-9a-f]{64}$").unwrap()
 }
 
 /// Security: Input Validation
-pub fn multiHashCheck() -> Regex {
+pub fn multihash_check() -> Regex {
     Regex::new(r"^Qm[1-9a-km-zA-HJ-NP-Z]{44}$").unwrap()
 }
 
@@ -57,7 +57,7 @@ impl SubgraphDeploymentID {
         self.value.clone()
     }
 
-    fn ipfsHash(&self) -> String {
+    fn ipfs_hash(&self) -> String {
         let value = self.value.clone();
         let mut bytes: Vec<u8> = vec![0x12, 0x20];
         bytes.extend(value.as_bytes().to_vec());
@@ -78,13 +78,13 @@ pub struct Signature {
 }
 
 pub struct QueryResult {
-    graphQLResponse: String,
+    graphql_response: String,
     attestation: Option<Signature>,
 }
 
 #[derive(Debug, Clone)]
 pub struct UnattestedQueryResult {
-    pub graphQLResponse: String,
+    pub graphql_response: String,
     pub attestable: bool,
 }
 
