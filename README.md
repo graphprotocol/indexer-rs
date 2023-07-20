@@ -34,7 +34,7 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
     - [x] set `graph-attestable` in response header to `false`
   - [ ] Paid query
     - [ ] receipts graphQL schema
-    - [ ] Allocation receipt manager
+    - [ ] [TAP](https://github.com/semiotic-ai/timeline-aggregation-protocol/) manager to handle receipts logic
       - [ ] derive, cache, and look up attestation signers
         - [ ] contracts - connect by network chain id
           - [ ] network provider
@@ -92,9 +92,42 @@ Temporarily live inside the indexer-service package under `src/types`
 
 ### Quick attempts
 
-Running locally with command
+Configure required start-up args, check description by 
+```
+cargo run -p service -- --help
+```
+Required
+```
+  --ethereum 
+  --ethereum-polling-interval 
+  --mnemonic 
+  --indexer-address 
+
+  --port 
+  --metrics-port 
+  --graph-node-query-endpoint 
+  --graph-node-status-endpoint 
+  --log-level 
+  --gcloud-profiling
+  --free-query-auth-token 
+  
+  --postgres-host 
+  --postgres-port 
+  --postgres-database 
+  --postgres-username 
+  --postgres-password 
+  
+  --network-subgraph-deployment 
+  --network-subgraph-endpoint 
+  --network-subgraph-auth-token 
+  --serve-network-subgraph
+  --allocation-syncing-interval 
+  --client-signer-address 
 ```
 
+Afterwards run
+```
+cargo run -p service
 
 ```
 
