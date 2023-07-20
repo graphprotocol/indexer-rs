@@ -1,15 +1,18 @@
-use std::env;
 use ethers::signers::{
     coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
 };
 use ethers_core::k256::ecdsa::SigningKey;
 use lazy_static::lazy_static;
 use serde::Serialize;
-use tracing::{info, subscriber::{SetGlobalDefaultError, set_global_default}};
-use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use std::collections::HashMap;
+use std::env;
 use std::fs;
 use toml::Value;
+use tracing::{
+    info,
+    subscriber::{set_global_default, SetGlobalDefaultError},
+};
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::common::indexer_error::{indexer_error, IndexerError};
 
@@ -28,8 +31,10 @@ pub struct PackageVersion {
 
 /// Read the manfiest
 fn read_manifest() -> Result<Value, IndexerError> {
-    let toml_string = fs::read_to_string("service/Cargo.toml").map_err(|e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
-    let toml_value: Value = toml::from_str(&toml_string).map_err(|e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
+    let toml_string = fs::read_to_string("service/Cargo.toml")
+        .map_err(|e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
+    let toml_value: Value = toml::from_str(&toml_string)
+        .map_err(|e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
     Ok(toml_value)
 }
 
@@ -37,9 +42,17 @@ fn read_manifest() -> Result<Value, IndexerError> {
 pub fn package_version() -> Result<PackageVersion, IndexerError> {
     read_manifest().and_then(|toml_file| {
         let pkg = toml_file.as_table().unwrap();
-        let version = pkg.get("package").and_then(|p| p.get("version")).unwrap().as_str().unwrap().to_string();
+        let version = pkg
+            .get("package")
+            .and_then(|p| p.get("version"))
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
         let dependencies = pkg.get("dependencies").and_then(|d| d.as_table()).unwrap();
-        let indexer_native = dependencies.get("indexer-native").map(|d| d.as_str().unwrap().to_string());
+        let indexer_native = dependencies
+            .get("indexer-native")
+            .map(|d| d.as_str().unwrap().to_string());
 
         let release = PackageVersion {
             version,
@@ -92,8 +105,6 @@ pub fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
         "json" => set_global_default(subscriber_builder.json().finish()),
         "full" => set_global_default(subscriber_builder.finish()),
         "compact" => set_global_default(subscriber_builder.compact().finish()),
-        _ => set_global_default(
-            subscriber_builder.with_ansi(true).pretty().finish(),
-        ),
+        _ => set_global_default(subscriber_builder.with_ansi(true).pretty().finish()),
     }
 }

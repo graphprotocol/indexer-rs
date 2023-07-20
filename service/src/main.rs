@@ -20,7 +20,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use util::package_version;
 use uuid::Uuid;
 
-use crate::{query_processor::{FreeQuery, QueryProcessor, SubgraphDeploymentID}, config::Cli, metrics::handle_serve_metrics, util::public_key};
+use crate::{
+    config::Cli,
+    metrics::handle_serve_metrics,
+    query_processor::{FreeQuery, QueryProcessor, SubgraphDeploymentID},
+    util::public_key,
+};
 // use server::{ServerOptions, index, subgraph_queries, network_queries};
 use common::database::create_pg_pool;
 use server::{routes, ServerOptions};
@@ -28,12 +33,12 @@ use server::{routes, ServerOptions};
 mod common;
 mod config;
 mod graph_node;
+mod metrics;
 mod model;
 mod query_fee;
 mod query_processor;
 mod server;
 mod util;
-mod metrics;
 
 /// Create Indexer service App
 ///
@@ -63,7 +68,10 @@ async fn main() -> Result<(), std::io::Error> {
     );
 
     // Start indexer service basic metrics
-    tokio::spawn(handle_serve_metrics(String::from("http://0.0.0.0"), config.indexer_infrastructure.metrics_port));
+    tokio::spawn(handle_serve_metrics(
+        String::from("http://0.0.0.0"),
+        config.indexer_infrastructure.metrics_port,
+    ));
     let service_options = ServerOptions::new(
         Some(config.indexer_infrastructure.port),
         release,

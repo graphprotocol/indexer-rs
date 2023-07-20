@@ -1,11 +1,15 @@
-use std::collections::HashSet;
 use autometrics::autometrics;
-use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use clap::{command, error::ErrorKind, Args, CommandFactory, Parser, ValueEnum};
 use ethers::signers::WalletError;
-use clap::{Args, Parser, CommandFactory, command, ValueEnum, error::ErrorKind};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use tracing::{debug, info};
 
-use crate::{common::address::build_wallet, util::{init_tracing, wallet_address}, query_processor::QueryError};
+use crate::{
+    common::address::build_wallet,
+    query_processor::QueryError,
+    util::{init_tracing, wallet_address},
+};
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize, Default)]
 #[clap(
@@ -236,11 +240,14 @@ impl Cli {
     pub fn args() -> Self {
         // TODO: load config file before parse
         let cli = Cli::parse();
-        if let Some(path) = cli.input_file.clone(){
+        if let Some(path) = cli.input_file.clone() {
             let loaded_cli = confy::load_path::<Cli>(path);
-            println!("loaded cli, not used, but may later be used by overwriting cli arguments: {:#?}", loaded_cli);
+            println!(
+                "loaded cli, not used, but may later be used by overwriting cli arguments: {:#?}",
+                loaded_cli
+            );
         };
-        
+
         // Enables tracing under RUST_LOG variable
         // std::env::set_var("RUST_LOG", cli.log_level.clone());
         init_tracing(String::from("pretty")).expect("Could not set up global default subscriber for logger, check environmental variable `RUST_LOG` or the CLI input `log-level`");

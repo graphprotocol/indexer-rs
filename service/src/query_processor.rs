@@ -9,7 +9,6 @@ use thiserror::Error;
 
 use crate::graph_node::GraphNodeInstance;
 
-
 /// Subgraph identifier type: Subgraph name with field 'value'
 pub struct SubgraphName {
     value: String,
@@ -137,7 +136,8 @@ impl QueryProcessor {
             client: Client::new(),
             base: Url::parse(graph_node_endpoint).expect("Could not parse graph node endpoint"),
             graph_node,
-            network_subgraph: Url::parse(network_subgraph_endpoint).expect("Could not parse graph node endpoint"),
+            network_subgraph: Url::parse(network_subgraph_endpoint)
+                .expect("Could not parse graph node endpoint"),
         }
     }
 

@@ -1,8 +1,8 @@
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
+use diesel::r2d2::{ConnectionManager, Pool};
 use dotenvy::dotenv;
 use std::env;
-use diesel::r2d2::{ConnectionManager, Pool};
 use std::sync::{Arc, RwLock};
 
 pub type PgPool = Pool<ConnectionManager<PgConnection>>;
@@ -17,5 +17,7 @@ pub fn establish_connection() -> PgConnection {
 
 pub(crate) fn create_pg_pool(database_url: &str) -> PgPool {
     let manager = ConnectionManager::<PgConnection>::new(database_url);
-    Pool::builder().build(manager).expect("Failed to create pool")
+    Pool::builder()
+        .build(manager)
+        .expect("Failed to create pool")
 }

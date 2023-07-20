@@ -1,5 +1,7 @@
-use std::{fmt::{self, Display}, error::Error};
-
+use std::{
+    error::Error,
+    fmt::{self, Display},
+};
 
 const ERROR_BASE_URL: &str = "https://github.com/graphprotocol/indexer/blob/main/docs/errors.md";
 
@@ -228,7 +230,9 @@ impl IndexerErrorCode {
             Self::IE061 => "Failed to allocate: Invalid allocation amount provided'",
             Self::IE062 => "Did not receive tx receipt, not authorized or network paused'",
             Self::IE063 => "No active allocation with provided id found'",
-            Self::IE064 => "Failed to unallocate: Allocation cannot be closed in the same epoch it was created",
+            Self::IE064 => {
+                "Failed to unallocate: Allocation cannot be closed in the same epoch it was created"
+            }
             Self::IE065 => "Failed to unallocate: Allocation has already been closed'",
             Self::IE066 => "Failed to allocate: allocation ID already exists on chain'",
             Self::IE067 => "Failed to query POI for current epoch start block'",
@@ -248,7 +252,6 @@ impl IndexerErrorCode {
 }
 
 // pub type IndexerErrorCause = Box<dyn std::error::Error + Send + Sync>;
-
 
 #[derive(Debug)]
 pub struct IndexerErrorCause(Box<dyn Error + Send + Sync>);
@@ -276,7 +279,10 @@ impl Error for IndexerErrorCause {
 
 impl From<String> for IndexerErrorCause {
     fn from(error: String) -> Self {
-        Self(Box::new(std::io::Error::new(std::io::ErrorKind::Other, error)))
+        Self(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            error,
+        )))
     }
 }
 
@@ -322,15 +328,15 @@ pub fn indexer_error(code: IndexerErrorCode) -> IndexerError {
 }
 
 impl std::fmt::Display for IndexerError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-      write!(
-          f,
-          "Indexer error: {}, explanation: {}",
-          self.code, self.explanation
-      )?;
-      if let Some(cause) = &self.cause {
-          write!(f, ", cause: {:?}", cause)?;
-      }
-      Ok(())
-  }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Indexer error: {}, explanation: {}",
+            self.code, self.explanation
+        )?;
+        if let Some(cause) = &self.cause {
+            write!(f, ", cause: {:?}", cause)?;
+        }
+        Ok(())
+    }
 }

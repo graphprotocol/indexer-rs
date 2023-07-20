@@ -1,4 +1,7 @@
-use crate::{query_processor::{QueryProcessor, SubgraphDeploymentID, FreeQuery}, util::PackageVersion};
+use crate::{
+    query_processor::{FreeQuery, QueryProcessor, SubgraphDeploymentID},
+    util::PackageVersion,
+};
 
 pub mod routes;
 
@@ -27,15 +30,21 @@ impl ServerOptions {
         network_subgraph_auth_token: Option<String>,
         serve_network_subgraph: bool,
     ) -> Self {
-        ServerOptions { port, release, query_processor, free_query_auth_token, graph_node_status_endpoint, operator_public_key, network_subgraph_auth_token, serve_network_subgraph }
+        ServerOptions {
+            port,
+            release,
+            query_processor,
+            free_query_auth_token,
+            graph_node_status_endpoint,
+            operator_public_key,
+            network_subgraph_auth_token,
+            serve_network_subgraph,
+        }
     }
 }
 
-
-
 // ADD: Endpoint for public status API, public cost API, information
 // subgraph health checks
-
 
 // // Endpoint for the public status API
 // #[get("/status")]

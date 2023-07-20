@@ -41,7 +41,7 @@ impl GraphNodeInstance {
         let response = request.send().await?.text().await?;
         Ok(UnattestedQueryResult {
             graphQLResponse: response,
-            attestable: true
+            attestable: true,
         })
     }
 

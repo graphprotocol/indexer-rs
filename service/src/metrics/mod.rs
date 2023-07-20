@@ -12,200 +12,175 @@ use tracing::{debug, info};
 
 pub static QUERIES: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
-      Opts::new(
-        "queries", 
-        "Incoming queries",
-      )
-      .namespace("indexer")
-      .subsystem("service"),
-      &["deployment"],
+        Opts::new("queries", "Incoming queries")
+            .namespace("indexer")
+            .subsystem("service"),
+        &["deployment"],
     )
     .expect("Failed to create queries counters");
-    prometheus::register(Box::new(m.clone()))
-        .expect("Failed to register queries counter");
-        m
-  });
+    prometheus::register(Box::new(m.clone())).expect("Failed to register queries counter");
+    m
+});
 
 pub static SUCCESSFUL_QUERIES: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
-      Opts::new(
-        "successfulQueries", 
-        "Successfully executed queries",
-      )
-      .namespace("indexer")
-      .subsystem("service"),
-      &["deployment"],
+        Opts::new("successfulQueries", "Successfully executed queries")
+            .namespace("indexer")
+            .subsystem("service"),
+        &["deployment"],
     )
     .expect("Failed to create successfulQueries counters");
     prometheus::register(Box::new(m.clone()))
         .expect("Failed to register successfulQueries counter");
-        m
-  });
+    m
+});
 
 pub static FAILED_QUERIES: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
-      Opts::new(
-        "failedQueries", 
-        "Queries that failed to execute",
-      )
-      .namespace("indexer")
-      .subsystem("service"),
-      &["deployment"],
+        Opts::new("failedQueries", "Queries that failed to execute")
+            .namespace("indexer")
+            .subsystem("service"),
+        &["deployment"],
     )
     .expect("Failed to create failedQueries counters");
-    prometheus::register(Box::new(m.clone()))
-        .expect("Failed to register failedQueries counter");
-        m
-  });
+    prometheus::register(Box::new(m.clone())).expect("Failed to register failedQueries counter");
+    m
+});
 
 pub static QUERIES_WITH_INVALID_RECEIPT_HEADER: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
-      Opts::new(
-        "queriesWithInvalidReceiptHeader", 
-        "Queries that failed executing because they came with an invalid receipt header",
-      )
-      .namespace("indexer")
-      .subsystem("service"),
-      &["deployment"],
+        Opts::new(
+            "queriesWithInvalidReceiptHeader",
+            "Queries that failed executing because they came with an invalid receipt header",
+        )
+        .namespace("indexer")
+        .subsystem("service"),
+        &["deployment"],
     )
     .expect("Failed to create queriesWithInvalidReceiptHeader counters");
     prometheus::register(Box::new(m.clone()))
         .expect("Failed to register queriesWithInvalidReceiptHeader counter");
-        m
-  });
+    m
+});
 
 pub static QUERIES_WITH_INVALID_RECEIPT_VALUE: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
-      Opts::new(
-        "queriesWithInvalidReceiptValue", 
-        "Queries that failed executing because they came with an invalid receipt value",
-      )
-      .namespace("indexer")
-      .subsystem("service"),
-      &["deployment"],
+        Opts::new(
+            "queriesWithInvalidReceiptValue",
+            "Queries that failed executing because they came with an invalid receipt value",
+        )
+        .namespace("indexer")
+        .subsystem("service"),
+        &["deployment"],
     )
     .expect("Failed to create queriesWithInvalidReceiptValue counters");
     prometheus::register(Box::new(m.clone()))
         .expect("Failed to register queriesWithInvalidReceiptValue counter");
-        m
-  });
+    m
+});
 
 pub static QUERIES_WITHOUT_RECEIPT: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
-      Opts::new(
-        "queriesWithoutReceipt", 
-        "Queries that failed executing because they came without a receipt",
-      )
-      .namespace("indexer")
-      .subsystem("service"),
-      &["deployment"],
+        Opts::new(
+            "queriesWithoutReceipt",
+            "Queries that failed executing because they came without a receipt",
+        )
+        .namespace("indexer")
+        .subsystem("service"),
+        &["deployment"],
     )
     .expect("Failed to create queriesWithoutReceipt counters");
     prometheus::register(Box::new(m.clone()))
         .expect("Failed to register queriesWithoutReceipt counter");
-        m
-  });
+    m
+});
 
 pub static CHANNEL_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
-      Opts::new(
-        "channelMessages", 
-        "Incoming channel messages",
-      )
-      .namespace("indexer")
-      .subsystem("service"),
-      &["deployment"],
+        Opts::new("channelMessages", "Incoming channel messages")
+            .namespace("indexer")
+            .subsystem("service"),
+        &["deployment"],
     )
     .expect("Failed to create channelMessages counters");
-    prometheus::register(Box::new(m.clone()))
-        .expect("Failed to register channelMessages counter");
-        m
-  });
+    prometheus::register(Box::new(m.clone())).expect("Failed to register channelMessages counter");
+    m
+});
 
 pub static SUCCESSFUL_CHANNEL_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
-      Opts::new(
-        "successfulChannelMessages", 
-        "Successfully handled channel messages",
-      )
-      .namespace("indexer")
-      .subsystem("service"),
-      &["deployment"],
+        Opts::new(
+            "successfulChannelMessages",
+            "Successfully handled channel messages",
+        )
+        .namespace("indexer")
+        .subsystem("service"),
+        &["deployment"],
     )
     .expect("Failed to create successfulChannelMessages counters");
     prometheus::register(Box::new(m.clone()))
         .expect("Failed to register successfulChannelMessages counter");
-        m
-  });
+    m
+});
 
 pub static FAILED_CHANNEL_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
-      Opts::new(
-        "failedChannelMessages", 
-        "Failed channel messages",
-      )
-      .namespace("indexer")
-      .subsystem("service"),
-      &["deployment"],
+        Opts::new("failedChannelMessages", "Failed channel messages")
+            .namespace("indexer")
+            .subsystem("service"),
+        &["deployment"],
     )
     .expect("Failed to create failedChannelMessages counters");
     prometheus::register(Box::new(m.clone()))
         .expect("Failed to register failedChannelMessages counter");
-        m
-  });
+    m
+});
 
-
-  #[allow(dead_code)]
-  pub static QUERY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
-      let m = HistogramVec::new(
-          HistogramOpts::new(
-              "query_duration",
-              "Duration of processing a query from start to end",
-          )
-          .namespace("indexer")
-          .subsystem("service")
-          .buckets(linear_buckets(0.0, 1.0, 20).unwrap()),
-          &["deployment", "name"],
-      )
-      .expect("Failed to create query_duration histograms");
-      prometheus::register(Box::new(m.clone()))
-          .expect("Failed to register query_duration counter");
-      m
-  });
-
-
-    #[allow(dead_code)]
-    pub static CHANNEL_MESSAGE_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
-        let m = HistogramVec::new(
-            HistogramOpts::new(
-                "channel_message_duration",
-                "Duration of processing channel messages",
-            )
-            .namespace("indexer")
-            .subsystem("service")
-            .buckets(linear_buckets(0.0, 1.0, 20).unwrap()),
-            &["deployment"]
+#[allow(dead_code)]
+pub static QUERY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
+    let m = HistogramVec::new(
+        HistogramOpts::new(
+            "query_duration",
+            "Duration of processing a query from start to end",
         )
-        .expect("Failed to create channel_message_duration histograms");
-        prometheus::register(Box::new(m.clone()))
-            .expect("Failed to register channel_message_duration counter");
-        m
-    });
+        .namespace("indexer")
+        .subsystem("service")
+        .buckets(linear_buckets(0.0, 1.0, 20).unwrap()),
+        &["deployment", "name"],
+    )
+    .expect("Failed to create query_duration histograms");
+    prometheus::register(Box::new(m.clone())).expect("Failed to register query_duration counter");
+    m
+});
+
+#[allow(dead_code)]
+pub static CHANNEL_MESSAGE_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
+    let m = HistogramVec::new(
+        HistogramOpts::new(
+            "channel_message_duration",
+            "Duration of processing channel messages",
+        )
+        .namespace("indexer")
+        .subsystem("service")
+        .buckets(linear_buckets(0.0, 1.0, 20).unwrap()),
+        &["deployment"],
+    )
+    .expect("Failed to create channel_message_duration histograms");
+    prometheus::register(Box::new(m.clone()))
+        .expect("Failed to register channel_message_duration counter");
+    m
+});
 
 #[allow(dead_code)]
 pub static INDEXER_ERROR: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
-        Opts::new(
-            "indexer_error",
-            "Indexer errors observed over time",
-        )
-        .namespace("indexer")
-        .subsystem("service"),
+        Opts::new("indexer_error", "Indexer errors observed over time")
+            .namespace("indexer")
+            .subsystem("service"),
         &["code"],
     )
     .expect("Failed to create indexer_error");
-    prometheus::register(Box::new(m.clone()))
-        .expect("Failed to register indexer_error counter");
+    prometheus::register(Box::new(m.clone())).expect("Failed to register indexer_error counter");
     m
 });
 
@@ -221,7 +196,7 @@ pub fn register_metrics(registry: &Registry, metrics: Vec<Box<dyn Collector>>) {
 }
 
 /// Start the basic metrics for indexer services
-/// 
+///
 #[allow(dead_code)]
 pub fn start_metrics() {
     register_metrics(

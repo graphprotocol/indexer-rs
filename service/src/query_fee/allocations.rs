@@ -1,18 +1,25 @@
-use crate::common::{indexer_error, indexer_error::{IndexerErrorCode, IndexerError}, address::{Address, to_address}};
+use crate::common::{
+    address::{to_address, Address},
+    indexer_error,
+    indexer_error::{IndexerError, IndexerErrorCode},
+};
 use async_graphql::{Error, Object, SimpleObject, ID};
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 // use ethers::types::Address;
-use ethers_core::{types::U256, utils::hex};
-use regex::Regex;
-use std::{collections::HashMap, str::FromStr, sync::Arc};
-use std::convert::TryInto;
-use num_bigint::BigUint;
-use crate::common::{indexer_error::indexer_error, database::PgPool};
-use native::signature_verification::SignatureVerifier;
-use diesel::pg::PgConnection;
-use secp256k1::{recovery::{RecoverableSignature, RecoveryId}, Message, PublicKey, Secp256k1, VerifyOnly};
 use super::ReceiptManager;
+use crate::common::{database::PgPool, indexer_error::indexer_error};
+use diesel::pg::PgConnection;
+use ethers_core::{types::U256, utils::hex};
+use native::signature_verification::SignatureVerifier;
+use num_bigint::BigUint;
+use regex::Regex;
+use secp256k1::{
+    recovery::{RecoverableSignature, RecoveryId},
+    Message, PublicKey, Secp256k1, VerifyOnly,
+};
+use std::convert::TryInto;
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 type QueryFees = HashMap<String, HashMap<String, BigDecimal>>;
 
@@ -30,14 +37,16 @@ async fn validate_signature(
 ) -> Result<String, IndexerError> {
     let message = &receipt_data[0..134].as_bytes();
     //TODO: recover signature properly
-    let signature = RecoverableSignature::from_compact(&hex::decode(&receipt_data[134..264]).unwrap(), RecoveryId::from_i32(0).unwrap()).unwrap();
+    let signature = RecoverableSignature::from_compact(
+        &hex::decode(&receipt_data[134..264]).unwrap(),
+        RecoveryId::from_i32(0).unwrap(),
+    )
+    .unwrap();
 
     if signer.verify(message, &signature).is_err() {
         let code = IndexerErrorCode::IE031;
-        
-        return Err(indexer_error(
-            IndexerErrorCode::IE031,
-        ));
+
+        return Err(indexer_error(IndexerErrorCode::IE031));
     }
 
     Ok(format!("0x{}", &receipt_data[134..264]))
@@ -68,9 +77,7 @@ impl ReceiptManager for AllocationReceiptManager {
         let allocation_receipt_validator = Regex::new("^[0-9A-Fa-f]{264}$").unwrap();
         // Security: Input validation
         if !allocation_receipt_validator.is_match(&receipt_data) {
-            return Err(indexer_error(
-                IndexerErrorCode::IE031,
-            ))
+            return Err(indexer_error(IndexerErrorCode::IE031));
         }
 
         // TODO: (Security) Additional validations are required to remove trust from
@@ -126,14 +133,15 @@ impl AllocationReceiptManager {
         }
     }
 
-    fn parse_allocation_receipt(&self, receipt_data: &str) -> Result<(String, Address, BigDecimal), IndexerError> {
+    fn parse_allocation_receipt(
+        &self,
+        receipt_data: &str,
+    ) -> Result<(String, Address, BigDecimal), IndexerError> {
         // let id = &receipt_data[104..134].as_bytes(); // 15 bytes
         let id = receipt_data[104..134].to_owned(); // 15 bytes
         let allocation = to_address(&("0x".to_owned() + &receipt_data[0..40])); // 20 bytes
         let fees = read_number(&receipt_data, 40, 104);
-        Ok((
-            id, allocation, fees
-        ))
+        Ok((id, allocation, fees))
     }
 
     /// Flushes all receipts that have been registered by this moment in time
@@ -157,7 +165,6 @@ impl AllocationReceiptManager {
         Ok(())
     }
 
-
     fn queue(&mut self, receipt: AllocationReceipt) {
         // Collision resistent since receipts have globally unique ID
         let latest = self.cache.get(&receipt.id);
@@ -166,6 +173,6 @@ impl AllocationReceiptManager {
                 self.flush_queue.push(receipt.id.clone());
             }
             self.cache.insert(receipt.id.clone(), Arc::new(receipt));
-        }        
+        }
     }
 }
