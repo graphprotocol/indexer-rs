@@ -2,8 +2,8 @@ use super::*;
 use eip_712_derive::{
     sign_typed, Bytes32, DomainSeparator, Eip712Domain, MemberVisitor, StructType, U256,
 };
-use std::convert::TryInto;
 use secp256k1::SecretKey;
+use std::convert::TryInto;
 
 pub struct AttestationSigner {
     subgraph_deployment_id: Bytes32,
@@ -18,9 +18,8 @@ impl AttestationSigner {
         signer: SecretKey,
         subgraph_deployment_id: Bytes32,
     ) -> Self {
-
         let bytes = hex::decode("a070ffb1cd7409649bf77822cce74495468e06dbfaef09556838bf188679b9c2")
-                        .unwrap();
+            .unwrap();
 
         let salt: [u8; 32] = bytes.try_into().unwrap();
 

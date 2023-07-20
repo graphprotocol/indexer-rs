@@ -1,21 +1,18 @@
+use axum::{extract::Extension, routing::get, Router};
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use serde::Serialize;
-use axum::{extract::Extension, routing::get, Router};
 use serde_json::json;
-
 
 use crate::server::ServerOptions;
 
 #[derive(Serialize)]
 struct Health {
-    healthy: bool
+    healthy: bool,
 }
 
 /// Endpoint for server health
 pub async fn health() -> impl IntoResponse {
-    let health = Health {
-        healthy: true
-    };
+    let health = Health { healthy: true };
     (StatusCode::OK, Json(health))
 }
 
@@ -26,9 +23,7 @@ pub async fn index() -> impl IntoResponse {
 }
 
 /// Endpoint for package version
-pub async fn version(
-    server: axum::extract::Extension<ServerOptions>,
-) -> impl IntoResponse {
+pub async fn version(server: axum::extract::Extension<ServerOptions>) -> impl IntoResponse {
     let version = server.release.clone();
     (StatusCode::OK, Json(version))
 }

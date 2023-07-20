@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use bigdecimal::{BigDecimal, Num};
 // use ethers::types::Address;
 
-use crate::common::{indexer_error::IndexerError, address::Address};
+use crate::common::{address::Address, indexer_error::IndexerError};
 // use crate::common::address::Address;
 
 pub mod allocations;
@@ -12,7 +12,10 @@ pub mod allocations;
 
 #[async_trait]
 trait ReceiptManager {
-    async fn add(&mut self, receipt_data: String) -> Result<(String, Address, BigDecimal), IndexerError>;
+    async fn add(
+        &mut self,
+        receipt_data: String,
+    ) -> Result<(String, Address, BigDecimal), IndexerError>;
 }
 
 struct BigDecimalWrapper(BigDecimal);
@@ -28,7 +31,7 @@ impl OutputType for BigDecimalWrapper {
     //     unimplemented!()
     // }
 
-    fn type_name() -> std::borrow::Cow<'static,str>  {
+    fn type_name() -> std::borrow::Cow<'static, str> {
         todo!()
     }
 
@@ -36,7 +39,24 @@ impl OutputType for BigDecimalWrapper {
         todo!()
     }
 
-    fn resolve<'life0,'life1,'life2,'life3,'async_trait>(&'life0 self,ctx: &'life1 async_graphql::ContextSelectionSet<'life2> ,field: &'life3 async_graphql::Positioned<async_graphql::parser::types::Field> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = async_graphql::ServerResult<async_graphql::Value> > + core::marker::Send+'async_trait> >where 'life0:'async_trait,'life1:'async_trait,'life2:'async_trait,'life3:'async_trait,Self:'async_trait {
+    fn resolve<'life0, 'life1, 'life2, 'life3, 'async_trait>(
+        &'life0 self,
+        ctx: &'life1 async_graphql::ContextSelectionSet<'life2>,
+        field: &'life3 async_graphql::Positioned<async_graphql::parser::types::Field>,
+    ) -> core::pin::Pin<
+        Box<
+            dyn core::future::Future<Output = async_graphql::ServerResult<async_graphql::Value>>
+                + core::marker::Send
+                + 'async_trait,
+        >,
+    >
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        'life3: 'async_trait,
+        Self: 'async_trait,
+    {
         todo!()
     }
 }

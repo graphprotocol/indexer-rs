@@ -1,0 +1,19 @@
+name: tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    container: 
+      image: rust:latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: |
+          rustup component add rustfmt
+          cargo fmt --all -- --check
