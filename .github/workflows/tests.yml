@@ -17,3 +17,22 @@ jobs:
       - run: |
           rustup component add rustfmt
           cargo fmt --all -- --check
+
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    container: 
+      image: rust:latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-clippy
+      - run: |
+          rustup component add clippy
+          # Temporarily allowing dead-code, while denying all other warnings
+          cargo clippy --all-features --all-targets -- -A dead-code -D warnings
