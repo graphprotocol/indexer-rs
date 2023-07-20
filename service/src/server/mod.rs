@@ -17,6 +17,7 @@ pub struct ServerOptions {
 }
 
 impl ServerOptions {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         port: Option<u32>,
         release: PackageVersion,
