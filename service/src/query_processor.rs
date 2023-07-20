@@ -125,7 +125,7 @@ pub struct QueryProcessor {
 
 impl QueryProcessor {
     pub fn new(graph_node_endpoint: &str, network_subgraph_endpoint: &str) -> QueryProcessor {
-        let graph_node = GraphNodeInstance::new(graph_node_endpoint.clone());
+        let graph_node = GraphNodeInstance::new(graph_node_endpoint);
 
         QueryProcessor {
             client: Client::new(),
