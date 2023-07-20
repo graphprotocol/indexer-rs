@@ -314,10 +314,6 @@ impl IndexerError {
     pub fn cause(&self) -> Option<&IndexerErrorCause> {
         self.cause.as_ref()
     }
-
-    pub fn to_string(&self) -> String {
-        format!("{}: {}", self.code.message(), self.explanation)
-    }
 }
 
 // pub fn indexer_error(code: IndexerErrorCode, cause: Option<IndexerErrorCause>) -> IndexerError {
