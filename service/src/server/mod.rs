@@ -1,7 +1,4 @@
-use crate::{
-    query_processor::{FreeQuery, QueryProcessor, SubgraphDeploymentID},
-    util::PackageVersion,
-};
+use crate::{query_processor::QueryProcessor, util::PackageVersion};
 
 pub mod routes;
 

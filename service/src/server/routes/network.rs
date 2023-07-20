@@ -1,10 +1,9 @@
 use axum::{
-    body::{Body, Bytes},
+    body::Bytes,
     extract::Extension,
-    http::{self, Request, Response, StatusCode},
+    http::{self, Request, StatusCode},
     response::IntoResponse,
-    routing::post,
-    Json, Router,
+    Json,
 };
 
 use crate::server::ServerOptions;

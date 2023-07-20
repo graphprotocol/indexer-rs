@@ -1,11 +1,4 @@
-use anyhow;
-use bs58;
-use ethers_core::abi::AbiEncode;
-use log::{debug, error, info, trace, warn, Log};
-use regex::Regex;
 use reqwest::{header, Client, Url};
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::query_processor::UnattestedQueryResult;
 
@@ -34,7 +27,7 @@ impl GraphNodeInstance {
     ) -> Result<UnattestedQueryResult, reqwest::Error> {
         let request = self
             .client
-            .post(&format!("{}/subgraphs/id/{}", self.base_url, endpoint))
+            .post(format!("{}/subgraphs/id/{}", self.base_url, endpoint))
             .body(data.clone())
             .header(header::CONTENT_TYPE, "application/json");
 

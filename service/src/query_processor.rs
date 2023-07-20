@@ -1,11 +1,8 @@
-use anyhow;
-use bs58;
 use ethers_core::abi::AbiEncode;
-use log::{debug, error, info, trace, warn, Log};
+use log::error;
 use regex::Regex;
-use reqwest::{header, Client, Url};
+use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::graph_node::GraphNodeInstance;
 
@@ -27,7 +24,7 @@ impl SubgraphName {
 /// Implement SubgraphName String representation
 impl ToString for SubgraphName {
     fn to_string(&self) -> String {
-        format!("{}", self.value)
+        self.value.to_string()
     }
 }
 
@@ -53,13 +50,11 @@ impl SubgraphDeploymentID {
     /// Assume byte 32
     /// Later add Security: Input validation
     pub fn new(id: String) -> SubgraphDeploymentID {
-        SubgraphDeploymentID {
-            value: id.to_owned(),
-        }
+        SubgraphDeploymentID { value: id }
     }
 
     fn bytes32(&self) -> String {
-        return self.value.clone();
+        self.value.clone()
     }
 
     fn ipfsHash(&self) -> String {
@@ -73,7 +68,7 @@ impl SubgraphDeploymentID {
 
 impl ToString for SubgraphDeploymentID {
     fn to_string(&self) -> String {
-        format!("{}", self.value)
+        self.value.to_string()
     }
 }
 pub struct Signature {

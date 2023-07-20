@@ -1,15 +1,8 @@
-use autometrics::autometrics;
 use clap::{command, error::ErrorKind, Args, CommandFactory, Parser, ValueEnum};
-use ethers::signers::WalletError;
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use tracing::{debug, info};
 
-use crate::{
-    common::address::build_wallet,
-    query_processor::QueryError,
-    util::{init_tracing, wallet_address},
-};
+use serde::{Deserialize, Serialize};
+
+use crate::{query_processor::QueryError, util::init_tracing};
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize, Default)]
 #[clap(
@@ -288,18 +281,15 @@ pub enum ConfigError {
     Other(anyhow::Error),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize)]
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize, Default,
+)]
 pub enum LogLevel {
     Trace,
+    #[default]
     Debug,
     Info,
     Warn,
     Error,
     Fatal,
-}
-
-impl Default for LogLevel {
-    fn default() -> Self {
-        LogLevel::Debug
-    }
 }

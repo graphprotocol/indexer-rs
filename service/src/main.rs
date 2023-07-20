@@ -1,33 +1,25 @@
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use axum::{
     error_handling::HandleErrorLayer,
-    extract::{Path, Query},
     http::{Method, StatusCode},
-    response::IntoResponse,
-    routing::{get, patch},
-    Json,
+    routing::get,
 };
 use axum::{routing::post, Extension, Router, Server};
 use dotenvy::dotenv;
 use model::QueryRoot;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::RwLock};
-use std::{env, error::Error, sync::Arc, time::Duration};
+
+use std::time::Duration;
 use tower::{BoxError, ServiceBuilder};
 use tower_http::cors::CorsLayer;
 use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
 use util::package_version;
-use uuid::Uuid;
 
 use crate::{
-    config::Cli,
-    metrics::handle_serve_metrics,
-    query_processor::{FreeQuery, QueryProcessor, SubgraphDeploymentID},
-    util::public_key,
+    config::Cli, metrics::handle_serve_metrics, query_processor::QueryProcessor, util::public_key,
 };
 // use server::{ServerOptions, index, subgraph_queries, network_queries};
-use common::database::create_pg_pool;
+
 use server::{routes, ServerOptions};
 
 mod common;

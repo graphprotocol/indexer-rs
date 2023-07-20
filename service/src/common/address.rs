@@ -7,8 +7,8 @@ pub type Address = String;
 
 /// Converts an address to checksum format and returns a typed instance.
 pub fn to_address(s: impl AsRef<str>) -> Address {
-    let mut address = s.as_ref().to_ascii_lowercase();
-    let hash = &Keccak256::digest(&address);
+    let address = s.as_ref().to_ascii_lowercase();
+    let hash = &Keccak256::digest(address);
     hex::encode(hash)
 }
 

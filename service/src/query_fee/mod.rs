@@ -35,14 +35,14 @@ impl OutputType for BigDecimalWrapper {
         todo!()
     }
 
-    fn create_type_info(registry: &mut async_graphql::registry::Registry) -> String {
+    fn create_type_info(_registry: &mut async_graphql::registry::Registry) -> String {
         todo!()
     }
 
     fn resolve<'life0, 'life1, 'life2, 'life3, 'async_trait>(
         &'life0 self,
-        ctx: &'life1 async_graphql::ContextSelectionSet<'life2>,
-        field: &'life3 async_graphql::Positioned<async_graphql::parser::types::Field>,
+        _ctx: &'life1 async_graphql::ContextSelectionSet<'life2>,
+        _field: &'life3 async_graphql::Positioned<async_graphql::parser::types::Field>,
     ) -> core::pin::Pin<
         Box<
             dyn core::future::Future<Output = async_graphql::ServerResult<async_graphql::Value>>
