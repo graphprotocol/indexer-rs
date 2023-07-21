@@ -36,3 +36,32 @@ jobs:
           rustup component add clippy
           # Temporarily allowing dead-code, while denying all other warnings
           cargo clippy --all-features --all-targets -- -A dead-code -D warnings
+
+  test-and-coverage:
+    name: cargo test and coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    container:
+      image: rust:latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-cov
+      - run: rustup component add llvm-tools-preview
+      - run: cargo install cargo-llvm-cov
+      - name: Run tests and generate coverage report
+        run: cargo llvm-cov test --all-features --workspace --lcov --output-path lcov.info 
+      - name: Test documentation code snippets
+        run: cargo test --doc --all-features --workspace
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2.2.0
+        with:
+          file: ./lcov.info
