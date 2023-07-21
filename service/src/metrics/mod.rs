@@ -4,9 +4,7 @@ use axum::routing::get;
 use axum::Router;
 use once_cell::sync::Lazy;
 use prometheus::{core::Collector, Registry};
-use prometheus::{
-    linear_buckets, HistogramOpts, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Opts,
-};
+use prometheus::{linear_buckets, HistogramOpts, HistogramVec, IntCounterVec, Opts};
 use std::{net::SocketAddr, str::FromStr};
 use tracing::{debug, info};
 

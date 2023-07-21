@@ -1,10 +1,9 @@
 use axum::{
-    body::{Body, Bytes},
+    body::Bytes,
     extract::Extension,
-    http::{self, Request, Response, StatusCode},
+    http::{self, Request, StatusCode},
     response::IntoResponse,
-    routing::post,
-    Json, Router,
+    Json,
 };
 
 use crate::server::ServerOptions;
@@ -41,7 +40,7 @@ pub async fn network_queries(
     // take response and send back as json
     match request.status {
         200 => {
-            let response_body = request.result.graphQLResponse;
+            let response_body = request.result.graphql_response;
             (
                 StatusCode::OK,
                 axum::response::AppendHeaders([(

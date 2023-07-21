@@ -21,7 +21,7 @@ impl SignatureVerifier {
         message: &[u8],
         signature: &RecoverableSignature,
     ) -> Result<bool, &'static str> {
-        let message = Message::from_slice(&keccak(&message).to_fixed_bytes()).unwrap();
+        let message = Message::from_slice(&keccak(message).to_fixed_bytes()).unwrap();
 
         match self.signer.load().as_ref() {
             // If we already have the public key we can do the fast path.
@@ -35,7 +35,7 @@ impl SignatureVerifier {
             // verify method instead of the slow recover method.
             Signer::Address(addr) => {
                 let recovered_signer = SECP256K1
-                    .recover(&message, &signature)
+                    .recover(&message, signature)
                     .map_err(|_| "Failed to recover signature")?;
 
                 let ser = recovered_signer.serialize_uncompressed();

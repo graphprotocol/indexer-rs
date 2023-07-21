@@ -25,7 +25,7 @@ pub async fn subgraph_queries(
     let subgraph_deployment_id = SubgraphDeploymentID::new(Arc::new(id).to_string());
 
     // Extract scalar receipt from header and free query auth token for paid or free query
-    let receipt = if let Some(recipt) = req.headers().get("scalar-receipt") {
+    let _receipt = if let Some(recipt) = req.headers().get("scalar-receipt") {
         match recipt.to_str() {
             Ok(r) => Some(r),
             Err(_) => {
@@ -66,7 +66,7 @@ pub async fn subgraph_queries(
         // take response and send back as json
         match res.status {
             200 => {
-                let response_body = res.result.graphQLResponse;
+                let response_body = res.result.graphql_response;
                 let attestable = res.result.attestable.to_string();
                 (
                     StatusCode::OK,

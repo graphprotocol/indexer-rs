@@ -1,24 +1,20 @@
 use crate::common::{
     address::{to_address, Address},
-    indexer_error,
     indexer_error::{IndexerError, IndexerErrorCode},
 };
-use async_graphql::{Error, Object, SimpleObject, ID};
+
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 // use ethers::types::Address;
 use super::ReceiptManager;
 use crate::common::{database::PgPool, indexer_error::indexer_error};
-use diesel::pg::PgConnection;
-use ethers_core::{types::U256, utils::hex};
+
+use ethers_core::utils::hex;
 use native::signature_verification::SignatureVerifier;
-use num_bigint::BigUint;
+
 use regex::Regex;
-use secp256k1::{
-    recovery::{RecoverableSignature, RecoveryId},
-    Message, PublicKey, Secp256k1, VerifyOnly,
-};
-use std::convert::TryInto;
+use secp256k1::recovery::{RecoverableSignature, RecoveryId};
+
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 type QueryFees = HashMap<String, HashMap<String, BigDecimal>>;
@@ -29,7 +25,7 @@ fn read_number(data: &str, start: usize, end: usize) -> BigDecimal {
     BigDecimal::from_str(&hex_string).unwrap()
 }
 
-static ALLOCATION_RECEIPT_VALIDATOR: &'static str = "^[0-9A-Fa-f]{264}$";
+static ALLOCATION_RECEIPT_VALIDATOR: &str = "^[0-9A-Fa-f]{264}$";
 
 async fn validate_signature(
     signer: &SignatureVerifier,
@@ -44,7 +40,7 @@ async fn validate_signature(
     .unwrap();
 
     if signer.verify(message, &signature).is_err() {
-        let code = IndexerErrorCode::IE031;
+        let _code = IndexerErrorCode::IE031;
 
         return Err(indexer_error(IndexerErrorCode::IE031));
     }
@@ -139,8 +135,8 @@ impl AllocationReceiptManager {
     ) -> Result<(String, Address, BigDecimal), IndexerError> {
         // let id = &receipt_data[104..134].as_bytes(); // 15 bytes
         let id = receipt_data[104..134].to_owned(); // 15 bytes
-        let allocation = to_address(&("0x".to_owned() + &receipt_data[0..40])); // 20 bytes
-        let fees = read_number(&receipt_data, 40, 104);
+        let allocation = to_address("0x".to_owned() + &receipt_data[0..40]); // 20 bytes
+        let fees = read_number(receipt_data, 40, 104);
         Ok((id, allocation, fees))
     }
 

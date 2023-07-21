@@ -17,9 +17,8 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use crate::common::indexer_error::{indexer_error, IndexerError};
 
 lazy_static! {
-    pub static ref DATABASE_URL: String = env::var("DATABASE_URL")
-        .expect("DATABASE_URL is not set")
-        .to_string();
+    pub static ref DATABASE_URL: String =
+        env::var("DATABASE_URL").expect("DATABASE_URL is not set");
 }
 
 /// Struct for version control
@@ -32,15 +31,15 @@ pub struct PackageVersion {
 /// Read the manfiest
 fn read_manifest() -> Result<Value, IndexerError> {
     let toml_string = fs::read_to_string("service/Cargo.toml")
-        .map_err(|e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
+        .map_err(|_e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
     let toml_value: Value = toml::from_str(&toml_string)
-        .map_err(|e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
+        .map_err(|_e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
     Ok(toml_value)
 }
 
 /// Parse package versioning from the manifest
 pub fn package_version() -> Result<PackageVersion, IndexerError> {
-    read_manifest().and_then(|toml_file| {
+    read_manifest().map(|toml_file| {
         let pkg = toml_file.as_table().unwrap();
         let version = pkg
             .get("package")
@@ -67,7 +66,7 @@ pub fn package_version() -> Result<PackageVersion, IndexerError> {
         };
         info!("Running package version {:#?}", release);
 
-        Ok(release)
+        release
     })
 }
 

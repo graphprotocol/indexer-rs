@@ -1,7 +1,4 @@
-use crate::{
-    query_processor::{FreeQuery, QueryProcessor, SubgraphDeploymentID},
-    util::PackageVersion,
-};
+use crate::{query_processor::QueryProcessor, util::PackageVersion};
 
 pub mod routes;
 
@@ -20,6 +17,7 @@ pub struct ServerOptions {
 }
 
 impl ServerOptions {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         port: Option<u32>,
         release: PackageVersion,

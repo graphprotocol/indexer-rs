@@ -1,11 +1,8 @@
-use anyhow;
-use bs58;
 use ethers_core::abi::AbiEncode;
-use log::{debug, error, info, trace, warn, Log};
+use log::error;
 use regex::Regex;
-use reqwest::{header, Client, Url};
+use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::graph_node::GraphNodeInstance;
 
@@ -27,17 +24,17 @@ impl SubgraphName {
 /// Implement SubgraphName String representation
 impl ToString for SubgraphName {
     fn to_string(&self) -> String {
-        format!("{}", self.value)
+        self.value.to_string()
     }
 }
 
 /// Security: Input validation
-pub fn bytes32Check() -> Regex {
+pub fn bytes32_check() -> Regex {
     Regex::new(r"^0x[0-9a-f]{64}$").unwrap()
 }
 
 /// Security: Input Validation
-pub fn multiHashCheck() -> Regex {
+pub fn multihash_check() -> Regex {
     Regex::new(r"^Qm[1-9a-km-zA-HJ-NP-Z]{44}$").unwrap()
 }
 
@@ -53,16 +50,14 @@ impl SubgraphDeploymentID {
     /// Assume byte 32
     /// Later add Security: Input validation
     pub fn new(id: String) -> SubgraphDeploymentID {
-        SubgraphDeploymentID {
-            value: id.to_owned(),
-        }
+        SubgraphDeploymentID { value: id }
     }
 
     fn bytes32(&self) -> String {
-        return self.value.clone();
+        self.value.clone()
     }
 
-    fn ipfsHash(&self) -> String {
+    fn ipfs_hash(&self) -> String {
         let value = self.value.clone();
         let mut bytes: Vec<u8> = vec![0x12, 0x20];
         bytes.extend(value.as_bytes().to_vec());
@@ -73,7 +68,7 @@ impl SubgraphDeploymentID {
 
 impl ToString for SubgraphDeploymentID {
     fn to_string(&self) -> String {
-        format!("{}", self.value)
+        self.value.to_string()
     }
 }
 pub struct Signature {
@@ -83,13 +78,13 @@ pub struct Signature {
 }
 
 pub struct QueryResult {
-    graphQLResponse: String,
+    graphql_response: String,
     attestation: Option<Signature>,
 }
 
 #[derive(Debug, Clone)]
 pub struct UnattestedQueryResult {
-    pub graphQLResponse: String,
+    pub graphql_response: String,
     pub attestable: bool,
 }
 
@@ -130,7 +125,7 @@ pub struct QueryProcessor {
 
 impl QueryProcessor {
     pub fn new(graph_node_endpoint: &str, network_subgraph_endpoint: &str) -> QueryProcessor {
-        let graph_node = GraphNodeInstance::new(graph_node_endpoint.clone());
+        let graph_node = GraphNodeInstance::new(graph_node_endpoint);
 
         QueryProcessor {
             client: Client::new(),
