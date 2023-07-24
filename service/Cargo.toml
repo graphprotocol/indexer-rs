@@ -44,6 +44,7 @@ async-graphql-axum = "4.0.16"
 bigdecimal = "0.3.0"
 tiny-keccak = "2.0"
 eip-712-derive = { git = "https://github.com/graphprotocol/eip-712-derive" }
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol" }
 keccak-hash = "0.10.0"
 libsecp256k1 = "0.7.0"
 sha3 = "0.10.6"
@@ -66,3 +67,9 @@ prometheus = "0.13.3"
 # [[bin]]
 # name = "indexer-native"
 # path = "native"
+
+[dev-dependencies.cargo-husky]
+version = "1"
+default-features = false
+# Disable features which are enabled by default
+features = ["precommit-hook", "run-cargo-fmt", "run-cargo-clippy"]
