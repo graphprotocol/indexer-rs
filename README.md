@@ -138,3 +138,37 @@ curl -X POST \
   --data '{"query": "{_meta{block{number}}}"}' \
 	http://127.0.0.1:8080/subgraphs/id/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
 ```
+
+
+### Checks
+
+
+```
+✗ curl http://localhost:7300/             
+Ready to roll! 
+✗ curl http://localhost:7300/health
+{"healthy":true}
+✗ curl http://localhost:7300/version
+{"version":"0.1.0","dependencies":{}}
+✗ curl http://localhost:7300/operator/info
+{"publicKey":"0xacb05407d78129b5717bb51712d3e23a78a10929"}
+
+
+
+
+
+
+✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: token-for-graph-node-query-endpoint' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
+"{\"data\":{\"_meta\":{\"block\":{\"number\":9425787}}}}"
+
+// Checks for auth and configuration to serve-network-subgraph
+✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: token-for-network-subgraph' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/network 
+"Not enabled or authorized query"
+
+// Indexing status resolver
+✗ curl -X POST -H 'Content-Type: application/json' --data '{"query": "{blockHashFromNumber(network:\"goerli\", blockNumber: 9069120)}"}' http://localhost:7300/status 
+{"data":{"blockHashFromNumber":"e1e5472636db73ba5496aee098dc21310683c95eb30fc46f9ba6c36d8b28d58e"}}%                
+
+// Indexing status resolver - filter unsupported root field queries
+✗ curl -X POST -H 'Content-Type: application/json' --data '{"query": "{blockHashFromNumber(network:\"goerli\", blockNumber: 9069120)}"}' http://localhost:7300/status 
+{"data":{"blockHashFromNumber":"e1e5472636db73ba5496aee098dc21310683c95eb30fc46f9ba6c36d8b28d58e"}}%                

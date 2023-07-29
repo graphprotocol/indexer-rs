@@ -36,5 +36,6 @@ async fn operator_info(Extension(options): Extension<ServerOptions>) -> Json<ser
 
 // Create a function to build the operator server router
 pub fn create_operator_server(_options: ServerOptions) -> Router {
+    println!("create_operator_server?");
     Router::new().route("/info", get(operator_info))
 }

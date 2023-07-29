@@ -7,8 +7,10 @@ use axum::{
 use axum::{routing::post, Extension, Router, Server};
 use dotenvy::dotenv;
 use model::QueryRoot;
+use reqwest::Client;
+use serde_json::json;
 
-use std::time::Duration;
+use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tower::{BoxError, ServiceBuilder};
 use tower_http::cors::CorsLayer;
 use tracing::info;
@@ -61,7 +63,7 @@ async fn main() -> Result<(), std::io::Error> {
 
     // Start indexer service basic metrics
     tokio::spawn(handle_serve_metrics(
-        String::from("http://0.0.0.0"),
+        String::from("0.0.0.0"),
         config.indexer_infrastructure.metrics_port,
     ));
     let service_options = ServerOptions::new(
@@ -82,6 +84,7 @@ async fn main() -> Result<(), std::io::Error> {
         .route("/", get(routes::basic::index))
         .route("/health", get(routes::basic::health))
         .route("/version", get(routes::basic::version))
+        // .route("/status", post(routes::status::status_middleware))
         .route(
             "/subgraphs/id/:id",
             post(routes::subgraphs::subgraph_queries),
@@ -92,7 +95,7 @@ async fn main() -> Result<(), std::io::Error> {
             routes::basic::create_operator_server(service_options.clone()),
         )
         .layer(Extension(schema))
-        .layer(Extension(service_options))
+        .layer(Extension(service_options.clone()))
         .layer(CorsLayer::new().allow_methods([Method::GET, Method::POST]))
         .layer(
             ServiceBuilder::new()
@@ -110,11 +113,55 @@ async fn main() -> Result<(), std::io::Error> {
                 .into_inner(),
         );
 
-    info!("Initialized server app at 0.0.0.0::8080");
-    Server::bind(&"0.0.0.0:8080".parse().unwrap())
+    let addr = SocketAddr::from_str(&format!("0.0.0.0:{}", config.indexer_infrastructure.port))
+        .expect("Start server port");
+    info!("Initialized server app at {}", addr);
+    Server::bind(&addr)
         .serve(app.into_make_service())
+        .with_graceful_shutdown(async {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("failed to install CTRL+C signal handler");
+        })
         .await
         .unwrap();
 
+    let test_res = test_graphql_query().await;
+    println!("{:#?}", test_res);
+
     Ok(())
+}
+
+async fn test_graphql_query() -> serde_json::Value {
+    let addr = "http://localhost:7300/subgraphs/id/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj";
+    let client = Client::new();
+
+    // Create the JSON data for the GraphQL query
+    let query_data = json!({
+        "query": "{_meta{block{number}}}"
+    });
+
+    // Make the POST request to the server
+    let response = client
+        .post(addr)
+        .json(&query_data)
+        .send()
+        .await
+        .expect("Failed to send request");
+
+    // Assert that the response status is 200 OK
+    assert!(response.status().is_success());
+
+    // Read the response body as a JSON value
+    let response_json: serde_json::Value = response
+        .json()
+        .await
+        .expect("Failed to parse response JSON");
+
+    // Add any additional assertions based on the expected response
+    // For example, you can check the values in the response JSON.
+
+    // For debugging purposes, you can print the response JSON
+    println!("Response JSON: {:?}", response_json);
+    response_json
 }

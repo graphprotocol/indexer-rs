@@ -21,17 +21,8 @@ pub struct Cli {
     #[command(flatten)]
     pub network_subgraph: NetworkSubgraph,
 
-    /// some regular input
-    #[arg(group = "input")]
-    input_file: Option<String>,
-
-    /// some special input argument
-    #[arg(long, group = "input")]
-    spec_in: Option<String>,
-
     #[arg(
         short,
-        requires = "input",
         value_name = "config",
         env = "CONFIG",
         help = "Indexer service configuration file (YAML format)"
@@ -230,38 +221,35 @@ pub struct NetworkSubgraph {
 
 impl Cli {
     /// Parse config arguments
+    /// If environmental variable for config is set to a valid config file path, then parse from config
+    /// Otherwise parse from command line arguments
     pub fn args() -> Self {
-        // TODO: load config file before parse
-        let cli = Cli::parse();
-        if let Some(path) = cli.input_file.clone() {
-            let loaded_cli = confy::load_path::<Cli>(path);
-            println!(
-                "loaded cli, not used, but may later be used by overwriting cli arguments: {:#?}",
-                loaded_cli
-            );
+        let cli = if let Ok(file_path) = std::env::var("config") {
+            confy::load_path::<Cli>(file_path.clone())
+                .unwrap_or_else(|_| panic!("Parse config file at {}", file_path.clone()))
+        } else {
+            Cli::parse()
+            // Potentially store it for the user
+            // let _ = confy::store_path("./args.toml", cli.clone());
         };
 
         // Enables tracing under RUST_LOG variable
-        // std::env::set_var("RUST_LOG", cli.log_level.clone());
-        init_tracing(String::from("pretty")).expect("Could not set up global default subscriber for logger, check environmental variable `RUST_LOG` or the CLI input `log-level`");
+        std::env::set_var("RUST_LOG", cli.indexer_infrastructure.log_level.to_str());
+        // add a LogFormat to config
+        init_tracing("pretty".to_string()).expect("Could not set up global default subscriber for logger, check environmental variable `RUST_LOG` or the CLI input `log-level`");
         cli
     }
 
     pub fn parse_config_file(&self) {
         if let Some(config) = self.config.as_deref() {
-            let input = self
-                .input_file
-                .as_deref()
-                // 'or' is preferred to 'or_else' here since `Option::as_deref` is 'const'
-                .or(self.spec_in.as_deref())
-                .unwrap_or_else(|| {
-                    let mut cmd = Cli::command();
-                    cmd.error(
-                        ErrorKind::MissingRequiredArgument,
-                        "INPUT_FILE or --spec-in is required when using --config",
-                    )
-                    .exit()
-                });
+            let input = self.config.as_ref().unwrap_or_else(|| {
+                let mut cmd = Cli::command();
+                cmd.error(
+                    ErrorKind::MissingRequiredArgument,
+                    "INPUT_FILE or --spec-in is required when using --config",
+                )
+                .exit()
+            });
             println!("Using input {input} and config {config}");
         }
     }
@@ -292,4 +280,17 @@ pub enum LogLevel {
     Warn,
     Error,
     Fatal,
+}
+
+impl LogLevel {
+    fn to_str(&self) -> &'static str {
+        match self {
+            LogLevel::Trace => "Trace",
+            LogLevel::Debug => "Debug",
+            LogLevel::Info => "Info",
+            LogLevel::Warn => "Warn",
+            LogLevel::Error => "Error",
+            LogLevel::Fatal => "Fatal",
+        }
+    }
 }

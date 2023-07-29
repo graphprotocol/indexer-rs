@@ -1,0 +1,28 @@
+[ethereum]
+ethereum = 'https://rinkeby.infura.io/v3/db591449ac53444cae5873f5bdf4d5fa'
+ethereum_polling_interval = 4000
+mnemonic = 'abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon'
+indexer_address = '0xAcb05407d78129b5717bB51712D3e23a78A10929'
+
+[indexer_infrastructure]
+port = 7300
+metrics_port = 7500
+graph_node_query_endpoint = 'http://localhost:8000'
+graph_node_status_endpoint = 'http://localhost:8030/graphql'
+log_level = 'Debug'
+gcloud_profiling = false
+free_query_auth_token = 'free-query-auth-token'
+
+[postgres]
+postgres_host = '127.0.0.1'
+postgres_port = 5432
+postgres_database = 'graph-node'
+postgres_username = 'user'
+postgres_password = 'pswd'
+
+[network_subgraph]
+network_subgraph_endpoint = 'https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-testnet'
+network_subgraph_auth_token = 'network-subgraph-auth-token'
+serve_network_subgraph = false
+allocation_syncing_interval = 120000
+client_signer_address = '0xe1EC4339019eC9628438F8755f847e3023e4ff9c'
