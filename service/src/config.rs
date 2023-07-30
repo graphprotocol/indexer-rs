@@ -103,11 +103,10 @@ pub struct IndexerInfrastructure {
         long,
         value_name = "log-level",
         env = "LOG_LEVEL",
-        default_value_t = LogLevel::Debug,
         value_enum,
-        help = "Log level"
+        help = "Log level in RUST_LOG format"
     )]
-    pub log_level: LogLevel,
+    pub log_level: Option<String>,
     #[clap(
         long,
         value_name = "gcloud-profiling",
@@ -234,7 +233,9 @@ impl Cli {
         };
 
         // Enables tracing under RUST_LOG variable
-        std::env::set_var("RUST_LOG", cli.indexer_infrastructure.log_level.to_str());
+        if let Some(log_setting) = &cli.indexer_infrastructure.log_level {
+            std::env::set_var("RUST_LOG", log_setting);
+        };
         // add a LogFormat to config
         init_tracing("pretty".to_string()).expect("Could not set up global default subscriber for logger, check environmental variable `RUST_LOG` or the CLI input `log-level`");
         cli
@@ -280,17 +281,4 @@ pub enum LogLevel {
     Warn,
     Error,
     Fatal,
-}
-
-impl LogLevel {
-    fn to_str(&self) -> &'static str {
-        match self {
-            LogLevel::Trace => "Trace",
-            LogLevel::Debug => "Debug",
-            LogLevel::Info => "Info",
-            LogLevel::Warn => "Warn",
-            LogLevel::Error => "Error",
-            LogLevel::Fatal => "Fatal",
-        }
-    }
 }

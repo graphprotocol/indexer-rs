@@ -1,12 +1,12 @@
 use axum::{
-    body::{Bytes, HttpBody},
+    body::Bytes,
     extract::Extension,
     http::{self, HeaderName, Request, StatusCode},
     response::IntoResponse,
     Json,
 };
 use std::sync::Arc;
-use tracing::{info, trace};
+use tracing::trace;
 
 use crate::{
     query_processor::{FreeQuery, SubgraphDeploymentID},
@@ -17,9 +17,7 @@ pub async fn subgraph_queries(
     Extension(server): Extension<ServerOptions>,
     id: axum::extract::Path<String>,
     req: Request<axum::body::Body>,
-    // query: Bytes,
 ) -> impl IntoResponse {
-    info!("query subgraph id: {:#?} {:#?}", &req, &id);
     // Extract scalar receipt from header and free query auth token for paid or free query
     let receipt = if let Some(recipt) = req.headers().get("scalar-receipt") {
         match recipt.to_str() {
@@ -39,7 +37,10 @@ pub async fn subgraph_queries(
     } else {
         None
     };
-    trace!("receipt attached by the query, can pass it to TAP: {:?}", receipt);
+    trace!(
+        "receipt attached by the query, can pass it to TAP: {:?}",
+        receipt
+    );
 
     // Extract free query auth token
     let auth_token = req

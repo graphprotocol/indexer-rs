@@ -23,6 +23,6 @@ postgres_password = 'pswd'
 [network_subgraph]
 network_subgraph_endpoint = 'https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-testnet'
 network_subgraph_auth_token = 'network-subgraph-auth-token'
-serve_network_subgraph = false
+serve_network_subgraph = true
 allocation_syncing_interval = 120000
 client_signer_address = '0xe1EC4339019eC9628438F8755f847e3023e4ff9c'

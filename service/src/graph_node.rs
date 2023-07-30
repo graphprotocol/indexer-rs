@@ -1,5 +1,4 @@
 use reqwest::{header, Client, Url};
-use tracing::info;
 
 use crate::query_processor::UnattestedQueryResult;
 
@@ -26,18 +25,12 @@ impl GraphNodeInstance {
         endpoint: &str,
         data: String,
     ) -> Result<UnattestedQueryResult, reqwest::Error> {
-        info!("making subgraph query");
         let request = self
             .client
             .post(format!("{}/subgraphs/id/{}", self.base_url, endpoint))
             .body(data.clone())
             .header(header::CONTENT_TYPE, "application/json");
 
-        info!(
-            "making subgraph query: {:#?}",
-            format!("{}/subgraphs/id/{}", self.base_url, endpoint)
-        );
-        info!("data: {:#?}", data);
         let response = request.send().await?.text().await?;
         Ok(UnattestedQueryResult {
             graphql_response: response,

@@ -7,8 +7,6 @@ use axum::{
 use axum::{routing::post, Extension, Router, Server};
 use dotenvy::dotenv;
 use model::QueryRoot;
-use reqwest::Client;
-use serde_json::json;
 
 use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tower::{BoxError, ServiceBuilder};
@@ -84,12 +82,12 @@ async fn main() -> Result<(), std::io::Error> {
         .route("/", get(routes::basic::index))
         .route("/health", get(routes::basic::health))
         .route("/version", get(routes::basic::version))
-        // .route("/status", post(routes::status::status_middleware))
         .route(
             "/subgraphs/id/:id",
             post(routes::subgraphs::subgraph_queries),
         )
         .route("/network", post(routes::network::network_queries))
+        .route("/status", post(routes::status::status_queries))
         .nest(
             "/operator",
             routes::basic::create_operator_server(service_options.clone()),
@@ -126,42 +124,5 @@ async fn main() -> Result<(), std::io::Error> {
         .await
         .unwrap();
 
-    let test_res = test_graphql_query().await;
-    println!("{:#?}", test_res);
-
     Ok(())
-}
-
-async fn test_graphql_query() -> serde_json::Value {
-    let addr = "http://localhost:7300/subgraphs/id/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj";
-    let client = Client::new();
-
-    // Create the JSON data for the GraphQL query
-    let query_data = json!({
-        "query": "{_meta{block{number}}}"
-    });
-
-    // Make the POST request to the server
-    let response = client
-        .post(addr)
-        .json(&query_data)
-        .send()
-        .await
-        .expect("Failed to send request");
-
-    // Assert that the response status is 200 OK
-    assert!(response.status().is_success());
-
-    // Read the response body as a JSON value
-    let response_json: serde_json::Value = response
-        .json()
-        .await
-        .expect("Failed to parse response JSON");
-
-    // Add any additional assertions based on the expected response
-    // For example, you can check the values in the response JSON.
-
-    // For debugging purposes, you can print the response JSON
-    println!("Response JSON: {:?}", response_json);
-    response_json
 }

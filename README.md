@@ -48,8 +48,11 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
       - [ ] operator wallet -> indexer address
   - [ ] subgraph health check
   - [ ] query timing logs
-- [ ] Deployment health server / status server
-  - [ ] indexing status resolver - to query indexingStatuses
+- [ ] Deployment health server
+  - [ ] query status endpoint and process result
+- [ ] Status server 
+  - [x] indexing status resolver - to query indexingStatuses
+  - [ ] Filter for unsupported queries
 - [ ] Cost server
   - [ ] Cost graphQL schema
   - [ ] query indexer management client for Cost model
@@ -96,38 +99,32 @@ Configure required start-up args, check description by
 ```
 cargo run -p service -- --help
 ```
-Required
-```
-  --ethereum 
-  --ethereum-polling-interval 
-  --mnemonic 
-  --indexer-address 
 
-  --port 
-  --metrics-port 
-  --graph-node-query-endpoint 
-  --graph-node-status-endpoint 
-  --log-level 
-  --gcloud-profiling
-  --free-query-auth-token 
-  
-  --postgres-host 
-  --postgres-port 
-  --postgres-database 
-  --postgres-username 
-  --postgres-password 
-  
-  --network-subgraph-deployment 
-  --network-subgraph-endpoint 
-  --network-subgraph-auth-token 
-  --serve-network-subgraph
-  --allocation-syncing-interval 
-  --client-signer-address 
+Set up configurations. To run with toml configurations
+```
+cargo run -- config "template.toml"
+
 ```
 
-Afterwards run
+To run with CLI args
 ```
-cargo run -p service
+cargo run -- --ethereum <eth-node-provider> \
+  --mnemonic <operator-mnemonic> \
+  --indexer-address  <indexer-address ></indexer-address> \
+  --port 7300 \
+  --metrics-port 7500 \
+  --graph-node-query-endpoint http://localhost:8000 \
+  --graph-node-status-endpoint http://localhost:8030 \ 
+  --free-query-auth-token "free-query-auth" \
+  --postgres-host "127.0.0.1" \
+  --postgres-port 5432 \
+  --postgres-database postgres  \
+  --postgres-username <postgres-username> \
+  --postgres-password <postgres-password> \
+  --network-subgraph-endpoint "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network \
+  --network-subgraph-auth-token "network-subgraph-auth" \
+  --serve-network-subgraph true \
+  --client-signer-address "0xe1EC4339019eC9628438F8755f847e3023e4ff9c" \
 
 ```
 
@@ -136,39 +133,46 @@ After service start up, try with command
 curl -X POST \
 	-H 'Content-Type: application/json' \
   --data '{"query": "{_meta{block{number}}}"}' \
-	http://127.0.0.1:8080/subgraphs/id/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
+	http://127.0.0.1:7300/network
 ```
 
 
-### Checks
+### Supported requests
 
 
 ```
-✗ curl http://localhost:7300/             
+✗ curl http://localhost:7300/
 Ready to roll! 
+
 ✗ curl http://localhost:7300/health
 {"healthy":true}
+
 ✗ curl http://localhost:7300/version
 {"version":"0.1.0","dependencies":{}}
+
 ✗ curl http://localhost:7300/operator/info
 {"publicKey":"0xacb05407d78129b5717bb51712d3e23a78a10929"}
 
-
-
-
-
-
+# Subgraph queries
+# Checks for receipts and authorization
 ✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: token-for-graph-node-query-endpoint' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
 "{\"data\":{\"_meta\":{\"block\":{\"number\":9425787}}}}"
 
-// Checks for auth and configuration to serve-network-subgraph
+# Network queries
+# Checks for auth and configuration to serve-network-subgraph
 ✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: token-for-network-subgraph' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/network 
 "Not enabled or authorized query"
 
-// Indexing status resolver
+# Indexing status resolver - Route supported root field queries to graph node status endpoint
 ✗ curl -X POST -H 'Content-Type: application/json' --data '{"query": "{blockHashFromNumber(network:\"goerli\", blockNumber: 9069120)}"}' http://localhost:7300/status 
 {"data":{"blockHashFromNumber":"e1e5472636db73ba5496aee098dc21310683c95eb30fc46f9ba6c36d8b28d58e"}}%                
 
-// Indexing status resolver - filter unsupported root field queries
-✗ curl -X POST -H 'Content-Type: application/json' --data '{"query": "{blockHashFromNumber(network:\"goerli\", blockNumber: 9069120)}"}' http://localhost:7300/status 
-{"data":{"blockHashFromNumber":"e1e5472636db73ba5496aee098dc21310683c95eb30fc46f9ba6c36d8b28d58e"}}%                
+# Indexing status resolver - 
+✗ curl -X POST -H 'Content-Type: application/json' --data '{"query": "{indexingStatuses {subgraph health} }"}' http://localhost:7300/status 
+{"data":{"indexingStatuses":[{"subgraph":"QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj","health":"healthy"},{"subgraph":"QmWVtsWk8Pqn3zY3czDjyoVreshRLmoz9jko3mQ4uvxQDj","health":"healthy"},{"subgraph":"QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB","health":"healthy"}]}}
+
+# Indexing status resolver - Filter out the unsupported queries
+✗ curl -X POST -H 'Content-Type: application/json' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/status 
+{"errors":[{"locations":[{"line":1,"column":2}],"message":"Type `Query` has no field `_meta`"}]}%              
+
+```

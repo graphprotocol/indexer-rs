@@ -1,5 +1,5 @@
 use axum::{
-    body::{Bytes, HttpBody},
+    body::Bytes,
     extract::Extension,
     http::{self, Request, StatusCode},
     response::IntoResponse,
@@ -25,14 +25,27 @@ pub async fn network_queries(
         && auth_token.unwrap() == server.network_subgraph_auth_token.as_deref().unwrap())
     {
         let error_body = "Not enabled or authorized query".to_string();
-        return (StatusCode::BAD_REQUEST, Json(error_body));
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::response::AppendHeaders([(axum::http::header::CONTENT_TYPE, "application/json")]),
+            Json(error_body),
+        );
     }
 
     // Serve query using query processor
     let req_body = req.into_body();
     let query: Bytes = hyper::body::to_bytes(req_body)
         .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                axum::response::AppendHeaders([(
+                    axum::http::header::CONTENT_TYPE,
+                    "application/json",
+                )]),
+                Json(e),
+            )
+        })
         .unwrap();
     let query_string = String::from_utf8_lossy(&query);
 
@@ -45,11 +58,25 @@ pub async fn network_queries(
     match request.status {
         200 => {
             let response_body = request.result.graphql_response;
-            (StatusCode::OK, Json(response_body))
+            (
+                StatusCode::OK,
+                axum::response::AppendHeaders([(
+                    axum::http::header::CONTENT_TYPE,
+                    "application/json",
+                )]),
+                Json(response_body),
+            )
         }
         _ => {
             let error_body = "Bad subgraph query".to_string();
-            (StatusCode::BAD_REQUEST, Json(error_body))
+            (
+                StatusCode::BAD_REQUEST,
+                axum::response::AppendHeaders([(
+                    axum::http::header::CONTENT_TYPE,
+                    "application/json",
+                )]),
+                Json(error_body),
+            )
         }
     }
 }
