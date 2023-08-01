@@ -7,6 +7,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use tokio::signal;
 use toml::Value;
 use tracing::{
     info,
@@ -106,4 +107,26 @@ pub fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
         "compact" => set_global_default(subscriber_builder.compact().finish()),
         _ => set_global_default(subscriber_builder.with_ansi(true).pretty().finish()),
     }
+}
+
+pub async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    info!("signal received, starting graceful shutdown");
 }

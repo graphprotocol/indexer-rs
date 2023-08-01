@@ -26,10 +26,10 @@ pub async fn subgraph_queries(
                 let error_body = "Bad scalar receipt for subgraph query".to_string();
                 return (
                     StatusCode::BAD_REQUEST,
-                    axum::response::AppendHeaders([
-                        (axum::http::header::CONTENT_TYPE, "application/json"),
-                        (HeaderName::from_static("graph-attestable"), "false"),
-                    ]),
+                    axum::response::AppendHeaders([(
+                        HeaderName::from_static("graph-attestable"),
+                        "false",
+                    )]),
                     Json(error_body),
                 );
             }
@@ -57,15 +57,17 @@ pub async fn subgraph_queries(
         .map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
-                axum::response::AppendHeaders([
-                    (axum::http::header::CONTENT_TYPE, "application/json"),
-                    (HeaderName::from_static("graph-attestable"), "false"),
-                ]),
+                axum::response::AppendHeaders([(
+                    HeaderName::from_static("graph-attestable"),
+                    "false",
+                )]),
                 Json(e),
             )
         })
         .unwrap();
-    let query_string = String::from_utf8_lossy(&query);
+    let query_string = String::from_utf8(query.to_vec())
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))
+        .unwrap();
 
     // Initialize id into a subgraph deployment ID
     let subgraph_deployment_id = SubgraphDeploymentID::new(Arc::new(id).to_string());
@@ -73,7 +75,7 @@ pub async fn subgraph_queries(
     if free {
         let free_query = FreeQuery {
             subgraph_deployment_id,
-            query: query_string.to_string(),
+            query: query_string,
         };
         let res = server
             .query_processor
@@ -87,13 +89,10 @@ pub async fn subgraph_queries(
                 let attestable = res.result.attestable;
                 (
                     StatusCode::OK,
-                    axum::response::AppendHeaders([
-                        (axum::http::header::CONTENT_TYPE, "application/json"),
-                        (
-                            HeaderName::from_static("graph-attestable"),
-                            if attestable { "true" } else { "false" },
-                        ),
-                    ]),
+                    axum::response::AppendHeaders([(
+                        HeaderName::from_static("graph-attestable"),
+                        if attestable { "true" } else { "false" },
+                    )]),
                     Json(response_body),
                 )
             }
@@ -101,10 +100,10 @@ pub async fn subgraph_queries(
                 let error_body = "Bad subgraph query".to_string();
                 (
                     StatusCode::BAD_REQUEST,
-                    axum::response::AppendHeaders([
-                        (axum::http::header::CONTENT_TYPE, "application/json"),
-                        (HeaderName::from_static("graph-attestable"), "false"),
-                    ]),
+                    axum::response::AppendHeaders([(
+                        HeaderName::from_static("graph-attestable"),
+                        "false",
+                    )]),
                     Json(error_body),
                 )
             }
@@ -114,10 +113,7 @@ pub async fn subgraph_queries(
             "Query request header missing scalar-receipts or matching auth token".to_string();
         (
             StatusCode::BAD_REQUEST,
-            axum::response::AppendHeaders([
-                (axum::http::header::CONTENT_TYPE, "application/json"),
-                (HeaderName::from_static("graph-attestable"), "false"),
-            ]),
+            axum::response::AppendHeaders([(HeaderName::from_static("graph-attestable"), "false")]),
             Json(error_body),
         )
     }

@@ -13,7 +13,7 @@ use tower::{BoxError, ServiceBuilder};
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
-use util::package_version;
+use util::{package_version, shutdown_signal};
 
 use crate::{
     config::Cli, metrics::handle_serve_metrics, query_processor::QueryProcessor, util::public_key,
@@ -116,11 +116,7 @@ async fn main() -> Result<(), std::io::Error> {
     info!("Initialized server app at {}", addr);
     Server::bind(&addr)
         .serve(app.into_make_service())
-        .with_graceful_shutdown(async {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to install CTRL+C signal handler");
-        })
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
 

@@ -1,4 +1,4 @@
-use clap::{command, error::ErrorKind, Args, CommandFactory, Parser, ValueEnum};
+use clap::{command, Args, Parser, ValueEnum};
 
 use serde::{Deserialize, Serialize};
 
@@ -239,20 +239,6 @@ impl Cli {
         // add a LogFormat to config
         init_tracing("pretty".to_string()).expect("Could not set up global default subscriber for logger, check environmental variable `RUST_LOG` or the CLI input `log-level`");
         cli
-    }
-
-    pub fn parse_config_file(&self) {
-        if let Some(config) = self.config.as_deref() {
-            let input = self.config.as_ref().unwrap_or_else(|| {
-                let mut cmd = Cli::command();
-                cmd.error(
-                    ErrorKind::MissingRequiredArgument,
-                    "INPUT_FILE or --spec-in is required when using --config",
-                )
-                .exit()
-            });
-            println!("Using input {input} and config {config}");
-        }
     }
 }
 
