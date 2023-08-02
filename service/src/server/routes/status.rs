@@ -8,6 +8,8 @@ use reqwest::{header, Client};
 
 use crate::server::ServerOptions;
 
+use super::bad_request_response;
+
 // Custom middleware function to process the request before reaching the main handler
 pub async fn status_queries(
     Extension(server): Extension<ServerOptions>,
@@ -22,17 +24,13 @@ pub async fn status_queries(
         .body(req_body)
         .header(header::CONTENT_TYPE, "application/json");
 
-    let response: reqwest::Response = request
-        .send()
-        .await
-        .map_err(|e| {
-            let error_body = format!("Bad request: {}", e);
-            (StatusCode::BAD_REQUEST, Json(error_body)).into_response()
-        })
-        .unwrap();
+    let response: reqwest::Response = match request.send().await {
+        Ok(r) => r,
+        Err(e) => return bad_request_response(&e.to_string()),
+    };
 
-    response
-        .text()
-        .await
-        .expect("Failed to read response as string")
+    match response.text().await {
+        Ok(r) => (StatusCode::OK, Json(r)).into_response(),
+        _ => bad_request_response("Response from Graph node cannot be parsed as a string"),
+    }
 }

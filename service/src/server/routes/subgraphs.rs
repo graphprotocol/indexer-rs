@@ -1,5 +1,4 @@
 use axum::{
-    body::Bytes,
     extract::Extension,
     http::{self, HeaderName, Request, StatusCode},
     response::IntoResponse,
@@ -10,7 +9,10 @@ use tracing::trace;
 
 use crate::{
     query_processor::{FreeQuery, SubgraphDeploymentID},
-    server::ServerOptions,
+    server::{
+        routes::{bad_request_response, response_body_to_query_string},
+        ServerOptions,
+    },
 };
 
 pub async fn subgraph_queries(
@@ -23,15 +25,7 @@ pub async fn subgraph_queries(
         match recipt.to_str() {
             Ok(r) => Some(r),
             Err(_) => {
-                let error_body = "Bad scalar receipt for subgraph query".to_string();
-                return (
-                    StatusCode::BAD_REQUEST,
-                    axum::response::AppendHeaders([(
-                        HeaderName::from_static("graph-attestable"),
-                        "false",
-                    )]),
-                    Json(error_body),
-                );
+                return bad_request_response("Bad scalar receipt for subgraph query");
             }
         }
     } else {
@@ -52,22 +46,10 @@ pub async fn subgraph_queries(
         && server.free_query_auth_token.is_some()
         && auth_token.unwrap() == server.free_query_auth_token.as_deref().unwrap();
 
-    let query: Bytes = hyper::body::to_bytes(req.into_body())
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                axum::response::AppendHeaders([(
-                    HeaderName::from_static("graph-attestable"),
-                    "false",
-                )]),
-                Json(e),
-            )
-        })
-        .unwrap();
-    let query_string = String::from_utf8(query.to_vec())
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))
-        .unwrap();
+    let query_string = match response_body_to_query_string(req.into_body()).await {
+        Ok(q) => q,
+        Err(e) => return bad_request_response(&e.to_string()),
+    };
 
     // Initialize id into a subgraph deployment ID
     let subgraph_deployment_id = SubgraphDeploymentID::new(Arc::new(id).to_string());
@@ -95,26 +77,12 @@ pub async fn subgraph_queries(
                     )]),
                     Json(response_body),
                 )
+                    .into_response()
             }
-            _ => {
-                let error_body = "Bad subgraph query".to_string();
-                (
-                    StatusCode::BAD_REQUEST,
-                    axum::response::AppendHeaders([(
-                        HeaderName::from_static("graph-attestable"),
-                        "false",
-                    )]),
-                    Json(error_body),
-                )
-            }
+            _ => bad_request_response("Bad response from Graph node"),
         }
     } else {
-        let error_body =
-            "Query request header missing scalar-receipts or matching auth token".to_string();
-        (
-            StatusCode::BAD_REQUEST,
-            axum::response::AppendHeaders([(HeaderName::from_static("graph-attestable"), "false")]),
-            Json(error_body),
-        )
+        let error_body = "Query request header missing scalar-receipts or incorrect auth token";
+        bad_request_response(error_body)
     }
 }

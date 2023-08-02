@@ -1,12 +1,14 @@
 use axum::{
-    body::Bytes,
     extract::Extension,
     http::{self, Request, StatusCode},
     response::IntoResponse,
     Json,
 };
+use hyper::http::HeaderName;
 
 use crate::server::ServerOptions;
+
+use super::{bad_request_response, response_body_to_query_string};
 
 pub async fn network_queries(
     Extension(server): Extension<ServerOptions>,
@@ -24,19 +26,15 @@ pub async fn network_queries(
         && server.network_subgraph_auth_token.is_some()
         && auth_token.unwrap() == server.network_subgraph_auth_token.as_deref().unwrap())
     {
-        let error_body = "Not enabled or authorized query".to_string();
-        return (StatusCode::BAD_REQUEST, Json(error_body));
+        return bad_request_response("Not enabled or authorized query");
     }
 
     // Serve query using query processor
     let req_body = req.into_body();
-    let query: Bytes = hyper::body::to_bytes(req_body)
-        .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))
-        .unwrap();
-    let query_string = String::from_utf8(query.to_vec())
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))
-        .unwrap();
+    let query_string = match response_body_to_query_string(req_body).await {
+        Ok(q) => q,
+        Err(e) => return bad_request_response(&e.to_string()),
+    };
 
     let request = server
         .query_processor
@@ -47,11 +45,16 @@ pub async fn network_queries(
     match request.status {
         200 => {
             let response_body = request.result.graphql_response;
-            (StatusCode::OK, Json(response_body))
+            (
+                StatusCode::OK,
+                axum::response::AppendHeaders([(
+                    HeaderName::from_static("graph-attestable"),
+                    "false",
+                )]),
+                Json(response_body),
+            )
+                .into_response()
         }
-        _ => {
-            let error_body = "Bad subgraph query".to_string();
-            (StatusCode::BAD_REQUEST, Json(error_body))
-        }
+        _ => bad_request_response("Bad response from Graph node"),
     }
 }
