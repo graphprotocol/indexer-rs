@@ -88,6 +88,10 @@ async fn main() -> Result<(), std::io::Error> {
         )
         .route("/network", post(routes::network::network_queries))
         .route("/status", post(routes::status::status_queries))
+        .route(
+            "/subgraphs/health/:deployment",
+            get(routes::deployment::deployment_health),
+        )
         .nest(
             "/operator",
             routes::basic::create_operator_server(service_options.clone()),

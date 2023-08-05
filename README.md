@@ -48,8 +48,8 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
       - [ ] operator wallet -> indexer address
   - [ ] subgraph health check
   - [ ] query timing logs
-- [ ] Deployment health server
-  - [ ] query status endpoint and process result
+- [x] Deployment health server
+  - [x] query status endpoint and process result
 - [ ] Status server 
   - [x] indexing status resolver - to query indexingStatuses
   - [ ] Filter for unsupported queries
@@ -157,6 +157,13 @@ Ready to roll!
 # Checks for receipts and authorization
 ✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: token-for-graph-node-query-endpoint' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
 "{\"data\":{\"_meta\":{\"block\":{\"number\":9425787}}}}"
+
+# Subgraph health check
+✗ curl http://localhost:7300/subgraphs/health/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
+"Subgraph deployment is up to date"%                    
+## Unfound subgraph
+✗ curl http://localhost:7300/subgraphs/health/QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB
+"Invalid indexing status"%   
 
 # Network queries
 # Checks for auth and configuration to serve-network-subgraph

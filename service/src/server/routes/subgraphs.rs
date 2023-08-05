@@ -15,6 +15,9 @@ use crate::{
     },
 };
 
+/// Parse an incoming query request and route queries with authenticated
+/// free query token to graph node
+/// Later add receipt manager functions for paid queries
 pub async fn subgraph_queries(
     Extension(server): Extension<ServerOptions>,
     id: axum::extract::Path<String>,
