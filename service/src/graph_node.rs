@@ -31,10 +31,15 @@ impl GraphNodeInstance {
             .body(data.clone())
             .header(header::CONTENT_TYPE, "application/json");
 
-        let response = request.send().await?.text().await?;
+        let response = request.send().await?;
+        let attestable = response
+            .headers()
+            .get("graph-attestable")
+            .map_or(false, |v| v == "true");
+
         Ok(UnattestedQueryResult {
-            graphql_response: response,
-            attestable: true,
+            graphQLResponse: response.text().await?,
+            attestable,
         })
     }
 
@@ -54,7 +59,7 @@ impl GraphNodeInstance {
         // actually parse the JSON for the graphQL schema
         let response_text = response.text().await?;
         Ok(UnattestedQueryResult {
-            graphql_response: response_text,
+            graphQLResponse: response_text,
             attestable: false,
         })
     }

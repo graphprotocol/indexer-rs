@@ -1,6 +1,6 @@
 use axum::{
     extract::Extension,
-    http::{self, HeaderName, Request, StatusCode},
+    http::{self, Request, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -69,19 +69,7 @@ pub async fn subgraph_queries(
             .expect("Failed to execute free query");
 
         match res.status {
-            200 => {
-                let response_body = res.result.graphql_response;
-                let attestable = res.result.attestable;
-                (
-                    StatusCode::OK,
-                    axum::response::AppendHeaders([(
-                        HeaderName::from_static("graph-attestable"),
-                        if attestable { "true" } else { "false" },
-                    )]),
-                    Json(response_body),
-                )
-                    .into_response()
-            }
+            200 => (StatusCode::OK, Json(res.result)).into_response(),
             _ => bad_request_response("Bad response from Graph node"),
         }
     } else {

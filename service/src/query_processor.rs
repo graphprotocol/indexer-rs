@@ -80,20 +80,25 @@ impl ToString for SubgraphDeploymentID {
         self.hex()
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Signature {
     v: i64,
     r: String,
     s: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)] // Need exact field names for JSON response
 pub struct QueryResult {
-    graphql_response: String,
-    attestation: Option<Signature>,
+    pub graphQLResponse: String,
+    pub attestation: Option<Signature>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)] // Need exact field names for JSON response
 pub struct UnattestedQueryResult {
-    pub graphql_response: String,
+    pub graphQLResponse: String,
     pub attestable: bool,
 }
 
@@ -109,6 +114,7 @@ pub struct Response<T> {
 #[derive(Debug)]
 pub struct FreeQuery {
     pub subgraph_deployment_id: SubgraphDeploymentID,
+    // TODO: Use Arc<String> instead of String?
     pub query: String,
 }
 
