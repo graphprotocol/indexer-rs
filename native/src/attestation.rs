@@ -8,6 +8,7 @@ use eip_712_derive::{
 use secp256k1::SecretKey;
 use std::convert::TryInto;
 
+#[derive(Debug, Clone)]
 pub struct AttestationSigner {
     subgraph_deployment_id: Bytes32,
     domain_separator: DomainSeparator,
