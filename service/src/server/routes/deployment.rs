@@ -1,7 +1,5 @@
 use axum::{http::StatusCode, response::IntoResponse, Extension, Json};
 
-use hyper::http::HeaderName;
-
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -51,21 +49,13 @@ pub async fn deployment_health(
                 };
 
                 // Build health response based on the returned status
-                if status.health == "failed" {
+                if status.health == SubgraphHealth::failed {
                     return internal_server_error_response("Subgraph deployment has failed");
                 }
 
                 if let Ok((latest, head)) = block_numbers(status) {
                     if latest > head - 5 {
-                        (
-                            StatusCode::OK,
-                            axum::response::AppendHeaders([(
-                                HeaderName::from_static("graph-attestable"),
-                                "true",
-                            )]),
-                            Json("Subgraph deployment is up to date"),
-                        )
-                            .into_response()
+                        (StatusCode::OK, Json("Subgraph deployment is up to date")).into_response()
                     } else {
                         internal_server_error_response("Subgraph deployment is lagging behind")
                     }
@@ -84,8 +74,16 @@ pub async fn deployment_health(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct IndexingStatus {
-    health: String,
+    health: SubgraphHealth,
     chains: Vec<ChainStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[allow(non_camel_case_types)] // Need exact field names to match with GQL response
+enum SubgraphHealth {
+    healthy,
+    unhealthy,
+    failed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
