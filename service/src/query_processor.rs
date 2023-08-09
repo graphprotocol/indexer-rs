@@ -89,16 +89,16 @@ pub struct Signature {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(non_snake_case)] // Need exact field names for JSON response
 pub struct QueryResult {
-    pub graphQLResponse: String,
+    #[serde(rename = "graphQLResponse")]
+    pub graphql_response: String,
     pub attestation: Option<Signature>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(non_snake_case)] // Need exact field names for JSON response
 pub struct UnattestedQueryResult {
-    pub graphQLResponse: String,
+    #[serde(rename = "graphQLResponse")]
+    pub graphql_response: String,
     pub attestable: bool,
 }
 

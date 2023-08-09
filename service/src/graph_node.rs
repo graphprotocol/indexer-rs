@@ -38,7 +38,7 @@ impl GraphNodeInstance {
             .map_or(false, |v| v == "true");
 
         Ok(UnattestedQueryResult {
-            graphQLResponse: response.text().await?,
+            graphql_response: response.text().await?,
             attestable,
         })
     }
@@ -59,7 +59,7 @@ impl GraphNodeInstance {
         // actually parse the JSON for the graphQL schema
         let response_text = response.text().await?;
         Ok(UnattestedQueryResult {
-            graphQLResponse: response_text,
+            graphql_response: response_text,
             attestable: false,
         })
     }
