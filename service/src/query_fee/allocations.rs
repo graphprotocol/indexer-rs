@@ -1,3 +1,6 @@
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::common::{
     address::{to_address, Address},
     indexer_error::{IndexerError, IndexerErrorCode},

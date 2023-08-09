@@ -1,3 +1,6 @@
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use autometrics::{encode_global_metrics, global_metrics_exporter};
 use axum::http::StatusCode;
 use axum::routing::get;

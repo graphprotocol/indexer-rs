@@ -1,3 +1,6 @@
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::{query_processor::QueryProcessor, util::PackageVersion};
 
 pub mod routes;
