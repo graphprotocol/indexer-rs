@@ -1,3 +1,6 @@
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use ethers::signers::{
     coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
 };

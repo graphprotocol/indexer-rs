@@ -1,0 +1,29 @@
+name: License headers check
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: License headers check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install addlicense
+        run: |
+          wget https://github.com/google/addlicense/releases/download/v1.1.1/addlicense_1.1.1_Linux_x86_64.tar.gz
+          tar -xzf addlicense_1.1.1_Linux_x86_64.tar.gz 
+          sudo mv addlicense /usr/local/bin
+      - name: Check license headers
+        run: >
+          addlicense \
+            -check \
+            -c "GraphOps and Semiotic Labs." \
+            -l "apache" \
+            -s=only \
+            -ignore '.github/workflows/*.yml' \
+            -ignore '.github/workflows/*.yaml' \
+            .

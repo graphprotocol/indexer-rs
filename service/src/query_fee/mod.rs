@@ -1,3 +1,6 @@
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use async_graphql::OutputType;
 use async_trait::async_trait;
 use bigdecimal::{BigDecimal, Num};

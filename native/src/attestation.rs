@@ -1,3 +1,6 @@
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use super::*;
 use eip_712_derive::{
     sign_typed, Bytes32, DomainSeparator, Eip712Domain, MemberVisitor, StructType, U256,

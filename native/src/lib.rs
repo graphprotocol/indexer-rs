@@ -1,3 +1,6 @@
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use arc_swap::ArcSwap;
 use keccak_hash::keccak;
 use lazy_static::lazy_static;
