@@ -114,7 +114,6 @@ pub struct Response<T> {
 #[derive(Debug)]
 pub struct FreeQuery {
     pub subgraph_deployment_id: SubgraphDeploymentID,
-    // TODO: Use Arc<String> instead of String?
     pub query: String,
 }
 
