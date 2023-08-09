@@ -45,7 +45,6 @@ pub fn bad_request_response(error_body: &str) -> Response {
 pub fn internal_server_error_response(error_body: &str) -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        axum::response::AppendHeaders([(HeaderName::from_static("graph-attestable"), "false")]),
         Json(error_body.to_string()),
     )
         .into_response()
