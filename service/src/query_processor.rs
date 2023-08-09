@@ -1,6 +1,4 @@
-use ethers_core::abi::AbiEncode;
 use log::error;
-use regex::Regex;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 
@@ -28,47 +26,58 @@ impl ToString for SubgraphName {
     }
 }
 
-/// Security: Input validation
-pub fn bytes32_check() -> Regex {
-    Regex::new(r"^0x[0-9a-f]{64}$").unwrap()
-}
-
-/// Security: Input Validation
-pub fn multihash_check() -> Regex {
-    Regex::new(r"^Qm[1-9a-km-zA-HJ-NP-Z]{44}$").unwrap()
-}
-
 /// Subgraph identifier type: SubgraphDeploymentID with field 'value'
 #[derive(Debug)]
 pub struct SubgraphDeploymentID {
-    // Hexadecimal (bytes32) representation of the subgraph deployment Id
-    value: String,
+    // bytes32 subgraph deployment Id
+    value: [u8; 32],
 }
 
 /// Implement SubgraphDeploymentID functions
 impl SubgraphDeploymentID {
-    /// Assume byte 32
-    /// Later add Security: Input validation
-    pub fn new(id: String) -> SubgraphDeploymentID {
-        SubgraphDeploymentID { value: id }
+    /// Construct SubgraphDeploymentID from a 32 bytes hex string.
+    /// The '0x' prefix is optional.
+    ///
+    /// Returns an error if the input is not a valid hex string or if the input is not 32 bytes long.
+    pub fn from_hex(id: &str) -> anyhow::Result<SubgraphDeploymentID> {
+        let mut buf = [0u8; 32];
+        hex::decode_to_slice(id.trim_start_matches("0x"), &mut buf)?;
+        Ok(SubgraphDeploymentID { value: buf })
     }
 
-    fn bytes32(&self) -> String {
-        self.value.clone()
+    /// Construct SubgraphDeploymentID from a 34 bytes IPFS multihash string.
+    /// The 'Qm' prefix is mandatory.
+    ///
+    /// Returns an error if the input is not a valid IPFS multihash string or if the input is not 34 bytes long.
+    pub fn from_ipfs_hash(hash: &str) -> anyhow::Result<SubgraphDeploymentID> {
+        let bytes = bs58::decode(hash).into_vec()?;
+        let value = bytes[2..].try_into()?;
+        Ok(SubgraphDeploymentID { value })
     }
 
-    fn ipfs_hash(&self) -> String {
-        let value = self.value.clone();
+    /// Returns the subgraph deployment ID as a 32 bytes array.
+    pub fn bytes32(&self) -> [u8; 32] {
+        self.value
+    }
+
+    /// Returns the subgraph deployment ID as a 34 bytes IPFS multihash string.
+    pub fn ipfs_hash(&self) -> String {
+        let value = self.value;
         let mut bytes: Vec<u8> = vec![0x12, 0x20];
-        bytes.extend(value.as_bytes().to_vec());
-        let encoded = bytes.encode();
-        String::from_utf8(encoded).unwrap()
+        bytes.extend(value.to_vec());
+        bs58::encode(bytes).into_string()
+    }
+
+    /// Returns the subgraph deployment ID as a 32 bytes hex string.
+    /// The '0x' prefix is included.
+    pub fn hex(&self) -> String {
+        format!("0x{}", hex::encode(self.value))
     }
 }
 
 impl ToString for SubgraphDeploymentID {
     fn to_string(&self) -> String {
-        self.value.to_string()
+        self.hex()
     }
 }
 pub struct Signature {
@@ -142,7 +151,7 @@ impl QueryProcessor {
     ) -> Result<Response<UnattestedQueryResult>, QueryError> {
         let response = self
             .graph_node
-            .subgraph_query(&query.subgraph_deployment_id.value, query.query)
+            .subgraph_query(&query.subgraph_deployment_id.ipfs_hash(), query.query)
             .await?;
 
         Ok(Response {
@@ -164,5 +173,49 @@ impl QueryProcessor {
             result: response,
             status: 200,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_to_ipfs_multihash() {
+        let deployment_id = "0xd0b0e5b65df45a3fff1a653b4188881318e8459d3338f936aab16c4003884abf";
+        let expected_ipfs_hash = "QmcPHxcC2ZN7m79XfYZ77YmF4t9UCErv87a9NFKrSLWKtJ";
+
+        assert_eq!(
+            SubgraphDeploymentID::from_hex(deployment_id)
+                .unwrap()
+                .ipfs_hash(),
+            expected_ipfs_hash
+        );
+    }
+
+    #[test]
+    fn ipfs_multihash_to_hex() {
+        let deployment_id = "0xd0b0e5b65df45a3fff1a653b4188881318e8459d3338f936aab16c4003884abf";
+        let ipfs_hash = "QmcPHxcC2ZN7m79XfYZ77YmF4t9UCErv87a9NFKrSLWKtJ";
+
+        assert_eq!(
+            SubgraphDeploymentID::from_ipfs_hash(ipfs_hash)
+                .unwrap()
+                .to_string(),
+            deployment_id
+        );
+    }
+
+    #[test]
+    fn subgraph_deployment_id_input_validation() {
+        let invalid_deployment_id =
+            "0xd0b0e5b65df45a3fff1a653b4188881318e8459d3338f936aab16c4003884a";
+        let invalid_ipfs_hash = "Qm1234";
+
+        let res = SubgraphDeploymentID::from_hex(invalid_deployment_id);
+        assert!(res.is_err());
+
+        let res = SubgraphDeploymentID::from_ipfs_hash(invalid_ipfs_hash);
+        assert!(res.is_err());
     }
 }

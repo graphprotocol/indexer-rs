@@ -4,7 +4,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use std::sync::Arc;
+
 use tracing::trace;
 
 use crate::{
@@ -52,7 +52,7 @@ pub async fn subgraph_queries(
     };
 
     // Initialize id into a subgraph deployment ID
-    let subgraph_deployment_id = SubgraphDeploymentID::new(Arc::new(id).to_string());
+    let subgraph_deployment_id = SubgraphDeploymentID::from_hex(id.as_str()).unwrap();
 
     if free {
         let free_query = FreeQuery {
