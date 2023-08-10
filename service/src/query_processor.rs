@@ -83,19 +83,24 @@ impl ToString for SubgraphDeploymentID {
         self.hex()
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Signature {
     v: i64,
     r: String,
     s: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
-    graphql_response: String,
-    attestation: Option<Signature>,
+    #[serde(rename = "graphQLResponse")]
+    pub graphql_response: String,
+    pub attestation: Option<Signature>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnattestedQueryResult {
+    #[serde(rename = "graphQLResponse")]
     pub graphql_response: String,
     pub attestable: bool,
 }

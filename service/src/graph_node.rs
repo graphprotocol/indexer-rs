@@ -34,10 +34,15 @@ impl GraphNodeInstance {
             .body(data.clone())
             .header(header::CONTENT_TYPE, "application/json");
 
-        let response = request.send().await?.text().await?;
+        let response = request.send().await?;
+        let attestable = response
+            .headers()
+            .get("graph-attestable")
+            .map_or(false, |v| v == "true");
+
         Ok(UnattestedQueryResult {
-            graphql_response: response,
-            attestable: true,
+            graphql_response: response.text().await?,
+            attestable,
         })
     }
 

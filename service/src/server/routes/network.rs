@@ -7,7 +7,6 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use hyper::http::HeaderName;
 
 use crate::server::ServerOptions;
 
@@ -46,18 +45,7 @@ pub async fn network_queries(
         .expect("Failed to execute free network subgraph query");
 
     match request.status {
-        200 => {
-            let response_body = request.result.graphql_response;
-            (
-                StatusCode::OK,
-                axum::response::AppendHeaders([(
-                    HeaderName::from_static("graph-attestable"),
-                    "false",
-                )]),
-                Json(response_body),
-            )
-                .into_response()
-        }
+        200 => (StatusCode::OK, Json(request.result)).into_response(),
         _ => bad_request_response("Bad response from Graph node"),
     }
 }
