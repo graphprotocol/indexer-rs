@@ -58,7 +58,10 @@ pub async fn subgraph_queries(
     };
 
     // Initialize id into a subgraph deployment ID
-    let subgraph_deployment_id = SubgraphDeploymentID::from_hex(id.as_str()).unwrap();
+    let subgraph_deployment_id = match SubgraphDeploymentID::new(id.as_str()) {
+        Ok(id) => id,
+        Err(e) => return bad_request_response(&e.to_string()),
+    };
 
     if free {
         let free_query = FreeQuery {

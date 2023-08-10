@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use log::error;
+use regex::Regex;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +30,16 @@ impl ToString for SubgraphName {
     }
 }
 
+/// Security: Input validation
+pub fn bytes32_check() -> Regex {
+    Regex::new(r"^0x[0-9a-f]{64}$").unwrap()
+}
+
+/// Security: Input Validation
+pub fn multihash_check() -> Regex {
+    Regex::new(r"^Qm[1-9a-km-zA-HJ-NP-Z]{44}$").unwrap()
+}
+
 /// Subgraph identifier type: SubgraphDeploymentID with field 'value'
 #[derive(Debug)]
 pub struct SubgraphDeploymentID {
@@ -38,6 +49,19 @@ pub struct SubgraphDeploymentID {
 
 /// Implement SubgraphDeploymentID functions
 impl SubgraphDeploymentID {
+    /// Construct SubgraphDeploymentID from a string
+    /// Validate IPFS hash or hex format before decoding
+    pub fn new(id: &str) -> anyhow::Result<SubgraphDeploymentID> {
+        // Security: Input validation
+        if multihash_check().is_match(id) {
+            Self::from_ipfs_hash(id)
+        } else if bytes32_check().is_match(id) {
+            Self::from_hex(id)
+        } else {
+            return Err(anyhow::anyhow!("Invalid subgraph deployment ID: {}", id));
+        }
+    }
+
     /// Construct SubgraphDeploymentID from a 32 bytes hex string.
     /// The '0x' prefix is optional.
     ///
