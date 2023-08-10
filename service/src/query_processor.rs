@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use log::error;
-use regex::Regex;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 
@@ -30,16 +29,6 @@ impl ToString for SubgraphName {
     }
 }
 
-/// Security: Input validation
-pub fn bytes32_check() -> Regex {
-    Regex::new(r"^0x[0-9a-f]{64}$").unwrap()
-}
-
-/// Security: Input Validation
-pub fn multihash_check() -> Regex {
-    Regex::new(r"^Qm[1-9a-km-zA-HJ-NP-Z]{44}$").unwrap()
-}
-
 /// Subgraph identifier type: SubgraphDeploymentID with field 'value'
 #[derive(Debug)]
 pub struct SubgraphDeploymentID {
@@ -52,14 +41,9 @@ impl SubgraphDeploymentID {
     /// Construct SubgraphDeploymentID from a string
     /// Validate IPFS hash or hex format before decoding
     pub fn new(id: &str) -> anyhow::Result<SubgraphDeploymentID> {
-        // Security: Input validation
-        if multihash_check().is_match(id) {
-            Self::from_ipfs_hash(id)
-        } else if bytes32_check().is_match(id) {
-            Self::from_hex(id)
-        } else {
-            return Err(anyhow::anyhow!("Invalid subgraph deployment ID: {}", id));
-        }
+        SubgraphDeploymentID::from_hex(id)
+            .or_else(|_| SubgraphDeploymentID::from_ipfs_hash(id))
+            .map_err(|_| anyhow::anyhow!("Invalid subgraph deployment ID: {}", id))
     }
 
     /// Construct SubgraphDeploymentID from a 32 bytes hex string.
@@ -210,6 +194,7 @@ impl QueryProcessor {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -239,15 +224,33 @@ mod tests {
     }
 
     #[test]
-    fn subgraph_deployment_id_input_validation() {
+    fn subgraph_deployment_id_input_validation_success() {
+        let deployment_id = "0xd0b0e5b65df45a3fff1a653b4188881318e8459d3338f936aab16c4003884abf";
+        let ipfs_hash = "QmcPHxcC2ZN7m79XfYZ77YmF4t9UCErv87a9NFKrSLWKtJ";
+
+        assert_eq!(
+            SubgraphDeploymentID::new(ipfs_hash).unwrap().to_string(),
+            deployment_id
+        );
+
+        assert_eq!(
+            SubgraphDeploymentID::new(deployment_id)
+                .unwrap()
+                .ipfs_hash(),
+            ipfs_hash
+        );
+    }
+
+    #[test]
+    fn subgraph_deployment_id_input_validation_fail() {
         let invalid_deployment_id =
             "0xd0b0e5b65df45a3fff1a653b4188881318e8459d3338f936aab16c4003884a";
         let invalid_ipfs_hash = "Qm1234";
 
-        let res = SubgraphDeploymentID::from_hex(invalid_deployment_id);
+        let res = SubgraphDeploymentID::new(invalid_deployment_id);
         assert!(res.is_err());
 
-        let res = SubgraphDeploymentID::from_ipfs_hash(invalid_ipfs_hash);
+        let res = SubgraphDeploymentID::new(invalid_ipfs_hash);
         assert!(res.is_err());
     }
 }
