@@ -137,7 +137,7 @@ curl -X POST \
 ```
 
 
-### Supported requests
+### Supported request and response format examples
 
 
 ```
@@ -155,8 +155,16 @@ Ready to roll!
 
 # Subgraph queries
 # Checks for receipts and authorization
-✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: token-for-graph-node-query-endpoint' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
+✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: Bearer token-for-graph-node-query-endpoint' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB
 "{\"data\":{\"_meta\":{\"block\":{\"number\":9425787}}}}"
+
+# Takes hex representation for subgraphs deployment id aside from IPFS hash representation
+✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: Bearer token-for-graph-node-query-endpoint' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/0xb655ca6f49e73728a102219726ff678d61d8fb792874792e9f0d9887dc616600
+"{\"data\":{\"_meta\":{\"block\":{\"number\":9425787}}}}"
+
+# Free query auth token check failed
+✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: blah' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/0xb655ca6f49e73728a102219726ff678d61d8fb792874792e9f0d9887dc616600
+"Invalid Scalar-Receipt header provided"%
 
 # Subgraph health check
 ✗ curl http://localhost:7300/subgraphs/health/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj

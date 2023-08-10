@@ -31,6 +31,8 @@ impl ServerOptions {
         network_subgraph_auth_token: Option<String>,
         serve_network_subgraph: bool,
     ) -> Self {
+        let free_query_auth_token = free_query_auth_token.map(|token| format!("Bearer {}", token));
+
         ServerOptions {
             port,
             release,
