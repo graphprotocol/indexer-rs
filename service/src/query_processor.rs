@@ -1,9 +1,15 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+
+use ethers_core::types::Address;
+use ethers_core::types::{Signature, U256};
 use log::error;
+use native::attestation::AttestationSigner;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
+use tap_core::tap_manager::SignedReceipt;
 
 use crate::graph_node::GraphNodeInstance;
 
@@ -93,13 +99,6 @@ impl ToString for SubgraphDeploymentID {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Signature {
-    v: i64,
-    r: String,
-    s: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
     #[serde(rename = "graphQLResponse")]
     pub graphql_response: String,
@@ -128,6 +127,13 @@ pub struct FreeQuery {
     pub query: String,
 }
 
+/// Paid query needs subgraph_deployment_id, query, receipt
+pub struct PaidQuery {
+    pub subgraph_deployment_id: SubgraphDeploymentID,
+    pub query: String,
+    pub receipt: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum QueryError {
     #[error(transparent)]
@@ -146,6 +152,7 @@ pub struct QueryProcessor {
     base: Url,
     graph_node: GraphNodeInstance,
     network_subgraph: Url,
+    signers: HashMap<Address, AttestationSigner>,
 }
 
 impl QueryProcessor {
@@ -158,6 +165,8 @@ impl QueryProcessor {
             graph_node,
             network_subgraph: Url::parse(network_subgraph_endpoint)
                 .expect("Could not parse graph node endpoint"),
+            // TODO: populate signers
+            signers: HashMap::new(),
         }
     }
 
@@ -187,6 +196,55 @@ impl QueryProcessor {
 
         Ok(Response {
             result: response,
+            status: 200,
+        })
+    }
+
+    pub async fn execute_paid_query(
+        &self,
+        query: PaidQuery,
+    ) -> Result<Response<QueryResult>, QueryError> {
+        let PaidQuery {
+            subgraph_deployment_id,
+            query,
+            receipt,
+        } = query;
+
+        // TODO: Emit IndexerErrorCode::IE031 on error
+        let parsed_receipt: SignedReceipt = serde_json::from_str(&receipt)
+            .map_err(|e| QueryError::Other(anyhow::Error::from(e)))?;
+
+        let allocation_id = parsed_receipt.message.allocation_id;
+
+        // TODO: Handle the TAP receipt
+
+        let signer = self.signers.get(&allocation_id).ok_or_else(|| {
+            QueryError::Other(anyhow::anyhow!(
+                "No signer found for allocation id {}",
+                allocation_id
+            ))
+        })?;
+
+        let response = self
+            .graph_node
+            .subgraph_query(&subgraph_deployment_id.ipfs_hash(), query.clone())
+            .await?;
+
+        let attestation_signature = response.attestable.then(|| {
+            // TODO: Need to check correctness of this. In particular, the endianness.
+            let attestation = signer.create_attestation(&query, &response.graphql_response);
+            Signature {
+                r: U256::from_big_endian(&attestation.r),
+                s: U256::from_big_endian(&attestation.s),
+                v: attestation.v as u64,
+            }
+        });
+
+        Ok(Response {
+            result: QueryResult {
+                graphql_response: response.graphql_response,
+                attestation: attestation_signature,
+            },
             status: 200,
         })
     }

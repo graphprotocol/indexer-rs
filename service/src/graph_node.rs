@@ -31,7 +31,7 @@ impl GraphNodeInstance {
         let request = self
             .client
             .post(format!("{}/subgraphs/id/{}", self.base_url, endpoint))
-            .body(data.clone())
+            .body(data)
             .header(header::CONTENT_TYPE, "application/json");
 
         let response = request.send().await?;
