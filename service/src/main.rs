@@ -58,14 +58,12 @@ async fn main() -> Result<(), std::io::Error> {
     // Initialize graph-node client
     let graph_node = graph_node::GraphNodeInstance::new(
         &config.indexer_infrastructure.graph_node_query_endpoint,
+        &config.network_subgraph.network_subgraph_endpoint,
     );
 
     // Proper initiation of server, query processor
     // server health check, graph-node instance connection check
-    let query_processor = QueryProcessor::new(
-        graph_node.clone(),
-        &config.network_subgraph.network_subgraph_endpoint,
-    );
+    let query_processor = QueryProcessor::new(graph_node.clone());
 
     // Start indexer service basic metrics
     tokio::spawn(handle_serve_metrics(

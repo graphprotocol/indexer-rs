@@ -16,6 +16,7 @@ use crate::query_processor::UnattestedQueryResult;
 pub struct GraphNodeInstance {
     client: Client, // it is Arc
     base_url: Arc<String>,
+    network_subgraph: Arc<Url>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,8 +27,10 @@ struct GraphQLQuery {
 }
 
 impl GraphNodeInstance {
-    pub fn new(base_url: &str) -> GraphNodeInstance {
+    pub fn new(base_url: &str, network_subgraph: &str) -> GraphNodeInstance {
         let base_url = Url::parse(base_url).expect("Could not parse graph node endpoint");
+        let network_subgraph =
+            Url::parse(network_subgraph).expect("Could not parse graph node endpoint");
         let client = reqwest::Client::builder()
             .user_agent("indexer-service")
             .build()
@@ -35,6 +38,7 @@ impl GraphNodeInstance {
         GraphNodeInstance {
             client,
             base_url: Arc::new(base_url.to_string()),
+            network_subgraph: Arc::new(network_subgraph),
         }
     }
 
@@ -63,12 +67,11 @@ impl GraphNodeInstance {
 
     pub async fn network_query_raw(
         &self,
-        endpoint: Url,
         body: String,
     ) -> Result<UnattestedQueryResult, reqwest::Error> {
         let request = self
             .client
-            .post(endpoint)
+            .post(Url::clone(&self.network_subgraph))
             .body(body.clone())
             .header(header::CONTENT_TYPE, "application/json");
 
@@ -91,7 +94,6 @@ impl GraphNodeInstance {
         let body = GraphQLQuery { query, variables };
 
         self.network_query_raw(
-            endpoint,
             serde_json::to_string(&body).expect("serialize network GraphQL query"),
         )
         .await
