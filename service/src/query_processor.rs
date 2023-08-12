@@ -176,7 +176,7 @@ impl QueryProcessor {
     ) -> Result<Response<UnattestedQueryResult>, QueryError> {
         let response = self
             .graph_node
-            .subgraph_query(&query.subgraph_deployment_id.ipfs_hash(), query.query)
+            .subgraph_query_raw(&query.subgraph_deployment_id.ipfs_hash(), query.query)
             .await?;
 
         Ok(Response {
@@ -191,7 +191,7 @@ impl QueryProcessor {
     ) -> Result<Response<UnattestedQueryResult>, QueryError> {
         let response = self
             .graph_node
-            .network_query(self.network_subgraph.clone(), query)
+            .network_query_raw(self.network_subgraph.clone(), query)
             .await?;
 
         Ok(Response {
@@ -227,7 +227,7 @@ impl QueryProcessor {
 
         let response = self
             .graph_node
-            .subgraph_query(&subgraph_deployment_id.ipfs_hash(), query.clone())
+            .subgraph_query_raw(&subgraph_deployment_id.ipfs_hash(), query.clone())
             .await?;
 
         let attestation_signature = response.attestable.then(|| {
