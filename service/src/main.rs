@@ -55,10 +55,15 @@ async fn main() -> Result<(), std::io::Error> {
     let config = Cli::args();
     let release = package_version().expect("Failed to resolve for release version");
 
+    // Initialize graph-node client
+    let graph_node = graph_node::GraphNodeInstance::new(
+        &config.indexer_infrastructure.graph_node_query_endpoint,
+    );
+
     // Proper initiation of server, query processor
     // server health check, graph-node instance connection check
     let query_processor = QueryProcessor::new(
-        &config.indexer_infrastructure.graph_node_query_endpoint,
+        graph_node.clone(),
         &config.network_subgraph.network_subgraph_endpoint,
     );
 

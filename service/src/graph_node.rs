@@ -1,16 +1,21 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use reqwest::{header, Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::query_processor::UnattestedQueryResult;
 
+/// Graph node query wrapper.
+///
+/// This is Arc internally, so it can be cloned and shared between threads.
 #[derive(Debug, Clone)]
 pub struct GraphNodeInstance {
-    client: Client,
-    base_url: String,
+    client: Client, // it is Arc
+    base_url: Arc<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,13 +27,14 @@ struct GraphQLQuery {
 
 impl GraphNodeInstance {
     pub fn new(base_url: &str) -> GraphNodeInstance {
+        let base_url = Url::parse(base_url).expect("Could not parse graph node endpoint");
         let client = reqwest::Client::builder()
             .user_agent("indexer-service")
             .build()
             .expect("Could not build a client to graph node query endpoint");
         GraphNodeInstance {
             client,
-            base_url: base_url.to_string(),
+            base_url: Arc::new(base_url.to_string()),
         }
     }
 
