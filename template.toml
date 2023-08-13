@@ -1,5 +1,5 @@
 [ethereum]
-ethereum = 'https://rinkeby.infura.io/v3/db591449ac53444cae5873f5bdf4d5fa'
+ethereum = 'key'
 ethereum_polling_interval = 4000
 mnemonic = 'abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon'
 indexer_address = '0xAcb05407d78129b5717bB51712D3e23a78A10929'
