@@ -3,11 +3,12 @@
 
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use reqwest::{header, Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::query_processor::UnattestedQueryResult;
+use crate::query_processor::{QueryError, UnattestedQueryResult};
 
 /// Graph node query wrapper.
 ///
@@ -15,8 +16,8 @@ use crate::query_processor::UnattestedQueryResult;
 #[derive(Debug, Clone)]
 pub struct GraphNodeInstance {
     client: Client, // it is Arc
-    base_url: Arc<String>,
-    network_subgraph: Arc<Url>,
+    subgraphs_base_url: Arc<Url>,
+    network_subgraph_url: Arc<Url>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,30 +28,38 @@ struct GraphQLQuery {
 }
 
 impl GraphNodeInstance {
-    pub fn new(base_url: &str, network_subgraph: &str) -> GraphNodeInstance {
-        let base_url = Url::parse(base_url).expect("Could not parse graph node endpoint");
-        let network_subgraph =
-            Url::parse(network_subgraph).expect("Could not parse graph node endpoint");
+    pub fn new(endpoint: &str, network_subgraph_id: &str) -> GraphNodeInstance {
+        let subgraphs_base_url = Url::parse(endpoint)
+            .and_then(|u| u.join("/subgraphs/id"))
+            .expect("Could not parse graph node endpoint");
+        let network_subgraph_url = subgraphs_base_url
+            .join(network_subgraph_id)
+            .expect("Could not parse graph node endpoint");
         let client = reqwest::Client::builder()
             .user_agent("indexer-service")
             .build()
             .expect("Could not build a client to graph node query endpoint");
         GraphNodeInstance {
             client,
-            base_url: Arc::new(base_url.to_string()),
-            network_subgraph: Arc::new(network_subgraph),
+            subgraphs_base_url: Arc::new(subgraphs_base_url),
+            network_subgraph_url: Arc::new(network_subgraph_url),
         }
     }
 
     pub async fn subgraph_query_raw(
         &self,
-        endpoint: &str,
-        body: String,
-    ) -> Result<UnattestedQueryResult, reqwest::Error> {
+        subgraph_id: &str,
+        data: String,
+    ) -> Result<UnattestedQueryResult, QueryError> {
         let request = self
             .client
-            .post(format!("{}/subgraphs/id/{}", self.base_url, endpoint))
-            .body(body)
+            .post(self.subgraphs_base_url.join(subgraph_id).map_err(|e| {
+                QueryError::Other(anyhow!(
+                    "Could not build subgraph query URL: {}",
+                    e.to_string()
+                ))
+            })?)
+            .body(data)
             .header(header::CONTENT_TYPE, "application/json");
 
         let response = request.send().await?;
@@ -71,7 +80,7 @@ impl GraphNodeInstance {
     ) -> Result<UnattestedQueryResult, reqwest::Error> {
         let request = self
             .client
-            .post(Url::clone(&self.network_subgraph))
+            .post(Url::clone(&self.network_subgraph_url))
             .body(body.clone())
             .header(header::CONTENT_TYPE, "application/json");
 
@@ -87,7 +96,6 @@ impl GraphNodeInstance {
 
     pub async fn network_query(
         &self,
-        endpoint: Url,
         query: String,
         variables: Option<Value>,
     ) -> Result<UnattestedQueryResult, reqwest::Error> {
