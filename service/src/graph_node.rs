@@ -30,7 +30,7 @@ struct GraphQLQuery {
 impl GraphNodeInstance {
     pub fn new(endpoint: &str, network_subgraph_id: &str) -> GraphNodeInstance {
         let subgraphs_base_url = Url::parse(endpoint)
-            .and_then(|u| u.join("/subgraphs/id"))
+            .and_then(|u| u.join("/subgraphs/id/"))
             .expect("Could not parse graph node endpoint");
         let network_subgraph_url = subgraphs_base_url
             .join(network_subgraph_id)
