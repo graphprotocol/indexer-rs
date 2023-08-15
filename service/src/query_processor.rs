@@ -7,7 +7,6 @@ use ethers_core::types::Address;
 use ethers_core::types::{Signature, U256};
 use log::error;
 use native::attestation::AttestationSigner;
-use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use tap_core::tap_manager::SignedReceipt;
 
@@ -148,23 +147,14 @@ pub enum QueryError {
 
 #[derive(Debug, Clone)]
 pub struct QueryProcessor {
-    client: Client,
-    base: Url,
     graph_node: GraphNodeInstance,
-    network_subgraph: Url,
     signers: HashMap<Address, AttestationSigner>,
 }
 
 impl QueryProcessor {
-    pub fn new(graph_node_endpoint: &str, network_subgraph_endpoint: &str) -> QueryProcessor {
-        let graph_node = GraphNodeInstance::new(graph_node_endpoint);
-
+    pub fn new(graph_node: GraphNodeInstance) -> QueryProcessor {
         QueryProcessor {
-            client: Client::new(),
-            base: Url::parse(graph_node_endpoint).expect("Could not parse graph node endpoint"),
             graph_node,
-            network_subgraph: Url::parse(network_subgraph_endpoint)
-                .expect("Could not parse graph node endpoint"),
             // TODO: populate signers
             signers: HashMap::new(),
         }
@@ -189,10 +179,7 @@ impl QueryProcessor {
         &self,
         query: String,
     ) -> Result<Response<UnattestedQueryResult>, QueryError> {
-        let response = self
-            .graph_node
-            .network_query_raw(self.network_subgraph.clone(), query)
-            .await?;
+        let response = self.graph_node.network_query_raw(query).await?;
 
         Ok(Response {
             result: response,
