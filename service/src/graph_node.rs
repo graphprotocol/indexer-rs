@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use reqwest::{header, Client, Url};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::query_processor::UnattestedQueryResult;
 
@@ -9,6 +11,13 @@ use crate::query_processor::UnattestedQueryResult;
 pub struct GraphNodeInstance {
     client: Client,
     base_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GraphQLQuery {
+    pub query: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variables: Option<Value>,
 }
 
 impl GraphNodeInstance {
@@ -23,15 +32,15 @@ impl GraphNodeInstance {
         }
     }
 
-    pub async fn subgraph_query(
+    pub async fn subgraph_query_raw(
         &self,
         endpoint: &str,
-        data: String,
+        body: String,
     ) -> Result<UnattestedQueryResult, reqwest::Error> {
         let request = self
             .client
             .post(format!("{}/subgraphs/id/{}", self.base_url, endpoint))
-            .body(data)
+            .body(body)
             .header(header::CONTENT_TYPE, "application/json");
 
         let response = request.send().await?;
@@ -46,15 +55,15 @@ impl GraphNodeInstance {
         })
     }
 
-    pub async fn network_query(
+    pub async fn network_query_raw(
         &self,
         endpoint: Url,
-        data: String,
+        body: String,
     ) -> Result<UnattestedQueryResult, reqwest::Error> {
         let request = self
             .client
             .post(endpoint)
-            .body(data.clone())
+            .body(body.clone())
             .header(header::CONTENT_TYPE, "application/json");
 
         let response = request.send().await?;
@@ -65,5 +74,20 @@ impl GraphNodeInstance {
             graphql_response: response_text,
             attestable: false,
         })
+    }
+
+    pub async fn network_query(
+        &self,
+        endpoint: Url,
+        query: String,
+        variables: Option<Value>,
+    ) -> Result<UnattestedQueryResult, reqwest::Error> {
+        let body = GraphQLQuery { query, variables };
+
+        self.network_query_raw(
+            endpoint,
+            serde_json::to_string(&body).expect("serialize network GraphQL query"),
+        )
+        .await
     }
 }
