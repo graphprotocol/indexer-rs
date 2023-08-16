@@ -106,3 +106,143 @@ impl GraphNodeInstance {
         .await
     }
 }
+
+#[cfg(test)]
+mod test {
+    use serde_json::json;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use super::*;
+
+    const NETWORK_SUBGRAPH_ID: &str = "QmV614UpBCpuusv5MsismmPYu4KqLtdeNMKpiNrX56kw6u";
+
+    async fn mock_graph_node_server() -> MockServer {
+        let mock_server = MockServer::start().await;
+        let mock = Mock::given(method("POST"))
+            .and(path("/subgraphs/id/".to_string() + NETWORK_SUBGRAPH_ID))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"
+                    {
+                        "data": {
+                            "graphNetwork": {
+                                "currentEpoch": 960
+                            }
+                        }
+                    }
+                "#,
+                "application/json",
+            ));
+        mock_server.register(mock).await;
+
+        mock_server
+    }
+
+    async fn local_graph_node() -> GraphNodeInstance {
+        let graph_node_endpoint = std::env::var("GRAPH_NODE_ENDPOINT")
+            .expect("GRAPH_NODE_ENDPOINT env variable is not set");
+        let network_subgraph_id = std::env::var("NETWORK_SUBGRAPH_ID")
+            .expect("NETWORK_SUBGRAPH_ID env variable is not set");
+
+        GraphNodeInstance::new(&graph_node_endpoint, &network_subgraph_id)
+    }
+
+    #[tokio::test]
+    #[ignore] // Run only if explicitly specified
+    async fn test_network_query_local() {
+        let graph_node = local_graph_node().await;
+
+        let query = r#""{\"data\":{\"graphNetwork\":{\"currentEpoch\":960}}}""#;
+
+        let response = graph_node
+            .network_query(query.to_string(), None)
+            .await
+            .unwrap();
+
+        // Check that the response is valid JSON
+        let _json: serde_json::Value = serde_json::from_str(&response.graphql_response).unwrap();
+    }
+
+    /// Also tests against the network subgraph, but using the `subgraph_query_raw` method
+    #[tokio::test]
+    #[ignore] // Run only if explicitly specified
+    async fn test_subgraph_query_local() {
+        let network_subgraph_id = std::env::var("NETWORK_SUBGRAPH_ID")
+            .expect("NETWORK_SUBGRAPH_ID env variable is not set");
+
+        let graph_node = local_graph_node().await;
+
+        let query = r#"
+            query {
+             	graphNetwork(id: 1) {
+             		currentEpoch
+             	}
+            }
+        "#;
+
+        let query_json = json!({
+            "query": query,
+            "variables": {}
+        });
+
+        let response = graph_node
+            .subgraph_query_raw(&network_subgraph_id, query_json.to_string())
+            .await
+            .unwrap();
+
+        // Check that the response is valid JSON
+        let _json: serde_json::Value = serde_json::from_str(&response.graphql_response).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_network_query() {
+        let mock_server = mock_graph_node_server().await;
+
+        let graph_node = GraphNodeInstance::new(&mock_server.uri(), NETWORK_SUBGRAPH_ID);
+
+        let query = r#"
+            query {
+             	graphNetwork(id: 1) {
+             		currentEpoch
+             	}
+            }
+            "#;
+
+        let response = graph_node
+            .network_query(query.to_string(), None)
+            .await
+            .unwrap();
+
+        // Check that the response is valid JSON
+        let _json: serde_json::Value = serde_json::from_str(&response.graphql_response).unwrap();
+    }
+
+    /// Also tests against the network subgraph, but using the `subgraph_query_raw` method
+    #[tokio::test]
+    async fn test_subgraph_query() {
+        let mock_server = mock_graph_node_server().await;
+
+        let graph_node = GraphNodeInstance::new(&mock_server.uri(), NETWORK_SUBGRAPH_ID);
+
+        let query = r#"
+            query {
+             	graphNetwork(id: 1) {
+             		currentEpoch
+             	}
+            }
+            "#;
+
+        let query_json = json!({
+            "query": query,
+            "variables": {}
+        });
+
+        let response = graph_node
+            .subgraph_query_raw(NETWORK_SUBGRAPH_ID, query_json.to_string())
+            .await
+            .unwrap();
+
+        // Check that the response is valid JSON
+        let _json: serde_json::Value = serde_json::from_str(&response.graphql_response).unwrap();
+    }
+}
