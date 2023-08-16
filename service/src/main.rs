@@ -13,8 +13,11 @@ use model::QueryRoot;
 
 use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tower::{BoxError, ServiceBuilder};
-use tower_http::cors::CorsLayer;
-use tracing::info;
+use tower_http::{
+    cors::CorsLayer,
+    trace::{self, TraceLayer},
+};
+use tracing::{info, Level};
 
 use util::{package_version, shutdown_signal};
 
@@ -104,6 +107,11 @@ async fn main() -> Result<(), std::io::Error> {
         .layer(Extension(schema))
         .layer(Extension(service_options.clone()))
         .layer(CorsLayer::new().allow_methods([Method::GET, Method::POST]))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(trace::DefaultMakeSpan::new().level(Level::DEBUG))
+                .on_response(trace::DefaultOnResponse::new().level(Level::DEBUG)),
+        )
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|error: BoxError| async move {
