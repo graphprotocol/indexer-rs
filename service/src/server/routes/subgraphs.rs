@@ -11,7 +11,8 @@ use axum::{
 use tracing::trace;
 
 use crate::{
-    query_processor::{FreeQuery, SubgraphDeploymentID},
+    common::types::SubgraphDeploymentID,
+    query_processor::FreeQuery,
     server::{
         routes::{bad_request_response, response_body_to_query_string},
         ServerOptions,

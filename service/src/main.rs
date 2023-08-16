@@ -30,7 +30,6 @@ mod config;
 mod graph_node;
 mod metrics;
 mod model;
-mod query_fee;
 mod query_processor;
 mod server;
 mod util;
