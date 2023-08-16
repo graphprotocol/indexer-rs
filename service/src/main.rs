@@ -4,6 +4,7 @@
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use axum::{
     error_handling::HandleErrorLayer,
+    handler::Handler,
     http::{Method, StatusCode},
     routing::get,
 };
@@ -14,6 +15,7 @@ use model::QueryRoot;
 use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tower::{BoxError, ServiceBuilder};
 use tower_http::{
+    add_extension::AddExtensionLayer,
     cors::CorsLayer,
     trace::{self, TraceLayer},
 };
@@ -22,7 +24,11 @@ use tracing::{info, Level};
 use util::{package_version, shutdown_signal};
 
 use crate::{
-    config::Cli, metrics::handle_serve_metrics, query_processor::QueryProcessor, util::public_key,
+    config::Cli,
+    metrics::handle_serve_metrics,
+    query_processor::QueryProcessor,
+    server::routes::{network_ratelimiter, slow_ratelimiter},
+    util::public_key,
 };
 // use server::{ServerOptions, index, subgraph_queries, network_queries};
 
@@ -91,28 +97,35 @@ async fn main() -> Result<(), std::io::Error> {
         .route("/health", get(routes::basic::health))
         .route("/version", get(routes::basic::version))
         .route(
-            "/subgraphs/id/:id",
-            post(routes::subgraphs::subgraph_queries),
+            "/status",
+            post(routes::status::status_queries)
+                .layer(AddExtensionLayer::new(network_ratelimiter())),
         )
-        .route("/network", post(routes::network::network_queries))
-        .route("/status", post(routes::status::status_queries))
         .route(
             "/subgraphs/health/:deployment",
-            get(routes::deployment::deployment_health),
+            get(routes::deployment::deployment_health
+                .layer(AddExtensionLayer::new(slow_ratelimiter()))),
         )
+        // TODO: Add public cost API
         .nest(
             "/operator",
-            routes::basic::create_operator_server(service_options.clone()),
+            routes::basic::create_operator_server(service_options.clone())
+                .layer(AddExtensionLayer::new(slow_ratelimiter())),
+        )
+        .route(
+            "/network",
+            post(routes::network::network_queries)
+                .layer(AddExtensionLayer::new(network_ratelimiter())),
+        )
+        .route(
+            "/subgraphs/id/:id",
+            post(routes::subgraphs::subgraph_queries),
         )
         .layer(Extension(schema))
         .layer(Extension(service_options.clone()))
         .layer(CorsLayer::new().allow_methods([Method::GET, Method::POST]))
         .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(trace::DefaultMakeSpan::new().level(Level::DEBUG))
-                .on_response(trace::DefaultOnResponse::new().level(Level::DEBUG)),
-        )
-        .layer(
+            // Handle error for timeout, ratelimit, or a general internal server error
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|error: BoxError| async move {
                     if error.is::<tower::timeout::error::Elapsed>() {
@@ -124,6 +137,11 @@ async fn main() -> Result<(), std::io::Error> {
                         ))
                     }
                 }))
+                .layer(
+                    TraceLayer::new_for_http()
+                        .make_span_with(trace::DefaultMakeSpan::new().level(Level::DEBUG))
+                        .on_response(trace::DefaultOnResponse::new().level(Level::DEBUG)),
+                )
                 .timeout(Duration::from_secs(10))
                 .into_inner(),
         );
