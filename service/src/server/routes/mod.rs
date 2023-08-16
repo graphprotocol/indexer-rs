@@ -8,6 +8,7 @@ use axum::{
     Json,
 };
 use hyper::http::HeaderName;
+use tower::limit::RateLimitLayer;
 
 pub mod basic;
 pub mod deployment;
@@ -51,4 +52,14 @@ pub fn internal_server_error_response(error_body: &str) -> Response {
         Json(error_body.to_string()),
     )
         .into_response()
+}
+
+/// Limit status requests to 9000/30min (5/s)
+pub fn slow_ratelimiter() -> RateLimitLayer {
+    RateLimitLayer::new(9000, std::time::Duration::from_millis(30 * 60 * 1000))
+}
+
+/// Limit network requests to 90000/30min (50/s)
+pub fn network_ratelimiter() -> RateLimitLayer {
+    RateLimitLayer::new(90000, std::time::Duration::from_millis(30 * 60 * 1000))
 }
