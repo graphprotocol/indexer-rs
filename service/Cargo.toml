@@ -58,6 +58,9 @@ hex = "0.4.3"
 bs58 = "0.5.0"
 tap_core = "0.3.0"
 
+[dev-dependencies]
+wiremock = "0.5.19"
+
 # [[bin]]
 # name = "indexer-native"
 # path = "native"
