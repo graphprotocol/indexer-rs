@@ -3,6 +3,7 @@
 
 use clap::{command, Args, Parser, ValueEnum};
 
+use ethereum_types::Address;
 use serde::{Deserialize, Serialize};
 
 use crate::{query_processor::QueryError, util::init_tracing};
@@ -64,7 +65,7 @@ pub struct Ethereum {
         env = "INDEXER_ADDRESS",
         help = "Ethereum address of the indexer"
     )]
-    pub indexer_address: String,
+    pub indexer_address: Address,
 }
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
