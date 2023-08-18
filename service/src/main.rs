@@ -10,6 +10,7 @@ use axum::{
 };
 use axum::{routing::post, Extension, Router, Server};
 use dotenvy::dotenv;
+use ethereum_types::{Address, U256};
 use model::QueryRoot;
 
 use std::{net::SocketAddr, str::FromStr, time::Duration};
@@ -70,10 +71,6 @@ async fn main() -> Result<(), std::io::Error> {
         &config.indexer_infrastructure.graph_node_query_endpoint,
     );
 
-    // Proper initiation of server, query processor
-    // server health check, graph-node instance connection check
-    let query_processor = QueryProcessor::new(graph_node.clone());
-
     // Make an instance of network subgraph at either
     // graph_node_query_endpoint/subgraphs/id/network_subgraph_deployment
     // or network_subgraph_endpoint
@@ -86,12 +83,23 @@ async fn main() -> Result<(), std::io::Error> {
         &config.network_subgraph.network_subgraph_endpoint,
     );
 
-    let _allocation_monitor = allocation_monitor::AllocationMonitor::new(
+    let allocation_monitor = allocation_monitor::AllocationMonitor::new(
         network_subgraph.clone(),
         config.ethereum.indexer_address,
         1,
         1000,
-    );
+        config.ethereum.mnemonic.clone(),
+        // TODO: Chain ID should be a config
+        U256::from(1),
+        // TODO: Dispute manager address should be a config
+        Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
+    )
+    .await
+    .expect("Initialize allocation monitor");
+
+    // Proper initiation of server, query processor
+    // server health check, graph-node instance connection check
+    let query_processor = QueryProcessor::new(graph_node.clone(), allocation_monitor.clone());
 
     // Start indexer service basic metrics
     tokio::spawn(handle_serve_metrics(
