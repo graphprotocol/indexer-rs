@@ -59,8 +59,8 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-      - run: rustup component add llvm-tools-preview
-      - run: cargo install cargo-llvm-cov
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
       - name: Run tests and generate coverage report
         run: cargo llvm-cov test --all-features --workspace --lcov --output-path lcov.info 
       - name: Test documentation code snippets
