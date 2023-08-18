@@ -11,14 +11,18 @@ use tokio::sync::RwLock;
 
 use crate::{common::allocation::Allocation, graph_node::GraphNodeInstance};
 
-#[derive(Clone)]
-pub struct AllocationMonitor {
+struct AllocationMonitorInner {
     graph_node: GraphNodeInstance,
     indexer_address: Address,
     interval_ms: u64,
     graph_network_id: u64,
-    monitor_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
     eligible_allocations: Arc<RwLock<Vec<Allocation>>>,
+}
+
+#[derive(Clone)]
+pub struct AllocationMonitor {
+    monitor_handle: Arc<tokio::task::JoinHandle<()>>,
+    inner: Arc<AllocationMonitorInner>,
 }
 
 impl AllocationMonitor {
@@ -28,32 +32,27 @@ impl AllocationMonitor {
         graph_network_id: u64,
         interval_ms: u64,
     ) -> Result<Self> {
-        let monitor = AllocationMonitor {
+        let inner = Arc::new(AllocationMonitorInner {
             graph_node,
             indexer_address,
             interval_ms,
             graph_network_id,
-            monitor_handle: Arc::new(RwLock::new(None)),
             eligible_allocations: Arc::new(RwLock::new(Vec::new())),
-        };
+        });
 
-        let monitor_clone = monitor.clone();
-        *monitor.monitor_handle.write().await = Some(tokio::spawn(async move {
-            AllocationMonitor::monitor_loop(
-                monitor_clone.graph_node,
-                monitor_clone.graph_network_id,
-                monitor_clone.indexer_address,
-                monitor_clone.interval_ms,
-                monitor_clone.eligible_allocations.clone(),
-            )
-            .await
-            .unwrap();
-        }));
+        let inner_clone = inner.clone();
+
+        let monitor = AllocationMonitor {
+            monitor_handle: Arc::new(tokio::spawn(async move {
+                AllocationMonitor::monitor_loop(&inner_clone).await.unwrap();
+            })),
+            inner,
+        };
 
         Ok(monitor)
     }
 
-    async fn current_epoch(graph_node: GraphNodeInstance, graph_network_id: u64) -> Result<u64> {
+    async fn current_epoch(graph_node: &GraphNodeInstance, graph_network_id: u64) -> Result<u64> {
         let res = graph_node
             .network_query(
                 r#"
@@ -87,8 +86,8 @@ impl AllocationMonitor {
     }
 
     async fn current_eligible_allocations(
-        graph_node: GraphNodeInstance,
-        indexer_address: Address,
+        graph_node: &GraphNodeInstance,
+        indexer_address: &Address,
         closed_at_epoch_threshold: u64,
     ) -> Result<Vec<Allocation>> {
         let res = graph_node
@@ -182,42 +181,26 @@ impl AllocationMonitor {
         Ok(eligible_allocations)
     }
 
-    async fn update(
-        graph_node: &GraphNodeInstance,
-        graph_network_id: u64,
-        eligible_allocations: &Arc<RwLock<Vec<Allocation>>>,
-        indexer_address: ethereum_types::H160,
-    ) -> Result<(), anyhow::Error> {
-        let current_epoch = Self::current_epoch(graph_node.clone(), graph_network_id).await?;
-        *(eligible_allocations.write().await) = Self::current_eligible_allocations(
-            graph_node.clone(),
-            indexer_address,
+    async fn update(inner: &Arc<AllocationMonitorInner>) -> Result<(), anyhow::Error> {
+        let current_epoch = Self::current_epoch(&inner.graph_node, inner.graph_network_id).await?;
+        *(inner.eligible_allocations.write().await) = Self::current_eligible_allocations(
+            &inner.graph_node,
+            &inner.indexer_address,
             current_epoch - 1,
         )
         .await?;
         Ok(())
     }
 
-    async fn monitor_loop(
-        graph_node: GraphNodeInstance,
-        graph_network_id: u64,
-        indexer_address: Address,
-        interval_ms: u64,
-        eligible_allocations: Arc<RwLock<Vec<Allocation>>>,
-    ) -> Result<()> {
+    async fn monitor_loop(inner: &Arc<AllocationMonitorInner>) -> Result<()> {
         loop {
-            let res = Self::update(
-                &graph_node,
-                graph_network_id,
-                &eligible_allocations,
-                indexer_address,
-            )
-            .await;
+            let res = Self::update(inner).await;
 
             if res.is_err() {
                 warn!(
                     "Failed to query indexer allocations, keeping existing: {:?}. Error: {}",
-                    eligible_allocations
+                    inner
+                        .eligible_allocations
                         .read()
                         .await
                         .iter()
@@ -230,7 +213,8 @@ impl AllocationMonitor {
 
             info!(
                 "Eligible allocations: {}",
-                eligible_allocations
+                inner
+                    .eligible_allocations
                     .read()
                     .await
                     .iter()
@@ -246,14 +230,14 @@ impl AllocationMonitor {
                     .join(", ")
             );
 
-            tokio::time::sleep(tokio::time::Duration::from_millis(interval_ms)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(inner.interval_ms)).await;
         }
     }
 
     pub async fn get_eligible_allocations(
         &self,
     ) -> tokio::sync::RwLockReadGuard<'_, Vec<Allocation>> {
-        self.eligible_allocations.read().await
+        self.inner.eligible_allocations.read().await
     }
 }
 
@@ -298,7 +282,7 @@ mod tests {
 
         mock_server.register(mock).await;
 
-        let epoch = AllocationMonitor::current_epoch(graph_node, 1)
+        let epoch = AllocationMonitor::current_epoch(&graph_node, 1)
             .await
             .unwrap();
 
@@ -404,7 +388,7 @@ mod tests {
         mock_server.register(mock).await;
 
         let allocations =
-            AllocationMonitor::current_eligible_allocations(graph_node, indexer_address, 940)
+            AllocationMonitor::current_eligible_allocations(&graph_node, &indexer_address, 940)
                 .await
                 .unwrap();
 
