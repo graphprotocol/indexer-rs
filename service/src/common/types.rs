@@ -96,3 +96,66 @@ impl ToString for SubgraphDeploymentID {
         self.hex()
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn hex_to_ipfs_multihash() {
+        let deployment_id = "0xd0b0e5b65df45a3fff1a653b4188881318e8459d3338f936aab16c4003884abf";
+        let expected_ipfs_hash = "QmcPHxcC2ZN7m79XfYZ77YmF4t9UCErv87a9NFKrSLWKtJ";
+
+        assert_eq!(
+            SubgraphDeploymentID::from_hex(deployment_id)
+                .unwrap()
+                .ipfs_hash(),
+            expected_ipfs_hash
+        );
+    }
+
+    #[test]
+    fn ipfs_multihash_to_hex() {
+        let deployment_id = "0xd0b0e5b65df45a3fff1a653b4188881318e8459d3338f936aab16c4003884abf";
+        let ipfs_hash = "QmcPHxcC2ZN7m79XfYZ77YmF4t9UCErv87a9NFKrSLWKtJ";
+
+        assert_eq!(
+            SubgraphDeploymentID::from_ipfs_hash(ipfs_hash)
+                .unwrap()
+                .to_string(),
+            deployment_id
+        );
+    }
+
+    #[test]
+    fn subgraph_deployment_id_input_validation_success() {
+        let deployment_id = "0xd0b0e5b65df45a3fff1a653b4188881318e8459d3338f936aab16c4003884abf";
+        let ipfs_hash = "QmcPHxcC2ZN7m79XfYZ77YmF4t9UCErv87a9NFKrSLWKtJ";
+
+        assert_eq!(
+            SubgraphDeploymentID::new(ipfs_hash).unwrap().to_string(),
+            deployment_id
+        );
+
+        assert_eq!(
+            SubgraphDeploymentID::new(deployment_id)
+                .unwrap()
+                .ipfs_hash(),
+            ipfs_hash
+        );
+    }
+
+    #[test]
+    fn subgraph_deployment_id_input_validation_fail() {
+        let invalid_deployment_id =
+            "0xd0b0e5b65df45a3fff1a653b4188881318e8459d3338f936aab16c4003884a";
+        let invalid_ipfs_hash = "Qm1234";
+
+        let res = SubgraphDeploymentID::new(invalid_deployment_id);
+        assert!(res.is_err());
+
+        let res = SubgraphDeploymentID::new(invalid_ipfs_hash);
+        assert!(res.is_err());
+    }
+}
