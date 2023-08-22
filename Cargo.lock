@@ -4090,6 +4090,7 @@ dependencies = [
  "dotenvy",
  "eip-712-derive",
  "env_logger",
+ "ethereum-types",
  "ethers",
  "ethers-contract",
  "ethers-core",
@@ -4110,6 +4111,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "tap_core",
+ "test-log",
  "thiserror",
  "tokio",
  "toml 0.7.4",
@@ -4458,6 +4460,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be55cf8942feac5c765c2c993422806843c9a9a45d4d5c407ad6dd2ea95eb9b6"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "test-log"
+version = "0.2.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9601d162c1d77e62c1ea0bc8116cd1caf143ce3af947536c3c9052a1677fe0c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]

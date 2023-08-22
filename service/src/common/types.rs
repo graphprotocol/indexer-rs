@@ -35,10 +35,22 @@ impl ToString for SubgraphName {
 }
 
 /// Subgraph identifier type: SubgraphDeploymentID with field 'value'
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubgraphDeploymentID {
     // bytes32 subgraph deployment Id
     value: [u8; 32],
+}
+
+/// Implement deserialization for SubgraphDeploymentID
+/// Deserialize from hex string or IPFS multihash string
+impl<'de> Deserialize<'de> for SubgraphDeploymentID {
+    fn deserialize<D>(deserializer: D) -> Result<SubgraphDeploymentID, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        SubgraphDeploymentID::new(&s).map_err(serde::de::Error::custom)
+    }
 }
 
 /// Implement SubgraphDeploymentID functions

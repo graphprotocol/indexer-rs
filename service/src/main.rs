@@ -34,6 +34,7 @@ use crate::{
 
 use server::{routes, ServerOptions};
 
+mod allocation_monitor;
 mod common;
 mod config;
 mod graph_node;
@@ -67,6 +68,13 @@ async fn main() -> Result<(), std::io::Error> {
     let graph_node = graph_node::GraphNodeInstance::new(
         &config.indexer_infrastructure.graph_node_query_endpoint,
         &config.network_subgraph.network_subgraph_endpoint,
+    );
+
+    let _allocation_monitor = allocation_monitor::AllocationMonitor::new(
+        graph_node.clone(),
+        config.ethereum.indexer_address,
+        1,
+        1000,
     );
 
     // Proper initiation of server, query processor

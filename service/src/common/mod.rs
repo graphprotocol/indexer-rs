@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod address;
+pub mod allocation;
 pub mod database;
 pub mod indexer_error;
 pub mod types;

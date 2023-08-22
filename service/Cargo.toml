@@ -57,8 +57,10 @@ prometheus = "0.13.3"
 hex = "0.4.3"
 bs58 = "0.5.0"
 tap_core = "0.3.0"
+ethereum-types = "0.14.1"
 
 [dev-dependencies]
+test-log = "0.2.12"
 wiremock = "0.5.19"
 
 # [[bin]]
