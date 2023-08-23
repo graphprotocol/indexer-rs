@@ -39,7 +39,7 @@ pub async fn network_queries(
     };
 
     let request = server
-        .query_processor
+        .network_subgraph
         .execute_network_free_query(query_string)
         .await
         .expect("Failed to execute free network subgraph query");

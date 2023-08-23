@@ -24,6 +24,7 @@ use tracing::{info, Level};
 use util::{package_version, shutdown_signal};
 
 use crate::{
+    common::network_subgraph::NetworkSubgraph,
     config::Cli,
     metrics::handle_serve_metrics,
     query_processor::QueryProcessor,
@@ -67,19 +68,30 @@ async fn main() -> Result<(), std::io::Error> {
     // Initialize graph-node client
     let graph_node = graph_node::GraphNodeInstance::new(
         &config.indexer_infrastructure.graph_node_query_endpoint,
-        &config.network_subgraph.network_subgraph_endpoint,
-    );
-
-    let _allocation_monitor = allocation_monitor::AllocationMonitor::new(
-        graph_node.clone(),
-        config.ethereum.indexer_address,
-        1,
-        1000,
     );
 
     // Proper initiation of server, query processor
     // server health check, graph-node instance connection check
     let query_processor = QueryProcessor::new(graph_node.clone());
+
+    // Make an instance of network subgraph at either
+    // graph_node_query_endpoint/subgraphs/id/network_subgraph_deployment
+    // or network_subgraph_endpoint
+    let network_subgraph = NetworkSubgraph::new(
+        Some(&config.indexer_infrastructure.graph_node_query_endpoint),
+        config
+            .network_subgraph
+            .network_subgraph_deployment
+            .as_deref(),
+        &config.network_subgraph.network_subgraph_endpoint,
+    );
+
+    let _allocation_monitor = allocation_monitor::AllocationMonitor::new(
+        network_subgraph.clone(),
+        config.ethereum.indexer_address,
+        1,
+        1000,
+    );
 
     // Start indexer service basic metrics
     tokio::spawn(handle_serve_metrics(
@@ -93,6 +105,7 @@ async fn main() -> Result<(), std::io::Error> {
         config.indexer_infrastructure.free_query_auth_token,
         config.indexer_infrastructure.graph_node_status_endpoint,
         public_key(&config.ethereum.mnemonic).expect("Failed to initiate with operator wallet"),
+        network_subgraph,
         config.network_subgraph.network_subgraph_auth_token,
         config.network_subgraph.serve_network_subgraph,
     );
