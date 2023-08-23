@@ -1,6 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::NetworkSubgraph;
 use crate::{query_processor::QueryProcessor, util::PackageVersion};
 
 pub mod routes;
@@ -14,7 +15,7 @@ pub struct ServerOptions {
     pub graph_node_status_endpoint: String,
     // pub indexer_management_client: IndexerManagementClient,
     pub operator_public_key: String,
-    // pub network_subgraph: NetworkSubgraph,
+    pub network_subgraph: NetworkSubgraph,
     pub network_subgraph_auth_token: Option<String>,
     pub serve_network_subgraph: bool,
 }
@@ -28,6 +29,7 @@ impl ServerOptions {
         free_query_auth_token: Option<String>,
         graph_node_status_endpoint: String,
         operator_public_key: String,
+        network_subgraph: NetworkSubgraph,
         network_subgraph_auth_token: Option<String>,
         serve_network_subgraph: bool,
     ) -> Self {
@@ -40,6 +42,7 @@ impl ServerOptions {
             free_query_auth_token,
             graph_node_status_endpoint,
             operator_public_key,
+            network_subgraph,
             network_subgraph_auth_token,
             serve_network_subgraph,
         }

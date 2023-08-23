@@ -91,18 +91,6 @@ impl QueryProcessor {
         })
     }
 
-    pub async fn execute_network_free_query(
-        &self,
-        query: String,
-    ) -> Result<Response<UnattestedQueryResult>, QueryError> {
-        let response = self.graph_node.network_query_raw(query).await?;
-
-        Ok(Response {
-            result: response,
-            status: 200,
-        })
-    }
-
     pub async fn execute_paid_query(
         &self,
         query: PaidQuery,

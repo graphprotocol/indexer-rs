@@ -9,10 +9,10 @@ use ethers::types::Address;
 use log::{info, warn};
 use tokio::sync::RwLock;
 
-use crate::{common::allocation::Allocation, graph_node::GraphNodeInstance};
+use crate::common::{allocation::Allocation, network_subgraph::NetworkSubgraph};
 
 struct AllocationMonitorInner {
-    graph_node: GraphNodeInstance,
+    network_subgraph: NetworkSubgraph,
     indexer_address: Address,
     interval_ms: u64,
     graph_network_id: u64,
@@ -27,13 +27,13 @@ pub struct AllocationMonitor {
 
 impl AllocationMonitor {
     pub async fn new(
-        graph_node: GraphNodeInstance,
+        network_subgraph: NetworkSubgraph,
         indexer_address: Address,
         graph_network_id: u64,
         interval_ms: u64,
     ) -> Result<Self> {
         let inner = Arc::new(AllocationMonitorInner {
-            graph_node,
+            network_subgraph,
             indexer_address,
             interval_ms,
             graph_network_id,
@@ -52,8 +52,11 @@ impl AllocationMonitor {
         Ok(monitor)
     }
 
-    async fn current_epoch(graph_node: &GraphNodeInstance, graph_network_id: u64) -> Result<u64> {
-        let res = graph_node
+    async fn current_epoch(
+        network_subgraph: &NetworkSubgraph,
+        graph_network_id: u64,
+    ) -> Result<u64> {
+        let res = network_subgraph
             .network_query(
                 r#"
                     query epoch($id: ID!) {
@@ -86,11 +89,11 @@ impl AllocationMonitor {
     }
 
     async fn current_eligible_allocations(
-        graph_node: &GraphNodeInstance,
+        network_subgraph: &NetworkSubgraph,
         indexer_address: &Address,
         closed_at_epoch_threshold: u64,
     ) -> Result<Vec<Allocation>> {
-        let res = graph_node
+        let res = network_subgraph
         .network_query(
             r#"
                 query allocations($indexer: ID!, $closedAtEpochThreshold: Int!) {
@@ -182,9 +185,10 @@ impl AllocationMonitor {
     }
 
     async fn update(inner: &Arc<AllocationMonitorInner>) -> Result<(), anyhow::Error> {
-        let current_epoch = Self::current_epoch(&inner.graph_node, inner.graph_network_id).await?;
+        let current_epoch =
+            Self::current_epoch(&inner.network_subgraph, inner.graph_network_id).await?;
         *(inner.eligible_allocations.write().await) = Self::current_eligible_allocations(
-            &inner.graph_node,
+            &inner.network_subgraph,
             &inner.indexer_address,
             current_epoch - 1,
         )
@@ -251,9 +255,11 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
-    use crate::common::allocation::{AllocationStatus, SubgraphDeployment};
     use crate::common::types::SubgraphDeploymentID;
-    use crate::graph_node::GraphNodeInstance;
+    use crate::common::{
+        allocation::{AllocationStatus, SubgraphDeployment},
+        network_subgraph::NetworkSubgraph,
+    };
 
     #[test(tokio::test)]
     async fn test_current_epoch() {
@@ -263,7 +269,13 @@ mod tests {
 
         let mock_server = MockServer::start().await;
 
-        let graph_node = GraphNodeInstance::new(&mock_server.uri(), network_subgraph_id);
+        let network_subgraph_endpoint =
+            NetworkSubgraph::local_deployment_endpoint(&mock_server.uri(), network_subgraph_id);
+        let network_subgraph = NetworkSubgraph::new(
+            Some(&mock_server.uri()),
+            Some(network_subgraph_id),
+            network_subgraph_endpoint.as_ref(),
+        );
 
         let mock = Mock::given(method("POST"))
             .and(path("/subgraphs/id/".to_string() + network_subgraph_id))
@@ -282,7 +294,7 @@ mod tests {
 
         mock_server.register(mock).await;
 
-        let epoch = AllocationMonitor::current_epoch(&graph_node, 1)
+        let epoch = AllocationMonitor::current_epoch(&network_subgraph, 1)
             .await
             .unwrap();
 
@@ -297,7 +309,13 @@ mod tests {
 
         let mock_server = MockServer::start().await;
 
-        let graph_node = GraphNodeInstance::new(&mock_server.uri(), network_subgraph_id);
+        let network_subgraph_endpoint =
+            NetworkSubgraph::local_deployment_endpoint(&mock_server.uri(), network_subgraph_id);
+        let network_subgraph = NetworkSubgraph::new(
+            Some(&mock_server.uri()),
+            Some(network_subgraph_id),
+            network_subgraph_endpoint.as_ref(),
+        );
 
         let mock = Mock::given(method("POST"))
             .and(path("/subgraphs/id/".to_string() + network_subgraph_id))
@@ -387,10 +405,13 @@ mod tests {
 
         mock_server.register(mock).await;
 
-        let allocations =
-            AllocationMonitor::current_eligible_allocations(&graph_node, &indexer_address, 940)
-                .await
-                .unwrap();
+        let allocations = AllocationMonitor::current_eligible_allocations(
+            &network_subgraph,
+            &indexer_address,
+            940,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(allocations.len(), 4);
 
@@ -434,11 +455,17 @@ mod tests {
             std::env::var("NETWORK_SUBGRAPH_ID").expect("NETWORK_SUBGRAPH_ID not set");
         let indexer_address = std::env::var("INDEXER_ADDRESS").expect("INDEXER_ADDRESS not set");
 
-        let graph_node = GraphNodeInstance::new(&graph_node_url, &network_subgraph_id);
+        let network_subgraph_endpoint =
+            NetworkSubgraph::local_deployment_endpoint(&graph_node_url, &network_subgraph_id);
+        let network_subgraph = NetworkSubgraph::new(
+            Some(&graph_node_url),
+            Some(&network_subgraph_id),
+            network_subgraph_endpoint.as_ref(),
+        );
 
         // graph_network_id=1 and interval_ms=1000
         let _allocation_monitor = AllocationMonitor::new(
-            graph_node,
+            network_subgraph,
             Address::from_str(&indexer_address).unwrap(),
             1,
             1000,

@@ -17,7 +17,6 @@ use crate::query_processor::{QueryError, UnattestedQueryResult};
 pub struct GraphNodeInstance {
     client: Client, // it is Arc
     subgraphs_base_url: Arc<Url>,
-    network_subgraph_url: Arc<Url>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,12 +27,9 @@ struct GraphQLQuery {
 }
 
 impl GraphNodeInstance {
-    pub fn new(endpoint: &str, network_subgraph_id: &str) -> GraphNodeInstance {
+    pub fn new(endpoint: &str) -> GraphNodeInstance {
         let subgraphs_base_url = Url::parse(endpoint)
             .and_then(|u| u.join("/subgraphs/id/"))
-            .expect("Could not parse graph node endpoint");
-        let network_subgraph_url = subgraphs_base_url
-            .join(network_subgraph_id)
             .expect("Could not parse graph node endpoint");
         let client = reqwest::Client::builder()
             .user_agent("indexer-service")
@@ -42,7 +38,6 @@ impl GraphNodeInstance {
         GraphNodeInstance {
             client,
             subgraphs_base_url: Arc::new(subgraphs_base_url),
-            network_subgraph_url: Arc::new(network_subgraph_url),
         }
     }
 
@@ -72,39 +67,6 @@ impl GraphNodeInstance {
             graphql_response: response.text().await?,
             attestable,
         })
-    }
-
-    pub async fn network_query_raw(
-        &self,
-        body: String,
-    ) -> Result<UnattestedQueryResult, reqwest::Error> {
-        let request = self
-            .client
-            .post(Url::clone(&self.network_subgraph_url))
-            .body(body.clone())
-            .header(header::CONTENT_TYPE, "application/json");
-
-        let response = request.send().await?;
-
-        // actually parse the JSON for the graphQL schema
-        let response_text = response.text().await?;
-        Ok(UnattestedQueryResult {
-            graphql_response: response_text,
-            attestable: false,
-        })
-    }
-
-    pub async fn network_query(
-        &self,
-        query: String,
-        variables: Option<Value>,
-    ) -> Result<UnattestedQueryResult, reqwest::Error> {
-        let body = GraphQLQuery { query, variables };
-
-        self.network_query_raw(
-            serde_json::to_string(&body).expect("serialize network GraphQL query"),
-        )
-        .await
     }
 }
 
@@ -142,26 +104,8 @@ mod test {
     async fn local_graph_node() -> GraphNodeInstance {
         let graph_node_endpoint = std::env::var("GRAPH_NODE_ENDPOINT")
             .expect("GRAPH_NODE_ENDPOINT env variable is not set");
-        let network_subgraph_id = std::env::var("NETWORK_SUBGRAPH_ID")
-            .expect("NETWORK_SUBGRAPH_ID env variable is not set");
 
-        GraphNodeInstance::new(&graph_node_endpoint, &network_subgraph_id)
-    }
-
-    #[tokio::test]
-    #[ignore] // Run only if explicitly specified
-    async fn test_network_query_local() {
-        let graph_node = local_graph_node().await;
-
-        let query = r#""{\"data\":{\"graphNetwork\":{\"currentEpoch\":960}}}""#;
-
-        let response = graph_node
-            .network_query(query.to_string(), None)
-            .await
-            .unwrap();
-
-        // Check that the response is valid JSON
-        let _json: serde_json::Value = serde_json::from_str(&response.graphql_response).unwrap();
+        GraphNodeInstance::new(&graph_node_endpoint)
     }
 
     /// Also tests against the network subgraph, but using the `subgraph_query_raw` method
@@ -195,35 +139,12 @@ mod test {
         let _json: serde_json::Value = serde_json::from_str(&response.graphql_response).unwrap();
     }
 
-    #[tokio::test]
-    async fn test_network_query() {
-        let mock_server = mock_graph_node_server().await;
-
-        let graph_node = GraphNodeInstance::new(&mock_server.uri(), NETWORK_SUBGRAPH_ID);
-
-        let query = r#"
-            query {
-             	graphNetwork(id: 1) {
-             		currentEpoch
-             	}
-            }
-            "#;
-
-        let response = graph_node
-            .network_query(query.to_string(), None)
-            .await
-            .unwrap();
-
-        // Check that the response is valid JSON
-        let _json: serde_json::Value = serde_json::from_str(&response.graphql_response).unwrap();
-    }
-
     /// Also tests against the network subgraph, but using the `subgraph_query_raw` method
     #[tokio::test]
     async fn test_subgraph_query() {
         let mock_server = mock_graph_node_server().await;
 
-        let graph_node = GraphNodeInstance::new(&mock_server.uri(), NETWORK_SUBGRAPH_ID);
+        let graph_node = GraphNodeInstance::new(&mock_server.uri());
 
         let query = r#"
             query {
