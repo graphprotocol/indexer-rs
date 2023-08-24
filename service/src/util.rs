@@ -1,15 +1,19 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use ethereum_types::Address;
+use ethereum_types::U256;
 use ethers::signers::{
     coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
 };
 use ethers_core::k256::ecdsa::SigningKey;
 use lazy_static::lazy_static;
+use native::attestation::AttestationSigner;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+
 use tokio::signal;
 use toml::Value;
 use tracing::{
@@ -92,6 +96,25 @@ pub fn public_key(value: &str) -> Result<String, WalletError> {
     let addr = wallet_address(&wallet);
     info!(address = addr, "Resolved Graphcast id");
     Ok(addr)
+}
+
+/// Helper for creating an AttestationSigner
+pub fn create_attestation_signer(
+    chain_id: U256,
+    dispute_manager_address: Address,
+    signer: SigningKey,
+    deployment_id: [u8; 32],
+) -> anyhow::Result<AttestationSigner> {
+    // Tedious conversions to the "indexer_native" types
+    let mut chain_id_bytes = [0u8; 32];
+    chain_id.to_big_endian(&mut chain_id_bytes);
+    let signer = AttestationSigner::new(
+        eip_712_derive::U256(chain_id_bytes),
+        Into::<[u8; 20]>::into(dispute_manager_address),
+        secp256k1::SecretKey::from_slice(&signer.to_bytes())?,
+        deployment_id,
+    );
+    Ok(signer)
 }
 
 /// Sets up tracing, allows log level to be set from the environment variables

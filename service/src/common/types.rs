@@ -35,7 +35,7 @@ impl ToString for SubgraphName {
 }
 
 /// Subgraph identifier type: SubgraphDeploymentID with field 'value'
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SubgraphDeploymentID {
     // bytes32 subgraph deployment Id
     value: [u8; 32],
