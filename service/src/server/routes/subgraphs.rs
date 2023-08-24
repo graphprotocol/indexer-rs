@@ -12,6 +12,7 @@ use tracing::trace;
 
 use crate::{
     common::types::SubgraphDeploymentID,
+    metrics,
     query_processor::FreeQuery,
     server::{
         routes::{bad_request_response, response_body_to_query_string},
@@ -29,11 +30,28 @@ pub async fn subgraph_queries(
 ) -> impl IntoResponse {
     let (parts, body) = req.into_parts();
 
+    // Initialize id into a subgraph deployment ID
+    let subgraph_deployment_id = match SubgraphDeploymentID::new(id.as_str()) {
+        Ok(id) => id,
+        Err(e) => return bad_request_response(&e.to_string()),
+    };
+    let deployment_label = subgraph_deployment_id.ipfs_hash();
+
+    let query_duration_timer = metrics::QUERY_DURATION
+        .with_label_values(&[&deployment_label])
+        .start_timer();
+    metrics::QUERIES
+        .with_label_values(&[&deployment_label])
+        .inc();
     // Extract scalar receipt from header and free query auth token for paid or free query
     let receipt = if let Some(receipt) = parts.headers.get("scalar-receipt") {
         match receipt.to_str() {
             Ok(r) => Some(r),
             Err(_) => {
+                query_duration_timer.observe_duration();
+                metrics::QUERIES_WITH_INVALID_RECEIPT_HEADER
+                    .with_label_values(&[&deployment_label])
+                    .inc();
                 return bad_request_response("Bad scalar receipt for subgraph query");
             }
         }
@@ -57,13 +75,10 @@ pub async fn subgraph_queries(
 
     let query_string = match response_body_to_query_string(body).await {
         Ok(q) => q,
-        Err(e) => return bad_request_response(&e.to_string()),
-    };
-
-    // Initialize id into a subgraph deployment ID
-    let subgraph_deployment_id = match SubgraphDeploymentID::new(id.as_str()) {
-        Ok(id) => id,
-        Err(e) => return bad_request_response(&e.to_string()),
+        Err(e) => {
+            query_duration_timer.observe_duration();
+            return bad_request_response(&e.to_string());
+        }
     };
 
     if free {
@@ -78,7 +93,7 @@ pub async fn subgraph_queries(
             .execute_free_query(free_query)
             .await
             .expect("Failed to execute free query");
-
+        query_duration_timer.observe_duration();
         match res.status {
             200 => (StatusCode::OK, Json(res.result)).into_response(),
             _ => bad_request_response("Bad response from Graph node"),
@@ -97,13 +112,28 @@ pub async fn subgraph_queries(
             .await
             .expect("Failed to execute paid query");
 
+        query_duration_timer.observe_duration();
         match res.status {
-            200 => (StatusCode::OK, Json(res.result)).into_response(),
-            _ => bad_request_response("Bad response from Graph node"),
+            200 => {
+                metrics::SUCCESSFUL_QUERIES
+                    .with_label_values(&[&deployment_label])
+                    .inc();
+                (StatusCode::OK, Json(res.result)).into_response()
+            }
+            _ => {
+                metrics::FAILED_QUERIES
+                    .with_label_values(&[&deployment_label])
+                    .inc();
+                bad_request_response("Bad response from Graph node")
+            }
         }
     } else {
         // TODO: emit IndexerErrorCode::IE030 on missing receipt
         let error_body = "Query request header missing scalar-receipts or incorrect auth token";
+        metrics::QUERIES_WITHOUT_RECEIPT
+            .with_label_values(&[&deployment_label])
+            .inc();
+        query_duration_timer.observe_duration();
         bad_request_response(error_body)
     }
 }
