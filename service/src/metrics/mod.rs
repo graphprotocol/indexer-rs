@@ -1,6 +1,5 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
-
 use autometrics::{encode_global_metrics, global_metrics_exporter};
 use axum::http::StatusCode;
 use axum::routing::get;
@@ -64,22 +63,6 @@ pub static QUERIES_WITH_INVALID_RECEIPT_HEADER: Lazy<IntCounterVec> = Lazy::new(
     m
 });
 
-pub static QUERIES_WITH_INVALID_RECEIPT_VALUE: Lazy<IntCounterVec> = Lazy::new(|| {
-    let m = IntCounterVec::new(
-        Opts::new(
-            "queriesWithInvalidReceiptValue",
-            "Queries that failed executing because they came with an invalid receipt value",
-        )
-        .namespace("indexer")
-        .subsystem("service"),
-        &["deployment"],
-    )
-    .expect("Failed to create queriesWithInvalidReceiptValue counters");
-    prometheus::register(Box::new(m.clone()))
-        .expect("Failed to register queriesWithInvalidReceiptValue counter");
-    m
-});
-
 pub static QUERIES_WITHOUT_RECEIPT: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
         Opts::new(
@@ -93,47 +76,6 @@ pub static QUERIES_WITHOUT_RECEIPT: Lazy<IntCounterVec> = Lazy::new(|| {
     .expect("Failed to create queriesWithoutReceipt counters");
     prometheus::register(Box::new(m.clone()))
         .expect("Failed to register queriesWithoutReceipt counter");
-    m
-});
-
-pub static CHANNEL_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
-    let m = IntCounterVec::new(
-        Opts::new("channelMessages", "Incoming channel messages")
-            .namespace("indexer")
-            .subsystem("service"),
-        &["deployment"],
-    )
-    .expect("Failed to create channelMessages counters");
-    prometheus::register(Box::new(m.clone())).expect("Failed to register channelMessages counter");
-    m
-});
-
-pub static SUCCESSFUL_CHANNEL_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
-    let m = IntCounterVec::new(
-        Opts::new(
-            "successfulChannelMessages",
-            "Successfully handled channel messages",
-        )
-        .namespace("indexer")
-        .subsystem("service"),
-        &["deployment"],
-    )
-    .expect("Failed to create successfulChannelMessages counters");
-    prometheus::register(Box::new(m.clone()))
-        .expect("Failed to register successfulChannelMessages counter");
-    m
-});
-
-pub static FAILED_CHANNEL_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
-    let m = IntCounterVec::new(
-        Opts::new("failedChannelMessages", "Failed channel messages")
-            .namespace("indexer")
-            .subsystem("service"),
-        &["deployment"],
-    )
-    .expect("Failed to create failedChannelMessages counters");
-    prometheus::register(Box::new(m.clone()))
-        .expect("Failed to register failedChannelMessages counter");
     m
 });
 
@@ -151,24 +93,6 @@ pub static QUERY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .expect("Failed to create query_duration histograms");
     prometheus::register(Box::new(m.clone())).expect("Failed to register query_duration counter");
-    m
-});
-
-#[allow(dead_code)]
-pub static CHANNEL_MESSAGE_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
-    let m = HistogramVec::new(
-        HistogramOpts::new(
-            "channel_message_duration",
-            "Duration of processing channel messages",
-        )
-        .namespace("indexer")
-        .subsystem("service")
-        .buckets(linear_buckets(0.0, 1.0, 20).unwrap()),
-        &["deployment"],
-    )
-    .expect("Failed to create channel_message_duration histograms");
-    prometheus::register(Box::new(m.clone()))
-        .expect("Failed to register channel_message_duration counter");
     m
 });
 
@@ -207,13 +131,8 @@ pub fn start_metrics() {
             Box::new(SUCCESSFUL_QUERIES.clone()),
             Box::new(FAILED_QUERIES.clone()),
             Box::new(QUERIES_WITH_INVALID_RECEIPT_HEADER.clone()),
-            Box::new(QUERIES_WITH_INVALID_RECEIPT_VALUE.clone()),
             Box::new(QUERIES_WITHOUT_RECEIPT.clone()),
-            Box::new(CHANNEL_MESSAGES.clone()),
-            Box::new(SUCCESSFUL_CHANNEL_MESSAGES.clone()),
-            Box::new(FAILED_CHANNEL_MESSAGES.clone()),
             Box::new(QUERY_DURATION.clone()),
-            Box::new(CHANNEL_MESSAGE_DURATION.clone()),
             Box::new(INDEXER_ERROR.clone()),
         ],
     );
