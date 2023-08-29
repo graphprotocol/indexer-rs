@@ -368,9 +368,6 @@ mod tests {
         let network_subgraph_id =
             std::env::var("NETWORK_SUBGRAPH_ID").expect("NETWORK_SUBGRAPH_ID not set");
         let indexer_address = std::env::var("INDEXER_ADDRESS").expect("INDEXER_ADDRESS not set");
-        // If you don't specify the correct mnemonic, the attestation signers won't be found
-        let _indexer_mnemonic =
-            std::env::var("INDEXER_MNEMONIC").expect("INDEXER_MNEMONIC not set");
 
         let network_subgraph_endpoint =
             NetworkSubgraph::local_deployment_endpoint(&graph_node_url, &network_subgraph_id);
