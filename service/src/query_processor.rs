@@ -7,7 +7,7 @@ use native::attestation::AttestationSigner;
 use serde::{Deserialize, Serialize};
 use tap_core::tap_manager::SignedReceipt;
 
-use crate::allocation_monitor::AllocationMonitor;
+use crate::attestation_signers::AttestationSigners;
 use crate::common::types::SubgraphDeploymentID;
 use crate::graph_node::GraphNodeInstance;
 
@@ -62,17 +62,17 @@ pub enum QueryError {
 #[derive(Debug, Clone)]
 pub struct QueryProcessor {
     graph_node: GraphNodeInstance,
-    allocation_monitor: AllocationMonitor,
+    attestation_signers: AttestationSigners,
 }
 
 impl QueryProcessor {
     pub fn new(
         graph_node: GraphNodeInstance,
-        allocation_monitor: AllocationMonitor,
+        attestation_signers: AttestationSigners,
     ) -> QueryProcessor {
         QueryProcessor {
             graph_node,
-            allocation_monitor,
+            attestation_signers,
         }
     }
 
@@ -109,7 +109,7 @@ impl QueryProcessor {
 
         // TODO: Handle the TAP receipt
 
-        let signers = self.allocation_monitor.get_attestation_signers().await;
+        let signers = self.attestation_signers.read().await;
         let signer = signers.get(&allocation_id).ok_or_else(|| {
             QueryError::Other(anyhow::anyhow!(
                 "No signer found for allocation id {}",

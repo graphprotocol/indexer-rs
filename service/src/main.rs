@@ -37,6 +37,7 @@ use crate::{
 use server::{routes, ServerOptions};
 
 mod allocation_monitor;
+mod attestation_signers;
 mod common;
 mod config;
 mod graph_node;
@@ -45,6 +46,9 @@ mod model;
 mod query_processor;
 mod server;
 mod util;
+
+#[cfg(test)]
+mod test_vectors;
 
 /// Create Indexer service App
 ///
@@ -88,18 +92,22 @@ async fn main() -> Result<(), std::io::Error> {
         config.ethereum.indexer_address,
         1,
         1000,
+    )
+    .await
+    .expect("Initialize allocation monitor");
+
+    let attestation_signers = attestation_signers::AttestationSigners::new(
+        allocation_monitor.clone(),
         config.ethereum.mnemonic.clone(),
         // TODO: Chain ID should be a config
         U256::from(1),
         // TODO: Dispute manager address should be a config
         Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
-    )
-    .await
-    .expect("Initialize allocation monitor");
+    );
 
     // Proper initiation of server, query processor
     // server health check, graph-node instance connection check
-    let query_processor = QueryProcessor::new(graph_node.clone(), allocation_monitor.clone());
+    let query_processor = QueryProcessor::new(graph_node.clone(), attestation_signers.clone());
 
     // Start indexer service basic metrics
     tokio::spawn(handle_serve_metrics(
