@@ -1,25 +1,31 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use diesel::pg::PgConnection;
-use diesel::prelude::*;
-use diesel::r2d2::{ConnectionManager, Pool};
-use dotenvy::dotenv;
-use std::env;
+use sqlx::{postgres::PgPoolOptions, PgPool};
 
-pub type PgPool = Pool<ConnectionManager<PgConnection>>;
+use std::time::Duration;
+use tracing::debug;
 
-pub fn establish_connection() -> PgConnection {
-    dotenv().ok();
+use crate::config;
 
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    PgConnection::establish(&database_url)
-        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
-}
+pub async fn connect(config: &config::Postgres) -> PgPool {
+    let url = format!(
+        "postgresql://{}:{}@{}:{}/{}",
+        config.postgres_username,
+        config.postgres_password,
+        config.postgres_host,
+        config.postgres_port,
+        config.postgres_database
+    );
 
-pub(crate) fn create_pg_pool(database_url: &str) -> PgPool {
-    let manager = ConnectionManager::<PgConnection>::new(database_url);
-    Pool::builder()
-        .build(manager)
-        .expect("Failed to create pool")
+    std::env::set_var("DATABASE_URL", &url);
+
+    debug!("Connecting to database");
+
+    PgPoolOptions::new()
+        .max_connections(50)
+        .acquire_timeout(Duration::from_secs(3))
+        .connect(&url)
+        .await
+        .expect("Could not connect to DATABASE_URL")
 }

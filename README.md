@@ -190,4 +190,19 @@ Ready to roll!
 ✗ curl -X POST -H 'Content-Type: application/json' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/status 
 {"errors":[{"locations":[{"line":1,"column":2}],"message":"Type `Query` has no field `_meta`"}]}%              
 
+######## Cost server - read-only graphql query
+curl -X GET -H 'Content-Type: application/json' --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\") { deployment model variables }} "}' http://localhost:7300/cost
+
+curl -X GET -H 'Content-Type: application/json' --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\") { deployment model variables }} "}' http://localhost:7300/cost
+{"data":{"costModel":{"deployment":"0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea","model":"default => 0.00025;","variables":null}}}%
+
+curl -X GET -H 'Content-Type: application/json' --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vas\") { deployment model variables }} "}' http://localhost:7300/cost
+{"data":{"costModel":null}}%
+
+curl -X GET -H 'Content-Type: application/json' --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\") { deployment odel variables }} "}' http://localhost:7300/cost 
+{"errors":[{"message":"Cannot query field \"odel\" on type \"CostModel\". Did you mean \"model\"?","locations":[{"line":1,"column":88}]}]}%     
+
+curl -X GET -H 'Content-Type: application/json' --data '{"query": "{ costModels(deployments: [\"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\"]) { deployment model variables }} "}' http://localhost:7300/cost
+{"data":{"costModels":[{"deployment":"0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea","model":"default => 0.00025;","variables":null}]}}%
+
 ```

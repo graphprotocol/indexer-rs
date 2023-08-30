@@ -11,6 +11,7 @@ use hyper::http::HeaderName;
 use tower::limit::RateLimitLayer;
 
 pub mod basic;
+pub mod cost;
 pub mod deployment;
 pub mod network;
 pub mod status;
