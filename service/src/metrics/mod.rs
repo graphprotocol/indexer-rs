@@ -122,7 +122,6 @@ pub fn register_metrics(registry: &Registry, metrics: Vec<Box<dyn Collector>>) {
 }
 
 /// Start the basic metrics for indexer services
-///
 #[allow(dead_code)]
 pub fn start_metrics() {
     register_metrics(

@@ -11,9 +11,8 @@ use axum::{
 use axum::{routing::post, Extension, Router, Server};
 use dotenvy::dotenv;
 use ethereum_types::{Address, U256};
-use model::QueryRoot;
 
-use std::{net::SocketAddr, str::FromStr, time::Duration};
+use std::{net::SocketAddr, str::FromStr, time::Duration, env};
 use tower::{BoxError, ServiceBuilder};
 use tower_http::{
     add_extension::AddExtensionLayer,
@@ -26,13 +25,14 @@ use util::{package_version, shutdown_signal};
 
 use crate::{
     common::network_subgraph::NetworkSubgraph,
+    common::{database, indexer_management_client::IndexerManagementClient},
     config::Cli,
     metrics::handle_serve_metrics,
+    model::schema::QueryRoot,
     query_processor::QueryProcessor,
     server::routes::{network_ratelimiter, slow_ratelimiter},
     util::public_key,
 };
-// use server::{ServerOptions, index, subgraph_queries, network_queries};
 
 use server::{routes, ServerOptions};
 
@@ -114,18 +114,25 @@ async fn main() -> Result<(), std::io::Error> {
         String::from("0.0.0.0"),
         config.indexer_infrastructure.metrics_port,
     ));
+
+    // Establish Database connection necessary for serving indexer management
+    // requests with defined schema
+    let database = database::connect(&config.postgres).await;
+    let indexer_management_client = IndexerManagementClient::new(database).await;
     let service_options = ServerOptions::new(
         Some(config.indexer_infrastructure.port),
         release,
         query_processor,
         config.indexer_infrastructure.free_query_auth_token,
         config.indexer_infrastructure.graph_node_status_endpoint,
+        indexer_management_client,
         public_key(&config.ethereum.mnemonic).expect("Failed to initiate with operator wallet"),
         network_subgraph,
         config.network_subgraph.network_subgraph_auth_token,
         config.network_subgraph.serve_network_subgraph,
     );
 
+    //defineCostModelModels
     let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription).finish();
 
     info!("Initialized server options");
@@ -143,7 +150,12 @@ async fn main() -> Result<(), std::io::Error> {
             get(routes::deployment::deployment_health
                 .layer(AddExtensionLayer::new(slow_ratelimiter()))),
         )
-        // TODO: Add public cost API
+        .route(
+            "/cost",
+            post(routes::cost::graphql_handler)
+                .get(routes::cost::graphql_handler)
+                .layer(AddExtensionLayer::new(slow_ratelimiter())),
+        )
         .nest(
             "/operator",
             routes::basic::create_operator_server(service_options.clone())
