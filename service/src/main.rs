@@ -12,7 +12,7 @@ use axum::{routing::post, Extension, Router, Server};
 use dotenvy::dotenv;
 use ethereum_types::{Address, U256};
 
-use std::{net::SocketAddr, str::FromStr, time::Duration, env};
+use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tower::{BoxError, ServiceBuilder};
 use tower_http::{
     add_extension::AddExtensionLayer,
@@ -25,10 +25,12 @@ use util::{package_version, shutdown_signal};
 
 use crate::{
     common::network_subgraph::NetworkSubgraph,
-    common::{database, indexer_management_client::IndexerManagementClient},
+    common::{
+        database,
+        indexer_management_client::{schema::QueryRoot, IndexerManagementClient},
+    },
     config::Cli,
     metrics::handle_serve_metrics,
-    model::schema::QueryRoot,
     query_processor::QueryProcessor,
     server::routes::{network_ratelimiter, slow_ratelimiter},
     util::public_key,
@@ -42,7 +44,6 @@ mod common;
 mod config;
 mod graph_node;
 mod metrics;
-mod model;
 mod query_processor;
 mod server;
 mod util;
@@ -117,6 +118,11 @@ async fn main() -> Result<(), std::io::Error> {
 
     // Establish Database connection necessary for serving indexer management
     // requests with defined schema
+    // Note: Typically, you'd call `sqlx::migrate!();` here to sync the models
+    // which defaults to files in  "./migrations" to sync the database;
+    // however, this can cause conflicts with the migrations run by indexer
+    // agent. Hence we leave syncing and migrating entirely to the agent and
+    // assume the models are up to date in the service.
     let database = database::connect(&config.postgres).await;
     let indexer_management_client = IndexerManagementClient::new(database).await;
     let service_options = ServerOptions::new(

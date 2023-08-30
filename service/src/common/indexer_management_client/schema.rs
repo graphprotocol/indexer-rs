@@ -1,12 +1,15 @@
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
-use sqlx::{Pool, Postgres};
-use std::sync::Arc;
-use thiserror::Error;
 
-use crate::server::ServerOptions;
+use crate::{
+    common::indexer_error::{IndexerError, IndexerErrorCause, IndexerErrorCode},
+    server::ServerOptions,
+};
 
 use super::resolver;
 
@@ -16,6 +19,8 @@ pub struct CostModel {
     pub model: Option<String>,
     pub variables: Option<Value>,
 }
+
+unsafe impl Send for CostModel {}
 
 pub type CostSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 
@@ -31,13 +36,18 @@ impl QueryRoot {
         &self,
         ctx: &Context<'_>,
         deployments: Vec<String>,
-    ) -> Result<Vec<CostModel>, HttpServiceError> {
+    ) -> Result<Vec<CostModel>, IndexerError> {
         let pool = ctx
             .data_unchecked::<ServerOptions>()
             .indexer_management_client
             .database();
 
-        let models: Vec<CostModel> = resolver::cost_models(pool, deployments).await?;
+        let models: Vec<CostModel> =
+            resolver::cost_models(pool, &deployments)
+                .await
+                .map_err(|e| {
+                    IndexerError::new(IndexerErrorCode::IE025, Some(IndexerErrorCause::new(e)))
+                })?;
         Ok(models)
     }
 
@@ -45,21 +55,15 @@ impl QueryRoot {
         &self,
         ctx: &Context<'_>,
         deployment: String,
-    ) -> Result<Option<CostModel>, HttpServiceError> {
+    ) -> Result<Option<CostModel>, IndexerError> {
         let pool = ctx
             .data_unchecked::<ServerOptions>()
             .indexer_management_client
             .database();
 
-        let model = resolver::cost_model(pool, &deployment).await?;
+        let model = resolver::cost_model(pool, &deployment).await.map_err(|e| {
+            IndexerError::new(IndexerErrorCode::IE025, Some(IndexerErrorCause::new(e)))
+        })?;
         Ok(model)
     }
-}
-
-#[derive(Error, Debug)]
-pub enum HttpServiceError {
-    #[error("HTTP client error: {0}")]
-    HttpClientError(#[from] reqwest::Error),
-    #[error("{0}")]
-    Others(#[from] anyhow::Error),
 }

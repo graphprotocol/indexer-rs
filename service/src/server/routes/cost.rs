@@ -1,17 +1,10 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use async_graphql::http::{playground_source, GraphQLPlaygroundConfig};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
-use axum::{
-    extract::Extension,
-    response::{Html, IntoResponse},
-};
+use axum::extract::Extension;
 
-use std::sync::Arc;
-use tracing::trace;
-
-use crate::{model::schema::CostSchema, server::ServerOptions};
+use crate::{common::indexer_management_client::schema::CostSchema, server::ServerOptions};
 
 pub(crate) async fn graphql_handler(
     req: GraphQLRequest,
