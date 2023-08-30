@@ -20,7 +20,12 @@ pub async fn connect(config: &config::Postgres) -> PgPool {
 
     std::env::set_var("DATABASE_URL", &url);
 
-    debug!("Connecting to database");
+    debug!(
+        postgres_host = tracing::field::debug(&config.postgres_host),
+        postgres_port = tracing::field::debug(&config.postgres_port),
+        postgres_database = tracing::field::debug(&config.postgres_database),
+        "Connecting to database"
+    );
 
     PgPoolOptions::new()
         .max_connections(50)

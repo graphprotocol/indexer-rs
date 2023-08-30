@@ -1,10 +1,14 @@
-use sqlx::{PgPool, Pool, Postgres};
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
+use sqlx::PgPool;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::database::{self};
+pub mod resolver;
+pub mod schema;
 
 /// Indexer management client
 ///

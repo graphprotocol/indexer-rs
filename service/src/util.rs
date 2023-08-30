@@ -7,11 +7,11 @@ use ethers::signers::{
     coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
 };
 use ethers_core::k256::ecdsa::SigningKey;
-use lazy_static::lazy_static;
+
 use native::attestation::AttestationSigner;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::env;
+
 use std::fs;
 
 use tokio::signal;
@@ -23,11 +23,6 @@ use tracing::{
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::common::indexer_error::{indexer_error, IndexerError};
-
-lazy_static! {
-    pub static ref DATABASE_URL: String =
-        env::var("DATABASE_URL").expect("DATABASE_URL is not set");
-}
 
 /// Struct for version control
 #[derive(Serialize, Debug, Clone)]

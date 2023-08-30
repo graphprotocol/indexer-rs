@@ -7,6 +7,8 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
 - switching from actix-web to `axum` for the service server
 - App profiling should utilize `perf`, flamegraphs or cpu profilers, and benches to track and collect performance data. The typescript implementation uses `gcloud-profile`
 - Consider replacing and adding parts from TAP manager
+- `postgres` database connection required to indexer management server database, shared with the indexer agent
+- No migration in indexer service as it might introduce conflicts to the database; indexer agent is solely responsible for database management.
 
 > Don't know if receipt validation is actually correct, need testing
 
@@ -16,8 +18,8 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
   - [x] basic structure
   - [x] CORS
   - [x] timeouts
-  - [ ] Rate limiting levels
-  - [ ] Logger stream
+  - [x] Rate limiting levels
+  - [x] Logger stream
 - [ ] Query processor
   - [x] graph node query endpoint at specific subgraph path
   - [x] wrap request to and response from graph node
@@ -53,9 +55,10 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
 - [ ] Status server 
   - [x] indexing status resolver - to query indexingStatuses
   - [ ] Filter for unsupported queries
-- [ ] Cost server
-  - [ ] Cost graphQL schema
-  - [ ] query indexer management client for Cost model
+- [x] Cost server
+  - [x] Simple indexer management client to track postgres connection and network subgraph endpoint.
+  - [x] serve queries with defined graphQL schema and psql resolvers to database: `costModel(deployment)` and `costModels(deployments)`. If deployments is empty, all cost models are returned.
+  - [x] Global cost model fallback used when specific deployments are queried
 - [x] Constant service paths
   - [x] health
   - [x] ready to roll
@@ -74,6 +77,11 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
 ### Indexer common components
 
 Temporarily live inside the indexer-service package under `src/common`.
+- Simple indexer management client to track NetworkSubgraph and postgres connection.
+- ....
+- Keeps cost model schema and resolvers with postgres and graphQL types: `costModel(deployment)` and `costModels(deployments)`. If deployments is empty, all cost models are returned.
+  - Global cost model fallback used when specific deployments are queried
+  - No migration in indexer service as it might introduce conflicts to the database; indexer agent is solely responsible for database management.
 
 
 ### Indexer native dependency
