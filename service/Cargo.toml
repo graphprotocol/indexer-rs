@@ -60,6 +60,7 @@ tap_core = "0.3.0"
 ethereum-types = "0.14.1"
 
 [dev-dependencies]
+faux = "0.1.10"
 hex-literal = "0.4.1"
 test-log = "0.2.12"
 wiremock = "0.5.19"
