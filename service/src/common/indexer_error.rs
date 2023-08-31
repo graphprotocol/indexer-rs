@@ -85,6 +85,7 @@ pub enum IndexerErrorCode {
     IE073,
     IE074,
     IE075,
+    IE076,
 }
 
 impl fmt::Display for IndexerErrorCode {
@@ -165,6 +166,7 @@ impl fmt::Display for IndexerErrorCode {
             IndexerErrorCode::IE073 => write!(f, "IE073"),
             IndexerErrorCode::IE074 => write!(f, "IE074"),
             IndexerErrorCode::IE075 => write!(f, "IE075"),
+            IndexerErrorCode::IE076 => write!(f, "IE076"),
         }
     }
 }
@@ -249,6 +251,7 @@ impl IndexerErrorCode {
             Self::IE073 => "Failed to query subgraph features from indexing statuses endpoint",
             Self::IE074 => "Failed to resolve the release version",
             Self::IE075 => "Failed to parse response body to query string",
+            Self::IE076 => "Database read failed",
         }
     }
 

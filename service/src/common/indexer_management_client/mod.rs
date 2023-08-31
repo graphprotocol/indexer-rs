@@ -4,26 +4,19 @@
 use sqlx::PgPool;
 
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 pub mod resolver;
 pub mod schema;
 
+// Unified query object for resolvers
+#[derive(Default)]
+pub struct QueryRoot;
+
 /// Indexer management client
-///
-/// This is Arc internally, so it can be cloned and shared between threads.
 #[derive(Debug, Clone)]
 pub struct IndexerManagementClient {
-    database: PgPool,
+    database: PgPool, // Only referenced
     client: Client, // it is Arc
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct GraphQLQuery {
-    pub query: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub variables: Option<Value>,
 }
 
 impl IndexerManagementClient {

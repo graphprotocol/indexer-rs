@@ -77,12 +77,13 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
 ### Indexer common components
 
 Temporarily live inside the indexer-service package under `src/common`.
-- Simple indexer management client to track NetworkSubgraph and postgres connection.
-- ....
+
+Simple indexer management client to track NetworkSubgraph and postgres connection.
+- NetworkSubgraph instance track both remote API endpoint and local deployment query endpoint. 
+  - TODO: query indexing status of local deployment, only use remote API as fallback.
 - Keeps cost model schema and resolvers with postgres and graphQL types: `costModel(deployment)` and `costModels(deployments)`. If deployments is empty, all cost models are returned.
   - Global cost model fallback used when specific deployments are queried
-  - No migration in indexer service as it might introduce conflicts to the database; indexer agent is solely responsible for database management.
-
+- No database migration in indexer service as it might introduce schema conflicts; indexer agent is solely responsible for database management.
 
 ### Indexer native dependency
 

@@ -18,8 +18,6 @@ pub async fn connect(config: &config::Postgres) -> PgPool {
         config.postgres_database
     );
 
-    std::env::set_var("DATABASE_URL", &url);
-
     debug!(
         postgres_host = tracing::field::debug(&config.postgres_host),
         postgres_port = tracing::field::debug(&config.postgres_port),
