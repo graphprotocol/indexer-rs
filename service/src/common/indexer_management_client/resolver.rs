@@ -4,14 +4,17 @@
 use sqlx::PgPool;
 
 use super::schema::CostModel;
-use crate::common::types::SubgraphDeploymentID;
+use crate::common::{
+    indexer_error::{IndexerError, IndexerErrorCause, IndexerErrorCode},
+    types::SubgraphDeploymentID,
+};
 
 /// Query postgres indexer management server's cost models
 /// Filter on deployments if it is not empty, otherwise return all cost models
 pub async fn cost_models(
     pool: &PgPool,
     deployments: &[String],
-) -> Result<Vec<CostModel>, anyhow::Error> {
+) -> Result<Vec<CostModel>, IndexerError> {
     let deployment_ids = deployments
         .iter()
         .map(|d| SubgraphDeploymentID::new(d).unwrap().to_string())
@@ -26,7 +29,8 @@ pub async fn cost_models(
     "#
         )
         .fetch_all(pool)
-        .await?
+        .await
+        .map_err(|e| IndexerError::new(IndexerErrorCode::IE076, Some(IndexerErrorCause::new(e))))?
     } else {
         sqlx::query_as!(
             CostModel,
@@ -39,7 +43,8 @@ pub async fn cost_models(
             &deployment_ids
         )
         .fetch_all(pool)
-        .await?
+        .await
+        .map_err(|e| IndexerError::new(IndexerErrorCode::IE076, Some(IndexerErrorCause::new(e))))?
     };
 
     // Merge deployment cost models with global cost model
@@ -77,7 +82,7 @@ pub async fn cost_models(
 pub async fn cost_model(
     pool: &PgPool,
     deployment: &str,
-) -> Result<Option<CostModel>, anyhow::Error> {
+) -> Result<Option<CostModel>, IndexerError> {
     let deployment_id = SubgraphDeploymentID::new(deployment).unwrap().to_string();
     let model = sqlx::query_as!(
         CostModel,
@@ -89,7 +94,8 @@ pub async fn cost_model(
         deployment_id
     )
     .fetch_optional(pool)
-    .await?;
+    .await
+    .map_err(|e| IndexerError::new(IndexerErrorCode::IE076, Some(IndexerErrorCause::new(e))))?;
 
     // Fallback with global cost model
     let model = if let Some(global) = global_cost_model(pool).await? {
@@ -114,7 +120,7 @@ pub async fn cost_model(
 }
 
 /// Query global cost model
-pub async fn global_cost_model(pool: &PgPool) -> Result<Option<CostModel>, anyhow::Error> {
+pub async fn global_cost_model(pool: &PgPool) -> Result<Option<CostModel>, IndexerError> {
     let model = sqlx::query_as!(
         CostModel,
         r#"
@@ -125,7 +131,8 @@ pub async fn global_cost_model(pool: &PgPool) -> Result<Option<CostModel>, anyho
         "global"
     )
     .fetch_optional(pool)
-    .await?;
+    .await
+    .map_err(|e| IndexerError::new(IndexerErrorCode::IE076, Some(IndexerErrorCause::new(e))))?;
     Ok(model)
 }
 

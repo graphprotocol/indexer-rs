@@ -27,7 +27,7 @@ use crate::{
     common::network_subgraph::NetworkSubgraph,
     common::{
         database,
-        indexer_management_client::{schema::QueryRoot, IndexerManagementClient},
+        indexer_management_client::{IndexerManagementClient, QueryRoot},
     },
     config::Cli,
     metrics::handle_serve_metrics,

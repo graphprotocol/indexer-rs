@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT deployment, model, variables\n        FROM \"CostModels\"\n        ORDER BY deployment ASC\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "deployment",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "model",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "variables",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "7a3adab989a9552349dea7dbd52bcbdb40e034ee610c786a2111c493939e7e94"
+}
