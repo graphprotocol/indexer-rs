@@ -11,6 +11,5 @@ pub(crate) async fn graphql_handler(
     Extension(schema): Extension<CostSchema>,
     Extension(server_options): Extension<ServerOptions>,
 ) -> GraphQLResponse {
-    let response = async move { schema.execute(req.into_inner().data(server_options)).await }.await;
-    response.into()
+    schema.execute(req.into_inner().data(server_options)).await.into()
 }

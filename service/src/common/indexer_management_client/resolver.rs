@@ -10,7 +10,9 @@ use crate::common::{
 };
 
 /// Query postgres indexer management server's cost models
-/// Filter on deployments if it is not empty, otherwise return all cost models
+/// If specific deployments is provided, then global fallback is applied to all
+/// deployments regardless of its presence in the database. Otherwise, all cost
+/// models are returned without merging fields with the global cost model
 pub async fn cost_models(
     pool: &PgPool,
     deployments: &[String],
@@ -212,9 +214,9 @@ mod test {
     #[sqlx::test]
     #[ignore]
     async fn success_cost_models(pool: PgPool) {
-        _ = setup_cost_models_table(&pool).await;
+        setup_cost_models_table(&pool).await;
         let expected_models = simple_cost_models();
-        _ = add_cost_models(&pool, expected_models.clone()).await;
+        add_cost_models(&pool, expected_models.clone()).await;
         let res = cost_models(
             &pool,
             &["Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss".to_string()],
@@ -255,10 +257,10 @@ mod test {
     async fn global_fallback_cost_models(pool: PgPool) {
         let deployment_id =
             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string();
-        _ = setup_cost_models_table(&pool).await;
-        _ = add_cost_models(&pool, simple_cost_models()).await;
+        setup_cost_models_table(&pool).await;
+        add_cost_models(&pool, simple_cost_models()).await;
         let global = global_cost_model();
-        _ = add_cost_models(&pool, vec![global.clone()]).await;
+        add_cost_models(&pool, vec![global.clone()]).await;
         let res = cost_models(&pool, &[])
             .await
             .expect("Cost models query without deployments filter");
@@ -306,8 +308,8 @@ mod test {
     async fn success_cost_model(pool: PgPool) {
         let deployment_id = "0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea";
         let deployment_hash = "Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss".to_string();
-        _ = setup_cost_models_table(&pool).await;
-        _ = add_cost_models(&pool, simple_cost_models()).await;
+        setup_cost_models_table(&pool).await;
+        add_cost_models(&pool, simple_cost_models()).await;
         let res = cost_model(&pool, &deployment_hash)
             .await
             .expect("Cost model query")
@@ -320,8 +322,8 @@ mod test {
     #[ignore]
     async fn global_fallback_cost_model(pool: PgPool) {
         let deployment_hash = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        _ = setup_cost_models_table(&pool).await;
-        _ = add_cost_models(&pool, simple_cost_models()).await;
+        setup_cost_models_table(&pool).await;
+        add_cost_models(&pool, simple_cost_models()).await;
 
         let res = cost_model(&pool, deployment_hash)
             .await
@@ -330,7 +332,7 @@ mod test {
         assert!(res.is_none());
 
         let global = global_cost_model();
-        _ = add_cost_models(&pool, vec![global.clone()]).await;
+        add_cost_models(&pool, vec![global.clone()]).await;
 
         let res = cost_model(&pool, deployment_hash)
             .await

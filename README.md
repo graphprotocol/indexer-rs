@@ -14,7 +14,7 @@ Experimental rust impl for The Graph [indexer service](https://github.com/graphp
 
 ## Components checklist (basic, not extensive)
 
-- [ ] Server path routing
+- [x] Server path routing
   - [x] basic structure
   - [x] CORS
   - [x] timeouts
