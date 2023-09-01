@@ -26,4 +26,5 @@ jobs:
             -s=only \
             -ignore '.github/workflows/*.yml' \
             -ignore '.github/workflows/*.yaml' \
+            -ignore 'migrations/*.sql' \
             .

@@ -16,7 +16,7 @@ pub struct QueryRoot;
 #[derive(Debug, Clone)]
 pub struct IndexerManagementClient {
     database: PgPool, // Only referenced
-    client: Client, // it is Arc
+    client: Client,   // it is Arc
 }
 
 impl IndexerManagementClient {
