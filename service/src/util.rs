@@ -3,9 +3,7 @@
 
 use ethereum_types::Address;
 use ethereum_types::U256;
-use ethers::signers::{
-    coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
-};
+use ethers::signers::WalletError;
 use ethers_core::k256::ecdsa::SigningKey;
 
 use native::attestation::AttestationSigner;
@@ -22,6 +20,7 @@ use tracing::{
 };
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
+use crate::common::address::{build_wallet, wallet_address};
 use crate::common::indexer_error::{indexer_error, IndexerError};
 
 /// Struct for version control
@@ -71,17 +70,6 @@ pub fn package_version() -> Result<PackageVersion, IndexerError> {
 
         release
     })
-}
-
-pub fn build_wallet(value: &str) -> Result<Wallet<SigningKey>, WalletError> {
-    value
-        .parse::<LocalWallet>()
-        .or(MnemonicBuilder::<English>::default().phrase(value).build())
-}
-
-/// Get wallet public address to String
-pub fn wallet_address(wallet: &Wallet<SigningKey>) -> String {
-    format!("{:?}", wallet.address())
 }
 
 /// Validate that private key as an Eth wallet

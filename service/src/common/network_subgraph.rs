@@ -7,6 +7,7 @@ use reqwest::{header, Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::common::types::GraphQLQuery;
 use crate::query_processor::{QueryError, UnattestedQueryResult};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -22,13 +23,6 @@ pub struct Response<T> {
 pub struct NetworkSubgraph {
     client: Client, // it is Arc
     network_subgraph_url: Arc<Url>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct GraphQLQuery {
-    pub query: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub variables: Option<Value>,
 }
 
 impl NetworkSubgraph {

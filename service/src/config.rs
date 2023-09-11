@@ -14,7 +14,7 @@ use crate::{query_processor::QueryError, util::init_tracing};
     about = "Indexer service on top of graph node",
     author = "hopeyen"
 )]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None, arg_required_else_help = true)]
 pub struct Cli {
     #[command(flatten)]
     pub ethereum: Ethereum,
