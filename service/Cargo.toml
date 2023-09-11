@@ -3,6 +3,7 @@ name = "service"
 version = "0.1.0"
 edition = "2021"
 description="Could not find crate on crates.io and could not import with git and path at the same time, so copied a version directly at https://github.com/graphprotocol/indexer/blob/972658b3ce8c512ad7b4dc575d29cd9d5377e3fe/packages/indexer-native/native"
+license = "Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
