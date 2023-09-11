@@ -2,24 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use axum::{
-    error_handling::HandleErrorLayer,
-    handler::Handler,
-    http::{Method, StatusCode},
-    routing::get,
-};
-use axum::{routing::post, Extension, Router, Server};
+use axum::Server;
 use dotenvy::dotenv;
 use ethereum_types::{Address, U256};
 
-use std::{net::SocketAddr, str::FromStr, time::Duration};
-use tower::{BoxError, ServiceBuilder};
-use tower_http::{
-    add_extension::AddExtensionLayer,
-    cors::CorsLayer,
-    trace::{self, TraceLayer},
-};
-use tracing::{info, Level};
+use std::{net::SocketAddr, str::FromStr};
+
+use tracing::info;
 
 use util::{package_version, shutdown_signal};
 
@@ -32,11 +21,11 @@ use crate::{
     config::Cli,
     metrics::handle_serve_metrics,
     query_processor::QueryProcessor,
-    server::routes::{network_ratelimiter, slow_ratelimiter},
+    server::create_server,
     util::public_key,
 };
 
-use server::{routes, ServerOptions};
+use server::ServerOptions;
 
 mod allocation_monitor;
 mod attestation_signers;
@@ -138,68 +127,11 @@ async fn main() -> Result<(), std::io::Error> {
         config.network_subgraph.serve_network_subgraph,
     );
 
-    //defineCostModelModels
+    // defineCostModelModels
     let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription).finish();
 
     info!("Initialized server options");
-    let app = Router::new()
-        .route("/", get(routes::basic::index))
-        .route("/health", get(routes::basic::health))
-        .route("/version", get(routes::basic::version))
-        .route(
-            "/status",
-            post(routes::status::status_queries)
-                .layer(AddExtensionLayer::new(network_ratelimiter())),
-        )
-        .route(
-            "/subgraphs/health/:deployment",
-            get(routes::deployment::deployment_health
-                .layer(AddExtensionLayer::new(slow_ratelimiter()))),
-        )
-        .route(
-            "/cost",
-            post(routes::cost::graphql_handler)
-                .get(routes::cost::graphql_handler)
-                .layer(AddExtensionLayer::new(slow_ratelimiter())),
-        )
-        .nest(
-            "/operator",
-            routes::basic::create_operator_server(service_options.clone())
-                .layer(AddExtensionLayer::new(slow_ratelimiter())),
-        )
-        .route(
-            "/network",
-            post(routes::network::network_queries)
-                .layer(AddExtensionLayer::new(network_ratelimiter())),
-        )
-        .route(
-            "/subgraphs/id/:id",
-            post(routes::subgraphs::subgraph_queries),
-        )
-        .layer(Extension(schema))
-        .layer(Extension(service_options.clone()))
-        .layer(CorsLayer::new().allow_methods([Method::GET, Method::POST]))
-        .layer(
-            // Handle error for timeout, ratelimit, or a general internal server error
-            ServiceBuilder::new()
-                .layer(HandleErrorLayer::new(|error: BoxError| async move {
-                    if error.is::<tower::timeout::error::Elapsed>() {
-                        Ok(StatusCode::REQUEST_TIMEOUT)
-                    } else {
-                        Err((
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("Unhandled internal error: {}", error),
-                        ))
-                    }
-                }))
-                .layer(
-                    TraceLayer::new_for_http()
-                        .make_span_with(trace::DefaultMakeSpan::new().level(Level::DEBUG))
-                        .on_response(trace::DefaultOnResponse::new().level(Level::DEBUG)),
-                )
-                .timeout(Duration::from_secs(10))
-                .into_inner(),
-        );
+    let app = create_server(service_options, schema).await;
 
     let addr = SocketAddr::from_str(&format!("0.0.0.0:{}", config.indexer_infrastructure.port))
         .expect("Start server port");

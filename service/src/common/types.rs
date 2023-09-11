@@ -6,7 +6,7 @@ use serde_json::Value;
 
 /// GraphQLQuery request to a reqwest client
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct GraphQLQuery {
+pub struct GraphQLQuery {
     pub query: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variables: Option<Value>,

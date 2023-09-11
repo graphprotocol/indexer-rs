@@ -1,9 +1,30 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use async_graphql::{EmptyMutation, EmptySubscription, Schema};
+use axum::{
+    error_handling::HandleErrorLayer,
+    handler::Handler,
+    http::{Method, StatusCode},
+    routing::get,
+};
+use axum::{routing::post, Extension, Router};
+
+use std::time::Duration;
+use tower::{BoxError, ServiceBuilder};
+use tower_http::{
+    add_extension::AddExtensionLayer,
+    cors::CorsLayer,
+    trace::{self, TraceLayer},
+};
+use tracing::Level;
+
 use crate::{
-    common::indexer_management_client::IndexerManagementClient, query_processor::QueryProcessor,
-    util::PackageVersion, NetworkSubgraph,
+    common::indexer_management_client::{IndexerManagementClient, QueryRoot},
+    common::network_subgraph::NetworkSubgraph,
+    query_processor::QueryProcessor,
+    server::routes::{network_ratelimiter, slow_ratelimiter},
+    util::PackageVersion,
 };
 
 pub mod routes;
@@ -53,50 +74,66 @@ impl ServerOptions {
     }
 }
 
-// ADD: Endpoint for public status API, public cost API, information
-// subgraph health checks
-
-// // Endpoint for the public status API
-// #[get("/status")]
-// async fn status(
-//     server: web::Data<ServerOptions>,
-//     // graph_node_status_endpoint: Data<GraphStatusEndpoint>,
-//     query: web::Bytes,
-// ) -> impl Responder {
-//     // Implementation for creating status server
-//     // Replace `createStatusServer` with your logic
-//     match response {
-//         Ok(result) => HttpResponse::Ok().json(result),
-//         Err(error) => HttpResponse::InternalServerError().json(error),
-//     }
-// }
-
-// // Endpoint for subgraph health checks
-// #[post("/subgraphs/health")]
-// async fn subgraph_health(
-//     graph_node_status_endpoint: Data<GraphStatusEndpoint>,
-// ) -> impl Responder {
-//     // Implementation for creating deployment health server
-//     // Replace `createDeploymentHealthServer` with your logic
-//     let response = createDeploymentHealthServer(graph_node_status_endpoint.get_ref()).await;
-//     match response {
-//         Ok(result) => HttpResponse::Ok().json(result),
-//         Err(error) => HttpResponse::InternalServerError().json(error),
-//     }
-// }
-
-// // Endpoint for the public cost API
-// #[post("/cost")]
-// async fn cost(
-//     indexer_management_client: Data<IndexerManagementClient>,
-//     metrics: Data<Metrics>,
-//     payload: Json<CostPayload>,
-// ) -> impl Responder {
-//     // Implementation for creating cost server
-//     // Replace `createCostServer` with your logic
-//     let response = createCostServer(indexer_management_client.get_ref(), metrics.get_ref(), payload.into_inner()).await;
-//     match response {
-//         Ok(result) => HttpResponse::Ok().json(result),
-//         Err(error) => HttpResponse::InternalServerError().json(error),
-//     }
-// }
+pub async fn create_server(
+    options: ServerOptions,
+    schema: Schema<QueryRoot, EmptyMutation, EmptySubscription>,
+) -> Router {
+    Router::new()
+        .route("/", get(routes::basic::index))
+        .route("/health", get(routes::basic::health))
+        .route("/version", get(routes::basic::version))
+        .route(
+            "/status",
+            post(routes::status::status_queries)
+                .layer(AddExtensionLayer::new(network_ratelimiter())),
+        )
+        .route(
+            "/subgraphs/health/:deployment",
+            get(routes::deployment::deployment_health
+                .layer(AddExtensionLayer::new(slow_ratelimiter()))),
+        )
+        .route(
+            "/cost",
+            post(routes::cost::graphql_handler)
+                .get(routes::cost::graphql_handler)
+                .layer(AddExtensionLayer::new(slow_ratelimiter())),
+        )
+        .nest(
+            "/operator",
+            routes::basic::create_operator_server(options.clone())
+                .layer(AddExtensionLayer::new(slow_ratelimiter())),
+        )
+        .route(
+            "/network",
+            post(routes::network::network_queries)
+                .layer(AddExtensionLayer::new(network_ratelimiter())),
+        )
+        .route(
+            "/subgraphs/id/:id",
+            post(routes::subgraphs::subgraph_queries),
+        )
+        .layer(Extension(schema))
+        .layer(Extension(options.clone()))
+        .layer(CorsLayer::new().allow_methods([Method::GET, Method::POST]))
+        .layer(
+            // Handle error for timeout, ratelimit, or a general internal server error
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(|error: BoxError| async move {
+                    if error.is::<tower::timeout::error::Elapsed>() {
+                        Ok(StatusCode::REQUEST_TIMEOUT)
+                    } else {
+                        Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Unhandled internal error: {}", error),
+                        ))
+                    }
+                }))
+                .layer(
+                    TraceLayer::new_for_http()
+                        .make_span_with(trace::DefaultMakeSpan::new().level(Level::DEBUG))
+                        .on_response(trace::DefaultOnResponse::new().level(Level::DEBUG)),
+                )
+                .timeout(Duration::from_secs(10))
+                .into_inner(),
+        )
+}

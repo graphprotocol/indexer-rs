@@ -5,8 +5,6 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use reqwest::{header, Client, Url};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::query_processor::{QueryError, UnattestedQueryResult};
 
@@ -17,13 +15,6 @@ use crate::query_processor::{QueryError, UnattestedQueryResult};
 pub struct GraphNodeInstance {
     client: Client, // it is Arc
     subgraphs_base_url: Arc<Url>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct GraphQLQuery {
-    pub query: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub variables: Option<Value>,
 }
 
 impl GraphNodeInstance {
