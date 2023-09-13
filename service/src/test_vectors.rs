@@ -3,7 +3,8 @@
 
 use std::str::FromStr;
 
-use ethereum_types::{Address, U256};
+use alloy_primitives::Address;
+use ethers_core::types::U256;
 
 use crate::common::{
     allocation::{Allocation, AllocationStatus, SubgraphDeployment},

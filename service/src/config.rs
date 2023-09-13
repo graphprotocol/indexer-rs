@@ -3,7 +3,7 @@
 
 use clap::{command, Args, Parser, ValueEnum};
 
-use ethereum_types::Address;
+use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
 use crate::{query_processor::QueryError, util::init_tracing};

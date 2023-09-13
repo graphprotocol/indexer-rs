@@ -153,7 +153,7 @@ impl QueryProcessor {
 mod tests {
     use std::str::FromStr;
 
-    use ethereum_types::Address;
+    use alloy_primitives::Address;
     use hex_literal::hex;
 
     use crate::{

@@ -1,13 +1,13 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloy_primitives::Address;
 use anyhow::Result;
 use ethers::signers::coins_bip39::English;
 use ethers::signers::MnemonicBuilder;
 use ethers::signers::Signer;
 use ethers::signers::Wallet;
 use ethers_core::k256::ecdsa::SigningKey;
-use ethers_core::types::Address;
 use ethers_core::types::U256;
 use serde::Deserialize;
 use serde::Deserializer;
@@ -133,7 +133,7 @@ pub fn allocation_signer(indexer_mnemonic: &str, allocation: &Allocation) -> Res
                 &allocation.subgraph_deployment.id,
                 i,
             )?;
-            if allocation_wallet.address() == allocation.id {
+            if allocation_wallet.address().as_fixed_bytes() == allocation.id {
                 return Ok(allocation_wallet.signer().clone());
             }
         }
@@ -166,7 +166,8 @@ mod test {
                 0
             )
             .unwrap()
-            .address(),
+            .address()
+            .as_fixed_bytes(),
             Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap()
         );
 
@@ -181,7 +182,8 @@ mod test {
                 2
             )
             .unwrap()
-            .address(),
+            .address()
+            .as_fixed_bytes(),
             Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap()
         );
     }
@@ -203,7 +205,7 @@ mod test {
                 signalled_tokens: U256::zero(),
                 query_fees_amount: U256::zero(),
             },
-            indexer: Address::zero(),
+            indexer: Address::ZERO,
             allocated_tokens: U256::zero(),
             created_at_epoch: 940,
             created_at_block_hash: "".to_string(),
@@ -245,7 +247,7 @@ mod test {
                 signalled_tokens: U256::zero(),
                 query_fees_amount: U256::zero(),
             },
-            indexer: Address::zero(),
+            indexer: Address::ZERO,
             allocated_tokens: U256::zero(),
             created_at_epoch: 940,
             created_at_block_hash: "".to_string(),

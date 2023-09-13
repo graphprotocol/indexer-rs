@@ -3,12 +3,9 @@
 
 use std::sync::Arc;
 
+use alloy_primitives::Address;
 use anyhow::Result;
-
-use ethers::types::Address;
-
 use log::{info, warn};
-
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::RwLock;
 

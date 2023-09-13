@@ -1,10 +1,12 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloy_primitives::Address;
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use axum::Server;
 use dotenvy::dotenv;
-use ethereum_types::{Address, U256};
+
+use ethereum_types::U256;
 
 use std::{net::SocketAddr, str::FromStr};
 
