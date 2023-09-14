@@ -59,6 +59,7 @@ tap_core = "0.5.1"
 ethereum-types = "0.14.1"
 sqlx = { version = "0.7.1", features = ["postgres", "runtime-tokio", "bigdecimal", "rust_decimal", "time"] }
 alloy-primitives = { version = "0.3.3", features = ["serde"] }
+alloy-sol-types = "0.3.2"
 
 [dev-dependencies]
 faux = "0.1.10"

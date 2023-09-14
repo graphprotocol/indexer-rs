@@ -4638,6 +4638,7 @@ name = "service"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "alloy-sol-types",
  "anyhow",
  "async-graphql",
  "async-graphql-axum",

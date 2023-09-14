@@ -265,6 +265,14 @@ impl AllocationMonitor {
         self.inner.eligible_allocations.read().await
     }
 
+    pub async fn is_allocation_eligible(&self, allocation_id: &Address) -> bool {
+        self.inner
+            .eligible_allocations
+            .read()
+            .await
+            .contains_key(allocation_id)
+    }
+
     pub fn subscribe(&self) -> Receiver<()> {
         self.inner.watch_receiver.clone()
     }
