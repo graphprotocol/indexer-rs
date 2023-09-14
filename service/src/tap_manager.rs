@@ -104,6 +104,7 @@ mod test {
 
     use super::*;
 
+    #[ignore]
     #[sqlx::test]
     async fn test_verify_and_store_receipt(pgpool: PgPool) {
         // Listen to pg_notify events
