@@ -61,7 +61,7 @@ impl AttestationSigners {
             .allocation_monitor
             .get_eligible_allocations()
             .await
-            .iter()
+            .values()
         {
             if let std::collections::hash_map::Entry::Vacant(e) =
                 attestation_signers_write.entry(allocation.id)

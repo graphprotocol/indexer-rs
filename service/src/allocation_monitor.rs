@@ -1,6 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use alloy_primitives::Address;
@@ -17,7 +18,7 @@ struct AllocationMonitorInner {
     indexer_address: Address,
     interval_ms: u64,
     graph_network_id: u64,
-    eligible_allocations: Arc<RwLock<Vec<Allocation>>>,
+    eligible_allocations: Arc<RwLock<HashMap<Address, Allocation>>>,
     watch_sender: Sender<()>,
     watch_receiver: Receiver<()>,
 }
@@ -45,7 +46,7 @@ impl AllocationMonitor {
             indexer_address,
             interval_ms,
             graph_network_id,
-            eligible_allocations: Arc::new(RwLock::new(Vec::new())),
+            eligible_allocations: Arc::new(RwLock::new(HashMap::new())),
             watch_sender,
             watch_receiver,
         });
@@ -102,7 +103,7 @@ impl AllocationMonitor {
         network_subgraph: &NetworkSubgraph,
         indexer_address: &Address,
         closed_at_epoch_threshold: u64,
-    ) -> Result<Vec<Allocation>> {
+    ) -> Result<HashMap<Address, Allocation>> {
         let res = network_subgraph
         .network_query(
             r#"
@@ -166,8 +167,6 @@ impl AllocationMonitor {
                 )
             })?;
 
-        let mut eligible_allocations: Vec<Allocation> = Vec::new();
-
         let indexer_json = res_json
             .get_mut("data")
             .and_then(|d| d.get_mut("indexer"))
@@ -177,7 +176,10 @@ impl AllocationMonitor {
             indexer_json.get_mut("activeAllocations").ok_or_else(|| {
                 anyhow::anyhow!("Failed to parse active allocations from network subgraph",)
             })?;
-        eligible_allocations.append(&mut serde_json::from_value(active_allocations_json.take())?);
+        let active_allocations: Vec<Allocation> =
+            serde_json::from_value(active_allocations_json.take())?;
+        let mut eligible_allocations: HashMap<Address, Allocation> =
+            HashMap::from_iter(active_allocations.into_iter().map(|a| (a.id, a)));
 
         let recently_closed_allocations_json =
             indexer_json
@@ -187,9 +189,13 @@ impl AllocationMonitor {
                         "Failed to parse recently closed allocations from network subgraph",
                     )
                 })?;
-        eligible_allocations.append(&mut serde_json::from_value(
-            recently_closed_allocations_json.take(),
-        )?);
+        let recently_closed_allocations: Vec<Allocation> =
+            serde_json::from_value(recently_closed_allocations_json.take())?;
+        eligible_allocations.extend(
+            recently_closed_allocations
+                .into_iter()
+                .map(move |a| (a.id, a)),
+        );
 
         Ok(eligible_allocations)
     }
@@ -223,9 +229,8 @@ impl AllocationMonitor {
                             .eligible_allocations
                             .read()
                             .await
-                            .iter()
-                            .map(|e| { e.id })
-                            .collect::<Vec<Address>>(),
+                            .keys()
+                            .collect::<Vec<&Address>>(),
                         e
                     );
                 }
@@ -237,7 +242,7 @@ impl AllocationMonitor {
                     .eligible_allocations
                     .read()
                     .await
-                    .iter()
+                    .values()
                     .map(|e| {
                         format!(
                             "{{allocation: {:?}, deployment: {}, closedAtEpoch: {:?})}}",
@@ -256,7 +261,7 @@ impl AllocationMonitor {
 
     pub async fn get_eligible_allocations(
         &self,
-    ) -> tokio::sync::RwLockReadGuard<'_, Vec<Allocation>> {
+    ) -> tokio::sync::RwLockReadGuard<'_, HashMap<Address, Allocation>> {
         self.inner.eligible_allocations.read().await
     }
 
