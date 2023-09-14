@@ -98,11 +98,60 @@ mod test {
     use std::str::FromStr;
 
     use alloy_primitives::Address;
+    use alloy_sol_types::{eip712_domain, Eip712Domain};
+    use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
     use sqlx::postgres::PgListener;
 
-    use crate::{allocation_monitor::AllocationMonitor, test_utils};
+    use tap_core::tap_manager::SignedReceipt;
+    use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
+
+    use crate::allocation_monitor::AllocationMonitor;
 
     use super::*;
+
+    /// Fixture to generate a wallet and address
+    pub fn keys() -> (LocalWallet, Address) {
+        let wallet: LocalWallet = MnemonicBuilder::<English>::default()
+            .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
+            .build()
+            .unwrap();
+        let address = wallet.address();
+
+        (wallet, Address::from_slice(address.as_bytes()))
+    }
+
+    pub fn domain() -> Eip712Domain {
+        eip712_domain! {
+            name: "TAP",
+            version: "1",
+            chain_id: 1,
+            verifying_contract: Address::from([0x11u8; 20]),
+        }
+    }
+
+    /// Fixture to generate a signed receipt using the wallet from `keys()`
+    /// and the given `query_id` and `value`
+    pub async fn create_signed_receipt(
+        allocation_id: Address,
+        nonce: u64,
+        timestamp_ns: u64,
+        value: u128,
+    ) -> SignedReceipt {
+        let (wallet, _) = keys();
+
+        EIP712SignedMessage::new(
+            &domain(),
+            Receipt {
+                allocation_id,
+                nonce,
+                timestamp_ns,
+                value,
+            },
+            &wallet,
+        )
+        .await
+        .unwrap()
+    }
 
     #[ignore]
     #[sqlx::test]
@@ -116,9 +165,9 @@ mod test {
 
         let allocation_id =
             Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap();
-        let domain = test_utils::domain();
+        let domain = domain();
         let signed_receipt =
-            test_utils::create_signed_receipt(allocation_id, u64::MAX, u64::MAX, u128::MAX).await;
+            create_signed_receipt(allocation_id, u64::MAX, u64::MAX, u128::MAX).await;
 
         // Mock allocation monitor
         let mut mock_allocation_monitor = AllocationMonitor::faux();

@@ -43,8 +43,6 @@ mod tap_manager;
 mod util;
 
 #[cfg(test)]
-mod test_utils;
-#[cfg(test)]
 mod test_vectors;
 
 /// Create Indexer service App
