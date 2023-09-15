@@ -1,10 +1,13 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloy_primitives::Address;
+use alloy_sol_types::eip712_domain;
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use axum::Server;
 use dotenvy::dotenv;
-use ethereum_types::{Address, U256};
+
+use ethereum_types::U256;
 
 use std::{net::SocketAddr, str::FromStr};
 
@@ -31,10 +34,12 @@ mod allocation_monitor;
 mod attestation_signers;
 mod common;
 mod config;
+mod escrow_monitor;
 mod graph_node;
 mod metrics;
 mod query_processor;
 mod server;
+mod tap_manager;
 mod util;
 
 #[cfg(test)]
@@ -81,7 +86,7 @@ async fn main() -> Result<(), std::io::Error> {
         network_subgraph.clone(),
         config.ethereum.indexer_address,
         1,
-        1000,
+        config.network_subgraph.allocation_syncing_interval,
     )
     .await
     .expect("Initialize allocation monitor");
@@ -95,16 +100,6 @@ async fn main() -> Result<(), std::io::Error> {
         Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
     );
 
-    // Proper initiation of server, query processor
-    // server health check, graph-node instance connection check
-    let query_processor = QueryProcessor::new(graph_node.clone(), attestation_signers.clone());
-
-    // Start indexer service basic metrics
-    tokio::spawn(handle_serve_metrics(
-        String::from("0.0.0.0"),
-        config.indexer_infrastructure.metrics_port,
-    ));
-
     // Establish Database connection necessary for serving indexer management
     // requests with defined schema
     // Note: Typically, you'd call `sqlx::migrate!();` here to sync the models
@@ -113,6 +108,39 @@ async fn main() -> Result<(), std::io::Error> {
     // agent. Hence we leave syncing and migrating entirely to the agent and
     // assume the models are up to date in the service.
     let database = database::connect(&config.postgres).await;
+
+    let escrow_monitor = escrow_monitor::EscrowMonitor::new(
+        graph_node.clone(),
+        config.escrow_subgraph.escrow_subgraph_deployment,
+        config.ethereum.indexer_address,
+        config.escrow_subgraph.escrow_syncing_interval,
+    )
+    .await
+    .expect("Initialize escrow monitor");
+
+    let tap_manager = tap_manager::TapManager::new(
+        database.clone(),
+        allocation_monitor.clone(),
+        escrow_monitor,
+        // TODO: arguments for eip712_domain should be a config
+        eip712_domain! {
+            name: "TapManager",
+            version: "1",
+            verifying_contract: config.ethereum.indexer_address,
+        },
+    );
+
+    // Proper initiation of server, query processor
+    // server health check, graph-node instance connection check
+    let query_processor =
+        QueryProcessor::new(graph_node.clone(), attestation_signers.clone(), tap_manager);
+
+    // Start indexer service basic metrics
+    tokio::spawn(handle_serve_metrics(
+        String::from("0.0.0.0"),
+        config.indexer_infrastructure.metrics_port,
+    ));
+
     let indexer_management_client = IndexerManagementClient::new(database).await;
     let service_options = ServerOptions::new(
         Some(config.indexer_infrastructure.port),

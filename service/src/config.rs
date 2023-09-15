@@ -3,7 +3,7 @@
 
 use clap::{command, Args, Parser, ValueEnum};
 
-use ethereum_types::Address;
+use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
 use crate::{query_processor::QueryError, util::init_tracing};
@@ -24,6 +24,8 @@ pub struct Cli {
     pub postgres: Postgres,
     #[command(flatten)]
     pub network_subgraph: NetworkSubgraph,
+    #[command(flatten)]
+    pub escrow_subgraph: EscrowSubgraph,
 
     #[arg(
         short,
@@ -212,7 +214,7 @@ pub struct NetworkSubgraph {
         default_value_t = 120_000,
         help = "Interval (in ms) for syncing indexer allocations from the network"
     )]
-    pub allocation_syncing_interval: u32,
+    pub allocation_syncing_interval: u64,
     #[clap(
         long,
         value_name = "client-signer-address",
@@ -220,6 +222,52 @@ pub struct NetworkSubgraph {
         help = "Address that signs query fee receipts from a known client"
     )]
     pub client_signer_address: Option<String>,
+}
+
+#[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
+#[group(required = true, multiple = true)]
+pub struct EscrowSubgraph {
+    #[clap(
+        long,
+        value_name = "escrow-subgraph-deployment",
+        env = "ESCROW_SUBGRAPH_DEPLOYMENT",
+        help = "Escrow subgraph deployment"
+    )]
+    pub escrow_subgraph_deployment: String,
+    // TODO:
+    //
+    // #[clap(
+    //     long,
+    //     value_name = "escrow-subgraph-endpoint",
+    //     env = "ESCROW_SUBGRAPH_ENDPOINT",
+    //     // TODO:
+    //     // default_value_t = String::from("https://api.thegraph.com/subgraphs/name/?????????????"),
+    //     help = "Endpoint to query the network subgraph from"
+    // )]
+    // pub escrow_subgraph_endpoint: Option<String>,
+    // #[clap(
+    //     long,
+    //     value_name = "escrow-subgraph-auth-token",
+    //     env = "ESCROW_SUBGRAPH_AUTH_TOKEN",
+    //     help = "Bearer token to require for /network queries"
+    // )]
+    // pub escrow_subgraph_auth_token: Option<String>,
+    // #[clap(
+    //     long,
+    //     value_name = "serve-escrow-subgraph",
+    //     env = "SERVE_ESCROW_SUBGRAPH",
+    //     default_value_t = false,
+    //     help = "Whether to serve the escrow subgraph at /escrow"
+    // )]
+    // pub serve_escrow_subgraph: bool,
+    // #[clap(
+    //     long,
+    //     value_name = "escrow-syncing-interval",
+    //     env = "ESCROW_SYNCING_INTERVAL",
+    //     default_value_t = 120_000,
+    //     help = "Interval (in ms) for syncing indexer escrow accounts from the escrow subgraph"
+    // )]
+    pub escrow_syncing_interval: u64,
 }
 
 impl Cli {

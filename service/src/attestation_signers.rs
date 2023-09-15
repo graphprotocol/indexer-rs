@@ -1,7 +1,8 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use ethereum_types::{Address, U256};
+use alloy_primitives::Address;
+use ethers_core::types::U256;
 use log::{error, info, warn};
 use native::attestation::AttestationSigner;
 use std::collections::HashMap;
@@ -60,7 +61,7 @@ impl AttestationSigners {
             .allocation_monitor
             .get_eligible_allocations()
             .await
-            .iter()
+            .values()
         {
             if let std::collections::hash_map::Entry::Vacant(e) =
                 attestation_signers_write.entry(allocation.id)

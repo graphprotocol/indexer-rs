@@ -10,6 +10,7 @@ use tap_core::tap_manager::SignedReceipt;
 use crate::attestation_signers::AttestationSigners;
 use crate::common::types::SubgraphDeploymentID;
 use crate::graph_node::GraphNodeInstance;
+use crate::tap_manager::TapManager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
@@ -63,16 +64,19 @@ pub enum QueryError {
 pub struct QueryProcessor {
     graph_node: GraphNodeInstance,
     attestation_signers: AttestationSigners,
+    tap_manager: TapManager,
 }
 
 impl QueryProcessor {
     pub fn new(
         graph_node: GraphNodeInstance,
         attestation_signers: AttestationSigners,
+        tap_manager: TapManager,
     ) -> QueryProcessor {
         QueryProcessor {
             graph_node,
             attestation_signers,
+            tap_manager,
         }
     }
 
@@ -107,7 +111,9 @@ impl QueryProcessor {
 
         let allocation_id = parsed_receipt.message.allocation_id;
 
-        // TODO: Handle the TAP receipt
+        self.tap_manager
+            .verify_and_store_receipt(parsed_receipt)
+            .await?;
 
         let signers = self.attestation_signers.read().await;
         let signer = signers.get(&allocation_id).ok_or_else(|| {
@@ -153,7 +159,7 @@ impl QueryProcessor {
 mod tests {
     use std::str::FromStr;
 
-    use ethereum_types::Address;
+    use alloy_primitives::Address;
     use hex_literal::hex;
 
     use crate::{
