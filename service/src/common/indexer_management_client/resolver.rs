@@ -212,7 +212,6 @@ mod test {
     }
 
     #[sqlx::test]
-    #[ignore]
     async fn success_cost_models(pool: PgPool) {
         setup_cost_models_table(&pool).await;
         let expected_models = simple_cost_models();
@@ -253,7 +252,6 @@ mod test {
     }
 
     #[sqlx::test]
-    #[ignore]
     async fn global_fallback_cost_models(pool: PgPool) {
         let deployment_id =
             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string();
@@ -304,7 +302,6 @@ mod test {
     }
 
     #[sqlx::test]
-    #[ignore]
     async fn success_cost_model(pool: PgPool) {
         let deployment_id = "0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea";
         let deployment_hash = "Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss".to_string();
@@ -319,7 +316,6 @@ mod test {
     }
 
     #[sqlx::test]
-    #[ignore]
     async fn global_fallback_cost_model(pool: PgPool) {
         let deployment_hash = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         setup_cost_models_table(&pool).await;
