@@ -1,0 +1,32 @@
+[package]
+name = "indexer-common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy-primitives = { version = "0.3.3", features = ["serde"] }
+anyhow = "1.0.75"
+arc-swap = "1.6.0"
+bs58 = "0.5.0"
+eip-712-derive = { git = "https://github.com/graphprotocol/eip-712-derive" }
+ethereum-types = "0.14.1"
+ethers = "2.0.10"
+ethers-core = "2.0.10"
+faux = { version = "0.1.10", optional = true }
+keccak-hash = "0.10.0"
+lazy_static = "1.4.0"
+log = "0.4.20"
+reqwest = "0.11.20"
+secp256k1 = { version = "0.27.0", features = ["recovery"] }
+serde = { version = "1.0.188", features = ["derive"] }
+serde_json = "1.0.107"
+tokio = { version = "1.32.0", features = ["full", "macros", "rt"] }
+
+[dev-dependencies]
+env_logger = "0.9.0"
+faux = "0.1.10"
+test-log = "0.2.12"
+wiremock = "0.5.19"
+
+[features]
+mock = ["dep:faux"]

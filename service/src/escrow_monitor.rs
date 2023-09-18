@@ -1,20 +1,17 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
-
-use std::sync::Arc;
-
 use alloy_primitives::Address;
 use anyhow::Result;
 use ethereum_types::U256;
 use log::{error, info};
-
 use serde::Deserialize;
-
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::common::types::GraphQLQuery;
+use indexer_common::prelude::GraphQLQuery;
+
 use crate::graph_node::GraphNodeInstance;
 
 #[derive(Debug)]

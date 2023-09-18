@@ -7,6 +7,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use serde_json::Value;
 
 use crate::server::ServerOptions;
 
@@ -38,14 +39,25 @@ pub async fn network_queries(
         Err(e) => return bad_request_response(&e.to_string()),
     };
 
-    let request = server
+    let response = server
         .network_subgraph
-        .execute_network_free_query(query_string)
+        .network_query_raw(query_string)
         .await
         .expect("Failed to execute free network subgraph query");
 
-    match request.status {
-        200 => (StatusCode::OK, Json(request.result)).into_response(),
-        _ => bad_request_response("Bad response from Graph node"),
+    if response.status().is_success() {
+        (
+            StatusCode::OK,
+            Json(
+                response
+                    .json::<Value>()
+                    .await
+                    // FIXME: Don't use expect here
+                    .expect("Failed to parse network subgraph query result"),
+            ),
+        )
+            .into_response()
+    } else {
+        bad_request_response("Bad response from Graph node")
     }
 }

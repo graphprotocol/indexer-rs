@@ -1,8 +1,7 @@
 [workspace]
 members = [
-    "native",
+    "common",
     "service",
-    # "common",
 ]
 resolver = "2"
 

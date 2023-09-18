@@ -7,11 +7,11 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-
 use tracing::trace;
 
+use indexer_common::prelude::SubgraphDeploymentID;
+
 use crate::{
-    common::types::SubgraphDeploymentID,
     metrics,
     query_processor::FreeQuery,
     server::{

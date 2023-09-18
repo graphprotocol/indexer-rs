@@ -1,37 +1,16 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use ethers::utils::hex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// GraphQLQuery request to a reqwest client
+/// A serializable GraphQL request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphQLQuery {
     pub query: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variables: Option<Value>,
-}
-
-/// Subgraph identifier type: Subgraph name with field 'value'
-pub struct SubgraphName {
-    value: String,
-}
-
-/// Implement SubgraphName constructor
-impl SubgraphName {
-    fn new(name: &str) -> SubgraphName {
-        SubgraphName {
-            // or call this field name
-            value: name.to_owned(),
-        }
-    }
-}
-
-/// Implement SubgraphName String representation
-impl ToString for SubgraphName {
-    fn to_string(&self) -> String {
-        self.value.to_string()
-    }
 }
 
 /// Subgraph identifier type: SubgraphDeploymentID with field 'value'

@@ -1,18 +1,19 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-
 use alloy_sol_types::Eip712Domain;
 use log::error;
 use sqlx::{types::BigDecimal, PgPool};
+use std::sync::Arc;
 use tap_core::tap_manager::SignedReceipt;
 
-use crate::{allocation_monitor, escrow_monitor, query_processor::QueryError};
+use indexer_common::prelude::AllocationMonitor;
+
+use crate::{escrow_monitor, query_processor::QueryError};
 
 #[derive(Clone, Debug)]
 pub struct TapManager {
-    allocation_monitor: allocation_monitor::AllocationMonitor,
+    allocation_monitor: AllocationMonitor,
     escrow_monitor: escrow_monitor::EscrowMonitor,
     pgpool: PgPool,
     domain_separator: Arc<Eip712Domain>,
@@ -21,7 +22,7 @@ pub struct TapManager {
 impl TapManager {
     pub fn new(
         pgpool: PgPool,
-        allocation_monitor: allocation_monitor::AllocationMonitor,
+        allocation_monitor: AllocationMonitor,
         escrow_monitor: escrow_monitor::EscrowMonitor,
         domain_separator: Eip712Domain,
     ) -> Self {
@@ -105,7 +106,7 @@ mod test {
     use tap_core::tap_manager::SignedReceipt;
     use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
 
-    use crate::allocation_monitor::AllocationMonitor;
+    use indexer_common::prelude::AllocationMonitor;
 
     use super::*;
 

@@ -3,12 +3,11 @@
 
 use ethers_core::types::{Signature, U256};
 use log::error;
-use native::attestation::AttestationSigner;
 use serde::{Deserialize, Serialize};
 use tap_core::tap_manager::SignedReceipt;
 
-use crate::attestation_signers::AttestationSigners;
-use crate::common::types::SubgraphDeploymentID;
+use indexer_common::prelude::{AttestationSigner, AttestationSigners, SubgraphDeploymentID};
+
 use crate::graph_node::GraphNodeInstance;
 use crate::tap_manager::TapManager;
 
@@ -162,9 +161,9 @@ mod tests {
     use alloy_primitives::Address;
     use hex_literal::hex;
 
-    use crate::{
-        common::allocation::{allocation_signer, Allocation, AllocationStatus, SubgraphDeployment},
-        util::create_attestation_signer,
+    use indexer_common::prelude::{
+        attestation_signer_for_allocation, create_attestation_signer, Allocation, AllocationStatus,
+        SubgraphDeployment,
     };
 
     use super::*;
@@ -260,7 +259,8 @@ mod tests {
             query_fees_collected: None,
         };
 
-        let allocation_key = allocation_signer(INDEXER_OPERATOR_MNEMONIC, allocation).unwrap();
+        let allocation_key =
+            attestation_signer_for_allocation(INDEXER_OPERATOR_MNEMONIC, allocation).unwrap();
 
         let attestation_signer = create_attestation_signer(
             U256::from(1),
