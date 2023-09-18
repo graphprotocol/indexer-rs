@@ -1,13 +1,22 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use sqlx::PgPool;
+use async_graphql::SimpleObject;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sqlx::{FromRow, PgPool};
 
-use super::schema::CostModel;
-use crate::common::{
+use super::{
     indexer_error::{IndexerError, IndexerErrorCause, IndexerErrorCode},
     types::SubgraphDeploymentID,
 };
+
+#[derive(Debug, FromRow, Clone, Serialize, Deserialize, SimpleObject)]
+pub struct CostModel {
+    pub deployment: String,
+    pub model: Option<String>,
+    pub variables: Option<Value>,
+}
 
 /// Query postgres indexer management server's cost models
 /// If specific deployments is provided, then global fallback is applied to all

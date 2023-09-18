@@ -1,7 +1,6 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use axum::{
     error_handling::HandleErrorLayer,
     handler::Handler,
@@ -9,6 +8,7 @@ use axum::{
     routing::get,
 };
 use axum::{routing::post, Extension, Router};
+use sqlx::PgPool;
 
 use std::time::Duration;
 use tower::{BoxError, ServiceBuilder};
@@ -20,7 +20,6 @@ use tower_http::{
 use tracing::Level;
 
 use crate::{
-    common::indexer_management_client::{IndexerManagementClient, QueryRoot},
     common::network_subgraph::NetworkSubgraph,
     query_processor::QueryProcessor,
     server::routes::{network_ratelimiter, slow_ratelimiter},
@@ -36,7 +35,7 @@ pub struct ServerOptions {
     pub query_processor: QueryProcessor,
     pub free_query_auth_token: Option<String>,
     pub graph_node_status_endpoint: String,
-    pub indexer_management_client: IndexerManagementClient,
+    pub indexer_management_db: PgPool,
     pub operator_public_key: String,
     pub network_subgraph: NetworkSubgraph,
     pub network_subgraph_auth_token: Option<String>,
@@ -51,7 +50,7 @@ impl ServerOptions {
         query_processor: QueryProcessor,
         free_query_auth_token: Option<String>,
         graph_node_status_endpoint: String,
-        indexer_management_client: IndexerManagementClient,
+        indexer_management_db: PgPool,
         operator_public_key: String,
         network_subgraph: NetworkSubgraph,
         network_subgraph_auth_token: Option<String>,
@@ -65,7 +64,7 @@ impl ServerOptions {
             query_processor,
             free_query_auth_token,
             graph_node_status_endpoint,
-            indexer_management_client,
+            indexer_management_db,
             operator_public_key,
             network_subgraph,
             network_subgraph_auth_token,
@@ -74,10 +73,7 @@ impl ServerOptions {
     }
 }
 
-pub async fn create_server(
-    options: ServerOptions,
-    schema: Schema<QueryRoot, EmptyMutation, EmptySubscription>,
-) -> Router {
+pub async fn create_server(options: ServerOptions) -> Router {
     Router::new()
         .route("/", get(routes::basic::index))
         .route("/health", get(routes::basic::health))
@@ -91,12 +87,6 @@ pub async fn create_server(
             "/subgraphs/health/:deployment",
             get(routes::deployment::deployment_health
                 .layer(AddExtensionLayer::new(slow_ratelimiter()))),
-        )
-        .route(
-            "/cost",
-            post(routes::cost::graphql_handler)
-                .get(routes::cost::graphql_handler)
-                .layer(AddExtensionLayer::new(slow_ratelimiter())),
         )
         .nest(
             "/operator",
@@ -112,7 +102,6 @@ pub async fn create_server(
             "/subgraphs/id/:id",
             post(routes::subgraphs::subgraph_queries),
         )
-        .layer(Extension(schema))
         .layer(Extension(options.clone()))
         .layer(CorsLayer::new().allow_methods([Method::GET, Method::POST]))
         .layer(
