@@ -10,7 +10,7 @@ use log::{info, warn};
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::RwLock;
 
-use crate::{common::allocation::Allocation, common::network_subgraph::NetworkSubgraph};
+use crate::prelude::{Allocation, NetworkSubgraph};
 
 #[derive(Debug)]
 struct AllocationMonitorInner {
@@ -23,14 +23,14 @@ struct AllocationMonitorInner {
     watch_receiver: Receiver<()>,
 }
 
-#[cfg_attr(test, faux::create)]
+#[cfg_attr(any(test, feature = "mock"), faux::create)]
 #[derive(Debug, Clone)]
 pub struct AllocationMonitor {
     _monitor_handle: Arc<tokio::task::JoinHandle<()>>,
     inner: Arc<AllocationMonitorInner>,
 }
 
-#[cfg_attr(test, faux::methods)]
+#[cfg_attr(any(test, feature = "mock"), faux::methods)]
 impl AllocationMonitor {
     pub async fn new(
         network_subgraph: NetworkSubgraph,
@@ -79,9 +79,7 @@ impl AllocationMonitor {
                 .to_string(),
                 Some(serde_json::json!({ "id": graph_network_id })),
             )
-            .await?;
-
-        let res_json: serde_json::Value = serde_json::from_str(res.graphql_response.as_str())
+            .await
             .map_err(|e| {
                 anyhow::anyhow!(
                     "Failed to parse current epoch response from network subgraph: {}",
@@ -89,8 +87,7 @@ impl AllocationMonitor {
                 )
             })?;
 
-        res_json
-            .get("data")
+        res.get("data")
             .and_then(|d| d.get("graphNetwork"))
             .and_then(|d| d.get("currentEpoch"))
             .and_then(|d| d.as_u64())
@@ -104,7 +101,7 @@ impl AllocationMonitor {
         indexer_address: &Address,
         closed_at_epoch_threshold: u64,
     ) -> Result<HashMap<Address, Allocation>> {
-        let res = network_subgraph
+        let mut res = network_subgraph
         .network_query(
             r#"
                 query allocations($indexer: ID!, $closedAtEpochThreshold: Int!) {
@@ -157,9 +154,7 @@ impl AllocationMonitor {
             .to_string(),
             Some(serde_json::json!({ "indexer": indexer_address, "closedAtEpochThreshold": closed_at_epoch_threshold })),
         )
-        .await;
-
-        let mut res_json: serde_json::Value = serde_json::from_str(res?.graphql_response.as_str())
+        .await
             .map_err(|e| {
                 anyhow::anyhow!(
                     "Failed to fetch current allocations from network subgraph: {}",
@@ -167,7 +162,7 @@ impl AllocationMonitor {
                 )
             })?;
 
-        let indexer_json = res_json
+        let indexer_json = res
             .get_mut("data")
             .and_then(|d| d.get_mut("indexer"))
             .ok_or_else(|| anyhow::anyhow!("No data / indexer not found on chain",))?;
@@ -286,7 +281,7 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    use crate::common::network_subgraph::NetworkSubgraph;
+    use crate::prelude::NetworkSubgraph;
     use crate::test_vectors;
 
     use super::*;

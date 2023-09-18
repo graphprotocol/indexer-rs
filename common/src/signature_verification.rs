@@ -1,7 +1,12 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::*;
+use alloy_primitives::Address;
+use arc_swap::ArcSwap;
+use keccak_hash::keccak;
+use lazy_static::lazy_static;
+use secp256k1::{ecdsa::RecoverableSignature, Message, PublicKey, Secp256k1, VerifyOnly};
+use std::sync::Arc;
 
 lazy_static! {
     static ref SECP256K1: Secp256k1<VerifyOnly> = Secp256k1::verification_only();
@@ -29,7 +34,7 @@ impl SignatureVerifier {
         match self.signer.load().as_ref() {
             // If we already have the public key we can do the fast path.
             Signer::PublicKey(signer) => Ok(SECP256K1
-                .verify(&message, &signature.to_standard(), signer)
+                .verify_ecdsa(&message, &signature.to_standard(), signer)
                 .is_ok()),
             // If we don't have the public key, but have the address instead
             // we derive the address from the recovered key. If it's a match
@@ -38,13 +43,13 @@ impl SignatureVerifier {
             // verify method instead of the slow recover method.
             Signer::Address(addr) => {
                 let recovered_signer = SECP256K1
-                    .recover(&message, signature)
+                    .recover_ecdsa(&message, signature)
                     .map_err(|_| "Failed to recover signature")?;
 
                 let ser = recovered_signer.serialize_uncompressed();
                 debug_assert_eq!(ser[0], 0x04);
                 let pk_hash = keccak(&ser[1..]);
-                let equal = &pk_hash[12..] == addr;
+                let equal = pk_hash[12..] == addr;
 
                 if equal {
                     self.signer

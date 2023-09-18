@@ -8,7 +8,7 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-native = { path = "../native" }
+indexer-common = { path = "../common" }
 confy = "0.5.1"
 ethers-core = "2.0.0"
 ethers = "2.0.0"
@@ -64,6 +64,7 @@ alloy-sol-types = "0.3.2"
 [dev-dependencies]
 faux = "0.1.10"
 hex-literal = "0.4.1"
+indexer-common = { path = "../common", features = ["mock"] }
 test-log = "0.2.12"
 wiremock = "0.5.19"
 

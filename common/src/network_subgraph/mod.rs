@@ -7,8 +7,7 @@ use reqwest::{header, Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::common::types::GraphQLQuery;
-use crate::query_processor::{QueryError, UnattestedQueryResult};
+use crate::types::GraphQLQuery;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Response<T> {
@@ -64,46 +63,28 @@ impl NetworkSubgraph {
     pub async fn network_query_raw(
         &self,
         body: String,
-    ) -> Result<UnattestedQueryResult, reqwest::Error> {
-        let request = self
-            .client
+    ) -> Result<reqwest::Response, reqwest::Error> {
+        self.client
             .post(Url::clone(&self.network_subgraph_url))
             .body(body.clone())
-            .header(header::CONTENT_TYPE, "application/json");
-
-        let response = request.send().await?;
-
-        // actually parse the JSON for the graphQL schema
-        let response_text = response.text().await?;
-        Ok(UnattestedQueryResult {
-            graphql_response: response_text,
-            attestable: false,
-        })
+            .header(header::CONTENT_TYPE, "application/json")
+            .send()
+            .await
     }
 
     pub async fn network_query(
         &self,
         query: String,
         variables: Option<Value>,
-    ) -> Result<UnattestedQueryResult, reqwest::Error> {
+    ) -> Result<Value, reqwest::Error> {
         let body = GraphQLQuery { query, variables };
 
         self.network_query_raw(
             serde_json::to_string(&body).expect("serialize network GraphQL query"),
         )
+        .await?
+        .json::<Value>()
         .await
-    }
-
-    pub async fn execute_network_free_query(
-        &self,
-        query: String,
-    ) -> Result<Response<UnattestedQueryResult>, QueryError> {
-        let response = self.network_query_raw(query).await?;
-
-        Ok(Response {
-            result: response,
-            status: 200,
-        })
     }
 }
 
@@ -155,13 +136,11 @@ mod test {
 
         let query = r#""{\"data\":{\"graphNetwork\":{\"currentEpoch\":960}}}""#;
 
-        let response = network_subgraph
+        // Check that the response is valid JSON
+        network_subgraph
             .network_query(query.to_string(), None)
             .await
             .unwrap();
-
-        // Check that the response is valid JSON
-        let _json: serde_json::Value = serde_json::from_str(&response.graphql_response).unwrap();
     }
 
     #[tokio::test]
@@ -178,12 +157,10 @@ mod test {
             }
             "#;
 
-        let response = network_subgraph
+        // Check that the response is valid JSON
+        network_subgraph
             .network_query(query.to_string(), None)
             .await
             .unwrap();
-
-        // Check that the response is valid JSON
-        let _json: serde_json::Value = serde_json::from_str(&response.graphql_response).unwrap();
     }
 }

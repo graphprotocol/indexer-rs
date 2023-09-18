@@ -1,13 +1,18 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::*;
+use alloy_primitives::Address;
 use eip_712_derive::{
-    sign_typed, Bytes32, DomainSeparator, Eip712Domain, MemberVisitor, StructType, U256,
+    sign_typed, Bytes32, DomainSeparator, Eip712Domain, MemberVisitor, StructType,
 };
+use ethers::utils::hex;
+use ethers_core::k256::ecdsa::SigningKey;
+use ethers_core::types::U256;
+use keccak_hash::keccak;
 use secp256k1::SecretKey;
 use std::convert::TryInto;
 
+/// An attestation signer tied to a specific allocation via its signer key
 #[derive(Debug, Clone)]
 pub struct AttestationSigner {
     subgraph_deployment_id: Bytes32,
@@ -17,7 +22,7 @@ pub struct AttestationSigner {
 
 impl AttestationSigner {
     pub fn new(
-        chain_id: U256,
+        chain_id: eip_712_derive::U256,
         dispute_manager: Address,
         signer: SecretKey,
         subgraph_deployment_id: Bytes32,
@@ -31,7 +36,7 @@ impl AttestationSigner {
             name: "Graph Protocol".to_owned(),
             version: "0".to_owned(),
             chain_id,
-            verifying_contract: eip_712_derive::Address(dispute_manager),
+            verifying_contract: eip_712_derive::Address(dispute_manager.into()),
             salt,
         };
         let domain_separator = DomainSeparator::new(&domain);
@@ -94,4 +99,23 @@ pub struct Attestation {
     pub v: u8,
     pub r: Bytes32,
     pub s: Bytes32,
+}
+
+/// Helper for creating an AttestationSigner
+pub fn create_attestation_signer(
+    chain_id: U256,
+    dispute_manager_address: Address,
+    signer: SigningKey,
+    deployment_id: [u8; 32],
+) -> anyhow::Result<AttestationSigner> {
+    // Tedious conversions to the "indexer_native" types
+    let mut chain_id_bytes = [0u8; 32];
+    chain_id.to_big_endian(&mut chain_id_bytes);
+    let signer = AttestationSigner::new(
+        eip_712_derive::U256(chain_id_bytes),
+        dispute_manager_address,
+        secp256k1::SecretKey::from_slice(&signer.to_bytes())?,
+        deployment_id,
+    );
+    Ok(signer)
 }

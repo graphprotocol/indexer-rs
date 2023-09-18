@@ -5,25 +5,21 @@ use alloy_primitives::Address;
 use alloy_sol_types::eip712_domain;
 use axum::Server;
 use dotenvy::dotenv;
-
 use ethereum_types::U256;
-
 use std::{net::SocketAddr, str::FromStr};
-
 use tracing::info;
+
+use indexer_common::prelude::{AllocationMonitor, AttestationSigners, NetworkSubgraph};
 
 use util::{package_version, shutdown_signal};
 
 use crate::{
-    common::database, common::network_subgraph::NetworkSubgraph, config::Cli,
-    metrics::handle_serve_metrics, query_processor::QueryProcessor, server::create_server,
-    util::public_key,
+    common::database, config::Cli, metrics::handle_serve_metrics, query_processor::QueryProcessor,
+    server::create_server, util::public_key,
 };
 
 use server::ServerOptions;
 
-mod allocation_monitor;
-mod attestation_signers;
 mod common;
 mod config;
 mod escrow_monitor;
@@ -74,7 +70,7 @@ async fn main() -> Result<(), std::io::Error> {
         &config.network_subgraph.network_subgraph_endpoint,
     );
 
-    let allocation_monitor = allocation_monitor::AllocationMonitor::new(
+    let allocation_monitor = AllocationMonitor::new(
         network_subgraph.clone(),
         config.ethereum.indexer_address,
         1,
@@ -83,7 +79,7 @@ async fn main() -> Result<(), std::io::Error> {
     .await
     .expect("Initialize allocation monitor");
 
-    let attestation_signers = attestation_signers::AttestationSigners::new(
+    let attestation_signers = AttestationSigners::new(
         allocation_monitor.clone(),
         config.ethereum.mnemonic.clone(),
         // TODO: Chain ID should be a config

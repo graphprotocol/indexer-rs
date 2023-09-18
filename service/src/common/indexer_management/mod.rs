@@ -6,10 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, PgPool};
 
-use super::{
-    indexer_error::{IndexerError, IndexerErrorCause, IndexerErrorCode},
-    types::SubgraphDeploymentID,
-};
+use indexer_common::prelude::SubgraphDeploymentID;
+
+use super::indexer_error::{IndexerError, IndexerErrorCause, IndexerErrorCode};
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize, SimpleObject)]
 pub struct CostModel {

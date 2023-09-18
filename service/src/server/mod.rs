@@ -1,15 +1,15 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use axum::{
+pub(crate) use axum::{
     error_handling::HandleErrorLayer,
     handler::Handler,
     http::{Method, StatusCode},
     routing::get,
 };
+
 use axum::{routing::post, Extension, Router};
 use sqlx::PgPool;
-
 use std::time::Duration;
 use tower::{BoxError, ServiceBuilder};
 use tower_http::{
@@ -19,8 +19,9 @@ use tower_http::{
 };
 use tracing::Level;
 
+use indexer_common::prelude::NetworkSubgraph;
+
 use crate::{
-    common::network_subgraph::NetworkSubgraph,
     query_processor::QueryProcessor,
     server::routes::{network_ratelimiter, slow_ratelimiter},
     util::PackageVersion,

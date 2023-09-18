@@ -4,15 +4,13 @@
 use alloy_primitives::Address;
 use ethers_core::types::U256;
 use log::{error, info, warn};
-use native::attestation::AttestationSigner;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::{
-    allocation_monitor::AllocationMonitor, common::allocation::allocation_signer,
-    util::create_attestation_signer,
-};
+use crate::prelude::{AllocationMonitor, AttestationSigner};
+
+use super::{attestation_signer_for_allocation, signer::create_attestation_signer};
 
 #[derive(Debug, Clone)]
 pub struct AttestationSigners {
@@ -21,7 +19,7 @@ pub struct AttestationSigners {
 }
 
 #[derive(Debug)]
-struct AttestationSignersInner {
+pub(crate) struct AttestationSignersInner {
     attestation_signers: Arc<RwLock<HashMap<Address, AttestationSigner>>>,
     allocation_monitor: AllocationMonitor,
     indexer_mnemonic: String,
@@ -55,7 +53,7 @@ impl AttestationSigners {
         }
     }
 
-    async fn update_attestation_signers(inner: Arc<AttestationSignersInner>) {
+    pub(crate) async fn update_attestation_signers(inner: Arc<AttestationSignersInner>) {
         let mut attestation_signers_write = inner.attestation_signers.write().await;
         for allocation in inner
             .allocation_monitor
@@ -66,14 +64,15 @@ impl AttestationSigners {
             if let std::collections::hash_map::Entry::Vacant(e) =
                 attestation_signers_write.entry(allocation.id)
             {
-                match allocation_signer(&inner.indexer_mnemonic, allocation).and_then(|signer| {
-                    create_attestation_signer(
-                        inner.chain_id,
-                        inner.dispute_manager,
-                        signer,
-                        allocation.subgraph_deployment.id.bytes32(),
-                    )
-                }) {
+                match attestation_signer_for_allocation(&inner.indexer_mnemonic, allocation)
+                    .and_then(|signer| {
+                        create_attestation_signer(
+                            inner.chain_id,
+                            inner.dispute_manager,
+                            signer,
+                            allocation.subgraph_deployment.id.bytes32(),
+                        )
+                    }) {
                     Ok(signer) => {
                         e.insert(signer);
                         info!(
@@ -120,15 +119,17 @@ impl AttestationSigners {
 
 #[cfg(test)]
 mod tests {
+    use alloy_primitives::Address;
+    use ethers_core::types::U256;
     use std::str::FromStr;
+    use std::sync::Arc;
 
-    use test_log::test;
-
+    use crate::prelude::AllocationMonitor;
     use crate::test_vectors;
 
     use super::*;
 
-    #[test(tokio::test)]
+    #[tokio::test]
     async fn test_update_attestation_signers() {
         unsafe {
             let mut mock_allocation_monitor = AllocationMonitor::faux();
