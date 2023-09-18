@@ -88,6 +88,12 @@ pub async fn create_server(options: ServerOptions) -> Router {
             get(routes::deployment::deployment_health
                 .layer(AddExtensionLayer::new(slow_ratelimiter()))),
         )
+        .route(
+            "/cost",
+            post(routes::cost::graphql_handler)
+                .get(routes::cost::graphql_handler)
+                .layer(AddExtensionLayer::new(slow_ratelimiter())),
+        )
         .nest(
             "/operator",
             routes::basic::create_operator_server(options.clone())
