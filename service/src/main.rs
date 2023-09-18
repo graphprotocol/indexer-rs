@@ -3,7 +3,6 @@
 
 use alloy_primitives::Address;
 use alloy_sol_types::eip712_domain;
-use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use axum::Server;
 use dotenvy::dotenv;
 
@@ -16,15 +15,8 @@ use tracing::info;
 use util::{package_version, shutdown_signal};
 
 use crate::{
-    common::network_subgraph::NetworkSubgraph,
-    common::{
-        database,
-        indexer_management_client::{IndexerManagementClient, QueryRoot},
-    },
-    config::Cli,
-    metrics::handle_serve_metrics,
-    query_processor::QueryProcessor,
-    server::create_server,
+    common::database, common::network_subgraph::NetworkSubgraph, config::Cli,
+    metrics::handle_serve_metrics, query_processor::QueryProcessor, server::create_server,
     util::public_key,
 };
 
@@ -107,7 +99,7 @@ async fn main() -> Result<(), std::io::Error> {
     // however, this can cause conflicts with the migrations run by indexer
     // agent. Hence we leave syncing and migrating entirely to the agent and
     // assume the models are up to date in the service.
-    let database = database::connect(&config.postgres).await;
+    let indexer_management_db = database::connect(&config.postgres).await;
 
     let escrow_monitor = escrow_monitor::EscrowMonitor::new(
         graph_node.clone(),
@@ -119,7 +111,7 @@ async fn main() -> Result<(), std::io::Error> {
     .expect("Initialize escrow monitor");
 
     let tap_manager = tap_manager::TapManager::new(
-        database.clone(),
+        indexer_management_db.clone(),
         allocation_monitor.clone(),
         escrow_monitor,
         // TODO: arguments for eip712_domain should be a config
@@ -141,25 +133,21 @@ async fn main() -> Result<(), std::io::Error> {
         config.indexer_infrastructure.metrics_port,
     ));
 
-    let indexer_management_client = IndexerManagementClient::new(database).await;
     let service_options = ServerOptions::new(
         Some(config.indexer_infrastructure.port),
         release,
         query_processor,
         config.indexer_infrastructure.free_query_auth_token,
         config.indexer_infrastructure.graph_node_status_endpoint,
-        indexer_management_client,
+        indexer_management_db,
         public_key(&config.ethereum.mnemonic).expect("Failed to initiate with operator wallet"),
         network_subgraph,
         config.network_subgraph.network_subgraph_auth_token,
         config.network_subgraph.serve_network_subgraph,
     );
 
-    // defineCostModelModels
-    let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription).finish();
-
     info!("Initialized server options");
-    let app = create_server(service_options, schema).await;
+    let app = create_server(service_options).await;
 
     let addr = SocketAddr::from_str(&format!("0.0.0.0:{}", config.indexer_infrastructure.port))
         .expect("Start server port");
