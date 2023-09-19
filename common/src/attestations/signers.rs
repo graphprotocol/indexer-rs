@@ -19,7 +19,7 @@ pub struct AttestationSigners {
 }
 
 #[derive(Debug)]
-pub(crate) struct AttestationSignersInner {
+pub struct AttestationSignersInner {
     attestation_signers: Arc<RwLock<HashMap<Address, AttestationSigner>>>,
     allocation_monitor: AllocationMonitor,
     indexer_mnemonic: String,
@@ -53,7 +53,7 @@ impl AttestationSigners {
         }
     }
 
-    pub(crate) async fn update_attestation_signers(inner: Arc<AttestationSignersInner>) {
+    pub async fn update_attestation_signers(inner: Arc<AttestationSignersInner>) {
         let mut attestation_signers_write = inner.attestation_signers.write().await;
         for allocation in inner
             .allocation_monitor
