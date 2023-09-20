@@ -46,17 +46,10 @@ pub async fn network_queries(
         .expect("Failed to execute free network subgraph query");
 
     if response.status().is_success() {
-        (
-            StatusCode::OK,
-            Json(
-                response
-                    .json::<Value>()
-                    .await
-                    // FIXME: Don't use expect here
-                    .expect("Failed to parse network subgraph query result"),
-            ),
-        )
-            .into_response()
+        match response.json::<Value>().await {
+            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+            Err(e) => bad_request_response(&e.to_string()),
+        }
     } else {
         bad_request_response("Bad response from Graph node")
     }
