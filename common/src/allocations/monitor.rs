@@ -1,398 +1,196 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, time::Duration};
 
 use alloy_primitives::Address;
-use anyhow::Result;
-use log::{info, warn};
-use tokio::sync::watch::{Receiver, Sender};
-use tokio::sync::RwLock;
+use anyhow::anyhow;
+use eventuals::{timer, Eventual, EventualExt};
+use log::warn;
+use serde::Deserialize;
+use serde_json::json;
+use tokio::time::sleep;
 
-use crate::prelude::{Allocation, NetworkSubgraph};
+use crate::prelude::NetworkSubgraph;
 
-#[derive(Debug)]
-struct AllocationMonitorInner {
-    network_subgraph: NetworkSubgraph,
-    indexer_address: Address,
-    interval_ms: u64,
+use super::Allocation;
+
+async fn current_epoch(
+    network_subgraph: &'static NetworkSubgraph,
     graph_network_id: u64,
-    eligible_allocations: Arc<RwLock<HashMap<Address, Allocation>>>,
-    watch_sender: Sender<()>,
-    watch_receiver: Receiver<()>,
-}
-
-#[cfg_attr(any(test, feature = "mock"), faux::create)]
-#[derive(Debug, Clone)]
-pub struct AllocationMonitor {
-    _monitor_handle: Arc<tokio::task::JoinHandle<()>>,
-    inner: Arc<AllocationMonitorInner>,
-}
-
-#[cfg_attr(any(test, feature = "mock"), faux::methods)]
-impl AllocationMonitor {
-    pub async fn new(
-        network_subgraph: NetworkSubgraph,
-        indexer_address: Address,
-        graph_network_id: u64,
-        interval_ms: u64,
-    ) -> Result<Self> {
-        // These are used to ping subscribers when the allocations are updated
-        let (watch_sender, watch_receiver) = tokio::sync::watch::channel(());
-
-        let inner = Arc::new(AllocationMonitorInner {
-            network_subgraph,
-            indexer_address,
-            interval_ms,
-            graph_network_id,
-            eligible_allocations: Arc::new(RwLock::new(HashMap::new())),
-            watch_sender,
-            watch_receiver,
-        });
-
-        let inner_clone = inner.clone();
-
-        let monitor = AllocationMonitor {
-            _monitor_handle: Arc::new(tokio::spawn(async move {
-                AllocationMonitor::monitor_loop(&inner_clone).await.unwrap();
-            })),
-            inner,
-        };
-
-        Ok(monitor)
+) -> Result<u64, anyhow::Error> {
+    // Types for deserializing the network subgraph response
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct GraphNetworkResponse {
+        graph_network: Option<GraphNetwork>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct GraphNetwork {
+        current_epoch: u64,
     }
 
-    async fn current_epoch(
-        network_subgraph: &NetworkSubgraph,
-        graph_network_id: u64,
-    ) -> Result<u64> {
-        let res = network_subgraph
-            .network_query(
-                r#"
-                    query epoch($id: ID!) {
-                        graphNetwork(id: $id) {
-                            currentEpoch
-                        }
-                    }
-                "#
-                .to_string(),
-                Some(serde_json::json!({ "id": graph_network_id })),
-            )
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to parse current epoch response from network subgraph: {}",
-                    e
-                )
-            })?;
-
-        res.get("data")
-            .and_then(|d| d.get("graphNetwork"))
-            .and_then(|d| d.get("currentEpoch"))
-            .and_then(|d| d.as_u64())
-            .ok_or(anyhow::anyhow!(
-                "Failed to get current epoch from network subgraph"
-            ))
-    }
-
-    async fn current_eligible_allocations(
-        network_subgraph: &NetworkSubgraph,
-        indexer_address: &Address,
-        closed_at_epoch_threshold: u64,
-    ) -> Result<HashMap<Address, Allocation>> {
-        let mut res = network_subgraph
-        .network_query(
-            r#"
-                query allocations($indexer: ID!, $closedAtEpochThreshold: Int!) {
-                    indexer(id: $indexer) {
-                        activeAllocations: totalAllocations(
-                            where: { status: Active }
-                            orderDirection: desc
-                            first: 1000
-                        ) {
-                            id
-                            indexer {
-                                id
-                            }
-                            allocatedTokens
-                            createdAtBlockHash
-                            createdAtEpoch
-                            closedAtEpoch
-                            subgraphDeployment {
-                                id
-                                deniedAt
-                                stakedTokens
-                                signalledTokens
-                                queryFeesAmount
-                            }
-                        }
-                        recentlyClosedAllocations: totalAllocations(
-                            where: { status: Closed, closedAtEpoch_gte: $closedAtEpochThreshold }
-                            orderDirection: desc
-                            first: 1000
-                        ) {
-                            id
-                            indexer {
-                                id
-                            }
-                            allocatedTokens
-                            createdAtBlockHash
-                            createdAtEpoch
-                            closedAtEpoch
-                            subgraphDeployment {
-                                id
-                                deniedAt
-                                stakedTokens
-                                signalledTokens
-                                queryFeesAmount
-                            }
-                        }
-                    }
-                }
-            "#
-            .to_string(),
-            Some(serde_json::json!({ "indexer": indexer_address, "closedAtEpochThreshold": closed_at_epoch_threshold })),
-        )
-        .await
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to fetch current allocations from network subgraph: {}",
-                    e
-                )
-            })?;
-
-        let indexer_json = res
-            .get_mut("data")
-            .and_then(|d| d.get_mut("indexer"))
-            .ok_or_else(|| anyhow::anyhow!("No data / indexer not found on chain",))?;
-
-        let active_allocations_json =
-            indexer_json.get_mut("activeAllocations").ok_or_else(|| {
-                anyhow::anyhow!("Failed to parse active allocations from network subgraph",)
-            })?;
-        let active_allocations: Vec<Allocation> =
-            serde_json::from_value(active_allocations_json.take())?;
-        let mut eligible_allocations: HashMap<Address, Allocation> =
-            HashMap::from_iter(active_allocations.into_iter().map(|a| (a.id, a)));
-
-        let recently_closed_allocations_json =
-            indexer_json
-                .get_mut("recentlyClosedAllocations")
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Failed to parse recently closed allocations from network subgraph",
-                    )
-                })?;
-        let recently_closed_allocations: Vec<Allocation> =
-            serde_json::from_value(recently_closed_allocations_json.take())?;
-        eligible_allocations.extend(
-            recently_closed_allocations
-                .into_iter()
-                .map(move |a| (a.id, a)),
-        );
-
-        Ok(eligible_allocations)
-    }
-
-    async fn update_allocations(inner: &Arc<AllocationMonitorInner>) -> Result<(), anyhow::Error> {
-        let current_epoch =
-            Self::current_epoch(&inner.network_subgraph, inner.graph_network_id).await?;
-        *(inner.eligible_allocations.write().await) = Self::current_eligible_allocations(
-            &inner.network_subgraph,
-            &inner.indexer_address,
-            current_epoch - 1,
-        )
+    // Query the current epoch
+    let query = r#"query epoch($id: ID!) { graphNetwork(id: $id) { currentEpoch } }"#;
+    let response = network_subgraph
+        .query::<GraphNetworkResponse>(&json!({
+            "query": query,
+            "variables": {
+                "id": graph_network_id
+            }
+        }))
         .await?;
-        Ok(())
+
+    if let Some(errors) = response.errors {
+        warn!(
+            "Errors encountered identifying current epoch for network {}: {}",
+            graph_network_id,
+            errors
+                .into_iter()
+                .map(|e| e.message)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
 
-    async fn monitor_loop(inner: &Arc<AllocationMonitorInner>) -> Result<()> {
-        loop {
-            match Self::update_allocations(inner).await {
-                Ok(_) => {
-                    if inner.watch_sender.send(()).is_err() {
-                        warn!(
-                            "Failed to notify subscribers that the allocations have been updated"
-                        );
+    response
+        .data
+        .and_then(|data| data.graph_network)
+        .ok_or_else(|| anyhow!("Network {} not found", graph_network_id))
+        .map(|network| network.current_epoch)
+}
+
+/// An always up-to-date list of an indexer's active and recently closed allocations.
+pub fn indexer_allocations(
+    network_subgraph: &'static NetworkSubgraph,
+    indexer_address: Address,
+    graph_network_id: u64,
+    interval: Duration,
+) -> Eventual<HashMap<Address, Allocation>> {
+    // Types for deserializing the network subgraph response
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct IndexerAllocationsResponse {
+        indexer: Option<Indexer>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Indexer {
+        active_allocations: Vec<Allocation>,
+        recently_closed_allocations: Vec<Allocation>,
+    }
+
+    let query = r#"
+        query allocations($indexer: ID!, $closedAtEpochThreshold: Int!) {
+            indexer(id: $indexer) {
+                activeAllocations: totalAllocations(
+                    where: { status: Active }
+                    orderDirection: desc
+                    first: 1000
+                ) {
+                    id
+                    indexer {
+                        id
+                    }
+                    allocatedTokens
+                    createdAtBlockHash
+                    createdAtEpoch
+                    closedAtEpoch
+                    subgraphDeployment {
+                        id
+                        deniedAt
+                        stakedTokens
+                        signalledTokens
+                        queryFeesAmount
                     }
                 }
-                Err(e) => {
-                    warn!(
-                        "Failed to query indexer allocations, keeping existing: {:?}. Error: {}",
-                        inner
-                            .eligible_allocations
-                            .read()
-                            .await
-                            .keys()
-                            .collect::<Vec<&Address>>(),
-                        e
-                    );
+                recentlyClosedAllocations: totalAllocations(
+                    where: { status: Closed, closedAtEpoch_gte: $closedAtEpochThreshold }
+                    orderDirection: desc
+                    first: 1000
+                ) {
+                    id
+                    indexer {
+                        id
+                    }
+                    allocatedTokens
+                    createdAtBlockHash
+                    createdAtEpoch
+                    closedAtEpoch
+                    subgraphDeployment {
+                        id
+                        deniedAt
+                        stakedTokens
+                        signalledTokens
+                        queryFeesAmount
+                    }
                 }
             }
-
-            info!(
-                "Eligible allocations: {}",
-                inner
-                    .eligible_allocations
-                    .read()
-                    .await
-                    .values()
-                    .map(|e| {
-                        format!(
-                            "{{allocation: {:?}, deployment: {}, closedAtEpoch: {:?})}}",
-                            e.id,
-                            e.subgraph_deployment.id.ipfs_hash(),
-                            e.closed_at_epoch
-                        )
-                    })
-                    .collect::<Vec<String>>()
-                    .join(", ")
-            );
-
-            tokio::time::sleep(tokio::time::Duration::from_millis(inner.interval_ms)).await;
         }
-    }
+    "#;
 
-    pub async fn get_eligible_allocations(
-        &self,
-    ) -> tokio::sync::RwLockReadGuard<'_, HashMap<Address, Allocation>> {
-        self.inner.eligible_allocations.read().await
-    }
+    // let indexer_for_error_handler = indexer_address.clone();
 
-    pub async fn is_allocation_eligible(&self, allocation_id: &Address) -> bool {
-        self.inner
-            .eligible_allocations
-            .read()
-            .await
-            .contains_key(allocation_id)
-    }
+    // Refresh indexer allocations every now and then
+    timer(interval).map_with_retry(
+        move |_| async move {
+            let current_epoch = current_epoch(network_subgraph, graph_network_id)
+                .await
+                .map_err(|e| format!("Failed to fetch current epoch: {}", e))?;
 
-    pub fn subscribe(&self) -> Receiver<()> {
-        self.inner.watch_receiver.clone()
-    }
-}
+            // Allocations can be closed one epoch into the past
+            let closed_at_epoch_threshold = current_epoch - 1;
 
-#[cfg(test)]
-mod tests {
-    use std::str::FromStr;
+            // Query active and recently closed allocations for the indexer,
+            // using the network subgraph
+            let response = network_subgraph
+                .query::<IndexerAllocationsResponse>(&json!({
+                "query": query,
+                "variables": {
+                    "indexer": indexer_address,
+                    "closedAtEpochThreshold": closed_at_epoch_threshold,
+                }}))
+                .await
+                .map_err(|e| e.to_string())?;
 
-    use test_log::test;
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+            // If there are any GraphQL errors returned, we'll log them for debugging
+            if let Some(errors) = response.errors {
+                warn!(
+                    "Errors encountered fetching active or recently closed allocations for indexer {}: {}",
+                    indexer_address,
+                    errors.into_iter().map(|e| e.message).collect::<Vec<_>>().join(", ")
+                );
+            }
 
-    use crate::prelude::NetworkSubgraph;
-    use crate::test_vectors;
+            // Verify that the indexer could be found at all
+            let indexer = response
+                .data
+                .and_then(|data| data.indexer)
+                .ok_or_else(|| format!("Indexer {} could not be found on the network", indexer_address))?;
 
-    use super::*;
+            // Pull active and recently closed allocations out of the indexer
+            let Indexer {
+                active_allocations,
+                recently_closed_allocations
+            } = indexer;
 
-    #[test(tokio::test)]
-    async fn test_current_epoch() {
-        let mock_server = MockServer::start().await;
-
-        let network_subgraph_endpoint = NetworkSubgraph::local_deployment_endpoint(
-            &mock_server.uri(),
-            test_vectors::NETWORK_SUBGRAPH_ID,
-        );
-        let network_subgraph = NetworkSubgraph::new(
-            Some(&mock_server.uri()),
-            Some(test_vectors::NETWORK_SUBGRAPH_ID),
-            network_subgraph_endpoint.as_ref(),
-        );
-
-        let mock = Mock::given(method("POST"))
-            .and(path(
-                "/subgraphs/id/".to_string() + test_vectors::NETWORK_SUBGRAPH_ID,
+            Ok(HashMap::from_iter(
+                active_allocations.into_iter().map(|a| (a.id, a)).chain(
+                    recently_closed_allocations.into_iter().map(|a| (a.id, a)))
             ))
-            .respond_with(ResponseTemplate::new(200).set_body_raw(
-                r#"
-                    {
-                        "data": {
-                            "graphNetwork": {
-                                "currentEpoch": 896419
-                            }
-                        }
-                    }
-                "#,
-                "application/json",
-            ));
+        },
 
-        mock_server.register(mock).await;
-
-        let epoch = AllocationMonitor::current_epoch(&network_subgraph, 1)
-            .await
-            .unwrap();
-
-        assert_eq!(epoch, 896419);
-    }
-
-    #[test(tokio::test)]
-    async fn test_current_eligible_allocations() {
-        let indexer_address = Address::from_str(test_vectors::INDEXER_ADDRESS).unwrap();
-
-        let mock_server = MockServer::start().await;
-
-        let network_subgraph_endpoint = NetworkSubgraph::local_deployment_endpoint(
-            &mock_server.uri(),
-            test_vectors::NETWORK_SUBGRAPH_ID,
-        );
-        let network_subgraph = NetworkSubgraph::new(
-            Some(&mock_server.uri()),
-            Some(test_vectors::NETWORK_SUBGRAPH_ID),
-            network_subgraph_endpoint.as_ref(),
-        );
-
-        let mock = Mock::given(method("POST"))
-            .and(path(
-                "/subgraphs/id/".to_string() + test_vectors::NETWORK_SUBGRAPH_ID,
-            ))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_raw(test_vectors::ALLOCATIONS_QUERY_RESPONSE, "application/json"),
+        // Need to use string errors here because eventuals `map_with_retry` retries
+        // errors that can be cloned
+        move |err: String| {
+            warn!(
+                "Failed to fetch active or recently closed allocations for indexer {}: {}",
+                indexer_address, err
             );
 
-        mock_server.register(mock).await;
-
-        let allocations = AllocationMonitor::current_eligible_allocations(
-            &network_subgraph,
-            &indexer_address,
-            940,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(allocations, test_vectors::expected_eligible_allocations())
-    }
-
-    /// Run with RUST_LOG=info to see the logs from the allocation monitor
-    #[test(tokio::test)]
-    #[ignore]
-    async fn test_local() {
-        let graph_node_url =
-            std::env::var("GRAPH_NODE_ENDPOINT").expect("GRAPH_NODE_ENDPOINT not set");
-        let network_subgraph_id =
-            std::env::var("NETWORK_SUBGRAPH_ID").expect("NETWORK_SUBGRAPH_ID not set");
-        let indexer_address = std::env::var("INDEXER_ADDRESS").expect("INDEXER_ADDRESS not set");
-
-        let network_subgraph_endpoint =
-            NetworkSubgraph::local_deployment_endpoint(&graph_node_url, &network_subgraph_id);
-        let network_subgraph = NetworkSubgraph::new(
-            Some(&graph_node_url),
-            Some(&network_subgraph_id),
-            network_subgraph_endpoint.as_ref(),
-        );
-
-        // graph_network_id=1 and interval_ms=1000
-        let _allocation_monitor = AllocationMonitor::new(
-            network_subgraph,
-            Address::from_str(&indexer_address).unwrap(),
-            1,
-            1000,
-        )
-        .await
-        .unwrap();
-
-        // sleep for a bit to allow the monitor to fetch the allocations a few times
-        tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
-    }
+            // Sleep for a bit before we retry
+            sleep(interval.div_f32(2.0))
+        },
+    )
 }

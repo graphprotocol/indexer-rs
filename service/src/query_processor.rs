@@ -1,12 +1,16 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+
+use alloy_primitives::Address;
 use ethers_core::types::{Signature, U256};
+use eventuals::Eventual;
 use log::error;
 use serde::{Deserialize, Serialize};
 use tap_core::tap_manager::SignedReceipt;
 
-use indexer_common::prelude::{AttestationSigner, AttestationSigners, SubgraphDeploymentID};
+use indexer_common::prelude::{AttestationSigner, SubgraphDeploymentID};
 
 use crate::graph_node::GraphNodeInstance;
 use crate::tap_manager::TapManager;
@@ -59,17 +63,17 @@ pub enum QueryError {
     Other(anyhow::Error),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct QueryProcessor {
     graph_node: GraphNodeInstance,
-    attestation_signers: AttestationSigners,
+    attestation_signers: Eventual<HashMap<Address, AttestationSigner>>,
     tap_manager: TapManager,
 }
 
 impl QueryProcessor {
     pub fn new(
         graph_node: GraphNodeInstance,
-        attestation_signers: AttestationSigners,
+        attestation_signers: Eventual<HashMap<Address, AttestationSigner>>,
         tap_manager: TapManager,
     ) -> QueryProcessor {
         QueryProcessor {
@@ -114,7 +118,10 @@ impl QueryProcessor {
             .verify_and_store_receipt(parsed_receipt)
             .await?;
 
-        let signers = self.attestation_signers.read().await;
+        let signers = self
+            .attestation_signers
+            .value_immediate()
+            .ok_or_else(|| QueryError::Other(anyhow::anyhow!("System is not ready yet")))?;
         let signer = signers.get(&allocation_id).ok_or_else(|| {
             QueryError::Other(anyhow::anyhow!(
                 "No signer found for allocation id {}",
@@ -161,10 +168,7 @@ mod tests {
     use alloy_primitives::Address;
     use hex_literal::hex;
 
-    use indexer_common::prelude::{
-        attestation_signer_for_allocation, create_attestation_signer, Allocation, AllocationStatus,
-        SubgraphDeployment,
-    };
+    use indexer_common::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
 
     use super::*;
 
@@ -259,14 +263,11 @@ mod tests {
             query_fees_collected: None,
         };
 
-        let allocation_key =
-            attestation_signer_for_allocation(INDEXER_OPERATOR_MNEMONIC, allocation).unwrap();
-
-        let attestation_signer = create_attestation_signer(
+        let attestation_signer = AttestationSigner::new(
+            INDEXER_OPERATOR_MNEMONIC,
+            allocation,
             U256::from(1),
             Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
-            allocation_key,
-            subgraph_deployment_id.bytes32(),
         )
         .unwrap();
 

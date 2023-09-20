@@ -29,7 +29,7 @@ use crate::{
 
 pub mod routes;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ServerOptions {
     pub port: Option<u32>,
     pub release: PackageVersion,
@@ -38,7 +38,7 @@ pub struct ServerOptions {
     pub graph_node_status_endpoint: String,
     pub indexer_management_db: PgPool,
     pub operator_public_key: String,
-    pub network_subgraph: NetworkSubgraph,
+    pub network_subgraph: &'static NetworkSubgraph,
     pub network_subgraph_auth_token: Option<String>,
     pub serve_network_subgraph: bool,
 }
@@ -53,7 +53,7 @@ impl ServerOptions {
         graph_node_status_endpoint: String,
         indexer_management_db: PgPool,
         operator_public_key: String,
-        network_subgraph: NetworkSubgraph,
+        network_subgraph: &'static NetworkSubgraph,
         network_subgraph_auth_token: Option<String>,
         serve_network_subgraph: bool,
     ) -> Self {

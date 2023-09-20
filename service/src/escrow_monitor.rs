@@ -6,11 +6,10 @@ use anyhow::Result;
 use ethereum_types::U256;
 use log::{error, info};
 use serde::Deserialize;
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
-use indexer_common::prelude::GraphQLQuery;
 
 use crate::graph_node::GraphNodeInstance;
 
@@ -80,26 +79,25 @@ impl EscrowMonitor {
             sender: _Sender,
         }
 
-        let query = GraphQLQuery {
-            query: r#"
-            query ($indexer: ID!) {
-                escrowAccounts(where: {receiver_: {id: $indexer}}) {
-                    balance
-                    totalAmountThawing
-                    sender {
-                        id
+        let request = json!({
+            "query": r#"
+                query ($indexer: ID!) {
+                    escrowAccounts(where: {receiver_: {id: $indexer}}) {
+                        balance
+                        totalAmountThawing
+                        sender {
+                            id
+                        }
                     }
                 }
-            }
-        "#
-            .to_string(),
-            variables: Some(serde_json::json!({ "indexer": indexer_address})),
-        };
+            "#,
+            "variables": { "indexer": indexer_address },
+        });
 
         let res = graph_node
             .subgraph_query_raw(
                 escrow_subgraph_deployment,
-                serde_json::to_string(&query).expect("serialize escrow GraphQL query"),
+                serde_json::to_string(&request).expect("serialize escrow GraphQL query"),
             )
             .await?;
 

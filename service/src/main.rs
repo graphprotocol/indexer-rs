@@ -6,10 +6,11 @@ use alloy_sol_types::eip712_domain;
 use axum::Server;
 use dotenvy::dotenv;
 use ethereum_types::U256;
+use std::time::Duration;
 use std::{net::SocketAddr, str::FromStr};
 use tracing::info;
 
-use indexer_common::prelude::{AllocationMonitor, AttestationSigners, NetworkSubgraph};
+use indexer_common::prelude::{attestation_signers, indexer_allocations, NetworkSubgraph};
 
 use util::{package_version, shutdown_signal};
 
@@ -61,26 +62,24 @@ async fn main() -> Result<(), std::io::Error> {
     // Make an instance of network subgraph at either
     // graph_node_query_endpoint/subgraphs/id/network_subgraph_deployment
     // or network_subgraph_endpoint
-    let network_subgraph = NetworkSubgraph::new(
+    let network_subgraph: &'static NetworkSubgraph = Box::leak(Box::new(NetworkSubgraph::new(
         Some(&config.indexer_infrastructure.graph_node_query_endpoint),
         config
             .network_subgraph
             .network_subgraph_deployment
             .as_deref(),
         &config.network_subgraph.network_subgraph_endpoint,
-    );
+    )));
 
-    let allocation_monitor = AllocationMonitor::new(
-        network_subgraph.clone(),
+    let indexer_allocations = indexer_allocations(
+        network_subgraph,
         config.ethereum.indexer_address,
         1,
-        config.network_subgraph.allocation_syncing_interval,
-    )
-    .await
-    .expect("Initialize allocation monitor");
+        Duration::from_secs(config.network_subgraph.allocation_syncing_interval),
+    );
 
-    let attestation_signers = AttestationSigners::new(
-        allocation_monitor.clone(),
+    let attestation_signers = attestation_signers(
+        indexer_allocations.clone(),
         config.ethereum.mnemonic.clone(),
         // TODO: Chain ID should be a config
         U256::from(1),
@@ -108,7 +107,7 @@ async fn main() -> Result<(), std::io::Error> {
 
     let tap_manager = tap_manager::TapManager::new(
         indexer_management_db.clone(),
-        allocation_monitor.clone(),
+        indexer_allocations.clone(),
         escrow_monitor,
         // TODO: arguments for eip712_domain should be a config
         eip712_domain! {

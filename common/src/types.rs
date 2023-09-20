@@ -2,16 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use ethers::utils::hex;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-/// A serializable GraphQL request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphQLQuery {
-    pub query: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub variables: Option<Value>,
-}
+use serde::Deserialize;
 
 /// Subgraph identifier type: SubgraphDeploymentID with field 'value'
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
