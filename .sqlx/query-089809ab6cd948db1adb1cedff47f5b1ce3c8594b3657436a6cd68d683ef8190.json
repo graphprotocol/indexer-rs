@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE scalar_tap_latest_ravs\n                    SET is_last = true\n                    WHERE allocation_id = $1 AND sender_address = $2\n                    RETURNING *\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "allocation_id",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "sender_address",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "rav",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_last",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Bpchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "089809ab6cd948db1adb1cedff47f5b1ce3c8594b3657436a6cd68d683ef8190"
+}

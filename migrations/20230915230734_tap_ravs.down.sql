@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS scalar_tap_ravs CASCADE;

@@ -150,7 +150,6 @@ async fn main() -> Result<(), std::io::Error> {
         indexer_management_db.clone(),
         indexer_allocations,
         escrow_accounts,
-        // TODO: arguments for eip712_domain should be a config
         eip712_domain! {
             name: "Scalar TAP",
             version: "1",

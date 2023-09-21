@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO scalar_tap_latest_ravs (allocation_id, sender_address, rav)\n                VALUES ($1, $2, $3)\n                ON CONFLICT (allocation_id, sender_address)\n                DO UPDATE SET rav = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Bpchar",
+        "Json"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b3726609aaf6bbeb8a08cbcc10f3226c8a792538eed5ae1397f5515ef43f52af"
+}

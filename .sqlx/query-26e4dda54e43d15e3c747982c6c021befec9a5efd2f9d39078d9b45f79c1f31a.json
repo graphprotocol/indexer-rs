@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO scalar_tap_latest_ravs (\n                allocation_id, sender_address, rav\n            )\n            VALUES ($1, $2, $3)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Bpchar",
+        "Json"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "26e4dda54e43d15e3c747982c6c021befec9a5efd2f9d39078d9b45f79c1f31a"
+}

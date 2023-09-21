@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT rav\n                FROM scalar_tap_latest_ravs\n                WHERE allocation_id = $1 AND sender_address = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rav",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Bpchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c4014f5e68d5a00d47138828d941d3afe596556e730b48fb31edfaf14096d3dd"
+}

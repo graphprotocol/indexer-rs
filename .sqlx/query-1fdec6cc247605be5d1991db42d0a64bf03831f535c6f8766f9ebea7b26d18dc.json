@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO scalar_tap_receipts (\n                allocation_id, sender_address, timestamp_ns, value, receipt\n            )\n            VALUES ($1, $2, $3, $4, $5)\n            RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Bpchar",
+        "Numeric",
+        "Numeric",
+        "Json"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1fdec6cc247605be5d1991db42d0a64bf03831f535c6f8766f9ebea7b26d18dc"
+}
