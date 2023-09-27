@@ -55,6 +55,10 @@ pub enum QueryError {
     IndexingError,
     #[error("Bad or invalid entity data found in the subgraph: {}", .0.to_string())]
     BadData(anyhow::Error),
+    #[error("Invalid GraphQL query string: {0}")]
+    InvalidFormat(String),
+    #[error("Cannot query field: {:#?}", .0)]
+    UnsupportedFields(Vec<String>),
     #[error("Unknown error: {0}")]
     Other(anyhow::Error),
 }
