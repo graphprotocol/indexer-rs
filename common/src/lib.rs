@@ -3,6 +3,7 @@
 
 pub mod allocations;
 pub mod attestations;
+pub mod graphql;
 pub mod network_subgraph;
 pub mod signature_verification;
 pub mod types;
