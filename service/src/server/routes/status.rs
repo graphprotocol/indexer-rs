@@ -22,6 +22,9 @@ lazy_static::lazy_static! {
     static ref SUPPORTED_ROOT_FIELDS: HashSet<&'static str> =
         vec![
             "indexingStatuses",
+            "chains",
+            "latestBlock",
+            "earliestBlock",
             "publicProofsOfIndexing",
             "entityChangesInBlock",
             "blockData",
@@ -61,13 +64,11 @@ pub async fn status_queries(
         .body(Bytes::from(query_string))
         .header(header::CONTENT_TYPE, "application/json");
 
-    let response: reqwest::Response = match request.send().await {
-        Ok(r) => r,
+    match request.send().await {
+        Ok(r) => match r.json::<Box<serde_json::value::RawValue>>().await {
+            Ok(r) => (StatusCode::OK, Json(r)).into_response(),
+            Err(e) => return bad_request_response(&e.to_string()),
+        },
         Err(e) => return bad_request_response(&e.to_string()),
-    };
-
-    match response.text().await {
-        Ok(r) => (StatusCode::OK, Json(r)).into_response(),
-        _ => bad_request_response("Response from Graph node cannot be parsed as a string"),
     }
 }
