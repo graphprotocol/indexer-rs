@@ -22,6 +22,9 @@ lazy_static::lazy_static! {
     static ref SUPPORTED_ROOT_FIELDS: HashSet<&'static str> =
         vec![
             "indexingStatuses",
+            "chains",
+            "latestBlock",
+            "earliestBlock",
             "publicProofsOfIndexing",
             "entityChangesInBlock",
             "blockData",
