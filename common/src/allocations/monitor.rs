@@ -89,8 +89,7 @@ impl AllocationMonitor {
                         }
                     }
                 "#,
-                "variables":
-            { "id": graph_network_id },
+                "variables": { "id": graph_network_id },
             }))
             .await
             .map_err(|e| {
