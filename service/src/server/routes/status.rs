@@ -67,8 +67,8 @@ pub async fn status_queries(
     match request.send().await {
         Ok(r) => match r.json::<Box<serde_json::value::RawValue>>().await {
             Ok(r) => (StatusCode::OK, Json(r)).into_response(),
-            Err(e) => return bad_request_response(&e.to_string()),
+            Err(e) => bad_request_response(&e.to_string()),
         },
-        Err(e) => return bad_request_response(&e.to_string()),
+        Err(e) => bad_request_response(&e.to_string()),
     }
 }
