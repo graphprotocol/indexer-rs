@@ -3,19 +3,20 @@
 
 use axum::{
     extract::Extension,
-    http::{self, Request, StatusCode},
+    http::{self, Request},
     response::IntoResponse,
     Json,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::server::ServerOptions;
 
-use super::{bad_request_response, response_body_to_query_string};
+use super::bad_request_response;
 
 pub async fn network_queries(
     Extension(server): Extension<ServerOptions>,
     req: Request<axum::body::Body>,
+    axum::extract::Json(body): axum::extract::Json<Value>,
 ) -> impl IntoResponse {
     // Extract free query auth token
     let auth_token = req
@@ -32,25 +33,17 @@ pub async fn network_queries(
         return bad_request_response("Not enabled or authorized query");
     }
 
-    // Serve query using query processor
-    let req_body = req.into_body();
-    let query_string = match response_body_to_query_string(req_body).await {
-        Ok(q) => q,
-        Err(e) => return bad_request_response(&e.to_string()),
-    };
-
-    let response = server
-        .network_subgraph
-        .network_query_raw(query_string)
-        .await
-        .expect("Failed to execute free network subgraph query");
-
-    if response.status().is_success() {
-        match response.json::<Value>().await {
-            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
-            Err(e) => bad_request_response(&e.to_string()),
-        }
-    } else {
-        bad_request_response("Bad response from Graph node")
+    match server.network_subgraph.query::<Value>(&body).await {
+        Ok(result) => Json(json!({
+            "data": result.data,
+            "errors": result.errors.map(|errors| {
+                errors
+                    .into_iter()
+                    .map(|e| json!({ "message": e.message }))
+                    .collect::<Vec<_>>()
+            }),
+        }))
+        .into_response(),
+        Err(e) => bad_request_response(&e.to_string()),
     }
 }
