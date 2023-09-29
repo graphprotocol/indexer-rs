@@ -1,7 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, B256};
 use anyhow::Result;
 use ethers::signers::coins_bip39::English;
 use ethers::signers::{MnemonicBuilder, Signer, Wallet};
@@ -9,8 +9,7 @@ use ethers_core::k256::ecdsa::SigningKey;
 use ethers_core::types::U256;
 use serde::Deserialize;
 use serde::Deserializer;
-
-use crate::types::SubgraphDeploymentID;
+use toolshed::thegraph::DeploymentId;
 
 pub mod monitor;
 
@@ -40,9 +39,22 @@ pub enum AllocationStatus {
     Claimed,
 }
 
+// Custom deserializer for `DeploymentId` that accepts a `0x...` string
+fn deserialize_deployment_id<'de, D>(deserializer: D) -> Result<DeploymentId, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let bytes = B256::deserialize(deserializer)?;
+    Ok(DeploymentId(bytes))
+}
+
 #[derive(Debug, Eq, PartialEq, Deserialize)]
 pub struct SubgraphDeployment {
-    pub id: SubgraphDeploymentID,
+    // This neeeds a custom deserialize function because it's returned from the
+    // network subgraph as a hex string but `DeploymentId` assumes an IPFS hash
+    // in it's `Deserialize` implementation
+    #[serde(deserialize_with = "deserialize_deployment_id")]
+    pub id: DeploymentId,
     #[serde(rename = "deniedAt")]
     pub denied_at: Option<u64>,
     #[serde(rename = "stakedTokens")]
@@ -98,13 +110,13 @@ impl<'d> Deserialize<'d> for Allocation {
 pub fn derive_key_pair(
     indexer_mnemonic: &str,
     epoch: u64,
-    deployment: &SubgraphDeploymentID,
+    deployment: &DeploymentId,
     index: u64,
 ) -> Result<Wallet<SigningKey>> {
     let mut derivation_path = format!("m/{}/", epoch);
     derivation_path.push_str(
         &deployment
-            .ipfs_hash()
+            .to_string()
             .as_bytes()
             .iter()
             .map(|char| char.to_string())
@@ -146,45 +158,37 @@ pub fn allocation_signer(indexer_mnemonic: &str, allocation: &Allocation) -> Res
 
 #[cfg(test)]
 mod test {
+    use lazy_static::lazy_static;
     use std::str::FromStr;
-
-    use crate::prelude::SubgraphDeploymentID;
+    use toolshed::thegraph::DeploymentId;
 
     use super::*;
 
     const INDEXER_OPERATOR_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
+    lazy_static! {
+        static ref DEPLOYMENT_ID: DeploymentId = DeploymentId(
+            "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
+                .parse()
+                .unwrap(),
+        );
+    }
+
     #[test]
     fn test_derive_key_pair() {
         assert_eq!(
-            derive_key_pair(
-                INDEXER_OPERATOR_MNEMONIC,
-                953,
-                &SubgraphDeploymentID::new(
-                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
-                )
-                .unwrap(),
-                0
-            )
-            .unwrap()
-            .address()
-            .as_fixed_bytes(),
+            derive_key_pair(INDEXER_OPERATOR_MNEMONIC, 953, &DEPLOYMENT_ID, 0)
+                .unwrap()
+                .address()
+                .as_fixed_bytes(),
             Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap()
         );
 
         assert_eq!(
-            derive_key_pair(
-                INDEXER_OPERATOR_MNEMONIC,
-                940,
-                &SubgraphDeploymentID::new(
-                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
-                )
-                .unwrap(),
-                2
-            )
-            .unwrap()
-            .address()
-            .as_fixed_bytes(),
+            derive_key_pair(INDEXER_OPERATOR_MNEMONIC, 940, &DEPLOYMENT_ID, 2)
+                .unwrap()
+                .address()
+                .as_fixed_bytes(),
             Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap()
         );
     }
@@ -197,10 +201,7 @@ mod test {
             id: Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap(),
             status: AllocationStatus::Null,
             subgraph_deployment: SubgraphDeployment {
-                id: SubgraphDeploymentID::new(
-                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
-                )
-                .unwrap(),
+                id: *DEPLOYMENT_ID,
                 denied_at: None,
                 staked_tokens: U256::zero(),
                 signalled_tokens: U256::zero(),
@@ -239,10 +240,7 @@ mod test {
             id: Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
             status: AllocationStatus::Null,
             subgraph_deployment: SubgraphDeployment {
-                id: SubgraphDeploymentID::new(
-                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
-                )
-                .unwrap(),
+                id: *DEPLOYMENT_ID,
                 denied_at: None,
                 staked_tokens: U256::zero(),
                 signalled_tokens: U256::zero(),

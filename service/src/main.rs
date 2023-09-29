@@ -7,6 +7,7 @@ use axum::Server;
 use dotenvy::dotenv;
 use ethereum_types::U256;
 use std::{net::SocketAddr, str::FromStr};
+use toolshed::thegraph::DeploymentId;
 use tracing::info;
 
 use indexer_common::prelude::{AllocationMonitor, AttestationSigners, NetworkSubgraph};
@@ -99,7 +100,8 @@ async fn main() -> Result<(), std::io::Error> {
 
     let escrow_monitor = escrow_monitor::EscrowMonitor::new(
         graph_node.clone(),
-        config.escrow_subgraph.escrow_subgraph_deployment,
+        DeploymentId::from_str(&config.escrow_subgraph.escrow_subgraph_deployment)
+            .expect("escrow deployment ID is invalid"),
         config.ethereum.indexer_address,
         config.escrow_subgraph.escrow_syncing_interval,
     )

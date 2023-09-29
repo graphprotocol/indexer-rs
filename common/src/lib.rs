@@ -6,7 +6,6 @@ pub mod attestations;
 pub mod graphql;
 pub mod network_subgraph;
 pub mod signature_verification;
-pub mod types;
 
 #[cfg(test)]
 mod test_vectors;
@@ -20,5 +19,4 @@ pub mod prelude {
         signers::AttestationSigners,
     };
     pub use super::network_subgraph::NetworkSubgraph;
-    pub use super::types::*;
 }

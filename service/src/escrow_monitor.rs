@@ -10,13 +10,14 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use toolshed::thegraph::DeploymentId;
 
 use crate::graph_node::GraphNodeInstance;
 
 #[derive(Debug)]
 struct EscrowMonitorInner {
     graph_node: GraphNodeInstance,
-    escrow_subgraph_deployment: String,
+    escrow_subgraph_deployment: DeploymentId,
     indexer_address: Address,
     interval_ms: u64,
     sender_accounts: Arc<RwLock<HashMap<Address, U256>>>,
@@ -33,7 +34,7 @@ pub struct EscrowMonitor {
 impl EscrowMonitor {
     pub async fn new(
         graph_node: GraphNodeInstance,
-        escrow_subgraph_deployment: String,
+        escrow_subgraph_deployment: DeploymentId,
         indexer_address: Address,
         interval_ms: u64,
     ) -> Result<Self> {
@@ -61,7 +62,7 @@ impl EscrowMonitor {
 
     async fn current_accounts(
         graph_node: &GraphNodeInstance,
-        escrow_subgraph_deployment: &str,
+        escrow_subgraph_deployment: &DeploymentId,
         indexer_address: &Address,
     ) -> Result<HashMap<Address, U256>> {
         // These 2 structs are used to deserialize the response from the escrow subgraph.
@@ -192,14 +193,15 @@ mod tests {
     #[tokio::test]
     async fn test_current_accounts() {
         let indexer_address = Address::from_str(test_vectors::INDEXER_ADDRESS).unwrap();
-        let escrow_subgraph_deployment = "Qmabcdefghijklmnopqrstuvwxyz1234567890ABCDEFGH";
+        let escrow_subgraph_deployment =
+            DeploymentId::from_str("Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss").unwrap();
 
         let mock_server = MockServer::start().await;
         let graph_node = graph_node::GraphNodeInstance::new(&mock_server.uri());
 
         let mock = Mock::given(method("POST"))
             .and(path(
-                "/subgraphs/id/".to_string() + escrow_subgraph_deployment,
+                "/subgraphs/id/".to_string() + &escrow_subgraph_deployment.to_string(),
             ))
             .respond_with(
                 ResponseTemplate::new(200)
@@ -209,7 +211,7 @@ mod tests {
 
         let inner = EscrowMonitorInner {
             graph_node,
-            escrow_subgraph_deployment: escrow_subgraph_deployment.to_string(),
+            escrow_subgraph_deployment,
             indexer_address,
             interval_ms: 1000,
             sender_accounts: Arc::new(RwLock::new(HashMap::new())),

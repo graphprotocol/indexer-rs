@@ -4744,6 +4744,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml 0.7.4",
+ "toolshed",
  "tower",
  "tower-http 0.4.0",
  "tracing",

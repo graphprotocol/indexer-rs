@@ -11,11 +11,12 @@ use ethers_core::types::U256;
 use keccak_hash::keccak;
 use secp256k1::SecretKey;
 use std::convert::TryInto;
+use toolshed::thegraph::DeploymentId;
 
 /// An attestation signer tied to a specific allocation via its signer key
 #[derive(Debug, Clone)]
 pub struct AttestationSigner {
-    subgraph_deployment_id: Bytes32,
+    subgraph_deployment_id: DeploymentId,
     domain_separator: DomainSeparator,
     signer: SecretKey,
 }
@@ -25,7 +26,7 @@ impl AttestationSigner {
         chain_id: eip_712_derive::U256,
         dispute_manager: Address,
         signer: SecretKey,
-        subgraph_deployment_id: Bytes32,
+        deployment_id: DeploymentId,
     ) -> Self {
         let bytes = hex::decode("a070ffb1cd7409649bf77822cce74495468e06dbfaef09556838bf188679b9c2")
             .unwrap();
@@ -44,7 +45,7 @@ impl AttestationSigner {
         Self {
             domain_separator,
             signer,
-            subgraph_deployment_id,
+            subgraph_deployment_id: deployment_id,
         }
     }
 
@@ -55,7 +56,7 @@ impl AttestationSigner {
         let receipt = Receipt {
             request_cid,
             response_cid,
-            subgraph_deployment_id: self.subgraph_deployment_id,
+            subgraph_deployment_id: *self.subgraph_deployment_id.0,
         };
 
         // Unwrap: This can only fail if the SecretKey is invalid.
@@ -69,7 +70,7 @@ impl AttestationSigner {
             v,
             r,
             s,
-            subgraph_deployment_id: self.subgraph_deployment_id,
+            subgraph_deployment_id: *self.subgraph_deployment_id.0,
             request_cid,
             response_cid,
         }
@@ -106,7 +107,7 @@ pub fn create_attestation_signer(
     chain_id: U256,
     dispute_manager_address: Address,
     signer: SigningKey,
-    deployment_id: [u8; 32],
+    deployment_id: DeploymentId,
 ) -> anyhow::Result<AttestationSigner> {
     // Tedious conversions to the "indexer_native" types
     let mut chain_id_bytes = [0u8; 32];

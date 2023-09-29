@@ -246,9 +246,7 @@ impl AllocationMonitor {
                     .map(|e| {
                         format!(
                             "{{allocation: {:?}, deployment: {}, closedAtEpoch: {:?})}}",
-                            e.id,
-                            e.subgraph_deployment.id.ipfs_hash(),
-                            e.closed_at_epoch
+                            e.id, e.subgraph_deployment.id, e.closed_at_epoch
                         )
                     })
                     .collect::<Vec<String>>()

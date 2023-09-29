@@ -7,8 +7,9 @@ use ethers::signers::MnemonicBuilder;
 use ethers::signers::Signer;
 use ethers::signers::Wallet;
 use ethers_core::k256::ecdsa::SigningKey;
+use toolshed::thegraph::DeploymentId;
 
-use crate::prelude::{Allocation, SubgraphDeploymentID};
+use crate::prelude::Allocation;
 
 pub mod signer;
 pub mod signers;
@@ -16,13 +17,13 @@ pub mod signers;
 pub fn derive_key_pair(
     indexer_mnemonic: &str,
     epoch: u64,
-    deployment: &SubgraphDeploymentID,
+    deployment: &DeploymentId,
     index: u64,
 ) -> Result<Wallet<SigningKey>> {
     let mut derivation_path = format!("m/{}/", epoch);
     derivation_path.push_str(
         &deployment
-            .ipfs_hash()
+            .to_string()
             .as_bytes()
             .iter()
             .map(|char| char.to_string())
@@ -69,46 +70,39 @@ pub fn attestation_signer_for_allocation(
 mod tests {
     use alloy_primitives::Address;
     use ethers_core::types::U256;
+    use lazy_static::lazy_static;
     use std::str::FromStr;
     use test_log::test;
 
-    use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment, SubgraphDeploymentID};
+    use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
 
     use super::*;
 
     const INDEXER_OPERATOR_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
+    lazy_static! {
+        static ref DEPLOYMENT_ID: DeploymentId = DeploymentId(
+            "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
+                .parse()
+                .unwrap(),
+        );
+    }
+
     #[test]
     fn test_derive_key_pair() {
         assert_eq!(
-            derive_key_pair(
-                INDEXER_OPERATOR_MNEMONIC,
-                953,
-                &SubgraphDeploymentID::new(
-                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
-                )
-                .unwrap(),
-                0
-            )
-            .unwrap()
-            .address()
-            .as_fixed_bytes(),
+            derive_key_pair(INDEXER_OPERATOR_MNEMONIC, 953, &DEPLOYMENT_ID, 0)
+                .unwrap()
+                .address()
+                .to_fixed_bytes(),
             Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap()
         );
 
         assert_eq!(
-            derive_key_pair(
-                INDEXER_OPERATOR_MNEMONIC,
-                940,
-                &SubgraphDeploymentID::new(
-                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
-                )
-                .unwrap(),
-                2
-            )
-            .unwrap()
-            .address()
-            .as_fixed_bytes(),
+            derive_key_pair(INDEXER_OPERATOR_MNEMONIC, 940, &DEPLOYMENT_ID, 2)
+                .unwrap()
+                .address()
+                .as_fixed_bytes(),
             Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap()
         );
     }
@@ -121,10 +115,7 @@ mod tests {
             id: Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap(),
             status: AllocationStatus::Null,
             subgraph_deployment: SubgraphDeployment {
-                id: SubgraphDeploymentID::new(
-                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
-                )
-                .unwrap(),
+                id: *DEPLOYMENT_ID,
                 denied_at: None,
                 staked_tokens: U256::zero(),
                 signalled_tokens: U256::zero(),
@@ -163,10 +154,7 @@ mod tests {
             id: Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
             status: AllocationStatus::Null,
             subgraph_deployment: SubgraphDeployment {
-                id: SubgraphDeploymentID::new(
-                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
-                )
-                .unwrap(),
+                id: *DEPLOYMENT_ID,
                 denied_at: None,
                 staked_tokens: U256::zero(),
                 signalled_tokens: U256::zero(),

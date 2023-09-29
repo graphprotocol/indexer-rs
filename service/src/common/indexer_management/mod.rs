@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, PgPool};
 
-use indexer_common::prelude::SubgraphDeploymentID;
-
 use super::indexer_error::{IndexerError, IndexerErrorCause, IndexerErrorCode};
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize, SimpleObject)]
@@ -25,10 +23,7 @@ pub async fn cost_models(
     pool: &PgPool,
     deployments: &[String],
 ) -> Result<Vec<CostModel>, IndexerError> {
-    let deployment_ids = deployments
-        .iter()
-        .map(|d| SubgraphDeploymentID::new(d).unwrap().to_string())
-        .collect::<Vec<String>>();
+    let deployment_ids = deployments.to_vec();
     let models = if deployment_ids.is_empty() {
         sqlx::query_as!(
             CostModel,
@@ -93,7 +88,6 @@ pub async fn cost_model(
     pool: &PgPool,
     deployment: &str,
 ) -> Result<Option<CostModel>, IndexerError> {
-    let deployment_id = SubgraphDeploymentID::new(deployment).unwrap().to_string();
     let model = sqlx::query_as!(
         CostModel,
         r#"
@@ -101,7 +95,7 @@ pub async fn cost_model(
         FROM "CostModels"
         WHERE deployment = $1
     "#,
-        deployment_id
+        deployment
     )
     .fetch_optional(pool)
     .await
@@ -113,7 +107,7 @@ pub async fn cost_model(
             || {
                 Some(merge_global(
                     CostModel {
-                        deployment: deployment.to_string(),
+                        deployment: deployment.into(),
                         model: None,
                         variables: None,
                     },

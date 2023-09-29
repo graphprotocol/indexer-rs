@@ -5,8 +5,9 @@ use std::{collections::HashMap, str::FromStr};
 
 use alloy_primitives::Address;
 use ethers_core::types::U256;
+use toolshed::thegraph::DeploymentId;
 
-use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment, SubgraphDeploymentID};
+use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
 
 pub const INDEXER_OPERATOR_MNEMONIC: &str =
     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
@@ -120,10 +121,11 @@ pub fn expected_eligible_allocations() -> HashMap<Address, Allocation> {
                 created_at_epoch: 953,
                 closed_at_epoch: None,
                 subgraph_deployment: SubgraphDeployment {
-                    id: SubgraphDeploymentID::new(
-                        "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
-                    )
-                    .unwrap(),
+                    id: DeploymentId(
+                        "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
+                            .parse()
+                            .unwrap(),
+                    ),
                     denied_at: Some(0),
                     staked_tokens: U256::from_str("96183284152000000014901161").unwrap(),
                     signalled_tokens: U256::from_str("182832939554154667498047").unwrap(),
@@ -148,10 +150,11 @@ pub fn expected_eligible_allocations() -> HashMap<Address, Allocation> {
                 created_at_epoch: 953,
                 closed_at_epoch: None,
                 subgraph_deployment: SubgraphDeployment {
-                    id: SubgraphDeploymentID::new(
-                        "0xcda7fa0405d6fd10721ed13d18823d24b535060d8ff661f862b26c23334f13bf",
-                    )
-                    .unwrap(),
+                    id: DeploymentId(
+                        "0xcda7fa0405d6fd10721ed13d18823d24b535060d8ff661f862b26c23334f13bf"
+                            .parse()
+                            .unwrap(),
+                    ),
                     denied_at: Some(0),
                     staked_tokens: U256::from_str("53885041676589999979510903").unwrap(),
                     signalled_tokens: U256::from_str("104257136417832003117925").unwrap(),
@@ -176,10 +179,11 @@ pub fn expected_eligible_allocations() -> HashMap<Address, Allocation> {
                 created_at_epoch: 940,
                 closed_at_epoch: Some(953),
                 subgraph_deployment: SubgraphDeployment {
-                    id: SubgraphDeploymentID::new(
-                        "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
-                    )
-                    .unwrap(),
+                    id: DeploymentId(
+                        "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
+                            .parse()
+                            .unwrap(),
+                    ),
                     denied_at: Some(0),
                     staked_tokens: U256::from_str("96183284152000000014901161").unwrap(),
                     signalled_tokens: U256::from_str("182832939554154667498047").unwrap(),
@@ -204,10 +208,11 @@ pub fn expected_eligible_allocations() -> HashMap<Address, Allocation> {
                 created_at_epoch: 940,
                 closed_at_epoch: Some(953),
                 subgraph_deployment: SubgraphDeployment {
-                    id: SubgraphDeploymentID::new(
-                        "0xc064c354bc21dd958b1d41b67b8ef161b75d2246b425f68ed4c74964ae705cbd",
-                    )
-                    .unwrap(),
+                    id: DeploymentId(
+                        "0xc064c354bc21dd958b1d41b67b8ef161b75d2246b425f68ed4c74964ae705cbd"
+                            .parse()
+                            .unwrap(),
+                    ),
                     denied_at: Some(0),
                     staked_tokens: U256::from_str("85450761241000000055879354").unwrap(),
                     signalled_tokens: U256::from_str("154944508746646550301048").unwrap(),

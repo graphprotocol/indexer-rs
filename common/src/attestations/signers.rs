@@ -70,21 +70,20 @@ impl AttestationSigners {
                             inner.chain_id,
                             inner.dispute_manager,
                             signer,
-                            allocation.subgraph_deployment.id.bytes32(),
+                            allocation.subgraph_deployment.id,
                         )
                     }) {
                     Ok(signer) => {
                         e.insert(signer);
                         info!(
                             "Found attestation signer for {{allocation: {}, deployment: {}}}",
-                            allocation.id,
-                            allocation.subgraph_deployment.id.ipfs_hash()
+                            allocation.id, allocation.subgraph_deployment.id,
                         );
                     }
                     Err(e) => {
                         warn!(
                         "Failed to find the attestation signer for {{allocation: {}, deployment: {}, createdAtEpoch: {}, err: {}}}",
-                        allocation.id, allocation.subgraph_deployment.id.ipfs_hash(), allocation.created_at_epoch, e
+                        allocation.id, allocation.subgraph_deployment.id, allocation.created_at_epoch, e
                     )
                     }
                 }
