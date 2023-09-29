@@ -7,6 +7,8 @@ use std::sync::Arc;
 use alloy_primitives::Address;
 use anyhow::Result;
 use log::{info, warn};
+use serde::Deserialize;
+use serde_json::json;
 use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::RwLock;
 
@@ -67,18 +69,29 @@ impl AllocationMonitor {
         network_subgraph: &NetworkSubgraph,
         graph_network_id: u64,
     ) -> Result<u64> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct GraphNetwork {
+            current_epoch: u64,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct QueryResult {
+            graph_network: GraphNetwork,
+        }
+
         let res = network_subgraph
-            .network_query(
-                r#"
+            .query::<QueryResult>(&json!({
+                "query": r#"
                     query epoch($id: ID!) {
                         graphNetwork(id: $id) {
                             currentEpoch
                         }
                     }
-                "#
-                .to_string(),
-                Some(serde_json::json!({ "id": graph_network_id })),
-            )
+                "#,
+                "variables":
+            { "id": graph_network_id },
+            }))
             .await
             .map_err(|e| {
                 anyhow::anyhow!(
@@ -87,10 +100,8 @@ impl AllocationMonitor {
                 )
             })?;
 
-        res.get("data")
-            .and_then(|d| d.get("graphNetwork"))
-            .and_then(|d| d.get("currentEpoch"))
-            .and_then(|d| d.as_u64())
+        res.data
+            .map(|data| data.graph_network.current_epoch)
             .ok_or(anyhow::anyhow!(
                 "Failed to get current epoch from network subgraph"
             ))
@@ -101,98 +112,93 @@ impl AllocationMonitor {
         indexer_address: &Address,
         closed_at_epoch_threshold: u64,
     ) -> Result<HashMap<Address, Allocation>> {
-        let mut res = network_subgraph
-        .network_query(
-            r#"
-                query allocations($indexer: ID!, $closedAtEpochThreshold: Int!) {
-                    indexer(id: $indexer) {
-                        activeAllocations: totalAllocations(
-                            where: { status: Active }
-                            orderDirection: desc
-                            first: 1000
-                        ) {
-                            id
-                            indexer {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Indexer {
+            active_allocations: Vec<Allocation>,
+            recently_closed_allocations: Vec<Allocation>,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct QueryResult {
+            indexer: Option<Indexer>,
+        }
+
+        let result = network_subgraph
+            .query::<QueryResult>(&json!({
+                "query": r#"
+                    query allocations($indexer: ID!, $closedAtEpochThreshold: Int!) {
+                        indexer(id: $indexer) {
+                            activeAllocations: totalAllocations(
+                                where: { status: Active }
+                                orderDirection: desc
+                                first: 1000
+                            ) {
                                 id
+                                indexer {
+                                    id
+                                }
+                                allocatedTokens
+                                createdAtBlockHash
+                                createdAtEpoch
+                                closedAtEpoch
+                                subgraphDeployment {
+                                    id
+                                    deniedAt
+                                    stakedTokens
+                                    signalledTokens
+                                    queryFeesAmount
+                                }
                             }
-                            allocatedTokens
-                            createdAtBlockHash
-                            createdAtEpoch
-                            closedAtEpoch
-                            subgraphDeployment {
+                            recentlyClosedAllocations: totalAllocations(
+                                where: { status: Closed, closedAtEpoch_gte: $closedAtEpochThreshold }
+                                orderDirection: desc
+                                first: 1000
+                            ) {
                                 id
-                                deniedAt
-                                stakedTokens
-                                signalledTokens
-                                queryFeesAmount
-                            }
-                        }
-                        recentlyClosedAllocations: totalAllocations(
-                            where: { status: Closed, closedAtEpoch_gte: $closedAtEpochThreshold }
-                            orderDirection: desc
-                            first: 1000
-                        ) {
-                            id
-                            indexer {
-                                id
-                            }
-                            allocatedTokens
-                            createdAtBlockHash
-                            createdAtEpoch
-                            closedAtEpoch
-                            subgraphDeployment {
-                                id
-                                deniedAt
-                                stakedTokens
-                                signalledTokens
-                                queryFeesAmount
+                                indexer {
+                                    id
+                                }
+                                allocatedTokens
+                                createdAtBlockHash
+                                createdAtEpoch
+                                closedAtEpoch
+                                subgraphDeployment {
+                                    id
+                                    deniedAt
+                                    stakedTokens
+                                    signalledTokens
+                                    queryFeesAmount
+                                }
                             }
                         }
                     }
+                "#,
+                "variables": {
+                    "indexer": indexer_address,
+                    "closedAtEpochThreshold": closed_at_epoch_threshold
                 }
-            "#
-            .to_string(),
-            Some(serde_json::json!({ "indexer": indexer_address, "closedAtEpochThreshold": closed_at_epoch_threshold })),
-        )
-        .await
+            }))
+            .await
             .map_err(|e| {
                 anyhow::anyhow!(
-                    "Failed to fetch current allocations from network subgraph: {}",
-                    e
+                    "Failed to fetch current allocations for indexer {} from network subgraph: {}",
+                    indexer_address, e
                 )
             })?;
 
-        let indexer_json = res
-            .get_mut("data")
-            .and_then(|d| d.get_mut("indexer"))
-            .ok_or_else(|| anyhow::anyhow!("No data / indexer not found on chain",))?;
+        let indexer = result.data.and_then(|d| d.indexer).ok_or_else(|| {
+            anyhow::anyhow!("No data / indexer {} not found on chain", indexer_address)
+        })?;
 
-        let active_allocations_json =
-            indexer_json.get_mut("activeAllocations").ok_or_else(|| {
-                anyhow::anyhow!("Failed to parse active allocations from network subgraph",)
-            })?;
-        let active_allocations: Vec<Allocation> =
-            serde_json::from_value(active_allocations_json.take())?;
-        let mut eligible_allocations: HashMap<Address, Allocation> =
-            HashMap::from_iter(active_allocations.into_iter().map(|a| (a.id, a)));
-
-        let recently_closed_allocations_json =
-            indexer_json
-                .get_mut("recentlyClosedAllocations")
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Failed to parse recently closed allocations from network subgraph",
-                    )
-                })?;
-        let recently_closed_allocations: Vec<Allocation> =
-            serde_json::from_value(recently_closed_allocations_json.take())?;
-        eligible_allocations.extend(
-            recently_closed_allocations
+        Ok(HashMap::from_iter(
+            indexer
+                .active_allocations
                 .into_iter()
-                .map(move |a| (a.id, a)),
-        );
-
-        Ok(eligible_allocations)
+                .chain(indexer.recently_closed_allocations.into_iter())
+                .map(|allocation| (allocation.id, allocation)),
+        ))
     }
 
     async fn update_allocations(inner: &Arc<AllocationMonitorInner>) -> Result<(), anyhow::Error> {

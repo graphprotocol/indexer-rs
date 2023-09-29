@@ -4,16 +4,9 @@
 use std::sync::Arc;
 
 use reqwest::{header, Client, Url};
-use serde::{Deserialize, Serialize};
+use serde::de::Deserialize;
 use serde_json::Value;
-
-use crate::types::GraphQLQuery;
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct Response<T> {
-    pub result: T,
-    pub status: i64,
-}
+use toolshed::graphql::http::Response;
 
 /// Network subgraph query wrapper
 ///
@@ -60,36 +53,25 @@ impl NetworkSubgraph {
             .expect("Could not parse graph node query endpoint for the network subgraph deployment")
     }
 
-    pub async fn network_query_raw(
+    pub async fn query<T: for<'de> Deserialize<'de>>(
         &self,
-        body: String,
-    ) -> Result<reqwest::Response, reqwest::Error> {
+        body: &Value,
+    ) -> Result<Response<T>, reqwest::Error> {
         self.client
             .post(Url::clone(&self.network_subgraph_url))
-            .body(body.clone())
+            .json(body)
             .header(header::CONTENT_TYPE, "application/json")
             .send()
             .await
-    }
-
-    pub async fn network_query(
-        &self,
-        query: String,
-        variables: Option<Value>,
-    ) -> Result<Value, reqwest::Error> {
-        let body = GraphQLQuery { query, variables };
-
-        self.network_query_raw(
-            serde_json::to_string(&body).expect("serialize network GraphQL query"),
-        )
-        .await?
-        .json::<Value>()
-        .await
+            .and_then(|response| response.error_for_status())?
+            .json::<Response<T>>()
+            .await
     }
 }
 
 #[cfg(test)]
 mod test {
+    use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -130,37 +112,23 @@ mod test {
     }
 
     #[tokio::test]
-    #[ignore] // Run only if explicitly specified
     async fn test_network_query() {
-        let network_subgraph = network_subgraph();
-
-        let query = r#""{\"data\":{\"graphNetwork\":{\"currentEpoch\":960}}}""#;
-
-        // Check that the response is valid JSON
-        network_subgraph
-            .network_query(query.to_string(), None)
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_network_query_mock() {
         let _mock_server = mock_graph_node_server().await;
 
-        let network_subgraph = network_subgraph();
-
-        let query = r#"
-            query {
-             	graphNetwork(id: 1) {
-             		currentEpoch
-             	}
-            }
-            "#;
-
         // Check that the response is valid JSON
-        network_subgraph
-            .network_query(query.to_string(), None)
+        let result = network_subgraph()
+            .query::<Value>(&json!({
+                "query": r#"
+                query {
+                 	graphNetwork(id: 1) {
+                 		currentEpoch
+                 	}
+                }
+            "#,
+            }))
             .await
             .unwrap();
+
+        assert!(result.data.is_some());
     }
 }
