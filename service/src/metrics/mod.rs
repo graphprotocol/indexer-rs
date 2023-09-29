@@ -80,7 +80,6 @@ pub static QUERIES_WITHOUT_RECEIPT: Lazy<IntCounterVec> = Lazy::new(|| {
     m
 });
 
-#[allow(dead_code)]
 pub static QUERY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
     let m = HistogramVec::new(
         HistogramOpts::new(
@@ -90,7 +89,7 @@ pub static QUERY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
         .namespace("indexer")
         .subsystem("service")
         .buckets(linear_buckets(0.0, 1.0, 20).unwrap()),
-        &["deployment", "name"],
+        &["deployment"],
     )
     .expect("Failed to create query_duration histograms");
     prometheus::register(Box::new(m.clone())).expect("Failed to register query_duration counter");
