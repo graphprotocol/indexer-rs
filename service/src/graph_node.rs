@@ -1,10 +1,10 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-
 use anyhow::anyhow;
 use reqwest::{header, Client, Url};
+use std::sync::Arc;
+use toolshed::thegraph::DeploymentId;
 
 use crate::query_processor::{QueryError, UnattestedQueryResult};
 
@@ -34,17 +34,21 @@ impl GraphNodeInstance {
 
     pub async fn subgraph_query_raw(
         &self,
-        subgraph_id: &str,
+        subgraph_id: &DeploymentId,
         data: String,
     ) -> Result<UnattestedQueryResult, QueryError> {
         let request = self
             .client
-            .post(self.subgraphs_base_url.join(subgraph_id).map_err(|e| {
-                QueryError::Other(anyhow!(
-                    "Could not build subgraph query URL: {}",
-                    e.to_string()
-                ))
-            })?)
+            .post(
+                self.subgraphs_base_url
+                    .join(&subgraph_id.to_string())
+                    .map_err(|e| {
+                        QueryError::Other(anyhow!(
+                            "Could not build subgraph query URL: {}",
+                            e.to_string()
+                        ))
+                    })?,
+            )
             .body(data)
             .header(header::CONTENT_TYPE, "application/json");
 
@@ -63,18 +67,26 @@ impl GraphNodeInstance {
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
+
+    use lazy_static::lazy_static;
     use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
 
-    const NETWORK_SUBGRAPH_ID: &str = "QmV614UpBCpuusv5MsismmPYu4KqLtdeNMKpiNrX56kw6u";
+    lazy_static! {
+        static ref NETWORK_SUBGRAPH_ID: DeploymentId =
+            DeploymentId::from_str("QmV614UpBCpuusv5MsismmPYu4KqLtdeNMKpiNrX56kw6u").unwrap();
+    }
 
     async fn mock_graph_node_server() -> MockServer {
         let mock_server = MockServer::start().await;
         let mock = Mock::given(method("POST"))
-            .and(path("/subgraphs/id/".to_string() + NETWORK_SUBGRAPH_ID))
+            .and(path(
+                "/subgraphs/id/".to_string() + &NETWORK_SUBGRAPH_ID.to_string(),
+            ))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
                 r#"
                     {
@@ -103,8 +115,11 @@ mod test {
     #[tokio::test]
     #[ignore] // Run only if explicitly specified
     async fn test_subgraph_query_local() {
-        let network_subgraph_id = std::env::var("NETWORK_SUBGRAPH_ID")
-            .expect("NETWORK_SUBGRAPH_ID env variable is not set");
+        let network_subgraph_id = DeploymentId::from_str(
+            &std::env::var("NETWORK_SUBGRAPH_ID")
+                .expect("NETWORK_SUBGRAPH_ID env variable is not set"),
+        )
+        .unwrap();
 
         let graph_node = local_graph_node().await;
 
@@ -151,7 +166,7 @@ mod test {
         });
 
         let response = graph_node
-            .subgraph_query_raw(NETWORK_SUBGRAPH_ID, query_json.to_string())
+            .subgraph_query_raw(&NETWORK_SUBGRAPH_ID, query_json.to_string())
             .await
             .unwrap();
 

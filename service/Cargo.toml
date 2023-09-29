@@ -47,6 +47,7 @@ sqlx = { version = "0.7.1", features = ["postgres", "runtime-tokio", "bigdecimal
 alloy-primitives = { version = "0.3.3", features = ["serde"] }
 alloy-sol-types = "0.3.2"
 lazy_static = "1.4.0"
+toolshed = { git = "https://github.com/edgeandnode/toolshed", tag = "v0.2.2", features = ["graphql"] }
 
 [dev-dependencies]
 faux = "0.1.10"

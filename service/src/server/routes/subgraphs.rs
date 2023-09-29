@@ -7,9 +7,9 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use std::str::FromStr;
+use toolshed::thegraph::DeploymentId;
 use tracing::trace;
-
-use indexer_common::prelude::SubgraphDeploymentID;
 
 use crate::{
     metrics,
@@ -31,11 +31,11 @@ pub async fn subgraph_queries(
     let (parts, body) = req.into_parts();
 
     // Initialize id into a subgraph deployment ID
-    let subgraph_deployment_id = match SubgraphDeploymentID::new(id.as_str()) {
+    let subgraph_deployment_id = match DeploymentId::from_str(id.as_str()) {
         Ok(id) => id,
         Err(e) => return bad_request_response(&e.to_string()),
     };
-    let deployment_label = subgraph_deployment_id.ipfs_hash();
+    let deployment_label = subgraph_deployment_id.to_string();
 
     let query_duration_timer = metrics::QUERY_DURATION
         .with_label_values(&[&deployment_label])
