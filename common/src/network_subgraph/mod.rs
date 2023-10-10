@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
+use graphql::http::Response;
 use reqwest::{header, Client, Url};
 use serde::de::Deserialize;
 use serde_json::Value;
-use toolshed::graphql::http::Response;
 
 /// Network subgraph query wrapper
 ///
