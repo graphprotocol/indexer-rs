@@ -11,12 +11,9 @@ pub mod signature_verification;
 mod test_vectors;
 
 pub mod prelude {
-    pub use super::allocations::monitor::AllocationMonitor;
-    pub use super::allocations::{Allocation, AllocationStatus, SubgraphDeployment};
-    pub use super::attestations::{
-        attestation_signer_for_allocation,
-        signer::{create_attestation_signer, AttestationSigner},
-        signers::AttestationSigners,
+    pub use super::allocations::{
+        monitor::indexer_allocations, Allocation, AllocationStatus, SubgraphDeployment,
     };
+    pub use super::attestations::{signer::AttestationSigner, signers::attestation_signers};
     pub use super::network_subgraph::NetworkSubgraph;
 }
