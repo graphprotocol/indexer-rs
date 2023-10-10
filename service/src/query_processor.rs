@@ -1,13 +1,17 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+
+use alloy_primitives::Address;
+use eventuals::Eventual;
 use log::error;
 use serde::{Deserialize, Serialize};
 use tap_core::tap_manager::SignedReceipt;
 use toolshed::thegraph::attestation::Attestation;
 use toolshed::thegraph::DeploymentId;
 
-use indexer_common::prelude::{AttestationSigner, AttestationSigners};
+use indexer_common::prelude::AttestationSigner;
 
 use crate::graph_node::GraphNodeInstance;
 use crate::tap_manager::TapManager;
@@ -60,17 +64,17 @@ pub enum QueryError {
     Other(anyhow::Error),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct QueryProcessor {
     graph_node: GraphNodeInstance,
-    attestation_signers: AttestationSigners,
+    attestation_signers: Eventual<HashMap<Address, AttestationSigner>>,
     tap_manager: TapManager,
 }
 
 impl QueryProcessor {
     pub fn new(
         graph_node: GraphNodeInstance,
-        attestation_signers: AttestationSigners,
+        attestation_signers: Eventual<HashMap<Address, AttestationSigner>>,
         tap_manager: TapManager,
     ) -> QueryProcessor {
         QueryProcessor {
@@ -115,7 +119,10 @@ impl QueryProcessor {
             .verify_and_store_receipt(parsed_receipt)
             .await?;
 
-        let signers = self.attestation_signers.read().await;
+        let signers = self
+            .attestation_signers
+            .value_immediate()
+            .ok_or_else(|| QueryError::Other(anyhow::anyhow!("System is not ready yet")))?;
         let signer = signers.get(&allocation_id).ok_or_else(|| {
             QueryError::Other(anyhow::anyhow!(
                 "No signer found for allocation id {}",
@@ -157,7 +164,7 @@ mod tests {
     use alloy_primitives::Address;
     use ethers_core::types::U256;
     use indexer_common::prelude::{
-        attestation_signer_for_allocation, Allocation, AllocationStatus, SubgraphDeployment,
+        Allocation, AllocationStatus, AttestationSigner, SubgraphDeployment,
     };
     use lazy_static::lazy_static;
 
@@ -201,14 +208,13 @@ mod tests {
             query_fees_collected: None,
         };
 
-        let allocation_key =
-            attestation_signer_for_allocation(INDEXER_OPERATOR_MNEMONIC, allocation).unwrap();
         let attestation_signer = AttestationSigner::new(
+            INDEXER_OPERATOR_MNEMONIC,
+            allocation,
             U256::from(1),
             Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
-            allocation_key,
-            *DEPLOYMENT_ID,
-        );
+        )
+        .unwrap();
 
         let request = "test input";
         let response = "test output";

@@ -12,6 +12,7 @@ indexer-common = { path = "../common" }
 confy = "0.5.1"
 ethers-core = "2.0.10"
 ethers = "2.0.10"
+eventuals = "0.6.7"
 dotenvy = "0.15"
 log = "0.4.17"
 anyhow = "1.0.57"
