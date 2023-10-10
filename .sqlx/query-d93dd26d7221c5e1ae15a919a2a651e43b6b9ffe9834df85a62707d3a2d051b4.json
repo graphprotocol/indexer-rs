@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT deployment, model, variables\n        FROM \"CostModels\"\n        WHERE deployment = $1\n    ",
+  "query": "\n            SELECT deployment, model, variables\n            FROM \"CostModels\"\n            WHERE deployment = ANY($1)\n            AND deployment != 'global'\n            ORDER BY deployment ASC\n            ",
   "describe": {
     "columns": [
       {
@@ -21,7 +21,7 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "TextArray"
       ]
     },
     "nullable": [
@@ -30,5 +30,5 @@
       true
     ]
   },
-  "hash": "1ae5d2aa752bf2e9038455d7c643bba03daa9e26c7ad23f48f9959a120e28a84"
+  "hash": "d93dd26d7221c5e1ae15a919a2a651e43b6b9ffe9834df85a62707d3a2d051b4"
 }

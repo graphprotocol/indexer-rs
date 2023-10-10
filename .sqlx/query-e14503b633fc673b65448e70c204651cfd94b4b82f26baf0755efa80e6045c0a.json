@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT deployment, model, variables\n        FROM \"CostModels\"\n        ORDER BY deployment ASC\n    ",
+  "query": "\n        SELECT deployment, model, variables\n        FROM \"CostModels\"\n        WHERE deployment = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -20,7 +20,9 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text"
+      ]
     },
     "nullable": [
       false,
@@ -28,5 +30,5 @@
       true
     ]
   },
-  "hash": "7a3adab989a9552349dea7dbd52bcbdb40e034ee610c786a2111c493939e7e94"
+  "hash": "e14503b633fc673b65448e70c204651cfd94b4b82f26baf0755efa80e6045c0a"
 }
