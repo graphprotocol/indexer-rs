@@ -10,10 +10,12 @@ anyhow = "1.0.75"
 arc-swap = "1.6.0"
 ethers = "2.0.10"
 ethers-core = "2.0.10"
+eventuals = "0.6.7"
 faux = { version = "0.1.10", optional = true }
 keccak-hash = "0.10.0"
 lazy_static = "1.4.0"
 log = "0.4.20"
+lru = "0.11.1"
 regex = "1.7.1"
 reqwest = "0.11.20"
 secp256k1 = { version = "0.27.0", features = ["recovery"] }

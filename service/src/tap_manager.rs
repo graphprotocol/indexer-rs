@@ -1,19 +1,20 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
+use eventuals::Eventual;
+use indexer_common::prelude::Allocation;
 use log::error;
 use sqlx::{types::BigDecimal, PgPool};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tap_core::tap_manager::SignedReceipt;
-
-use indexer_common::prelude::AllocationMonitor;
 
 use crate::{escrow_monitor, query_processor::QueryError};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TapManager {
-    allocation_monitor: AllocationMonitor,
+    indexer_allocations: Eventual<HashMap<Address, Allocation>>,
     escrow_monitor: escrow_monitor::EscrowMonitor,
     pgpool: PgPool,
     domain_separator: Arc<Eip712Domain>,
@@ -22,12 +23,12 @@ pub struct TapManager {
 impl TapManager {
     pub fn new(
         pgpool: PgPool,
-        allocation_monitor: AllocationMonitor,
+        indexer_allocations: Eventual<HashMap<Address, Allocation>>,
         escrow_monitor: escrow_monitor::EscrowMonitor,
         domain_separator: Eip712Domain,
     ) -> Self {
         Self {
-            allocation_monitor,
+            indexer_allocations,
             escrow_monitor,
             pgpool,
             domain_separator: Arc::new(domain_separator),
@@ -43,9 +44,11 @@ impl TapManager {
     pub async fn verify_and_store_receipt(&self, receipt: SignedReceipt) -> Result<(), QueryError> {
         let allocation_id = &receipt.message.allocation_id;
         if !self
-            .allocation_monitor
-            .is_allocation_eligible(allocation_id)
+            .indexer_allocations
+            .value()
             .await
+            .map(|allocations| allocations.contains_key(allocation_id))
+            .unwrap_or(false)
         {
             return Err(QueryError::Other(anyhow::Error::msg(format!(
                 "Receipt's allocation ID ({}) is not eligible for this indexer",
@@ -100,13 +103,14 @@ mod test {
 
     use alloy_primitives::Address;
     use alloy_sol_types::{eip712_domain, Eip712Domain};
+    use ethereum_types::{H256, U256};
     use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
+    use indexer_common::prelude::{AllocationStatus, SubgraphDeployment};
     use sqlx::postgres::PgListener;
 
     use tap_core::tap_manager::SignedReceipt;
     use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
-
-    use indexer_common::prelude::AllocationMonitor;
+    use toolshed::thegraph::DeploymentId;
 
     use super::*;
 
@@ -170,9 +174,31 @@ mod test {
         let signed_receipt =
             create_signed_receipt(allocation_id, u64::MAX, u64::MAX, u128::MAX).await;
 
-        // Mock allocation monitor
-        let mut mock_allocation_monitor = AllocationMonitor::faux();
-        faux::when!(mock_allocation_monitor.is_allocation_eligible).then_return(true);
+        // Mock allocation
+        let allocation = Allocation {
+            id: allocation_id,
+            subgraph_deployment: SubgraphDeployment {
+                id: DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap(),
+                denied_at: None,
+                query_fees_amount: U256::zero(),
+                signalled_tokens: U256::zero(),
+                staked_tokens: U256::zero(),
+            },
+            status: AllocationStatus::Active,
+            allocated_tokens: U256::zero(),
+            closed_at_epoch: None,
+            closed_at_epoch_start_block_hash: None,
+            poi: None,
+            previous_epoch_start_block_hash: None,
+            created_at_block_hash: H256::zero().to_string(),
+            created_at_epoch: 0,
+            indexer: Address::ZERO,
+            query_fee_rebates: None,
+            query_fees_collected: None,
+        };
+        let indexer_allocations = Eventual::from_value(HashMap::from_iter(
+            vec![(allocation_id, allocation)].into_iter(),
+        ));
 
         // Mock escrow monitor
         let mut mock_escrow_monitor = escrow_monitor::EscrowMonitor::faux();
@@ -180,7 +206,7 @@ mod test {
 
         let tap_manager = TapManager::new(
             pgpool.clone(),
-            mock_allocation_monitor,
+            indexer_allocations,
             mock_escrow_monitor,
             domain,
         );
