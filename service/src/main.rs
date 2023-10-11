@@ -62,6 +62,11 @@ async fn main() -> Result<(), std::io::Error> {
     // Make an instance of network subgraph at either
     // graph_node_query_endpoint/subgraphs/id/network_subgraph_deployment
     // or network_subgraph_endpoint
+    //
+    // We're leaking the network subgraph here to obtain a reference with
+    // a static lifetime, which avoids having to pass around and clone `Arc`
+    // objects everywhere. Since the network subgraph is read-only, this is
+    // no problem.
     let network_subgraph = Box::leak(Box::new(NetworkSubgraph::new(
         Some(&config.indexer_infrastructure.graph_node_query_endpoint),
         config
