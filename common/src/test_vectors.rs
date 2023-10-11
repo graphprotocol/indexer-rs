@@ -5,15 +5,12 @@ use std::{collections::HashMap, str::FromStr};
 
 use alloy_primitives::Address;
 use ethers_core::types::U256;
+use lazy_static::lazy_static;
 use toolshed::thegraph::DeploymentId;
 
 use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
 
-pub const INDEXER_OPERATOR_MNEMONIC: &str =
-    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-pub const INDEXER_ADDRESS: &str = "0x1234567890123456789012345678901234567890";
 pub const NETWORK_SUBGRAPH_ID: &str = "QmU7zqJyHSyUP3yFii8sBtHT8FaJn2WmUnRvwjAUTjwMBP";
-pub const DISPUTE_MANAGER_ADDRESS: &str = "0xdeadbeefcafebabedeadbeefcafebabedeadbeef";
 
 /// The allocation IDs below are generated using the mnemonic
 /// "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
@@ -106,10 +103,20 @@ pub const ALLOCATIONS_QUERY_RESPONSE: &str = r#"
     }
 "#;
 
-/// These are the expected json-serialized contents of the value returned by
-/// AllocationMonitor::current_eligible_allocations with the values above at epoch threshold 940.
-pub fn expected_eligible_allocations() -> HashMap<Address, Allocation> {
-    HashMap::from([
+lazy_static! {
+    pub static ref INDEXER_OPERATOR_MNEMONIC: String = String::from(
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    );
+
+    pub static ref INDEXER_ADDRESS: Address =
+        Address::from_str("0x1234567890123456789012345678901234567890").unwrap();
+
+    pub static ref DISPUTE_MANAGER_ADDRESS: Address =
+        Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap();
+
+    /// These are the expected json-serialized contents of the value returned by
+    /// AllocationMonitor::current_eligible_allocations with the values above at epoch threshold 940.
+    pub static ref INDEXER_ALLOCATIONS: HashMap<Address, Allocation> = HashMap::from([
         (
             Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap(),
             Allocation {
@@ -226,5 +233,5 @@ pub fn expected_eligible_allocations() -> HashMap<Address, Allocation> {
                 query_fees_collected: None,
             },
         ),
-    ])
+    ]);
 }
