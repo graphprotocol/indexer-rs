@@ -192,3 +192,80 @@ pub fn indexer_allocations(
         },
     )
 }
+
+#[cfg(test)]
+mod test {
+    use serde_json::json;
+    use wiremock::{
+        matchers::{body_string_contains, method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
+
+    use crate::{prelude::NetworkSubgraph, test_vectors};
+
+    use super::*;
+
+    async fn setup_mock_network_subgraph() -> (&'static NetworkSubgraph, MockServer) {
+        // Set up a mock network subgraph
+        let mock_server = MockServer::start().await;
+        let network_subgraph_endpoint = NetworkSubgraph::local_deployment_endpoint(
+            &mock_server.uri(),
+            test_vectors::NETWORK_SUBGRAPH_ID,
+        );
+        let network_subgraph = NetworkSubgraph::new(
+            Some(&mock_server.uri()),
+            Some(test_vectors::NETWORK_SUBGRAPH_ID),
+            network_subgraph_endpoint.as_ref(),
+        );
+
+        // Mock result for current epoch requests
+        mock_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(path(format!(
+                        "/subgraphs/id/{}",
+                        test_vectors::NETWORK_SUBGRAPH_ID
+                    )))
+                    .and(body_string_contains("currentEpoch"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(
+                        json!({ "data": { "graphNetwork": { "currentEpoch": 896419 }}}),
+                    )),
+            )
+            .await;
+
+        // Mock result for allocations query
+        mock_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(path(format!(
+                        "/subgraphs/id/{}",
+                        test_vectors::NETWORK_SUBGRAPH_ID
+                    )))
+                    .and(body_string_contains("activeAllocations"))
+                    .respond_with(ResponseTemplate::new(200).set_body_raw(
+                        test_vectors::ALLOCATIONS_QUERY_RESPONSE,
+                        "application/json",
+                    )),
+            )
+            .await;
+
+        (Box::leak(Box::new(network_subgraph)), mock_server)
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_parses_allocation_data_from_network_subgraph_correctly() {
+        let (network_subgraph, _mock_server) = setup_mock_network_subgraph().await;
+
+        let allocations = indexer_allocations(
+            network_subgraph,
+            *test_vectors::INDEXER_ADDRESS,
+            1,
+            Duration::from_secs(60),
+        );
+
+        assert_eq!(
+            allocations.value().await.unwrap(),
+            *test_vectors::INDEXER_ALLOCATIONS
+        );
+    }
+}
