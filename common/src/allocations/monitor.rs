@@ -146,7 +146,7 @@ pub fn indexer_allocations(
                 .query::<IndexerAllocationsResponse>(&json!({
                 "query": query,
                 "variables": {
-                    "indexer": indexer_address,
+                    "indexer": format!("{indexer_address:?}"),
                     "closedAtEpochThreshold": closed_at_epoch_threshold,
                 }}))
                 .await
@@ -155,7 +155,7 @@ pub fn indexer_allocations(
             // If there are any GraphQL errors returned, we'll log them for debugging
             if let Some(errors) = response.errors {
                 warn!(
-                    "Errors encountered fetching active or recently closed allocations for indexer {}: {}",
+                    "Errors encountered fetching active or recently closed allocations for indexer {:?}: {}",
                     indexer_address,
                     errors.into_iter().map(|e| e.message).collect::<Vec<_>>().join(", ")
                 );
@@ -165,7 +165,7 @@ pub fn indexer_allocations(
             let indexer = response
                 .data
                 .and_then(|data| data.indexer)
-                .ok_or_else(|| format!("Indexer {} could not be found on the network", indexer_address))?;
+                .ok_or_else(|| format!("Indexer {:?} could not be found on the network", indexer_address))?;
 
             // Pull active and recently closed allocations out of the indexer
             let Indexer {
@@ -183,7 +183,7 @@ pub fn indexer_allocations(
         // errors that can be cloned
         move |err: String| {
             warn!(
-                "Failed to fetch active or recently closed allocations for indexer {}: {}",
+                "Failed to fetch active or recently closed allocations for indexer {:?}: {}",
                 indexer_address, err
             );
 
