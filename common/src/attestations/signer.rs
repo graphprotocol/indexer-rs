@@ -50,8 +50,16 @@ pub fn attestation_signer_for_allocation(
     // Guess the allocation index by enumerating all indexes in the
     // range [0, 100] and checking for a match
     for i in 0..100 {
-        // The allocation was either created at the epoch it intended to or one
-        // epoch later. So try both both.
+        // We try created_at_epoch and created_at_epoch-1 here for the following reason:
+        //
+        // Let's say the indexer has prepared an allocation transaction while the
+        // current epoch was N . By the time the transaction actually makes its into
+        // the blockchain, the epoch may still be N, or it may be N+1.
+        //
+        // If the transaction was mined during epoch N, then `created_at_epoch` will be N
+        // and the allocation ID will match that. If the transaction was mined durign epoch
+        // N+1, then `created_at_epoch` will be N+1 but the allocation ID will have been
+        // created using `created_at_epoch-1 = N`.
         for created_at_epoch in [allocation.created_at_epoch, allocation.created_at_epoch - 1] {
             let allocation_wallet = derive_key_pair(
                 indexer_mnemonic,
