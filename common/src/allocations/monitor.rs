@@ -130,8 +130,6 @@ pub fn indexer_allocations(
         }
     "#;
 
-    // let indexer_for_error_handler = indexer_address.clone();
-
     // Refresh indexer allocations every now and then
     timer(interval).map_with_retry(
         move |_| async move {
