@@ -218,24 +218,7 @@ mod test {
         .expect("Create test instance in db");
     }
 
-    async fn add_cost_models(pool: &PgPool, models: Vec<CostModel>) {
-        for model in models {
-            let deployment = model.deployment;
-            sqlx::query!(
-                r#"
-                INSERT INTO "CostModels" (deployment, model)
-                VALUES ($1, $2);
-                "#,
-                format!("{deployment:#x}"),
-                model.model,
-            )
-            .execute(pool)
-            .await
-            .expect("Create test instance in db");
-        }
-    }
-
-    async fn add_db_cost_models(pool: &PgPool, models: Vec<DbCostModel>) {
+    async fn add_cost_models(pool: &PgPool, models: Vec<DbCostModel>) {
         for model in models {
             sqlx::query!(
                 r#"
@@ -249,6 +232,10 @@ mod test {
             .await
             .expect("Create test instance in db");
         }
+    }
+
+    fn to_db_models(models: Vec<CostModel>) -> Vec<DbCostModel> {
+        models.into_iter().map(DbCostModel::from).collect()
     }
 
     fn global_cost_model() -> DbCostModel {
@@ -294,7 +281,7 @@ mod test {
             .collect::<HashSet<_>>();
 
         setup_cost_models_table(&pool).await;
-        add_cost_models(&pool, test_models.clone()).await;
+        add_cost_models(&pool, to_db_models(test_models.clone())).await;
 
         // First test: query without deployment filter
         let models = cost_models(&pool, &[])
@@ -358,8 +345,8 @@ mod test {
         let global_model = global_cost_model();
 
         setup_cost_models_table(&pool).await;
-        add_cost_models(&pool, test_models.clone()).await;
-        add_db_cost_models(&pool, vec![global_model.clone()]).await;
+        add_cost_models(&pool, to_db_models(test_models.clone())).await;
+        add_cost_models(&pool, vec![global_model.clone()]).await;
 
         // First test: fetch cost models without filtering by deployment
         let models = cost_models(&pool, &[])
@@ -443,7 +430,7 @@ mod test {
     #[sqlx::test]
     async fn success_cost_model(pool: PgPool) {
         setup_cost_models_table(&pool).await;
-        add_cost_models(&pool, test_data()).await;
+        add_cost_models(&pool, to_db_models(test_data())).await;
 
         let deployment_id_from_bytes = DeploymentId(
             "0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea"
@@ -470,8 +457,8 @@ mod test {
         let global_model = global_cost_model();
 
         setup_cost_models_table(&pool).await;
-        add_cost_models(&pool, test_models.clone()).await;
-        add_db_cost_models(&pool, vec![global_model.clone()]).await;
+        add_cost_models(&pool, to_db_models(test_models.clone())).await;
+        add_cost_models(&pool, vec![global_model.clone()]).await;
 
         // Test that the behavior is correct for existing deployments
         for test_model in test_models {
