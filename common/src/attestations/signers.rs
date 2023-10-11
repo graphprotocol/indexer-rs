@@ -53,3 +53,42 @@ pub fn attestation_signers(
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use alloy_primitives::Address;
+
+    use crate::test_vectors::{
+        DISPUTE_MANAGER_ADDRESS, INDEXER_ALLOCATIONS, INDEXER_OPERATOR_MNEMONIC,
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_attestation_signers_update_with_allocations() {
+        let (mut allocations_writer, allocations) = Eventual::<HashMap<Address, Allocation>>::new();
+
+        let signers = attestation_signers(
+            allocations,
+            (*INDEXER_OPERATOR_MNEMONIC).to_string(),
+            U256::from(1),
+            *DISPUTE_MANAGER_ADDRESS,
+        );
+        let mut signers = signers.subscribe();
+
+        // Test that an empty set of allocations leads to an empty set of signers
+        allocations_writer.write(HashMap::new());
+        let latest_signers = signers.next().await.unwrap();
+        assert_eq!(latest_signers, HashMap::new());
+
+        // Test that writing our set of test allocations results in corresponding signers for all of them
+        allocations_writer.write((*INDEXER_ALLOCATIONS).clone());
+        let latest_signers = signers.next().await.unwrap();
+        assert_eq!(latest_signers.len(), INDEXER_ALLOCATIONS.len());
+        for signer_allocation_id in latest_signers.keys() {
+            assert!(INDEXER_ALLOCATIONS
+                .keys()
+                .any(|allocation_id| signer_allocation_id == allocation_id));
+        }
+    }
+}
