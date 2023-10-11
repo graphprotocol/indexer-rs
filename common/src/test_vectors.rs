@@ -109,7 +109,7 @@ lazy_static! {
     );
 
     pub static ref INDEXER_ADDRESS: Address =
-        Address::from_str("0x1234567890123456789012345678901234567890").unwrap();
+        Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap();
 
     pub static ref DISPUTE_MANAGER_ADDRESS: Address =
         Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap();
