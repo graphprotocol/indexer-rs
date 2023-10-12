@@ -72,7 +72,10 @@ async fn main() -> Result<(), std::io::Error> {
         config
             .network_subgraph
             .network_subgraph_deployment
-            .as_deref(),
+            .map(|s| DeploymentId::from_str(&s))
+            .transpose()
+            .expect("Failed to parse invalid network subgraph deployment")
+            .as_ref(),
         &config.network_subgraph.network_subgraph_endpoint,
     )));
 
