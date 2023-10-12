@@ -3,7 +3,7 @@
 
 use alloy_primitives::Address;
 use ethers_core::types::U256;
-use eventuals::{Eventual, EventualExt};
+use eventuals::{join, Eventual, EventualExt};
 use log::warn;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,7 +16,7 @@ pub fn attestation_signers(
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
     indexer_mnemonic: String,
     chain_id: U256,
-    dispute_manager: Address,
+    dispute_manager: Eventual<Address>,
 ) -> Eventual<HashMap<Address, AttestationSigner>> {
     let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
         Box::leak(Box::new(Mutex::new(HashMap::new())));
@@ -25,7 +25,7 @@ pub fn attestation_signers(
 
     // Whenever the indexer's active or recently closed allocations change, make sure
     // we have attestation signers for all of them
-    indexer_allocations.map(move |allocations| {
+    join((indexer_allocations, dispute_manager)).map(move |(allocations, dispute_manager)| {
         let indexer_mnemonic = indexer_mnemonic.clone();
         async move {
             let mut signers = attestation_signers_map.lock().await;
@@ -72,12 +72,15 @@ mod tests {
     #[tokio::test]
     async fn test_attestation_signers_update_with_allocations() {
         let (mut allocations_writer, allocations) = Eventual::<HashMap<Address, Allocation>>::new();
+        let (mut dispute_manager_writer, dispute_manager) = Eventual::<Address>::new();
+
+        dispute_manager_writer.write(*DISPUTE_MANAGER_ADDRESS);
 
         let signers = attestation_signers(
             allocations,
             (*INDEXER_OPERATOR_MNEMONIC).to_string(),
             U256::from(1),
-            *DISPUTE_MANAGER_ADDRESS,
+            dispute_manager,
         );
         let mut signers = signers.subscribe();
 

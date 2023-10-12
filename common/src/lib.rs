@@ -14,6 +14,8 @@ pub mod prelude {
     pub use super::allocations::{
         monitor::indexer_allocations, Allocation, AllocationStatus, SubgraphDeployment,
     };
-    pub use super::attestations::{signer::AttestationSigner, signers::attestation_signers};
+    pub use super::attestations::{
+        dispute_manager::dispute_manager, signer::AttestationSigner, signers::attestation_signers,
+    };
     pub use super::network_subgraph::NetworkSubgraph;
 }
