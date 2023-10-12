@@ -3,3 +3,4 @@
 
 pub mod signer;
 pub mod signers;
+pub mod dispute_manager;
