@@ -100,9 +100,6 @@ pub fn indexer_allocations(
                     subgraphDeployment {
                         id
                         deniedAt
-                        stakedTokens
-                        signalledTokens
-                        queryFeesAmount
                     }
                 }
                 recentlyClosedAllocations: totalAllocations(
@@ -121,9 +118,6 @@ pub fn indexer_allocations(
                     subgraphDeployment {
                         id
                         deniedAt
-                        stakedTokens
-                        signalledTokens
-                        queryFeesAmount
                     }
                 }
             }

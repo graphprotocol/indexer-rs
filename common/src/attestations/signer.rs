@@ -264,9 +264,6 @@ mod tests {
                 )
                 .unwrap(),
                 denied_at: None,
-                staked_tokens: U256::zero(),
-                signalled_tokens: U256::zero(),
-                query_fees_amount: U256::zero(),
             },
             indexer: Address::ZERO,
             allocated_tokens: U256::zero(),
@@ -306,9 +303,6 @@ mod tests {
                 )
                 .unwrap(),
                 denied_at: None,
-                staked_tokens: U256::zero(),
-                signalled_tokens: U256::zero(),
-                query_fees_amount: U256::zero(),
             },
             indexer: Address::ZERO,
             allocated_tokens: U256::zero(),

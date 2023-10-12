@@ -192,9 +192,6 @@ mod tests {
         let subgraph_deployment = SubgraphDeployment {
             id: *DEPLOYMENT_ID,
             denied_at: None,
-            staked_tokens: U256::from(0),
-            signalled_tokens: U256::from(0),
-            query_fees_amount: U256::from(0),
         };
 
         let allocation = &Allocation {

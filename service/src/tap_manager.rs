@@ -180,9 +180,6 @@ mod test {
             subgraph_deployment: SubgraphDeployment {
                 id: DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap(),
                 denied_at: None,
-                query_fees_amount: U256::zero(),
-                signalled_tokens: U256::zero(),
-                staked_tokens: U256::zero(),
             },
             status: AllocationStatus::Active,
             allocated_tokens: U256::zero(),
