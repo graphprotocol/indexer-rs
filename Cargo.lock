@@ -5679,8 +5679,9 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tap_core"
-version = "0.5.1"
-source = "git+https://github.com/jannis/timeline-aggregation-protocol?branch=jannis/update-alloy#27bf30963e4acb50d12b423e528ff6024786be9a"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6de9bc4538c13ca369b1ff35d31be8eaeb955bed3805ce64d8fd2aee4f0ec0c7"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
