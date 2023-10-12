@@ -42,11 +42,11 @@ autometrics = { version = "0.3.3", features = ["prometheus-exporter"] }
 clap = { version = "4.3.1", features = ["derive", "env"] }
 prometheus = "0.13.3"
 hex = "0.4.3"
-tap_core = "0.5.1"
+tap_core = { git = "https://github.com/jannis/timeline-aggregation-protocol", branch = "jannis/update-alloy" }
 ethereum-types = "0.14.1"
 sqlx = { version = "0.7.1", features = ["postgres", "runtime-tokio", "bigdecimal", "rust_decimal", "time"] }
-alloy-primitives = { version = "0.3.3", features = ["serde"] }
-alloy-sol-types = "0.3.2"
+alloy-primitives = { version = "0.4.2", features = ["serde"] }
+alloy-sol-types = "0.4.2"
 lazy_static = "1.4.0"
 toolshed = { git = "https://github.com/edgeandnode/toolshed", branch = "main", features = ["graphql"] }
 
