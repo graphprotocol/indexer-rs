@@ -1,7 +1,6 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_primitives::Address;
 use alloy_sol_types::eip712_domain;
 use axum::Server;
 use dotenvy::dotenv;
@@ -10,7 +9,9 @@ use std::{net::SocketAddr, str::FromStr, time::Duration};
 use toolshed::thegraph::DeploymentId;
 use tracing::info;
 
-use indexer_common::prelude::{attestation_signers, indexer_allocations, NetworkSubgraph};
+use indexer_common::prelude::{
+    attestation_signers, dispute_manager, indexer_allocations, NetworkSubgraph,
+};
 
 use util::{package_version, shutdown_signal};
 
@@ -86,13 +87,17 @@ async fn main() -> Result<(), std::io::Error> {
         Duration::from_secs(config.network_subgraph.allocation_syncing_interval),
     );
 
+    // TODO: Chain ID should be a config
+    let graph_network_id = 1;
+
+    let dispute_manager =
+        dispute_manager(network_subgraph, graph_network_id, Duration::from_secs(60));
+
     let attestation_signers = attestation_signers(
         indexer_allocations.clone(),
         config.ethereum.mnemonic.clone(),
-        // TODO: Chain ID should be a config
-        U256::from(1),
-        // TODO: Dispute manager address should be a config
-        Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
+        U256::from(graph_network_id),
+        dispute_manager,
     );
 
     // Establish Database connection necessary for serving indexer management
