@@ -36,10 +36,7 @@ pub const ALLOCATIONS_QUERY_RESPONSE: &str = r#"
                         "closedAtEpoch": null,
                         "subgraphDeployment": {
                             "id": "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
-                            "deniedAt": 0,
-                            "stakedTokens": "96183284152000000014901161",
-                            "signalledTokens": "182832939554154667498047",
-                            "queryFeesAmount": "19861336072168874330350"
+                            "deniedAt": 0
                         }
                     },
                     {
@@ -53,10 +50,7 @@ pub const ALLOCATIONS_QUERY_RESPONSE: &str = r#"
                         "closedAtEpoch": null,
                         "subgraphDeployment": {
                             "id": "0xcda7fa0405d6fd10721ed13d18823d24b535060d8ff661f862b26c23334f13bf",
-                            "deniedAt": 0,
-                            "stakedTokens": "53885041676589999979510903",
-                            "signalledTokens": "104257136417832003117925",
-                            "queryFeesAmount": "2229358609434396563687"
+                            "deniedAt": 0
                         }
                     }
                 ],
@@ -72,10 +66,7 @@ pub const ALLOCATIONS_QUERY_RESPONSE: &str = r#"
                         "closedAtEpoch": 953,
                         "subgraphDeployment": {
                             "id": "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
-                            "deniedAt": 0,
-                            "stakedTokens": "96183284152000000014901161",
-                            "signalledTokens": "182832939554154667498047",
-                            "queryFeesAmount": "19861336072168874330350"
+                            "deniedAt": 0
                         }
                     },
                     {
@@ -89,10 +80,7 @@ pub const ALLOCATIONS_QUERY_RESPONSE: &str = r#"
                         "closedAtEpoch": 953,
                         "subgraphDeployment": {
                             "id": "0xc064c354bc21dd958b1d41b67b8ef161b75d2246b425f68ed4c74964ae705cbd",
-                            "deniedAt": 0,
-                            "stakedTokens": "85450761241000000055879354",
-                            "signalledTokens": "154944508746646550301048",
-                            "queryFeesAmount": "4293718622418791971020"
+                            "deniedAt": 0
                         }
                     }
                 ]
@@ -134,9 +122,6 @@ lazy_static! {
                             .unwrap(),
                     ),
                     denied_at: Some(0),
-                    staked_tokens: U256::from_str("96183284152000000014901161").unwrap(),
-                    signalled_tokens: U256::from_str("182832939554154667498047").unwrap(),
-                    query_fees_amount: U256::from_str("19861336072168874330350").unwrap(),
                 },
                 status: AllocationStatus::Null,
                 closed_at_epoch_start_block_hash: None,
@@ -163,9 +148,6 @@ lazy_static! {
                             .unwrap(),
                     ),
                     denied_at: Some(0),
-                    staked_tokens: U256::from_str("53885041676589999979510903").unwrap(),
-                    signalled_tokens: U256::from_str("104257136417832003117925").unwrap(),
-                    query_fees_amount: U256::from_str("2229358609434396563687").unwrap(),
                 },
                 status: AllocationStatus::Null,
                 closed_at_epoch_start_block_hash: None,
@@ -192,9 +174,6 @@ lazy_static! {
                             .unwrap(),
                     ),
                     denied_at: Some(0),
-                    staked_tokens: U256::from_str("96183284152000000014901161").unwrap(),
-                    signalled_tokens: U256::from_str("182832939554154667498047").unwrap(),
-                    query_fees_amount: U256::from_str("19861336072168874330350").unwrap(),
                 },
                 status: AllocationStatus::Null,
                 closed_at_epoch_start_block_hash: None,
@@ -221,9 +200,6 @@ lazy_static! {
                             .unwrap(),
                     ),
                     denied_at: Some(0),
-                    staked_tokens: U256::from_str("85450761241000000055879354").unwrap(),
-                    signalled_tokens: U256::from_str("154944508746646550301048").unwrap(),
-                    query_fees_amount: U256::from_str("4293718622418791971020").unwrap(),
                 },
                 status: AllocationStatus::Null,
                 closed_at_epoch_start_block_hash: None,
