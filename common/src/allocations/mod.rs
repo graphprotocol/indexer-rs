@@ -39,12 +39,6 @@ pub struct SubgraphDeployment {
     pub id: DeploymentId,
     #[serde(rename = "deniedAt")]
     pub denied_at: Option<u64>,
-    #[serde(rename = "stakedTokens")]
-    pub staked_tokens: U256,
-    #[serde(rename = "signalledTokens")]
-    pub signalled_tokens: U256,
-    #[serde(rename = "queryFeesAmount")]
-    pub query_fees_amount: U256,
 }
 
 impl<'d> Deserialize<'d> for Allocation {
