@@ -29,7 +29,7 @@ impl SignatureVerifier {
         message: &[u8],
         signature: &RecoverableSignature,
     ) -> Result<bool, &'static str> {
-        let message = Message::from_slice(&keccak(message).to_fixed_bytes()).unwrap();
+        let message = Message::from_digest_slice(&keccak(message).to_fixed_bytes()).unwrap();
 
         match self.signer.load().as_ref() {
             // If we already have the public key we can do the fast path.
