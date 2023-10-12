@@ -7,6 +7,7 @@ use graphql::http::Response;
 use reqwest::{header, Client, Url};
 use serde::de::Deserialize;
 use serde_json::Value;
+use toolshed::thegraph::DeploymentId;
 
 /// Network subgraph query wrapper
 ///
@@ -20,7 +21,7 @@ pub struct NetworkSubgraph {
 impl NetworkSubgraph {
     pub fn new(
         graph_node_query_endpoint: Option<&str>,
-        deployment: Option<&str>,
+        deployment: Option<&DeploymentId>,
         network_subgraph_url: &str,
     ) -> NetworkSubgraph {
         //TODO: Check indexing status of the local network subgraph deployment
@@ -46,10 +47,13 @@ impl NetworkSubgraph {
         }
     }
 
-    pub fn local_deployment_endpoint(graph_node_query_endpoint: &str, deployment: &str) -> Url {
+    pub fn local_deployment_endpoint(
+        graph_node_query_endpoint: &str,
+        deployment: &DeploymentId,
+    ) -> Url {
         Url::parse(graph_node_query_endpoint)
             .and_then(|u| u.join("/subgraphs/id/"))
-            .and_then(|u| u.join(deployment))
+            .and_then(|u| u.join(&deployment.to_string()))
             .expect("Could not parse graph node query endpoint for the network subgraph deployment")
     }
 
@@ -75,17 +79,21 @@ mod test {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    use crate::test_vectors;
+
     use super::*;
 
     const GRAPH_NODE_STATUS_ENDPOINT: &str = "http://localhost:8000/";
-    const NETWORK_SUBGRAPH_ID: &str = "QmV614UpBCpuusv5MsismmPYu4KqLtdeNMKpiNrX56kw6u";
     const NETWORK_SUBGRAPH_URL: &str =
         "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
 
     async fn mock_graph_node_server() -> MockServer {
         let mock_server = MockServer::start().await;
         let mock = Mock::given(method("POST"))
-            .and(path("/subgraphs/id/".to_string() + NETWORK_SUBGRAPH_ID))
+            .and(path(format!(
+                "/subgraphs/id/{}",
+                *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
+            )))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
                 r#"
                     {
@@ -106,7 +114,7 @@ mod test {
     fn network_subgraph() -> NetworkSubgraph {
         NetworkSubgraph::new(
             Some(GRAPH_NODE_STATUS_ENDPOINT),
-            Some(NETWORK_SUBGRAPH_ID),
+            Some(&test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT),
             NETWORK_SUBGRAPH_URL,
         )
     }
