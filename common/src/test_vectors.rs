@@ -10,8 +10,6 @@ use toolshed::thegraph::DeploymentId;
 
 use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
 
-pub const NETWORK_SUBGRAPH_ID: &str = "QmU7zqJyHSyUP3yFii8sBtHT8FaJn2WmUnRvwjAUTjwMBP";
-
 /// The allocation IDs below are generated using the mnemonic
 /// "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 /// and the following epoch and index:
@@ -104,6 +102,8 @@ pub const ALLOCATIONS_QUERY_RESPONSE: &str = r#"
 "#;
 
 lazy_static! {
+    pub static ref NETWORK_SUBGRAPH_DEPLOYMENT: DeploymentId = DeploymentId::from_str("QmU7zqJyHSyUP3yFii8sBtHT8FaJn2WmUnRvwjAUTjwMBP").unwrap();
+
     pub static ref INDEXER_OPERATOR_MNEMONIC: String = String::from(
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
     );

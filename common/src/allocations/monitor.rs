@@ -210,11 +210,11 @@ mod test {
         let mock_server = MockServer::start().await;
         let network_subgraph_endpoint = NetworkSubgraph::local_deployment_endpoint(
             &mock_server.uri(),
-            test_vectors::NETWORK_SUBGRAPH_ID,
+            &test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT,
         );
         let network_subgraph = NetworkSubgraph::new(
             Some(&mock_server.uri()),
-            Some(test_vectors::NETWORK_SUBGRAPH_ID),
+            Some(&test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT),
             network_subgraph_endpoint.as_ref(),
         );
 
@@ -224,7 +224,7 @@ mod test {
                 Mock::given(method("POST"))
                     .and(path(format!(
                         "/subgraphs/id/{}",
-                        test_vectors::NETWORK_SUBGRAPH_ID
+                        *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
                     )))
                     .and(body_string_contains("currentEpoch"))
                     .respond_with(ResponseTemplate::new(200).set_body_json(
@@ -239,7 +239,7 @@ mod test {
                 Mock::given(method("POST"))
                     .and(path(format!(
                         "/subgraphs/id/{}",
-                        test_vectors::NETWORK_SUBGRAPH_ID
+                        *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
                     )))
                     .and(body_string_contains("activeAllocations"))
                     .respond_with(ResponseTemplate::new(200).set_body_raw(
