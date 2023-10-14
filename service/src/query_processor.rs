@@ -1,10 +1,10 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use ethers_core::types::{Signature, U256};
 use log::error;
 use serde::{Deserialize, Serialize};
 use tap_core::tap_manager::SignedReceipt;
+use toolshed::thegraph::attestation::Attestation;
 use toolshed::thegraph::DeploymentId;
 
 use indexer_common::prelude::{AttestationSigner, AttestationSigners};
@@ -16,7 +16,7 @@ use crate::tap_manager::TapManager;
 pub struct QueryResult {
     #[serde(rename = "graphQLResponse")]
     pub graphql_response: String,
-    pub attestation: Option<Signature>,
+    pub attestation: Option<Attestation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,14 +128,14 @@ impl QueryProcessor {
             .subgraph_query_raw(&subgraph_deployment_id, query.clone())
             .await?;
 
-        let attestation_signature = response
+        let attestation = response
             .attestable
-            .then(|| Self::create_attestation(signer, query, &response));
+            .then(|| Self::create_attestation(signer, &query, &response));
 
         Ok(Response {
             result: QueryResult {
                 graphql_response: response.graphql_response,
-                attestation: attestation_signature,
+                attestation,
             },
             status: 200,
         })
@@ -143,15 +143,10 @@ impl QueryProcessor {
 
     fn create_attestation(
         signer: &AttestationSigner,
-        query: String,
+        query: &str,
         response: &UnattestedQueryResult,
-    ) -> Signature {
-        let attestation = signer.create_attestation(&query, &response.graphql_response);
-        Signature {
-            r: U256::from_big_endian(&attestation.r),
-            s: U256::from_big_endian(&attestation.s),
-            v: attestation.v as u64,
-        }
+    ) -> Attestation {
+        signer.create_attestation(query, &response.graphql_response)
     }
 }
 
@@ -160,11 +155,9 @@ mod tests {
     use std::str::FromStr;
 
     use alloy_primitives::Address;
-    use hex_literal::hex;
-
+    use ethers_core::types::U256;
     use indexer_common::prelude::{
-        attestation_signer_for_allocation, create_attestation_signer, Allocation, AllocationStatus,
-        SubgraphDeployment,
+        attestation_signer_for_allocation, Allocation, AllocationStatus, SubgraphDeployment,
     };
     use lazy_static::lazy_static;
 
@@ -191,11 +184,12 @@ mod tests {
             query_fees_amount: U256::from(0),
         };
 
+        let indexer = Address::from_str(INDEXER_ADDRESS).unwrap();
         let allocation = &Allocation {
             id: Address::from_str("0x4CAF2827961262ADEF3D0Ad15C341e40c21389a4").unwrap(),
             status: AllocationStatus::Null,
             subgraph_deployment,
-            indexer: Address::from_str(INDEXER_ADDRESS).unwrap(),
+            indexer,
             allocated_tokens: U256::from(100),
             created_at_epoch: 940,
             created_at_block_hash: String::from(""),
@@ -209,30 +203,27 @@ mod tests {
 
         let allocation_key =
             attestation_signer_for_allocation(INDEXER_OPERATOR_MNEMONIC, allocation).unwrap();
-        let attestation_signer = create_attestation_signer(
+        let attestation_signer = AttestationSigner::new(
             U256::from(1),
             Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
             allocation_key,
             *DEPLOYMENT_ID,
-        )
-        .unwrap();
+        );
 
+        let request = "test input";
+        let response = "test output";
         let attestation = QueryProcessor::create_attestation(
             &attestation_signer,
-            "test input".to_string(),
+            request,
             &UnattestedQueryResult {
-                graphql_response: "test output".to_string(),
+                graphql_response: response.to_owned(),
                 attestable: true,
             },
         );
 
-        // Values generated using https://github.com/graphprotocol/indexer/blob/f8786c979a8ed0fae93202e499f5ce25773af473/packages/indexer-native/lib/index.d.ts#L44
-        let expected_signature = Signature {
-            v: 27,
-            r: hex!("a0c83c0785e2223ac1ea1eb9e4ffd4ca867275469a7b73dab24f39ddcdec5466").into(),
-            s: hex!("4d0457efea889f2ec7ffcc7ff9b408428d0691356f34b01f419f7674d0eb4ddf").into(),
-        };
-
-        assert_eq!(attestation, expected_signature);
+        assert_eq!(
+            attestation_signer.verify(&attestation, request, response, &indexer),
+            Ok(())
+        );
     }
 }
