@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use crate::prelude::{AllocationMonitor, AttestationSigner};
 
-use super::{attestation_signer_for_allocation, signer::create_attestation_signer};
+use super::attestation_signer_for_allocation;
 
 #[derive(Debug, Clone)]
 pub struct AttestationSigners {
@@ -64,15 +64,16 @@ impl AttestationSigners {
             if let std::collections::hash_map::Entry::Vacant(e) =
                 attestation_signers_write.entry(allocation.id)
             {
-                match attestation_signer_for_allocation(&inner.indexer_mnemonic, allocation)
-                    .and_then(|signer| {
-                        create_attestation_signer(
+                match attestation_signer_for_allocation(&inner.indexer_mnemonic, allocation).map(
+                    |signer| {
+                        AttestationSigner::new(
                             inner.chain_id,
                             inner.dispute_manager,
                             signer,
                             allocation.subgraph_deployment.id,
                         )
-                    }) {
+                    },
+                ) {
                     Ok(signer) => {
                         e.insert(signer);
                         info!(
@@ -119,7 +120,6 @@ impl AttestationSigners {
 #[cfg(test)]
 mod tests {
     use alloy_primitives::Address;
-    use ethers_core::types::U256;
     use std::str::FromStr;
     use std::sync::Arc;
 

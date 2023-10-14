@@ -14,9 +14,7 @@ pub mod prelude {
     pub use super::allocations::monitor::AllocationMonitor;
     pub use super::allocations::{Allocation, AllocationStatus, SubgraphDeployment};
     pub use super::attestations::{
-        attestation_signer_for_allocation,
-        signer::{create_attestation_signer, AttestationSigner},
-        signers::AttestationSigners,
+        attestation_signer_for_allocation, signer::AttestationSigner, signers::AttestationSigners,
     };
     pub use super::network_subgraph::NetworkSubgraph;
 }
