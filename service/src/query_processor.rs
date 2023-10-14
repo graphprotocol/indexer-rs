@@ -221,9 +221,8 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            attestation_signer.verify(&attestation, request, response, &indexer),
-            Ok(())
-        );
+        attestation_signer
+            .verify(&attestation, request, response, &allocation.id)
+            .unwrap();
     }
 }
