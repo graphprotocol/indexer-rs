@@ -1,23 +1,22 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_primitives::Address;
-use anyhow::Result;
-use ethereum_types::U256;
-use log::{error, info};
-use serde::Deserialize;
-use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use toolshed::thegraph::DeploymentId;
 
-use crate::graph_node::GraphNodeInstance;
+use alloy_primitives::Address;
+use anyhow::Result;
+use ethers_core::types::U256;
+use log::{error, info, warn};
+use serde::Deserialize;
+use serde_json::json;
+use tokio::sync::RwLock;
+
+use crate::prelude::SubgraphClient;
 
 #[derive(Debug)]
 struct EscrowMonitorInner {
-    graph_node: GraphNodeInstance,
-    escrow_subgraph_deployment: DeploymentId,
+    escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     interval_ms: u64,
     sender_accounts: Arc<RwLock<HashMap<Address, U256>>>,
@@ -33,16 +32,14 @@ pub struct EscrowMonitor {
 #[cfg_attr(test, faux::methods)]
 impl EscrowMonitor {
     pub async fn new(
-        graph_node: GraphNodeInstance,
-        escrow_subgraph_deployment: DeploymentId,
+        escrow_subgraph: &'static SubgraphClient,
         indexer_address: Address,
         interval_ms: u64,
     ) -> Result<Self> {
         let sender_accounts = Arc::new(RwLock::new(HashMap::new()));
 
         let inner = Arc::new(EscrowMonitorInner {
-            graph_node,
-            escrow_subgraph_deployment,
+            escrow_subgraph,
             indexer_address,
             interval_ms,
             sender_accounts,
@@ -61,30 +58,34 @@ impl EscrowMonitor {
     }
 
     async fn current_accounts(
-        graph_node: &GraphNodeInstance,
-        escrow_subgraph_deployment: &DeploymentId,
+        escrow_subgraph: &'static SubgraphClient,
         indexer_address: &Address,
     ) -> Result<HashMap<Address, U256>> {
+        // Types for deserializing the network subgraph response
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct EscrowAccountsResponse {
+            escrow_accounts: Vec<EscrowAccount>,
+        }
         // These 2 structs are used to deserialize the response from the escrow subgraph.
         // Note that U256's serde implementation is based on serializing the internal bytes, not the string decimal
         // representation. This is why we deserialize them as strings below.
         #[derive(Deserialize)]
-        struct _Sender {
-            id: Address,
+        #[serde(rename_all = "camelCase")]
+        struct EscrowAccount {
+            balance: String,
+            total_amount_thawing: String,
+            sender: Sender,
         }
         #[derive(Deserialize)]
-        struct _EscrowAccount {
-            balance: String,
-            #[serde(rename = "totalAmountThawing")]
-            total_amount_thawing: String,
-            sender: _Sender,
+        #[serde(rename_all = "camelCase")]
+        struct Sender {
+            id: Address,
         }
 
-        let res = graph_node
-            .subgraph_query_raw(
-                escrow_subgraph_deployment,
-                serde_json::to_string(&json!({
-                    "query": r#"
+        let response = escrow_subgraph
+            .query::<EscrowAccountsResponse>(&json!({
+                "query": r#"
                         query ($indexer: ID!) {
                             escrowAccounts(where: {receiver_: {id: $indexer}}) {
                                 balance
@@ -95,60 +96,54 @@ impl EscrowMonitor {
                             }
                         }
                     "#,
-                    "variables": {
-                        "indexer": indexer_address,
-                    }
-                  }
-                ))
-                .expect("serialize escrow GraphQL query"),
-            )
+                "variables": {
+                    "indexer": indexer_address,
+                }
+              }
+            ))
             .await?;
 
-        let mut res_json: serde_json::Value = serde_json::from_str(res.graphql_response.as_str())
-            .map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to fetch current accounts from escrow subgraph: {}",
-                e
-            )
-        })?;
-
-        let escrow_accounts: Vec<_EscrowAccount> =
-            serde_json::from_value(res_json["data"]["escrowAccounts"].take()).map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to parse current accounts response from escrow subgraph: {}",
-                    e
-                )
-            })?;
-
-        let mut sender_accounts: HashMap<Address, U256> = HashMap::new();
-
-        for account in escrow_accounts {
-            let balance = U256::checked_sub(
-                U256::from_dec_str(&account.balance)?,
-                U256::from_dec_str(&account.total_amount_thawing)?,
-            )
-            .unwrap_or_else(|| {
-                error!(
-                    "Balance minus total amount thawing underflowed for account {}. Setting balance to 0, no queries \
-                    will be served for this sender.",
-                    account.sender.id
-                );
-                U256::from(0)
-            });
-
-            sender_accounts.insert(account.sender.id, balance);
+        // If there are any GraphQL errors returned, we'll log them for debugging
+        if let Some(errors) = response.errors {
+            warn!(
+                "Errors encountered fetching escrow accounts for indexer {:?}: {}",
+                indexer_address,
+                errors
+                    .into_iter()
+                    .map(|e| e.message)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
         }
+
+        let sender_accounts = response
+            .data
+            .map_or(vec![], |data| data.escrow_accounts)
+            .iter()
+            .map(|account| {
+                let balance = U256::checked_sub(
+                    U256::from_str_radix(&account.balance, 16)?,
+                    U256::from_str_radix(&account.total_amount_thawing, 16)?,
+                )
+                .unwrap_or_else(|| {
+                    warn!(
+                        "Balance minus total amount thawing underflowed for account {}. \
+                         Setting balance to 0, no queries will be served for this sender.",
+                        account.sender.id
+                    );
+                    U256::from(0)
+                });
+
+                Ok((account.sender.id, balance))
+            })
+            .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 
         Ok(sender_accounts)
     }
 
     async fn update_accounts(inner: &Arc<EscrowMonitorInner>) -> Result<(), anyhow::Error> {
-        *(inner.sender_accounts.write().await) = Self::current_accounts(
-            &inner.graph_node,
-            &inner.escrow_subgraph_deployment,
-            &inner.indexer_address,
-        )
-        .await?;
+        *(inner.sender_accounts.write().await) =
+            Self::current_accounts(inner.escrow_subgraph, &inner.indexer_address).await?;
         Ok(())
     }
 
@@ -181,50 +176,47 @@ impl EscrowMonitor {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    use crate::{graph_node, test_vectors};
+    use crate::test_vectors;
+    use crate::test_vectors::{ESCROW_SUBGRAPH_DEPLOYMENT, INDEXER_ADDRESS};
 
     use super::*;
 
     #[tokio::test]
     async fn test_current_accounts() {
-        let indexer_address = Address::from_str(test_vectors::INDEXER_ADDRESS).unwrap();
-        let escrow_subgraph_deployment =
-            DeploymentId::from_str("Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss").unwrap();
-
+        // Set up a mock escrow subgraph
         let mock_server = MockServer::start().await;
-        let graph_node = graph_node::GraphNodeInstance::new(&mock_server.uri());
+        let escrow_subgraph_endpoint = SubgraphClient::local_deployment_endpoint(
+            &mock_server.uri(),
+            &test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT,
+        )
+        .unwrap();
+        let escrow_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                Some(&mock_server.uri()),
+                Some(&test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT),
+                escrow_subgraph_endpoint.as_ref(),
+            )
+            .unwrap(),
+        ));
 
         let mock = Mock::given(method("POST"))
-            .and(path(
-                "/subgraphs/id/".to_string() + &escrow_subgraph_deployment.to_string(),
-            ))
+            .and(path(format!(
+                "/subgraphs/id/{}",
+                *ESCROW_SUBGRAPH_DEPLOYMENT
+            )))
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_raw(test_vectors::ESCROW_QUERY_RESPONSE, "application/json"),
             );
         mock_server.register(mock).await;
 
-        let inner = EscrowMonitorInner {
-            graph_node,
-            escrow_subgraph_deployment,
-            indexer_address,
-            interval_ms: 1000,
-            sender_accounts: Arc::new(RwLock::new(HashMap::new())),
-        };
+        let accounts = EscrowMonitor::current_accounts(escrow_subgraph, &INDEXER_ADDRESS)
+            .await
+            .unwrap();
 
-        let accounts = EscrowMonitor::current_accounts(
-            &inner.graph_node,
-            &inner.escrow_subgraph_deployment,
-            &inner.indexer_address,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(accounts, test_vectors::expected_escrow_accounts());
+        assert_eq!(accounts, *test_vectors::ESCROW_ACCOUNTS);
     }
 }

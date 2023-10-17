@@ -6,11 +6,10 @@ use axum::Server;
 use dotenvy::dotenv;
 use ethereum_types::U256;
 use std::{net::SocketAddr, str::FromStr, time::Duration};
-use toolshed::thegraph::DeploymentId;
 use tracing::info;
 
 use indexer_common::prelude::{
-    attestation_signers, dispute_manager, indexer_allocations, SubgraphClient,
+    attestation_signers, dispute_manager, indexer_allocations, EscrowMonitor, SubgraphClient,
 };
 
 use util::{package_version, shutdown_signal};
@@ -24,7 +23,6 @@ use server::ServerOptions;
 
 mod common;
 mod config;
-mod escrow_monitor;
 mod graph_node;
 mod metrics;
 mod query_processor;
@@ -71,13 +69,7 @@ async fn main() -> Result<(), std::io::Error> {
     let network_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
             Some(&config.indexer_infrastructure.graph_node_query_endpoint),
-            config
-                .network_subgraph
-                .network_subgraph_deployment
-                .map(|s| DeploymentId::from_str(&s))
-                .transpose()
-                .expect("Failed to parse invalid network subgraph deployment")
-                .as_ref(),
+            config.network_subgraph.network_subgraph_deployment.as_ref(),
             &config.network_subgraph.network_subgraph_endpoint,
         )
         .expect("Failed to set up network subgraph client"),
@@ -112,10 +104,17 @@ async fn main() -> Result<(), std::io::Error> {
     // assume the models are up to date in the service.
     let indexer_management_db = database::connect(&config.postgres).await;
 
-    let escrow_monitor = escrow_monitor::EscrowMonitor::new(
-        graph_node.clone(),
-        DeploymentId::from_str(&config.escrow_subgraph.escrow_subgraph_deployment)
-            .expect("escrow deployment ID is invalid"),
+    let escrow_subgraph = Box::leak(Box::new(
+        SubgraphClient::new(
+            Some(&config.indexer_infrastructure.graph_node_query_endpoint),
+            config.escrow_subgraph.escrow_subgraph_deployment.as_ref(),
+            &config.escrow_subgraph.escrow_subgraph_endpoint,
+        )
+        .expect("Failed to set up escrow subgraph client"),
+    ));
+
+    let escrow_monitor = EscrowMonitor::new(
+        escrow_subgraph,
         config.ethereum.indexer_address,
         config.escrow_subgraph.escrow_syncing_interval,
     )
