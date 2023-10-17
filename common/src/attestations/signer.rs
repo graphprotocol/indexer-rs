@@ -36,41 +36,6 @@ pub fn derive_key_pair(
         .build()?)
 }
 
-pub fn attestation_signer_for_allocation(
-    indexer_mnemonic: &str,
-    allocation: &Allocation,
-) -> Result<SigningKey, anyhow::Error> {
-    // Guess the allocation index by enumerating all indexes in the
-    // range [0, 100] and checking for a match
-    for i in 0..100 {
-        // We try created_at_epoch and created_at_epoch-1 here for the following reason:
-        //
-        // Let's say the indexer has prepared an allocation transaction while the
-        // current epoch was N . By the time the transaction actually makes its into
-        // the blockchain, the epoch may still be N, or it may be N+1.
-        //
-        // If the transaction was mined during epoch N, then `created_at_epoch` will be N
-        // and the allocation ID will match that. If the transaction was mined durign epoch
-        // N+1, then `created_at_epoch` will be N+1 but the allocation ID will have been
-        // created using `created_at_epoch-1 = N`.
-        for created_at_epoch in [allocation.created_at_epoch, allocation.created_at_epoch - 1] {
-            let allocation_wallet = derive_key_pair(
-                indexer_mnemonic,
-                created_at_epoch,
-                &allocation.subgraph_deployment.id,
-                i,
-            )?;
-            if allocation_wallet.address().as_fixed_bytes() == allocation.id {
-                return Ok(allocation_wallet.signer().clone());
-            }
-        }
-    }
-    Err(anyhow::anyhow!(
-        "Could not find allocation signer for allocation {}",
-        allocation.id
-    ))
-}
-
 /// An attestation signer tied to a specific allocation via its signer key
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttestationSigner {
@@ -165,7 +130,10 @@ mod tests {
     use std::str::FromStr;
     use test_log::test;
 
-    use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
+    use crate::{
+        prelude::{Allocation, AllocationStatus, SubgraphDeployment},
+        test_vectors::DISPUTE_MANAGER_ADDRESS,
+    };
 
     use super::*;
 
@@ -207,7 +175,7 @@ mod tests {
     }
 
     #[test]
-    fn test_allocation_signer() {
+    fn test_attestation_signer() {
         // Note that we use `derive_key_pair` to derive the private key
 
         let allocation = Allocation {
@@ -235,7 +203,14 @@ mod tests {
             query_fees_collected: None,
         };
         assert_eq!(
-            attestation_signer_for_allocation(INDEXER_OPERATOR_MNEMONIC, &allocation).unwrap(),
+            AttestationSigner::new(
+                INDEXER_OPERATOR_MNEMONIC,
+                &allocation,
+                U256::from(1),
+                *DISPUTE_MANAGER_ADDRESS
+            )
+            .unwrap()
+            .signer,
             *derive_key_pair(
                 INDEXER_OPERATOR_MNEMONIC,
                 940,
@@ -248,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn test_allocation_signer_error() {
+    fn test_attestation_signer_error() {
         // Note that because allocation will try 200 derivations paths, this is a slow test
 
         let allocation = Allocation {
@@ -276,6 +251,12 @@ mod tests {
             query_fee_rebates: None,
             query_fees_collected: None,
         };
-        assert!(attestation_signer_for_allocation(INDEXER_OPERATOR_MNEMONIC, &allocation).is_err());
+        assert!(AttestationSigner::new(
+            INDEXER_OPERATOR_MNEMONIC,
+            &allocation,
+            U256::from(1),
+            *DISPUTE_MANAGER_ADDRESS
+        )
+        .is_err());
     }
 }
