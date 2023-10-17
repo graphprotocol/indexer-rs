@@ -10,10 +10,10 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::time::sleep;
 
-use crate::network_subgraph::NetworkSubgraph;
+use crate::subgraph_client::SubgraphClient;
 
 pub fn dispute_manager(
-    network_subgraph: &'static NetworkSubgraph,
+    network_subgraph: &'static SubgraphClient,
     graph_network_id: u64,
     interval: Duration,
 ) -> Eventual<Address> {
@@ -88,24 +88,26 @@ mod test {
     };
 
     use crate::{
-        prelude::NetworkSubgraph,
+        prelude::SubgraphClient,
         test_vectors::{self, DISPUTE_MANAGER_ADDRESS},
     };
 
     use super::*;
 
-    async fn setup_mock_network_subgraph() -> (&'static NetworkSubgraph, MockServer) {
+    async fn setup_mock_network_subgraph() -> (&'static SubgraphClient, MockServer) {
         // Set up a mock network subgraph
         let mock_server = MockServer::start().await;
-        let network_subgraph_endpoint = NetworkSubgraph::local_deployment_endpoint(
+        let network_subgraph_endpoint = SubgraphClient::local_deployment_endpoint(
             &mock_server.uri(),
             &test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT,
-        );
-        let network_subgraph = NetworkSubgraph::new(
+        )
+        .unwrap();
+        let network_subgraph = SubgraphClient::new(
             Some(&mock_server.uri()),
             Some(&test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT),
             network_subgraph_endpoint.as_ref(),
-        );
+        )
+        .unwrap();
 
         // Mock result for current epoch requests
         mock_server
