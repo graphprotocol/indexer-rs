@@ -10,7 +10,7 @@ use toolshed::thegraph::DeploymentId;
 use tracing::info;
 
 use indexer_common::prelude::{
-    attestation_signers, dispute_manager, indexer_allocations, NetworkSubgraph,
+    attestation_signers, dispute_manager, indexer_allocations, SubgraphClient,
 };
 
 use util::{package_version, shutdown_signal};
@@ -68,17 +68,20 @@ async fn main() -> Result<(), std::io::Error> {
     // a static lifetime, which avoids having to pass around and clone `Arc`
     // objects everywhere. Since the network subgraph is read-only, this is
     // no problem.
-    let network_subgraph = Box::leak(Box::new(NetworkSubgraph::new(
-        Some(&config.indexer_infrastructure.graph_node_query_endpoint),
-        config
-            .network_subgraph
-            .network_subgraph_deployment
-            .map(|s| DeploymentId::from_str(&s))
-            .transpose()
-            .expect("Failed to parse invalid network subgraph deployment")
-            .as_ref(),
-        &config.network_subgraph.network_subgraph_endpoint,
-    )));
+    let network_subgraph = Box::leak(Box::new(
+        SubgraphClient::new(
+            Some(&config.indexer_infrastructure.graph_node_query_endpoint),
+            config
+                .network_subgraph
+                .network_subgraph_deployment
+                .map(|s| DeploymentId::from_str(&s))
+                .transpose()
+                .expect("Failed to parse invalid network subgraph deployment")
+                .as_ref(),
+            &config.network_subgraph.network_subgraph_endpoint,
+        )
+        .expect("Failed to set up network subgraph client"),
+    ));
 
     let indexer_allocations = indexer_allocations(
         network_subgraph,

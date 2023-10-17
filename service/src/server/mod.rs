@@ -19,7 +19,7 @@ use tower_http::{
 };
 use tracing::Level;
 
-use indexer_common::prelude::NetworkSubgraph;
+use indexer_common::prelude::SubgraphClient;
 
 use crate::{
     query_processor::QueryProcessor,
@@ -38,7 +38,7 @@ pub struct ServerOptions {
     pub graph_node_status_endpoint: String,
     pub indexer_management_db: PgPool,
     pub operator_public_key: String,
-    pub network_subgraph: &'static NetworkSubgraph,
+    pub network_subgraph: &'static SubgraphClient,
     pub network_subgraph_auth_token: Option<String>,
     pub serve_network_subgraph: bool,
 }
@@ -53,7 +53,7 @@ impl ServerOptions {
         graph_node_status_endpoint: String,
         indexer_management_db: PgPool,
         operator_public_key: String,
-        network_subgraph: &'static NetworkSubgraph,
+        network_subgraph: &'static SubgraphClient,
         network_subgraph_auth_token: Option<String>,
         serve_network_subgraph: bool,
     ) -> Self {

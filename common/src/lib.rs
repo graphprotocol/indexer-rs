@@ -4,8 +4,8 @@
 pub mod allocations;
 pub mod attestations;
 pub mod graphql;
-pub mod network_subgraph;
 pub mod signature_verification;
+pub mod subgraph_client;
 
 #[cfg(test)]
 mod test_vectors;
@@ -17,5 +17,5 @@ pub mod prelude {
     pub use super::attestations::{
         dispute_manager::dispute_manager, signer::AttestationSigner, signers::attestation_signers,
     };
-    pub use super::network_subgraph::NetworkSubgraph;
+    pub use super::subgraph_client::SubgraphClient;
 }
