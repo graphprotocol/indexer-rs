@@ -5,6 +5,7 @@ use clap::{command, Args, Parser, ValueEnum};
 
 use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
+use toolshed::thegraph::DeploymentId;
 
 use crate::{query_processor::QueryError, util::init_tracing};
 
@@ -183,7 +184,7 @@ pub struct NetworkSubgraph {
         env = "NETWORK_SUBGRAPH_DEPLOYMENT",
         help = "Network subgraph deployment"
     )]
-    pub network_subgraph_deployment: Option<String>,
+    pub network_subgraph_deployment: Option<DeploymentId>,
     #[clap(
         long,
         value_name = "network-subgraph-endpoint",
@@ -233,18 +234,14 @@ pub struct EscrowSubgraph {
         env = "ESCROW_SUBGRAPH_DEPLOYMENT",
         help = "Escrow subgraph deployment"
     )]
-    pub escrow_subgraph_deployment: String,
-    // TODO:
-    //
-    // #[clap(
-    //     long,
-    //     value_name = "escrow-subgraph-endpoint",
-    //     env = "ESCROW_SUBGRAPH_ENDPOINT",
-    //     // TODO:
-    //     // default_value_t = String::from("https://api.thegraph.com/subgraphs/name/?????????????"),
-    //     help = "Endpoint to query the network subgraph from"
-    // )]
-    // pub escrow_subgraph_endpoint: Option<String>,
+    pub escrow_subgraph_deployment: Option<DeploymentId>,
+    #[clap(
+        long,
+        value_name = "escrow-subgraph-endpoint",
+        env = "ESCROW_SUBGRAPH_ENDPOINT",
+        help = "Endpoint to query the network subgraph from"
+    )]
+    pub escrow_subgraph_endpoint: String,
     // #[clap(
     //     long,
     //     value_name = "escrow-subgraph-auth-token",

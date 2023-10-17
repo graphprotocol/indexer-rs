@@ -3,6 +3,7 @@
 
 pub mod allocations;
 pub mod attestations;
+pub mod escrow_monitor;
 pub mod graphql;
 pub mod signature_verification;
 pub mod subgraph_client;
@@ -17,5 +18,6 @@ pub mod prelude {
     pub use super::attestations::{
         dispute_manager::dispute_manager, signer::AttestationSigner, signers::attestation_signers,
     };
+    pub use super::escrow_monitor::EscrowMonitor;
     pub use super::subgraph_client::SubgraphClient;
 }

@@ -4,18 +4,18 @@
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use eventuals::Eventual;
-use indexer_common::prelude::Allocation;
+use indexer_common::prelude::{Allocation, EscrowMonitor};
 use log::error;
 use sqlx::{types::BigDecimal, PgPool};
 use std::{collections::HashMap, sync::Arc};
 use tap_core::tap_manager::SignedReceipt;
 
-use crate::{escrow_monitor, query_processor::QueryError};
+use crate::query_processor::QueryError;
 
 #[derive(Clone)]
 pub struct TapManager {
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
-    escrow_monitor: escrow_monitor::EscrowMonitor,
+    escrow_monitor: EscrowMonitor,
     pgpool: PgPool,
     domain_separator: Arc<Eip712Domain>,
 }
@@ -24,7 +24,7 @@ impl TapManager {
     pub fn new(
         pgpool: PgPool,
         indexer_allocations: Eventual<HashMap<Address, Allocation>>,
-        escrow_monitor: escrow_monitor::EscrowMonitor,
+        escrow_monitor: EscrowMonitor,
         domain_separator: Eip712Domain,
     ) -> Self {
         Self {
@@ -198,7 +198,7 @@ mod test {
         ));
 
         // Mock escrow monitor
-        let mut mock_escrow_monitor = escrow_monitor::EscrowMonitor::faux();
+        let mut mock_escrow_monitor = EscrowMonitor::faux();
         faux::when!(mock_escrow_monitor.is_sender_eligible).then_return(true);
 
         let tap_manager = TapManager::new(

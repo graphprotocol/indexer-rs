@@ -89,8 +89,32 @@ pub const ALLOCATIONS_QUERY_RESPONSE: &str = r#"
     }
 "#;
 
+pub const ESCROW_QUERY_RESPONSE: &str = r#"
+    {
+        "data": {
+            "escrowAccounts": [
+                {
+                    "balance": "34",
+                    "totalAmountThawing": "10",
+                    "sender": {
+                        "id": "0x90f8bf6a479f320ead074411a4b0e7944ea8c9c1"
+                    }
+                },
+                {
+                    "balance": "42",
+                    "totalAmountThawing": "0",
+                    "sender": {
+                        "id": "0x22d491bde2303f2f43325b2108d26f1eaba1e32b"
+                    }
+                }
+            ]
+        }
+    }
+"#;
+
 lazy_static! {
     pub static ref NETWORK_SUBGRAPH_DEPLOYMENT: DeploymentId = DeploymentId::from_str("QmU7zqJyHSyUP3yFii8sBtHT8FaJn2WmUnRvwjAUTjwMBP").unwrap();
+    pub static ref ESCROW_SUBGRAPH_DEPLOYMENT: DeploymentId = DeploymentId::from_str("Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss").unwrap();
 
     pub static ref INDEXER_OPERATOR_MNEMONIC: String = String::from(
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
@@ -209,5 +233,10 @@ lazy_static! {
                 query_fees_collected: None,
             },
         ),
+    ]);
+
+    pub static ref ESCROW_ACCOUNTS: HashMap<Address, U256> = HashMap::from([
+        (Address::from_str("0x90f8bf6a479f320ead074411a4b0e7944ea8c9c1").unwrap(), U256::from(24)),
+        (Address::from_str("0x22d491bde2303f2f43325b2108d26f1eaba1e32b").unwrap(), U256::from(42)),
     ]);
 }
