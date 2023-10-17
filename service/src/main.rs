@@ -9,7 +9,7 @@ use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tracing::info;
 
 use indexer_common::prelude::{
-    attestation_signers, dispute_manager, indexer_allocations, EscrowMonitor, SubgraphClient,
+    attestation_signers, dispute_manager, escrow_accounts, indexer_allocations, SubgraphClient,
 };
 
 use util::{package_version, shutdown_signal};
@@ -113,18 +113,16 @@ async fn main() -> Result<(), std::io::Error> {
         .expect("Failed to set up escrow subgraph client"),
     ));
 
-    let escrow_monitor = EscrowMonitor::new(
+    let escrow_accounts = escrow_accounts(
         escrow_subgraph,
         config.ethereum.indexer_address,
-        config.escrow_subgraph.escrow_syncing_interval,
-    )
-    .await
-    .expect("Initialize escrow monitor");
+        Duration::from_secs(config.escrow_subgraph.escrow_syncing_interval),
+    );
 
     let tap_manager = tap_manager::TapManager::new(
         indexer_management_db.clone(),
         indexer_allocations,
-        escrow_monitor,
+        escrow_accounts,
         // TODO: arguments for eip712_domain should be a config
         eip712_domain! {
             name: "TapManager",

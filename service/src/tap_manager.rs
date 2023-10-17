@@ -3,8 +3,9 @@
 
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
+use ethers_core::types::U256;
 use eventuals::Eventual;
-use indexer_common::prelude::{Allocation, EscrowMonitor};
+use indexer_common::prelude::Allocation;
 use log::error;
 use sqlx::{types::BigDecimal, PgPool};
 use std::{collections::HashMap, sync::Arc};
@@ -15,7 +16,7 @@ use crate::query_processor::QueryError;
 #[derive(Clone)]
 pub struct TapManager {
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
-    escrow_monitor: EscrowMonitor,
+    escrow_accounts: Eventual<HashMap<Address, U256>>,
     pgpool: PgPool,
     domain_separator: Arc<Eip712Domain>,
 }
@@ -24,12 +25,12 @@ impl TapManager {
     pub fn new(
         pgpool: PgPool,
         indexer_allocations: Eventual<HashMap<Address, Allocation>>,
-        escrow_monitor: EscrowMonitor,
+        escrow_accounts: Eventual<HashMap<Address, U256>>,
         domain_separator: Eip712Domain,
     ) -> Self {
         Self {
             indexer_allocations,
-            escrow_monitor,
+            escrow_accounts,
             pgpool,
             domain_separator: Arc::new(domain_separator),
         }
@@ -63,9 +64,11 @@ impl TapManager {
                 QueryError::Other(anyhow::Error::from(e))
             })?;
         if !self
-            .escrow_monitor
-            .is_sender_eligible(&receipt_signer)
+            .escrow_accounts
+            .value()
             .await
+            .map(|accounts| accounts.contains_key(&receipt_signer))
+            .unwrap_or(false)
         {
             return Err(QueryError::Other(anyhow::Error::msg(format!(
                 "Receipt's sender ({}) is not eligible for this indexer",
@@ -111,6 +114,8 @@ mod test {
     use tap_core::tap_manager::SignedReceipt;
     use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
     use toolshed::thegraph::DeploymentId;
+
+    use crate::test_vectors;
 
     use super::*;
 
@@ -189,7 +194,7 @@ mod test {
             previous_epoch_start_block_hash: None,
             created_at_block_hash: H256::zero().to_string(),
             created_at_epoch: 0,
-            indexer: Address::ZERO,
+            indexer: *test_vectors::INDEXER_ADDRESS,
             query_fee_rebates: None,
             query_fees_collected: None,
         };
@@ -197,16 +202,14 @@ mod test {
             vec![(allocation_id, allocation)].into_iter(),
         ));
 
-        // Mock escrow monitor
-        let mut mock_escrow_monitor = EscrowMonitor::faux();
-        faux::when!(mock_escrow_monitor.is_sender_eligible).then_return(true);
+        // Mock escrow accounts
+        let escrow_accounts = Eventual::from_value(HashMap::from_iter(vec![(
+            *test_vectors::INDEXER_ADDRESS,
+            U256::from(123),
+        )]));
 
-        let tap_manager = TapManager::new(
-            pgpool.clone(),
-            indexer_allocations,
-            mock_escrow_monitor,
-            domain,
-        );
+        let tap_manager =
+            TapManager::new(pgpool.clone(), indexer_allocations, escrow_accounts, domain);
 
         tap_manager
             .verify_and_store_receipt(signed_receipt.clone())
