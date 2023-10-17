@@ -5,9 +5,8 @@ use alloy_primitives::Address;
 use ethers_core::types::U256;
 use eventuals::{Eventual, EventualExt};
 use log::warn;
-use lru::LruCache;
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::{collections::HashMap, num::NonZeroUsize};
 use tokio::sync::Mutex;
 
 use crate::prelude::{Allocation, AttestationSigner};
@@ -19,11 +18,8 @@ pub fn attestation_signers(
     chain_id: U256,
     dispute_manager: Address,
 ) -> Eventual<HashMap<Address, AttestationSigner>> {
-    // Keep a cache of the most recent 1000 signers around so we don't need to recreate them
-    // every time there is a small change in the allocations
-    let cache: &'static Mutex<LruCache<_, _>> = Box::leak(Box::new(Mutex::new(LruCache::new(
-        NonZeroUsize::new(1000).unwrap(),
-    ))));
+    let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
+        Box::leak(Box::new(Mutex::new(HashMap::new())));
 
     let indexer_mnemonic = Arc::new(indexer_mnemonic);
 
@@ -31,30 +27,34 @@ pub fn attestation_signers(
     // we have attestation signers for all of them
     indexer_allocations.map(move |allocations| {
         let indexer_mnemonic = indexer_mnemonic.clone();
-
         async move {
-            let mut cache = cache.lock().await;
+            let mut signers = attestation_signers_map.lock().await;
 
+            // Remove signers for allocations that are no longer active or recently closed
+            signers.retain(|id, _| allocations.contains_key(id));
+
+            // Create signers for new allocations
             for (id, allocation) in allocations.iter() {
-                let result = cache.try_get_or_insert(*id, || {
-                    AttestationSigner::new(
+                if !signers.contains_key(id) {
+                    let signer = AttestationSigner::new(
                         &indexer_mnemonic,
                         allocation,
                         chain_id,
-                        dispute_manager
-                    )
-                });
-
-                if let Err(e) = result {
-                    warn!(
-                        "Failed to establish signer for allocation {}, deployment {}, createdAtEpoch {}: {}",
-                        allocation.id, allocation.subgraph_deployment.id,
-                        allocation.created_at_epoch, e
+                        dispute_manager,
                     );
+                    if let Err(e) = signer {
+                        warn!(
+                            "Failed to establish signer for allocation {}, deployment {}, createdAtEpoch {}: {}",
+                            allocation.id, allocation.subgraph_deployment.id,
+                            allocation.created_at_epoch, e
+                        );
+                    } else {
+                        signers.insert(*id, signer.unwrap());
+                    }
                 }
             }
 
-            HashMap::from_iter(cache.iter().map(|(k, v)| (*k, v.clone())))
+            signers.clone()
         }
     })
 }
