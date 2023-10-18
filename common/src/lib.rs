@@ -7,6 +7,7 @@ pub mod escrow_accounts;
 pub mod graphql;
 pub mod signature_verification;
 pub mod subgraph_client;
+pub mod tap_manager;
 
 #[cfg(test)]
 mod test_vectors;
@@ -20,4 +21,5 @@ pub mod prelude {
     };
     pub use super::escrow_accounts::escrow_accounts;
     pub use super::subgraph_client::SubgraphClient;
+    pub use super::tap_manager::TapManager;
 }

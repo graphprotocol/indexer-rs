@@ -8,8 +8,11 @@ use ethereum_types::U256;
 use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tracing::info;
 
-use indexer_common::prelude::{
-    attestation_signers, dispute_manager, escrow_accounts, indexer_allocations, SubgraphClient,
+use indexer_common::{
+    prelude::{
+        attestation_signers, dispute_manager, escrow_accounts, indexer_allocations, SubgraphClient,
+    },
+    tap_manager::TapManager,
 };
 
 use util::{package_version, shutdown_signal};
@@ -27,7 +30,6 @@ mod graph_node;
 mod metrics;
 mod query_processor;
 mod server;
-mod tap_manager;
 mod util;
 
 #[cfg(test)]
@@ -119,7 +121,7 @@ async fn main() -> Result<(), std::io::Error> {
         Duration::from_secs(config.escrow_subgraph.escrow_syncing_interval),
     );
 
-    let tap_manager = tap_manager::TapManager::new(
+    let tap_manager = TapManager::new(
         indexer_management_db.clone(),
         indexer_allocations,
         escrow_accounts,
