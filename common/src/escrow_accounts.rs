@@ -7,7 +7,7 @@ use alloy_primitives::Address;
 use anyhow::Result;
 use ethers_core::types::U256;
 use eventuals::{timer, Eventual, EventualExt};
-use log::warn;
+use log::{error, warn};
 use serde::Deserialize;
 use serde_json::json;
 use tokio::time::sleep;
@@ -66,7 +66,7 @@ pub fn escrow_accounts(
 
             // If there are any GraphQL errors returned, we'll log them for debugging
             if let Some(errors) = response.errors {
-                warn!(
+                error!(
                     "Errors encountered fetching escrow accounts for indexer {:?}: {}",
                     indexer_address,
                     errors
@@ -103,7 +103,7 @@ pub fn escrow_accounts(
             Ok(sender_accounts)
         },
         move |err: String| {
-            warn!(
+            error!(
                 "Failed to fetch escrow accounts for indexer {:?}: {}",
                 indexer_address, err
             );
