@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use alloy_primitives::Address;
 use eventuals::Eventual;
+use indexer_common::tap_manager::TapManager;
 use log::error;
 use serde::{Deserialize, Serialize};
 use tap_core::tap_manager::SignedReceipt;
@@ -14,7 +15,6 @@ use toolshed::thegraph::DeploymentId;
 use indexer_common::prelude::AttestationSigner;
 
 use crate::graph_node::GraphNodeInstance;
-use crate::tap_manager::TapManager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
@@ -117,7 +117,8 @@ impl QueryProcessor {
 
         self.tap_manager
             .verify_and_store_receipt(parsed_receipt)
-            .await?;
+            .await
+            .map_err(QueryError::Other)?;
 
         let signers = self
             .attestation_signers

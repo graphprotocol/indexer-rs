@@ -3,15 +3,15 @@
 
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
+use anyhow::anyhow;
 use ethers_core::types::U256;
 use eventuals::Eventual;
-use indexer_common::prelude::Allocation;
 use log::error;
 use sqlx::{types::BigDecimal, PgPool};
 use std::{collections::HashMap, sync::Arc};
 use tap_core::tap_manager::SignedReceipt;
 
-use crate::query_processor::QueryError;
+use crate::prelude::Allocation;
 
 #[derive(Clone)]
 pub struct TapManager {
@@ -42,7 +42,10 @@ impl TapManager {
     ///
     /// The rest of the TAP receipt checks are expected to be performed out-of-band by the receipt aggregate requester
     /// service.
-    pub async fn verify_and_store_receipt(&self, receipt: SignedReceipt) -> Result<(), QueryError> {
+    pub async fn verify_and_store_receipt(
+        &self,
+        receipt: SignedReceipt,
+    ) -> Result<(), anyhow::Error> {
         let allocation_id = &receipt.message.allocation_id;
         if !self
             .indexer_allocations
@@ -51,17 +54,17 @@ impl TapManager {
             .map(|allocations| allocations.contains_key(allocation_id))
             .unwrap_or(false)
         {
-            return Err(QueryError::Other(anyhow::Error::msg(format!(
+            return Err(anyhow!(
                 "Receipt allocation ID `{}` is not eligible for this indexer",
                 allocation_id
-            ))));
+            ));
         }
 
         let receipt_signer = receipt
             .recover_signer(self.domain_separator.as_ref())
             .map_err(|e| {
                 error!("Failed to recover receipt signer: {}", e);
-                QueryError::Other(anyhow::Error::from(e))
+                anyhow!(e)
             })?;
         if !self
             .escrow_accounts
@@ -74,10 +77,10 @@ impl TapManager {
             })
             .unwrap_or(false)
         {
-            return Err(QueryError::Other(anyhow::Error::msg(format!(
+            return Err(anyhow!(
                 "Receipt sender `{}` is not eligible for this indexer",
                 receipt_signer
-            ))));
+            ));
         }
 
         // TODO: consider doing this in another async task to avoid slowing down the paid query flow.
@@ -91,13 +94,13 @@ impl TapManager {
                 .unwrap()
                 .to_owned(),
             BigDecimal::from(receipt.message.timestamp_ns),
-            serde_json::to_value(receipt).map_err(|e| QueryError::Other(anyhow::Error::from(e)))?
+            serde_json::to_value(receipt).map_err(|e| anyhow!(e))?
         )
         .execute(&self.pgpool)
         .await
         .map_err(|e| {
             error!("Failed to store receipt: {}", e);
-            QueryError::Other(anyhow::Error::from(e))
+            anyhow!(e)
         })?;
 
         Ok(())
@@ -108,11 +111,11 @@ impl TapManager {
 mod test {
     use std::str::FromStr;
 
+    use crate::prelude::{AllocationStatus, SubgraphDeployment};
     use alloy_primitives::Address;
     use alloy_sol_types::{eip712_domain, Eip712Domain};
-    use ethereum_types::{H256, U256};
     use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
-    use indexer_common::prelude::{AllocationStatus, SubgraphDeployment};
+    use keccak_hash::H256;
     use sqlx::postgres::PgListener;
 
     use tap_core::tap_manager::SignedReceipt;
