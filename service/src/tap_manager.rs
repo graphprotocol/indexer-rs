@@ -52,7 +52,7 @@ impl TapManager {
             .unwrap_or(false)
         {
             return Err(QueryError::Other(anyhow::Error::msg(format!(
-                "Receipt's allocation ID ({}) is not eligible for this indexer",
+                "Receipt allocation ID `{}` is not eligible for this indexer",
                 allocation_id
             ))));
         }
@@ -67,11 +67,15 @@ impl TapManager {
             .escrow_accounts
             .value()
             .await
-            .map(|accounts| accounts.contains_key(&receipt_signer))
+            .map(|accounts| {
+                accounts
+                    .get(&receipt_signer)
+                    .map_or(false, |balance| balance > &U256::zero())
+            })
             .unwrap_or(false)
         {
             return Err(QueryError::Other(anyhow::Error::msg(format!(
-                "Receipt's sender ({}) is not eligible for this indexer",
+                "Receipt sender `{}` is not eligible for this indexer",
                 receipt_signer
             ))));
         }
