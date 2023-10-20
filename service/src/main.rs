@@ -81,7 +81,7 @@ async fn main() -> Result<(), std::io::Error> {
         network_subgraph,
         config.ethereum.indexer_address,
         1,
-        Duration::from_secs(config.network_subgraph.allocation_syncing_interval),
+        Duration::from_millis(config.network_subgraph.allocation_syncing_interval),
     );
 
     // TODO: Chain ID should be a config
@@ -118,7 +118,7 @@ async fn main() -> Result<(), std::io::Error> {
     let escrow_accounts = escrow_accounts(
         escrow_subgraph,
         config.ethereum.indexer_address,
-        Duration::from_secs(config.escrow_subgraph.escrow_syncing_interval),
+        Duration::from_millis(config.escrow_subgraph.escrow_syncing_interval),
     );
 
     let tap_manager = TapManager::new(
