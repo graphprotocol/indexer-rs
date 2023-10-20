@@ -6,10 +6,8 @@ use axum::{http::StatusCode, response::IntoResponse, Extension, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::{
-    common::indexer_error::{IndexerError, IndexerErrorCause},
-    server::{routes::internal_server_error_response, ServerOptions},
-};
+use crate::server::{routes::internal_server_error_response, ServerOptions};
+use indexer_common::indexer_errors::{IndexerError, IndexerErrorCause};
 
 /// Parse an incoming query request and route queries with authenticated
 /// free query token to graph node
@@ -141,7 +139,7 @@ fn block_numbers(status: IndexingStatus) -> Result<(u64, u64), IndexerError> {
         Ok((latest, head))
     } else {
         Err(IndexerError::new(
-            crate::common::indexer_error::IndexerErrorCode::IE018,
+            indexer_common::indexer_errors::IndexerErrorCode::IE018,
             Some(IndexerErrorCause::new(
                 "Ill formatted block numbers from indexing status",
             )),
