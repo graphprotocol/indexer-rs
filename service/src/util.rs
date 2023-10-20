@@ -14,7 +14,7 @@ use tracing::{
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::common::address::{build_wallet, wallet_address};
-use crate::common::indexer_error::{indexer_error, IndexerError};
+use indexer_common::indexer_errors::{indexer_error, IndexerError, IndexerErrorCode};
 
 /// Struct for version control
 #[derive(Serialize, Debug, Clone)]
@@ -26,9 +26,9 @@ pub struct PackageVersion {
 /// Read the manfiest
 fn read_manifest() -> Result<Value, IndexerError> {
     let toml_string = fs::read_to_string("service/Cargo.toml")
-        .map_err(|_e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
-    let toml_value: Value = toml::from_str(&toml_string)
-        .map_err(|_e| indexer_error(crate::common::indexer_error::IndexerErrorCode::IE074))?;
+        .map_err(|_e| indexer_error(IndexerErrorCode::IE074))?;
+    let toml_value: Value =
+        toml::from_str(&toml_string).map_err(|_e| indexer_error(IndexerErrorCode::IE074))?;
     Ok(toml_value)
 }
 

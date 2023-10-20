@@ -3,5 +3,4 @@
 
 pub mod address;
 pub mod database;
-pub mod indexer_error;
 pub mod indexer_management;
