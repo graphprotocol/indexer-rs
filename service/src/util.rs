@@ -43,10 +43,15 @@ pub fn package_version() -> Result<PackageVersion, IndexerError> {
             .as_str()
             .unwrap()
             .to_string();
-        let dependencies = pkg.get("dependencies").and_then(|d| d.as_table()).unwrap();
-        let indexer_native = dependencies
-            .get("indexer-native")
-            .map(|d| d.as_str().unwrap().to_string());
+        let dependencies = pkg
+            .get("dependencies")
+            .and_then(|d| d.as_table())
+            .expect("Parse package dependencies");
+        let indexer_native = dependencies.get("indexer-native").map(|d| {
+            d.as_str()
+                .expect("Parse indexer-service dependency version")
+                .to_string()
+        });
 
         let release = PackageVersion {
             version,

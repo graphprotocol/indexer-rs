@@ -19,6 +19,7 @@ use crate::{
         ServerOptions,
     },
 };
+use indexer_common::indexer_errors::IndexerErrorCode;
 
 /// Parse an incoming query request and route queries with authenticated
 /// free query token to graph node
@@ -51,6 +52,9 @@ pub async fn subgraph_queries(
                 query_duration_timer.observe_duration();
                 metrics::QUERIES_WITH_INVALID_RECEIPT_HEADER
                     .with_label_values(&[&deployment_label])
+                    .inc();
+                metrics::INDEXER_ERROR
+                    .with_label_values(&[&IndexerErrorCode::IE029.to_string()])
                     .inc();
                 return bad_request_response("Bad scalar receipt for subgraph query");
             }
@@ -87,34 +91,28 @@ pub async fn subgraph_queries(
             query: query_string,
         };
 
-        // TODO: Emit IndexerErrorCode::IE033 on error
-        let res = server
-            .query_processor
-            .execute_free_query(free_query)
-            .await
-            .expect("Failed to execute free query");
-        query_duration_timer.observe_duration();
-        match res.status {
-            200 => (StatusCode::OK, Json(res.result)).into_response(),
-            _ => bad_request_response("Bad response from Graph node"),
+        match server.query_processor.execute_free_query(free_query).await {
+            Ok(res) if res.status == 200 => {
+                query_duration_timer.observe_duration();
+                (StatusCode::OK, Json(res.result)).into_response()
+            }
+            _ => {
+                metrics::INDEXER_ERROR
+                    .with_label_values(&[&IndexerErrorCode::IE033.to_string()])
+                    .inc();
+                bad_request_response("Failed to execute free query")
+            }
         }
-    } else if receipt.is_some() {
+    } else if let Some(receipt) = receipt {
         let paid_query = crate::query_processor::PaidQuery {
             subgraph_deployment_id,
             query: query_string,
-            receipt: receipt.unwrap().to_string(),
+            receipt: receipt.to_string(),
         };
 
-        // TODO: Emit IndexerErrorCode::IE032 on error
-        let res = server
-            .query_processor
-            .execute_paid_query(paid_query)
-            .await
-            .expect("Failed to execute paid query");
-
-        query_duration_timer.observe_duration();
-        match res.status {
-            200 => {
+        match server.query_processor.execute_paid_query(paid_query).await {
+            Ok(res) if res.status == 200 => {
+                query_duration_timer.observe_duration();
                 metrics::SUCCESSFUL_QUERIES
                     .with_label_values(&[&deployment_label])
                     .inc();
@@ -124,7 +122,10 @@ pub async fn subgraph_queries(
                 metrics::FAILED_QUERIES
                     .with_label_values(&[&deployment_label])
                     .inc();
-                bad_request_response("Bad response from Graph node")
+                metrics::INDEXER_ERROR
+                    .with_label_values(&[&IndexerErrorCode::IE032.to_string()])
+                    .inc();
+                return bad_request_response("Failed to execute paid query");
             }
         }
     } else {

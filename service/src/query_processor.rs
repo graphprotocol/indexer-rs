@@ -12,6 +12,8 @@ use tap_core::tap_manager::SignedReceipt;
 use toolshed::thegraph::attestation::Attestation;
 use toolshed::thegraph::DeploymentId;
 
+use crate::metrics;
+use indexer_common::indexer_errors::IndexerErrorCode;
 use indexer_common::prelude::AttestationSigner;
 
 use crate::graph_node::GraphNodeInstance;
@@ -91,7 +93,14 @@ impl QueryProcessor {
         let response = self
             .graph_node
             .subgraph_query_raw(&query.subgraph_deployment_id, query.query)
-            .await?;
+            .await
+            .map_err(|e| {
+                metrics::INDEXER_ERROR
+                    .with_label_values(&[&IndexerErrorCode::IE033.to_string()])
+                    .inc();
+
+                e
+            })?;
 
         Ok(Response {
             result: response,
@@ -109,22 +118,42 @@ impl QueryProcessor {
             receipt,
         } = query;
 
-        // TODO: Emit IndexerErrorCode::IE031 on error
-        let parsed_receipt: SignedReceipt = serde_json::from_str(&receipt)
-            .map_err(|e| QueryError::Other(anyhow::Error::from(e)))?;
+        let parsed_receipt: SignedReceipt = match serde_json::from_str(&receipt)
+            .map_err(|e| QueryError::Other(anyhow::Error::from(e)))
+        {
+            Ok(r) => r,
+            Err(e) => {
+                metrics::INDEXER_ERROR
+                    .with_label_values(&[&IndexerErrorCode::IE031.to_string()])
+                    .inc();
+
+                return Err(e);
+            }
+        };
 
         let allocation_id = parsed_receipt.message.allocation_id;
 
         self.tap_manager
             .verify_and_store_receipt(parsed_receipt)
             .await
-            .map_err(QueryError::Other)?;
+            .map_err(|e| {
+                //TODO: fit indexer errors to TAP better, currently keeping the old messages
+                metrics::INDEXER_ERROR
+                    .with_label_values(&[&IndexerErrorCode::IE053.to_string()])
+                    .inc();
+
+                QueryError::Other(e)
+            })?;
 
         let signers = self
             .attestation_signers
             .value_immediate()
             .ok_or_else(|| QueryError::Other(anyhow::anyhow!("System is not ready yet")))?;
         let signer = signers.get(&allocation_id).ok_or_else(|| {
+            metrics::INDEXER_ERROR
+                .with_label_values(&[&IndexerErrorCode::IE022.to_string()])
+                .inc();
+
             QueryError::Other(anyhow::anyhow!(
                 "No signer found for allocation id {}",
                 allocation_id
