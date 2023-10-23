@@ -8,7 +8,6 @@ use graphql::http::Response;
 use reqwest::{header, Client, Url};
 use serde::de::Deserialize;
 use serde_json::Value;
-use toolshed::thegraph::DeploymentId;
 
 /// Network subgraph query wrapper
 ///
@@ -20,46 +19,30 @@ pub struct SubgraphClient {
 }
 
 impl SubgraphClient {
-    pub fn new(
-        graph_node_query_endpoint: Option<&str>,
-        deployment: Option<&DeploymentId>,
-        subgraph_url: &str,
-    ) -> Result<Self, anyhow::Error> {
-        // TODO: Check indexing status of the local subgraph deployment
-        // if the deployment is healthy and synced, use local_subgraoh_endpoint
-        let _local_subgraph_endpoint = match (graph_node_query_endpoint, deployment) {
-            (Some(endpoint), Some(id)) => Some(Self::local_deployment_endpoint(endpoint, id)?),
-            _ => None,
-        };
-
-        let subgraph_url = Url::parse(subgraph_url)
-            .map_err(|e| anyhow!("Could not parse subgraph url `{}`: {}", subgraph_url, e))?;
+    pub fn new(name: &str, query_url: &str) -> Result<Self, anyhow::Error> {
+        let query_url = Url::parse(query_url).map_err(|e| {
+            anyhow!(
+                "Could not parse `{}` subgraph query URL `{}`: {}",
+                name,
+                query_url,
+                e
+            )
+        })?;
 
         let client = reqwest::Client::builder()
             .user_agent("indexer-common")
             .build()
-            .expect("Could not build a client for the Graph Node query endpoint");
+            .map_err(|err| {
+                anyhow!(
+                    "Could not build a client for `{name}` subgraph query URL `{query_url}`: {err}"
+                )
+            })
+            .expect("Building subgraph client");
 
         Ok(Self {
             client,
-            subgraph_url: Arc::new(subgraph_url),
+            subgraph_url: Arc::new(query_url),
         })
-    }
-
-    pub fn local_deployment_endpoint(
-        graph_node_query_endpoint: &str,
-        deployment: &DeploymentId,
-    ) -> Result<Url, anyhow::Error> {
-        Url::parse(graph_node_query_endpoint)
-            .and_then(|u| u.join("/subgraphs/id/"))
-            .and_then(|u| u.join(&deployment.to_string()))
-            .map_err(|e| {
-                anyhow!(
-                    "Could not parse Graph Node query endpoint for subgraph deployment `{}`: {}",
-                    deployment,
-                    e
-                )
-            })
     }
 
     pub async fn query<T: for<'de> Deserialize<'de>>(
@@ -117,12 +100,7 @@ mod test {
     }
 
     fn network_subgraph_client() -> SubgraphClient {
-        SubgraphClient::new(
-            Some(GRAPH_NODE_STATUS_ENDPOINT),
-            Some(&test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT),
-            NETWORK_SUBGRAPH_URL,
-        )
-        .unwrap()
+        SubgraphClient::new("network-subgraph", NETWORK_SUBGRAPH_URL).unwrap()
     }
 
     #[tokio::test]

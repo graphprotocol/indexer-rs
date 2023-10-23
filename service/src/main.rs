@@ -70,8 +70,7 @@ async fn main() -> Result<(), std::io::Error> {
     // no problem.
     let network_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
-            Some(&config.indexer_infrastructure.graph_node_query_endpoint),
-            config.network_subgraph.network_subgraph_deployment.as_ref(),
+            "network-subgraph",
             &config.network_subgraph.network_subgraph_endpoint,
         )
         .expect("Failed to set up network subgraph client"),
@@ -108,8 +107,7 @@ async fn main() -> Result<(), std::io::Error> {
 
     let escrow_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
-            Some(&config.indexer_infrastructure.graph_node_query_endpoint),
-            config.escrow_subgraph.escrow_subgraph_deployment.as_ref(),
+            "escrow-subgraph",
             &config.escrow_subgraph.escrow_subgraph_endpoint,
         )
         .expect("Failed to set up escrow subgraph client"),
