@@ -6,6 +6,7 @@ pub mod attestations;
 pub mod escrow_accounts;
 pub mod graphql;
 pub mod indexer_errors;
+pub mod indexer_service;
 pub mod metrics;
 pub mod signature_verification;
 pub mod subgraph_client;

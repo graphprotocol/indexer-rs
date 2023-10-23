@@ -697,6 +697,7 @@ dependencies = [
  "bitflags 1.3.2",
  "bytes",
  "futures-util",
+ "headers",
  "http",
  "http-body",
  "hyper",
@@ -2633,6 +2634,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "headers-derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f33cf300c485e3cbcba0235013fcc768723451c9b84d1b31aa7fec0491ac9a11"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "heck"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2909,12 +2921,16 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "arc-swap",
+ "async-trait",
+ "axum 0.6.20",
  "env_logger",
  "ethers",
  "ethers-core",
  "eventuals",
  "faux",
  "graphql-http",
+ "headers",
+ "headers-derive",
  "keccak-hash",
  "lazy_static",
  "lru",
@@ -2929,6 +2945,7 @@ dependencies = [
  "tap_core",
  "test-log",
  "thegraph",
+ "thiserror",
  "tokio",
  "tracing",
  "wiremock",
