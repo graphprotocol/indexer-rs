@@ -81,6 +81,7 @@ pub fn dispute_manager(
 
 #[cfg(test)]
 mod test {
+    use reqwest::Url;
     use serde_json::json;
     use wiremock::{
         matchers::{method, path},
@@ -97,17 +98,14 @@ mod test {
     async fn setup_mock_network_subgraph() -> (&'static SubgraphClient, MockServer) {
         // Set up a mock network subgraph
         let mock_server = MockServer::start().await;
-        let network_subgraph_endpoint = SubgraphClient::local_deployment_endpoint(
+        let network_subgraph_endpoint = Url::parse(&format!(
+            "{}/subgraphs/id/{}",
             &mock_server.uri(),
-            &test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT,
-        )
+            *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
+        ))
         .unwrap();
-        let network_subgraph = SubgraphClient::new(
-            Some(&mock_server.uri()),
-            Some(&test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT),
-            network_subgraph_endpoint.as_ref(),
-        )
-        .unwrap();
+        let network_subgraph =
+            SubgraphClient::new("network-subgraph", network_subgraph_endpoint.as_ref()).unwrap();
 
         // Mock result for current epoch requests
         mock_server
