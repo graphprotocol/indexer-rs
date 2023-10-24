@@ -127,12 +127,12 @@ async fn main() -> Result<(), std::io::Error> {
         escrow_accounts,
         // TODO: arguments for eip712_domain should be a config
         eip712_domain! {
-            name: "TapManager",
+            name: "Scalar TAP",
             version: "1",
-            verifying_contract: config.ethereum.indexer_address,
+            chain_id: config.receipts.receipts_verifier_chain_id,
+            verifying_contract: config.receipts.receipts_verifier_address,
         },
     );
-
     // Proper initiation of server, query processor
     // server health check, graph-node instance connection check
     let query_processor =

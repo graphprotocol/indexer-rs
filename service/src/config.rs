@@ -20,6 +20,8 @@ pub struct Cli {
     #[command(flatten)]
     pub ethereum: Ethereum,
     #[command(flatten)]
+    pub receipts: Receipts,
+    #[command(flatten)]
     pub indexer_infrastructure: IndexerInfrastructure,
     #[command(flatten)]
     pub postgres: Postgres,
@@ -69,6 +71,25 @@ pub struct Ethereum {
         help = "Ethereum address of the indexer"
     )]
     pub indexer_address: Address,
+}
+
+#[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
+#[group(required = true, multiple = true)]
+pub struct Receipts {
+    #[clap(
+        long,
+        value_name = "receipts-verifier-chain-id",
+        env = "RECEIPTS_VERIFIER_CHAIN_ID",
+        help = "Scalar TAP verifier chain ID"
+    )]
+    pub receipts_verifier_chain_id: u64,
+    #[clap(
+        long,
+        value_name = "receipts-verifier-address",
+        env = "RECEIPTS_VERIFIER_ADDRESS",
+        help = "Scalar TAP verifier contract address"
+    )]
+    pub receipts_verifier_address: Address,
 }
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
