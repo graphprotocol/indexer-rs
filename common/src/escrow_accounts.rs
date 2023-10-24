@@ -115,10 +115,10 @@ pub fn escrow_accounts(
 
 #[cfg(test)]
 mod tests {
-    use reqwest::Url;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    use crate::prelude::DeploymentDetails;
     use crate::test_vectors;
 
     use super::*;
@@ -127,14 +127,17 @@ mod tests {
     async fn test_current_accounts() {
         // Set up a mock escrow subgraph
         let mock_server = MockServer::start().await;
-        let escrow_subgraph_endpoint = Url::parse(&format!(
-            "{}/subgraphs/id/{}",
-            &mock_server.uri(),
-            *test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT
-        ))
-        .unwrap();
         let escrow_subgraph = Box::leak(Box::new(
-            SubgraphClient::new("escrow-subgraph", escrow_subgraph_endpoint.as_ref()).unwrap(),
+            SubgraphClient::new(
+                None,
+                DeploymentDetails::for_query_url(&format!(
+                    "{}/subgraphs/id/{}",
+                    &mock_server.uri(),
+                    *test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT
+                ))
+                .unwrap(),
+            )
+            .unwrap(),
         ));
 
         let mock = Mock::given(method("POST"))

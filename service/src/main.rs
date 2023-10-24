@@ -12,6 +12,7 @@ use indexer_common::{
     prelude::{
         attestation_signers, dispute_manager, escrow_accounts, indexer_allocations, SubgraphClient,
     },
+    subgraph_client::DeploymentDetails,
     tap_manager::TapManager,
 };
 
@@ -70,8 +71,21 @@ async fn main() -> Result<(), std::io::Error> {
     // no problem.
     let network_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
-            "network-subgraph",
-            &config.network_subgraph.network_subgraph_endpoint,
+            config
+                .network_subgraph
+                .network_subgraph_deployment
+                .map(|deployment| {
+                    DeploymentDetails::for_graph_node(
+                        &config.indexer_infrastructure.graph_node_query_endpoint,
+                        deployment,
+                    )
+                })
+                .transpose()
+                .expect(
+                    "Failed to parse graph node query endpoint and network subgraph deployment",
+                ),
+            DeploymentDetails::for_query_url(&config.network_subgraph.network_subgraph_endpoint)
+                .expect("Failed to parse network subgraph endpoint"),
         )
         .expect("Failed to set up network subgraph client"),
     ));
@@ -107,8 +121,19 @@ async fn main() -> Result<(), std::io::Error> {
 
     let escrow_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
-            "escrow-subgraph",
-            &config.escrow_subgraph.escrow_subgraph_endpoint,
+            config
+                .escrow_subgraph
+                .escrow_subgraph_deployment
+                .map(|deployment| {
+                    DeploymentDetails::for_graph_node(
+                        &config.indexer_infrastructure.graph_node_query_endpoint,
+                        deployment,
+                    )
+                })
+                .transpose()
+                .expect("Failed to parse graph node query endpoint and escrow subgraph deployment"),
+            DeploymentDetails::for_query_url(&config.escrow_subgraph.escrow_subgraph_endpoint)
+                .expect("Failed to parse escrow subgraph endpoint"),
         )
         .expect("Failed to set up escrow subgraph client"),
     ));

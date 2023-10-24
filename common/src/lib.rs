@@ -20,6 +20,6 @@ pub mod prelude {
         dispute_manager::dispute_manager, signer::AttestationSigner, signers::attestation_signers,
     };
     pub use super::escrow_accounts::escrow_accounts;
-    pub use super::subgraph_client::SubgraphClient;
+    pub use super::subgraph_client::{DeploymentDetails, SubgraphClient};
     pub use super::tap_manager::TapManager;
 }
