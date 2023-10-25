@@ -62,8 +62,9 @@ where
     } else if state.config.server.free_query_auth_token.is_some()
         && state.config.server.free_query_auth_token
             != headers
-                .get("free-query-auth-token")
+                .get("authorization")
                 .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer "))
                 .map(|s| s.to_string())
     {
         return Err(IndexerServiceError::Unauthorized);
