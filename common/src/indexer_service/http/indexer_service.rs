@@ -8,8 +8,9 @@ use axum::{
     body::Body,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Router, Server,
+    Json, Router, Server,
 };
+use build_info::BuildInfo;
 use eventuals::Eventual;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
@@ -114,12 +115,34 @@ where
     }
 }
 
+#[derive(Clone, Serialize)]
+pub struct IndexerServiceRelease {
+    version: String,
+    dependencies: HashMap<String, String>,
+}
+
+impl From<&BuildInfo> for IndexerServiceRelease {
+    fn from(value: &BuildInfo) -> Self {
+        Self {
+            version: value.crate_info.version.to_string(),
+            dependencies: HashMap::from_iter(
+                value
+                    .crate_info
+                    .dependencies
+                    .iter()
+                    .map(|d| (d.name.clone(), d.version.to_string())),
+            ),
+        }
+    }
+}
+
 pub struct IndexerServiceOptions<I>
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
     pub service_impl: I,
     pub config: IndexerServiceConfig,
+    pub release: IndexerServiceRelease,
     pub extra_routes: Router<Arc<IndexerServiceState<I>>, Body>,
 }
 
@@ -230,6 +253,7 @@ impl IndexerService {
 
         let router = Router::new()
             .route("/", get("Service is up and running"))
+            .route("/version", get(Json(options.release)))
             .route(
                 PathBuf::from(options.config.server.url_prefix)
                     .join("manifests/:id")

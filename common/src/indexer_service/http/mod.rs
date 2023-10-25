@@ -8,5 +8,5 @@ pub use config::{
     NetworkSubgraphConfig, ServerConfig,
 };
 pub use indexer_service::{
-    IndexerService, IndexerServiceImpl, IndexerServiceOptions, IsAttestable,
+    IndexerService, IndexerServiceImpl, IndexerServiceOptions, IndexerServiceRelease, IsAttestable,
 };
