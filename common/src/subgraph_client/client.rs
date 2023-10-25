@@ -134,6 +134,8 @@ impl SubgraphClient {
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
+
     use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -196,5 +198,221 @@ mod test {
             .unwrap();
 
         assert!(result.data.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_uses_local_deployment_if_healthy_and_synced() {
+        let deployment =
+            DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+
+        let mock_server_local = MockServer::start().await;
+        mock_server_local
+            .register(
+                Mock::given(method("POST"))
+                    .and(path("/status"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "indexingStatuses": [
+                                {
+                                    "synced": true,
+                                    "health": "healthy"
+                                }
+                            ]
+                        }
+                    }))),
+            )
+            .await;
+        mock_server_local
+            .register(
+                Mock::given(method("POST"))
+                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "user": {
+                                "name": "local"
+                            }
+                        }
+                    }))),
+            )
+            .await;
+
+        let mock_server_remote = MockServer::start().await;
+        mock_server_remote
+            .register(
+                Mock::given(method("POST"))
+                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "user": {
+                                "name": "remote"
+                            }
+                        }
+                    }))),
+            )
+            .await;
+
+        // Create the subgraph client
+        let client = SubgraphClient::new(
+            Some(DeploymentDetails::for_graph_node(&mock_server_local.uri(), deployment).unwrap()),
+            DeploymentDetails::for_query_url(&format!(
+                "{}/subgraphs/id/{}",
+                mock_server_remote.uri(),
+                deployment
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+
+        // Query the subgraph
+        let response: Response<Value> = client
+            .query(&json!({ "query": "{ user(id: 1} { name } }"}))
+            .await
+            .unwrap();
+
+        assert_eq!(response.data, Some(json!({ "user": { "name": "local" } })));
+    }
+
+    #[tokio::test]
+    async fn test_uses_query_url_if_local_deployment_is_unhealthy() {
+        let deployment =
+            DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+
+        let mock_server_local = MockServer::start().await;
+        mock_server_local
+            .register(
+                Mock::given(method("POST"))
+                    .and(path("/status"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "indexingStatuses": [
+                                {
+                                    "synced": true,
+                                    "health": "unhealthy"
+                                }
+                            ]
+                        }
+                    }))),
+            )
+            .await;
+        mock_server_local
+            .register(
+                Mock::given(method("POST"))
+                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "user": {
+                                "name": "local"
+                            }
+                        }
+                    }))),
+            )
+            .await;
+
+        let mock_server_remote = MockServer::start().await;
+        mock_server_remote
+            .register(
+                Mock::given(method("POST"))
+                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "user": {
+                                "name": "remote"
+                            }
+                        }
+                    }))),
+            )
+            .await;
+
+        // Create the subgraph client
+        let client = SubgraphClient::new(
+            Some(DeploymentDetails::for_graph_node(&mock_server_local.uri(), deployment).unwrap()),
+            DeploymentDetails::for_query_url(&format!(
+                "{}/subgraphs/id/{}",
+                mock_server_remote.uri(),
+                deployment
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+
+        // Query the subgraph
+        let response: Response<Value> = client
+            .query(&json!({ "query": "{ user(id: 1} { name } }"}))
+            .await
+            .unwrap();
+
+        assert_eq!(response.data, Some(json!({ "user": { "name": "remote" } })));
+    }
+
+    #[tokio::test]
+    async fn test_uses_query_url_if_local_deployment_is_not_synced() {
+        let deployment =
+            DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+
+        let mock_server_local = MockServer::start().await;
+        mock_server_local
+            .register(
+                Mock::given(method("POST"))
+                    .and(path("/status"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "indexingStatuses": [
+                                {
+                                    "synced": false,
+                                    "health": "healthy"
+                                }
+                            ]
+                        }
+                    }))),
+            )
+            .await;
+        mock_server_local
+            .register(
+                Mock::given(method("POST"))
+                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "user": {
+                                "name": "local"
+                            }
+                        }
+                    }))),
+            )
+            .await;
+
+        let mock_server_remote = MockServer::start().await;
+        mock_server_remote
+            .register(
+                Mock::given(method("POST"))
+                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "user": {
+                                "name": "remote"
+                            }
+                        }
+                    }))),
+            )
+            .await;
+
+        // Create the subgraph client
+        let client = SubgraphClient::new(
+            Some(DeploymentDetails::for_graph_node(&mock_server_local.uri(), deployment).unwrap()),
+            DeploymentDetails::for_query_url(&format!(
+                "{}/subgraphs/id/{}",
+                mock_server_remote.uri(),
+                deployment
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+
+        // Query the subgraph
+        let response: Response<Value> = client
+            .query(&json!({ "query": "{ user(id: 1} { name } }"}))
+            .await
+            .unwrap();
+
+        assert_eq!(response.data, Some(json!({ "user": { "name": "remote" } })));
     }
 }
