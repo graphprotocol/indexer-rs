@@ -20,7 +20,7 @@ use thiserror::Error;
 use crate::{
     prelude::{
         attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
-        AttestationSigner, SubgraphClient,
+        AttestationSigner, DeploymentDetails, SubgraphClient,
     },
     tap_manager::TapManager,
 };
@@ -141,8 +141,16 @@ impl IndexerService {
         I: IndexerServiceImpl + Sync + Send + 'static,
     {
         let network_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            "network-subgraph",
-            &options.config.network_subgraph.query_url,
+            options
+                .config
+                .graph_node
+                .as_ref()
+                .zip(options.config.network_subgraph.deployment)
+                .map(|(graph_node, deployment)| {
+                    DeploymentDetails::for_graph_node(&graph_node.query_base_url, deployment)
+                })
+                .transpose()?,
+            DeploymentDetails::for_query_url(&options.config.network_subgraph.query_url)?,
         )?));
 
         // Identify the dispute manager for the configured network
@@ -170,8 +178,16 @@ impl IndexerService {
         );
 
         let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            "escrow-subgraph",
-            &options.config.escrow_subgraph.query_url,
+            options
+                .config
+                .graph_node
+                .as_ref()
+                .zip(options.config.escrow_subgraph.deployment)
+                .map(|(graph_node, deployment)| {
+                    DeploymentDetails::for_graph_node(&graph_node.query_base_url, deployment)
+                })
+                .transpose()?,
+            DeploymentDetails::for_query_url(&options.config.escrow_subgraph.query_url)?,
         )?));
 
         let escrow_accounts = escrow_accounts(

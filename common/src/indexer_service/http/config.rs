@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 
 use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
+use thegraph::types::DeploymentId;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DatabaseConfig {
@@ -10,12 +11,14 @@ pub struct DatabaseConfig {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NetworkSubgraphConfig {
+    pub deployment: Option<DeploymentId>,
     pub query_url: String,
     pub syncing_interval: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EscrowSubgraphConfig {
+    pub deployment: Option<DeploymentId>,
     pub query_url: String,
     pub syncing_interval: u64,
 }
@@ -32,9 +35,15 @@ pub struct IndexerServiceConfig {
     pub indexer: IndexerConfig,
     pub server: ServerConfig,
     pub database: DatabaseConfig,
+    pub graph_node: Option<GraphNodeConfig>,
     pub network_subgraph: NetworkSubgraphConfig,
     pub escrow_subgraph: EscrowSubgraphConfig,
     pub graph_network: GraphNetworkConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct GraphNodeConfig {
+    pub query_base_url: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
