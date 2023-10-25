@@ -84,9 +84,7 @@ impl DeploymentClient {
     }
 }
 
-/// Network subgraph query wrapper
-///
-/// This is Arc internally, so it can be cloned and shared between threads.
+/// Client for a subgraph that can fall back from a local deployment to a remote query URL
 pub struct SubgraphClient {
     local_client: Option<DeploymentClient>,
     remote_client: DeploymentClient,
