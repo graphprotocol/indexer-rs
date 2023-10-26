@@ -20,6 +20,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use thegraph::types::DeploymentId;
 use thiserror::Error;
+use tokio::signal;
 use tracing::info;
 
 use crate::{
@@ -296,4 +297,26 @@ impl IndexerService {
                 .expect("Failed to serve metrics")
         });
     }
+}
+
+pub async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    info!("Signal received, starting graceful shutdown");
 }
