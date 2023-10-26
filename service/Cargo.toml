@@ -60,6 +60,7 @@ alloy-sol-types = "0.5.2"
 lazy_static = "1.4.0"
 thegraph = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
 graphql-http = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
+build-info = "0.0.34"
 
 [dev-dependencies]
 faux = "0.1.10"
@@ -67,6 +68,9 @@ hex-literal = "0.4.1"
 indexer-common = { path = "../common", features = ["mock"] }
 test-log = "0.2.12"
 wiremock = "0.5.19"
+
+[build-dependencies]
+build-info-build = "0.0.34"
 
 # [[bin]]
 # name = "indexer-native"

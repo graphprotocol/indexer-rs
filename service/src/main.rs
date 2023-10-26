@@ -9,14 +9,14 @@ use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tracing::info;
 
 use indexer_common::{
+    indexer_service::http::IndexerServiceRelease,
     prelude::{
-        attestation_signers, dispute_manager, escrow_accounts, indexer_allocations, SubgraphClient,
+        attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
+        DeploymentDetails, SubgraphClient, TapManager,
     },
-    subgraph_client::DeploymentDetails,
-    tap_manager::TapManager,
 };
 
-use util::{package_version, shutdown_signal};
+use util::shutdown_signal;
 
 use crate::{
     common::database, config::Cli, metrics::handle_serve_metrics, query_processor::QueryProcessor,
@@ -54,7 +54,8 @@ async fn main() -> Result<(), std::io::Error> {
 
     // Parse basic configurations
     let config = Cli::args();
-    let release = package_version().expect("Failed to resolve for release version");
+    build_info::build_info!(fn build_info);
+    let release = IndexerServiceRelease::from(build_info());
 
     // Initialize graph-node client
     let graph_node = graph_node::GraphNodeInstance::new(

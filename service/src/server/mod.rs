@@ -19,12 +19,11 @@ use tower_http::{
 };
 use tracing::Level;
 
-use indexer_common::prelude::SubgraphClient;
+use indexer_common::{indexer_service::http::IndexerServiceRelease, prelude::SubgraphClient};
 
 use crate::{
     query_processor::QueryProcessor,
     server::routes::{network_ratelimiter, slow_ratelimiter},
-    util::PackageVersion,
 };
 
 pub mod routes;
@@ -32,7 +31,7 @@ pub mod routes;
 #[derive(Clone)]
 pub struct ServerOptions {
     pub port: Option<u32>,
-    pub release: PackageVersion,
+    pub release: IndexerServiceRelease,
     pub query_processor: QueryProcessor,
     pub free_query_auth_token: Option<String>,
     pub graph_node_status_endpoint: String,
@@ -47,7 +46,7 @@ impl ServerOptions {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         port: Option<u32>,
-        release: PackageVersion,
+        release: IndexerServiceRelease,
         query_processor: QueryProcessor,
         free_query_auth_token: Option<String>,
         graph_node_status_endpoint: String,
