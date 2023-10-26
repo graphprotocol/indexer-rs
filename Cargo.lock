@@ -2395,6 +2395,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "forwarded-header-value"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8835f84f38484cc86f110a805655697908257fb9a7af005234060891557198e9"
+dependencies = [
+ "nonempty",
+ "thiserror",
+]
+
+[[package]]
 name = "fs2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2635,6 +2645,24 @@ dependencies = [
  "futures-core",
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "governor"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "821239e5672ff23e2a7060901fa622950bbd80b649cdaadd78d1c1767ed14eb4"
+dependencies = [
+ "cfg-if",
+ "dashmap",
+ "futures",
+ "futures-timer",
+ "no-std-compat",
+ "nonzero_ext",
+ "parking_lot",
+ "quanta 0.11.1",
+ "rand 0.8.5",
+ "smallvec",
 ]
 
 [[package]]
@@ -3078,6 +3106,8 @@ dependencies = [
  "thegraph",
  "thiserror",
  "tokio",
+ "tower",
+ "tower_governor",
  "tracing",
  "wiremock",
 ]
@@ -3816,6 +3846,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4a24736216ec316047a1fc4252e27dabb04218aa4a3f37c6e7ddbf1f9782b54"
 
 [[package]]
+name = "no-std-compat"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b93853da6d84c2e3c7d730d6473e8817692dd89be387eb01b94d7f108ecb5b8c"
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3824,6 +3860,18 @@ dependencies = [
  "memchr",
  "minimal-lexical",
 ]
+
+[[package]]
+name = "nonempty"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9e591e719385e6ebaeb5ce5d3887f7d5676fceca6411d1925ccc95745f3d6f7"
+
+[[package]]
+name = "nonzero_ext"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38bf9645c8b145698bb0b18a4637dcacbc421ea49bef2317e4fd8065a387cf21"
 
 [[package]]
 name = "nu-ansi-term"
@@ -6633,6 +6681,26 @@ name = "tower-service"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6bc1c9ce2b5135ac7f93c72918fc37feb872bdc6a5533a8b85eb4b86bfdae52"
+
+[[package]]
+name = "tower_governor"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db81d9313372d714152194f3f2b66badda23a783fb6a97462e35f632814f4cff"
+dependencies = [
+ "axum 0.6.20",
+ "forwarded-header-value",
+ "futures",
+ "futures-core",
+ "governor",
+ "http",
+ "pin-project",
+ "thiserror",
+ "tokio",
+ "tower",
+ "tower-layer",
+ "tracing",
+]
 
 [[package]]
 name = "tracing"

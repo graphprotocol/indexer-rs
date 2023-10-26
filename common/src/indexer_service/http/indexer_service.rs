@@ -9,9 +9,10 @@ use autometrics::prometheus_exporter;
 use axum::{
     async_trait,
     body::Body,
+    error_handling::HandleErrorLayer,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router, Server,
+    BoxError, Json, Router, Server,
 };
 use build_info::BuildInfo;
 use eventuals::Eventual;
@@ -21,6 +22,8 @@ use sqlx::postgres::PgPoolOptions;
 use thegraph::types::DeploymentId;
 use thiserror::Error;
 use tokio::signal;
+use tower::ServiceBuilder;
+use tower_governor::{errors::display_error, governor::GovernorConfigBuilder, GovernorLayer};
 use tracing::info;
 
 use crate::{
@@ -256,9 +259,32 @@ impl IndexerService {
             service_impl: Arc::new(options.service_impl),
         });
 
-        let router = Router::new()
+        // Rate limits by allowing bursts of 10 requests and requiring 100ms of
+        // time between consecutive requests after that, effectively rate
+        // limiting to 10 req/s.
+        let rate_limiter = GovernorLayer {
+            config: Box::leak(Box::new(
+                GovernorConfigBuilder::default()
+                    .per_millisecond(100)
+                    .burst_size(10)
+                    .finish()
+                    .expect("Failed to set up rate limiting"),
+            )),
+        };
+
+        let misc_routes = Router::new()
             .route("/", get("Service is up and running"))
             .route("/version", get(Json(options.release)))
+            .layer(
+                ServiceBuilder::new()
+                    .layer(HandleErrorLayer::new(|e: BoxError| async move {
+                        display_error(e)
+                    }))
+                    .layer(rate_limiter),
+            )
+            .with_state(state.clone());
+
+        let data_routes = Router::new()
             .route(
                 PathBuf::from(options.config.server.url_prefix)
                     .join("manifests/:id")
@@ -266,6 +292,10 @@ impl IndexerService {
                     .expect("Failed to set up `/manifest/:id` route"),
                 post(request_handler::<I>),
             )
+            .with_state(state.clone());
+
+        let router = misc_routes
+            .merge(data_routes)
             .merge(options.extra_routes)
             .with_state(state);
 
@@ -277,7 +307,7 @@ impl IndexerService {
         );
 
         Ok(Server::bind(&options.config.server.host_and_port)
-            .serve(router.into_make_service())
+            .serve(router.into_make_service_with_connect_info::<SocketAddr>())
             .with_graceful_shutdown(shutdown_signal())
             .await?)
     }
