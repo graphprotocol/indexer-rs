@@ -1,8 +1,11 @@
-use std::{collections::HashMap, fmt::Debug, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration,
+};
 
 use alloy_primitives::Address;
 use alloy_sol_types::eip712_domain;
 use anyhow;
+use autometrics::prometheus_exporter;
 use axum::{
     async_trait,
     body::Body,
@@ -12,6 +15,7 @@ use axum::{
 };
 use build_info::BuildInfo;
 use eventuals::Eventual;
+use log::info;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
@@ -264,8 +268,31 @@ impl IndexerService {
             .merge(options.extra_routes)
             .with_state(state);
 
+        Self::serve_metrics(options.config.server.metrics_host_and_port);
+
+        info!(
+            "Serving requests at {}",
+            options.config.server.host_and_port
+        );
+
         Ok(Server::bind(&options.config.server.host_and_port)
             .serve(router.into_make_service())
             .await?)
+    }
+
+    fn serve_metrics(host_and_port: SocketAddr) {
+        info!("Serving prometheus metrics at {host_and_port}");
+
+        tokio::spawn(async move {
+            let router = Router::new().route(
+                "/metrics",
+                get(|| async { prometheus_exporter::encode_http_response() }),
+            );
+
+            Server::bind(&host_and_port)
+                .serve(router.into_make_service())
+                .await
+                .expect("Failed to serve metrics")
+        });
     }
 }

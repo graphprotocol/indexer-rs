@@ -40,6 +40,7 @@ async-trait = "0.1.74"
 headers-derive = "0.1.1"
 headers = "0.3.9"
 build-info = "0.0.34"
+autometrics = { version = "0.6.0", features = ["prometheus-exporter"] }
 
 [dev-dependencies]
 env_logger = "0.9.0"
