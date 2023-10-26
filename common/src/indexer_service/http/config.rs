@@ -26,6 +26,7 @@ pub struct EscrowSubgraphConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ServerConfig {
     pub host_and_port: SocketAddr,
+    pub metrics_host_and_port: SocketAddr,
     pub url_prefix: String,
     pub free_query_auth_token: Option<String>,
 }
