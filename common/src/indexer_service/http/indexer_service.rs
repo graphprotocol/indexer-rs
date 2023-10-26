@@ -15,12 +15,12 @@ use axum::{
 };
 use build_info::BuildInfo;
 use eventuals::Eventual;
-use log::info;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use thegraph::types::DeploymentId;
 use thiserror::Error;
+use tracing::info;
 
 use crate::{
     prelude::{
@@ -271,17 +271,18 @@ impl IndexerService {
         Self::serve_metrics(options.config.server.metrics_host_and_port);
 
         info!(
-            "Serving requests at {}",
-            options.config.server.host_and_port
+            address = %options.config.server.host_and_port,
+            "Serving requests",
         );
 
         Ok(Server::bind(&options.config.server.host_and_port)
             .serve(router.into_make_service())
+            .with_graceful_shutdown(shutdown_signal())
             .await?)
     }
 
     fn serve_metrics(host_and_port: SocketAddr) {
-        info!("Serving prometheus metrics at {host_and_port}");
+        info!(address = %host_and_port, "Serving prometheus metrics");
 
         tokio::spawn(async move {
             let router = Router::new().route(
