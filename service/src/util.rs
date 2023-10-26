@@ -2,11 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use ethers::signers::WalletError;
-use serde::Serialize;
-use std::collections::HashMap;
-use std::fs;
 use tokio::signal;
-use toml::Value;
 use tracing::{
     info,
     subscriber::{set_global_default, SetGlobalDefaultError},
@@ -14,58 +10,6 @@ use tracing::{
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::common::address::{build_wallet, wallet_address};
-
-/// Struct for version control
-#[derive(Serialize, Debug, Clone)]
-pub struct PackageVersion {
-    version: String,
-    dependencies: HashMap<String, String>,
-}
-
-/// Read the manfiest
-fn read_manifest() -> Result<Value, anyhow::Error> {
-    let toml_string = fs::read_to_string("service/Cargo.toml")?;
-    let toml_value: Value = toml::from_str(&toml_string)?;
-    Ok(toml_value)
-}
-
-/// Parse package versioning from the manifest
-pub fn package_version() -> Result<PackageVersion, anyhow::Error> {
-    read_manifest().map(|toml_file| {
-        let pkg = toml_file.as_table().unwrap();
-        let version = pkg
-            .get("package")
-            .and_then(|p| p.get("version"))
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string();
-        let dependencies = pkg
-            .get("dependencies")
-            .and_then(|d| d.as_table())
-            .expect("Parse package dependencies");
-        let indexer_native = dependencies.get("indexer-native").map(|d| {
-            d.as_str()
-                .expect("Parse indexer-service dependency version")
-                .to_string()
-        });
-
-        let release = PackageVersion {
-            version,
-            dependencies: match indexer_native {
-                Some(indexer_native_version) => {
-                    let mut map = HashMap::new();
-                    map.insert("indexer-native".to_string(), indexer_native_version);
-                    map
-                }
-                None => HashMap::new(),
-            },
-        };
-        info!("Running package version {:#?}", release);
-
-        release
-    })
-}
 
 /// Validate that private key as an Eth wallet
 pub fn public_key(value: &str) -> Result<String, WalletError> {
