@@ -151,6 +151,7 @@ where
     pub service_impl: I,
     pub config: IndexerServiceConfig,
     pub release: IndexerServiceRelease,
+    pub url_namespace: &'static str,
     pub extra_routes: Router<Arc<IndexerServiceState<I>>, Body>,
 }
 
@@ -287,7 +288,7 @@ impl IndexerService {
         let data_routes = Router::new()
             .route(
                 PathBuf::from(options.config.server.url_prefix)
-                    .join("manifests/:id")
+                    .join(format!("{}/:id", options.url_namespace))
                     .to_str()
                     .expect("Failed to set up `/manifest/:id` route"),
                 post(request_handler::<I>),
