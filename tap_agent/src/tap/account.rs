@@ -78,6 +78,7 @@ pub struct Account {
 }
 
 impl Account {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: &'static config::Cli,
         pgpool: PgPool,
