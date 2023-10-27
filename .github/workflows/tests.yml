@@ -21,8 +21,22 @@ jobs:
   clippy:
     name: cargo clippy
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     container: 
       image: rust:latest
+    env:
+      DATABASE_URL: postgres://postgres@postgres:5432 
     steps:
       - uses: actions/checkout@v3
       - uses: actions/cache@v3
@@ -34,6 +48,10 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install sqlx
+        run: cargo install sqlx-cli --no-default-features --features postgres
+      - name: Run the test sqlx migrations
+        run: cargo sqlx migrate run
       - run: |
           rustup component add clippy
           # Temporarily allowing dead-code, while denying all other warnings
