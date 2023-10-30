@@ -86,13 +86,11 @@ impl TapManager {
                 VALUES ($1, $2, $3, $4, $5)
             "#,
             format!("{:?}", allocation_id)
-                .strip_prefix("0x")
-                .unwrap()
+                .trim_start_matches("0x")
                 .to_owned(),
                 receipt_signer
                 .to_string()
-                .strip_prefix("0x")
-                .unwrap()
+                .trim_start_matches("0x")
                 .to_owned(),
             BigDecimal::from(receipt.message.timestamp_ns),
             BigDecimal::from_str(&receipt.message.value.to_string())?,

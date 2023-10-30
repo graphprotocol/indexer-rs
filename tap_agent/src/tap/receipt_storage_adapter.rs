@@ -106,14 +106,9 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
             "#,
             self.allocation_id
                 .to_string()
-                .strip_prefix("0x")
-                .unwrap()
+                .trim_start_matches("0x")
                 .to_owned(),
-            self.sender
-                .to_string()
-                .strip_prefix("0x")
-                .unwrap()
-                .to_owned(),
+            self.sender.to_string().trim_start_matches("0x").to_owned(),
             rangebounds_to_pgrange(timestamp_range_ns)
         )
         .fetch_all(&self.pgpool)
@@ -150,14 +145,9 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
             "#,
             self.allocation_id
                 .to_string()
-                .strip_prefix("0x")
-                .unwrap()
+                .trim_start_matches("0x")
                 .to_owned(),
-            self.sender
-                .to_string()
-                .strip_prefix("0x")
-                .unwrap()
-                .to_owned(),
+            self.sender.to_string().trim_start_matches("0x").to_owned(),
             rangebounds_to_pgrange(timestamp_ns)
         )
         .execute(&self.pgpool)

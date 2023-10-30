@@ -101,15 +101,13 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Re
             .message
             .allocation_id
             .to_string()
-            .strip_prefix("0x")
-            .unwrap()
+            .trim_start_matches("0x")
             .to_owned(),
         signed_receipt
             .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
             .unwrap()
             .to_string()
-            .strip_prefix("0x")
-            .unwrap()
+            .trim_start_matches("0x")
             .to_owned(),
         BigDecimal::from(signed_receipt.message.timestamp_ns),
         BigDecimal::from_str(&signed_receipt.message.value.to_string())?,
@@ -135,10 +133,9 @@ pub async fn store_rav(pgpool: &PgPool, signed_rav: SignedRAV, sender: Address) 
             .message
             .allocation_id
             .to_string()
-            .strip_prefix("0x")
-            .unwrap()
+            .trim_start_matches("0x")
             .to_owned(),
-        sender.to_string().strip_prefix("0x").unwrap().to_owned(),
+        sender.to_string().trim_start_matches("0x").to_owned(),
         serde_json::to_value(signed_rav).unwrap(),
     )
     .execute(pgpool)

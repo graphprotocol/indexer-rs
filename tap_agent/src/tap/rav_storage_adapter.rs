@@ -36,14 +36,9 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
             "#,
             self.allocation_id
                 .to_string()
-                .strip_prefix("0x")
-                .unwrap()
+                .trim_start_matches("0x")
                 .to_owned(),
-            self.sender
-                .to_string()
-                .strip_prefix("0x")
-                .unwrap()
-                .to_owned(),
+            self.sender.to_string().trim_start_matches("0x").to_owned(),
             serde_json::to_value(rav).map_err(|e| AdapterError::AdapterError {
                 error: e.to_string()
             })?
@@ -65,14 +60,9 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
             "#,
             self.allocation_id
                 .to_string()
-                .strip_prefix("0x")
-                .unwrap()
+                .trim_start_matches("0x")
                 .to_owned(),
-            self.sender
-                .to_string()
-                .strip_prefix("0x")
-                .unwrap()
-                .to_owned()
+            self.sender.to_string().trim_start_matches("0x").to_owned()
         )
         .fetch_optional(&self.pgpool)
         .await

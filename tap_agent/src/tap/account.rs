@@ -242,15 +242,9 @@ impl Account {
             inner
                 .allocation_id
                 .to_string()
-                .strip_prefix("0x")
-                .unwrap()
+                .trim_start_matches("0x")
                 .to_owned(),
-            inner
-                .sender
-                .to_string()
-                .strip_prefix("0x")
-                .unwrap()
-                .to_owned()
+            inner.sender.to_string().trim_start_matches("0x").to_owned()
         )
         .fetch_one(&inner.pgpool)
         .await?;
@@ -370,15 +364,9 @@ impl Account {
                 inner
                     .allocation_id
                     .to_string()
-                    .strip_prefix("0x")
-                    .unwrap()
+                    .trim_start_matches("0x")
                     .to_owned(),
-                inner
-                    .sender
-                    .to_string()
-                    .strip_prefix("0x")
-                    .unwrap()
-                    .to_owned(),
+                inner.sender.to_string().trim_start_matches("0x").to_owned(),
             )
             .fetch_all(&inner.pgpool)
             .await?;
@@ -766,10 +754,9 @@ mod tests {
             "#,
             ALLOCATION_ID
                 .to_string()
-                .strip_prefix("0x")
-                .unwrap()
+                .trim_start_matches("0x")
                 .to_owned(),
-            SENDER.1.to_string().strip_prefix("0x").unwrap().to_owned()
+            SENDER.1.to_string().trim_start_matches("0x").to_owned()
         )
         .fetch_optional(&pgpool)
         .await
@@ -830,10 +817,9 @@ mod tests {
             "#,
             ALLOCATION_ID
                 .to_string()
-                .strip_prefix("0x")
-                .unwrap()
+                .trim_start_matches("0x")
                 .to_owned(),
-            SENDER.1.to_string().strip_prefix("0x").unwrap().to_owned()
+            SENDER.1.to_string().trim_start_matches("0x").to_owned()
         )
         .fetch_optional(&pgpool)
         .await
