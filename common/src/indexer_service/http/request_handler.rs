@@ -20,6 +20,7 @@ use super::{
     IndexerServiceImpl,
 };
 
+#[autometrics::autometrics]
 pub async fn request_handler<I>(
     Path(manifest_id): Path<DeploymentId>,
     TypedHeader(receipt): TypedHeader<ScalarReceipt>,
@@ -31,6 +32,12 @@ where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
     info!("Handling request for deployment `{manifest_id}`");
+
+    state
+        .metrics
+        .requests
+        .with_label_values(&[&manifest_id.to_string()])
+        .inc();
 
     let request =
         serde_json::from_slice(&body).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
