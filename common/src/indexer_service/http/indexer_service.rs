@@ -27,6 +27,7 @@ use tower_governor::{errors::display_error, governor::GovernorConfigBuilder, Gov
 use tracing::info;
 
 use crate::{
+    indexer_service::http::metrics::IndexerServiceMetrics,
     prelude::{
         attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
         AttestationSigner, DeploymentDetails, SubgraphClient,
@@ -152,6 +153,7 @@ where
     pub config: IndexerServiceConfig,
     pub release: IndexerServiceRelease,
     pub url_namespace: &'static str,
+    pub metrics_prefix: &'static str,
     pub extra_routes: Router<Arc<IndexerServiceState<I>>, Body>,
 }
 
@@ -163,6 +165,7 @@ where
     pub attestation_signers: Eventual<HashMap<Address, AttestationSigner>>,
     pub tap_manager: TapManager,
     pub service_impl: Arc<I>,
+    pub metrics: IndexerServiceMetrics,
 }
 
 pub struct IndexerService {}
@@ -172,6 +175,8 @@ impl IndexerService {
     where
         I: IndexerServiceImpl + Sync + Send + 'static,
     {
+        let metrics = IndexerServiceMetrics::new(options.metrics_prefix);
+
         let network_subgraph = Box::leak(Box::new(SubgraphClient::new(
             options
                 .config
@@ -258,6 +263,7 @@ impl IndexerService {
             attestation_signers,
             tap_manager,
             service_impl: Arc::new(options.service_impl),
+            metrics,
         });
 
         // Rate limits by allowing bursts of 10 requests and requiring 100ms of

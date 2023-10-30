@@ -1,5 +1,6 @@
 mod config;
 mod indexer_service;
+mod metrics;
 mod request_handler;
 mod scalar_receipt_header;
 
