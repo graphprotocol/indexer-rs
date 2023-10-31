@@ -7,7 +7,7 @@ use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 use toolshed::thegraph::DeploymentId;
 
-use crate::{query_processor::QueryError, util::init_tracing};
+use crate::util::init_tracing;
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize, Default)]
 #[clap(
@@ -310,20 +310,6 @@ impl Cli {
         init_tracing("pretty".to_string()).expect("Could not set up global default subscriber for logger, check environmental variable `RUST_LOG` or the CLI input `log-level`");
         cli
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ConfigError {
-    #[error("Validate the input: {0}")]
-    ValidateInput(String),
-    #[error("Generate JSON representation of the config file: {0}")]
-    GenerateJson(serde_json::Error),
-    #[error("QueryError: {0}")]
-    QueryError(QueryError),
-    #[error("Toml file error: {0}")]
-    ReadStr(std::io::Error),
-    #[error("Unknown error: {0}")]
-    Other(anyhow::Error),
 }
 
 #[derive(
