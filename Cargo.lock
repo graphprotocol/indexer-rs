@@ -2891,6 +2891,8 @@ dependencies = [
  "lazy_static",
  "log",
  "lru",
+ "once_cell",
+ "prometheus",
  "regex",
  "reqwest",
  "secp256k1",

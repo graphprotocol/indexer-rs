@@ -13,8 +13,8 @@ use hyper::body::Bytes;
 
 use reqwest::{header, Client};
 
-use crate::{metrics, server::ServerOptions};
-use indexer_common::{graphql::filter_supported_fields, indexer_errors::IndexerErrorCode};
+use crate::server::ServerOptions;
+use indexer_common::{graphql::filter_supported_fields, indexer_errors::*};
 
 use super::bad_request_response;
 
@@ -68,16 +68,22 @@ pub async fn status_queries(
         Ok(r) => match r.json::<Box<serde_json::value::RawValue>>().await {
             Ok(r) => (StatusCode::OK, Json(r)).into_response(),
             Err(e) => {
-                metrics::INDEXER_ERROR
-                    .with_label_values(&[&IndexerErrorCode::IE018.to_string()])
-                    .inc();
+                IndexerError::new(
+                    IndexerErrorCode::IE018,
+                    Some(IndexerErrorCause::new(
+                        "Failed to parse the indexing status API response",
+                    )),
+                );
                 bad_request_response(&e.to_string())
             }
         },
         Err(e) => {
-            metrics::INDEXER_ERROR
-                .with_label_values(&[&IndexerErrorCode::IE018.to_string()])
-                .inc();
+            IndexerError::new(
+                IndexerErrorCode::IE018,
+                Some(IndexerErrorCause::new(
+                    "Failed to query indexing status API from the graph node status endpoint",
+                )),
+            );
             bad_request_response(&e.to_string())
         }
     }

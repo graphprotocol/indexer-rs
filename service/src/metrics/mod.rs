@@ -5,11 +5,12 @@ use autometrics::{encode_global_metrics, global_metrics_exporter};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::Router;
+use indexer_common::metrics::{register_metrics, REGISTRY};
 use once_cell::sync::Lazy;
-use prometheus::{core::Collector, Registry};
+
 use prometheus::{linear_buckets, HistogramOpts, HistogramVec, IntCounterVec, Opts};
 use std::{net::SocketAddr, str::FromStr};
-use tracing::{debug, info};
+use tracing::info;
 
 pub static QUERIES: Lazy<IntCounterVec> = Lazy::new(|| {
     let m = IntCounterVec::new(
@@ -96,33 +97,8 @@ pub static QUERY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
     m
 });
 
-#[allow(dead_code)]
-pub static INDEXER_ERROR: Lazy<IntCounterVec> = Lazy::new(|| {
-    let m = IntCounterVec::new(
-        Opts::new("indexer_error", "Indexer errors observed over time")
-            .namespace("indexer")
-            .subsystem("service"),
-        &["code"],
-    )
-    .expect("Failed to create indexer_error");
-    prometheus::register(Box::new(m.clone())).expect("Failed to register indexer_error counter");
-    m
-});
-
-#[allow(dead_code)]
-pub static REGISTRY: Lazy<prometheus::Registry> = Lazy::new(prometheus::Registry::new);
-
-#[allow(dead_code)]
-pub fn register_metrics(registry: &Registry, metrics: Vec<Box<dyn Collector>>) {
-    for metric in metrics {
-        registry.register(metric).expect("Cannot register metrics");
-        debug!("registered metric");
-    }
-}
-
 /// Start the basic metrics for indexer services
-#[allow(dead_code)]
-pub fn start_metrics() {
+pub fn register_query_metrics() {
     register_metrics(
         &REGISTRY,
         vec![
@@ -132,7 +108,6 @@ pub fn start_metrics() {
             Box::new(QUERIES_WITH_INVALID_RECEIPT_HEADER.clone()),
             Box::new(QUERIES_WITHOUT_RECEIPT.clone()),
             Box::new(QUERY_DURATION.clone()),
-            Box::new(INDEXER_ERROR.clone()),
         ],
     );
 }

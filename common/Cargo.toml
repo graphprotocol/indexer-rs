@@ -16,6 +16,8 @@ keccak-hash = "0.10.0"
 lazy_static = "1.4.0"
 log = "0.4.20"
 lru = "0.11.1"
+once_cell = "1.17"
+prometheus = "0.13.3"
 regex = "1.7.1"
 reqwest = "0.11.20"
 secp256k1 = { version = "0.28.0", features = ["recovery"] }

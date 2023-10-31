@@ -12,8 +12,7 @@ use tap_core::tap_manager::SignedReceipt;
 use toolshed::thegraph::attestation::Attestation;
 use toolshed::thegraph::DeploymentId;
 
-use crate::metrics;
-use indexer_common::indexer_errors::IndexerErrorCode;
+use indexer_common::indexer_errors::{IndexerError, IndexerErrorCause, IndexerErrorCode};
 use indexer_common::prelude::AttestationSigner;
 
 use crate::graph_node::GraphNodeInstance;
@@ -93,14 +92,7 @@ impl QueryProcessor {
         let response = self
             .graph_node
             .subgraph_query_raw(&query.subgraph_deployment_id, query.query)
-            .await
-            .map_err(|e| {
-                metrics::INDEXER_ERROR
-                    .with_label_values(&[&IndexerErrorCode::IE033.to_string()])
-                    .inc();
-
-                e
-            })?;
+            .await?;
 
         Ok(Response {
             result: response,
@@ -123,9 +115,12 @@ impl QueryProcessor {
         {
             Ok(r) => r,
             Err(e) => {
-                metrics::INDEXER_ERROR
-                    .with_label_values(&[&IndexerErrorCode::IE031.to_string()])
-                    .inc();
+                IndexerError::new(
+                    IndexerErrorCode::IE031,
+                    Some(IndexerErrorCause::new(
+                        "Failed to parse receipt for a paid query",
+                    )),
+                );
 
                 return Err(e);
             }
@@ -137,10 +132,12 @@ impl QueryProcessor {
             .verify_and_store_receipt(parsed_receipt)
             .await
             .map_err(|e| {
-                //TODO: fit indexer errors to TAP better, currently keeping the old messages
-                metrics::INDEXER_ERROR
-                    .with_label_values(&[&IndexerErrorCode::IE053.to_string()])
-                    .inc();
+                IndexerError::new(
+                    IndexerErrorCode::IE053,
+                    Some(IndexerErrorCause::new(
+                        "Failed to verify and store a parsed receipt",
+                    )),
+                );
 
                 QueryError::Other(e)
             })?;
@@ -150,14 +147,13 @@ impl QueryProcessor {
             .value_immediate()
             .ok_or_else(|| QueryError::Other(anyhow::anyhow!("System is not ready yet")))?;
         let signer = signers.get(&allocation_id).ok_or_else(|| {
-            metrics::INDEXER_ERROR
-                .with_label_values(&[&IndexerErrorCode::IE022.to_string()])
-                .inc();
+            let err_msg = format!("No signer found for allocation id {}", allocation_id);
+            IndexerError::new(
+                IndexerErrorCode::IE022,
+                Some(IndexerErrorCause::new(err_msg.clone())),
+            );
 
-            QueryError::Other(anyhow::anyhow!(
-                "No signer found for allocation id {}",
-                allocation_id
-            ))
+            QueryError::Other(anyhow::anyhow!(err_msg))
         })?;
 
         let response = self

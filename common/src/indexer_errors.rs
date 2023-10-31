@@ -6,6 +6,10 @@ use std::{
     fmt::{self, Display},
 };
 
+use log::warn;
+
+use crate::metrics;
+
 const ERROR_BASE_URL: &str = "https://github.com/graphprotocol/indexer/blob/main/docs/errors.md";
 
 #[derive(Debug, Clone)]
@@ -300,8 +304,18 @@ pub struct IndexerError {
 }
 
 impl IndexerError {
+    // Create Indexer Error and automatically increment counter by the error code
     pub fn new(code: IndexerErrorCode, cause: Option<IndexerErrorCause>) -> Self {
+        metrics::INDEXER_ERROR
+            .with_label_values(&[&code.to_string()])
+            .inc();
         let explanation = code.message();
+        warn!(
+            "Encountered error {}: {}. Cause: {:#?}",
+            code.to_string(),
+            explanation,
+            cause
+        );
         Self {
             code,
             explanation: explanation.to_string(),
