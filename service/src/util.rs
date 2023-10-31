@@ -14,7 +14,6 @@ use tracing::{
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::common::address::{build_wallet, wallet_address};
-use indexer_common::indexer_errors::{indexer_error, IndexerError, IndexerErrorCode};
 
 /// Struct for version control
 #[derive(Serialize, Debug, Clone)]
@@ -24,16 +23,14 @@ pub struct PackageVersion {
 }
 
 /// Read the manfiest
-fn read_manifest() -> Result<Value, IndexerError> {
-    let toml_string = fs::read_to_string("service/Cargo.toml")
-        .map_err(|_e| indexer_error(IndexerErrorCode::IE074))?;
-    let toml_value: Value =
-        toml::from_str(&toml_string).map_err(|_e| indexer_error(IndexerErrorCode::IE074))?;
+fn read_manifest() -> Result<Value, anyhow::Error> {
+    let toml_string = fs::read_to_string("service/Cargo.toml")?;
+    let toml_value: Value = toml::from_str(&toml_string)?;
     Ok(toml_value)
 }
 
 /// Parse package versioning from the manifest
-pub fn package_version() -> Result<PackageVersion, IndexerError> {
+pub fn package_version() -> Result<PackageVersion, anyhow::Error> {
     read_manifest().map(|toml_file| {
         let pkg = toml_file.as_table().unwrap();
         let version = pkg

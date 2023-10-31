@@ -19,7 +19,7 @@ use crate::{
         ServerOptions,
     },
 };
-use indexer_common::indexer_errors::IndexerErrorCode;
+use indexer_common::indexer_errors::*;
 
 /// Parse an incoming query request and route queries with authenticated
 /// free query token to graph node
@@ -53,10 +53,12 @@ pub async fn subgraph_queries(
                 metrics::QUERIES_WITH_INVALID_RECEIPT_HEADER
                     .with_label_values(&[&deployment_label])
                     .inc();
-                metrics::INDEXER_ERROR
-                    .with_label_values(&[&IndexerErrorCode::IE029.to_string()])
-                    .inc();
-                return bad_request_response("Bad scalar receipt for subgraph query");
+                let err_msg = "Bad scalar receipt for subgraph query";
+                IndexerError::new(
+                    IndexerErrorCode::IE029,
+                    Some(IndexerErrorCause::new(err_msg)),
+                );
+                return bad_request_response(err_msg);
             }
         }
     } else {
@@ -97,9 +99,12 @@ pub async fn subgraph_queries(
                 (StatusCode::OK, Json(res.result)).into_response()
             }
             _ => {
-                metrics::INDEXER_ERROR
-                    .with_label_values(&[&IndexerErrorCode::IE033.to_string()])
-                    .inc();
+                IndexerError::new(
+                    IndexerErrorCode::IE033,
+                    Some(IndexerErrorCause::new(
+                        "Failed to execute a free subgraph query to graph node",
+                    )),
+                );
                 bad_request_response("Failed to execute free query")
             }
         }
@@ -122,9 +127,12 @@ pub async fn subgraph_queries(
                 metrics::FAILED_QUERIES
                     .with_label_values(&[&deployment_label])
                     .inc();
-                metrics::INDEXER_ERROR
-                    .with_label_values(&[&IndexerErrorCode::IE032.to_string()])
-                    .inc();
+                IndexerError::new(
+                    IndexerErrorCode::IE032,
+                    Some(IndexerErrorCause::new(
+                        "Failed to execute a paid subgraph query to graph node",
+                    )),
+                );
                 return bad_request_response("Failed to execute paid query");
             }
         }
