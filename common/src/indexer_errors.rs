@@ -261,8 +261,6 @@ impl IndexerErrorCode {
     }
 }
 
-// pub type IndexerErrorCause = Box<dyn std::error::Error + Send + Sync>;
-
 #[derive(Debug)]
 pub struct IndexerErrorCause(Box<dyn Error + Send + Sync>);
 
@@ -336,9 +334,6 @@ impl IndexerError {
     }
 }
 
-// pub fn indexer_error(code: IndexerErrorCode, cause: Option<IndexerErrorCause>) -> IndexerError {
-//     IndexerError::new(code, cause)
-// }
 pub fn indexer_error(code: IndexerErrorCode) -> IndexerError {
     IndexerError::new(code.clone(), Some(code.explanation().into()))
 }
