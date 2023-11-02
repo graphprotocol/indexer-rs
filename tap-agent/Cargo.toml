@@ -1,11 +1,11 @@
 [package]
-name = "indexer_tap_agent"
+name = "indexer-tap-agent"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [[bin]]
-name = "indexer_tap_agent"
+name = "indexer-tap-agent"
 path = "src/main.rs"
 
 [dependencies]

@@ -2953,7 +2953,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "indexer_tap_agent"
+name = "indexer-tap-agent"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
