@@ -23,7 +23,7 @@ use tokio::{
 };
 use tracing::{error, warn};
 
-use super::accounts_manager::NewReceiptNotification;
+use super::sender_allocation_relationships_manager::NewReceiptNotification;
 use crate::{
     config::{self},
     tap::{
@@ -64,20 +64,20 @@ struct Inner {
     config: &'static config::Cli,
 }
 
-/// An Account is the relationship between the allocation and the sender in the context of a single
-/// allocation.
+/// A SenderAllocationRelationship is the relationship between the indexer and the sender in the
+/// context of a single allocation.
 ///
-/// Manages the lifecycle of Scalar TAP for the Account, including:
+/// Manages the lifecycle of Scalar TAP for the SenderAllocationRelationship, including:
 /// - Monitoring new receipts and keeping track of the unaggregated fees.
 /// - Requesting RAVs from the sender's TAP aggregator once the unaggregated fees reach a certain
 ///   threshold.
-/// - Requesting the last RAV from the sender's TAP aggregator (on Account EOL)
-pub struct Account {
+/// - Requesting the last RAV from the sender's TAP aggregator (on SenderAllocationRelationship EOL)
+pub struct SenderAllocationRelationship {
     inner: Arc<Inner>,
     rav_requester_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
-impl Account {
+impl SenderAllocationRelationship {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: &'static config::Cli,
@@ -400,8 +400,9 @@ impl Account {
     }
 }
 
-impl Drop for Account {
-    /// Trying to make sure the RAV requester task is dropped when the account is dropped.
+impl Drop for SenderAllocationRelationship {
+    /// Trying to make sure the RAV requester task is dropped when the SenderAllocationRelationship
+    /// is dropped.
     fn drop(&mut self) {
         let rav_requester_task = self.rav_requester_task.clone();
 
@@ -434,11 +435,11 @@ mod tests {
 
     const DUMMY_URL: &str = "http://localhost:1234";
 
-    async fn create_account(
+    async fn create_sender_allocation_relationship(
         pgpool: PgPool,
         sender_aggregator_endpoint: String,
         escrow_subgraph_endpoint: &str,
-    ) -> Account {
+    ) -> SenderAllocationRelationship {
         let config = Box::leak(Box::new(config::Cli {
             config: None,
             ethereum: config::Ethereum {
@@ -465,7 +466,7 @@ mod tests {
 
         let escrow_adapter = EscrowAdapter::new(escrow_accounts_eventual.clone());
 
-        Account::new(
+        SenderAllocationRelationship::new(
             config,
             pgpool.clone(),
             *ALLOCATION_ID,
@@ -478,13 +479,16 @@ mod tests {
         )
     }
 
-    /// Test that the account correctly updates the unaggregated fees from the database when there
-    /// is no RAV in the database.
+    /// Test that the sender_allocation_relatioship correctly updates the unaggregated fees from the
+    /// database when there is no RAV in the database.
     ///
-    /// The account should consider all receipts found for the allocation and sender.
+    /// The sender_allocation_relatioship should consider all receipts found for the allocation and
+    /// sender.
     #[sqlx::test(migrations = "../migrations")]
     async fn test_update_unaggregated_fees_no_rav(pgpool: PgPool) {
-        let account = create_account(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL).await;
+        let sender_allocation_relatioship =
+            create_sender_allocation_relationship(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL)
+                .await;
 
         // Add receipts to the database.
         for i in 1..10 {
@@ -495,25 +499,39 @@ mod tests {
                 .unwrap();
         }
 
-        // Let the account update the unaggregated fees from the database.
-        account.update_unaggregated_fees().await.unwrap();
+        // Let the sender_allocation_relatioship update the unaggregated fees from the database.
+        sender_allocation_relatioship
+            .update_unaggregated_fees()
+            .await
+            .unwrap();
 
         // Check that the unaggregated fees are correct.
-        assert_eq!(account.inner.unaggregated_fees.lock().await.value, 45u128);
+        assert_eq!(
+            sender_allocation_relatioship
+                .inner
+                .unaggregated_fees
+                .lock()
+                .await
+                .value,
+            45u128
+        );
     }
 
-    /// Test that the account correctly updates the unaggregated fees from the database when there
-    /// is a RAV in the database as well as receipts which timestamp are lesser and greater than
-    /// the RAV's timestamp.
+    /// Test that the sender_allocation_relatioship correctly updates the unaggregated fees from the
+    /// database when there is a RAV in the database as well as receipts which timestamp are lesser
+    /// and greater than the RAV's timestamp.
     ///
-    /// The account should only consider receipts with a timestamp greater than the RAV's timestamp.
+    /// The sender_allocation_relatioship should only consider receipts with a timestamp greater
+    /// than the RAV's timestamp.
     #[sqlx::test(migrations = "../migrations")]
     async fn test_update_unaggregated_fees_with_rav(pgpool: PgPool) {
-        let account = create_account(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL).await;
+        let sender_allocation_relatioship =
+            create_sender_allocation_relationship(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL)
+                .await;
 
         // Add the RAV to the database.
-        // This RAV has timestamp 4. The Account should only consider receipts with a timestamp
-        // greater than 4.
+        // This RAV has timestamp 4. The sender_allocation_relatioship should only consider receipts
+        // with a timestamp greater than 4.
         let signed_rav = create_rav(*ALLOCATION_ID, SENDER.0.clone(), 4, 10).await;
         store_rav(&pgpool, signed_rav, SENDER.1).await.unwrap();
 
@@ -526,18 +544,32 @@ mod tests {
                 .unwrap();
         }
 
-        // Let the account update the unaggregated fees from the database.
-        account.update_unaggregated_fees().await.unwrap();
+        // Let the sender_allocation_relatioship update the unaggregated fees from the database.
+        sender_allocation_relatioship
+            .update_unaggregated_fees()
+            .await
+            .unwrap();
 
         // Check that the unaggregated fees are correct.
-        assert_eq!(account.inner.unaggregated_fees.lock().await.value, 35u128);
+        assert_eq!(
+            sender_allocation_relatioship
+                .inner
+                .unaggregated_fees
+                .lock()
+                .await
+                .value,
+            35u128
+        );
     }
 
-    /// Test that the account correctly ignores new receipt notifications with an ID lower than
-    /// the last receipt ID processed (be it from the DB or from a prior receipt notification).
+    /// Test that the sender_allocation_relatioship correctly ignores new receipt notifications with
+    /// an ID lower than the last receipt ID processed (be it from the DB or from a prior receipt
+    /// notification).
     #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_new_receipt_notification(pgpool: PgPool) {
-        let account = create_account(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL).await;
+        let sender_allocation_relatioship =
+            create_sender_allocation_relationship(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL)
+                .await;
 
         // Add receipts to the database.
         let mut expected_unaggregated_fees = 0u128;
@@ -550,11 +582,19 @@ mod tests {
             expected_unaggregated_fees += u128::from(i);
         }
 
-        account.update_unaggregated_fees().await.unwrap();
+        sender_allocation_relatioship
+            .update_unaggregated_fees()
+            .await
+            .unwrap();
 
         // Check that the unaggregated fees are correct.
         assert_eq!(
-            account.inner.unaggregated_fees.lock().await.value,
+            sender_allocation_relatioship
+                .inner
+                .unaggregated_fees
+                .lock()
+                .await
+                .value,
             expected_unaggregated_fees
         );
 
@@ -568,13 +608,18 @@ mod tests {
             timestamp_ns: 19,
             value: 19,
         };
-        account
+        sender_allocation_relatioship
             .handle_new_receipt_notification(new_receipt_notification)
             .await;
 
         // Check that the unaggregated fees have *not* increased.
         assert_eq!(
-            account.inner.unaggregated_fees.lock().await.value,
+            sender_allocation_relatioship
+                .inner
+                .unaggregated_fees
+                .lock()
+                .await
+                .value,
             expected_unaggregated_fees
         );
 
@@ -586,14 +631,19 @@ mod tests {
             timestamp_ns: 20,
             value: 20,
         };
-        account
+        sender_allocation_relatioship
             .handle_new_receipt_notification(new_receipt_notification)
             .await;
         expected_unaggregated_fees += 20;
 
         // Check that the unaggregated fees are correct.
         assert_eq!(
-            account.inner.unaggregated_fees.lock().await.value,
+            sender_allocation_relatioship
+                .inner
+                .unaggregated_fees
+                .lock()
+                .await
+                .value,
             expected_unaggregated_fees
         );
 
@@ -605,13 +655,18 @@ mod tests {
             timestamp_ns: 19,
             value: 19,
         };
-        account
+        sender_allocation_relatioship
             .handle_new_receipt_notification(new_receipt_notification)
             .await;
 
         // Check that the unaggregated fees have *not* increased.
         assert_eq!(
-            account.inner.unaggregated_fees.lock().await.value,
+            sender_allocation_relatioship
+                .inner
+                .unaggregated_fees
+                .lock()
+                .await
+                .value,
             expected_unaggregated_fees
         );
     }
@@ -645,8 +700,8 @@ mod tests {
             )
             .await;
 
-        // Create an account.
-        let account = create_account(
+        // Create a sender_allocation_relatioship.
+        let sender_allocation_relatioship = create_sender_allocation_relationship(
             pgpool.clone(),
             "http://".to_owned() + &aggregator_endpoint.to_string(),
             &mock_server.uri(),
@@ -662,11 +717,16 @@ mod tests {
                 .unwrap();
         }
 
-        // Let the account update the unaggregated fees from the database.
-        account.update_unaggregated_fees().await.unwrap();
+        // Let the sender_allocation_relatioship update the unaggregated fees from the database.
+        sender_allocation_relatioship
+            .update_unaggregated_fees()
+            .await
+            .unwrap();
 
         // Trigger a RAV request manually.
-        Account::rav_requester_try(&account.inner).await.unwrap();
+        SenderAllocationRelationship::rav_requester_try(&sender_allocation_relatioship.inner)
+            .await
+            .unwrap();
 
         // Stop the TAP aggregator server.
         handle.stop().unwrap();
@@ -702,8 +762,8 @@ mod tests {
             )
             .await;
 
-        // Create an account.
-        let account = create_account(
+        // Create a sender_allocation_relatioship.
+        let sender_allocation_relatioship = create_sender_allocation_relationship(
             pgpool.clone(),
             "http://".to_owned() + &aggregator_endpoint.to_string(),
             &mock_server.uri(),
@@ -724,7 +784,7 @@ mod tests {
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
-            account
+            sender_allocation_relatioship
                 .handle_new_receipt_notification(NewReceiptNotification {
                     allocation_id: *ALLOCATION_ID,
                     sender_address: SENDER.1,
@@ -741,7 +801,12 @@ mod tests {
         }
 
         // Wait for the RAV requester to finish.
-        while Account::rav_requester_task_is_running(&account.rav_requester_task.lock().await) {
+        while SenderAllocationRelationship::rav_requester_task_is_running(
+            &sender_allocation_relatioship
+                .rav_requester_task
+                .lock()
+                .await,
+        ) {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
@@ -771,10 +836,23 @@ mod tests {
         assert!(latest_rav.message.value_aggregate >= trigger_value);
 
         // Check that the unaggregated fees value is reduced.
-        assert!(account.inner.unaggregated_fees.lock().await.value <= trigger_value);
+        assert!(
+            sender_allocation_relatioship
+                .inner
+                .unaggregated_fees
+                .lock()
+                .await
+                .value
+                <= trigger_value
+        );
 
         // Reset the total value and trigger value.
-        total_value = account.inner.unaggregated_fees.lock().await.value;
+        total_value = sender_allocation_relatioship
+            .inner
+            .unaggregated_fees
+            .lock()
+            .await
+            .value;
         trigger_value = 0;
 
         // Add more receipts
@@ -787,7 +865,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            account
+            sender_allocation_relatioship
                 .handle_new_receipt_notification(NewReceiptNotification {
                     allocation_id: *ALLOCATION_ID,
                     sender_address: SENDER.1,
@@ -804,7 +882,12 @@ mod tests {
         }
 
         // Wait for the RAV requester to finish.
-        while Account::rav_requester_task_is_running(&account.rav_requester_task.lock().await) {
+        while SenderAllocationRelationship::rav_requester_task_is_running(
+            &sender_allocation_relatioship
+                .rav_requester_task
+                .lock()
+                .await,
+        ) {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
@@ -835,7 +918,15 @@ mod tests {
         assert!(latest_rav.message.value_aggregate >= trigger_value);
 
         // Check that the unaggregated fees value is reduced.
-        assert!(account.inner.unaggregated_fees.lock().await.value <= trigger_value);
+        assert!(
+            sender_allocation_relatioship
+                .inner
+                .unaggregated_fees
+                .lock()
+                .await
+                .value
+                <= trigger_value
+        );
 
         // Stop the TAP aggregator server.
         handle.stop().unwrap();

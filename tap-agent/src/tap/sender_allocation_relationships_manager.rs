@@ -15,8 +15,8 @@ use sqlx::{postgres::PgListener, PgPool};
 use tokio::sync::RwLock;
 use tracing::{error, warn};
 
-use super::account::Account;
 use super::escrow_adapter::EscrowAdapter;
+use super::sender_allocation_relationship::SenderAllocationRelationship;
 use crate::config;
 
 #[derive(Deserialize, Debug)]
@@ -28,7 +28,7 @@ pub struct NewReceiptNotification {
     pub value: u128,
 }
 
-pub struct AccountsManager {
+pub struct SenderAllocationRelationshipsManager {
     _inner: Arc<Inner>,
     new_receipts_watcher_handle: tokio::task::JoinHandle<()>,
     _eligible_allocations_senders_pipe: PipeHandle,
@@ -38,8 +38,9 @@ pub struct AccountsManager {
 struct Inner {
     config: &'static config::Cli,
     pgpool: PgPool,
-    /// Map of (allocation_id, sender_address) to Account.
-    accounts: Arc<RwLock<HashMap<(Address, Address), Account>>>,
+    /// Map of (allocation_id, sender_address) to SenderAllocationRelationship.
+    sender_allocation_relationships:
+        Arc<RwLock<HashMap<(Address, Address), SenderAllocationRelationship>>>,
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
     escrow_accounts: Eventual<HashMap<Address, U256>>,
     escrow_subgraph: &'static SubgraphClient,
@@ -48,7 +49,7 @@ struct Inner {
     sender_aggregator_endpoints: HashMap<Address, String>,
 }
 
-impl AccountsManager {
+impl SenderAllocationRelationshipsManager {
     pub async fn new(
         config: &'static config::Cli,
         pgpool: PgPool,
@@ -63,7 +64,7 @@ impl AccountsManager {
         let inner = Arc::new(Inner {
             config,
             pgpool,
-            accounts: Arc::new(RwLock::new(HashMap::new())),
+            sender_allocation_relationships: Arc::new(RwLock::new(HashMap::new())),
             indexer_allocations,
             escrow_accounts,
             escrow_subgraph,
@@ -72,7 +73,7 @@ impl AccountsManager {
             sender_aggregator_endpoints,
         });
 
-        Self::update_accounts(
+        Self::update_sender_allocation_relationships(
             &inner,
             inner
                 .indexer_allocations
@@ -86,11 +87,11 @@ impl AccountsManager {
                 .expect("Should get escrow accounts from Eventual"),
         )
         .await
-        .expect("Should be able to update accounts");
+        .expect("Should be able to update sender_allocation_relationships");
 
-        // Listen to pg_notify events. We start it before updating the unaggregated_fees for
-        // all accounts, so that we don't miss any receipts. PG will buffer the notifications
-        // until we start consuming them with `new_receipts_watcher`.
+        // Listen to pg_notify events. We start it before updating the unaggregated_fees for all
+        // SenderAllocationRelationship instances, so that we don't miss any receipts. PG will
+        // buffer the notifications until we start consuming them with `new_receipts_watcher`.
         let mut pglistener = PgListener::connect_with(&inner.pgpool.clone())
             .await
             .unwrap();
@@ -102,11 +103,12 @@ impl AccountsManager {
                 'scalar_tap_receipt_notification'",
             );
 
-        let mut accounts_write_lock = inner.accounts.write().await;
+        let mut sender_allocation_relationships_write_lock =
+            inner.sender_allocation_relationships.write().await;
 
-        // Create accounts for all outstanding receipts in the database, because they may
-        // be linked to allocations that are not eligible anymore, but still need to get
-        // aggregated.
+        // Create SenderAllocationRelationship instances for all outstanding receipts in the
+        // database, because they may be linked to allocations that are not eligible anymore, but
+        // still need to get aggregated.
         sqlx::query!(
             r#"
                 SELECT DISTINCT allocation_id, sender_address
@@ -123,11 +125,11 @@ impl AccountsManager {
             let sender = Address::from_str(&row.sender_address)
                 .expect("sender_address should be a valid address");
 
-            // Only create a account if it doesn't exist yet.
+            // Only create a SenderAllocationRelationship if it doesn't exist yet.
             if let std::collections::hash_map::Entry::Vacant(e) =
-                accounts_write_lock.entry((allocation_id, sender))
+                sender_allocation_relationships_write_lock.entry((allocation_id, sender))
             {
-                e.insert(Account::new(
+                e.insert(SenderAllocationRelationship::new(
                     config,
                     inner.pgpool.clone(),
                     allocation_id,
@@ -145,25 +147,25 @@ impl AccountsManager {
             }
         });
 
-        // Update the unaggregated_fees for all accounts by pulling the receipts from the
-        // database.
-        for account in accounts_write_lock.values() {
-            account
+        // Update the unaggregated_fees for all SenderAllocationRelationship instances by pulling
+        // the receipts from the database.
+        for sender_allocation_relationship in sender_allocation_relationships_write_lock.values() {
+            sender_allocation_relationship
                 .update_unaggregated_fees()
                 .await
                 .expect("should be able to update unaggregated_fees");
         }
 
-        drop(accounts_write_lock);
+        drop(sender_allocation_relationships_write_lock);
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         let new_receipts_watcher_handle = tokio::spawn(Self::new_receipts_watcher(
             pglistener,
-            inner.accounts.clone(),
+            inner.sender_allocation_relationships.clone(),
         ));
 
         // Start the eligible_allocations_senders_pipe that watches for changes in eligible senders
-        // and allocations and updates the accounts accordingly.
+        // and allocations and updates the SenderAllocationRelationship instances accordingly.
         let inner_clone = inner.clone();
         let eligible_allocations_senders_pipe = eventuals::join((
             inner.indexer_allocations.clone(),
@@ -172,11 +174,18 @@ impl AccountsManager {
         .pipe_async(move |(indexer_allocations, escrow_accounts)| {
             let inner = inner_clone.clone();
             async move {
-                Self::update_accounts(&inner, indexer_allocations, escrow_accounts)
-                    .await
-                    .unwrap_or_else(|e| {
-                        error!("Error while updating accounts: {:?}", e);
-                    });
+                Self::update_sender_allocation_relationships(
+                    &inner,
+                    indexer_allocations,
+                    escrow_accounts,
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    error!(
+                        "Error while updating sender_allocation_relationships: {:?}",
+                        e
+                    );
+                });
             }
         });
 
@@ -188,10 +197,12 @@ impl AccountsManager {
     }
 
     /// Continuously listens for new receipt notifications from Postgres and forwards them to the
-    /// corresponding account.
+    /// corresponding SenderAllocationRelationship.
     async fn new_receipts_watcher(
         mut pglistener: PgListener,
-        accounts: Arc<RwLock<HashMap<(Address, Address), Account>>>,
+        sender_allocation_relationships: Arc<
+            RwLock<HashMap<(Address, Address), SenderAllocationRelationship>>,
+        >,
     ) {
         loop {
             // TODO: recover from errors or shutdown the whole program?
@@ -205,40 +216,45 @@ impl AccountsManager {
                         NewReceiptNotification",
                 );
 
-            if let Some(account) = accounts.read().await.get(&(
-                new_receipt_notification.allocation_id,
-                new_receipt_notification.sender_address,
-            )) {
-                account
+            if let Some(sender_allocation_relationship) =
+                sender_allocation_relationships.read().await.get(&(
+                    new_receipt_notification.allocation_id,
+                    new_receipt_notification.sender_address,
+                ))
+            {
+                sender_allocation_relationship
                     .handle_new_receipt_notification(new_receipt_notification)
                     .await;
             } else {
                 warn!(
-                    "No account found for allocation_id {} and sender_address {} to process \
-                        new receipt notification. This should not happen.",
+                    "No sender_allocation_relationship found for allocation_id {} and \
+                        sender_address {} to process new receipt notification. This should not \
+                        happen.",
                     new_receipt_notification.allocation_id, new_receipt_notification.sender_address
                 );
             }
         }
     }
 
-    async fn update_accounts(
+    async fn update_sender_allocation_relationships(
         inner: &Inner,
         indexer_allocations: HashMap<Address, Allocation>,
         escrow_accounts: HashMap<Address, U256>,
     ) -> Result<()> {
         let eligible_allocations: Vec<Address> = indexer_allocations.keys().copied().collect();
         let senders: Vec<Address> = escrow_accounts.keys().copied().collect();
-        let mut accounts_write = inner.accounts.write().await;
+        let mut sender_allocation_relationships_write =
+            inner.sender_allocation_relationships.write().await;
 
-        // Create accounts for all currently eligible (allocation, sender)
+        // Create SenderAllocationRelationship instances for all currently eligible
+        // (allocation, sender)
         for allocation_id in &eligible_allocations {
             for sender in &senders {
-                // Only create an account if it doesn't exist yet.
+                // Only create a SenderAllocationRelationship if it doesn't exist yet.
                 if let std::collections::hash_map::Entry::Vacant(e) =
-                    accounts_write.entry((*allocation_id, *sender))
+                    sender_allocation_relationships_write.entry((*allocation_id, *sender))
                 {
-                    e.insert(Account::new(
+                    e.insert(SenderAllocationRelationship::new(
                         inner.config,
                         inner.pgpool.clone(),
                         *allocation_id,
@@ -259,21 +275,24 @@ impl AccountsManager {
             }
         }
 
-        // Trigger a last rav request for all accounts that correspond to ineligible
-        // (allocations, sender).
-        for ((allocation_id, sender), account) in accounts_write.iter() {
+        // Trigger a last rav request for all SenderAllocationRelationship instances that correspond
+        // to ineligible (allocations, sender).
+        for ((allocation_id, sender), sender_allocation_relatioship) in
+            sender_allocation_relationships_write.iter()
+        {
             if !eligible_allocations.contains(allocation_id) || !senders.contains(sender) {
-                account.start_last_rav_request().await
+                sender_allocation_relatioship.start_last_rav_request().await
             }
         }
 
-        // TODO: remove accounts that are finished. Ideally done in another async task?
+        // TODO: remove SenderAllocationRelationship instances that are finished. Ideally done in
+        //      another async task?
 
         Ok(())
     }
 }
 
-impl Drop for AccountsManager {
+impl Drop for SenderAllocationRelationshipsManager {
     fn drop(&mut self) {
         // Abort the notification watcher on drop. Otherwise it may panic because the PgPool could
         // get dropped before. (Observed in tests)
@@ -295,14 +314,14 @@ mod tests {
     };
 
     use crate::tap::{
-        account::State,
+        sender_allocation_relationship::State,
         test_utils::{INDEXER, SENDER, TAP_EIP712_DOMAIN_SEPARATOR},
     };
 
     use super::*;
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_account_creation_and_eol(pgpool: PgPool) {
+    async fn test_sender_allocation_relatioship_creation_and_eol(pgpool: PgPool) {
         let config = Box::leak(Box::new(config::Cli {
             config: None,
             ethereum: config::Ethereum {
@@ -343,7 +362,7 @@ mod tests {
             DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
         )));
 
-        let accounts = AccountsManager::new(
+        let sender_allocation_relatioships = SenderAllocationRelationshipsManager::new(
             config,
             pgpool.clone(),
             indexer_allocations_eventual,
@@ -388,13 +407,13 @@ mod tests {
         // Add an escrow account to the escrow_accounts Eventual.
         escrow_accounts_writer.write(HashMap::from([(SENDER.1, U256::from_str("1000").unwrap())]));
 
-        // Wait for the account to be created.
+        // Wait for the SenderAllocationRelationship to be created.
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // Check that the account was created.
-        assert!(accounts
+        // Check that the SenderAllocationRelationship was created.
+        assert!(sender_allocation_relatioships
             ._inner
-            .accounts
+            .sender_allocation_relationships
             .write()
             .await
             .contains_key(&(allocation_id, SENDER.1)));
@@ -405,11 +424,11 @@ mod tests {
         // Wait a bit
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // Check that the account state is last_rav_pending
+        // Check that the SenderAllocationRelationship state is last_rav_pending
         assert_eq!(
-            accounts
+            sender_allocation_relatioships
                 ._inner
-                .accounts
+                .sender_allocation_relationships
                 .read()
                 .await
                 .get(&(allocation_id, SENDER.1))
