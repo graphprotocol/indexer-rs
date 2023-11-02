@@ -10,7 +10,7 @@ use ethereum_types::U256;
 use eventuals::Eventual;
 use indexer_common::prelude::SubgraphClient;
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
-use sqlx::PgPool;
+use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
 use tap_core::{
     eip_712_signed_message::EIP712SignedMessage,
@@ -219,7 +219,6 @@ impl SenderAllocationRelationship {
                     AND sender_address = $2
             ) 
             SELECT 
-                COUNT(*), 
                 MAX(id), 
                 SUM(value) 
             FROM 
@@ -251,28 +250,17 @@ impl SenderAllocationRelationship {
 
         let mut unaggregated_fees = inner.unaggregated_fees.lock().await;
 
-        // `COUNT(*)` will always return a value, so we don't need to check for `None`.
-        match res.count.unwrap() {
-            0 => {
-                unaggregated_fees.last_id = 0;
-                unaggregated_fees.value = 0;
-            }
-            // If the count is non-zero, then `MAX(id)` and `SUM(value)` will be non-null.
-            // If they are null, then something is extremely wrong with the database.
-            _ => {
-                ensure!(
-                    res.max.is_some(),
-                    "MAX(id) is null but the receipt COUNT(*) is not zero"
-                );
-                ensure!(
-                    res.sum.is_some(),
-                    "SUM(value) is null, but the receipt COUNT(*) is not zero"
-                );
+        ensure!(
+            res.sum.is_none() == res.max.is_none(),
+            "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
+        );
 
-                unaggregated_fees.last_id = res.max.unwrap().try_into()?;
-                unaggregated_fees.value = res.sum.unwrap().to_string().parse::<u128>()?;
-            }
-        }
+        unaggregated_fees.last_id = res.max.unwrap_or(0).try_into()?;
+        unaggregated_fees.value = res
+            .sum
+            .unwrap_or(BigDecimal::from(0))
+            .to_string()
+            .parse::<u128>()?;
 
         // TODO: check if we need to run a RAV request here.
 
