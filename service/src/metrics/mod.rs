@@ -6,9 +6,7 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use axum::Router;
 use lazy_static::lazy_static;
-use prometheus::{
-    register_histogram_vec, register_int_counter_vec, HistogramVec, IntCounterVec,
-};
+use prometheus::{register_histogram_vec, register_int_counter_vec, HistogramVec, IntCounterVec};
 use std::{net::SocketAddr, str::FromStr};
 use tracing::info;
 

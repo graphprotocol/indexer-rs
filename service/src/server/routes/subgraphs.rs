@@ -116,32 +116,34 @@ pub async fn subgraph_queries(
         };
 
         match server.query_processor.execute_paid_query(paid_query).await {
-            Ok(res) if res.status == 200 => {
+            Ok(res) => {
                 query_duration_timer.observe_duration();
                 metrics::SUCCESSFUL_QUERIES
                     .with_label_values(&[&deployment_label])
                     .inc();
                 (StatusCode::OK, Json(res.result)).into_response()
             }
-            _ => {
+            Err(e) => {
                 metrics::FAILED_QUERIES
                     .with_label_values(&[&deployment_label])
                     .inc();
-                IndexerError::new(
-                    IndexerErrorCode::IE032,
-                    Some(IndexerErrorCause::new(
-                        "Failed to execute a paid subgraph query to graph node",
-                    )),
+                let err_msg = format!(
+                    "Failed to execute a paid subgraph query to graph node: {}",
+                    e
                 );
-                return bad_request_response("Failed to execute paid query");
+                IndexerError::new(IndexerErrorCode::IE032, Some(IndexerErrorCause::new(e)));
+                return bad_request_response(&err_msg);
             }
         }
     } else {
-        // TODO: emit IndexerErrorCode::IE030 on missing receipt
         let error_body = "Query request header missing scalar-receipts or incorrect auth token";
         metrics::QUERIES_WITHOUT_RECEIPT
             .with_label_values(&[&deployment_label])
             .inc();
+        IndexerError::new(
+            IndexerErrorCode::IE030,
+            Some(IndexerErrorCause::new(error_body)),
+        );
         query_duration_timer.observe_duration();
         bad_request_response(error_body)
     }
