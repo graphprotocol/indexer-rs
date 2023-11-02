@@ -124,7 +124,7 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Re
 pub async fn store_rav(pgpool: &PgPool, signed_rav: SignedRAV, sender: Address) -> Result<()> {
     sqlx::query!(
         r#"
-            INSERT INTO scalar_tap_latest_ravs (
+            INSERT INTO scalar_tap_ravs (
                 allocation_id, sender_address, rav
             )
             VALUES ($1, $2, $3)

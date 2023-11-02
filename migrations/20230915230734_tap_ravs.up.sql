@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS scalar_tap_latest_ravs (
+CREATE TABLE IF NOT EXISTS scalar_tap_ravs (
     allocation_id CHAR(40) NOT NULL,
     sender_address CHAR(40) NOT NULL,
     rav JSON NOT NULL,

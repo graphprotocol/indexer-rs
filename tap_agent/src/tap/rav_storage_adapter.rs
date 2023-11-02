@@ -29,7 +29,7 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
     async fn update_last_rav(&self, rav: SignedRAV) -> Result<(), Self::AdapterError> {
         let _fut = sqlx::query!(
             r#"
-                INSERT INTO scalar_tap_latest_ravs (allocation_id, sender_address, rav)
+                INSERT INTO scalar_tap_ravs (allocation_id, sender_address, rav)
                 VALUES ($1, $2, $3)
                 ON CONFLICT (allocation_id, sender_address)
                 DO UPDATE SET rav = $3
@@ -55,7 +55,7 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
         let latest_rav = sqlx::query!(
             r#"
                 SELECT rav
-                FROM scalar_tap_latest_ravs
+                FROM scalar_tap_ravs
                 WHERE allocation_id = $1 AND sender_address = $2
             "#,
             self.allocation_id

@@ -213,7 +213,7 @@ impl Account {
                 SELECT 
                     rav -> 'message' ->> 'timestamp_ns' AS timestamp_ns 
                 FROM 
-                    scalar_tap_latest_ravs 
+                    scalar_tap_ravs 
                 WHERE 
                     allocation_id = $1 
                     AND sender_address = $2
@@ -356,7 +356,7 @@ impl Account {
             // Mark the last RAV as last in the DB as a cue for the indexer-agent.
             let updated_rows = sqlx::query!(
                 r#"
-                    UPDATE scalar_tap_latest_ravs
+                    UPDATE scalar_tap_ravs
                     SET is_last = true
                     WHERE allocation_id = $1 AND sender_address = $2
                     RETURNING *
@@ -749,7 +749,7 @@ mod tests {
         let latest_rav = sqlx::query!(
             r#"
                 SELECT rav
-                FROM scalar_tap_latest_ravs
+                FROM scalar_tap_ravs
                 WHERE allocation_id = $1 AND sender_address = $2
             "#,
             ALLOCATION_ID
@@ -812,7 +812,7 @@ mod tests {
         let latest_rav = sqlx::query!(
             r#"
                 SELECT rav
-                FROM scalar_tap_latest_ravs
+                FROM scalar_tap_ravs
                 WHERE allocation_id = $1 AND sender_address = $2
             "#,
             ALLOCATION_ID

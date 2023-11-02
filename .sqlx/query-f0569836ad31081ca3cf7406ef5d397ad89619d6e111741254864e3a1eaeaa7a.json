@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                    SELECT DISTINCT allocation_id, sender_address\n                    FROM scalar_tap_receipts\n                ",
+  "query": "\n                SELECT DISTINCT allocation_id, sender_address\n                FROM scalar_tap_receipts\n            ",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "d7ac08a02062e6cc1a252567431b3f102b32750519586a393c3a72c297f10d7e"
+  "hash": "f0569836ad31081ca3cf7406ef5d397ad89619d6e111741254864e3a1eaeaa7a"
 }
