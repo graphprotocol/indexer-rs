@@ -161,9 +161,6 @@ async fn main() -> Result<(), std::io::Error> {
     let query_processor =
         QueryProcessor::new(graph_node.clone(), attestation_signers.clone(), tap_manager);
 
-    indexer_common::metrics::register_indexer_error_metrics();
-    metrics::register_query_metrics();
-
     // Start indexer service basic metrics
     tokio::spawn(handle_serve_metrics(
         String::from("0.0.0.0"),
