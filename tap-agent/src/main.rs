@@ -31,8 +31,8 @@ async fn main() -> Result<()> {
     let mut signal_sigint = signal(SignalKind::interrupt())?;
     let mut signal_sigterm = signal(SignalKind::terminate())?;
     tokio::select! {
-        _ = signal_sigint.recv() => debug !("Received SIGINT."),
-        _ = signal_sigterm.recv() => debug !("Received SIGTERM."),
+        _ = signal_sigint.recv() => debug!("Received SIGINT."),
+        _ = signal_sigterm.recv() => debug!("Received SIGTERM."),
     }
 
     // If we're here, we've received a signal to exit.
