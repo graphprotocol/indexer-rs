@@ -21,7 +21,7 @@ jobs:
         run: >
           addlicense \
             -check \
-            -c "GraphOps and Semiotic Labs." \
+            -c "Edge & Node, GraphOps, and Semiotic Labs." \
             -l "apache" \
             -s=only \
             -ignore '.github/workflows/*.yml' \
