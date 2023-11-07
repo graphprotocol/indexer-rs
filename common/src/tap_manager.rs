@@ -68,14 +68,10 @@ impl TapManager {
             })?;
         if !self
             .escrow_accounts
-            .value()
-            .await
-            .map(|accounts| {
-                accounts
-                    .get(&receipt_signer)
-                    .map_or(false, |balance| balance > &U256::zero())
-            })
-            .unwrap_or(false)
+            .value_immediate()
+            .unwrap_or_default()
+            .get(&receipt_signer)
+            .map_or(false, |balance| balance > &U256::zero())
         {
             return Err(anyhow!(
                 "Receipt sender `{}` is not eligible for this indexer",
