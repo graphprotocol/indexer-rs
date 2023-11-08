@@ -203,6 +203,7 @@ mod test {
         // Set up a mock network subgraph
         let mock_server = MockServer::start().await;
         let network_subgraph = SubgraphClient::new(
+            reqwest::Client::new(),
             None,
             DeploymentDetails::for_query_url(&format!(
                 "{}/subgraphs/id/{}",
@@ -210,8 +211,7 @@ mod test {
                 *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
             ))
             .unwrap(),
-        )
-        .unwrap();
+        );
 
         // Mock result for current epoch requests
         mock_server

@@ -61,6 +61,12 @@ async fn main() -> Result<(), std::io::Error> {
         &config.indexer_infrastructure.graph_node_query_endpoint,
     );
 
+    let http_client = reqwest::Client::builder()
+        .tcp_nodelay(true)
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("Failed to init HTTP client");
+
     // Make an instance of network subgraph at either
     // graph_node_query_endpoint/subgraphs/id/network_subgraph_deployment
     // or network_subgraph_endpoint
@@ -69,26 +75,22 @@ async fn main() -> Result<(), std::io::Error> {
     // a static lifetime, which avoids having to pass around and clone `Arc`
     // objects everywhere. Since the network subgraph is read-only, this is
     // no problem.
-    let network_subgraph = Box::leak(Box::new(
-        SubgraphClient::new(
-            config
-                .network_subgraph
-                .network_subgraph_deployment
-                .map(|deployment| {
-                    DeploymentDetails::for_graph_node(
-                        &config.indexer_infrastructure.graph_node_query_endpoint,
-                        deployment,
-                    )
-                })
-                .transpose()
-                .expect(
-                    "Failed to parse graph node query endpoint and network subgraph deployment",
-                ),
-            DeploymentDetails::for_query_url(&config.network_subgraph.network_subgraph_endpoint)
-                .expect("Failed to parse network subgraph endpoint"),
-        )
-        .expect("Failed to set up network subgraph client"),
-    ));
+    let network_subgraph = Box::leak(Box::new(SubgraphClient::new(
+        http_client.clone(),
+        config
+            .network_subgraph
+            .network_subgraph_deployment
+            .map(|deployment| {
+                DeploymentDetails::for_graph_node(
+                    &config.indexer_infrastructure.graph_node_query_endpoint,
+                    deployment,
+                )
+            })
+            .transpose()
+            .expect("Failed to parse graph node query endpoint and network subgraph deployment"),
+        DeploymentDetails::for_query_url(&config.network_subgraph.network_subgraph_endpoint)
+            .expect("Failed to parse network subgraph endpoint"),
+    )));
 
     let indexer_allocations = indexer_allocations(
         network_subgraph,
@@ -119,24 +121,22 @@ async fn main() -> Result<(), std::io::Error> {
     // assume the models are up to date in the service.
     let indexer_management_db = database::connect(&config.postgres).await;
 
-    let escrow_subgraph = Box::leak(Box::new(
-        SubgraphClient::new(
-            config
-                .escrow_subgraph
-                .escrow_subgraph_deployment
-                .map(|deployment| {
-                    DeploymentDetails::for_graph_node(
-                        &config.indexer_infrastructure.graph_node_query_endpoint,
-                        deployment,
-                    )
-                })
-                .transpose()
-                .expect("Failed to parse graph node query endpoint and escrow subgraph deployment"),
-            DeploymentDetails::for_query_url(&config.escrow_subgraph.escrow_subgraph_endpoint)
-                .expect("Failed to parse escrow subgraph endpoint"),
-        )
-        .expect("Failed to set up escrow subgraph client"),
-    ));
+    let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
+        http_client,
+        config
+            .escrow_subgraph
+            .escrow_subgraph_deployment
+            .map(|deployment| {
+                DeploymentDetails::for_graph_node(
+                    &config.indexer_infrastructure.graph_node_query_endpoint,
+                    deployment,
+                )
+            })
+            .transpose()
+            .expect("Failed to parse graph node query endpoint and escrow subgraph deployment"),
+        DeploymentDetails::for_query_url(&config.escrow_subgraph.escrow_subgraph_endpoint)
+            .expect("Failed to parse escrow subgraph endpoint"),
+    )));
 
     let escrow_accounts = escrow_accounts(
         escrow_subgraph,

@@ -41,13 +41,15 @@ impl DeploymentDetails {
 }
 
 struct DeploymentClient {
+    pub http_client: reqwest::Client,
     pub status: Option<Eventual<DeploymentStatus>>,
     pub query_url: Url,
 }
 
 impl DeploymentClient {
-    pub fn new(details: DeploymentDetails) -> Self {
+    pub fn new(http_client: reqwest::Client, details: DeploymentDetails) -> Self {
         Self {
+            http_client,
             status: details
                 .deployment
                 .zip(details.status_url)
@@ -71,7 +73,8 @@ impl DeploymentClient {
             }
         }
 
-        Ok(reqwest::Client::new()
+        Ok(self
+            .http_client
             .post(self.query_url.as_ref())
             .json(body)
             .header(header::USER_AGENT, "indexer-common")
@@ -92,16 +95,14 @@ pub struct SubgraphClient {
 
 impl SubgraphClient {
     pub fn new(
+        http_client: reqwest::Client,
         local_deployment: Option<DeploymentDetails>,
         remote_deployment: DeploymentDetails,
-    ) -> Result<Self, anyhow::Error> {
-        let local_client = local_deployment.map(DeploymentClient::new);
-        let remote_client = DeploymentClient::new(remote_deployment);
-
-        Ok(Self {
-            local_client,
-            remote_client,
-        })
+    ) -> Self {
+        Self {
+            local_client: local_deployment.map(|d| DeploymentClient::new(http_client.clone(), d)),
+            remote_client: DeploymentClient::new(http_client, remote_deployment),
+        }
     }
 
     pub async fn query<T: for<'de> Deserialize<'de>>(
@@ -173,10 +174,10 @@ mod test {
 
     fn network_subgraph_client() -> SubgraphClient {
         SubgraphClient::new(
+            reqwest::Client::new(),
             None,
             DeploymentDetails::for_query_url(NETWORK_SUBGRAPH_URL).unwrap(),
         )
-        .unwrap()
     }
 
     #[tokio::test]
@@ -253,6 +254,7 @@ mod test {
 
         // Create the subgraph client
         let client = SubgraphClient::new(
+            reqwest::Client::new(),
             Some(DeploymentDetails::for_graph_node(&mock_server_local.uri(), deployment).unwrap()),
             DeploymentDetails::for_query_url(&format!(
                 "{}/subgraphs/id/{}",
@@ -260,8 +262,7 @@ mod test {
                 deployment
             ))
             .unwrap(),
-        )
-        .unwrap();
+        );
 
         // Query the subgraph
         let response: Response<Value> = client
@@ -325,6 +326,7 @@ mod test {
 
         // Create the subgraph client
         let client = SubgraphClient::new(
+            reqwest::Client::new(),
             Some(DeploymentDetails::for_graph_node(&mock_server_local.uri(), deployment).unwrap()),
             DeploymentDetails::for_query_url(&format!(
                 "{}/subgraphs/id/{}",
@@ -332,8 +334,7 @@ mod test {
                 deployment
             ))
             .unwrap(),
-        )
-        .unwrap();
+        );
 
         // Query the subgraph
         let response: Response<Value> = client
@@ -397,6 +398,7 @@ mod test {
 
         // Create the subgraph client
         let client = SubgraphClient::new(
+            reqwest::Client::new(),
             Some(DeploymentDetails::for_graph_node(&mock_server_local.uri(), deployment).unwrap()),
             DeploymentDetails::for_query_url(&format!(
                 "{}/subgraphs/id/{}",
@@ -404,8 +406,7 @@ mod test {
                 deployment
             ))
             .unwrap(),
-        )
-        .unwrap();
+        );
 
         // Query the subgraph
         let response: Response<Value> = client
