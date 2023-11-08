@@ -82,6 +82,7 @@ async fn main() -> Result<(), std::io::Error> {
             .network_subgraph_deployment
             .map(|deployment| {
                 DeploymentDetails::for_graph_node(
+                    &config.indexer_infrastructure.graph_node_status_endpoint,
                     &config.indexer_infrastructure.graph_node_query_endpoint,
                     deployment,
                 )
@@ -128,6 +129,7 @@ async fn main() -> Result<(), std::io::Error> {
             .escrow_subgraph_deployment
             .map(|deployment| {
                 DeploymentDetails::for_graph_node(
+                    &config.indexer_infrastructure.graph_node_status_endpoint,
                     &config.indexer_infrastructure.graph_node_query_endpoint,
                     deployment,
                 )

@@ -21,12 +21,13 @@ pub struct DeploymentDetails {
 
 impl DeploymentDetails {
     pub fn for_graph_node(
+        graph_node_status_url: &str,
         graph_node_base_url: &str,
         deployment: DeploymentId,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             deployment: Some(deployment),
-            status_url: Some(Url::parse(&format!("{graph_node_base_url}/status"))?),
+            status_url: Some(Url::parse(graph_node_status_url)?),
             query_url: Url::parse(&format!("{graph_node_base_url}/subgraphs/id/{deployment}"))?,
         })
     }
@@ -206,23 +207,23 @@ mod test {
         let deployment =
             DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
 
-        let mock_server_local = MockServer::start().await;
-        mock_server_local
-            .register(
-                Mock::given(method("POST"))
-                    .and(path("/status"))
-                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                        "data": {
-                            "indexingStatuses": [
-                                {
-                                    "synced": true,
-                                    "health": "healthy"
-                                }
-                            ]
-                        }
-                    }))),
-            )
+        let mock_server_status = MockServer::start().await;
+        mock_server_status
+            .register(Mock::given(method("POST")).respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "data": {
+                        "indexingStatuses": [
+                            {
+                                "synced": true,
+                                "health": "healthy"
+                            }
+                        ]
+                    }
+                })),
+            ))
             .await;
+
+        let mock_server_local = MockServer::start().await;
         mock_server_local
             .register(
                 Mock::given(method("POST"))
@@ -255,7 +256,14 @@ mod test {
         // Create the subgraph client
         let client = SubgraphClient::new(
             reqwest::Client::new(),
-            Some(DeploymentDetails::for_graph_node(&mock_server_local.uri(), deployment).unwrap()),
+            Some(
+                DeploymentDetails::for_graph_node(
+                    &mock_server_status.uri(),
+                    &mock_server_local.uri(),
+                    deployment,
+                )
+                .unwrap(),
+            ),
             DeploymentDetails::for_query_url(&format!(
                 "{}/subgraphs/id/{}",
                 mock_server_remote.uri(),
@@ -278,23 +286,23 @@ mod test {
         let deployment =
             DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
 
-        let mock_server_local = MockServer::start().await;
-        mock_server_local
-            .register(
-                Mock::given(method("POST"))
-                    .and(path("/status"))
-                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                        "data": {
-                            "indexingStatuses": [
-                                {
-                                    "synced": true,
-                                    "health": "unhealthy"
-                                }
-                            ]
-                        }
-                    }))),
-            )
+        let mock_server_status = MockServer::start().await;
+        mock_server_status
+            .register(Mock::given(method("POST")).respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "data": {
+                        "indexingStatuses": [
+                            {
+                                "synced": true,
+                                "health": "unhealthy"
+                            }
+                        ]
+                    }
+                })),
+            ))
             .await;
+
+        let mock_server_local = MockServer::start().await;
         mock_server_local
             .register(
                 Mock::given(method("POST"))
@@ -327,7 +335,14 @@ mod test {
         // Create the subgraph client
         let client = SubgraphClient::new(
             reqwest::Client::new(),
-            Some(DeploymentDetails::for_graph_node(&mock_server_local.uri(), deployment).unwrap()),
+            Some(
+                DeploymentDetails::for_graph_node(
+                    &mock_server_status.uri(),
+                    &mock_server_local.uri(),
+                    deployment,
+                )
+                .unwrap(),
+            ),
             DeploymentDetails::for_query_url(&format!(
                 "{}/subgraphs/id/{}",
                 mock_server_remote.uri(),
@@ -350,23 +365,23 @@ mod test {
         let deployment =
             DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
 
-        let mock_server_local = MockServer::start().await;
-        mock_server_local
-            .register(
-                Mock::given(method("POST"))
-                    .and(path("/status"))
-                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                        "data": {
-                            "indexingStatuses": [
-                                {
-                                    "synced": false,
-                                    "health": "healthy"
-                                }
-                            ]
-                        }
-                    }))),
-            )
+        let mock_server_status = MockServer::start().await;
+        mock_server_status
+            .register(Mock::given(method("POST")).respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "data": {
+                        "indexingStatuses": [
+                            {
+                                "synced": false,
+                                "health": "healthy"
+                            }
+                        ]
+                    }
+                })),
+            ))
             .await;
+
+        let mock_server_local = MockServer::start().await;
         mock_server_local
             .register(
                 Mock::given(method("POST"))
@@ -399,7 +414,14 @@ mod test {
         // Create the subgraph client
         let client = SubgraphClient::new(
             reqwest::Client::new(),
-            Some(DeploymentDetails::for_graph_node(&mock_server_local.uri(), deployment).unwrap()),
+            Some(
+                DeploymentDetails::for_graph_node(
+                    &mock_server_status.uri(),
+                    &mock_server_local.uri(),
+                    deployment,
+                )
+                .unwrap(),
+            ),
             DeploymentDetails::for_query_url(&format!(
                 "{}/subgraphs/id/{}",
                 mock_server_remote.uri(),
