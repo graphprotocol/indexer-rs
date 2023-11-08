@@ -51,7 +51,7 @@ pub fn monitor_deployment_status(
                 let body = json!({
                     "query": r#"
                     query indexingStatuses($ids: [ID!]!) {
-                        indexingStatuses(deployments: $ids) {
+                        indexingStatuses(subgraphs: $ids) {
                             synced
                             health
                         }
