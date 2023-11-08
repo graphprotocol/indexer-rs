@@ -5,12 +5,12 @@ use std::time::Duration;
 
 use eventuals::{timer, Eventual, EventualExt};
 use graphql::http::Response;
-use log::warn;
 use reqwest::{header, Url};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::time::sleep;
 use toolshed::thegraph::DeploymentId;
+use tracing::warn;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

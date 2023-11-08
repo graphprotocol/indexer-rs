@@ -6,7 +6,7 @@ use std::{
     fmt::{self, Display},
 };
 
-use log::warn;
+use tracing::warn;
 
 use crate::metrics;
 

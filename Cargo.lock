@@ -2889,7 +2889,6 @@ dependencies = [
  "graphql",
  "keccak-hash",
  "lazy_static",
- "log",
  "lru",
  "once_cell",
  "prometheus",
@@ -2903,6 +2902,7 @@ dependencies = [
  "test-log",
  "tokio",
  "toolshed",
+ "tracing",
  "wiremock",
 ]
 

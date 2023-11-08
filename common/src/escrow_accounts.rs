@@ -7,10 +7,10 @@ use alloy_primitives::Address;
 use anyhow::Result;
 use ethers_core::types::U256;
 use eventuals::{timer, Eventual, EventualExt};
-use log::{error, warn};
 use serde::Deserialize;
 use serde_json::json;
 use tokio::time::sleep;
+use tracing::{error, warn};
 
 use crate::prelude::SubgraphClient;
 

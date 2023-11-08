@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use alloy_primitives::Address;
 use eventuals::{timer, Eventual, EventualExt};
-use log::warn;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::time::sleep;
+use tracing::warn;
 
 use crate::subgraph_client::SubgraphClient;
 

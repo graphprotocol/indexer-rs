@@ -6,10 +6,10 @@ use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use ethers_core::types::U256;
 use eventuals::Eventual;
-use log::error;
 use sqlx::{types::BigDecimal, PgPool};
 use std::{collections::HashMap, sync::Arc};
 use tap_core::tap_manager::SignedReceipt;
+use tracing::error;
 
 use crate::prelude::Allocation;
 

@@ -4,10 +4,10 @@
 use alloy_primitives::Address;
 use ethers_core::types::U256;
 use eventuals::{join, Eventual, EventualExt};
-use log::warn;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::warn;
 
 use crate::prelude::{Allocation, AttestationSigner};
 
