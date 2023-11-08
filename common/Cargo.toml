@@ -14,7 +14,6 @@ eventuals = "0.6.7"
 faux = { version = "0.1.10", optional = true }
 keccak-hash = "0.10.0"
 lazy_static = "1.4.0"
-log = "0.4.20"
 lru = "0.11.1"
 once_cell = "1.17"
 prometheus = "0.13.3"
@@ -34,6 +33,7 @@ tokio = { version = "1.32.0", features = ["full", "macros", "rt"] }
 toolshed = { git = "https://github.com/edgeandnode/toolshed", branch = "main", features = [
   "graphql",
 ] }
+tracing = "0.1.34"
 graphql = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
 tap_core = "0.6.0"
 

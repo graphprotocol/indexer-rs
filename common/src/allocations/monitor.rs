@@ -6,10 +6,10 @@ use std::{collections::HashMap, time::Duration};
 use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{timer, Eventual, EventualExt};
-use log::warn;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::time::sleep;
+use tracing::warn;
 
 use crate::prelude::SubgraphClient;
 

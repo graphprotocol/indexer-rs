@@ -4,11 +4,11 @@
 use anyhow::anyhow;
 use eventuals::Eventual;
 use graphql::http::Response;
-use log::warn;
 use reqwest::{header, Url};
 use serde::de::Deserialize;
 use serde_json::Value;
 use toolshed::thegraph::DeploymentId;
+use tracing::warn;
 
 use super::monitor::{monitor_deployment_status, DeploymentStatus};
 
