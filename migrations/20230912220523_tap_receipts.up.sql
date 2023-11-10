@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS scalar_tap_receipts (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY, -- id being SERIAL is important for the function of tap-agent
     allocation_id CHAR(40) NOT NULL,
     sender_address CHAR(40) NOT NULL,
     timestamp_ns NUMERIC(20) NOT NULL,
