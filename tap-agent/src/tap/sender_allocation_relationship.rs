@@ -1,7 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
@@ -295,9 +295,12 @@ impl SenderAllocationRelationship {
                 .await?;
 
             // TODO: Request compression and response decompression. Also a fancy user agent?
-            let client = HttpClientBuilder::default().build(&inner.sender_aggregator_endpoint)?;
+            let client = HttpClientBuilder::default()
+                .request_timeout(Duration::from_secs(
+                    inner.config.tap.rav_request_timeout_secs,
+                ))
+                .build(&inner.sender_aggregator_endpoint)?;
 
-            // TODO: Add a timeout.
             let response: JsonRpcResponse<EIP712SignedMessage<ReceiptAggregateVoucher>> = client
                 .request(
                     "aggregate_receipts",
@@ -440,6 +443,7 @@ mod tests {
             tap: config::Tap {
                 rav_request_trigger_value: 100,
                 rav_request_timestamp_buffer_ns: 1000,
+                rav_request_timeout_secs: 5,
                 ..Default::default()
             },
             ..Default::default()

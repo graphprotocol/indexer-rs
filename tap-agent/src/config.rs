@@ -231,6 +231,14 @@ pub struct Tap {
         default_value_t = 1_000_000_000 // 1 second
     )]
     pub rav_request_timestamp_buffer_ns: u64,
+    #[clap(
+        long,
+        value_name = "rav-request-timeout",
+        env = "RAV_REQUEST_TIMEOUT",
+        help = "Timeout (in seconds) for RAV requests.",
+        default_value_t = 5
+    )]
+    pub rav_request_timeout_secs: u64,
 
     // TODO: Remove this whenever the the gateway registry is ready
     #[clap(
