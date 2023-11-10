@@ -47,13 +47,6 @@ pub struct Cli {
 pub struct Ethereum {
     #[clap(
         long,
-        value_name = "mnemonic",
-        env = "MNEMONIC",
-        help = "Mnemonic for the operator wallet"
-    )]
-    pub mnemonic: String,
-    #[clap(
-        long,
         value_name = "indexer-address",
         env = "INDEXER_ADDRESS",
         help = "Ethereum address of the indexer"
@@ -81,7 +74,7 @@ pub struct Receipts {
 }
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
-#[group(required = true, multiple = true)]
+#[group(multiple = true)]
 pub struct IndexerInfrastructure {
     #[clap(
         long,
@@ -162,7 +155,7 @@ pub struct Postgres {
 }
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
-#[group(required = true, multiple = true)]
+#[group(multiple = true)]
 pub struct NetworkSubgraph {
     #[clap(
         long,
