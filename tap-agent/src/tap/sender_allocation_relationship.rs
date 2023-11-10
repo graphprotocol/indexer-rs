@@ -147,12 +147,12 @@ impl SenderAllocationRelationship {
         &self,
         new_receipt_notification: NewReceiptNotification,
     ) {
-        // If we're in the last rav pending state, we don't want to process any new receipts.
-        if self.state().await == State::LastRavPending {
+        // If we're in the last rav pending state or finished, we don't want to process any new
+        // receipts.
+        if self.state().await != State::Running {
             error!(
-                "Received a new receipt notification for allocation {} and sender {} while \
-                the last RAV is pending. This should not have happened since this allocation \
-                and/or sender is not eligible anymore.",
+                "Received a new receipt notification for now ineligible allocation {} and \
+                sender {}.",
                 self.inner.allocation_id, self.inner.sender
             );
             return;
