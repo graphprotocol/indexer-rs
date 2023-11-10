@@ -326,7 +326,6 @@ mod tests {
             config: None,
             ethereum: config::Ethereum {
                 indexer_address: INDEXER.1,
-                ..Default::default()
             },
             tap: config::Tap {
                 rav_request_trigger_value: 100,

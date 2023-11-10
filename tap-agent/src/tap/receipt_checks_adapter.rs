@@ -72,7 +72,7 @@ impl ReceiptChecksAdapterTrait for ReceiptChecksAdapter {
         _receipt: &EIP712SignedMessage<Receipt>,
         _receipt_id: u64,
     ) -> Result<bool, Self::AdapterError> {
-        panic!("Not implemented.");
+        unimplemented!();
     }
 
     async fn is_valid_allocation_id(

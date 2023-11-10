@@ -91,7 +91,7 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
 
     /// We don't need this method in TAP Agent.
     async fn store_receipt(&self, _receipt: ReceivedReceipt) -> Result<u64, Self::AdapterError> {
-        panic!("Not implemented");
+        unimplemented!();
     }
 
     async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
@@ -131,7 +131,7 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
         _receipt_id: u64,
         _receipt: ReceivedReceipt,
     ) -> Result<(), Self::AdapterError> {
-        panic!("Not implemented");
+        unimplemented!();
     }
 
     async fn remove_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
