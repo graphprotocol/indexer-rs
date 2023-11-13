@@ -113,61 +113,12 @@ mod test {
 
     use crate::prelude::{AllocationStatus, SubgraphDeployment};
     use alloy_primitives::Address;
-    use alloy_sol_types::{eip712_domain, Eip712Domain};
-    use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
     use keccak_hash::H256;
     use sqlx::postgres::PgListener;
 
-    use tap_core::tap_manager::SignedReceipt;
-    use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
-
-    use crate::test_vectors;
+    use crate::test_vectors::{self, create_signed_receipt, TAP_SENDER};
 
     use super::*;
-
-    /// Fixture to generate a wallet and address
-    pub fn keys() -> (LocalWallet, Address) {
-        let wallet: LocalWallet = MnemonicBuilder::<English>::default()
-            .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
-            .build()
-            .unwrap();
-        let address = wallet.address();
-
-        (wallet, Address::from_slice(address.as_bytes()))
-    }
-
-    pub fn domain() -> Eip712Domain {
-        eip712_domain! {
-            name: "TAP",
-            version: "1",
-            chain_id: 1,
-            verifying_contract: Address::from([0x11u8; 20]),
-        }
-    }
-
-    /// Fixture to generate a signed receipt using the wallet from `keys()`
-    /// and the given `query_id` and `value`
-    pub async fn create_signed_receipt(
-        allocation_id: Address,
-        nonce: u64,
-        timestamp_ns: u64,
-        value: u128,
-    ) -> SignedReceipt {
-        let (wallet, _) = keys();
-
-        EIP712SignedMessage::new(
-            &domain(),
-            Receipt {
-                allocation_id,
-                nonce,
-                timestamp_ns,
-                value,
-            },
-            &wallet,
-        )
-        .await
-        .unwrap()
-    }
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_verify_and_store_receipt(pgpool: PgPool) {
@@ -180,7 +131,6 @@ mod test {
 
         let allocation_id =
             Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap();
-        let domain = domain();
         let signed_receipt =
             create_signed_receipt(allocation_id, u64::MAX, u64::MAX, u128::MAX).await;
 
@@ -209,10 +159,14 @@ mod test {
 
         // Mock escrow accounts
         let escrow_accounts =
-            Eventual::from_value(HashMap::from_iter(vec![(keys().1, U256::from(123))]));
+            Eventual::from_value(HashMap::from_iter(vec![(TAP_SENDER.1, U256::from(123))]));
 
-        let tap_manager =
-            TapManager::new(pgpool.clone(), indexer_allocations, escrow_accounts, domain);
+        let tap_manager = TapManager::new(
+            pgpool.clone(),
+            indexer_allocations,
+            escrow_accounts,
+            test_vectors::TAP_EIP712_DOMAIN.to_owned(),
+        );
 
         tap_manager
             .verify_and_store_receipt(signed_receipt.clone())

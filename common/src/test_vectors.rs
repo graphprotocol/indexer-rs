@@ -4,8 +4,13 @@
 use std::{collections::HashMap, str::FromStr};
 
 use alloy_primitives::Address;
+use alloy_sol_types::{eip712_domain, Eip712Domain};
+use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
 use ethers_core::types::U256;
 use lazy_static::lazy_static;
+use tap_core::{
+    eip_712_signed_message::EIP712SignedMessage, tap_manager::SignedReceipt, tap_receipt::Receipt,
+};
 use thegraph::types::DeploymentId;
 
 use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
@@ -239,4 +244,45 @@ lazy_static! {
         (Address::from_str("0x90f8bf6a479f320ead074411a4b0e7944ea8c9c1").unwrap(), U256::from(24)),
         (Address::from_str("0x22d491bde2303f2f43325b2108d26f1eaba1e32b").unwrap(), U256::from(42)),
     ]);
+
+    /// Fixture to generate a wallet and address
+    pub static ref TAP_SENDER: (LocalWallet, Address) = {
+        let wallet: LocalWallet = MnemonicBuilder::<English>::default()
+            .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
+            .build()
+            .unwrap();
+        let address = wallet.address();
+
+        (wallet, Address::from_slice(address.as_bytes()))
+    };
+
+    pub static ref TAP_EIP712_DOMAIN: Eip712Domain = eip712_domain! {
+        name: "TAP",
+        version: "1",
+        chain_id: 1,
+        verifying_contract: Address::from([0x11u8; 20]),
+    };
+}
+
+/// Function to generate a signed receipt using the TAP_SENDER wallet.
+pub async fn create_signed_receipt(
+    allocation_id: Address,
+    nonce: u64,
+    timestamp_ns: u64,
+    value: u128,
+) -> SignedReceipt {
+    let (wallet, _) = &*self::TAP_SENDER;
+
+    EIP712SignedMessage::new(
+        &self::TAP_EIP712_DOMAIN,
+        Receipt {
+            allocation_id,
+            nonce,
+            timestamp_ns,
+            value,
+        },
+        wallet,
+    )
+    .await
+    .unwrap()
 }
