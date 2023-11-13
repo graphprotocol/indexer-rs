@@ -44,6 +44,7 @@ pub struct IndexerServiceConfig {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct GraphNodeConfig {
+    pub status_url: String,
     pub query_base_url: String,
 }
 
