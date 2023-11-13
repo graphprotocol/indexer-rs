@@ -7,6 +7,7 @@ use headers::{Header, HeaderName, HeaderValue};
 use lazy_static::lazy_static;
 use tap_core::tap_manager::SignedReceipt;
 
+#[derive(Debug, PartialEq)]
 pub struct ScalarReceipt(Option<SignedReceipt>);
 
 impl ScalarReceipt {
@@ -53,5 +54,52 @@ impl Header for ScalarReceipt {
         E: Extend<HeaderValue>,
     {
         unimplemented!()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    use alloy_primitives::Address;
+    use axum::{headers::Header, http::HeaderValue};
+
+    use crate::test_vectors::create_signed_receipt;
+
+    use super::ScalarReceipt;
+
+    #[tokio::test]
+    async fn test_decode_valid_scalar_receipt_header() {
+        let allocation = Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap();
+        let original_receipt =
+            create_signed_receipt(allocation, u64::MAX, u64::MAX, u128::MAX).await;
+        let serialized_receipt = serde_json::to_string(&original_receipt).unwrap();
+        let header_value = HeaderValue::from_str(&serialized_receipt).unwrap();
+        let header_values = vec![&header_value];
+        let decoded_receipt = ScalarReceipt::decode(&mut header_values.into_iter())
+            .expect("scalar receipt header value should be valid");
+
+        assert_eq!(
+            decoded_receipt,
+            ScalarReceipt(Some(original_receipt.clone()))
+        );
+    }
+
+    #[test]
+    fn test_decode_non_string_scalar_receipt_header() {
+        let header_value = HeaderValue::from_static("123");
+        let header_values = vec![&header_value];
+        let result = ScalarReceipt::decode(&mut header_values.into_iter());
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_invalid_scalar_receipt_header() {
+        let header_value = HeaderValue::from_bytes(b"invalid").unwrap();
+        let header_values = vec![&header_value];
+        let result = ScalarReceipt::decode(&mut header_values.into_iter());
+
+        assert!(result.is_err());
     }
 }
