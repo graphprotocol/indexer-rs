@@ -302,6 +302,7 @@ impl Drop for SenderAllocationRelationshipsManager {
 
 #[cfg(test)]
 mod tests {
+
     use indexer_common::{
         prelude::{AllocationStatus, SubgraphDeployment},
         subgraph_client::DeploymentDetails,

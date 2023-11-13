@@ -13,6 +13,7 @@ alloy-primitives = "0.4.2"
 alloy-sol-types = "0.4.2"
 anyhow = "1.0.72"
 async-trait = "0.1.72"
+bigdecimal = { version = "0.4.2", features = ["serde"] }
 clap = { version = "4.4.3", features = ["derive", "env"] }
 confy = "0.5.1"
 dotenvy = "0.15.7"

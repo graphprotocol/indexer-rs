@@ -1,9 +1,10 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
 use alloy_primitives::Address;
+use bigdecimal::{BigDecimal, ToPrimitive};
 use clap::{command, Args, Parser, ValueEnum};
 use dotenvy::dotenv;
 use serde::{Deserialize, Serialize};
@@ -218,8 +219,9 @@ pub struct Tap {
         long,
         value_name = "rav-request-trigger-value",
         env = "RAV_REQUEST_TRIGGER_VALUE",
-        help = "Value of unaggregated fees that triggers a RAV request (in GRT wei).",
-        default_value_t = 10_000_000_000_000_000_000 // 10 GRT
+        help = "Value of unaggregated fees that triggers a RAV request (in GRT).",
+        default_value = "10",
+        value_parser(parse_grt_value_to_nonzero_u64)
     )]
     pub rav_request_trigger_value: u64,
     #[clap(
@@ -264,6 +266,26 @@ fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
         "compact" => set_global_default(subscriber_builder.compact().finish()),
         _ => set_global_default(subscriber_builder.with_ansi(true).pretty().finish()),
     }
+}
+
+fn parse_grt_value_to_nonzero_u64(s: &str) -> Result<u64, std::io::Error> {
+    let v = BigDecimal::from_str(s)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    if v <= 0.into() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "GRT value must be greater than 0".to_string(),
+        ));
+    }
+    // Convert to wei
+    let v = v * BigDecimal::from(10u64.pow(18));
+    // Convert to u64
+    v.to_u64().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "GRT value cannot be represented as a u64 GRT wei value".to_string(),
+        )
+    })
 }
 
 impl Cli {
@@ -318,4 +340,35 @@ pub enum LogLevel {
     Warn,
     Error,
     Fatal,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_grt_value_to_u64() {
+        assert_eq!(
+            parse_grt_value_to_nonzero_u64("1").unwrap(),
+            1_000_000_000_000_000_000
+        );
+        assert_eq!(
+            parse_grt_value_to_nonzero_u64("1.1").unwrap(),
+            1_100_000_000_000_000_000
+        );
+        assert_eq!(
+            parse_grt_value_to_nonzero_u64("1.000000000000000001").unwrap(),
+            1_000_000_000_000_000_001
+        );
+        assert_eq!(
+            parse_grt_value_to_nonzero_u64("0.000000000000000001").unwrap(),
+            1
+        );
+        assert!(parse_grt_value_to_nonzero_u64("0").is_err());
+        assert!(parse_grt_value_to_nonzero_u64("-1").is_err());
+        assert_eq!(
+            parse_grt_value_to_nonzero_u64("1.0000000000000000001").unwrap(),
+            1_000_000_000_000_000_000
+        );
+    }
 }
