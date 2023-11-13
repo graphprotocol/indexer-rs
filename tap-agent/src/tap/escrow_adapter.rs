@@ -55,7 +55,7 @@ impl EscrowAdapterTrait for EscrowAdapter {
             .get(&sender)
             .ok_or(AdapterError::AdapterError {
                 error: format!(
-                    "Gateway {} not found in escrow balances map, could not get available escrow.",
+                    "Sender {} not found in escrow balances map, could not get available escrow.",
                     sender
                 )
                 .to_string(),
@@ -63,7 +63,7 @@ impl EscrowAdapterTrait for EscrowAdapter {
             .to_owned();
         let balance: u128 = balance.try_into().map_err(|_| AdapterError::AdapterError {
             error: format!(
-                "Gateway {} escrow balance is too large to fit in u128, \
+                "Sender {} escrow balance is too large to fit in u128, \
             could not get available escrow.",
                 sender
             )
@@ -87,7 +87,7 @@ impl EscrowAdapterTrait for EscrowAdapter {
         if current_available_escrow < value {
             return Err(AdapterError::AdapterError {
                 error: format!(
-                    "Gateway {} does not have enough escrow to subtract {} from {}.",
+                    "Sender {} does not have enough escrow to subtract {} from {}.",
                     sender, value, *fees
                 )
                 .to_string(),
