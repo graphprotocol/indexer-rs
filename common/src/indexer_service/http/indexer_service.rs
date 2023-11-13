@@ -1,3 +1,6 @@
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{
     collections::HashMap, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration,
 };
