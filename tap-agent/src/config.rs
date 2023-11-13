@@ -179,7 +179,7 @@ pub struct NetworkSubgraph {
         default_value_t = 120_000,
         help = "Interval (in ms) for syncing indexer allocations from the network"
     )]
-    pub allocation_syncing_interval: u64,
+    pub allocation_syncing_interval_ms: u64,
 }
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
@@ -208,7 +208,7 @@ pub struct EscrowSubgraph {
         default_value_t = 120_000,
         help = "Interval (in ms) for syncing indexer escrow accounts from the escrow subgraph"
     )]
-    pub escrow_syncing_interval: u64,
+    pub escrow_syncing_interval_ms: u64,
 }
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
@@ -226,11 +226,11 @@ pub struct Tap {
         long,
         value_name = "rav-request-timestamp-buffer",
         env = "RAV_REQUEST_TIMESTAMP_BUFFER",
-        help = "Buffer (in ns) to add between the current time and the timestamp of the \
+        help = "Buffer (in ms) to add between the current time and the timestamp of the \
         last unaggregated fee when triggering a RAV request.",
-        default_value_t = 1_000_000_000 // 1 second
+        default_value_t = 1_000 // 1 second
     )]
-    pub rav_request_timestamp_buffer_ns: u64,
+    pub rav_request_timestamp_buffer_ms: u64,
     #[clap(
         long,
         value_name = "rav-request-timeout",

@@ -291,7 +291,7 @@ impl SenderAllocationRelationship {
                 expected_rav,
             } = inner
                 .tap_manager
-                .create_rav_request(inner.config.tap.rav_request_timestamp_buffer_ns)
+                .create_rav_request(inner.config.tap.rav_request_timestamp_buffer_ms * 1_000_000)
                 .await?;
 
             // TODO: Request compression and response decompression. Also a fancy user agent?
@@ -441,7 +441,7 @@ mod tests {
             },
             tap: config::Tap {
                 rav_request_trigger_value: 100,
-                rav_request_timestamp_buffer_ns: 1000,
+                rav_request_timestamp_buffer_ms: 1,
                 rav_request_timeout_secs: 5,
                 ..Default::default()
             },

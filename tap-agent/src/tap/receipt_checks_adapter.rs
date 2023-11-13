@@ -40,7 +40,7 @@ impl ReceiptChecksAdapter {
             sender_id,
             config.ethereum.indexer_address,
             escrow_subgraph,
-            config.escrow_subgraph.escrow_syncing_interval,
+            config.escrow_subgraph.escrow_syncing_interval_ms,
         );
         Self {
             query_appraisals,
@@ -137,7 +137,7 @@ impl ReceiptChecksAdapter {
         sender_address: Address,
         indexer_address: Address,
         escrow_subgraph: &'static SubgraphClient,
-        escrow_subgraph_polling_interval: u64,
+        escrow_subgraph_polling_interval_ms: u64,
     ) -> Eventual<bool> {
         #[derive(serde::Deserialize)]
         struct AllocationResponse {
@@ -150,7 +150,7 @@ impl ReceiptChecksAdapter {
             transactions: Vec<AllocationResponse>,
         }
 
-        timer(Duration::from_secs(escrow_subgraph_polling_interval)).map_with_retry(
+        timer(Duration::from_millis(escrow_subgraph_polling_interval_ms)).map_with_retry(
             move |_| async move {
                 let response = escrow_subgraph
                     .query::<TransactionsResponse>(&json!({
@@ -198,7 +198,7 @@ impl ReceiptChecksAdapter {
                     "Failed to check the escrow redeem status for allocation {} and sender {}: {}",
                     allocation_id, sender_address, error
                 );
-                sleep(Duration::from_secs(escrow_subgraph_polling_interval).div_f32(2.))
+                sleep(Duration::from_millis(escrow_subgraph_polling_interval_ms).div_f32(2.))
             },
         )
     }

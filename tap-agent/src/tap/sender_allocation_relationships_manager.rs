@@ -329,7 +329,7 @@ mod tests {
             },
             tap: config::Tap {
                 rav_request_trigger_value: 100,
-                rav_request_timestamp_buffer_ns: 1000,
+                rav_request_timestamp_buffer_ms: 1,
                 ..Default::default()
             },
             ..Default::default()
