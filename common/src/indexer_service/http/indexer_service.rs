@@ -178,17 +178,22 @@ impl IndexerService {
         let metrics = IndexerServiceMetrics::new(options.metrics_prefix);
 
         let network_subgraph = Box::leak(Box::new(SubgraphClient::new(
+            reqwest::Client::new(),
             options
                 .config
                 .graph_node
                 .as_ref()
                 .zip(options.config.network_subgraph.deployment)
                 .map(|(graph_node, deployment)| {
-                    DeploymentDetails::for_graph_node(&graph_node.query_base_url, deployment)
+                    DeploymentDetails::for_graph_node(
+                        &graph_node.status_url,
+                        &graph_node.query_base_url,
+                        deployment,
+                    )
                 })
                 .transpose()?,
             DeploymentDetails::for_query_url(&options.config.network_subgraph.query_url)?,
-        )?));
+        )));
 
         // Identify the dispute manager for the configured network
         let dispute_manager = dispute_manager(
@@ -215,17 +220,22 @@ impl IndexerService {
         );
 
         let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
+            reqwest::Client::new(),
             options
                 .config
                 .graph_node
                 .as_ref()
                 .zip(options.config.escrow_subgraph.deployment)
                 .map(|(graph_node, deployment)| {
-                    DeploymentDetails::for_graph_node(&graph_node.query_base_url, deployment)
+                    DeploymentDetails::for_graph_node(
+                        &graph_node.status_url,
+                        &graph_node.query_base_url,
+                        deployment,
+                    )
                 })
                 .transpose()?,
             DeploymentDetails::for_query_url(&options.config.escrow_subgraph.query_url)?,
-        )?));
+        )));
 
         let escrow_accounts = escrow_accounts(
             escrow_subgraph,
