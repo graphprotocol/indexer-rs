@@ -1,3 +1,6 @@
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use prometheus::{register_int_counter_vec, IntCounterVec};
 
 pub struct IndexerServiceMetrics {
