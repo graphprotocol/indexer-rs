@@ -7,7 +7,6 @@ use axum::{
     response::IntoResponse,
     TypedHeader,
 };
-use log::info;
 use reqwest::StatusCode;
 use thegraph::types::DeploymentId;
 use tracing::info;
