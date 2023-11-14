@@ -1,7 +1,10 @@
 CREATE TABLE IF NOT EXISTS scalar_tap_receipts (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY, -- id being SERIAL is important for the function of tap-agent
     allocation_id CHAR(40) NOT NULL,
+    sender_address CHAR(40) NOT NULL,
     timestamp_ns NUMERIC(20) NOT NULL,
+    -- signature CHAR(130) NOT NULL,
+    value NUMERIC(39) NOT NULL,
     receipt JSON NOT NULL
 );
 
@@ -9,7 +12,7 @@ CREATE FUNCTION scalar_tap_receipt_notify()
 RETURNS trigger AS
 $$
 BEGIN
-    PERFORM pg_notify('scalar_tap_receipt_notification', format('{"id": %s, "allocation_id": "%s", "timestamp_ns": %s}', NEW.id, NEW.allocation_id, NEW.timestamp_ns));
+    PERFORM pg_notify('scalar_tap_receipt_notification', format('{"id": %s, "allocation_id": "%s", "sender_address": "%s", "timestamp_ns": %s, "value": %s}', NEW.id, NEW.allocation_id, NEW.sender_address, NEW.timestamp_ns, NEW.value));
     RETURN NEW;
 END;
 $$ LANGUAGE 'plpgsql';

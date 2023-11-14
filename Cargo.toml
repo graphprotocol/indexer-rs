@@ -2,6 +2,7 @@
 members = [
     "common",
     "service",
+    "tap-agent",
 ]
 resolver = "2"
 

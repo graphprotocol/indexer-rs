@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use ethers_core::types::U256;
 use eventuals::Eventual;
 use sqlx::{types::BigDecimal, PgPool};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tap_core::tap_manager::SignedReceipt;
 use tracing::error;
 
@@ -82,14 +82,18 @@ impl TapManager {
         // TODO: consider doing this in another async task to avoid slowing down the paid query flow.
         sqlx::query!(
             r#"
-                INSERT INTO scalar_tap_receipts (allocation_id, timestamp_ns, receipt)
-                VALUES ($1, $2, $3)
+                INSERT INTO scalar_tap_receipts (allocation_id, sender_address, timestamp_ns, value, receipt)
+                VALUES ($1, $2, $3, $4, $5)
             "#,
             format!("{:?}", allocation_id)
-                .strip_prefix("0x")
-                .unwrap()
+                .trim_start_matches("0x")
+                .to_owned(),
+                receipt_signer
+                .to_string()
+                .trim_start_matches("0x")
                 .to_owned(),
             BigDecimal::from(receipt.message.timestamp_ns),
+            BigDecimal::from_str(&receipt.message.value.to_string())?,
             serde_json::to_value(receipt).map_err(|e| anyhow!(e))?
         )
         .execute(&self.pgpool)
@@ -116,7 +120,6 @@ mod test {
 
     use tap_core::tap_manager::SignedReceipt;
     use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
-    use toolshed::thegraph::DeploymentId;
 
     use crate::test_vectors;
 
@@ -166,8 +169,7 @@ mod test {
         .unwrap()
     }
 
-    #[ignore]
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_verify_and_store_receipt(pgpool: PgPool) {
         // Listen to pg_notify events
         let mut listener = PgListener::connect_with(&pgpool).await.unwrap();
@@ -186,7 +188,7 @@ mod test {
         let allocation = Allocation {
             id: allocation_id,
             subgraph_deployment: SubgraphDeployment {
-                id: DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap(),
+                id: *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT,
                 denied_at: None,
             },
             status: AllocationStatus::Active,
@@ -206,10 +208,8 @@ mod test {
         ));
 
         // Mock escrow accounts
-        let escrow_accounts = Eventual::from_value(HashMap::from_iter(vec![(
-            *test_vectors::INDEXER_ADDRESS,
-            U256::from(123),
-        )]));
+        let escrow_accounts =
+            Eventual::from_value(HashMap::from_iter(vec![(keys().1, U256::from(123))]));
 
         let tap_manager =
             TapManager::new(pgpool.clone(), indexer_allocations, escrow_accounts, domain);

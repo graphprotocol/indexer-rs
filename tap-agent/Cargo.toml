@@ -1,0 +1,47 @@
+[package]
+name = "indexer-tap-agent"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "indexer-tap-agent"
+path = "src/main.rs"
+
+[dependencies]
+alloy-primitives = "0.4.2"
+alloy-sol-types = "0.4.2"
+anyhow = "1.0.72"
+async-trait = "0.1.72"
+bigdecimal = { version = "0.4.2", features = ["serde"] }
+clap = { version = "4.4.3", features = ["derive", "env"] }
+confy = "0.5.1"
+dotenvy = "0.15.7"
+ethereum-types = "0.14.1"
+eventuals = "0.6.7"
+indexer-common = { version = "0.1.0", path = "../common" }
+jsonrpsee = { version = "0.20.2", features = ["http-client", "macros"] }
+lazy_static = "1.4.0"
+reqwest = "0.11.20"
+serde = "1.0.188"
+serde_json = "1.0.104"
+serde_yaml = "0.9.25"
+sqlx = { version = "0.7.2", features = ["postgres", "runtime-tokio", "bigdecimal", "rust_decimal"] }
+tap_aggregator = "0.1.6"
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol.git", rev = "882ca394444b451538908b9996bf7d45869a1bb9" }
+thiserror = "1.0.44"
+tokio = { version = "1.33.0" }
+toolshed = { git = "https://github.com/edgeandnode/toolshed", branch = "main", features = ["graphql"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "ansi",
+    "fmt",
+    "std",
+    "json",
+] }
+
+[dev-dependencies]
+ethers-signers = "2.0.8"
+tempfile = "3.8.0"
+wiremock = "0.5.19"

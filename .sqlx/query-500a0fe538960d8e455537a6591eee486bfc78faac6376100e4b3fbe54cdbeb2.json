@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT receipt\n                FROM scalar_tap_receipts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "receipt",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "500a0fe538960d8e455537a6591eee486bfc78faac6376100e4b3fbe54cdbeb2"
+}
