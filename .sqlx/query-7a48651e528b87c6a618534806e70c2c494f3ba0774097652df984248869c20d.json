@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                    UPDATE scalar_tap_ravs\n                    SET is_last = true\n                    WHERE allocation_id = $1 AND sender_address = $2\n                    RETURNING *\n                ",
+  "query": "\n                    UPDATE scalar_tap_ravs\n                    SET final = true\n                    WHERE allocation_id = $1 AND sender_address = $2\n                    RETURNING *\n                ",
   "describe": {
     "columns": [
       {
@@ -20,7 +20,7 @@
       },
       {
         "ordinal": 3,
-        "name": "is_last",
+        "name": "final",
         "type_info": "Bool"
       }
     ],
@@ -37,5 +37,5 @@
       false
     ]
   },
-  "hash": "d47a86f9686f9c72d2d5047d4c315adf6a3900d89553bdec541201fd3e282d83"
+  "hash": "7a48651e528b87c6a618534806e70c2c494f3ba0774097652df984248869c20d"
 }

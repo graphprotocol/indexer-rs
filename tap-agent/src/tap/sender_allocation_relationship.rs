@@ -351,7 +351,7 @@ impl SenderAllocationRelationship {
             let updated_rows = sqlx::query!(
                 r#"
                     UPDATE scalar_tap_ravs
-                    SET is_last = true
+                    SET final = true
                     WHERE allocation_id = $1 AND sender_address = $2
                     RETURNING *
                 "#,
