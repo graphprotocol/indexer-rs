@@ -31,7 +31,9 @@ sqlx = { version = "0.7.1", features = [
 ] }
 tokio = { version = "1.32.0", features = ["full", "macros", "rt"] }
 thegraph = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
+graphql-http = { git = "https://github.com/edgeandnode/toolshed", branch = "main", features = [
+  "http-reqwest",
+] }
 tap_core = "0.7.0"
 axum = { version = "0.6.20", default_features = true, features = ["headers"] }
 thiserror = "1.0.49"
