@@ -7,11 +7,10 @@ use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{timer, Eventual, EventualExt};
 use serde::Deserialize;
-use serde_json::json;
 use tokio::time::sleep;
 use tracing::warn;
 
-use crate::prelude::SubgraphClient;
+use crate::prelude::{Query, SubgraphClient};
 
 use super::Allocation;
 
@@ -22,7 +21,7 @@ async fn current_epoch(
     // Types for deserializing the network subgraph response
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
-    struct GraphNetworkResponse {
+    struct GraphNetworkData {
         graph_network: Option<GraphNetwork>,
     }
     #[derive(Deserialize)]
@@ -33,31 +32,15 @@ async fn current_epoch(
 
     // Query the current epoch
     let query = r#"query epoch($id: ID!) { graphNetwork(id: $id) { currentEpoch } }"#;
-    let response = network_subgraph
-        .query::<GraphNetworkResponse>(&json!({
-            "query": query,
-            "variables": {
-                "id": graph_network_id
-            }
-        }))
+    let result = network_subgraph
+        .query::<GraphNetworkData>(Query::new_with_variables(
+            query,
+            [("id", graph_network_id.into())],
+        ))
         .await?;
 
-    if !response.errors.is_empty() {
-        warn!(
-            "Errors encountered identifying current epoch for network {}: {}",
-            graph_network_id,
-            response
-                .errors
-                .into_iter()
-                .map(|e| e.message)
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    }
-
-    response
-        .data
-        .and_then(|data| data.graph_network)
+    result?
+        .graph_network
         .ok_or_else(|| anyhow!("Network {} not found", graph_network_id))
         .map(|network| network.current_epoch)
 }
@@ -138,42 +121,35 @@ pub fn indexer_allocations(
             // Query active and recently closed allocations for the indexer,
             // using the network subgraph
             let response = network_subgraph
-                .query::<IndexerAllocationsResponse>(&json!({
-                "query": query,
-                "variables": {
-                    "indexer": format!("{indexer_address:?}"),
-                    "closedAtEpochThreshold": closed_at_epoch_threshold,
-                }}))
+                .query::<IndexerAllocationsResponse>(Query::new_with_variables(
+                    query,
+                    [
+                        ("indexer", format!("{indexer_address:?}").into()),
+                        ("closedAtEpochThreshold", closed_at_epoch_threshold.into()),
+                    ],
+                ))
                 .await
                 .map_err(|e| e.to_string())?;
 
-            // If there are any GraphQL errors returned, we'll log them for debugging
-            if !response.errors.is_empty() {
-                warn!(
-                    "Errors encountered fetching active or recently closed allocations for indexer {:?}: {}",
-                    indexer_address,
-                    response.errors.into_iter().map(|e| e.message).collect::<Vec<_>>().join(", ")
-                );
-            }
-
-            // Verify that the indexer could be found at all
-            let indexer = response
-                .data
-                .and_then(|data| data.indexer)
-                .ok_or_else(|| format!("Indexer {:?} could not be found on the network", indexer_address))?;
+            let indexer = response.map_err(|e| e.to_string()).and_then(|data| {
+                // Verify that the indexer could be found at all
+                data.indexer
+                    .ok_or_else(|| format!("Indexer `{indexer_address}` not found on the network"))
+            })?;
 
             // Pull active and recently closed allocations out of the indexer
             let Indexer {
                 active_allocations,
-                recently_closed_allocations
+                recently_closed_allocations,
             } = indexer;
 
             Ok(HashMap::from_iter(
-                active_allocations.into_iter().map(|a| (a.id, a)).chain(
-                    recently_closed_allocations.into_iter().map(|a| (a.id, a)))
+                active_allocations
+                    .into_iter()
+                    .map(|a| (a.id, a))
+                    .chain(recently_closed_allocations.into_iter().map(|a| (a.id, a))),
             ))
         },
-
         // Need to use string errors here because eventuals `map_with_retry` retries
         // errors that can be cloned
         move |err: String| {
