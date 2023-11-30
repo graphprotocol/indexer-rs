@@ -7,8 +7,7 @@ use alloy_primitives::Address;
 use async_trait::async_trait;
 use ethereum_types::U256;
 use eventuals::{timer, Eventual, EventualExt};
-use indexer_common::subgraph_client::SubgraphClient;
-use serde_json::json;
+use indexer_common::subgraph_client::{Query, SubgraphClient};
 use sqlx::PgPool;
 use tap_core::adapters::receipt_checks_adapter::ReceiptChecksAdapter as ReceiptChecksAdapterTrait;
 use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
@@ -153,45 +152,42 @@ impl ReceiptChecksAdapter {
         timer(Duration::from_millis(escrow_subgraph_polling_interval_ms)).map_with_retry(
             move |_| async move {
                 let response = escrow_subgraph
-                    .query::<TransactionsResponse>(&json!({
-                        "query": r#"
-                                    query (
-                                        $sender_id: ID!, 
-                                        $receiver_id: ID!, 
-                                        $allocation_id: String!
-                                    ) {
-                                        transactions(
-                                            where: {
-                                                and: [
-                                                    { type: "redeem" }
-                                                    { sender_: { id: $sender_id } }
-                                                    { receiver_: { id: $receiver_id } }
-                                                    { allocationID: $allocation_id }
-                                                ]
-                                            }
-                                        ) {
-                                            allocationID
-                                            sender {
-                                                id
-                                            }
-                                        }
+                    .query::<TransactionsResponse>(Query::new_with_variables(
+                        r#"
+                            query (
+                                $sender_id: ID!,
+                                $receiver_id: ID!,
+                                $allocation_id: String!
+                            ) {
+                                transactions(
+                                    where: {
+                                        and: [
+                                            { type: "redeem" }
+                                            { sender_: { id: $sender_id } }
+                                            { receiver_: { id: $receiver_id } }
+                                            { allocationID: $allocation_id }
+                                        ]
                                     }
-                                "#,
-                        "variables": {
-                            "sender_id": sender_address.to_string(),
-                            "receiver_id": indexer_address.to_string(),
-                            "allocation_id": allocation_id.to_string(),
-                        }
-                    }))
+                                ) {
+                                    allocationID
+                                    sender {
+                                        id
+                                    }
+                                }
+                            }
+                        "#,
+                        [
+                            ("sender_id", sender_address.to_string().into()),
+                            ("receiver_id", indexer_address.to_string().into()),
+                            ("allocation_id", allocation_id.to_string().into()),
+                        ],
+                    ))
                     .await
                     .map_err(|e| e.to_string())?;
-                let response = response.data.ok_or_else(|| {
-                    format!(
-                        "No data found in escrow subgraph response for allocation {} and sender {}",
-                        allocation_id, sender_address
-                    )
-                })?;
-                Ok(!response.transactions.is_empty())
+
+                response
+                    .map_err(|e| e.to_string())
+                    .map(|data| !data.transactions.is_empty())
             },
             move |error: String| {
                 error!(
