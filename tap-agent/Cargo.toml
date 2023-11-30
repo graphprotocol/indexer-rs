@@ -37,6 +37,7 @@ tap_core = "0.7.0"
 thiserror = "1.0.44"
 tokio = { version = "1.33.0" }
 thegraph = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
+graphql-http = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",
