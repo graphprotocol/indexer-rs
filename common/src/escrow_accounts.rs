@@ -8,11 +8,10 @@ use anyhow::Result;
 use ethers_core::types::U256;
 use eventuals::{timer, Eventual, EventualExt};
 use serde::Deserialize;
-use serde_json::json;
 use tokio::time::sleep;
 use tracing::{error, warn};
 
-use crate::prelude::SubgraphClient;
+use crate::prelude::{Query, SubgraphClient};
 
 pub fn escrow_accounts(
     escrow_subgraph: &'static SubgraphClient,
@@ -44,8 +43,8 @@ pub fn escrow_accounts(
     timer(interval).map_with_retry(
         move |_| async move {
             let response = escrow_subgraph
-                .query::<EscrowAccountsResponse>(&json!({
-                    "query": r#"
+                .query::<EscrowAccountsResponse>(Query::new_with_variables(
+                    r#"
                         query ($indexer: ID!) {
                             escrowAccounts(where: {receiver_: {id: $indexer}}) {
                                 balance
@@ -56,52 +55,33 @@ pub fn escrow_accounts(
                             }
                         }
                     "#,
-                    "variables": {
-                        "indexer": indexer_address,
-                    }
-                  }
+                    [("indexer", indexer_address.to_string().into())],
                 ))
                 .await
                 .map_err(|e| e.to_string())?;
 
-            // If there are any GraphQL errors returned, we'll log them for debugging
-            if !response.errors.is_empty() {
-                error!(
-                    "Errors encountered fetching escrow accounts for indexer {:?}: {}",
-                    indexer_address,
-                    response
-                        .errors
-                        .into_iter()
-                        .map(|e| e.message)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            }
+            response.map_err(|e| e.to_string()).and_then(|data| {
+                data.escrow_accounts
+                    .iter()
+                    .map(|account| {
+                        let balance = U256::checked_sub(
+                            U256::from_dec_str(&account.balance)?,
+                            U256::from_dec_str(&account.total_amount_thawing)?,
+                        )
+                        .unwrap_or_else(|| {
+                            warn!(
+                                "Balance minus total amount thawing underflowed for account {}. \
+                                 Setting balance to 0, no queries will be served for this sender.",
+                                account.sender.id
+                            );
+                            U256::from(0)
+                        });
 
-            let sender_accounts = response
-                .data
-                .map_or(vec![], |data| data.escrow_accounts)
-                .iter()
-                .map(|account| {
-                    let balance = U256::checked_sub(
-                        U256::from_dec_str(&account.balance)?,
-                        U256::from_dec_str(&account.total_amount_thawing)?,
-                    )
-                    .unwrap_or_else(|| {
-                        warn!(
-                            "Balance minus total amount thawing underflowed for account {}. \
-                             Setting balance to 0, no queries will be served for this sender.",
-                            account.sender.id
-                        );
-                        U256::from(0)
-                    });
-
-                    Ok((account.sender.id, balance))
-                })
-                .collect::<Result<HashMap<_, _>, anyhow::Error>>()
-                .map_err(|e| format!("{}", e))?;
-
-            Ok(sender_accounts)
+                        Ok((account.sender.id, balance))
+                    })
+                    .collect::<Result<HashMap<_, _>, anyhow::Error>>()
+                    .map_err(|e| format!("{}", e))
+            })
         },
         move |err: String| {
             error!(
