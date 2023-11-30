@@ -3129,6 +3129,7 @@ dependencies = [
  "ethereum-types",
  "ethers-signers",
  "eventuals",
+ "graphql-http",
  "indexer-common",
  "jsonrpsee 0.20.2",
  "lazy_static",
