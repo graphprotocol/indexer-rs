@@ -180,8 +180,14 @@ impl IndexerService {
     {
         let metrics = IndexerServiceMetrics::new(options.metrics_prefix);
 
+        let http_client = reqwest::Client::builder()
+            .tcp_nodelay(true)
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("Failed to init HTTP client");
+
         let network_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
+            http_client.clone(),
             options
                 .config
                 .graph_node
@@ -223,7 +229,7 @@ impl IndexerService {
         );
 
         let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
+            http_client,
             options
                 .config
                 .graph_node
