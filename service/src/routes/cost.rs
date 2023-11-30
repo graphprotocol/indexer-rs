@@ -1,19 +1,15 @@
-// Copyright 2023-, GraphOps and Semiotic Labs.
-// SPDX-License-Identifier: Apache-2.0
-
 use std::str::FromStr;
+use std::sync::Arc;
 
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
-use axum::extract::Extension;
+use axum::extract::State;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thegraph::types::DeploymentId;
 
-use crate::{
-    common::indexer_management::{self, CostModel},
-    server::ServerOptions,
-};
+use crate::database::{self, CostModel};
+use crate::SubgraphServiceState;
 
 #[derive(Clone, Debug, Serialize, Deserialize, SimpleObject)]
 pub struct GraphQlCostModel {
@@ -32,13 +28,11 @@ impl From<CostModel> for GraphQlCostModel {
     }
 }
 
-pub type CostSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
-
 #[derive(Default)]
-pub struct QueryRoot;
+pub struct Query;
 
 #[Object]
-impl QueryRoot {
+impl Query {
     async fn cost_models(
         &self,
         ctx: &Context<'_>,
@@ -48,8 +42,8 @@ impl QueryRoot {
             .into_iter()
             .map(|s| DeploymentId::from_str(&s))
             .collect::<Result<Vec<DeploymentId>, _>>()?;
-        let pool = &ctx.data_unchecked::<ServerOptions>().indexer_management_db;
-        let cost_models = indexer_management::cost_models(pool, &deployment_ids).await?;
+        let pool = &ctx.data_unchecked::<Arc<SubgraphServiceState>>().database;
+        let cost_models = database::cost_models(pool, &deployment_ids).await?;
         Ok(cost_models.into_iter().map(|m| m.into()).collect())
     }
 
@@ -59,20 +53,26 @@ impl QueryRoot {
         deployment: String,
     ) -> Result<Option<GraphQlCostModel>, anyhow::Error> {
         let deployment_id = DeploymentId::from_str(&deployment)?;
-        let pool = &ctx.data_unchecked::<ServerOptions>().indexer_management_db;
-        indexer_management::cost_model(pool, &deployment_id)
+        let pool = &ctx.data_unchecked::<Arc<SubgraphServiceState>>().database;
+        database::cost_model(pool, &deployment_id)
             .await
             .map(|model_opt| model_opt.map(GraphQlCostModel::from))
     }
 }
 
-pub(crate) async fn graphql_handler(
+pub type CostSchema = Schema<Query, EmptyMutation, EmptySubscription>;
+
+pub async fn build_schema() -> CostSchema {
+    Schema::build(Query, EmptyMutation, EmptySubscription).finish()
+}
+
+pub async fn cost(
+    State(state): State<Arc<SubgraphServiceState>>,
     req: GraphQLRequest,
-    Extension(schema): Extension<CostSchema>,
-    Extension(server_options): Extension<ServerOptions>,
 ) -> GraphQLResponse {
-    schema
-        .execute(req.into_inner().data(server_options))
+    state
+        .cost_schema
+        .execute(req.into_inner().data(state.clone()))
         .await
         .into()
 }
