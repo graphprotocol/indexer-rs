@@ -66,6 +66,7 @@ impl TapManager {
                 error!("Failed to recover receipt signer: {}", e);
                 anyhow!(e)
             })?;
+
         if !self
             .escrow_accounts
             .value_immediate()
@@ -88,7 +89,7 @@ impl TapManager {
             format!("{:?}", allocation_id)
                 .trim_start_matches("0x")
                 .to_owned(),
-                receipt_signer
+            receipt_signer
                 .to_string()
                 .trim_start_matches("0x")
                 .to_owned(),
