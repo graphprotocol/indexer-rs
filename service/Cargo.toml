@@ -10,8 +10,8 @@ license = "Apache-2.0"
 [dependencies]
 indexer-common = { path = "../common" }
 confy = "0.5.1"
-ethers-core = "2.0.10"
-ethers = "2.0.10"
+ethers-core = "2.0.11"
+ethers = "2.0.11"
 eventuals = "0.6.7"
 dotenvy = "0.15"
 log = "0.4.17"
@@ -22,7 +22,7 @@ tracing = "0.1.34"
 thiserror = "1.0.49"
 serde = { version = "1.0", features = ["rc", "derive"] }
 serde_json = "1"
-axum = "0.5"
+axum = "0.6.20"
 hyper = "0.14.27"
 tower = { version = "0.4", features = ["util", "timeout", "limit"] }
 tower-http = { version = "0.4.0", features = [
@@ -30,10 +30,9 @@ tower-http = { version = "0.4.0", features = [
     "trace",
     "cors",
 ] }
-toml = "0.8.8"
 once_cell = "1.17"
-async-graphql = "4.0.16"
-async-graphql-axum = "4.0.16"
+async-graphql = "6.0.11"
+async-graphql-axum = "6.0.11"
 sha3 = "0.10.6"
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",
@@ -59,8 +58,16 @@ alloy-primitives = { version = "0.5.2", features = ["serde"] }
 alloy-sol-types = "0.5.2"
 lazy_static = "1.4.0"
 thegraph = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
+graphql = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
+graphql-http = { git = "https://github.com/edgeandnode/toolshed", branch = "main", features = [
+    "http-reqwest",
+] }
 build-info = "0.0.34"
+figment = { version = "0.10", features = ["toml", "env"] }
+
+# FIXME: Needed due to a serde_spanned version conflict between
+# `ethers` and `figment`.
+serde_spanned = "=0.6.4"
 
 [dev-dependencies]
 faux = "0.1.10"
