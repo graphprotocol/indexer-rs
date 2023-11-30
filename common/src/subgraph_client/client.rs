@@ -3,14 +3,76 @@
 
 use anyhow::anyhow;
 use eventuals::Eventual;
-use graphql_http::http::response::ResponseBody;
+use graphql_http::{
+    graphql::{Document, IntoDocument},
+    http::request::{IntoRequestParameters, RequestParameters},
+    http_client::{ReqwestExt, ResponseResult},
+};
 use reqwest::{header, Url};
 use serde::de::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use thegraph::types::DeploymentId;
 use tracing::warn;
 
 use super::monitor::{monitor_deployment_status, DeploymentStatus};
+
+#[derive(Clone)]
+pub struct Query {
+    pub query: Document,
+    pub variables: Map<String, Value>,
+}
+
+impl Query {
+    pub fn new(query: &str) -> Self {
+        Self {
+            query: query.into_document(),
+            variables: Map::default(),
+        }
+    }
+
+    pub fn new_with_variables(
+        query: impl IntoDocument,
+        variables: impl Into<QueryVariables>,
+    ) -> Self {
+        Self {
+            query: query.into_document(),
+            variables: variables.into().into(),
+        }
+    }
+}
+
+pub struct QueryVariables(Map<String, Value>);
+
+impl<'a, T> From<T> for QueryVariables
+where
+    T: IntoIterator<Item = (&'a str, Value)>,
+{
+    fn from(variables: T) -> Self {
+        Self(
+            variables
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect::<Map<_, _>>(),
+        )
+    }
+}
+
+impl From<QueryVariables> for Map<String, Value> {
+    fn from(variables: QueryVariables) -> Self {
+        variables.0
+    }
+}
+
+impl IntoRequestParameters for Query {
+    fn into_request_parameters(self) -> RequestParameters {
+        RequestParameters {
+            query: self.query.into_document(),
+            variables: self.variables,
+            extensions: Map::default(),
+            operation_name: None,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct DeploymentDetails {
@@ -61,8 +123,8 @@ impl DeploymentClient {
 
     pub async fn query<T: for<'de> Deserialize<'de>>(
         &self,
-        body: &Value,
-    ) -> Result<ResponseBody<T>, anyhow::Error> {
+        query: impl IntoRequestParameters + Send,
+    ) -> Result<ResponseResult<T>, anyhow::Error> {
         if let Some(ref status) = self.status {
             let deployment_status = status.value().await.expect("reading deployment status");
 
@@ -77,13 +139,8 @@ impl DeploymentClient {
         Ok(self
             .http_client
             .post(self.query_url.as_ref())
-            .json(body)
             .header(header::USER_AGENT, "indexer-common")
-            .header(header::CONTENT_TYPE, "application/json")
-            .send()
-            .await
-            .and_then(|response| response.error_for_status())?
-            .json::<ResponseBody<T>>()
+            .send_graphql(query)
             .await?)
     }
 }
@@ -108,12 +165,12 @@ impl SubgraphClient {
 
     pub async fn query<T: for<'de> Deserialize<'de>>(
         &self,
-        body: &Value,
-    ) -> Result<ResponseBody<T>, anyhow::Error> {
+        query: impl IntoRequestParameters + Send + Clone,
+    ) -> Result<ResponseResult<T>, anyhow::Error> {
         // Try the local client first; if that fails, log the error and move on
         // to the remote client
         if let Some(ref local_client) = self.local_client {
-            match local_client.query(body).await {
+            match local_client.query(query.clone()).await {
                 Ok(response) => return Ok(response),
                 Err(err) => warn!(
                     "Failed to query local subgraph deployment `{}`, trying remote deployment next: {}",
@@ -123,7 +180,7 @@ impl SubgraphClient {
         }
 
         // Try the remote client
-        self.remote_client.query(body).await.map_err(|err| {
+        self.remote_client.query(query).await.map_err(|err| {
             warn!(
                 "Failed to query remote subgraph deployment `{}`: {}",
                 self.remote_client.query_url, err
@@ -158,13 +215,13 @@ mod test {
             )))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
                 r#"
-                    {
-                        "data": {
-                            "graphNetwork": {
-                                "currentEpoch": 960
-                            }
+                {
+                    "data": {
+                        "graphNetwork": {
+                            "currentEpoch": 960
                         }
                     }
+                }
                 "#,
                 "application/json",
             ));
@@ -187,19 +244,19 @@ mod test {
 
         // Check that the response is valid JSON
         let result = network_subgraph_client()
-            .query::<Value>(&json!({
-                "query": r#"
+            .query::<Value>(Query::new(
+                r#"
                 query {
                  	graphNetwork(id: 1) {
                  		currentEpoch
                  	}
                 }
-            "#,
-            }))
+                "#,
+            ))
             .await
             .unwrap();
 
-        assert!(result.data.is_some());
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
@@ -273,12 +330,13 @@ mod test {
         );
 
         // Query the subgraph
-        let response: ResponseBody<Value> = client
-            .query(&json!({ "query": "{ user(id: 1} { name } }"}))
+        let data = client
+            .query::<Value>(Query::new("{ user(id: 1} { name } }"))
             .await
-            .unwrap();
+            .expect("Query should succeed")
+            .expect("Query result should have a value");
 
-        assert_eq!(response.data, Some(json!({ "user": { "name": "local" } })));
+        assert_eq!(data, json!({ "user": { "name": "local" } }));
     }
 
     #[tokio::test]
@@ -352,12 +410,13 @@ mod test {
         );
 
         // Query the subgraph
-        let response: ResponseBody<Value> = client
-            .query(&json!({ "query": "{ user(id: 1} { name } }"}))
+        let data = client
+            .query::<Value>(Query::new("{ user(id: 1} { name } }"))
             .await
-            .unwrap();
+            .expect("Query should succeed")
+            .expect("Query result should have a value");
 
-        assert_eq!(response.data, Some(json!({ "user": { "name": "remote" } })));
+        assert_eq!(data, json!({ "user": { "name": "remote" } }));
     }
 
     #[tokio::test]
@@ -431,11 +490,12 @@ mod test {
         );
 
         // Query the subgraph
-        let response: ResponseBody<Value> = client
-            .query(&json!({ "query": "{ user(id: 1} { name } }"}))
+        let data = client
+            .query::<Value>(Query::new("{ user(id: 1} { name } }"))
             .await
-            .unwrap();
+            .expect("Query should succeed")
+            .expect("Query result should have a value");
 
-        assert_eq!(response.data, Some(json!({ "user": { "name": "remote" } })));
+        assert_eq!(data, json!({ "user": { "name": "remote" } }));
     }
 }
