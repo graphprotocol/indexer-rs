@@ -4,4 +4,4 @@
 mod client;
 mod monitor;
 
-pub use client::{DeploymentDetails, SubgraphClient};
+pub use client::{DeploymentDetails, Query, QueryVariables, SubgraphClient};

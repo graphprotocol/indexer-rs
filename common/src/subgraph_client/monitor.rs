@@ -4,8 +4,8 @@
 use std::time::Duration;
 
 use eventuals::{timer, Eventual, EventualExt};
-use graphql_http::http::response::ResponseBody;
-use reqwest::{header, Url};
+use graphql_http::http_client::{ReqwestExt, ResponseResult};
+use reqwest::Url;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use thegraph::types::DeploymentId;
@@ -27,16 +27,13 @@ pub struct DeploymentStatus {
 async fn query<T: for<'de> Deserialize<'de>>(
     url: Url,
     body: &Value,
-) -> Result<ResponseBody<T>, reqwest::Error> {
-    reqwest::Client::new()
+) -> Result<ResponseResult<T>, anyhow::Error> {
+    let serialized_body = serde_json::to_string(body)?;
+
+    Ok(reqwest::Client::new()
         .post(url)
-        .json(body)
-        .header(header::CONTENT_TYPE, "application/json")
-        .send()
-        .await
-        .and_then(|response| response.error_for_status())?
-        .json::<ResponseBody<T>>()
-        .await
+        .send_graphql(serialized_body)
+        .await?)
 }
 
 pub fn monitor_deployment_status(
@@ -68,24 +65,11 @@ pub fn monitor_deployment_status(
                         format!("Failed to query status of deployment `{deployment}`: {e}")
                     })?;
 
-                if !response.errors.is_empty() {
-                    warn!(
-                        "Errors encountered querying the deployment status for `{}`: {}",
-                        deployment,
-                        response
-                            .errors
-                            .into_iter()
-                            .map(|e| e.message)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    );
-                }
-
-                response
-                    .data
-                    .and_then(|data| data.indexing_statuses)
-                    .and_then(|data| data.get(0).map(Clone::clone))
-                    .ok_or_else(|| format!("Deployment `{}` not found", deployment))
+                response.map_err(|e| format!("{e}")).and_then(|data| {
+                    data.indexing_statuses
+                        .and_then(|statuses| statuses.get(0).map(Clone::clone))
+                        .ok_or_else(|| format!("Deployment `{deployment}` not found"))
+                })
             }
         },
         move |err: String| async move {
