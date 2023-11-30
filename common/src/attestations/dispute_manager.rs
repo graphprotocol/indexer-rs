@@ -6,11 +6,10 @@ use std::time::Duration;
 use alloy_primitives::Address;
 use eventuals::{timer, Eventual, EventualExt};
 use serde::Deserialize;
-use serde_json::json;
 use tokio::time::sleep;
 use tracing::warn;
 
-use crate::subgraph_client::SubgraphClient;
+use crate::subgraph_client::{Query, SubgraphClient};
 
 pub fn dispute_manager(
     network_subgraph: &'static SubgraphClient,
@@ -32,41 +31,26 @@ pub fn dispute_manager(
     timer(interval).map_with_retry(
         move |_| async move {
             let response = network_subgraph
-                .query::<DisputeManagerResponse>(&json!({
-                    "query": r#"
+                .query::<DisputeManagerResponse>(Query::new_with_variables(
+                    r#"
                         query network($id: ID!) {
                             graphNetwork(id: $id) {
                                 disputeManager
                             }
                         }
                     "#,
-                    "variables": {
-                        "id": graph_network_id
-                    }
-                }))
+                    [("id", graph_network_id.into())],
+                ))
                 .await
                 .map_err(|e| e.to_string())?;
 
-            if !response.errors.is_empty() {
-                warn!(
-                    "Errors encountered querying the dispute manager for network {}: {}",
-                    graph_network_id,
-                    response
-                        .errors
-                        .into_iter()
-                        .map(|e| e.message)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            }
-
-            response
-                .data
-                .and_then(|data| data.graph_network)
-                .map(|network| network.dispute_manager)
-                .ok_or_else(|| {
-                    format!("Network {} not found in network subgraph", graph_network_id)
-                })
+            response.map_err(|e| e.to_string()).and_then(|data| {
+                data.graph_network
+                    .map(|network| network.dispute_manager)
+                    .ok_or_else(|| {
+                        format!("Network {} not found in network subgraph", graph_network_id)
+                    })
+            })
         },
         move |err: String| {
             warn!(
