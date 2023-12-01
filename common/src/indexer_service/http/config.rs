@@ -36,6 +36,7 @@ pub struct IndexerServiceConfig {
     pub network_subgraph: SubgraphConfig,
     pub escrow_subgraph: SubgraphConfig,
     pub graph_network: GraphNetworkConfig,
+    pub scalar: ScalarConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -53,4 +54,10 @@ pub struct GraphNetworkConfig {
 pub struct IndexerConfig {
     pub indexer_address: Address,
     pub operator_mnemonic: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ScalarConfig {
+    pub chain_id: u64,
+    pub receipts_verifier_address: Address,
 }
