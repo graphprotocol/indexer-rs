@@ -5,7 +5,7 @@ use clap::{command, Args, Parser, ValueEnum};
 
 use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 
 use crate::util::init_tracing;
 

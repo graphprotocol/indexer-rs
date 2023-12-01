@@ -3,11 +3,11 @@
 
 use anyhow::anyhow;
 use eventuals::Eventual;
-use graphql::http::Response;
+use graphql_http::http::response::ResponseBody;
 use reqwest::{header, Url};
 use serde::de::Deserialize;
 use serde_json::Value;
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 use tracing::warn;
 
 use super::monitor::{monitor_deployment_status, DeploymentStatus};
@@ -62,7 +62,7 @@ impl DeploymentClient {
     pub async fn query<T: for<'de> Deserialize<'de>>(
         &self,
         body: &Value,
-    ) -> Result<Response<T>, anyhow::Error> {
+    ) -> Result<ResponseBody<T>, anyhow::Error> {
         if let Some(ref status) = self.status {
             let deployment_status = status.value().await.expect("reading deployment status");
 
@@ -83,7 +83,7 @@ impl DeploymentClient {
             .send()
             .await
             .and_then(|response| response.error_for_status())?
-            .json::<Response<T>>()
+            .json::<ResponseBody<T>>()
             .await?)
     }
 }
@@ -109,7 +109,7 @@ impl SubgraphClient {
     pub async fn query<T: for<'de> Deserialize<'de>>(
         &self,
         body: &Value,
-    ) -> Result<Response<T>, anyhow::Error> {
+    ) -> Result<ResponseBody<T>, anyhow::Error> {
         // Try the local client first; if that fails, log the error and move on
         // to the remote client
         if let Some(ref local_client) = self.local_client {
@@ -273,7 +273,7 @@ mod test {
         );
 
         // Query the subgraph
-        let response: Response<Value> = client
+        let response: ResponseBody<Value> = client
             .query(&json!({ "query": "{ user(id: 1} { name } }"}))
             .await
             .unwrap();
@@ -352,7 +352,7 @@ mod test {
         );
 
         // Query the subgraph
-        let response: Response<Value> = client
+        let response: ResponseBody<Value> = client
             .query(&json!({ "query": "{ user(id: 1} { name } }"}))
             .await
             .unwrap();
@@ -431,7 +431,7 @@ mod test {
         );
 
         // Query the subgraph
-        let response: Response<Value> = client
+        let response: ResponseBody<Value> = client
             .query(&json!({ "query": "{ user(id: 1} { name } }"}))
             .await
             .unwrap();

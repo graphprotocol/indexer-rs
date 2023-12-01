@@ -97,6 +97,8 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
     async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
         &self,
         timestamp_range_ns: R,
+        // TODO: Make use of this limit in this function
+        _receipts_limit: Option<u64>,
     ) -> Result<Vec<(u64, ReceivedReceipt)>, Self::AdapterError> {
         let records = sqlx::query!(
             r#"
@@ -210,7 +212,8 @@ mod test {
 
         // Retrieving receipts in timestamp range from the database, convert to json Value
         let recovered_received_receipt_vec = storage_adapter
-            .retrieve_receipts_in_timestamp_range(range)
+            // TODO: Make use of the receipt limit if it makes sense here
+            .retrieve_receipts_in_timestamp_range(range, None)
             .await?
             .iter()
             .map(|(id, received_receipt)| {

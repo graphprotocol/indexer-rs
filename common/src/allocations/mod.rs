@@ -4,7 +4,7 @@
 use alloy_primitives::Address;
 use ethers_core::types::U256;
 use serde::{Deserialize, Deserializer};
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 
 pub mod monitor;
 

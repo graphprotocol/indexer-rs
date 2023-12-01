@@ -8,7 +8,7 @@ use bigdecimal::{BigDecimal, ToPrimitive};
 use clap::{command, Args, Parser, ValueEnum};
 use dotenvy::dotenv;
 use serde::{Deserialize, Serialize};
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 use tracing::subscriber::{set_global_default, SetGlobalDefaultError};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 

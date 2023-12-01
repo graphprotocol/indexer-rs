@@ -4,12 +4,12 @@
 use std::time::Duration;
 
 use eventuals::{timer, Eventual, EventualExt};
-use graphql::http::Response;
+use graphql_http::http::response::ResponseBody;
 use reqwest::{header, Url};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use thegraph::types::DeploymentId;
 use tokio::time::sleep;
-use toolshed::thegraph::DeploymentId;
 use tracing::warn;
 
 #[derive(Deserialize)]
@@ -27,7 +27,7 @@ pub struct DeploymentStatus {
 async fn query<T: for<'de> Deserialize<'de>>(
     url: Url,
     body: &Value,
-) -> Result<Response<T>, reqwest::Error> {
+) -> Result<ResponseBody<T>, reqwest::Error> {
     reqwest::Client::new()
         .post(url)
         .json(body)
@@ -35,7 +35,7 @@ async fn query<T: for<'de> Deserialize<'de>>(
         .send()
         .await
         .and_then(|response| response.error_for_status())?
-        .json::<Response<T>>()
+        .json::<ResponseBody<T>>()
         .await
 }
 
@@ -68,11 +68,12 @@ pub fn monitor_deployment_status(
                         format!("Failed to query status of deployment `{deployment}`: {e}")
                     })?;
 
-                if let Some(errors) = response.errors {
+                if !response.errors.is_empty() {
                     warn!(
                         "Errors encountered querying the deployment status for `{}`: {}",
                         deployment,
-                        errors
+                        response
+                            .errors
                             .into_iter()
                             .map(|e| e.message)
                             .collect::<Vec<_>>()

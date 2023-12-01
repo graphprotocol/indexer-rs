@@ -116,7 +116,7 @@ impl ReceiptChecksAdapterTrait for ReceiptChecksAdapter {
         Ok(true)
     }
 
-    async fn is_valid_gateway_id(&self, gateway_id: Address) -> Result<bool, Self::AdapterError> {
+    async fn is_valid_sender_id(&self, sender_id: Address) -> Result<bool, Self::AdapterError> {
         let escrow_accounts =
             self.escrow_accounts
                 .value()
@@ -126,7 +126,7 @@ impl ReceiptChecksAdapterTrait for ReceiptChecksAdapter {
                 })?;
 
         Ok(escrow_accounts
-            .get(&gateway_id)
+            .get(&sender_id)
             .map_or(false, |balance| *balance > U256::from(0)))
     }
 }

@@ -9,8 +9,7 @@ use indexer_common::tap_manager::TapManager;
 use log::error;
 use serde::{Deserialize, Serialize};
 use tap_core::tap_manager::SignedReceipt;
-use toolshed::thegraph::attestation::Attestation;
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::{attestation::Attestation, DeploymentId};
 
 use indexer_common::indexer_errors::{IndexerError, IndexerErrorCause, IndexerErrorCode};
 use indexer_common::prelude::AttestationSigner;
