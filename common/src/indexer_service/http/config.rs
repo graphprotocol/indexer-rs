@@ -13,14 +13,7 @@ pub struct DatabaseConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct NetworkSubgraphConfig {
-    pub deployment: Option<DeploymentId>,
-    pub query_url: String,
-    pub syncing_interval: u64,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct EscrowSubgraphConfig {
+pub struct SubgraphConfig {
     pub deployment: Option<DeploymentId>,
     pub query_url: String,
     pub syncing_interval: u64,
@@ -40,8 +33,8 @@ pub struct IndexerServiceConfig {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub graph_node: Option<GraphNodeConfig>,
-    pub network_subgraph: NetworkSubgraphConfig,
-    pub escrow_subgraph: EscrowSubgraphConfig,
+    pub network_subgraph: SubgraphConfig,
+    pub escrow_subgraph: SubgraphConfig,
     pub graph_network: GraphNetworkConfig,
 }
 
