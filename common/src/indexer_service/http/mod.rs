@@ -8,8 +8,8 @@ mod request_handler;
 mod scalar_receipt_header;
 
 pub use config::{
-    DatabaseConfig, EscrowSubgraphConfig, GraphNetworkConfig, IndexerConfig, IndexerServiceConfig,
-    NetworkSubgraphConfig, ServerConfig,
+    DatabaseConfig, GraphNetworkConfig, IndexerConfig, IndexerServiceConfig, ServerConfig,
+    SubgraphConfig,
 };
 pub use indexer_service::{
     IndexerService, IndexerServiceImpl, IndexerServiceOptions, IndexerServiceRelease, IsAttestable,
