@@ -263,11 +263,11 @@ impl IndexerService {
             database,
             allocations,
             escrow_accounts,
-            // TODO: arguments for eip712_domain should be a config
             eip712_domain! {
                 name: "TapManager",
                 version: "1",
-                verifying_contract: options.config.indexer.indexer_address,
+                chain_id: options.config.scalar.chain_id,
+                verifying_contract: options.config.scalar.receipts_verifier_address,
             },
         );
 
