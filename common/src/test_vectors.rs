@@ -6,7 +6,7 @@ use std::{collections::HashMap, str::FromStr};
 use alloy_primitives::Address;
 use ethers_core::types::U256;
 use lazy_static::lazy_static;
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 
 use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
 

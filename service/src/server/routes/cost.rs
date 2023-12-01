@@ -8,7 +8,7 @@ use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::extract::Extension;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 
 use crate::{
     common::indexer_management::{self, CostModel},

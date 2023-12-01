@@ -283,7 +283,6 @@ impl SenderAllocationRelationship {
 
     async fn rav_requester_try(inner: &Arc<Inner>) -> anyhow::Result<()> {
         loop {
-            // TODO: limit the number of receipts to aggregate per request.
             let RAVRequest {
                 valid_receipts,
                 previous_rav,
@@ -291,7 +290,11 @@ impl SenderAllocationRelationship {
                 expected_rav,
             } = inner
                 .tap_manager
-                .create_rav_request(inner.config.tap.rav_request_timestamp_buffer_ms * 1_000_000)
+                .create_rav_request(
+                    inner.config.tap.rav_request_timestamp_buffer_ms * 1_000_000,
+                    // TODO: limit the number of receipts to aggregate per request.
+                    None,
+                )
                 .await?;
 
             // TODO: Request compression and response decompression. Also a fancy user agent?

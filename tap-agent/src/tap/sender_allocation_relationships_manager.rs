@@ -308,7 +308,7 @@ mod tests {
         subgraph_client::DeploymentDetails,
     };
     use serde_json::json;
-    use toolshed::thegraph::DeploymentId;
+    use thegraph::types::DeploymentId;
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockServer, ResponseTemplate,

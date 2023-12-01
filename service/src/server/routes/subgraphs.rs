@@ -8,7 +8,7 @@ use axum::{
     Json,
 };
 use std::str::FromStr;
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 use tracing::trace;
 
 use crate::{

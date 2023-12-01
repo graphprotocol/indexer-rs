@@ -65,11 +65,12 @@ pub fn escrow_accounts(
                 .map_err(|e| e.to_string())?;
 
             // If there are any GraphQL errors returned, we'll log them for debugging
-            if let Some(errors) = response.errors {
+            if !response.errors.is_empty() {
                 error!(
                     "Errors encountered fetching escrow accounts for indexer {:?}: {}",
                     indexer_address,
-                    errors
+                    response
+                        .errors
                         .into_iter()
                         .map(|e| e.message)
                         .collect::<Vec<_>>()

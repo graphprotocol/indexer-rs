@@ -36,12 +36,10 @@ pub async fn network_queries(
     match server.network_subgraph.query::<Value>(&body).await {
         Ok(result) => Json(json!({
             "data": result.data,
-            "errors": result.errors.map(|errors| {
-                errors
+            "errors": result.errors
                     .into_iter()
                     .map(|e| json!({ "message": e.message }))
-                    .collect::<Vec<_>>()
-            }),
+                    .collect::<Vec<_>>(),
         }))
         .into_response(),
         Err(e) => bad_request_response(&e.to_string()),

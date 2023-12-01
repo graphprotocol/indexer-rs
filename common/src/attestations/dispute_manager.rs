@@ -47,11 +47,12 @@ pub fn dispute_manager(
                 .await
                 .map_err(|e| e.to_string())?;
 
-            if let Some(errors) = response.errors {
+            if !response.errors.is_empty() {
                 warn!(
                     "Errors encountered querying the dispute manager for network {}: {}",
                     graph_network_id,
-                    errors
+                    response
+                        .errors
                         .into_iter()
                         .map(|e| e.message)
                         .collect::<Vec<_>>()

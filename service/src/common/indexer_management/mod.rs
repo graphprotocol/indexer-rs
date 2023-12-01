@@ -6,7 +6,7 @@ use std::{collections::HashSet, str::FromStr};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
-use toolshed::thegraph::{DeploymentId, DeploymentIdError};
+use thegraph::types::{DeploymentId, DeploymentIdError};
 
 /// Internal cost model representation as stored in the database.
 ///

@@ -6,8 +6,7 @@ use alloy_sol_types::Eip712Domain;
 use ethers::signers::coins_bip39::English;
 use ethers::signers::{MnemonicBuilder, Signer, Wallet};
 use ethers_core::k256::ecdsa::SigningKey;
-use toolshed::thegraph::attestation::{self, Attestation};
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::{attestation, Attestation, DeploymentId};
 
 use crate::prelude::Allocation;
 

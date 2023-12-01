@@ -4,7 +4,7 @@
 use anyhow::anyhow;
 use reqwest::{header, Client, Url};
 use std::sync::Arc;
-use toolshed::thegraph::DeploymentId;
+use thegraph::types::DeploymentId;
 
 use crate::query_processor::{QueryError, UnattestedQueryResult};
 
