@@ -11,7 +11,7 @@ jobs:
     name: cargo fmt
     runs-on: ubuntu-latest
     container: 
-      image: rust:latest
+      image: rust:1.74-bookworm
     steps:
       - uses: actions/checkout@v3
       - run: |
@@ -34,7 +34,7 @@ jobs:
         ports:
           - 5432:5432
     container: 
-      image: rust:latest
+      image: rust:1.74-bookworm
     env:
       DATABASE_URL: postgres://postgres@postgres:5432 
     steps:
@@ -77,7 +77,7 @@ jobs:
         ports:
           - 5432:5432
     container:
-      image: rust:latest
+      image: rust:1.74-bookworm
     env:
       DATABASE_URL: postgres://postgres@postgres:5432 
     steps:

@@ -1,19 +1,28 @@
 name: Build and upload Docker image
 
 on:
-  release:
-    types: [published]
   push:
     tags:
       - "*.*.*"
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 env:
-  REGISTRY: ghcr.io
-  BASE_NAME: graphops/indexer-service-rs
+  REGISTRY: ghcr.io/${{ github.repository_owner }}
 
 jobs:
-  build-linux:
+  builds-linux:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        target: [indexer-service-rs, indexer-tap-agent]
+
+    permissions:
+      packages: write
 
     steps:
       - name: Checkout
@@ -25,7 +34,7 @@ jobs:
         with:
           # list of Docker images to use as base name for tags
           images: |
-            ${{ env.REGISTRY }}/${{ env.BASE_NAME }}
+            ${{ env.REGISTRY }}/${{matrix.target}}
           # generate Docker tags based on the following events/attributes
           tags: |
             type=schedule
@@ -36,20 +45,18 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}.{{patch}}
             type=semver,pattern={{major}}
             type=sha
-            latest:main
-            latest:dev
 
       - name: Log in to the Container registry
         uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.DOCKER_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
           context: ./
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
-          dockerfile: Dockerfile
+          file: Dockerfile.${{ matrix.target }}
