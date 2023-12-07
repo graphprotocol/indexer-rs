@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::HashMap, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration,
+    collections::HashMap, error::Error, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc,
+    time::Duration,
 };
 
 use alloy_primitives::Address;
@@ -22,7 +23,7 @@ use eventuals::Eventual;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
-use thegraph::types::DeploymentId;
+use thegraph::types::{Attestation, DeploymentId};
 use thiserror::Error;
 use tokio::signal;
 use tower::ServiceBuilder;
@@ -40,15 +41,20 @@ use crate::{
 
 use super::{request_handler::request_handler, IndexerServiceConfig};
 
-pub trait IsAttestable {
+pub trait IndexerServiceResponse {
+    type Data: IntoResponse;
+    type Error: Error;
+
     fn is_attestable(&self) -> bool;
+    fn as_str<'a>(&'a self) -> Result<&'a str, Self::Error>;
+    fn finalize(self, attestation: Option<Attestation>) -> Self::Data;
 }
 
 #[async_trait]
 pub trait IndexerServiceImpl {
     type Error: std::error::Error;
     type Request: DeserializeOwned + Send + Debug + Serialize;
-    type Response: IntoResponse + Serialize + IsAttestable;
+    type Response: IndexerServiceResponse + Sized;
     type State: Send + Sync;
 
     async fn process_request(
