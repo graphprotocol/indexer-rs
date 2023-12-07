@@ -60,6 +60,7 @@ pub async fn status(
     request: GraphQLRequest,
 ) -> Result<impl IntoResponse, SubgraphServiceError> {
     let request = request.into_inner();
+
     let query: q::Document<String> = q::parse_query(request.query.as_str())
         .map_err(|e| SubgraphServiceError::InvalidStatusQuery(e.into()))?;
 
@@ -105,10 +106,12 @@ pub async fn status(
         .await
         .map_err(|e| SubgraphServiceError::StatusQueryError(e.into()))?;
 
-    result.map(Json).or_else(|e| match e {
-        ResponseError::Failure { errors } => Ok(Json(json!({
-            "errors": errors,
-        }))),
-        ResponseError::Empty => todo!(),
-    })
+    result
+        .map(|data| Json(json!({"data": data})))
+        .or_else(|e| match e {
+            ResponseError::Failure { errors } => Ok(Json(json!({
+                "errors": errors,
+            }))),
+            ResponseError::Empty => todo!(),
+        })
 }
