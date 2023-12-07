@@ -79,8 +79,8 @@ where
     ProcessingError(E),
     #[error("No receipt or free query auth token provided")]
     Unauthorized,
-    #[error("Invalid free query auth token: {0}")]
-    InvalidFreeQueryAuthToken(String),
+    #[error("Invalid free query auth token")]
+    InvalidFreeQueryAuthToken,
     #[error("Failed to sign attestation")]
     FailedToSignAttestation,
     #[error("Failed to provide attestation")]
@@ -111,7 +111,7 @@ where
 
             ReceiptError(_) => StatusCode::BAD_REQUEST,
             InvalidRequest(_) => StatusCode::BAD_REQUEST,
-            InvalidFreeQueryAuthToken(_) => StatusCode::BAD_REQUEST,
+            InvalidFreeQueryAuthToken => StatusCode::BAD_REQUEST,
             ProcessingError(_) => StatusCode::BAD_REQUEST,
         }
     }

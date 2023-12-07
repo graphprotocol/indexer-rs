@@ -6,15 +6,15 @@ use std::sync::Arc;
 use axum::{
     body::Bytes,
     extract::{Path, State},
-    http::{HeaderMap, HeaderValue},
+    http::HeaderMap,
     response::IntoResponse,
     TypedHeader,
 };
 use reqwest::StatusCode;
 use thegraph::types::DeploymentId;
-use tracing::info;
+use tracing::{info, warn};
 
-use crate::{indexer_service::http::IsAttestable, prelude::AttestationSigner};
+use crate::{indexer_service::http::IndexerServiceResponse, prelude::AttestationSigner};
 
 use super::{
     indexer_service::{IndexerServiceError, IndexerServiceState},
@@ -68,15 +68,20 @@ where
                 .cloned()
                 .ok_or_else(|| (IndexerServiceError::NoSignerForAllocation(allocation_id)))?,
         );
-    } else if state.config.server.free_query_auth_token.is_some()
-        && state.config.server.free_query_auth_token
-            != headers
-                .get("authorization")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.strip_prefix("Bearer "))
-                .map(|s| s.to_string())
-    {
-        return Err(IndexerServiceError::Unauthorized);
+    } else {
+        match headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.strip_prefix("Bearer "))
+            .map(|s| s.to_string())
+        {
+            None => return Err(IndexerServiceError::Unauthorized),
+            Some(ref token) => {
+                if Some(token) != state.config.server.free_query_auth_token.as_ref() {
+                    return Err(IndexerServiceError::InvalidFreeQueryAuthToken);
+                }
+            }
+        }
     }
 
     let (request, response) = state
