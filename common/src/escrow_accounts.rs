@@ -55,7 +55,7 @@ pub fn escrow_accounts(
                             }
                         }
                     "#,
-                    [("indexer", indexer_address.to_string().into())],
+                    [("indexer", format!("{:x?}", indexer_address).into())],
                 ))
                 .await
                 .map_err(|e| e.to_string())?;
