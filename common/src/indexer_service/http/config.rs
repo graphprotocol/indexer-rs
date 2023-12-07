@@ -48,6 +48,7 @@ pub struct GraphNodeConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct GraphNetworkConfig {
     pub id: u64,
+    pub chain_id: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

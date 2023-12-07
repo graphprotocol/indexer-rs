@@ -224,7 +224,7 @@ impl IndexerService {
         let attestation_signers = attestation_signers(
             allocations.clone(),
             options.config.indexer.operator_mnemonic.clone(),
-            options.config.graph_network.id.into(),
+            options.config.graph_network.chain_id.into(),
             dispute_manager,
         );
 
