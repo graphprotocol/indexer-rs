@@ -12,7 +12,7 @@ use axum::{
 };
 use reqwest::StatusCode;
 use thegraph::types::DeploymentId;
-use tracing::{info, warn};
+use tracing::trace;
 
 use crate::{indexer_service::http::IndexerServiceResponse, prelude::AttestationSigner};
 
@@ -33,7 +33,7 @@ pub async fn request_handler<I>(
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
-    info!("Handling request for deployment `{manifest_id}`");
+    trace!("Handling request for deployment `{manifest_id}`");
 
     state
         .metrics
@@ -96,20 +96,14 @@ where
         (true, Some(signer)) => {
             let req = serde_json::to_string(&request)
                 .map_err(|_| IndexerServiceError::FailedToSignAttestation)?;
-            let res = serde_json::to_string(&response)
+            let res = response
+                .as_str()
                 .map_err(|_| IndexerServiceError::FailedToSignAttestation)?;
             Some(signer.create_attestation(&req, &res))
         }
     };
 
-    let mut headers = HeaderMap::new();
-    if let Some(attestation) = attestation {
-        let raw_attestation = serde_json::to_string(&attestation)
-            .map_err(|_| IndexerServiceError::FailedToProvideAttestation)?;
-        let header_value = HeaderValue::from_str(&raw_attestation)
-            .map_err(|_| IndexerServiceError::FailedToProvideAttestation)?;
-        headers.insert("graph-attestation", header_value);
-    }
+    let response = response.finalize(attestation);
 
-    Ok((StatusCode::OK, headers, response))
+    Ok((StatusCode::OK, response))
 }

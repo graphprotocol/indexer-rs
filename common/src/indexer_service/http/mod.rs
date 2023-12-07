@@ -12,5 +12,6 @@ pub use config::{
     SubgraphConfig,
 };
 pub use indexer_service::{
-    IndexerService, IndexerServiceImpl, IndexerServiceOptions, IndexerServiceRelease, IsAttestable,
+    IndexerService, IndexerServiceImpl, IndexerServiceOptions, IndexerServiceRelease,
+    IndexerServiceResponse,
 };
