@@ -276,7 +276,7 @@ impl IndexerService {
             allocations,
             escrow_accounts,
             eip712_domain! {
-                name: "TapManager",
+                name: "TAP",
                 version: "1",
                 chain_id: options.config.scalar.chain_id,
                 verifying_contract: options.config.scalar.receipts_verifier_address,
