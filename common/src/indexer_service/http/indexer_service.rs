@@ -313,9 +313,9 @@ impl IndexerService {
         let data_routes = Router::new()
             .route(
                 PathBuf::from(options.config.server.url_prefix)
-                    .join(format!("{}/:id", options.url_namespace))
+                    .join(format!("{}/id/:id", options.url_namespace))
                     .to_str()
-                    .expect("Failed to set up `/manifest/:id` route"),
+                    .expect("Failed to set up `/{url_namespace}/id/:id` route"),
                 post(request_handler::<I>),
             )
             .with_state(state.clone());
