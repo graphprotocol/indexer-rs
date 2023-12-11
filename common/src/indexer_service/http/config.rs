@@ -14,6 +14,10 @@ pub struct DatabaseConfig {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SubgraphConfig {
+    #[serde(default)]
+    pub serve_subgraph: bool,
+    pub serve_auth_token: Option<String>,
+
     pub deployment: Option<DeploymentId>,
     pub query_url: String,
     pub syncing_interval: u64,
