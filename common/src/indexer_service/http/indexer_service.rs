@@ -46,7 +46,7 @@ pub trait IndexerServiceResponse {
     type Error: Error;
 
     fn is_attestable(&self) -> bool;
-    fn as_str<'a>(&'a self) -> Result<&'a str, Self::Error>;
+    fn as_str(&self) -> Result<&str, Self::Error>;
     fn finalize(self, attestation: Option<Attestation>) -> Self::Data;
 }
 

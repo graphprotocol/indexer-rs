@@ -99,7 +99,7 @@ where
             let res = response
                 .as_str()
                 .map_err(|_| IndexerServiceError::FailedToSignAttestation)?;
-            Some(signer.create_attestation(&req, &res))
+            Some(signer.create_attestation(&req, res))
         }
     };
 
