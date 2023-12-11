@@ -16,7 +16,7 @@ use axum::{
     error_handling::HandleErrorLayer,
     response::{IntoResponse, Response},
     routing::{get, post},
-    BoxError, Json, Router, Server,
+    BoxError, Extension, Json, Router, Server,
 };
 use build_info::BuildInfo;
 use eventuals::Eventual;
@@ -31,7 +31,9 @@ use tower_governor::{errors::display_error, governor::GovernorConfigBuilder, Gov
 use tracing::info;
 
 use crate::{
-    indexer_service::http::metrics::IndexerServiceMetrics,
+    indexer_service::http::{
+        metrics::IndexerServiceMetrics, static_subgraph::static_subgraph_request_handler,
+    },
     prelude::{
         attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
         AttestationSigner, DeploymentDetails, SubgraphClient,
@@ -83,7 +85,7 @@ where
     InvalidRequest(anyhow::Error),
     #[error("Error while processing the request: {0}")]
     ProcessingError(E),
-    #[error("No receipt or free query auth token provided")]
+    #[error("No valid receipt or free query auth token provided")]
     Unauthorized,
     #[error("Invalid free query auth token")]
     InvalidFreeQueryAuthToken,
@@ -93,6 +95,8 @@ where
     FailedToProvideAttestation,
     #[error("Failed to provide response")]
     FailedToProvideResponse,
+    #[error("Failed to query subgraph: {0}")]
+    FailedToQueryStaticSubgraph(anyhow::Error),
 }
 
 impl<E> From<&IndexerServiceError<E>> for StatusCode
@@ -119,6 +123,8 @@ where
             InvalidRequest(_) => StatusCode::BAD_REQUEST,
             InvalidFreeQueryAuthToken => StatusCode::BAD_REQUEST,
             ProcessingError(_) => StatusCode::BAD_REQUEST,
+
+            FailedToQueryStaticSubgraph(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
@@ -192,7 +198,7 @@ impl IndexerService {
             .build()
             .expect("Failed to init HTTP client");
 
-        let network_subgraph = Box::leak(Box::new(SubgraphClient::new(
+        let network_subgraph: &'static SubgraphClient = Box::leak(Box::new(SubgraphClient::new(
             http_client.clone(),
             options
                 .config
@@ -234,7 +240,7 @@ impl IndexerService {
             dispute_manager,
         );
 
-        let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
+        let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(SubgraphClient::new(
             http_client,
             options
                 .config
@@ -294,7 +300,7 @@ impl IndexerService {
         // Rate limits by allowing bursts of 10 requests and requiring 100ms of
         // time between consecutive requests after that, effectively rate
         // limiting to 10 req/s.
-        let rate_limiter = GovernorLayer {
+        let misc_rate_limiter = GovernorLayer {
             config: Box::leak(Box::new(
                 GovernorConfigBuilder::default()
                     .per_millisecond(100)
@@ -304,7 +310,7 @@ impl IndexerService {
             )),
         };
 
-        let misc_routes = Router::new()
+        let mut misc_routes = Router::new()
             .route("/", get("Service is up and running"))
             .route("/version", get(Json(options.release)))
             .layer(
@@ -312,9 +318,61 @@ impl IndexerService {
                     .layer(HandleErrorLayer::new(|e: BoxError| async move {
                         display_error(e)
                     }))
-                    .layer(rate_limiter),
-            )
-            .with_state(state.clone());
+                    .layer(misc_rate_limiter),
+            );
+
+        // Rate limits by allowing bursts of 50 requests and requiring 20ms of
+        // time between consecutive requests after that, effectively rate
+        // limiting to 50 req/s.
+        let static_subgraph_rate_limiter = GovernorLayer {
+            config: Box::leak(Box::new(
+                GovernorConfigBuilder::default()
+                    .per_millisecond(20)
+                    .burst_size(50)
+                    .finish()
+                    .expect("Failed to set up rate limiting"),
+            )),
+        };
+
+        if options.config.network_subgraph.serve_subgraph {
+            info!("Serving network subgraph at /network");
+
+            misc_routes = misc_routes.route(
+                "/network",
+                post(static_subgraph_request_handler::<I>)
+                    .route_layer(Extension(network_subgraph))
+                    .route_layer(Extension(
+                        options.config.network_subgraph.serve_auth_token.clone(),
+                    ))
+                    .route_layer(
+                        ServiceBuilder::new()
+                            .layer(HandleErrorLayer::new(|e: BoxError| async move {
+                                display_error(e)
+                            }))
+                            .layer(static_subgraph_rate_limiter.clone()),
+                    ),
+            );
+        }
+
+        if options.config.escrow_subgraph.serve_subgraph {
+            info!("Serving escrow subgraph at /escrow");
+
+            misc_routes = misc_routes
+                .route("/escrow", post(static_subgraph_request_handler::<I>))
+                .route_layer(Extension(escrow_subgraph))
+                .route_layer(Extension(
+                    options.config.escrow_subgraph.serve_auth_token.clone(),
+                ))
+                .route_layer(
+                    ServiceBuilder::new()
+                        .layer(HandleErrorLayer::new(|e: BoxError| async move {
+                            display_error(e)
+                        }))
+                        .layer(static_subgraph_rate_limiter),
+                );
+        }
+
+        misc_routes = misc_routes.with_state(state.clone());
 
         let data_routes = Router::new()
             .route(

@@ -6,6 +6,7 @@ mod indexer_service;
 mod metrics;
 mod request_handler;
 mod scalar_receipt_header;
+mod static_subgraph;
 
 pub use config::{
     DatabaseConfig, GraphNetworkConfig, IndexerConfig, IndexerServiceConfig, ServerConfig,
