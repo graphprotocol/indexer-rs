@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::anyhow;
+use axum::body::Bytes;
 use eventuals::Eventual;
 use graphql_http::{
     graphql::{Document, IntoDocument},
@@ -143,6 +144,28 @@ impl DeploymentClient {
             .send_graphql(query)
             .await?)
     }
+
+    pub async fn query_raw(&self, body: Bytes) -> Result<reqwest::Response, anyhow::Error> {
+        if let Some(ref status) = self.status {
+            let deployment_status = status.value().await.expect("reading deployment status");
+
+            if !deployment_status.synced || &deployment_status.health != "healthy" {
+                return Err(anyhow!(
+                    "Deployment `{}` is not ready or healthy to be queried",
+                    self.query_url
+                ));
+            }
+        }
+
+        Ok(self
+            .http_client
+            .post(self.query_url.as_ref())
+            .header(header::USER_AGENT, "indexer-common")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .await?)
+    }
 }
 
 /// Client for a subgraph that can fall back from a local deployment to a remote query URL
@@ -181,6 +204,30 @@ impl SubgraphClient {
 
         // Try the remote client
         self.remote_client.query(query).await.map_err(|err| {
+            warn!(
+                "Failed to query remote subgraph deployment `{}`: {}",
+                self.remote_client.query_url, err
+            );
+
+            err
+        })
+    }
+
+    pub async fn query_raw(&self, query: Bytes) -> Result<reqwest::Response, anyhow::Error> {
+        // Try the local client first; if that fails, log the error and move on
+        // to the remote client
+        if let Some(ref local_client) = self.local_client {
+            match local_client.query_raw(query.clone()).await {
+                Ok(response) => return Ok(response),
+                Err(err) => warn!(
+                    "Failed to query local subgraph deployment `{}`, trying remote deployment next: {}",
+                    local_client.query_url, err
+                ),
+            }
+        }
+
+        // Try the remote client
+        self.remote_client.query_raw(query).await.map_err(|err| {
             warn!(
                 "Failed to query remote subgraph deployment `{}`: {}",
                 self.remote_client.query_url, err
