@@ -153,7 +153,7 @@ impl IndexerServiceImpl for SubgraphService {
         let body = response
             .text()
             .await
-            .map_err(|e| SubgraphServiceError::QueryForwardingError(reqwest::Error::from(e)))?;
+            .map_err(SubgraphServiceError::QueryForwardingError)?;
 
         Ok((request, SubgraphServiceResponse::new(body, attestable)))
     }
