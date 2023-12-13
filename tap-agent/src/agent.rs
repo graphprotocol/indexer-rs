@@ -13,7 +13,7 @@ use crate::{
     tap::sender_allocation_relationships_manager::SenderAllocationRelationshipsManager,
 };
 
-pub async fn start_agent(config: &'static config::Cli) {
+pub async fn start_agent(config: &'static config::Cli) -> SenderAllocationRelationshipsManager {
     let pgpool = database::connect(&config.postgres).await;
 
     let http_client = reqwest::Client::new();
@@ -79,7 +79,7 @@ pub async fn start_agent(config: &'static config::Cli) {
         verifying_contract: config.receipts.receipts_verifier_address,
     };
 
-    let _sender_allocation_relationships_manager = SenderAllocationRelationshipsManager::new(
+    SenderAllocationRelationshipsManager::new(
         config,
         pgpool,
         indexer_allocations,
@@ -88,5 +88,5 @@ pub async fn start_agent(config: &'static config::Cli) {
         tap_eip712_domain_separator,
         sender_aggregator_endpoints,
     )
-    .await;
+    .await
 }
