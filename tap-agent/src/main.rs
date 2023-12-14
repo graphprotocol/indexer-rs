@@ -24,19 +24,22 @@ async fn main() -> Result<()> {
     lazy_static::initialize(&CONFIG);
     debug!("Config: {:?}", *CONFIG);
 
-    agent::start_agent(&CONFIG).await;
-    info!("TAP Agent started.");
+    {
+        let _manager = agent::start_agent(&CONFIG).await;
+        info!("TAP Agent started.");
 
-    // Have tokio wait for SIGTERM or SIGINT.
-    let mut signal_sigint = signal(SignalKind::interrupt())?;
-    let mut signal_sigterm = signal(SignalKind::terminate())?;
-    tokio::select! {
-        _ = signal_sigint.recv() => debug!("Received SIGINT."),
-        _ = signal_sigterm.recv() => debug!("Received SIGTERM."),
+        // Have tokio wait for SIGTERM or SIGINT.
+        let mut signal_sigint = signal(SignalKind::interrupt())?;
+        let mut signal_sigterm = signal(SignalKind::terminate())?;
+        tokio::select! {
+            _ = signal_sigint.recv() => debug!("Received SIGINT."),
+            _ = signal_sigterm.recv() => debug!("Received SIGTERM."),
+        }
+
+        // If we're here, we've received a signal to exit.
+        info!("Shutting down...");
     }
-
-    // If we're here, we've received a signal to exit.
-    info!("Shutting down...");
+    // Manager should be successfully dropped here.
 
     // Stop the server and wait for it to finish gracefully.
     debug!("Goodbye!");
