@@ -288,7 +288,8 @@ impl IndexerService {
                 chain_id: options.config.scalar.chain_id,
                 verifying_contract: options.config.scalar.receipts_verifier_address,
             },
-        );
+        )
+        .await;
 
         let state = Arc::new(IndexerServiceState {
             config: options.config.clone(),
