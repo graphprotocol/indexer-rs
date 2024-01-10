@@ -24,6 +24,7 @@ pub struct TapManager {
     domain_separator: Arc<Eip712Domain>,
     sender_denylist: Arc<RwLock<HashSet<Address>>>,
     _sender_denylist_watcher_handle: Arc<tokio::task::JoinHandle<()>>,
+    sender_denylist_watcher_cancel_token: Arc<tokio_util::sync::CancellationToken>,
 }
 
 impl TapManager {
@@ -50,10 +51,13 @@ impl TapManager {
             .await
             .expect("should be able to fetch the sender_denylist from the DB on startup");
 
+        let sender_denylist_watcher_cancel_token =
+            Arc::new(tokio_util::sync::CancellationToken::new());
         let sender_denylist_watcher_handle = Arc::new(tokio::spawn(Self::sender_denylist_watcher(
             pgpool.clone(),
             pglistener,
             sender_denylist.clone(),
+            sender_denylist_watcher_cancel_token.clone(),
         )));
 
         Self {
@@ -63,6 +67,7 @@ impl TapManager {
             domain_separator: Arc::new(domain_separator),
             sender_denylist,
             _sender_denylist_watcher_handle: sender_denylist_watcher_handle,
+            sender_denylist_watcher_cancel_token,
         }
     }
 
@@ -167,6 +172,7 @@ impl TapManager {
         pgpool: PgPool,
         mut pglistener: PgListener,
         denylist: Arc<RwLock<HashSet<Address>>>,
+        cancel_token: Arc<tokio_util::sync::CancellationToken>,
     ) {
         #[derive(serde::Deserialize)]
         struct DenylistNotification {
@@ -175,49 +181,60 @@ impl TapManager {
         }
 
         loop {
-            let pg_notification = pglistener.recv().await.expect(
-                "should be able to receive Postgres Notify events on the channel \
-                'scalar_tap_deny_notification'",
-            );
-
-            println!(
-                "Received a denylist table notification: {}",
-                pg_notification.payload()
-            );
-
-            let denylist_notification: DenylistNotification =
-                serde_json::from_str(pg_notification.payload()).expect(
-                    "should be able to deserialize the Postgres Notify event payload as a \
-                    DenylistNotification",
-                );
-
-            match denylist_notification.tg_op.as_str() {
-                "INSERT" => {
-                    denylist
-                        .write()
-                        .await
-                        .insert(denylist_notification.sender_address);
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break;
                 }
-                "DELETE" => {
-                    denylist
-                        .write()
-                        .await
-                        .remove(&denylist_notification.sender_address);
-                }
-                // UPDATE and TRUNCATE are not expected to happen. Reload the entire denylist.
-                _ => {
-                    error!(
-                        "Received an unexpected denylist table notification: {}. Reloading entire \
-                        denylist.",
-                        denylist_notification.tg_op
+
+                pg_notification = pglistener.recv() => {
+                    let pg_notification = pg_notification.expect(
+                    "should be able to receive Postgres Notify events on the channel \
+                    'scalar_tap_deny_notification'",
                     );
 
-                    Self::sender_denylist_reload(pgpool.clone(), denylist.clone())
-                        .await
-                        .expect("should be able to reload the sender denylist")
+                    let denylist_notification: DenylistNotification =
+                        serde_json::from_str(pg_notification.payload()).expect(
+                            "should be able to deserialize the Postgres Notify event payload as a \
+                            DenylistNotification",
+                        );
+
+                    match denylist_notification.tg_op.as_str() {
+                        "INSERT" => {
+                            denylist
+                                .write()
+                                .await
+                                .insert(denylist_notification.sender_address);
+                        }
+                        "DELETE" => {
+                            denylist
+                                .write()
+                                .await
+                                .remove(&denylist_notification.sender_address);
+                        }
+                        // UPDATE and TRUNCATE are not expected to happen. Reload the entire denylist.
+                        _ => {
+                            error!(
+                                "Received an unexpected denylist table notification: {}. Reloading entire \
+                                denylist.",
+                                denylist_notification.tg_op
+                            );
+
+                            Self::sender_denylist_reload(pgpool.clone(), denylist.clone())
+                                .await
+                                .expect("should be able to reload the sender denylist")
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+impl Drop for TapManager {
+    fn drop(&mut self) {
+        // Clean shutdown for the sender_denylist_watcher
+        // Though since it's not a critical task, we don't wait for it to finish (join).
+        self.sender_denylist_watcher_cancel_token.cancel();
     }
 }
 
