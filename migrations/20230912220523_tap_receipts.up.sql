@@ -23,3 +23,14 @@ CREATE TRIGGER receipt_update AFTER INSERT OR UPDATE
 
 CREATE INDEX IF NOT EXISTS scalar_tap_receipts_allocation_id_idx ON scalar_tap_receipts (allocation_id);
 CREATE INDEX IF NOT EXISTS scalar_tap_receipts_timestamp_ns_idx ON scalar_tap_receipts (timestamp_ns);
+
+-- This table is used to store invalid receipts (receipts that fail at least one of the checks in the tap-agent).
+-- Used for logging and debugging purposes.
+CREATE TABLE IF NOT EXISTS scalar_tap_receipts_invalid (
+    id BIGSERIAL PRIMARY KEY,
+    allocation_id CHAR(40) NOT NULL,
+    sender_address CHAR(40) NOT NULL,
+    timestamp_ns NUMERIC(20) NOT NULL,
+    value NUMERIC(39) NOT NULL,
+    received_receipt JSON NOT NULL
+);

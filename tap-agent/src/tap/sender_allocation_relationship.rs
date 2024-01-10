@@ -1,11 +1,11 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
-use anyhow::ensure;
+use anyhow::{anyhow, ensure};
 use ethereum_types::U256;
 use eventuals::Eventual;
 use indexer_common::prelude::SubgraphClient;
@@ -14,8 +14,9 @@ use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
 use tap_core::{
     eip_712_signed_message::EIP712SignedMessage,
-    receipt_aggregate_voucher::ReceiptAggregateVoucher, tap_manager::RAVRequest,
-    tap_receipt::ReceiptCheck,
+    receipt_aggregate_voucher::ReceiptAggregateVoucher,
+    tap_manager::RAVRequest,
+    tap_receipt::{ReceiptCheck, ReceivedReceipt},
 };
 use tokio::{
     sync::{Mutex, MutexGuard},
@@ -286,7 +287,7 @@ impl SenderAllocationRelationship {
             let RAVRequest {
                 valid_receipts,
                 previous_rav,
-                invalid_receipts: _,
+                invalid_receipts,
                 expected_rav,
             } = inner
                 .tap_manager
@@ -296,6 +297,20 @@ impl SenderAllocationRelationship {
                     None,
                 )
                 .await?;
+
+            // Invalid receipts
+            if !invalid_receipts.is_empty() {
+                warn!(
+                    "Found {} invalid receipts for allocation {} and sender {}.",
+                    invalid_receipts.len(),
+                    inner.allocation_id,
+                    inner.sender
+                );
+
+                // Save invalid receipts to the database for logs.
+                // TODO: consider doing that in a spawned task?
+                Self::store_invalid_receipts(inner, &invalid_receipts).await?;
+            }
 
             // TODO: Request compression and response decompression. Also a fancy user agent?
             let client = HttpClientBuilder::default()
@@ -319,12 +334,39 @@ impl SenderAllocationRelationship {
                 warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
             }
 
-            inner
+            match inner
                 .tap_manager
-                .verify_and_store_rav(expected_rav, response.data)
-                .await?;
+                .verify_and_store_rav(expected_rav.clone(), response.data.clone())
+                .await
+            {
+                Ok(_) => {}
 
-            // TODO: Handle invalid receipts
+                // Adapter errors are local software errors. Shouldn't be a problem with the sender.
+                Err(tap_core::Error::AdapterError { source_error: e }) => {
+                    anyhow::bail!("TAP Adapter error while storing RAV: {:?}", e)
+                }
+
+                // The 3 errors below signal an invalid RAV, which should be about problems with the
+                // sender. The sender could be malicious.
+                Err(
+                    e @ tap_core::Error::InvalidReceivedRAV {
+                        expected_rav: _,
+                        received_rav: _,
+                    }
+                    | e @ tap_core::Error::SignatureError(_)
+                    | e @ tap_core::Error::InvalidRecoveredSigner { address: _ },
+                ) => {
+                    Self::store_failed_rav(inner, &expected_rav, &response.data, &e.to_string())
+                        .await?;
+                    anyhow::bail!("Invalid RAV, sender could be malicious: {:?}.", e);
+                }
+
+                // All relevant errors should be handled above. If we get here, we forgot to handle
+                // an error case.
+                Err(e) => {
+                    anyhow::bail!("Error while verifying and storing RAV: {:?}", e);
+                }
+            }
 
             // This is not the fastest way to do this, but it's the easiest.
             // Note: we rely on the unaggregated_fees lock to make sure we don't miss any receipt
@@ -394,6 +436,74 @@ impl SenderAllocationRelationship {
 
     pub async fn state(&self) -> State {
         *self.inner.state.lock().await
+    }
+
+    async fn store_invalid_receipts(
+        inner: &Inner,
+        receipts: &[ReceivedReceipt],
+    ) -> anyhow::Result<()> {
+        for received_receipt in receipts.iter() {
+            sqlx::query!(
+                r#"
+                    INSERT INTO scalar_tap_receipts_invalid (
+                        allocation_id,
+                        sender_address,
+                        timestamp_ns,
+                        value,
+                        received_receipt
+                    )
+                    VALUES ($1, $2, $3, $4, $5)
+                "#,
+                inner
+                    .allocation_id
+                    .to_string()
+                    .trim_start_matches("0x")
+                    .to_owned(),
+                inner.sender.to_string().trim_start_matches("0x").to_owned(),
+                BigDecimal::from(received_receipt.signed_receipt().message.timestamp_ns),
+                BigDecimal::from_str(&received_receipt.signed_receipt().message.value.to_string())?,
+                serde_json::to_value(received_receipt)?
+            )
+            .execute(&inner.pgpool)
+            .await
+            .map_err(|e| anyhow!("Failed to store failed receipt: {:?}", e))?;
+        }
+
+        Ok(())
+    }
+
+    async fn store_failed_rav(
+        inner: &Inner,
+        expected_rav: &ReceiptAggregateVoucher,
+        rav: &EIP712SignedMessage<ReceiptAggregateVoucher>,
+        reason: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query!(
+            r#"
+                INSERT INTO scalar_tap_rav_requests_failed (
+                    allocation_id,
+                    sender_address,
+                    expected_rav,
+                    rav_response,
+                    reason
+                )
+                VALUES ($1, $2, $3, $4, $5)
+            "#,
+            inner
+                .allocation_id
+                .to_string()
+                .trim_start_matches("0x")
+                .to_owned(),
+            inner.sender.to_string().trim_start_matches("0x").to_owned(),
+            serde_json::to_value(expected_rav)?,
+            serde_json::to_value(rav)?,
+            reason
+        )
+        .execute(&inner.pgpool)
+        .await
+        .map_err(|e| anyhow!("Failed to store failed RAV: {:?}", e))?;
+
+        Ok(())
     }
 }
 
