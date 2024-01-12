@@ -22,7 +22,8 @@ lazy_static! {
         Address::from_str("0xbcdebcdebcdebcdebcdebcdebcdebcdebcdebcde").unwrap();
     pub static ref SENDER: (LocalWallet, Address) = wallet(0);
     pub static ref SENDER_IRRELEVANT: (LocalWallet, Address) = wallet(1);
-    pub static ref INDEXER: (LocalWallet, Address) = wallet(2);
+    pub static ref SIGNER: (LocalWallet, Address) = wallet(2);
+    pub static ref INDEXER: (LocalWallet, Address) = wallet(3);
     pub static ref TAP_EIP712_DOMAIN_SEPARATOR: Eip712Domain = eip712_domain! {
         name: "TAP",
         version: "1",
@@ -47,7 +48,7 @@ pub fn wallet(index: u32) -> (LocalWallet, Address) {
 /// given `query_id` and `value`
 pub async fn create_received_receipt(
     allocation_id: &Address,
-    sender_wallet: &LocalWallet,
+    signer_wallet: &LocalWallet,
     nonce: u64,
     timestamp_ns: u64,
     value: u128,
@@ -61,7 +62,7 @@ pub async fn create_received_receipt(
             timestamp_ns,
             value,
         },
-        sender_wallet,
+        signer_wallet,
     )
     .await
     .unwrap();
@@ -71,7 +72,7 @@ pub async fn create_received_receipt(
 /// Fixture to generate a RAV using the wallet from `keys()`
 pub async fn create_rav(
     allocation_id: Address,
-    sender_wallet: LocalWallet,
+    signer_wallet: LocalWallet,
     timestamp_ns: u64,
     value_aggregate: u128,
 ) -> SignedRAV {
@@ -82,7 +83,7 @@ pub async fn create_rav(
             timestamp_ns,
             value_aggregate,
         },
-        &sender_wallet,
+        &signer_wallet,
     )
     .await
     .unwrap()
@@ -92,7 +93,7 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Re
     let record = sqlx::query!(
         r#"
             INSERT INTO scalar_tap_receipts (
-                allocation_id, sender_address, timestamp_ns, value, receipt
+                allocation_id, signer_address, timestamp_ns, value, receipt
             )
             VALUES ($1, $2, $3, $4, $5)
             RETURNING id

@@ -8,7 +8,8 @@ use std::{
 
 use alloy_primitives::Address;
 use async_trait::async_trait;
-
+use eventuals::Eventual;
+use indexer_common::escrow_accounts::EscrowAccounts;
 use sqlx::{postgres::types::PgRange, types::BigDecimal, PgPool};
 use tap_core::adapters::receipt_storage_adapter::ReceiptStorageAdapter as ReceiptStorageAdapterTrait;
 use tap_core::{
@@ -18,12 +19,14 @@ use tap_core::{
 use thiserror::Error;
 use tracing::error;
 
-#[derive(Debug)]
+use crate::tap::signers_trimmed;
+
 pub struct ReceiptStorageAdapter {
     pgpool: PgPool,
     allocation_id: Address,
     sender: Address,
     required_checks: Vec<ReceiptCheck>,
+    escrow_accounts: Eventual<EscrowAccounts>,
 }
 
 #[derive(Debug, Error)]
@@ -100,17 +103,24 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
         // TODO: Make use of this limit in this function
         _receipts_limit: Option<u64>,
     ) -> Result<Vec<(u64, ReceivedReceipt)>, Self::AdapterError> {
+        let signers = signers_trimmed(&self.escrow_accounts, self.sender)
+            .await
+            .map_err(|e| AdapterError::AdapterError {
+                error: format!("{:?}.", e),
+            })?;
+
         let records = sqlx::query!(
             r#"
                 SELECT id, receipt
                 FROM scalar_tap_receipts
-                WHERE allocation_id = $1 AND sender_address = $2 AND $3::numrange @> timestamp_ns
+                WHERE allocation_id = $1 AND signer_address IN (SELECT unnest($2::text[]))
+                 AND $3::numrange @> timestamp_ns
             "#,
             self.allocation_id
                 .to_string()
                 .trim_start_matches("0x")
                 .to_owned(),
-            self.sender.to_string().trim_start_matches("0x").to_owned(),
+            &signers,
             rangebounds_to_pgrange(timestamp_range_ns)
         )
         .fetch_all(&self.pgpool)
@@ -140,16 +150,23 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
         &self,
         timestamp_ns: R,
     ) -> Result<(), Self::AdapterError> {
+        let signers = signers_trimmed(&self.escrow_accounts, self.sender)
+            .await
+            .map_err(|e| AdapterError::AdapterError {
+                error: format!("{:?}.", e),
+            })?;
+
         sqlx::query!(
             r#"
                 DELETE FROM scalar_tap_receipts
-                WHERE allocation_id = $1 AND sender_address = $2 AND $3::numrange @> timestamp_ns
+                WHERE allocation_id = $1 AND signer_address IN (SELECT unnest($2::text[]))
+                    AND $3::numrange @> timestamp_ns
             "#,
             self.allocation_id
                 .to_string()
                 .trim_start_matches("0x")
                 .to_owned(),
-            self.sender.to_string().trim_start_matches("0x").to_owned(),
+            &signers,
             rangebounds_to_pgrange(timestamp_ns)
         )
         .execute(&self.pgpool)
@@ -164,24 +181,29 @@ impl ReceiptStorageAdapter {
         allocation_id: Address,
         sender: Address,
         required_checks: Vec<ReceiptCheck>,
+        escrow_accounts: Eventual<EscrowAccounts>,
     ) -> Self {
         Self {
             pgpool,
             allocation_id,
             sender,
             required_checks,
+            escrow_accounts,
         }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::tap::test_utils::{
         create_received_receipt, store_receipt, ALLOCATION_ID, ALLOCATION_ID_IRRELEVANT, SENDER,
-        SENDER_IRRELEVANT, TAP_EIP712_DOMAIN_SEPARATOR,
+        SENDER_IRRELEVANT, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };
     use anyhow::Result;
+
     use serde_json::Value;
     use sqlx::PgPool;
     use tap_core::tap_receipt::get_full_list_of_checks;
@@ -191,9 +213,17 @@ mod test {
     /// retrieve_receipts_in_timestamp_range.
     async fn retrieve_range_and_check<R: RangeBounds<u64> + Send>(
         storage_adapter: &ReceiptStorageAdapter,
+        escrow_accounts: &Eventual<EscrowAccounts>,
         received_receipt_vec: &[(u64, ReceivedReceipt)],
         range: R,
     ) -> Result<()> {
+        let signers_to_senders = escrow_accounts
+            .value()
+            .await
+            .unwrap()
+            .signers_to_senders
+            .to_owned();
+
         // Filtering the received receipts by timestamp range
         let received_receipt_vec: Vec<(u64, ReceivedReceipt)> = received_receipt_vec
             .iter()
@@ -201,11 +231,14 @@ mod test {
                 range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
                     && (received_receipt.signed_receipt().message.allocation_id
                         == storage_adapter.allocation_id)
-                    && (received_receipt
-                        .signed_receipt()
-                        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
-                        .unwrap()
-                        == storage_adapter.sender)
+                    && (signers_to_senders
+                        .get(
+                            &received_receipt
+                                .signed_receipt()
+                                .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                                .unwrap(),
+                        )
+                        .map_or(false, |v| *v == storage_adapter.sender))
             })
             .cloned()
             .collect();
@@ -243,9 +276,17 @@ mod test {
 
     async fn remove_range_and_check<R: RangeBounds<u64> + Send>(
         storage_adapter: &ReceiptStorageAdapter,
+        escrow_accounts: &Eventual<EscrowAccounts>,
         received_receipt_vec: &[ReceivedReceipt],
         range: R,
     ) -> Result<()> {
+        let signers_to_senders = escrow_accounts
+            .value()
+            .await
+            .unwrap()
+            .signers_to_senders
+            .to_owned();
+
         // Storing the receipts
         let mut received_receipt_id_vec = Vec::new();
         for received_receipt in received_receipt_vec.iter() {
@@ -269,11 +310,14 @@ mod test {
             .filter(|(_, received_receipt)| {
                 if (received_receipt.signed_receipt().message.allocation_id
                     == storage_adapter.allocation_id)
-                    && (received_receipt
-                        .signed_receipt()
-                        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
-                        .unwrap()
-                        == storage_adapter.sender)
+                    && (signers_to_senders
+                        .get(
+                            &received_receipt
+                                .signed_receipt()
+                                .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                                .unwrap(),
+                        )
+                        .map_or(false, |v| *v == storage_adapter.sender))
                 {
                     !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
                 } else {
@@ -345,11 +389,17 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn retrieve_receipts_in_timestamp_range(pgpool: PgPool) {
+        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
+
         let storage_adapter = ReceiptStorageAdapter::new(
             pgpool.clone(),
             *ALLOCATION_ID,
             SENDER.1,
             get_full_list_of_checks(),
+            escrow_accounts.clone(),
         );
 
         // Creating 10 receipts with timestamps 42 to 51
@@ -358,7 +408,7 @@ mod test {
             received_receipt_vec.push(
                 create_received_receipt(
                     &ALLOCATION_ID,
-                    &SENDER.0,
+                    &SIGNER.0,
                     i + 684,
                     i + 42,
                     (i + 124).into(),
@@ -371,7 +421,7 @@ mod test {
             received_receipt_vec.push(
                 create_received_receipt(
                     &ALLOCATION_ID_IRRELEVANT,
-                    &SENDER.0,
+                    &SIGNER.0,
                     i + 684,
                     i + 42,
                     (i + 124).into(),
@@ -413,7 +463,7 @@ mod test {
                 {
                     $(
                         assert!(
-                        retrieve_range_and_check(&storage_adapter, &received_receipt_vec, $arg)
+                        retrieve_range_and_check(&storage_adapter, &escrow_accounts, &received_receipt_vec, $arg)
                             .await
                             .is_ok());
                     )+
@@ -483,8 +533,18 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn remove_receipts_in_timestamp_range(pgpool: PgPool) {
-        let storage_adapter =
-            ReceiptStorageAdapter::new(pgpool, *ALLOCATION_ID, SENDER.1, get_full_list_of_checks());
+        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
+
+        let storage_adapter = ReceiptStorageAdapter::new(
+            pgpool,
+            *ALLOCATION_ID,
+            SENDER.1,
+            get_full_list_of_checks(),
+            escrow_accounts.clone(),
+        );
 
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();
@@ -492,7 +552,7 @@ mod test {
             received_receipt_vec.push(
                 create_received_receipt(
                     &ALLOCATION_ID,
-                    &SENDER.0,
+                    &SIGNER.0,
                     i + 684,
                     i + 42,
                     (i + 124).into(),
@@ -505,7 +565,7 @@ mod test {
             received_receipt_vec.push(
                 create_received_receipt(
                     &ALLOCATION_ID_IRRELEVANT,
-                    &SENDER.0,
+                    &SIGNER.0,
                     i + 684,
                     i + 42,
                     (i + 124).into(),
@@ -531,7 +591,7 @@ mod test {
                 {
                     $(
                         assert!(
-                            remove_range_and_check(&storage_adapter, &received_receipt_vec, $arg)
+                            remove_range_and_check(&storage_adapter, &escrow_accounts, &received_receipt_vec, $arg)
                             .await.is_ok()
                         );
                     ) +

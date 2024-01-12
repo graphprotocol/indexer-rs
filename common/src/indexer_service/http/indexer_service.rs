@@ -262,6 +262,7 @@ impl IndexerService {
             escrow_subgraph,
             options.config.indexer.indexer_address,
             Duration::from_secs(options.config.escrow_subgraph.syncing_interval),
+            true, // Reject thawing signers eagerly
         );
 
         // Establish Database connection necessary for serving indexer management
