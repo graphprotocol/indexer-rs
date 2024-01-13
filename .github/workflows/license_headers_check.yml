@@ -25,6 +25,8 @@ jobs:
             -l "apache" \
             -s=only \
             -ignore '.github/workflows/*.yml' \
+            -ignore '.github/*.yml' \
             -ignore '.github/workflows/*.yaml' \
+            -ignore '.github/*.yaml' \
             -ignore 'migrations/*.sql' \
             .
