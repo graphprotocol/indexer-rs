@@ -24,7 +24,7 @@ pub struct TapManager {
     domain_separator: Arc<Eip712Domain>,
     sender_denylist: Arc<RwLock<HashSet<Address>>>,
     _sender_denylist_watcher_handle: Arc<tokio::task::JoinHandle<()>>,
-    sender_denylist_watcher_cancel_token: Arc<tokio_util::sync::CancellationToken>,
+    sender_denylist_watcher_cancel_token: tokio_util::sync::CancellationToken,
 }
 
 impl TapManager {
@@ -51,8 +51,7 @@ impl TapManager {
             .await
             .expect("should be able to fetch the sender_denylist from the DB on startup");
 
-        let sender_denylist_watcher_cancel_token =
-            Arc::new(tokio_util::sync::CancellationToken::new());
+        let sender_denylist_watcher_cancel_token = tokio_util::sync::CancellationToken::new();
         let sender_denylist_watcher_handle = Arc::new(tokio::spawn(Self::sender_denylist_watcher(
             pgpool.clone(),
             pglistener,
@@ -172,7 +171,7 @@ impl TapManager {
         pgpool: PgPool,
         mut pglistener: PgListener,
         denylist: Arc<RwLock<HashSet<Address>>>,
-        cancel_token: Arc<tokio_util::sync::CancellationToken>,
+        cancel_token: tokio_util::sync::CancellationToken,
     ) {
         #[derive(serde::Deserialize)]
         struct DenylistNotification {
