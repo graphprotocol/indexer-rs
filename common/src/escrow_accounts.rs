@@ -27,12 +27,7 @@ impl EscrowAccounts {
     ) -> Self {
         let signers_to_senders = senders_to_signers
             .iter()
-            .flat_map(|(sender, signers)| {
-                signers
-                    .iter()
-                    .map(move |signer| (*signer, *sender))
-                    .collect::<Vec<_>>()
-            })
+            .flat_map(|(sender, signers)| signers.iter().map(move |signer| (*signer, *sender)))
             .collect();
 
         Self {
