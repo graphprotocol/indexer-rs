@@ -80,7 +80,7 @@ impl TapManager {
             })?;
 
         if !escrow_accounts
-            .balances
+            .senders_balances
             .get(receipt_sender)
             .map_or(false, |balance| balance > &U256::zero())
         {

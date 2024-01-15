@@ -66,7 +66,7 @@ impl EscrowAdapterTrait for EscrowAdapter {
                 })?;
 
         let balance = escrow_accounts
-            .balances
+            .senders_balances
             .get(sender)
             .ok_or(AdapterError::AdapterError {
                 error: format!(

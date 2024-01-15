@@ -128,7 +128,7 @@ impl ReceiptChecksAdapterTrait for ReceiptChecksAdapter {
         Ok(escrow_accounts
             .signers_to_senders
             .get(&sender_id)
-            .and_then(|sender| escrow_accounts.balances.get(sender))
+            .and_then(|sender| escrow_accounts.senders_balances.get(sender))
             .map(|balance| *balance > U256::from(0))
             .unwrap_or(false))
     }

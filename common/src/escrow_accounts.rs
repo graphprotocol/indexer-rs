@@ -15,14 +15,14 @@ use crate::prelude::{Query, SubgraphClient};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EscrowAccounts {
-    pub balances: HashMap<Address, U256>,
+    pub senders_balances: HashMap<Address, U256>,
     pub signers_to_senders: HashMap<Address, Address>,
     pub senders_to_signers: HashMap<Address, Vec<Address>>,
 }
 
 impl EscrowAccounts {
     pub fn new(
-        balances: HashMap<Address, U256>,
+        senders_balances: HashMap<Address, U256>,
         senders_to_signers: HashMap<Address, Vec<Address>>,
     ) -> Self {
         let signers_to_senders = senders_to_signers
@@ -36,7 +36,7 @@ impl EscrowAccounts {
             .collect();
 
         Self {
-            balances,
+            senders_balances,
             signers_to_senders,
             senders_to_signers,
         }
@@ -133,7 +133,7 @@ pub fn escrow_accounts(
 
             let response = response.map_err(|e| e.to_string())?;
 
-            let balances = response
+            let senders_balances = response
                 .escrow_accounts
                 .iter()
                 .map(|account| {
@@ -170,7 +170,7 @@ pub fn escrow_accounts(
                 })
                 .collect();
 
-            Ok(EscrowAccounts::new(balances, senders_to_signers))
+            Ok(EscrowAccounts::new(senders_balances, senders_to_signers))
         },
         move |err: String| {
             error!(

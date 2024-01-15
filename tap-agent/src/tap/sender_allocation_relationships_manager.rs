@@ -87,7 +87,11 @@ impl SenderAllocationRelationshipsManager {
                 .value()
                 .await
                 .expect("Should get indexer allocations from Eventual"),
-            escrow_accounts_snapshot.balances.keys().copied().collect(),
+            escrow_accounts_snapshot
+                .senders_balances
+                .keys()
+                .copied()
+                .collect(),
         )
         .await
         .expect("Should be able to update sender_allocation_relationships");
@@ -186,7 +190,7 @@ impl SenderAllocationRelationshipsManager {
                 Self::update_sender_allocation_relationships(
                     &inner,
                     indexer_allocations,
-                    escrow_accounts.balances.keys().copied().collect(),
+                    escrow_accounts.senders_balances.keys().copied().collect(),
                 )
                 .await
                 .unwrap_or_else(|e| {
