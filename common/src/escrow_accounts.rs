@@ -81,7 +81,8 @@ pub fn escrow_accounts(
     // queries for this signer.
     // isAuthorized == true means that the signer is still authorized to sign
     // payments in the name of the sender.
-    let query_no_thawing_signers = r#"
+    let query = if reject_thawing_signers {
+        r#"
         query ($indexer: ID!) {
             escrowAccounts(where: {receiver_: {id: $indexer}}) {
                 balance
@@ -96,9 +97,9 @@ pub fn escrow_accounts(
                 }
             }
         }
-    "#;
-
-    let query_with_thawing_signers = r#"
+    "#
+    } else {
+        r#"
         query ($indexer: ID!) {
             escrowAccounts(where: {receiver_: {id: $indexer}}) {
                 balance
@@ -113,12 +114,7 @@ pub fn escrow_accounts(
                 }
             }
         }
-    "#;
-
-    let query = if reject_thawing_signers {
-        query_no_thawing_signers
-    } else {
-        query_with_thawing_signers
+    "#
     };
 
     timer(interval).map_with_retry(
