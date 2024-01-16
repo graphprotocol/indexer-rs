@@ -217,12 +217,7 @@ mod test {
         received_receipt_vec: &[(u64, ReceivedReceipt)],
         range: R,
     ) -> Result<()> {
-        let signers_to_senders = escrow_accounts
-            .value()
-            .await
-            .unwrap()
-            .signers_to_senders
-            .to_owned();
+        let escrow_accounts_snapshot = escrow_accounts.value().await.unwrap();
 
         // Filtering the received receipts by timestamp range
         let received_receipt_vec: Vec<(u64, ReceivedReceipt)> = received_receipt_vec
@@ -231,14 +226,14 @@ mod test {
                 range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
                     && (received_receipt.signed_receipt().message.allocation_id
                         == storage_adapter.allocation_id)
-                    && (signers_to_senders
-                        .get(
+                    && (escrow_accounts_snapshot
+                        .get_sender_for_signer(
                             &received_receipt
                                 .signed_receipt()
                                 .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
                                 .unwrap(),
                         )
-                        .map_or(false, |v| *v == storage_adapter.sender))
+                        .map_or(false, |v| v == storage_adapter.sender))
             })
             .cloned()
             .collect();
@@ -280,12 +275,7 @@ mod test {
         received_receipt_vec: &[ReceivedReceipt],
         range: R,
     ) -> Result<()> {
-        let signers_to_senders = escrow_accounts
-            .value()
-            .await
-            .unwrap()
-            .signers_to_senders
-            .to_owned();
+        let escrow_accounts_snapshot = escrow_accounts.value().await.unwrap();
 
         // Storing the receipts
         let mut received_receipt_id_vec = Vec::new();
@@ -310,14 +300,14 @@ mod test {
             .filter(|(_, received_receipt)| {
                 if (received_receipt.signed_receipt().message.allocation_id
                     == storage_adapter.allocation_id)
-                    && (signers_to_senders
-                        .get(
+                    && (escrow_accounts_snapshot
+                        .get_sender_for_signer(
                             &received_receipt
                                 .signed_receipt()
                                 .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
                                 .unwrap(),
                         )
-                        .map_or(false, |v| *v == storage_adapter.sender))
+                        .map_or(false, |v| v == storage_adapter.sender))
                 {
                     !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
                 } else {

@@ -69,25 +69,14 @@ impl TapManager {
 
         let escrow_accounts = self.escrow_accounts.value_immediate().unwrap_or_default();
 
-        let receipt_sender = escrow_accounts
-            .signers_to_senders
-            .get(&receipt_signer)
-            .ok_or_else(|| {
-                anyhow!(
-                    "Receipt signer `{}` is not eligible for this indexer",
-                    receipt_signer
-                )
-            })?;
-
         if !escrow_accounts
-            .senders_balances
-            .get(receipt_sender)
-            .map_or(false, |balance| balance > &U256::zero())
+            .get_balance_for_signer(&receipt_signer)
+            .map_or(false, |balance| balance > U256::zero())
         {
-            return Err(anyhow!(
+            anyhow::bail!(
                 "Receipt sender `{}` is not eligible for this indexer",
-                receipt_signer
-            ));
+                receipt_signer,
+            );
         }
 
         // TODO: consider doing this in another async task to avoid slowing down the paid query flow.

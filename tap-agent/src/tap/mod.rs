@@ -24,9 +24,7 @@ async fn signers_trimmed(
         .value()
         .await
         .map_err(|e| anyhow!("Error while getting escrow accounts: {:?}", e))?
-        .senders_to_signers
-        .get(&sender)
-        .ok_or(anyhow!("No signers found for sender {}.", sender))?
+        .get_signers_for_sender(&sender)?
         .iter()
         .map(|s| s.to_string().trim_start_matches("0x").to_owned())
         .collect::<Vec<String>>();

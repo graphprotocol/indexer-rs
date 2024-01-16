@@ -53,27 +53,16 @@ impl EscrowAdapterTrait for EscrowAdapter {
                     error: format!("Could not get escrow accounts from eventual: {:?}.", e),
                 })?;
 
-        let sender =
-            escrow_accounts
-                .signers_to_senders
-                .get(&sender)
-                .ok_or(AdapterError::AdapterError {
-                    error: format!(
-                        "Sender {} not found for receipt signer, could not get available escrow.",
-                        sender
-                    )
-                    .to_string(),
-                })?;
+        let sender = escrow_accounts
+            .get_sender_for_signer(&sender)
+            .map_err(|e| AdapterError::AdapterError {
+                error: format!("{}", e).to_string(),
+            })?;
 
         let balance = escrow_accounts
-            .senders_balances
-            .get(sender)
-            .ok_or(AdapterError::AdapterError {
-                error: format!(
-                    "Sender {} not found in escrow balances map, could not get available escrow.",
-                    sender
-                )
-                .to_string(),
+            .get_balance_for_sender(&sender)
+            .map_err(|e| AdapterError::AdapterError {
+                error: format!("Could not get available escrow: {}", e).to_string(),
             })?
             .to_owned();
         let balance: u128 = balance.try_into().map_err(|_| AdapterError::AdapterError {
@@ -89,7 +78,7 @@ impl EscrowAdapterTrait for EscrowAdapter {
             .sender_pending_fees
             .read()
             .await
-            .get(sender)
+            .get(&sender)
             .copied()
             .unwrap_or(0);
         Ok(balance - fees)
@@ -106,17 +95,15 @@ impl EscrowAdapterTrait for EscrowAdapter {
 
         let current_available_escrow = self.get_available_escrow(sender).await?;
 
-        let sender =
-            escrow_accounts
-                .signers_to_senders
-                .get(&sender)
-                .ok_or(AdapterError::AdapterError {
-                    error: format!(
-                        "Sender {} not found for receipt signer, could not get available escrow.",
-                        sender
-                    )
-                    .to_string(),
-                })?;
+        let sender = escrow_accounts
+            .get_sender_for_signer(&sender)
+            .map_err(|e| AdapterError::AdapterError {
+                error: format!(
+                    "Could not get available escrow for receipt signer {}: {}",
+                    sender, e
+                )
+                .to_string(),
+            })?;
 
         let mut fees_write = self.sender_pending_fees.write().await;
         let fees = fees_write.entry(sender.to_owned()).or_insert(0);

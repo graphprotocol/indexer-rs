@@ -1,7 +1,10 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 use alloy_primitives::Address;
 use anyhow::Result;
@@ -15,9 +18,9 @@ use crate::prelude::{Query, SubgraphClient};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EscrowAccounts {
-    pub senders_balances: HashMap<Address, U256>,
-    pub signers_to_senders: HashMap<Address, Address>,
-    pub senders_to_signers: HashMap<Address, Vec<Address>>,
+    senders_balances: HashMap<Address, U256>,
+    signers_to_senders: HashMap<Address, Address>,
+    senders_to_signers: HashMap<Address, Vec<Address>>,
 }
 
 impl EscrowAccounts {
@@ -35,6 +38,47 @@ impl EscrowAccounts {
             signers_to_senders,
             senders_to_signers,
         }
+    }
+
+    pub fn get_signers_for_sender(&self, sender: &Address) -> Result<Vec<Address>> {
+        self.senders_to_signers
+            .get(sender)
+            .filter(|signers| !signers.is_empty())
+            .ok_or(anyhow::format_err!(
+                "No signers found for sender {}.",
+                sender
+            ))
+            .map(|signers| signers.to_owned())
+    }
+
+    pub fn get_sender_for_signer(&self, signer: &Address) -> Result<Address> {
+        self.signers_to_senders
+            .get(signer)
+            .ok_or(anyhow::format_err!(
+                "Sender not found for receipt signer {}.",
+                signer
+            ))
+            .copied()
+    }
+
+    pub fn get_balance_for_sender(&self, sender: &Address) -> Result<U256> {
+        self.senders_balances
+            .get(sender)
+            .ok_or(anyhow::format_err!(
+                "Balance not found for sender {}.",
+                sender
+            ))
+            .copied()
+    }
+
+    pub fn get_balance_for_signer(&self, signer: &Address) -> Result<U256> {
+        self.get_sender_for_signer(signer)
+            .and_then(|sender| self.get_balance_for_sender(&sender))
+            .map_err(|e| anyhow::format_err!("Could not get balance for signer {}: {}", signer, e))
+    }
+
+    pub fn get_senders(&self) -> HashSet<Address> {
+        self.senders_balances.keys().copied().collect()
     }
 }
 

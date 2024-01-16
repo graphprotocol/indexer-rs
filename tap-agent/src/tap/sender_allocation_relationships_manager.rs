@@ -87,11 +87,7 @@ impl SenderAllocationRelationshipsManager {
                 .value()
                 .await
                 .expect("Should get indexer allocations from Eventual"),
-            escrow_accounts_snapshot
-                .senders_balances
-                .keys()
-                .copied()
-                .collect(),
+            escrow_accounts_snapshot.get_senders(),
         )
         .await
         .expect("Should be able to update sender_allocation_relationships");
@@ -132,9 +128,7 @@ impl SenderAllocationRelationshipsManager {
             let signer = Address::from_str(&row.signer_address)
                 .expect("signer_address should be a valid address");
             let sender = escrow_accounts_snapshot
-                .signers_to_senders
-                .get(&signer)
-                .copied()
+                .get_sender_for_signer(&signer)
                 .expect("should be able to get sender from signer");
 
             // Only create a SenderAllocationRelationship if it doesn't exist yet.
@@ -190,7 +184,7 @@ impl SenderAllocationRelationshipsManager {
                 Self::update_sender_allocation_relationships(
                     &inner,
                     indexer_allocations,
-                    escrow_accounts.senders_balances.keys().copied().collect(),
+                    escrow_accounts.get_senders(),
                 )
                 .await
                 .unwrap_or_else(|e| {
@@ -234,13 +228,11 @@ impl SenderAllocationRelationshipsManager {
                 .value()
                 .await
                 .expect("should be able to get escrow accounts")
-                .signers_to_senders
-                .get(&new_receipt_notification.signer_address)
-                .copied();
+                .get_sender_for_signer(&new_receipt_notification.signer_address);
 
             let sender_address = match sender_address {
-                Some(sender_address) => sender_address,
-                None => {
+                Ok(sender_address) => sender_address,
+                Err(_) => {
                     error!(
                         "No sender address found for receipt signer address {}. \
                         This should not happen.",
