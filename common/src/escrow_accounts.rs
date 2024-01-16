@@ -11,10 +11,21 @@ use anyhow::Result;
 use ethers_core::types::U256;
 use eventuals::{timer, Eventual, EventualExt};
 use serde::Deserialize;
+use thiserror::Error;
 use tokio::time::sleep;
 use tracing::{error, warn};
 
 use crate::prelude::{Query, SubgraphClient};
+
+#[derive(Error, Debug)]
+pub enum EscrowAccountsError {
+    #[error("No signer found for sender {sender}")]
+    NoSignerFound { sender: Address },
+    #[error("No balance found for sender {sender}")]
+    NoBalanceFound { sender: Address },
+    #[error("No sender found for signer {signer}")]
+    NoSenderFound { signer: Address },
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EscrowAccounts {
@@ -40,41 +51,40 @@ impl EscrowAccounts {
         }
     }
 
-    pub fn get_signers_for_sender(&self, sender: &Address) -> Result<Vec<Address>> {
+    pub fn get_signers_for_sender(
+        &self,
+        sender: &Address,
+    ) -> Result<Vec<Address>, EscrowAccountsError> {
         self.senders_to_signers
             .get(sender)
             .filter(|signers| !signers.is_empty())
-            .ok_or(anyhow::format_err!(
-                "No signers found for sender {}.",
-                sender
-            ))
+            .ok_or(EscrowAccountsError::NoSignerFound {
+                sender: sender.to_owned(),
+            })
             .map(|signers| signers.to_owned())
     }
 
-    pub fn get_sender_for_signer(&self, signer: &Address) -> Result<Address> {
+    pub fn get_sender_for_signer(&self, signer: &Address) -> Result<Address, EscrowAccountsError> {
         self.signers_to_senders
             .get(signer)
-            .ok_or(anyhow::format_err!(
-                "Sender not found for receipt signer {}.",
-                signer
-            ))
+            .ok_or(EscrowAccountsError::NoSenderFound {
+                signer: signer.to_owned(),
+            })
             .copied()
     }
 
-    pub fn get_balance_for_sender(&self, sender: &Address) -> Result<U256> {
+    pub fn get_balance_for_sender(&self, sender: &Address) -> Result<U256, EscrowAccountsError> {
         self.senders_balances
             .get(sender)
-            .ok_or(anyhow::format_err!(
-                "Balance not found for sender {}.",
-                sender
-            ))
+            .ok_or(EscrowAccountsError::NoBalanceFound {
+                sender: sender.to_owned(),
+            })
             .copied()
     }
 
-    pub fn get_balance_for_signer(&self, signer: &Address) -> Result<U256> {
+    pub fn get_balance_for_signer(&self, signer: &Address) -> Result<U256, EscrowAccountsError> {
         self.get_sender_for_signer(signer)
             .and_then(|sender| self.get_balance_for_sender(&sender))
-            .map_err(|e| anyhow::format_err!("Could not get balance for signer {}: {}", signer, e))
     }
 
     pub fn get_senders(&self) -> HashSet<Address> {

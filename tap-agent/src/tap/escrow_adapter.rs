@@ -27,8 +27,30 @@ pub struct EscrowAdapter {
 
 #[derive(Debug, Error)]
 pub enum AdapterError {
-    #[error("Error in EscrowAdapter: {error}")]
-    AdapterError { error: String },
+    #[error("Could not get escrow accounts from eventual")]
+    EscrowEventualError { error: String },
+
+    #[error("Could not get available escrow for sender")]
+    AvailableEscrowError(#[from] indexer_common::escrow_accounts::EscrowAccountsError),
+
+    #[error("Sender {sender} escrow balance is too large to fit in u128, could not get available escrow.")]
+    BalanceTooLarge { sender: Address },
+
+    #[error("Sender {sender} does not have enough escrow to subtract {fees} from {balance}.")]
+    NotEnoughEscrow {
+        sender: Address,
+        fees: u128,
+        balance: u128,
+    },
+}
+
+// Conversion from eventuals::error::Closed to AdapterError::EscrowEventualError
+impl From<eventuals::error::Closed> for AdapterError {
+    fn from(e: eventuals::error::Closed) -> Self {
+        AdapterError::EscrowEventualError {
+            error: format!("{:?}", e),
+        }
+    }
 }
 
 impl EscrowAdapter {
@@ -45,34 +67,16 @@ impl EscrowAdapterTrait for EscrowAdapter {
     type AdapterError = AdapterError;
 
     async fn get_available_escrow(&self, sender: Address) -> Result<u128, AdapterError> {
-        let escrow_accounts =
-            self.escrow_accounts
-                .value()
-                .await
-                .map_err(|e| AdapterError::AdapterError {
-                    error: format!("Could not get escrow accounts from eventual: {:?}.", e),
-                })?;
+        let escrow_accounts = self.escrow_accounts.value().await?;
 
-        let sender = escrow_accounts
-            .get_sender_for_signer(&sender)
-            .map_err(|e| AdapterError::AdapterError {
-                error: format!("{}", e).to_string(),
+        let sender = escrow_accounts.get_sender_for_signer(&sender)?;
+
+        let balance = escrow_accounts.get_balance_for_sender(&sender)?.to_owned();
+        let balance: u128 = balance
+            .try_into()
+            .map_err(|_| AdapterError::BalanceTooLarge {
+                sender: sender.to_owned(),
             })?;
-
-        let balance = escrow_accounts
-            .get_balance_for_sender(&sender)
-            .map_err(|e| AdapterError::AdapterError {
-                error: format!("Could not get available escrow: {}", e).to_string(),
-            })?
-            .to_owned();
-        let balance: u128 = balance.try_into().map_err(|_| AdapterError::AdapterError {
-            error: format!(
-                "Sender {} escrow balance is too large to fit in u128, \
-            could not get available escrow.",
-                sender
-            )
-            .to_string(),
-        })?;
 
         let fees = self
             .sender_pending_fees
@@ -85,35 +89,19 @@ impl EscrowAdapterTrait for EscrowAdapter {
     }
 
     async fn subtract_escrow(&self, sender: Address, value: u128) -> Result<(), AdapterError> {
-        let escrow_accounts =
-            self.escrow_accounts
-                .value()
-                .await
-                .map_err(|e| AdapterError::AdapterError {
-                    error: format!("Could not get escrow accounts from eventual: {:?}.", e),
-                })?;
+        let escrow_accounts = self.escrow_accounts.value().await?;
 
         let current_available_escrow = self.get_available_escrow(sender).await?;
 
-        let sender = escrow_accounts
-            .get_sender_for_signer(&sender)
-            .map_err(|e| AdapterError::AdapterError {
-                error: format!(
-                    "Could not get available escrow for receipt signer {}: {}",
-                    sender, e
-                )
-                .to_string(),
-            })?;
+        let sender = escrow_accounts.get_sender_for_signer(&sender)?;
 
         let mut fees_write = self.sender_pending_fees.write().await;
         let fees = fees_write.entry(sender.to_owned()).or_insert(0);
         if current_available_escrow < value {
-            return Err(AdapterError::AdapterError {
-                error: format!(
-                    "Sender {} does not have enough escrow to subtract {} from {}.",
-                    sender, value, *fees
-                )
-                .to_string(),
+            return Err(AdapterError::NotEnoughEscrow {
+                sender: sender.to_owned(),
+                fees: value,
+                balance: current_available_escrow,
             });
         }
         *fees += value;
