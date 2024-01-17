@@ -101,21 +101,29 @@ impl TapManager {
                 anyhow!(e)
             })?;
 
-                    // Check that the sender is not denylisted
-        if self.sender_denylist.read().await.contains(&receipt_signer) {
-            anyhow::bail!(
-                "Received a receipt from a denylisted sender: {}",
-                receipt_signer
-            );
-        }
+        let escrow_accounts_snapshot = self.escrow_accounts.value_immediate().unwrap_or_default();
 
-        if !self.escrow_accounts.value_immediate().unwrap_or_default()
-            .get_balance_for_signer(&receipt_signer)
+        // We bail if the receipt signer does not have a corresponding sender in the escrow
+        // accounts.
+        let receipt_sender = escrow_accounts_snapshot.get_sender_for_signer(&receipt_signer)?;
+
+        // Check that the sender has a non-zero balance -- more advanced accounting is done in
+        // `tap-agent`.
+        if !escrow_accounts_snapshot
+            .get_balance_for_sender(&receipt_sender)
             .map_or(false, |balance| balance > U256::zero())
         {
             anyhow::bail!(
-                "Receipt sender `{}` is not eligible for this indexer",
+                "Receipt sender `{}` does not have a sufficient balance",
                 receipt_signer,
+            );
+        }
+
+        // Check that the sender is not denylisted
+        if self.sender_denylist.read().await.contains(&receipt_sender) {
+            anyhow::bail!(
+                "Received a receipt from a denylisted sender: {}",
+                receipt_signer
             );
         }
 
@@ -246,7 +254,7 @@ mod test {
     use keccak_hash::H256;
     use sqlx::postgres::PgListener;
 
-    use crate::test_vectors::{self, create_signed_receipt};
+    use crate::test_vectors::{self, create_signed_receipt, TAP_SENDER};
 
     use super::*;
 
