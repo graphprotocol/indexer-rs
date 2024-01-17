@@ -65,6 +65,7 @@ pub async fn start_agent(config: &'static config::Cli) -> SenderAllocationRelati
         escrow_subgraph,
         config.ethereum.indexer_address,
         Duration::from_millis(config.escrow_subgraph.escrow_syncing_interval_ms),
+        false,
     );
 
     // TODO: replace with a proper implementation once the gateway registry contract is ready

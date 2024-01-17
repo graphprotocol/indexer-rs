@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO scalar_tap_receipts (allocation_id, signer_address, timestamp_ns, value, receipt)\n                VALUES ($1, $2, $3, $4, $5)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Bpchar",
+        "Numeric",
+        "Numeric",
+        "Json"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0245e3c8b1c93a2a4f86e2a7e684be6e47ee6452751af47df3ad6907d163fc65"
+}

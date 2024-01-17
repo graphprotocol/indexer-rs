@@ -11,12 +11,12 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tap_core::tap_manager::SignedReceipt;
 use tracing::error;
 
-use crate::prelude::Allocation;
+use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
 
 #[derive(Clone)]
 pub struct TapManager {
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
-    escrow_accounts: Eventual<HashMap<Address, U256>>,
+    escrow_accounts: Eventual<EscrowAccounts>,
     pgpool: PgPool,
     domain_separator: Arc<Eip712Domain>,
 }
@@ -25,7 +25,7 @@ impl TapManager {
     pub fn new(
         pgpool: PgPool,
         indexer_allocations: Eventual<HashMap<Address, Allocation>>,
-        escrow_accounts: Eventual<HashMap<Address, U256>>,
+        escrow_accounts: Eventual<EscrowAccounts>,
         domain_separator: Eip712Domain,
     ) -> Self {
         Self {
@@ -67,23 +67,22 @@ impl TapManager {
                 anyhow!(e)
             })?;
 
-        if !self
-            .escrow_accounts
-            .value_immediate()
-            .unwrap_or_default()
-            .get(&receipt_signer)
-            .map_or(false, |balance| balance > &U256::zero())
+        let escrow_accounts = self.escrow_accounts.value_immediate().unwrap_or_default();
+
+        if !escrow_accounts
+            .get_balance_for_signer(&receipt_signer)
+            .map_or(false, |balance| balance > U256::zero())
         {
-            return Err(anyhow!(
+            anyhow::bail!(
                 "Receipt sender `{}` is not eligible for this indexer",
-                receipt_signer
-            ));
+                receipt_signer,
+            );
         }
 
         // TODO: consider doing this in another async task to avoid slowing down the paid query flow.
         sqlx::query!(
             r#"
-                INSERT INTO scalar_tap_receipts (allocation_id, sender_address, timestamp_ns, value, receipt)
+                INSERT INTO scalar_tap_receipts (allocation_id, signer_address, timestamp_ns, value, receipt)
                 VALUES ($1, $2, $3, $4, $5)
             "#,
             format!("{:?}", allocation_id)
@@ -117,7 +116,7 @@ mod test {
     use keccak_hash::H256;
     use sqlx::postgres::PgListener;
 
-    use crate::test_vectors::{self, create_signed_receipt, TAP_SENDER};
+    use crate::test_vectors::{self, create_signed_receipt};
 
     use super::*;
 
@@ -159,8 +158,10 @@ mod test {
         ));
 
         // Mock escrow accounts
-        let escrow_accounts =
-            Eventual::from_value(HashMap::from_iter(vec![(TAP_SENDER.1, U256::from(123))]));
+        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+            test_vectors::ESCROW_ACCOUNTS_BALANCES.to_owned(),
+            test_vectors::ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
+        ));
 
         let tap_manager = TapManager::new(
             pgpool.clone(),

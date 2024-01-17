@@ -1,14 +1,14 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, ensure};
-use ethereum_types::U256;
+
 use eventuals::Eventual;
-use indexer_common::prelude::SubgraphClient;
+use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
@@ -30,7 +30,7 @@ use crate::{
     tap::{
         escrow_adapter::EscrowAdapter, rav_storage_adapter::RAVStorageAdapter,
         receipt_checks_adapter::ReceiptChecksAdapter,
-        receipt_storage_adapter::ReceiptStorageAdapter,
+        receipt_storage_adapter::ReceiptStorageAdapter, signers_trimmed,
     },
 };
 
@@ -66,6 +66,7 @@ struct Inner {
     unaggregated_fees: Arc<Mutex<UnaggregatedFees>>,
     state: Arc<Mutex<State>>,
     config: &'static config::Cli,
+    escrow_accounts: Eventual<EscrowAccounts>,
 }
 
 /// A SenderAllocationRelationship is the relationship between the indexer and the sender in the
@@ -88,7 +89,7 @@ impl SenderAllocationRelationship {
         pgpool: PgPool,
         allocation_id: Address,
         sender: Address,
-        escrow_accounts: Eventual<HashMap<Address, U256>>,
+        escrow_accounts: Eventual<EscrowAccounts>,
         escrow_subgraph: &'static SubgraphClient,
         escrow_adapter: EscrowAdapter,
         tap_eip712_domain_separator: Eip712Domain,
@@ -118,6 +119,7 @@ impl SenderAllocationRelationship {
             allocation_id,
             sender,
             required_checks.clone(),
+            escrow_accounts.clone(),
         );
         let rav_storage_adapter = RAVStorageAdapter::new(pgpool.clone(), allocation_id, sender);
         let tap_manager = TapManager::new(
@@ -139,6 +141,7 @@ impl SenderAllocationRelationship {
                 unaggregated_fees: Arc::new(Mutex::new(UnaggregatedFees::default())),
                 state: Arc::new(Mutex::new(State::Running)),
                 config,
+                escrow_accounts,
             }),
             rav_requester_task: Arc::new(Mutex::new(None)),
         }
@@ -175,7 +178,7 @@ impl SenderAllocationRelationship {
                         new_receipt_notification.value,
                         unaggregated_fees.value,
                         new_receipt_notification.allocation_id,
-                        new_receipt_notification.sender_address
+                        self.inner.sender
                     );
                     u128::MAX
                 });
@@ -210,6 +213,8 @@ impl SenderAllocationRelationship {
     async fn update_unaggregated_fees_static(inner: &Inner) -> Result<(), anyhow::Error> {
         inner.tap_manager.remove_obsolete_receipts().await?;
 
+        let signers = signers_trimmed(&inner.escrow_accounts, inner.sender).await?;
+
         // TODO: Get `rav.timestamp_ns` from the TAP Manager's RAV storage adapter instead?
         let res = sqlx::query!(
             r#"
@@ -229,7 +234,7 @@ impl SenderAllocationRelationship {
                 scalar_tap_receipts 
             WHERE 
                 allocation_id = $1 
-                AND sender_address = $2 
+                AND signer_address IN (SELECT unnest($3::text[]))
                 AND CASE WHEN (
                     SELECT 
                         timestamp_ns :: NUMERIC 
@@ -247,7 +252,8 @@ impl SenderAllocationRelationship {
                 .to_string()
                 .trim_start_matches("0x")
                 .to_owned(),
-            inner.sender.to_string().trim_start_matches("0x").to_owned()
+            inner.sender.to_string().trim_start_matches("0x").to_owned(),
+            &signers
         )
         .fetch_one(&inner.pgpool)
         .await?;
@@ -447,7 +453,7 @@ impl SenderAllocationRelationship {
                 r#"
                     INSERT INTO scalar_tap_receipts_invalid (
                         allocation_id,
-                        sender_address,
+                        signer_address,
                         timestamp_ns,
                         value,
                         received_receipt
@@ -525,6 +531,8 @@ impl Drop for SenderAllocationRelationship {
 #[cfg(test)]
 mod tests {
 
+    use std::collections::HashMap;
+
     use indexer_common::subgraph_client::DeploymentDetails;
     use serde_json::json;
     use tap_aggregator::server::run_server;
@@ -537,7 +545,7 @@ mod tests {
     use super::*;
     use crate::tap::test_utils::{
         create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID, INDEXER,
-        SENDER, TAP_EIP712_DOMAIN_SEPARATOR,
+        SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };
 
     const DUMMY_URL: &str = "http://localhost:1234";
@@ -567,9 +575,10 @@ mod tests {
             DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
         )));
 
-        let (mut escrow_accounts_writer, escrow_accounts_eventual) =
-            Eventual::<HashMap<Address, U256>>::new();
-        escrow_accounts_writer.write(HashMap::from([(SENDER.1, 1000.into())]));
+        let escrow_accounts_eventual = Eventual::from_value(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
 
         let escrow_adapter = EscrowAdapter::new(escrow_accounts_eventual.clone());
 
@@ -600,7 +609,7 @@ mod tests {
         // Add receipts to the database.
         for i in 1..10 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID, &SENDER.0, i, i, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID, &SIGNER.0, i, i, i.into(), i).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
@@ -639,13 +648,13 @@ mod tests {
         // Add the RAV to the database.
         // This RAV has timestamp 4. The sender_allocation_relatioship should only consider receipts
         // with a timestamp greater than 4.
-        let signed_rav = create_rav(*ALLOCATION_ID, SENDER.0.clone(), 4, 10).await;
+        let signed_rav = create_rav(*ALLOCATION_ID, SIGNER.0.clone(), 4, 10).await;
         store_rav(&pgpool, signed_rav, SENDER.1).await.unwrap();
 
         // Add receipts to the database.
         for i in 1..10 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID, &SENDER.0, i, i, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID, &SIGNER.0, i, i, i.into(), i).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
@@ -682,7 +691,7 @@ mod tests {
         let mut expected_unaggregated_fees = 0u128;
         for i in 10..20 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID, &SENDER.0, i, i, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID, &SIGNER.0, i, i, i.into(), i).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
@@ -710,7 +719,7 @@ mod tests {
         // table
         let new_receipt_notification = NewReceiptNotification {
             allocation_id: *ALLOCATION_ID,
-            sender_address: SENDER.1,
+            signer_address: SIGNER.1,
             id: 10,
             timestamp_ns: 19,
             value: 19,
@@ -733,7 +742,7 @@ mod tests {
         // Send a new receipt notification.
         let new_receipt_notification = NewReceiptNotification {
             allocation_id: *ALLOCATION_ID,
-            sender_address: SENDER.1,
+            signer_address: SIGNER.1,
             id: 30,
             timestamp_ns: 20,
             value: 20,
@@ -757,7 +766,7 @@ mod tests {
         // Send a new receipt notification that has a lower ID than the previous one.
         let new_receipt_notification = NewReceiptNotification {
             allocation_id: *ALLOCATION_ID,
-            sender_address: SENDER.1,
+            signer_address: SIGNER.1,
             id: 25,
             timestamp_ns: 19,
             value: 19,
@@ -783,7 +792,7 @@ mod tests {
         // Start a TAP aggregator server.
         let (handle, aggregator_endpoint) = run_server(
             0,
-            SENDER.0.clone(),
+            SIGNER.0.clone(),
             TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             100 * 1024,
             100 * 1024,
@@ -818,7 +827,7 @@ mod tests {
         // Add receipts to the database.
         for i in 0..10 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID, &SENDER.0, i, i + 1, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID, &SIGNER.0, i, i + 1, i.into(), i).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
@@ -845,7 +854,7 @@ mod tests {
         // Start a TAP aggregator server.
         let (handle, aggregator_endpoint) = run_server(
             0,
-            SENDER.0.clone(),
+            SIGNER.0.clone(),
             TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             100 * 1024,
             100 * 1024,
@@ -887,14 +896,14 @@ mod tests {
             let value = (i + 10) as u128;
 
             let receipt =
-                create_received_receipt(&ALLOCATION_ID, &SENDER.0, i, i + 1, value, i).await;
+                create_received_receipt(&ALLOCATION_ID, &SIGNER.0, i, i + 1, value, i).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
             sender_allocation_relatioship
                 .handle_new_receipt_notification(NewReceiptNotification {
                     allocation_id: *ALLOCATION_ID,
-                    sender_address: SENDER.1,
+                    signer_address: SIGNER.1,
                     id: i,
                     timestamp_ns: i + 1,
                     value,
@@ -967,7 +976,7 @@ mod tests {
             let value = (i + 10) as u128;
 
             let receipt =
-                create_received_receipt(&ALLOCATION_ID, &SENDER.0, i, i + 1, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID, &SIGNER.0, i, i + 1, i.into(), i).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
@@ -975,7 +984,7 @@ mod tests {
             sender_allocation_relatioship
                 .handle_new_receipt_notification(NewReceiptNotification {
                     allocation_id: *ALLOCATION_ID,
-                    sender_address: SENDER.1,
+                    signer_address: SIGNER.1,
                     id: i,
                     timestamp_ns: i + 1,
                     value,

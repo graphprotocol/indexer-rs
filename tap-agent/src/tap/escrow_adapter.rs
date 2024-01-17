@@ -5,8 +5,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use alloy_primitives::Address;
 use async_trait::async_trait;
-use ethereum_types::U256;
 use eventuals::Eventual;
+use indexer_common::escrow_accounts::EscrowAccounts;
 use tap_core::adapters::escrow_adapter::EscrowAdapter as EscrowAdapterTrait;
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -21,18 +21,40 @@ use tokio::sync::RwLock;
 /// receipt checks only when we need to send a RAV request.
 #[derive(Clone)]
 pub struct EscrowAdapter {
-    escrow_accounts: Eventual<HashMap<Address, U256>>,
+    escrow_accounts: Eventual<EscrowAccounts>,
     sender_pending_fees: Arc<RwLock<HashMap<Address, u128>>>,
 }
 
 #[derive(Debug, Error)]
 pub enum AdapterError {
-    #[error("Error in EscrowAdapter: {error}")]
-    AdapterError { error: String },
+    #[error("Could not get escrow accounts from eventual")]
+    EscrowEventualError { error: String },
+
+    #[error("Could not get available escrow for sender")]
+    AvailableEscrowError(#[from] indexer_common::escrow_accounts::EscrowAccountsError),
+
+    #[error("Sender {sender} escrow balance is too large to fit in u128, could not get available escrow.")]
+    BalanceTooLarge { sender: Address },
+
+    #[error("Sender {sender} does not have enough escrow to subtract {fees} from {balance}.")]
+    NotEnoughEscrow {
+        sender: Address,
+        fees: u128,
+        balance: u128,
+    },
+}
+
+// Conversion from eventuals::error::Closed to AdapterError::EscrowEventualError
+impl From<eventuals::error::Closed> for AdapterError {
+    fn from(e: eventuals::error::Closed) -> Self {
+        AdapterError::EscrowEventualError {
+            error: format!("{:?}", e),
+        }
+    }
 }
 
 impl EscrowAdapter {
-    pub fn new(escrow_accounts: Eventual<HashMap<Address, U256>>) -> Self {
+    pub fn new(escrow_accounts: Eventual<EscrowAccounts>) -> Self {
         Self {
             escrow_accounts,
             sender_pending_fees: Arc::new(RwLock::new(HashMap::new())),
@@ -45,30 +67,16 @@ impl EscrowAdapterTrait for EscrowAdapter {
     type AdapterError = AdapterError;
 
     async fn get_available_escrow(&self, sender: Address) -> Result<u128, AdapterError> {
-        let balance = self
-            .escrow_accounts
-            .value()
-            .await
-            .map_err(|e| AdapterError::AdapterError {
-                error: format!("Could not get escrow balance from eventual: {:?}.", e),
-            })?
-            .get(&sender)
-            .ok_or(AdapterError::AdapterError {
-                error: format!(
-                    "Sender {} not found in escrow balances map, could not get available escrow.",
-                    sender
-                )
-                .to_string(),
-            })?
-            .to_owned();
-        let balance: u128 = balance.try_into().map_err(|_| AdapterError::AdapterError {
-            error: format!(
-                "Sender {} escrow balance is too large to fit in u128, \
-            could not get available escrow.",
-                sender
-            )
-            .to_string(),
-        })?;
+        let escrow_accounts = self.escrow_accounts.value().await?;
+
+        let sender = escrow_accounts.get_sender_for_signer(&sender)?;
+
+        let balance = escrow_accounts.get_balance_for_sender(&sender)?.to_owned();
+        let balance: u128 = balance
+            .try_into()
+            .map_err(|_| AdapterError::BalanceTooLarge {
+                sender: sender.to_owned(),
+            })?;
 
         let fees = self
             .sender_pending_fees
@@ -81,16 +89,19 @@ impl EscrowAdapterTrait for EscrowAdapter {
     }
 
     async fn subtract_escrow(&self, sender: Address, value: u128) -> Result<(), AdapterError> {
+        let escrow_accounts = self.escrow_accounts.value().await?;
+
         let current_available_escrow = self.get_available_escrow(sender).await?;
+
+        let sender = escrow_accounts.get_sender_for_signer(&sender)?;
+
         let mut fees_write = self.sender_pending_fees.write().await;
-        let fees = fees_write.entry(sender).or_insert(0);
+        let fees = fees_write.entry(sender.to_owned()).or_insert(0);
         if current_available_escrow < value {
-            return Err(AdapterError::AdapterError {
-                error: format!(
-                    "Sender {} does not have enough escrow to subtract {} from {}.",
-                    sender, value, *fees
-                )
-                .to_string(),
+            return Err(AdapterError::NotEnoughEscrow {
+                sender: sender.to_owned(),
+                fees: value,
+                balance: current_available_escrow,
             });
         }
         *fees += value;
@@ -100,29 +111,32 @@ impl EscrowAdapterTrait for EscrowAdapter {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use ethereum_types::U256;
+    use std::vec;
 
-    use std::str::FromStr;
+    use crate::tap::test_utils::{SENDER, SIGNER};
+
+    use super::*;
 
     #[tokio::test]
     async fn test_subtract_escrow() {
-        let sender = Address::from_str("0xdeadbeefcafebabedeadbeefcafebabadeadbeef").unwrap();
-        let escrow_accounts: Eventual<HashMap<Address, U256>> =
-            Eventual::from_value(HashMap::from([(sender, U256::from(1000))]));
+        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
+
         let sender_pending_fees = Arc::new(RwLock::new(HashMap::new()));
-        sender_pending_fees.write().await.insert(sender, 500);
+        sender_pending_fees.write().await.insert(SENDER.1, 500);
 
         let adapter = EscrowAdapter {
             escrow_accounts,
             sender_pending_fees,
         };
         adapter
-            .subtract_escrow(sender, 500)
+            .subtract_escrow(SIGNER.1, 500)
             .await
             .expect("Subtract escrow.");
         let available_escrow = adapter
-            .get_available_escrow(sender)
+            .get_available_escrow(SIGNER.1)
             .await
             .expect("Get available escrow.");
         assert_eq!(available_escrow, 0);
@@ -130,23 +144,25 @@ mod test {
 
     #[tokio::test]
     async fn test_subtract_escrow_overflow() {
-        let sender = Address::from_str("0xdeadbeefcafebabedeadbeefcafebabadeadbeef").unwrap();
-        let escrow_accounts: Eventual<HashMap<Address, U256>> =
-            Eventual::from_value(HashMap::from([(sender, U256::from(1000))]));
+        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
+
         let sender_pending_fees = Arc::new(RwLock::new(HashMap::new()));
-        sender_pending_fees.write().await.insert(sender, 500);
+        sender_pending_fees.write().await.insert(SENDER.1, 500);
 
         let adapter = EscrowAdapter {
             escrow_accounts,
             sender_pending_fees,
         };
         adapter
-            .subtract_escrow(sender, 250)
+            .subtract_escrow(SIGNER.1, 250)
             .await
             .expect("Subtract escrow.");
-        assert!(adapter.subtract_escrow(sender, 251).await.is_err());
+        assert!(adapter.subtract_escrow(SIGNER.1, 251).await.is_err());
         let available_escrow = adapter
-            .get_available_escrow(sender)
+            .get_available_escrow(SIGNER.1)
             .await
             .expect("Get available escrow.");
         assert_eq!(available_escrow, 250);

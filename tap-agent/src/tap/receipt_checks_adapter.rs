@@ -7,6 +7,7 @@ use alloy_primitives::Address;
 use async_trait::async_trait;
 use ethereum_types::U256;
 use eventuals::{timer, Eventual, EventualExt};
+use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::subgraph_client::{Query, SubgraphClient};
 use sqlx::PgPool;
 use tap_core::adapters::receipt_checks_adapter::ReceiptChecksAdapter as ReceiptChecksAdapterTrait;
@@ -20,7 +21,7 @@ use crate::config;
 pub struct ReceiptChecksAdapter {
     query_appraisals: Option<Arc<RwLock<HashMap<u64, u128>>>>,
     allocation_id: Address,
-    escrow_accounts: Eventual<HashMap<Address, U256>>,
+    escrow_accounts: Eventual<EscrowAccounts>,
     tap_allocation_redeemed: Eventual<bool>,
 }
 
@@ -30,7 +31,7 @@ impl ReceiptChecksAdapter {
         _pgpool: PgPool,
         query_appraisals: Option<Arc<RwLock<HashMap<u64, u128>>>>,
         allocation_id: Address,
-        escrow_accounts: Eventual<HashMap<Address, U256>>,
+        escrow_accounts: Eventual<EscrowAccounts>,
         escrow_subgraph: &'static SubgraphClient,
         sender_id: Address,
     ) -> Self {
@@ -125,8 +126,9 @@ impl ReceiptChecksAdapterTrait for ReceiptChecksAdapter {
                 })?;
 
         Ok(escrow_accounts
-            .get(&sender_id)
-            .map_or(false, |balance| *balance > U256::from(0)))
+            .get_balance_for_signer(&sender_id)
+            .map(|balance| balance > U256::from(0))
+            .unwrap_or(false))
     }
 }
 

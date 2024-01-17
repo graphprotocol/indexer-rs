@@ -96,7 +96,7 @@ impl RAVStorageAdapter {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::tap::test_utils::{create_rav, ALLOCATION_ID, SENDER};
+    use crate::tap::test_utils::{create_rav, ALLOCATION_ID, SENDER, SIGNER};
     use tap_core::adapters::rav_storage_adapter::RAVStorageAdapter as RAVStorageAdapterTrait;
 
     #[sqlx::test(migrations = "../migrations")]
@@ -108,7 +108,7 @@ mod test {
         // Insert a rav
         let mut new_rav = create_rav(
             *ALLOCATION_ID,
-            SENDER.0.clone(),
+            SIGNER.0.clone(),
             timestamp_ns,
             value_aggregate,
         )
@@ -127,7 +127,7 @@ mod test {
         for i in 0..3 {
             new_rav = create_rav(
                 *ALLOCATION_ID,
-                SENDER.0.clone(),
+                SIGNER.0.clone(),
                 timestamp_ns + i,
                 value_aggregate - (i as u128),
             )

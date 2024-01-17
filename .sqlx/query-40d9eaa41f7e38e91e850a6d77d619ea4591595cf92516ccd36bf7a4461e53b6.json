@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, receipt\n                FROM scalar_tap_receipts\n                WHERE allocation_id = $1 AND sender_address = $2 AND $3::numrange @> timestamp_ns\n            ",
+  "query": "\n                SELECT id, receipt\n                FROM scalar_tap_receipts\n                WHERE allocation_id = $1 AND signer_address IN (SELECT unnest($2::text[]))\n                 AND $3::numrange @> timestamp_ns\n            ",
   "describe": {
     "columns": [
       {
@@ -17,7 +17,7 @@
     "parameters": {
       "Left": [
         "Bpchar",
-        "Bpchar",
+        "TextArray",
         "NumRange"
       ]
     },
@@ -26,5 +26,5 @@
       false
     ]
   },
-  "hash": "aede274abf6f8fabe510f7765fc4315bab48aeb9ddd1ed80486f22511c39c92e"
+  "hash": "40d9eaa41f7e38e91e850a6d77d619ea4591595cf92516ccd36bf7a4461e53b6"
 }

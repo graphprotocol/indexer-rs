@@ -1,14 +1,15 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashSet;
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use anyhow::Result;
-use ethereum_types::U256;
 use eventuals::{Eventual, EventualExt, PipeHandle};
+use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::prelude::{Allocation, SubgraphClient};
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
@@ -23,7 +24,7 @@ use crate::config;
 pub struct NewReceiptNotification {
     pub id: u64,
     pub allocation_id: Address,
-    pub sender_address: Address,
+    pub signer_address: Address,
     pub timestamp_ns: u64,
     pub value: u128,
 }
@@ -42,7 +43,7 @@ struct Inner {
     sender_allocation_relationships:
         Arc<RwLock<HashMap<(Address, Address), SenderAllocationRelationship>>>,
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
-    escrow_accounts: Eventual<HashMap<Address, U256>>,
+    escrow_accounts: Eventual<EscrowAccounts>,
     escrow_subgraph: &'static SubgraphClient,
     escrow_adapter: EscrowAdapter,
     tap_eip712_domain_separator: Eip712Domain,
@@ -54,7 +55,7 @@ impl SenderAllocationRelationshipsManager {
         config: &'static config::Cli,
         pgpool: PgPool,
         indexer_allocations: Eventual<HashMap<Address, Allocation>>,
-        escrow_accounts: Eventual<HashMap<Address, U256>>,
+        escrow_accounts: Eventual<EscrowAccounts>,
         escrow_subgraph: &'static SubgraphClient,
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoints: HashMap<Address, String>,
@@ -73,6 +74,12 @@ impl SenderAllocationRelationshipsManager {
             sender_aggregator_endpoints,
         });
 
+        let escrow_accounts_snapshot = inner
+            .escrow_accounts
+            .value()
+            .await
+            .expect("Should get escrow accounts from Eventual");
+
         Self::update_sender_allocation_relationships(
             &inner,
             inner
@@ -80,11 +87,7 @@ impl SenderAllocationRelationshipsManager {
                 .value()
                 .await
                 .expect("Should get indexer allocations from Eventual"),
-            inner
-                .escrow_accounts
-                .value()
-                .await
-                .expect("Should get escrow accounts from Eventual"),
+            escrow_accounts_snapshot.get_senders(),
         )
         .await
         .expect("Should be able to update sender_allocation_relationships");
@@ -111,7 +114,7 @@ impl SenderAllocationRelationshipsManager {
         // still need to get aggregated.
         sqlx::query!(
             r#"
-                SELECT DISTINCT allocation_id, sender_address
+                SELECT DISTINCT allocation_id, signer_address
                 FROM scalar_tap_receipts
             "#
         )
@@ -122,8 +125,11 @@ impl SenderAllocationRelationshipsManager {
         .for_each(|row| {
             let allocation_id = Address::from_str(&row.allocation_id)
                 .expect("allocation_id should be a valid address");
-            let sender = Address::from_str(&row.sender_address)
-                .expect("sender_address should be a valid address");
+            let signer = Address::from_str(&row.signer_address)
+                .expect("signer_address should be a valid address");
+            let sender = escrow_accounts_snapshot
+                .get_sender_for_signer(&signer)
+                .expect("should be able to get sender from signer");
 
             // Only create a SenderAllocationRelationship if it doesn't exist yet.
             if let std::collections::hash_map::Entry::Vacant(e) =
@@ -162,6 +168,7 @@ impl SenderAllocationRelationshipsManager {
         let new_receipts_watcher_handle = tokio::spawn(Self::new_receipts_watcher(
             pglistener,
             inner.sender_allocation_relationships.clone(),
+            inner.escrow_accounts.clone(),
         ));
 
         // Start the eligible_allocations_senders_pipe that watches for changes in eligible senders
@@ -177,7 +184,7 @@ impl SenderAllocationRelationshipsManager {
                 Self::update_sender_allocation_relationships(
                     &inner,
                     indexer_allocations,
-                    escrow_accounts,
+                    escrow_accounts.get_senders(),
                 )
                 .await
                 .unwrap_or_else(|e| {
@@ -203,6 +210,7 @@ impl SenderAllocationRelationshipsManager {
         sender_allocation_relationships: Arc<
             RwLock<HashMap<(Address, Address), SenderAllocationRelationship>>,
         >,
+        escrow_accounts: Eventual<EscrowAccounts>,
     ) {
         loop {
             // TODO: recover from errors or shutdown the whole program?
@@ -216,11 +224,29 @@ impl SenderAllocationRelationshipsManager {
                         NewReceiptNotification",
                 );
 
-            if let Some(sender_allocation_relationship) =
-                sender_allocation_relationships.read().await.get(&(
-                    new_receipt_notification.allocation_id,
-                    new_receipt_notification.sender_address,
-                ))
+            let sender_address = escrow_accounts
+                .value()
+                .await
+                .expect("should be able to get escrow accounts")
+                .get_sender_for_signer(&new_receipt_notification.signer_address);
+
+            let sender_address = match sender_address {
+                Ok(sender_address) => sender_address,
+                Err(_) => {
+                    error!(
+                        "No sender address found for receipt signer address {}. \
+                        This should not happen.",
+                        new_receipt_notification.signer_address
+                    );
+                    // TODO: save the receipt in the failed receipts table?
+                    continue;
+                }
+            };
+
+            if let Some(sender_allocation_relationship) = sender_allocation_relationships
+                .read()
+                .await
+                .get(&(new_receipt_notification.allocation_id, sender_address))
             {
                 sender_allocation_relationship
                     .handle_new_receipt_notification(new_receipt_notification)
@@ -228,9 +254,9 @@ impl SenderAllocationRelationshipsManager {
             } else {
                 warn!(
                     "No sender_allocation_relationship found for allocation_id {} and \
-                        sender_address {} to process new receipt notification. This should not \
-                        happen.",
-                    new_receipt_notification.allocation_id, new_receipt_notification.sender_address
+                    sender_address {} to process new receipt notification. This should not \
+                    happen.",
+                    new_receipt_notification.allocation_id, sender_address
                 );
             }
         }
@@ -239,10 +265,9 @@ impl SenderAllocationRelationshipsManager {
     async fn update_sender_allocation_relationships(
         inner: &Inner,
         indexer_allocations: HashMap<Address, Allocation>,
-        escrow_accounts: HashMap<Address, U256>,
+        senders: HashSet<Address>,
     ) -> Result<()> {
         let eligible_allocations: Vec<Address> = indexer_allocations.keys().copied().collect();
-        let senders: Vec<Address> = escrow_accounts.keys().copied().collect();
         let mut sender_allocation_relationships_write =
             inner.sender_allocation_relationships.write().await;
 
@@ -303,6 +328,9 @@ impl Drop for SenderAllocationRelationshipsManager {
 #[cfg(test)]
 mod tests {
 
+    use std::vec;
+
+    use ethereum_types::U256;
     use indexer_common::{
         prelude::{AllocationStatus, SubgraphDeployment},
         subgraph_client::DeploymentDetails,
@@ -316,7 +344,7 @@ mod tests {
 
     use crate::tap::{
         sender_allocation_relationship::State,
-        test_utils::{INDEXER, SENDER, TAP_EIP712_DOMAIN_SEPARATOR},
+        test_utils::{INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR},
     };
 
     use super::*;
@@ -341,8 +369,8 @@ mod tests {
         indexer_allocations_writer.write(HashMap::new());
 
         let (mut escrow_accounts_writer, escrow_accounts_eventual) =
-            Eventual::<HashMap<Address, U256>>::new();
-        escrow_accounts_writer.write(HashMap::new());
+            Eventual::<EscrowAccounts>::new();
+        escrow_accounts_writer.write(EscrowAccounts::default());
 
         // Mock escrow subgraph.
         let mock_server = MockServer::start().await;
@@ -405,7 +433,10 @@ mod tests {
         )]));
 
         // Add an escrow account to the escrow_accounts Eventual.
-        escrow_accounts_writer.write(HashMap::from([(SENDER.1, U256::from_str("1000").unwrap())]));
+        escrow_accounts_writer.write(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
 
         // Wait for the SenderAllocationRelationship to be created.
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -419,7 +450,7 @@ mod tests {
             .contains_key(&(allocation_id, SENDER.1)));
 
         // Remove the escrow account from the escrow_accounts Eventual.
-        escrow_accounts_writer.write(HashMap::new());
+        escrow_accounts_writer.write(EscrowAccounts::default());
 
         // Wait a bit
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
