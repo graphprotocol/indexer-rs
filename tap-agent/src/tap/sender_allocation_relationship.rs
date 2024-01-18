@@ -18,10 +18,7 @@ use tap_core::{
     tap_manager::RAVRequest,
     tap_receipt::{ReceiptCheck, ReceivedReceipt},
 };
-use tokio::{
-    sync::{Mutex, MutexGuard},
-    task::JoinHandle,
-};
+use tokio::sync::Mutex;
 use tracing::{error, warn};
 
 use super::sender_allocation_relationships_manager::NewReceiptNotification;
@@ -79,7 +76,8 @@ struct Inner {
 /// - Requesting the last RAV from the sender's TAP aggregator (on SenderAllocationRelationship EOL)
 pub struct SenderAllocationRelationship {
     inner: Arc<Inner>,
-    rav_requester_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    rav_requester_task: tokio::task::JoinHandle<()>,
+    rav_requester_notify: Arc<tokio::sync::Notify>,
 }
 
 impl SenderAllocationRelationship {
@@ -131,19 +129,29 @@ impl SenderAllocationRelationship {
             required_checks,
             0,
         );
+
+        let inner = Arc::new(Inner {
+            pgpool,
+            tap_manager,
+            allocation_id,
+            sender,
+            sender_aggregator_endpoint,
+            unaggregated_fees: Arc::new(Mutex::new(UnaggregatedFees::default())),
+            state: Arc::new(Mutex::new(State::Running)),
+            config,
+            escrow_accounts,
+        });
+
+        let rav_requester_notify = Arc::new(tokio::sync::Notify::new());
+        let rav_requester_task = tokio::spawn(Self::rav_requester(
+            inner.clone(),
+            rav_requester_notify.clone(),
+        ));
+
         Self {
-            inner: Arc::new(Inner {
-                pgpool,
-                tap_manager,
-                allocation_id,
-                sender,
-                sender_aggregator_endpoint,
-                unaggregated_fees: Arc::new(Mutex::new(UnaggregatedFees::default())),
-                state: Arc::new(Mutex::new(State::Running)),
-                config,
-                escrow_accounts,
-            }),
-            rav_requester_task: Arc::new(Mutex::new(None)),
+            inner,
+            rav_requester_task,
+            rav_requester_notify,
         }
     }
 
@@ -184,22 +192,16 @@ impl SenderAllocationRelationship {
                 });
             unaggregated_fees.last_id = new_receipt_notification.id;
 
-            let mut rav_requester_task = self.rav_requester_task.lock().await;
             // TODO: consider making the trigger per sender, instead of per (sender, allocation).
-            if unaggregated_fees.value >= self.inner.config.tap.rav_request_trigger_value.into()
-                && !Self::rav_requester_task_is_running(&rav_requester_task)
-            {
-                *rav_requester_task = Some(tokio::spawn(Self::rav_requester(self.inner.clone())));
+            if unaggregated_fees.value >= self.inner.config.tap.rav_request_trigger_value.into() {
+                self.rav_requester_notify.notify_waiters();
             }
         }
     }
 
     pub async fn start_last_rav_request(&self) {
         *(self.inner.state.lock().await) = State::LastRavPending;
-        let mut rav_requester_task = self.rav_requester_task.lock().await;
-        if !Self::rav_requester_task_is_running(&rav_requester_task) {
-            *rav_requester_task = Some(tokio::spawn(Self::rav_requester(self.inner.clone())));
-        }
+        self.rav_requester_notify.notify_one();
     }
 
     /// Delete obsolete receipts in the DB w.r.t. the last RAV in DB, then update the tap manager
@@ -279,13 +281,18 @@ impl SenderAllocationRelationship {
 
     /// Request a RAV from the sender's TAP aggregator.
     /// Will remove the aggregated receipts from the database if successful.
-    async fn rav_requester(inner: Arc<Inner>) {
-        Self::rav_requester_try(&inner).await.unwrap_or_else(|e| {
-            error!(
-                "Error while requesting a RAV for allocation {} and sender {}: {:?}",
-                inner.allocation_id, inner.sender, e
-            );
-        });
+    async fn rav_requester(inner: Arc<Inner>, notifications: Arc<tokio::sync::Notify>) {
+        loop {
+            // Wait for a RAV request notification.
+            notifications.notified().await;
+
+            Self::rav_requester_try(&inner).await.unwrap_or_else(|e| {
+                error!(
+                    "Error while requesting a RAV for allocation {} and sender {}: {:?}",
+                    inner.allocation_id, inner.sender, e
+                );
+            });
+        }
     }
 
     async fn rav_requester_try(inner: &Arc<Inner>) -> anyhow::Result<()> {
@@ -430,16 +437,6 @@ impl SenderAllocationRelationship {
         anyhow::Ok(())
     }
 
-    fn rav_requester_task_is_running(
-        rav_requester_task_lock: &MutexGuard<'_, Option<JoinHandle<()>>>,
-    ) -> bool {
-        if let Some(handle) = rav_requester_task_lock.as_ref() {
-            !handle.is_finished()
-        } else {
-            false
-        }
-    }
-
     pub async fn state(&self) -> State {
         *self.inner.state.lock().await
     }
@@ -517,14 +514,7 @@ impl Drop for SenderAllocationRelationship {
     /// Trying to make sure the RAV requester task is dropped when the SenderAllocationRelationship
     /// is dropped.
     fn drop(&mut self) {
-        let rav_requester_task = self.rav_requester_task.clone();
-
-        tokio::spawn(async move {
-            let mut rav_requester_task = rav_requester_task.lock().await;
-            if let Some(rav_requester_task) = rav_requester_task.take() {
-                rav_requester_task.abort();
-            }
-        });
+        self.rav_requester_task.abort();
     }
 }
 
@@ -917,14 +907,7 @@ mod tests {
         }
 
         // Wait for the RAV requester to finish.
-        while SenderAllocationRelationship::rav_requester_task_is_running(
-            &sender_allocation_relatioship
-                .rav_requester_task
-                .lock()
-                .await,
-        ) {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         // Get the latest RAV from the database.
         let latest_rav = sqlx::query!(
@@ -998,14 +981,7 @@ mod tests {
         }
 
         // Wait for the RAV requester to finish.
-        while SenderAllocationRelationship::rav_requester_task_is_running(
-            &sender_allocation_relatioship
-                .rav_requester_task
-                .lock()
-                .await,
-        ) {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         // Get the latest RAV from the database.
         let latest_rav = sqlx::query!(
