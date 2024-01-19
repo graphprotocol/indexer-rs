@@ -901,7 +901,19 @@ mod tests {
         }
 
         // Wait for the RAV requester to finish.
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        for _ in 0..100 {
+            if sender_allocation_relatioship
+                .inner
+                .unaggregated_fees
+                .lock()
+                .await
+                .value
+                < trigger_value
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
 
         // Get the latest RAV from the database.
         let latest_rav = sqlx::query!(
@@ -975,7 +987,19 @@ mod tests {
         }
 
         // Wait for the RAV requester to finish.
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        for _ in 0..100 {
+            if sender_allocation_relatioship
+                .inner
+                .unaggregated_fees
+                .lock()
+                .await
+                .value
+                < trigger_value
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
 
         // Get the latest RAV from the database.
         let latest_rav = sqlx::query!(
