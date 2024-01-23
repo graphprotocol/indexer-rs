@@ -6,9 +6,12 @@ use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use ethers_core::types::U256;
 use eventuals::Eventual;
+use sqlx::postgres::PgListener;
 use sqlx::{types::BigDecimal, PgPool};
+use std::collections::HashSet;
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tap_core::tap_manager::SignedReceipt;
+use tokio::sync::RwLock;
 use tracing::error;
 
 use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
@@ -19,20 +22,51 @@ pub struct TapManager {
     escrow_accounts: Eventual<EscrowAccounts>,
     pgpool: PgPool,
     domain_separator: Arc<Eip712Domain>,
+    sender_denylist: Arc<RwLock<HashSet<Address>>>,
+    _sender_denylist_watcher_handle: Arc<tokio::task::JoinHandle<()>>,
+    sender_denylist_watcher_cancel_token: tokio_util::sync::CancellationToken,
 }
 
 impl TapManager {
-    pub fn new(
+    pub async fn new(
         pgpool: PgPool,
         indexer_allocations: Eventual<HashMap<Address, Allocation>>,
         escrow_accounts: Eventual<EscrowAccounts>,
         domain_separator: Eip712Domain,
     ) -> Self {
+        // Listen to pg_notify events. We start it before updating the sender_denylist so that we
+        // don't miss any updates. PG will buffer the notifications until we start consuming them.
+        let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
+        pglistener
+            .listen("scalar_tap_deny_notification")
+            .await
+            .expect(
+                "should be able to subscribe to Postgres Notify events on the channel \
+                'scalar_tap_deny_notification'",
+            );
+
+        // Fetch the denylist from the DB
+        let sender_denylist = Arc::new(RwLock::new(HashSet::new()));
+        Self::sender_denylist_reload(pgpool.clone(), sender_denylist.clone())
+            .await
+            .expect("should be able to fetch the sender_denylist from the DB on startup");
+
+        let sender_denylist_watcher_cancel_token = tokio_util::sync::CancellationToken::new();
+        let sender_denylist_watcher_handle = Arc::new(tokio::spawn(Self::sender_denylist_watcher(
+            pgpool.clone(),
+            pglistener,
+            sender_denylist.clone(),
+            sender_denylist_watcher_cancel_token.clone(),
+        )));
+
         Self {
             indexer_allocations,
             escrow_accounts,
             pgpool,
             domain_separator: Arc::new(domain_separator),
+            sender_denylist,
+            _sender_denylist_watcher_handle: sender_denylist_watcher_handle,
+            sender_denylist_watcher_cancel_token,
         }
     }
 
@@ -67,15 +101,29 @@ impl TapManager {
                 anyhow!(e)
             })?;
 
-        let escrow_accounts = self.escrow_accounts.value_immediate().unwrap_or_default();
+        let escrow_accounts_snapshot = self.escrow_accounts.value_immediate().unwrap_or_default();
 
-        if !escrow_accounts
-            .get_balance_for_signer(&receipt_signer)
+        // We bail if the receipt signer does not have a corresponding sender in the escrow
+        // accounts.
+        let receipt_sender = escrow_accounts_snapshot.get_sender_for_signer(&receipt_signer)?;
+
+        // Check that the sender has a non-zero balance -- more advanced accounting is done in
+        // `tap-agent`.
+        if !escrow_accounts_snapshot
+            .get_balance_for_sender(&receipt_sender)
             .map_or(false, |balance| balance > U256::zero())
         {
             anyhow::bail!(
-                "Receipt sender `{}` is not eligible for this indexer",
+                "Receipt sender `{}` does not have a sufficient balance",
                 receipt_signer,
+            );
+        }
+
+        // Check that the sender is not denylisted
+        if self.sender_denylist.read().await.contains(&receipt_sender) {
+            anyhow::bail!(
+                "Received a receipt from a denylisted sender: {}",
+                receipt_signer
             );
         }
 
@@ -105,6 +153,96 @@ impl TapManager {
 
         Ok(())
     }
+
+    async fn sender_denylist_reload(
+        pgpool: PgPool,
+        denylist_rwlock: Arc<RwLock<HashSet<Address>>>,
+    ) -> anyhow::Result<()> {
+        // Fetch the denylist from the DB
+        let sender_denylist = sqlx::query!(
+            r#"
+                SELECT sender_address FROM scalar_tap_denylist
+            "#
+        )
+        .fetch_all(&pgpool)
+        .await?
+        .iter()
+        .map(|row| Address::from_str(&row.sender_address))
+        .collect::<Result<HashSet<_>, _>>()?;
+
+        *(denylist_rwlock.write().await) = sender_denylist;
+
+        Ok(())
+    }
+
+    async fn sender_denylist_watcher(
+        pgpool: PgPool,
+        mut pglistener: PgListener,
+        denylist: Arc<RwLock<HashSet<Address>>>,
+        cancel_token: tokio_util::sync::CancellationToken,
+    ) {
+        #[derive(serde::Deserialize)]
+        struct DenylistNotification {
+            tg_op: String,
+            sender_address: Address,
+        }
+
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+
+                pg_notification = pglistener.recv() => {
+                    let pg_notification = pg_notification.expect(
+                    "should be able to receive Postgres Notify events on the channel \
+                    'scalar_tap_deny_notification'",
+                    );
+
+                    let denylist_notification: DenylistNotification =
+                        serde_json::from_str(pg_notification.payload()).expect(
+                            "should be able to deserialize the Postgres Notify event payload as a \
+                            DenylistNotification",
+                        );
+
+                    match denylist_notification.tg_op.as_str() {
+                        "INSERT" => {
+                            denylist
+                                .write()
+                                .await
+                                .insert(denylist_notification.sender_address);
+                        }
+                        "DELETE" => {
+                            denylist
+                                .write()
+                                .await
+                                .remove(&denylist_notification.sender_address);
+                        }
+                        // UPDATE and TRUNCATE are not expected to happen. Reload the entire denylist.
+                        _ => {
+                            error!(
+                                "Received an unexpected denylist table notification: {}. Reloading entire \
+                                denylist.",
+                                denylist_notification.tg_op
+                            );
+
+                            Self::sender_denylist_reload(pgpool.clone(), denylist.clone())
+                                .await
+                                .expect("should be able to reload the sender denylist")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Drop for TapManager {
+    fn drop(&mut self) {
+        // Clean shutdown for the sender_denylist_watcher
+        // Though since it's not a critical task, we don't wait for it to finish (join).
+        self.sender_denylist_watcher_cancel_token.cancel();
+    }
 }
 
 #[cfg(test)]
@@ -116,23 +254,14 @@ mod test {
     use keccak_hash::H256;
     use sqlx::postgres::PgListener;
 
-    use crate::test_vectors::{self, create_signed_receipt};
+    use crate::test_vectors::{self, create_signed_receipt, TAP_SENDER};
 
     use super::*;
 
-    #[sqlx::test(migrations = "../migrations")]
-    async fn test_verify_and_store_receipt(pgpool: PgPool) {
-        // Listen to pg_notify events
-        let mut listener = PgListener::connect_with(&pgpool).await.unwrap();
-        listener
-            .listen("scalar_tap_receipt_notification")
-            .await
-            .unwrap();
+    const ALLOCATION_ID: &str = "0xdeadbeefcafebabedeadbeefcafebabedeadbeef";
 
-        let allocation_id =
-            Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap();
-        let signed_receipt =
-            create_signed_receipt(allocation_id, u64::MAX, u64::MAX, u128::MAX).await;
+    async fn new_tap_manager(pgpool: PgPool) -> TapManager {
+        let allocation_id = Address::from_str(ALLOCATION_ID).unwrap();
 
         // Mock allocation
         let allocation = Allocation {
@@ -163,12 +292,29 @@ mod test {
             test_vectors::ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
         ));
 
-        let tap_manager = TapManager::new(
+        TapManager::new(
             pgpool.clone(),
             indexer_allocations,
             escrow_accounts,
             test_vectors::TAP_EIP712_DOMAIN.to_owned(),
-        );
+        )
+        .await
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_verify_and_store_receipt(pgpool: PgPool) {
+        // Listen to pg_notify events
+        let mut listener = PgListener::connect_with(&pgpool).await.unwrap();
+        listener
+            .listen("scalar_tap_receipt_notification")
+            .await
+            .unwrap();
+
+        let allocation_id = Address::from_str(ALLOCATION_ID).unwrap();
+        let signed_receipt =
+            create_signed_receipt(allocation_id, u64::MAX, u64::MAX, u128::MAX).await;
+
+        let tap_manager = new_tap_manager(pgpool.clone()).await;
 
         tap_manager
             .verify_and_store_receipt(signed_receipt.clone())
@@ -195,5 +341,85 @@ mod test {
         );
         assert_eq!(notification_payload["timestamp_ns"], u64::MAX);
         assert!(notification_payload["id"].is_u64());
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_sender_denylist(pgpool: PgPool) {
+        // Add the sender to the denylist
+        sqlx::query!(
+            r#"
+                INSERT INTO scalar_tap_denylist (sender_address)
+                VALUES ($1)
+            "#,
+            TAP_SENDER.1.to_string().trim_start_matches("0x").to_owned()
+        )
+        .execute(&pgpool)
+        .await
+        .unwrap();
+
+        let allocation_id = Address::from_str(ALLOCATION_ID).unwrap();
+        let signed_receipt =
+            create_signed_receipt(allocation_id, u64::MAX, u64::MAX, u128::MAX).await;
+
+        let tap_manager = new_tap_manager(pgpool.clone()).await;
+
+        // Check that the receipt is rejected
+        assert!(tap_manager
+            .verify_and_store_receipt(signed_receipt.clone())
+            .await
+            .is_err());
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_sender_denylist_updates(pgpool: PgPool) {
+        let allocation_id = Address::from_str(ALLOCATION_ID).unwrap();
+        let signed_receipt =
+            create_signed_receipt(allocation_id, u64::MAX, u64::MAX, u128::MAX).await;
+
+        let tap_manager = new_tap_manager(pgpool.clone()).await;
+
+        // Check that the receipt is valid
+        tap_manager
+            .verify_and_store_receipt(signed_receipt.clone())
+            .await
+            .unwrap();
+
+        // Add the sender to the denylist
+        sqlx::query!(
+            r#"
+                INSERT INTO scalar_tap_denylist (sender_address)
+                VALUES ($1)
+            "#,
+            TAP_SENDER.1.to_string().trim_start_matches("0x").to_owned()
+        )
+        .execute(&pgpool)
+        .await
+        .unwrap();
+
+        // Check that the receipt is rejected
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(tap_manager
+            .verify_and_store_receipt(signed_receipt.clone())
+            .await
+            .is_err());
+
+        // Remove the sender from the denylist
+        sqlx::query!(
+            r#"
+                DELETE FROM scalar_tap_denylist
+                WHERE sender_address = $1
+            "#,
+            TAP_SENDER.1.to_string().trim_start_matches("0x").to_owned()
+        )
+        .execute(&pgpool)
+        .await
+        .unwrap();
+
+        // Check that the receipt is valid again
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tap_manager
+            .verify_and_store_receipt(signed_receipt.clone())
+            .await
+            .unwrap();
     }
 }
