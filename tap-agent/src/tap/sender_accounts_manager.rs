@@ -16,9 +16,9 @@ use thegraph::types::Address;
 use tokio::sync::RwLock;
 use tracing::{error, warn};
 
-use super::escrow_adapter::EscrowAdapter;
-use super::sender_allocation_relationship::SenderAllocationRelationship;
 use crate::config;
+use crate::tap::escrow_adapter::EscrowAdapter;
+use crate::tap::sender_account::SenderAccount;
 
 #[derive(Deserialize, Debug)]
 pub struct NewReceiptNotification {
@@ -29,7 +29,7 @@ pub struct NewReceiptNotification {
     pub value: u128,
 }
 
-pub struct SenderAllocationRelationshipsManager {
+pub struct SenderAccountsManager {
     _inner: Arc<Inner>,
     new_receipts_watcher_handle: tokio::task::JoinHandle<()>,
     _eligible_allocations_senders_pipe: PipeHandle,
@@ -39,9 +39,8 @@ pub struct SenderAllocationRelationshipsManager {
 struct Inner {
     config: &'static config::Cli,
     pgpool: PgPool,
-    /// Map of (allocation_id, sender_address) to SenderAllocationRelationship.
-    sender_allocation_relationships:
-        Arc<RwLock<HashMap<(Address, Address), SenderAllocationRelationship>>>,
+    /// Map of sender_address to SenderAllocation.
+    sender_accounts: Arc<RwLock<HashMap<Address, SenderAccount>>>,
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
     escrow_accounts: Eventual<EscrowAccounts>,
     escrow_subgraph: &'static SubgraphClient,
@@ -50,7 +49,7 @@ struct Inner {
     sender_aggregator_endpoints: HashMap<Address, String>,
 }
 
-impl SenderAllocationRelationshipsManager {
+impl SenderAccountsManager {
     pub async fn new(
         config: &'static config::Cli,
         pgpool: PgPool,
@@ -65,7 +64,7 @@ impl SenderAllocationRelationshipsManager {
         let inner = Arc::new(Inner {
             config,
             pgpool,
-            sender_allocation_relationships: Arc::new(RwLock::new(HashMap::new())),
+            sender_accounts: Arc::new(RwLock::new(HashMap::new())),
             indexer_allocations,
             escrow_accounts,
             escrow_subgraph,
@@ -74,27 +73,9 @@ impl SenderAllocationRelationshipsManager {
             sender_aggregator_endpoints,
         });
 
-        let escrow_accounts_snapshot = inner
-            .escrow_accounts
-            .value()
-            .await
-            .expect("Should get escrow accounts from Eventual");
-
-        Self::update_sender_allocation_relationships(
-            &inner,
-            inner
-                .indexer_allocations
-                .value()
-                .await
-                .expect("Should get indexer allocations from Eventual"),
-            escrow_accounts_snapshot.get_senders(),
-        )
-        .await
-        .expect("Should be able to update sender_allocation_relationships");
-
         // Listen to pg_notify events. We start it before updating the unaggregated_fees for all
-        // SenderAllocationRelationship instances, so that we don't miss any receipts. PG will
-        // buffer the notifications until we start consuming them with `new_receipts_watcher`.
+        // SenderAccount instances, so that we don't miss any receipts. PG will buffer the\
+        // notifications until we start consuming them with `new_receipts_watcher`.
         let mut pglistener = PgListener::connect_with(&inner.pgpool.clone())
             .await
             .unwrap();
@@ -106,73 +87,104 @@ impl SenderAllocationRelationshipsManager {
                 'scalar_tap_receipt_notification'",
             );
 
-        let mut sender_allocation_relationships_write_lock =
-            inner.sender_allocation_relationships.write().await;
+        let escrow_accounts_snapshot = inner
+            .escrow_accounts
+            .value()
+            .await
+            .expect("Should get escrow accounts from Eventual");
 
-        // Create SenderAllocationRelationship instances for all outstanding receipts in the
-        // database, because they may be linked to allocations that are not eligible anymore, but
+        let mut sender_accounts_write_lock = inner.sender_accounts.write().await;
+
+        // Create Sender and SenderAllocation instances for all outstanding receipts in the
+        // database because they may be linked to allocations that are not eligible anymore, but
         // still need to get aggregated.
-        sqlx::query!(
+        let unfinalized_allocations_in_db = sqlx::query!(
             r#"
-                SELECT DISTINCT allocation_id, signer_address
+                SELECT DISTINCT 
+                    signer_address,
+                    (
+                        SELECT ARRAY 
+                        (
+                            SELECT DISTINCT allocation_id
+                            FROM scalar_tap_receipts
+                            WHERE signer_address = signer_address
+                        )
+                    ) AS allocation_ids
                 FROM scalar_tap_receipts
             "#
         )
         .fetch_all(&inner.pgpool)
         .await
-        .unwrap()
-        .into_iter()
-        .for_each(|row| {
-            let allocation_id = Address::from_str(&row.allocation_id)
-                .expect("allocation_id should be a valid address");
-            let signer = Address::from_str(&row.signer_address)
+        .expect("should be able to fetch unfinalized allocations from the database");
+
+        for row in unfinalized_allocations_in_db {
+            let allocation_ids = row
+                .allocation_ids
+                .expect("all receipts should have an allocation_id")
+                .iter()
+                .map(|allocation_id| {
+                    Address::from_str(allocation_id)
+                        .expect("allocation_id should be a valid address")
+                })
+                .collect::<HashSet<Address>>();
+            let signer_id = Address::from_str(&row.signer_address)
                 .expect("signer_address should be a valid address");
-            let sender = escrow_accounts_snapshot
-                .get_sender_for_signer(&signer)
+            let sender_id = escrow_accounts_snapshot
+                .get_sender_for_signer(&signer_id)
                 .expect("should be able to get sender from signer");
 
-            // Only create a SenderAllocationRelationship if it doesn't exist yet.
-            if let std::collections::hash_map::Entry::Vacant(e) =
-                sender_allocation_relationships_write_lock.entry((allocation_id, sender))
-            {
-                e.insert(SenderAllocationRelationship::new(
+            let sender = sender_accounts_write_lock
+                .entry(sender_id)
+                .or_insert(SenderAccount::new(
                     config,
                     inner.pgpool.clone(),
-                    allocation_id,
-                    sender,
+                    sender_id,
                     inner.escrow_accounts.clone(),
                     inner.escrow_subgraph,
                     inner.escrow_adapter.clone(),
                     inner.tap_eip712_domain_separator.clone(),
                     inner
                         .sender_aggregator_endpoints
-                        .get(&sender)
-                        .unwrap()
+                        .get(&sender_id)
+                        .expect("should be able to get sender_aggregator_endpoint for sender")
                         .clone(),
                 ));
-            }
-        });
 
-        // Update the unaggregated_fees for all SenderAllocationRelationship instances by pulling
-        // the receipts from the database.
-        for sender_allocation_relationship in sender_allocation_relationships_write_lock.values() {
-            sender_allocation_relationship
-                .update_unaggregated_fees()
+            // Update sender's allocations
+            sender.update_allocations(allocation_ids.clone()).await;
+            sender
+                .recompute_unaggregated_fees()
                 .await
-                .expect("should be able to update unaggregated_fees");
+                .expect("should be able to recompute unaggregated fees");
         }
 
-        drop(sender_allocation_relationships_write_lock);
+        drop(sender_accounts_write_lock);
+
+        // Update senders and allocations based on the current state of the network.
+        // It is important to do this after creating the Sender and SenderAllocation instances based
+        // on the receipts in the database, because now all ineligible allocation and/or sender that
+        // we created above will be set for receipt finalization.
+        Self::update_sender_accounts(
+            &inner,
+            inner
+                .indexer_allocations
+                .value()
+                .await
+                .expect("Should get indexer allocations from Eventual"),
+            escrow_accounts_snapshot.get_senders(),
+        )
+        .await
+        .expect("Should be able to update_sender_accounts");
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         let new_receipts_watcher_handle = tokio::spawn(Self::new_receipts_watcher(
             pglistener,
-            inner.sender_allocation_relationships.clone(),
+            inner.sender_accounts.clone(),
             inner.escrow_accounts.clone(),
         ));
 
         // Start the eligible_allocations_senders_pipe that watches for changes in eligible senders
-        // and allocations and updates the SenderAllocationRelationship instances accordingly.
+        // and allocations and updates the SenderAccount instances accordingly.
         let inner_clone = inner.clone();
         let eligible_allocations_senders_pipe = eventuals::join((
             inner.indexer_allocations.clone(),
@@ -181,17 +193,14 @@ impl SenderAllocationRelationshipsManager {
         .pipe_async(move |(indexer_allocations, escrow_accounts)| {
             let inner = inner_clone.clone();
             async move {
-                Self::update_sender_allocation_relationships(
+                Self::update_sender_accounts(
                     &inner,
                     indexer_allocations,
                     escrow_accounts.get_senders(),
                 )
                 .await
                 .unwrap_or_else(|e| {
-                    error!(
-                        "Error while updating sender_allocation_relationships: {:?}",
-                        e
-                    );
+                    error!("Error while updating sender_accounts: {:?}", e);
                 });
             }
         });
@@ -204,12 +213,10 @@ impl SenderAllocationRelationshipsManager {
     }
 
     /// Continuously listens for new receipt notifications from Postgres and forwards them to the
-    /// corresponding SenderAllocationRelationship.
+    /// corresponding SenderAccount.
     async fn new_receipts_watcher(
         mut pglistener: PgListener,
-        sender_allocation_relationships: Arc<
-            RwLock<HashMap<(Address, Address), SenderAllocationRelationship>>,
-        >,
+        sender_accounts: Arc<RwLock<HashMap<Address, SenderAccount>>>,
         escrow_accounts: Eventual<EscrowAccounts>,
     ) {
         loop {
@@ -243,81 +250,74 @@ impl SenderAllocationRelationshipsManager {
                 }
             };
 
-            if let Some(sender_allocation_relationship) = sender_allocation_relationships
-                .read()
-                .await
-                .get(&(new_receipt_notification.allocation_id, sender_address))
-            {
-                sender_allocation_relationship
+            if let Some(sender_account) = sender_accounts.read().await.get(&sender_address) {
+                sender_account
                     .handle_new_receipt_notification(new_receipt_notification)
                     .await;
             } else {
                 warn!(
-                    "No sender_allocation_relationship found for allocation_id {} and \
-                    sender_address {} to process new receipt notification. This should not \
-                    happen.",
-                    new_receipt_notification.allocation_id, sender_address
+                    "No sender_allocation_manager found for sender_address {} to process new \
+                    receipt notification. This should not happen.",
+                    sender_address
                 );
             }
         }
     }
 
-    async fn update_sender_allocation_relationships(
+    async fn update_sender_accounts(
         inner: &Inner,
         indexer_allocations: HashMap<Address, Allocation>,
-        senders: HashSet<Address>,
+        target_senders: HashSet<Address>,
     ) -> Result<()> {
-        let eligible_allocations: Vec<Address> = indexer_allocations.keys().copied().collect();
-        let mut sender_allocation_relationships_write =
-            inner.sender_allocation_relationships.write().await;
+        let eligible_allocations: HashSet<Address> = indexer_allocations.keys().copied().collect();
+        let mut sender_accounts_write = inner.sender_accounts.write().await;
 
-        // Create SenderAllocationRelationship instances for all currently eligible
-        // (allocation, sender)
-        for allocation_id in &eligible_allocations {
-            for sender in &senders {
-                // Only create a SenderAllocationRelationship if it doesn't exist yet.
-                if let std::collections::hash_map::Entry::Vacant(e) =
-                    sender_allocation_relationships_write.entry((*allocation_id, *sender))
-                {
-                    e.insert(SenderAllocationRelationship::new(
-                        inner.config,
-                        inner.pgpool.clone(),
-                        *allocation_id,
-                        *sender,
-                        inner.escrow_accounts.clone(),
-                        inner.escrow_subgraph,
-                        inner.escrow_adapter.clone(),
-                        inner.tap_eip712_domain_separator.clone(),
-                        inner
-                            .sender_aggregator_endpoints
-                            .get(sender)
-                            .ok_or_else(|| {
-                                anyhow!("No sender_aggregator_endpoint found for sender {}", sender)
-                            })?
-                            .clone(),
-                    ));
-                }
+        // For all Senders that are not in the target_senders HashSet, set all their allocations to
+        // ineligible. That will trigger a finalization of all their receipts.
+        for (sender_id, sender_account) in sender_accounts_write.iter_mut() {
+            if !target_senders.contains(sender_id) {
+                sender_account.update_allocations(HashSet::new()).await;
             }
         }
 
-        // Trigger a last rav request for all SenderAllocationRelationship instances that correspond
-        // to ineligible (allocations, sender).
-        for ((allocation_id, sender), sender_allocation_relatioship) in
-            sender_allocation_relationships_write.iter()
-        {
-            if !eligible_allocations.contains(allocation_id) || !senders.contains(sender) {
-                sender_allocation_relatioship.start_last_rav_request().await
-            }
+        // Get or create SenderAccount instances for all currently eligible
+        // senders.
+        for sender_id in &target_senders {
+            let sender = sender_accounts_write
+                .entry(*sender_id)
+                .or_insert(SenderAccount::new(
+                    inner.config,
+                    inner.pgpool.clone(),
+                    *sender_id,
+                    inner.escrow_accounts.clone(),
+                    inner.escrow_subgraph,
+                    inner.escrow_adapter.clone(),
+                    inner.tap_eip712_domain_separator.clone(),
+                    inner
+                        .sender_aggregator_endpoints
+                        .get(sender_id)
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "No sender_aggregator_endpoint found for sender {}",
+                                sender_id
+                            )
+                        })?
+                        .clone(),
+                ));
+
+            // Update sender's allocations
+            sender
+                .update_allocations(eligible_allocations.clone())
+                .await;
         }
 
-        // TODO: remove SenderAllocationRelationship instances that are finished. Ideally done in
-        //      another async task?
+        // TODO: remove Sender instances that are finished. Ideally done in another async task?
 
         Ok(())
     }
 }
 
-impl Drop for SenderAllocationRelationshipsManager {
+impl Drop for SenderAccountsManager {
     fn drop(&mut self) {
         // Abort the notification watcher on drop. Otherwise it may panic because the PgPool could
         // get dropped before. (Observed in tests)
@@ -342,15 +342,12 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use crate::tap::{
-        sender_allocation_relationship::State,
-        test_utils::{INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR},
-    };
+    use crate::tap::test_utils::{INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR};
 
     use super::*;
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_sender_allocation_relatioship_creation_and_eol(pgpool: PgPool) {
+    async fn test_sender_account_creation_and_eol(pgpool: PgPool) {
         let config = Box::leak(Box::new(config::Cli {
             config: None,
             ethereum: config::Ethereum {
@@ -390,7 +387,7 @@ mod tests {
             DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
         )));
 
-        let sender_allocation_relatioships = SenderAllocationRelationshipsManager::new(
+        let sender_account = SenderAccountsManager::new(
             config,
             pgpool.clone(),
             indexer_allocations_eventual,
@@ -436,16 +433,16 @@ mod tests {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        // Wait for the SenderAllocationRelationship to be created.
+        // Wait for the SenderAccount to be created.
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // Check that the SenderAllocationRelationship was created.
-        assert!(sender_allocation_relatioships
+        // Check that the SenderAccount was created.
+        assert!(sender_account
             ._inner
-            .sender_allocation_relationships
+            .sender_accounts
             .write()
             .await
-            .contains_key(&(allocation_id, SENDER.1)));
+            .contains_key(&SENDER.1));
 
         // Remove the escrow account from the escrow_accounts Eventual.
         escrow_accounts_writer.write(EscrowAccounts::default());
@@ -453,18 +450,26 @@ mod tests {
         // Wait a bit
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // Check that the SenderAllocationRelationship state is last_rav_pending
-        assert_eq!(
-            sender_allocation_relatioships
-                ._inner
-                .sender_allocation_relationships
-                .read()
-                .await
-                .get(&(allocation_id, SENDER.1))
-                .unwrap()
-                .state()
-                .await,
-            State::LastRavPending
-        );
+        // Check that the Sender's allocation moved from active to ineligible.
+        assert!(sender_account
+            ._inner
+            .sender_accounts
+            .read()
+            .await
+            .get(&SENDER.1)
+            .unwrap()
+            ._tests_get_allocations_active()
+            .await
+            .is_empty());
+        assert!(sender_account
+            ._inner
+            .sender_accounts
+            .read()
+            .await
+            .get(&SENDER.1)
+            .unwrap()
+            ._tests_get_allocations_ineligible()
+            .await
+            .contains_key(&allocation_id));
     }
 }
