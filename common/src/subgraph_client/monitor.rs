@@ -4,13 +4,18 @@
 use std::time::Duration;
 
 use eventuals::{timer, Eventual, EventualExt};
-use graphql_http::http_client::{ReqwestExt, ResponseResult};
+use graphql_http::{
+    http::request::IntoRequestParameters,
+    http_client::{ReqwestExt, ResponseResult},
+};
 use reqwest::Url;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use thegraph::types::DeploymentId;
 use tokio::time::sleep;
 use tracing::warn;
+
+use super::Query;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,14 +31,9 @@ pub struct DeploymentStatus {
 
 async fn query<T: for<'de> Deserialize<'de>>(
     url: Url,
-    body: &Value,
+    query: impl IntoRequestParameters + Send,
 ) -> Result<ResponseResult<T>, anyhow::Error> {
-    let serialized_body = serde_json::to_string(body)?;
-
-    Ok(reqwest::Client::new()
-        .post(url)
-        .send_graphql(serialized_body)
-        .await?)
+    Ok(reqwest::Client::new().post(url).send_graphql(query).await?)
 }
 
 pub fn monitor_deployment_status(
@@ -45,21 +45,19 @@ pub fn monitor_deployment_status(
             let status_url = status_url.clone();
 
             async move {
-                let body = json!({
-                    "query": r#"
-                    query indexingStatuses($ids: [ID!]!) {
+                let body = Query::new_with_variables(
+                    r#"
+                    query indexingStatuses($ids: [String!]!) {
                         indexingStatuses(subgraphs: $ids) {
                             synced
                             health
                         }
                     }
                 "#,
-                    "variables": {
-                        "ids": [deployment.to_string()]
-                    }
-                });
+                    [("ids", json!([deployment.to_string()]))],
+                );
 
-                let response = query::<DeploymentStatusResponse>(status_url, &body)
+                let response = query::<DeploymentStatusResponse>(status_url, body)
                     .await
                     .map_err(|e| {
                         format!("Failed to query status of deployment `{deployment}`: {e}")
