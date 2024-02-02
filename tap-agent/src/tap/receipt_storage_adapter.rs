@@ -6,7 +6,7 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
-use alloy_primitives::Address;
+use alloy_primitives::{hex::ToHex, Address};
 use async_trait::async_trait;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
@@ -116,10 +116,7 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
                 WHERE allocation_id = $1 AND signer_address IN (SELECT unnest($2::text[]))
                  AND $3::numrange @> timestamp_ns
             "#,
-            self.allocation_id
-                .to_string()
-                .trim_start_matches("0x")
-                .to_owned(),
+            self.allocation_id.encode_hex::<String>(),
             &signers,
             rangebounds_to_pgrange(timestamp_range_ns)
         )
@@ -162,10 +159,7 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
                 WHERE allocation_id = $1 AND signer_address IN (SELECT unnest($2::text[]))
                     AND $3::numrange @> timestamp_ns
             "#,
-            self.allocation_id
-                .to_string()
-                .trim_start_matches("0x")
-                .to_owned(),
+            self.allocation_id.encode_hex::<String>(),
             &signers,
             rangebounds_to_pgrange(timestamp_ns)
         )

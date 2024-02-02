@@ -3,7 +3,7 @@
 
 use std::{str::FromStr, sync::Arc, time::Duration};
 
-use alloy_primitives::Address;
+use alloy_primitives::{hex::ToHex, Address};
 use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, ensure, Result};
 
@@ -249,12 +249,8 @@ impl SenderAllocationRelationship {
                         rav
                 ) ELSE TRUE END
             "#,
-            inner
-                .allocation_id
-                .to_string()
-                .trim_start_matches("0x")
-                .to_owned(),
-            inner.sender.to_string().trim_start_matches("0x").to_owned(),
+            inner.allocation_id.encode_hex::<String>(),
+            inner.sender.encode_hex::<String>(),
             &signers
         )
         .fetch_one(&inner.pgpool)
@@ -415,12 +411,8 @@ impl SenderAllocationRelationship {
                         WHERE allocation_id = $1 AND sender_address = $2
                         RETURNING *
                     "#,
-            inner
-                .allocation_id
-                .to_string()
-                .trim_start_matches("0x")
-                .to_owned(),
-            inner.sender.to_string().trim_start_matches("0x").to_owned(),
+            inner.allocation_id.encode_hex::<String>(),
+            inner.sender.encode_hex::<String>(),
         )
         .fetch_all(&inner.pgpool)
         .await?;
@@ -451,12 +443,8 @@ impl SenderAllocationRelationship {
                     )
                     VALUES ($1, $2, $3, $4, $5)
                 "#,
-                inner
-                    .allocation_id
-                    .to_string()
-                    .trim_start_matches("0x")
-                    .to_owned(),
-                inner.sender.to_string().trim_start_matches("0x").to_owned(),
+                inner.allocation_id.encode_hex::<String>(),
+                inner.sender.encode_hex::<String>(),
                 BigDecimal::from(received_receipt.signed_receipt().message.timestamp_ns),
                 BigDecimal::from_str(&received_receipt.signed_receipt().message.value.to_string())?,
                 serde_json::to_value(received_receipt)?
@@ -486,12 +474,8 @@ impl SenderAllocationRelationship {
                 )
                 VALUES ($1, $2, $3, $4, $5)
             "#,
-            inner
-                .allocation_id
-                .to_string()
-                .trim_start_matches("0x")
-                .to_owned(),
-            inner.sender.to_string().trim_start_matches("0x").to_owned(),
+            inner.allocation_id.encode_hex::<String>(),
+            inner.sender.encode_hex::<String>(),
             serde_json::to_value(expected_rav)?,
             serde_json::to_value(rav)?,
             reason
@@ -922,11 +906,8 @@ mod tests {
                 FROM scalar_tap_ravs
                 WHERE allocation_id = $1 AND sender_address = $2
             "#,
-            ALLOCATION_ID
-                .to_string()
-                .trim_start_matches("0x")
-                .to_owned(),
-            SENDER.1.to_string().trim_start_matches("0x").to_owned()
+            ALLOCATION_ID.encode_hex::<String>(),
+            SENDER.1.encode_hex::<String>()
         )
         .fetch_optional(&pgpool)
         .await
@@ -1008,11 +989,8 @@ mod tests {
                 FROM scalar_tap_ravs
                 WHERE allocation_id = $1 AND sender_address = $2
             "#,
-            ALLOCATION_ID
-                .to_string()
-                .trim_start_matches("0x")
-                .to_owned(),
-            SENDER.1.to_string().trim_start_matches("0x").to_owned()
+            ALLOCATION_ID.encode_hex::<String>(),
+            SENDER.1.encode_hex::<String>()
         )
         .fetch_optional(&pgpool)
         .await
