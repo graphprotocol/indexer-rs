@@ -3,6 +3,7 @@
 
 use std::str::FromStr;
 
+use alloy_primitives::hex::ToHex;
 use alloy_primitives::Address;
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use anyhow::Result;
@@ -98,18 +99,11 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Re
             VALUES ($1, $2, $3, $4, $5)
             RETURNING id
         "#,
-        signed_receipt
-            .message
-            .allocation_id
-            .to_string()
-            .trim_start_matches("0x")
-            .to_owned(),
+        signed_receipt.message.allocation_id.encode_hex::<String>(),
         signed_receipt
             .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
             .unwrap()
-            .to_string()
-            .trim_start_matches("0x")
-            .to_owned(),
+            .encode_hex::<String>(),
         BigDecimal::from(signed_receipt.message.timestamp_ns),
         BigDecimal::from_str(&signed_receipt.message.value.to_string())?,
         serde_json::to_value(signed_receipt)?
@@ -130,13 +124,8 @@ pub async fn store_rav(pgpool: &PgPool, signed_rav: SignedRAV, sender: Address) 
             )
             VALUES ($1, $2, $3)
         "#,
-        signed_rav
-            .message
-            .allocation_id
-            .to_string()
-            .trim_start_matches("0x")
-            .to_owned(),
-        sender.to_string().trim_start_matches("0x").to_owned(),
+        signed_rav.message.allocation_id.encode_hex::<String>(),
+        sender.encode_hex::<String>(),
         serde_json::to_value(signed_rav).unwrap(),
     )
     .execute(pgpool)

@@ -1,6 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloy_primitives::hex::ToHex;
 use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
@@ -133,13 +134,8 @@ impl TapManager {
                 INSERT INTO scalar_tap_receipts (allocation_id, signer_address, timestamp_ns, value, receipt)
                 VALUES ($1, $2, $3, $4, $5)
             "#,
-            format!("{:?}", allocation_id)
-                .trim_start_matches("0x")
-                .to_owned(),
-            receipt_signer
-                .to_string()
-                .trim_start_matches("0x")
-                .to_owned(),
+            allocation_id.encode_hex::<String>(),
+            receipt_signer.encode_hex::<String>(),
             BigDecimal::from(receipt.message.timestamp_ns),
             BigDecimal::from_str(&receipt.message.value.to_string())?,
             serde_json::to_value(receipt).map_err(|e| anyhow!(e))?
@@ -351,7 +347,7 @@ mod test {
                 INSERT INTO scalar_tap_denylist (sender_address)
                 VALUES ($1)
             "#,
-            TAP_SENDER.1.to_string().trim_start_matches("0x").to_owned()
+            TAP_SENDER.1.encode_hex::<String>()
         )
         .execute(&pgpool)
         .await
@@ -390,7 +386,7 @@ mod test {
                 INSERT INTO scalar_tap_denylist (sender_address)
                 VALUES ($1)
             "#,
-            TAP_SENDER.1.to_string().trim_start_matches("0x").to_owned()
+            TAP_SENDER.1.encode_hex::<String>()
         )
         .execute(&pgpool)
         .await
@@ -409,7 +405,7 @@ mod test {
                 DELETE FROM scalar_tap_denylist
                 WHERE sender_address = $1
             "#,
-            TAP_SENDER.1.to_string().trim_start_matches("0x").to_owned()
+            TAP_SENDER.1.encode_hex::<String>()
         )
         .execute(&pgpool)
         .await

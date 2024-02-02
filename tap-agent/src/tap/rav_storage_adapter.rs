@@ -1,6 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloy_primitives::hex::ToHex;
 use alloy_primitives::Address;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -34,11 +35,8 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
                 ON CONFLICT (allocation_id, sender_address)
                 DO UPDATE SET rav = $3
             "#,
-            self.allocation_id
-                .to_string()
-                .trim_start_matches("0x")
-                .to_owned(),
-            self.sender.to_string().trim_start_matches("0x").to_owned(),
+            self.allocation_id.encode_hex::<String>(),
+            self.sender.encode_hex::<String>(),
             serde_json::to_value(rav).map_err(|e| AdapterError::AdapterError {
                 error: e.to_string()
             })?
@@ -58,11 +56,8 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
                 FROM scalar_tap_ravs
                 WHERE allocation_id = $1 AND sender_address = $2
             "#,
-            self.allocation_id
-                .to_string()
-                .trim_start_matches("0x")
-                .to_owned(),
-            self.sender.to_string().trim_start_matches("0x").to_owned()
+            self.allocation_id.encode_hex::<String>(),
+            self.sender.encode_hex::<String>()
         )
         .fetch_optional(&self.pgpool)
         .await
