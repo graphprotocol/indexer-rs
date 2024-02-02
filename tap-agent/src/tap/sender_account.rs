@@ -237,33 +237,32 @@ impl SenderAccount {
                 .collect::<Vec<_>>();
 
             for allocation in allocations_finalizing {
-                match allocation.rav_requester_single().await {
-                    Ok(_) => {
-                        if let Err(e) = allocation.mark_rav_final().await {
-                            error!(
-                                "Error while marking allocation {} as final for sender {}: {}",
-                                allocation.get_allocation_id(),
-                                inner.sender,
-                                e
-                            );
-                        }
-
-                        // Remove the allocation from the finalizing map.
-                        inner
-                            .allocations_ineligible
-                            .lock()
-                            .await
-                            .remove(&allocation.get_allocation_id());
-                    }
-                    Err(e) => {
-                        error!(
-                            "Error while requesting final RAV for sender {} and allocation {}: {}",
-                            inner.sender,
-                            allocation.get_allocation_id(),
-                            e
-                        )
-                    }
+                if let Err(e) = allocation.rav_requester_single().await {
+                    error!(
+                        "Error while requesting RAV for sender {} and allocation {}: {}",
+                        inner.sender,
+                        allocation.get_allocation_id(),
+                        e
+                    );
+                    continue;
                 }
+
+                if let Err(e) = allocation.mark_rav_final().await {
+                    error!(
+                        "Error while marking allocation {} as final for sender {}: {}",
+                        allocation.get_allocation_id(),
+                        inner.sender,
+                        e
+                    );
+                    continue;
+                }
+
+                // Remove the allocation from the finalizing map.
+                inner
+                    .allocations_ineligible
+                    .lock()
+                    .await
+                    .remove(&allocation.get_allocation_id());
             }
         }
     }
