@@ -406,21 +406,6 @@ impl Drop for SenderAccount {
 }
 
 #[cfg(test)]
-impl SenderAccount {
-    pub async fn _tests_get_allocations_active(
-        &self,
-    ) -> MutexGuard<'_, HashMap<Address, Arc<SenderAllocation>>> {
-        self.inner.allocations_active.lock().await
-    }
-
-    pub async fn _tests_get_allocations_ineligible(
-        &self,
-    ) -> MutexGuard<'_, HashMap<Address, Arc<SenderAllocation>>> {
-        self.inner.allocations_ineligible.lock().await
-    }
-}
-
-#[cfg(test)]
 mod tests {
 
     use alloy_primitives::hex::ToHex;
@@ -441,6 +426,21 @@ mod tests {
     use super::*;
 
     const DUMMY_URL: &str = "http://localhost:1234";
+
+    // To help with testing from other modules.
+    impl SenderAccount {
+        pub async fn _tests_get_allocations_active(
+            &self,
+        ) -> MutexGuard<'_, HashMap<Address, Arc<SenderAllocation>>> {
+            self.inner.allocations_active.lock().await
+        }
+
+        pub async fn _tests_get_allocations_ineligible(
+            &self,
+        ) -> MutexGuard<'_, HashMap<Address, Arc<SenderAllocation>>> {
+            self.inner.allocations_ineligible.lock().await
+        }
+    }
 
     async fn create_sender_with_allocations(
         pgpool: PgPool,
