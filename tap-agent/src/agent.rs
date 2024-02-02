@@ -74,7 +74,7 @@ pub async fn start_agent(config: &'static config::Cli) -> SenderAllocationRelati
     );
 
     let tap_eip712_domain_separator = eip712_domain! {
-        name: "Scalar TAP",
+        name: "TAP",
         version: "1",
         chain_id: config.receipts.receipts_verifier_chain_id,
         verifying_contract: config.receipts.receipts_verifier_address,
