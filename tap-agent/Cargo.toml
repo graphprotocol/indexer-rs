@@ -37,7 +37,7 @@ tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol
 thiserror = "1.0.44"
 tokio = { version = "1.33.0" }
 thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
+graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-http-v0.2.1" }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",

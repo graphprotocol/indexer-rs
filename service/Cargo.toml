@@ -58,8 +58,8 @@ alloy-primitives = { version = "0.6", features = ["serde"] }
 alloy-sol-types = "0.6"
 lazy_static = "1.4.0"
 thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
-graphql = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed", branch = "main", features = [
+graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0" }
+graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-http-v0.2.1", features = [
     "http-reqwest",
 ] }
 build-info = "0.0.34"

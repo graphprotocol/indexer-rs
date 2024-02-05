@@ -31,7 +31,7 @@ sqlx = { version = "0.7.1", features = [
 ] }
 tokio = { version = "1.32.0", features = ["full", "macros", "rt"] }
 thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed", branch = "main", features = [
+graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-http-v0.2.1", features = [
   "http-reqwest",
 ] }
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", branch = "aasseman/tap_core_0_7_0_fix_toolshed_dep" }

@@ -2645,7 +2645,7 @@ dependencies = [
 [[package]]
 name = "graphql"
 version = "0.3.0"
-source = "git+https://github.com/edgeandnode/toolshed?branch=main#af60592fcd8ecf67cb043cc9f2ce7ceb1829370b"
+source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-v0.3.0#19ec30dc044137b805528181873f4413b45ab8d4"
 dependencies = [
  "firestorm",
  "graphql-parser",
@@ -2654,8 +2654,8 @@ dependencies = [
 
 [[package]]
 name = "graphql-http"
-version = "0.1.1"
-source = "git+https://github.com/edgeandnode/toolshed?branch=main#af60592fcd8ecf67cb043cc9f2ce7ceb1829370b"
+version = "0.2.1"
+source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-http-v0.2.1#b2ba62e7eedf24b98f999797c4955527de6c3e64"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6334,7 +6334,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "tap_aggregator"
 version = "0.2.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?branch=aasseman/tap_core_0_7_0_fix_toolshed_dep#f6fc773947dca0cd515a592cb89f1bc0db652e89"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?branch=aasseman/tap_core_0_7_0_fix_toolshed_dep#ae4fc69a5de5a33528b31284a32f71ae1093186c"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -6362,7 +6362,7 @@ dependencies = [
 [[package]]
 name = "tap_core"
 version = "0.7.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?branch=aasseman/tap_core_0_7_0_fix_toolshed_dep#f6fc773947dca0cd515a592cb89f1bc0db652e89"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?branch=aasseman/tap_core_0_7_0_fix_toolshed_dep#ae4fc69a5de5a33528b31284a32f71ae1093186c"
 dependencies = [
  "alloy-sol-types",
  "anyhow",
