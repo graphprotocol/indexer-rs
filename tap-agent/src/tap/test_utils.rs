@@ -4,7 +4,6 @@
 use std::str::FromStr;
 
 use alloy_primitives::hex::ToHex;
-use alloy_primitives::Address;
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use anyhow::Result;
 use ethers_signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
@@ -15,6 +14,7 @@ use tap_core::receipt_aggregate_voucher::ReceiptAggregateVoucher;
 use tap_core::tap_manager::{SignedRAV, SignedReceipt};
 use tap_core::tap_receipt::{get_full_list_of_checks, ReceivedReceipt};
 use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
+use thegraph::types::Address;
 
 lazy_static! {
     pub static ref ALLOCATION_ID: Address =

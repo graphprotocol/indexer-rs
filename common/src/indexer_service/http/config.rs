@@ -3,8 +3,8 @@
 
 use std::net::SocketAddr;
 
-use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
+use thegraph::types::Address;
 use thegraph::types::DeploymentId;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

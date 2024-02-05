@@ -3,7 +3,6 @@
 
 use std::{collections::HashMap, str::FromStr};
 
-use alloy_primitives::Address;
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
 use ethers_core::types::U256;
@@ -11,6 +10,7 @@ use lazy_static::lazy_static;
 use tap_core::{
     eip_712_signed_message::EIP712SignedMessage, tap_manager::SignedReceipt, tap_receipt::Receipt,
 };
+use thegraph::types::Address;
 use thegraph::types::DeploymentId;
 
 use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
@@ -166,11 +166,9 @@ lazy_static! {
                 created_at_epoch: 953,
                 closed_at_epoch: None,
                 subgraph_deployment: SubgraphDeployment {
-                    id: DeploymentId(
+                    id: DeploymentId::from_str(
                         "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
-                            .parse()
-                            .unwrap(),
-                    ),
+                    ).unwrap(),
                     denied_at: Some(0),
                 },
                 status: AllocationStatus::Null,
@@ -192,11 +190,9 @@ lazy_static! {
                 created_at_epoch: 953,
                 closed_at_epoch: None,
                 subgraph_deployment: SubgraphDeployment {
-                    id: DeploymentId(
+                    id: DeploymentId::from_str(
                         "0xcda7fa0405d6fd10721ed13d18823d24b535060d8ff661f862b26c23334f13bf"
-                            .parse()
-                            .unwrap(),
-                    ),
+                    ).unwrap(),
                     denied_at: Some(0),
                 },
                 status: AllocationStatus::Null,
@@ -218,11 +214,9 @@ lazy_static! {
                 created_at_epoch: 940,
                 closed_at_epoch: Some(953),
                 subgraph_deployment: SubgraphDeployment {
-                    id: DeploymentId(
+                    id: DeploymentId::from_str(
                         "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
-                            .parse()
-                            .unwrap(),
-                    ),
+                    ).unwrap(),
                     denied_at: Some(0),
                 },
                 status: AllocationStatus::Null,
@@ -244,11 +238,9 @@ lazy_static! {
                 created_at_epoch: 940,
                 closed_at_epoch: Some(953),
                 subgraph_deployment: SubgraphDeployment {
-                    id: DeploymentId(
+                    id: DeploymentId::from_str(
                         "0xc064c354bc21dd958b1d41b67b8ef161b75d2246b425f68ed4c74964ae705cbd"
-                            .parse()
-                            .unwrap(),
-                    ),
+                    ).unwrap(),
                     denied_at: Some(0),
                 },
                 status: AllocationStatus::Null,

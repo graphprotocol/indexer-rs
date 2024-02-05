@@ -3,11 +3,11 @@
 
 use std::{path::PathBuf, str::FromStr};
 
-use alloy_primitives::Address;
 use bigdecimal::{BigDecimal, ToPrimitive};
 use clap::{command, Args, Parser, ValueEnum};
 use dotenvy::dotenv;
 use serde::{Deserialize, Serialize};
+use thegraph::types::Address;
 use thegraph::types::DeploymentId;
 use tracing::subscriber::{set_global_default, SetGlobalDefaultError};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};

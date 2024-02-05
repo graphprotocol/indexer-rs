@@ -61,8 +61,8 @@ impl Header for ScalarReceipt {
 mod test {
     use std::str::FromStr;
 
-    use alloy_primitives::Address;
     use axum::{headers::Header, http::HeaderValue};
+    use thegraph::types::Address;
 
     use crate::test_vectors::create_signed_receipt;
 

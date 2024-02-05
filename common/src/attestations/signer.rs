@@ -1,12 +1,12 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_primitives::{Address, U256};
 use alloy_sol_types::Eip712Domain;
 use ethers::signers::coins_bip39::English;
 use ethers::signers::{MnemonicBuilder, Signer, Wallet};
 use ethers_core::k256::ecdsa::SigningKey;
 use thegraph::types::{attestation, Attestation, DeploymentId};
+use thegraph::types::{Address, U256};
 
 use crate::prelude::Allocation;
 
@@ -124,7 +124,6 @@ fn wallet_for_allocation(
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::Address;
     use ethers_core::types::U256;
     use std::str::FromStr;
     use test_log::test;

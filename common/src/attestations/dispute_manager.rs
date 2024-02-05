@@ -3,9 +3,9 @@
 
 use std::time::Duration;
 
-use alloy_primitives::Address;
 use eventuals::{timer, Eventual, EventualExt};
 use serde::Deserialize;
+use thegraph::types::Address;
 use tokio::time::sleep;
 use tracing::warn;
 

@@ -6,7 +6,7 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
-use alloy_primitives::{hex::ToHex, Address};
+use alloy_primitives::hex::ToHex;
 use async_trait::async_trait;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
@@ -16,6 +16,7 @@ use tap_core::{
     tap_manager::SignedReceipt,
     tap_receipt::{ReceiptCheck, ReceivedReceipt},
 };
+use thegraph::types::Address;
 use thiserror::Error;
 use tracing::error;
 

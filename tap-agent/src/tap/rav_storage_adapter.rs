@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloy_primitives::hex::ToHex;
-use alloy_primitives::Address;
 use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::PgPool;
 use tap_core::adapters::rav_storage_adapter::RAVStorageAdapter as RAVStorageAdapterTrait;
 use tap_core::tap_manager::SignedRAV;
+use thegraph::types::Address;
 use thiserror::Error;
 
 #[derive(Debug)]

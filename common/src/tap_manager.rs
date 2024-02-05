@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloy_primitives::hex::ToHex;
-use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use ethers_core::types::U256;
@@ -12,6 +11,7 @@ use sqlx::{types::BigDecimal, PgPool};
 use std::collections::HashSet;
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tap_core::tap_manager::SignedReceipt;
+use thegraph::types::Address;
 use tokio::sync::RwLock;
 use tracing::error;
 
@@ -246,7 +246,6 @@ mod test {
     use std::str::FromStr;
 
     use crate::prelude::{AllocationStatus, SubgraphDeployment};
-    use alloy_primitives::Address;
     use keccak_hash::H256;
     use sqlx::postgres::PgListener;
 
