@@ -1,12 +1,12 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_primitives::Address;
 use arc_swap::ArcSwap;
 use keccak_hash::keccak;
 use lazy_static::lazy_static;
 use secp256k1::{ecdsa::RecoverableSignature, Message, PublicKey, Secp256k1, VerifyOnly};
 use std::sync::Arc;
+use thegraph::types::Address;
 
 lazy_static! {
     static ref SECP256K1: Secp256k1<VerifyOnly> = Secp256k1::verification_only();

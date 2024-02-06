@@ -445,11 +445,10 @@ mod test {
         setup_cost_models_table(&pool).await;
         add_cost_models(&pool, to_db_models(test_data())).await;
 
-        let deployment_id_from_bytes = DeploymentId(
-            "0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea"
-                .parse()
-                .unwrap(),
-        );
+        let deployment_id_from_bytes = DeploymentId::from_str(
+            "0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea",
+        )
+        .unwrap();
         let deployment_id_from_hash =
             DeploymentId::from_str("Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss").unwrap();
 

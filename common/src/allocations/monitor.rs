@@ -3,10 +3,10 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{timer, Eventual, EventualExt};
 use serde::Deserialize;
+use thegraph::types::Address;
 use tokio::time::sleep;
 use tracing::warn;
 

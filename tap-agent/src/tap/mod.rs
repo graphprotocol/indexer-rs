@@ -1,10 +1,11 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_primitives::{hex::ToHex, Address};
+use alloy_primitives::hex::ToHex;
 use anyhow::anyhow;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
+use thegraph::types::Address;
 
 mod escrow_adapter;
 mod rav_storage_adapter;

@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-use alloy_primitives::Address;
+use thegraph::types::Address;
 
 /// Load a hashmap of sender addresses and their corresponding aggregator endpoints
 /// from a yaml file. We're using serde_yaml.

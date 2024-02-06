@@ -45,7 +45,7 @@ autometrics = { version = "0.3.3", features = ["prometheus-exporter"] }
 clap = { version = "4.3.1", features = ["derive", "env"] }
 prometheus = "0.13.3"
 hex = "0.4.3"
-tap_core = "0.7.0"
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", branch = "aasseman/tap_core_0_7_0_fix_toolshed_dep" }
 ethereum-types = "0.14.1"
 sqlx = { version = "0.7.1", features = [
     "postgres",
@@ -54,12 +54,12 @@ sqlx = { version = "0.7.1", features = [
     "rust_decimal",
     "time",
 ] }
-alloy-primitives = { version = "0.5.2", features = ["serde"] }
-alloy-sol-types = "0.5.2"
+alloy-primitives = { version = "0.6", features = ["serde"] }
+alloy-sol-types = "0.6"
 lazy_static = "1.4.0"
-thegraph = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
-graphql = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed", branch = "main", features = [
+thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
+graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0" }
+graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-http-v0.2.1", features = [
     "http-reqwest",
 ] }
 build-info = "0.0.34"

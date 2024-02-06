@@ -4,7 +4,6 @@
 use std::collections::HashSet;
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use alloy_primitives::Address;
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -13,6 +12,7 @@ use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::prelude::{Allocation, SubgraphClient};
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
+use thegraph::types::Address;
 use tokio::sync::RwLock;
 use tracing::{error, warn};
 
@@ -416,11 +416,9 @@ mod tests {
                 created_at_epoch: 953,
                 closed_at_epoch: None,
                 subgraph_deployment: SubgraphDeployment {
-                    id: DeploymentId(
+                    id: DeploymentId::from_str(
                         "0xcda7fa0405d6fd10721ed13d18823d24b535060d8ff661f862b26c23334f13bf"
-                            .parse()
-                            .unwrap(),
-                    ),
+                    ).unwrap(),
                     denied_at: Some(0),
                 },
                 status: AllocationStatus::Null,

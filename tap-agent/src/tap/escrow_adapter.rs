@@ -3,11 +3,11 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use alloy_primitives::Address;
 use async_trait::async_trait;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use tap_core::adapters::escrow_adapter::EscrowAdapter as EscrowAdapterTrait;
+use thegraph::types::Address;
 use thiserror::Error;
 use tokio::sync::RwLock;
 

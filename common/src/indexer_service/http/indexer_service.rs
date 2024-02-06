@@ -6,7 +6,6 @@ use std::{
     time::Duration,
 };
 
-use alloy_primitives::Address;
 use alloy_sol_types::eip712_domain;
 use anyhow;
 use autometrics::prometheus_exporter;
@@ -23,6 +22,7 @@ use eventuals::Eventual;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
+use thegraph::types::Address;
 use thegraph::types::{Attestation, DeploymentId};
 use thiserror::Error;
 use tokio::signal;

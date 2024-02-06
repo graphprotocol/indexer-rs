@@ -9,8 +9,8 @@ name = "indexer-tap-agent"
 path = "src/main.rs"
 
 [dependencies]
-alloy-primitives = "0.5.2"
-alloy-sol-types = "0.5.2"
+alloy-primitives = "0.6"
+alloy-sol-types = "0.6"
 anyhow = "1.0.72"
 async-trait = "0.1.72"
 bigdecimal = { version = "0.4.2", features = ["serde"] }
@@ -32,12 +32,12 @@ sqlx = { version = "0.7.2", features = [
     "bigdecimal",
     "rust_decimal",
 ] }
-tap_aggregator = "0.2.0"
-tap_core = "0.7.0"
+tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", branch = "aasseman/tap_core_0_7_0_fix_toolshed_dep" }
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", branch = "aasseman/tap_core_0_7_0_fix_toolshed_dep" }
 thiserror = "1.0.44"
 tokio = { version = "1.33.0" }
-thegraph = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed", branch = "main" }
+thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
+graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-http-v0.2.1" }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",

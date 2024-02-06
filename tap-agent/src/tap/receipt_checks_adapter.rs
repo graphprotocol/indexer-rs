@@ -3,7 +3,6 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use alloy_primitives::Address;
 use async_trait::async_trait;
 use ethereum_types::U256;
 use eventuals::{timer, Eventual, EventualExt};
@@ -12,6 +11,7 @@ use indexer_common::subgraph_client::{Query, SubgraphClient};
 use sqlx::PgPool;
 use tap_core::adapters::receipt_checks_adapter::ReceiptChecksAdapter as ReceiptChecksAdapterTrait;
 use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
+use thegraph::types::Address;
 use thiserror::Error;
 use tokio::{sync::RwLock, time::sleep};
 use tracing::error;

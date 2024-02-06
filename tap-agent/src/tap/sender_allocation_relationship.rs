@@ -3,9 +3,10 @@
 
 use std::{str::FromStr, sync::Arc, time::Duration};
 
-use alloy_primitives::{hex::ToHex, Address};
+use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, ensure, Result};
+use thegraph::types::Address;
 
 use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
