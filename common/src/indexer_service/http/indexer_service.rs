@@ -31,6 +31,7 @@ use tower_governor::{errors::display_error, governor::GovernorConfigBuilder, Gov
 use tracing::info;
 
 use crate::{
+    address::public_key,
     indexer_service::http::{
         metrics::IndexerServiceMetrics, static_subgraph::static_subgraph_request_handler,
     },
@@ -312,9 +313,12 @@ impl IndexerService {
             )),
         };
 
+        let operator_address = public_key(&options.config.indexer.operator_mnemonic)?;
+
         let mut misc_routes = Router::new()
             .route("/", get("Service is up and running"))
             .route("/version", get(Json(options.release)))
+            .route("/info", get(Json(operator_address)))
             .layer(
                 ServiceBuilder::new()
                     .layer(HandleErrorLayer::new(|e: BoxError| async move {
