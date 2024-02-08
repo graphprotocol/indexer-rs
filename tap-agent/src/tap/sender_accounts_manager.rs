@@ -111,10 +111,10 @@ impl SenderAccountsManager {
                         (
                             SELECT DISTINCT allocation_id
                             FROM scalar_tap_receipts
-                            WHERE signer_address = signer_address
+                            WHERE signer_address = top.signer_address
                         )
                     ) AS allocation_ids
-                FROM scalar_tap_receipts
+                FROM scalar_tap_receipts AS top
             "#
         )
         .fetch_all(&inner.pgpool)
@@ -146,17 +146,17 @@ impl SenderAccountsManager {
 
         let nonfinal_ravs_sender_allocations_in_db = sqlx::query!(
             r#"
-                SELECT
+                SELECT DISTINCT
                     sender_address,
                     (
                         SELECT ARRAY 
                         (
                             SELECT DISTINCT allocation_id
                             FROM scalar_tap_ravs
-                            WHERE sender_address = sender_address
+                            WHERE sender_address = top.sender_address
                         )
                     ) AS allocation_id
-                FROM scalar_tap_ravs
+                FROM scalar_tap_ravs AS top
             "#
         )
         .fetch_all(&inner.pgpool)
