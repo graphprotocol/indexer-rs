@@ -10,6 +10,7 @@ use std::{
 
 use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, Result};
+use enum_as_inner::EnumAsInner;
 use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use sqlx::PgPool;
@@ -28,12 +29,17 @@ use crate::tap::{
     sender_allocation::SenderAllocation, unaggregated_receipts::UnaggregatedReceipts,
 };
 
+#[derive(Clone, EnumAsInner)]
+enum AllocationState {
+    Active(Arc<SenderAllocation>),
+    Ineligible(Arc<SenderAllocation>),
+}
+
 /// The inner state of a SenderAccount. This is used to store an Arc state for spawning async tasks.
 pub struct Inner {
     config: &'static config::Cli,
     pgpool: PgPool,
-    allocations_active: Mutex<HashMap<Address, Arc<SenderAllocation>>>,
-    allocations_ineligible: Mutex<HashMap<Address, Arc<SenderAllocation>>>,
+    allocations: Mutex<HashMap<Address, AllocationState>>,
     sender: Address,
     sender_aggregator_endpoint: String,
     unaggregated_fees: Mutex<UnaggregatedReceipts>,
@@ -73,10 +79,12 @@ impl Inner {
             // Get a quick snapshot of the current finalizing allocations. They are
             // Arcs, so it should be cheap.
             let allocations_finalizing = self
-                .allocations_ineligible
+                .allocations
                 .lock()
                 .await
                 .values()
+                .filter(|a| matches!(a, AllocationState::Ineligible(_)))
+                .map(|a| a.as_ineligible().unwrap())
                 .cloned()
                 .collect::<Vec<_>>();
 
@@ -102,7 +110,7 @@ impl Inner {
                 }
 
                 // Remove the allocation from the finalizing map.
-                self.allocations_ineligible
+                self.allocations
                     .lock()
                     .await
                     .remove(&allocation.get_allocation_id());
@@ -143,20 +151,19 @@ impl Inner {
 
     /// Returns the allocation with the highest unaggregated fees value.
     async fn get_heaviest_allocation(&self) -> Result<Arc<SenderAllocation>> {
-        // Get a quick snapshot of the current allocations. They are Arcs, so it should be cheap,
+        // Get a quick snapshot of all allocations. They are Arcs, so it should be cheap,
         // and we don't want to hold the lock for too long.
-        let allocations: Vec<_> = self
-            .allocations_active
-            .lock()
-            .await
-            .values()
-            .cloned()
-            .collect();
+        let allocations: Vec<_> = self.allocations.lock().await.values().cloned().collect();
 
         // Get the fees for each allocation in parallel. This is required because the
         // SenderAllocation's fees is behind a Mutex.
         let mut set = JoinSet::new();
         for allocation in allocations {
+            let allocation: Arc<SenderAllocation> = match allocation {
+                AllocationState::Active(a) => a,
+                AllocationState::Ineligible(a) => a,
+            };
+
             set.spawn(async move {
                 (
                     allocation.clone(),
@@ -184,16 +191,14 @@ impl Inner {
     /// Recompute the sender's total unaggregated fees value and last receipt ID.
     async fn recompute_unaggregated_fees_static(&self) -> Result<()> {
         // Similar pattern to get_heaviest_allocation().
-        let allocations: Vec<_> = self
-            .allocations_active
-            .lock()
-            .await
-            .values()
-            .cloned()
-            .collect();
+        let allocations: Vec<_> = self.allocations.lock().await.values().cloned().collect();
 
         let mut set = JoinSet::new();
         for allocation in allocations {
+            let allocation: Arc<SenderAllocation> = match allocation {
+                AllocationState::Active(a) => a,
+                AllocationState::Ineligible(a) => a,
+            };
             set.spawn(async move { allocation.get_unaggregated_fees().await });
         }
 
@@ -269,8 +274,7 @@ impl SenderAccount {
         let inner = Arc::new(Inner {
             config,
             pgpool,
-            allocations_active: Mutex::new(HashMap::new()),
-            allocations_ineligible: Mutex::new(HashMap::new()),
+            allocations: Mutex::new(HashMap::new()),
             sender: sender_id,
             sender_aggregator_endpoint,
             unaggregated_fees: Mutex::new(UnaggregatedReceipts::default()),
@@ -311,51 +315,45 @@ impl SenderAccount {
 
     /// Update the sender's allocations to match the target allocations.
     pub async fn update_allocations(&self, target_allocations: HashSet<Address>) {
-        let mut allocations_active = self.inner.allocations_active.lock().await;
-        let mut allocations_ineligible = self.inner.allocations_ineligible.lock().await;
+        let mut allocations = self.inner.allocations.lock().await;
+        let mut allocations_to_finalize = false;
 
-        // Move allocations that are no longer to be active to the ineligible map.
-        let mut allocations_to_move = Vec::new();
-        for allocation_id in allocations_active.keys() {
+        // Make allocations that are no longer to be active `AllocationState::Ineligible`.
+        for (allocation_id, allocation_state) in allocations.iter_mut() {
             if !target_allocations.contains(allocation_id) {
-                allocations_to_move.push(*allocation_id);
+                match allocation_state {
+                    AllocationState::Active(allocation) => {
+                        *allocation_state = AllocationState::Ineligible(allocation.clone());
+                        allocations_to_finalize = true;
+                    }
+                    AllocationState::Ineligible(_) => {
+                        // Allocation is already ineligible, do nothing.
+                    }
+                }
             }
         }
-        for allocation_id in &allocations_to_move {
-            allocations_ineligible.insert(
-                *allocation_id,
-                allocations_active.remove(allocation_id).unwrap(),
-            );
-        }
 
-        // If we moved any allocations to the ineligible map, notify the RAV requester finalize
-        // task.
-        if !allocations_to_move.is_empty() {
+        if allocations_to_finalize {
             self.rav_requester_finalize_notify.notify_waiters();
         }
 
         // Add new allocations.
         for allocation_id in target_allocations {
-            if !allocations_active.contains_key(&allocation_id)
-                && !allocations_ineligible.contains_key(&allocation_id)
-            {
-                allocations_active.insert(
-                    allocation_id,
-                    Arc::new(
-                        SenderAllocation::new(
-                            self.inner.config,
-                            self.inner.pgpool.clone(),
-                            allocation_id,
-                            self.inner.sender,
-                            self.escrow_accounts.clone(),
-                            self.escrow_subgraph,
-                            self.escrow_adapter.clone(),
-                            self.tap_eip712_domain_separator.clone(),
-                            self.inner.sender_aggregator_endpoint.clone(),
-                        )
-                        .await,
-                    ),
-                );
+            if let std::collections::hash_map::Entry::Vacant(e) = allocations.entry(allocation_id) {
+                e.insert(AllocationState::Active(Arc::new(
+                    SenderAllocation::new(
+                        self.inner.config,
+                        self.inner.pgpool.clone(),
+                        allocation_id,
+                        self.inner.sender,
+                        self.escrow_accounts.clone(),
+                        self.escrow_subgraph,
+                        self.escrow_adapter.clone(),
+                        self.tap_eip712_domain_separator.clone(),
+                        self.inner.sender_aggregator_endpoint.clone(),
+                    )
+                    .await,
+                )));
             }
         }
     }
@@ -369,9 +367,9 @@ impl SenderAccount {
         // Else we already processed that receipt, most likely from pulling the receipts
         // from the database.
         if new_receipt_notification.id > unaggregated_fees.last_id {
-            if let Some(allocation) = self
+            if let Some(AllocationState::Active(allocation)) = self
                 .inner
-                .allocations_active
+                .allocations
                 .lock()
                 .await
                 .get(&new_receipt_notification.allocation_id)
@@ -422,7 +420,6 @@ mod tests {
     use serde_json::json;
     use tap_aggregator::server::run_server;
     use tap_core::tap_manager::SignedRAV;
-    use tokio::sync::MutexGuard;
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockServer, ResponseTemplate,
@@ -441,14 +438,38 @@ mod tests {
     impl SenderAccount {
         pub async fn _tests_get_allocations_active(
             &self,
-        ) -> MutexGuard<'_, HashMap<Address, Arc<SenderAllocation>>> {
-            self.inner.allocations_active.lock().await
+        ) -> HashMap<Address, Arc<SenderAllocation>> {
+            self.inner
+                .allocations
+                .lock()
+                .await
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let AllocationState::Active(a) = v {
+                        Some((*k, a.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
         }
 
         pub async fn _tests_get_allocations_ineligible(
             &self,
-        ) -> MutexGuard<'_, HashMap<Address, Arc<SenderAllocation>>> {
-            self.inner.allocations_ineligible.lock().await
+        ) -> HashMap<Address, Arc<SenderAllocation>> {
+            self.inner
+                .allocations
+                .lock()
+                .await
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let AllocationState::Ineligible(a) = v {
+                        Some((*k, a.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
         }
     }
 
@@ -531,10 +552,12 @@ mod tests {
         assert_eq!(
             sender
                 .inner
-                .allocations_active
+                .allocations
                 .lock()
                 .await
                 .get(&*ALLOCATION_ID_0)
+                .unwrap()
+                .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
                 .await
@@ -566,10 +589,12 @@ mod tests {
         assert_eq!(
             sender
                 .inner
-                .allocations_active
+                .allocations
                 .lock()
                 .await
                 .get(&*ALLOCATION_ID_0)
+                .unwrap()
+                .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
                 .await
@@ -600,10 +625,12 @@ mod tests {
         assert_eq!(
             sender
                 .inner
-                .allocations_active
+                .allocations
                 .lock()
                 .await
                 .get(&*ALLOCATION_ID_0)
+                .unwrap()
+                .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
                 .await
@@ -633,10 +660,12 @@ mod tests {
         assert_eq!(
             sender
                 .inner
-                .allocations_active
+                .allocations
                 .lock()
                 .await
                 .get(&*ALLOCATION_ID_0)
+                .unwrap()
+                .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
                 .await
@@ -752,10 +781,12 @@ mod tests {
         assert!(
             sender_account
                 .inner
-                .allocations_active
+                .allocations
                 .lock()
                 .await
                 .get(&*ALLOCATION_ID_0)
+                .unwrap()
+                .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
                 .await
@@ -831,10 +862,12 @@ mod tests {
         assert!(
             sender_account
                 .inner
-                .allocations_active
+                .allocations
                 .lock()
                 .await
                 .get(&*ALLOCATION_ID_0)
+                .unwrap()
+                .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
                 .await
@@ -884,10 +917,12 @@ mod tests {
                 assert_eq!(
                     sender_account
                         .inner
-                        .allocations_active
+                        .allocations
                         .lock()
                         .await
                         .get(&allocation_id)
+                        .unwrap()
+                        .as_active()
                         .unwrap()
                         .get_unaggregated_fees()
                         .await
