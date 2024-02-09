@@ -16,7 +16,7 @@ use sqlx::PgPool;
 use thegraph::types::Address;
 use tokio::{
     select,
-    sync::{Mutex, MutexGuard, Notify},
+    sync::{Mutex, Notify},
     task::JoinSet,
     time,
 };
@@ -207,8 +207,10 @@ impl Inner {
         *unaggregated_fees = UnaggregatedReceipts::default(); // Reset to 0.
         while let Some(uf) = set.join_next().await {
             let uf = uf?;
-            Self::fees_add(self, &mut unaggregated_fees, uf.value);
-            unaggregated_fees.last_id = max(unaggregated_fees.last_id, uf.last_id);
+            *unaggregated_fees = UnaggregatedReceipts {
+                value: self.fees_add(unaggregated_fees.value, uf.value),
+                last_id: max(unaggregated_fees.last_id, uf.last_id),
+            };
         }
 
         Ok(())
@@ -216,19 +218,18 @@ impl Inner {
 
     /// Safe add the fees to the unaggregated fees value, log an error if there is an overflow and
     /// set the unaggregated fees value to u128::MAX.
-    fn fees_add(&self, unaggregated_fees: &mut MutexGuard<'_, UnaggregatedReceipts>, value: u128) {
-        unaggregated_fees.value = unaggregated_fees
-            .value
-            .checked_add(value)
+    fn fees_add(&self, total_unaggregated_fees: u128, value_increment: u128) -> u128 {
+        total_unaggregated_fees
+            .checked_add(value_increment)
             .unwrap_or_else(|| {
                 // This should never happen, but if it does, we want to know about it.
                 error!(
                     "Overflow when adding receipt value {} to total unaggregated fees {} for \
                     sender {}. Setting total unaggregated fees to u128::MAX.",
-                    value, unaggregated_fees.value, self.sender
+                    value_increment, total_unaggregated_fees, self.sender
                 );
                 u128::MAX
-            });
+            })
     }
 }
 
@@ -378,10 +379,12 @@ impl SenderAccount {
                 // Add the receipt value to the allocation's unaggregated fees value.
                 allocation.fees_add(new_receipt_notification.value).await;
                 // Add the receipt value to the sender's unaggregated fees value.
-                self.inner
-                    .fees_add(&mut unaggregated_fees, new_receipt_notification.value);
-
-                unaggregated_fees.last_id = new_receipt_notification.id;
+                *unaggregated_fees = UnaggregatedReceipts {
+                    value: self
+                        .inner
+                        .fees_add(unaggregated_fees.value, new_receipt_notification.value),
+                    last_id: new_receipt_notification.id,
+                };
 
                 // Check if we need to trigger a RAV request.
                 if unaggregated_fees.value >= self.inner.config.tap.rav_request_trigger_value.into()
@@ -419,6 +422,7 @@ mod tests {
     use serde_json::json;
     use tap_aggregator::server::run_server;
     use tap_core::tap_manager::SignedRAV;
+    use tokio::sync::MutexGuard;
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockServer, ResponseTemplate,
