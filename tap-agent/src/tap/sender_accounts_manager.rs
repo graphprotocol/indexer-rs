@@ -35,7 +35,8 @@ pub struct SenderAccountsManager {
     _eligible_allocations_senders_pipe: PipeHandle,
 }
 
-#[derive(Clone)]
+/// Inner struct for SenderAccountsManager. This is used to store an Arc state for spawning async
+/// tasks.
 struct Inner {
     config: &'static config::Cli,
     pgpool: PgPool,
@@ -47,6 +48,59 @@ struct Inner {
     escrow_adapter: EscrowAdapter,
     tap_eip712_domain_separator: Eip712Domain,
     sender_aggregator_endpoints: HashMap<Address, String>,
+}
+
+impl Inner {
+    async fn update_sender_accounts(
+        &self,
+        indexer_allocations: HashMap<Address, Allocation>,
+        target_senders: HashSet<Address>,
+    ) -> Result<()> {
+        let eligible_allocations: HashSet<Address> = indexer_allocations.keys().copied().collect();
+        let mut sender_accounts_write = self.sender_accounts.write().await;
+
+        // For all Senders that are not in the target_senders HashSet, set all their allocations to
+        // ineligible. That will trigger a finalization of all their receipts.
+        for (sender_id, sender_account) in sender_accounts_write.iter_mut() {
+            if !target_senders.contains(sender_id) {
+                sender_account.update_allocations(HashSet::new()).await;
+            }
+        }
+
+        // Get or create SenderAccount instances for all currently eligible
+        // senders.
+        for sender_id in &target_senders {
+            let sender = sender_accounts_write
+                .entry(*sender_id)
+                .or_insert(SenderAccount::new(
+                    self.config,
+                    self.pgpool.clone(),
+                    *sender_id,
+                    self.escrow_accounts.clone(),
+                    self.escrow_subgraph,
+                    self.escrow_adapter.clone(),
+                    self.tap_eip712_domain_separator.clone(),
+                    self.sender_aggregator_endpoints
+                        .get(sender_id)
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "No sender_aggregator_endpoint found for sender {}",
+                                sender_id
+                            )
+                        })?
+                        .clone(),
+                ));
+
+            // Update sender's allocations
+            sender
+                .update_allocations(eligible_allocations.clone())
+                .await;
+        }
+
+        // TODO: remove Sender instances that are finished. Ideally done in another async task?
+
+        Ok(())
+    }
 }
 
 impl SenderAccountsManager {
@@ -217,17 +271,17 @@ impl SenderAccountsManager {
         // It is important to do this after creating the Sender and SenderAllocation instances based
         // on the receipts in the database, because now all ineligible allocation and/or sender that
         // we created above will be set for receipt finalization.
-        Self::update_sender_accounts(
-            &inner,
-            inner
-                .indexer_allocations
-                .value()
-                .await
-                .expect("Should get indexer allocations from Eventual"),
-            escrow_accounts_snapshot.get_senders(),
-        )
-        .await
-        .expect("Should be able to update_sender_accounts");
+        inner
+            .update_sender_accounts(
+                inner
+                    .indexer_allocations
+                    .value()
+                    .await
+                    .expect("Should get indexer allocations from Eventual"),
+                escrow_accounts_snapshot.get_senders(),
+            )
+            .await
+            .expect("Should be able to update_sender_accounts");
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         let new_receipts_watcher_handle = tokio::spawn(Self::new_receipts_watcher(
@@ -246,15 +300,12 @@ impl SenderAccountsManager {
         .pipe_async(move |(indexer_allocations, escrow_accounts)| {
             let inner = inner_clone.clone();
             async move {
-                Self::update_sender_accounts(
-                    &inner,
-                    indexer_allocations,
-                    escrow_accounts.get_senders(),
-                )
-                .await
-                .unwrap_or_else(|e| {
-                    error!("Error while updating sender_accounts: {:?}", e);
-                });
+                inner
+                    .update_sender_accounts(indexer_allocations, escrow_accounts.get_senders())
+                    .await
+                    .unwrap_or_else(|e| {
+                        error!("Error while updating sender_accounts: {:?}", e);
+                    });
             }
         });
 
@@ -315,58 +366,6 @@ impl SenderAccountsManager {
                 );
             }
         }
-    }
-
-    async fn update_sender_accounts(
-        inner: &Inner,
-        indexer_allocations: HashMap<Address, Allocation>,
-        target_senders: HashSet<Address>,
-    ) -> Result<()> {
-        let eligible_allocations: HashSet<Address> = indexer_allocations.keys().copied().collect();
-        let mut sender_accounts_write = inner.sender_accounts.write().await;
-
-        // For all Senders that are not in the target_senders HashSet, set all their allocations to
-        // ineligible. That will trigger a finalization of all their receipts.
-        for (sender_id, sender_account) in sender_accounts_write.iter_mut() {
-            if !target_senders.contains(sender_id) {
-                sender_account.update_allocations(HashSet::new()).await;
-            }
-        }
-
-        // Get or create SenderAccount instances for all currently eligible
-        // senders.
-        for sender_id in &target_senders {
-            let sender = sender_accounts_write
-                .entry(*sender_id)
-                .or_insert(SenderAccount::new(
-                    inner.config,
-                    inner.pgpool.clone(),
-                    *sender_id,
-                    inner.escrow_accounts.clone(),
-                    inner.escrow_subgraph,
-                    inner.escrow_adapter.clone(),
-                    inner.tap_eip712_domain_separator.clone(),
-                    inner
-                        .sender_aggregator_endpoints
-                        .get(sender_id)
-                        .ok_or_else(|| {
-                            anyhow!(
-                                "No sender_aggregator_endpoint found for sender {}",
-                                sender_id
-                            )
-                        })?
-                        .clone(),
-                ));
-
-            // Update sender's allocations
-            sender
-                .update_allocations(eligible_allocations.clone())
-                .await;
-        }
-
-        // TODO: remove Sender instances that are finished. Ideally done in another async task?
-
-        Ok(())
     }
 }
 
