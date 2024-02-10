@@ -313,12 +313,14 @@ impl IndexerService {
             )),
         };
 
-        let operator_address = public_key(&options.config.indexer.operator_mnemonic)?;
+        let operator_address = Json(
+            serde_json::json!({ "operator": public_key(&options.config.indexer.operator_mnemonic)?}),
+        );
 
         let mut misc_routes = Router::new()
             .route("/", get("Service is up and running"))
             .route("/version", get(Json(options.release)))
-            .route("/info", get(Json(operator_address)))
+            .route("/info", get(operator_address))
             .layer(
                 ServiceBuilder::new()
                     .layer(HandleErrorLayer::new(|e: BoxError| async move {
