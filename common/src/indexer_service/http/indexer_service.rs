@@ -314,7 +314,7 @@ impl IndexerService {
         };
 
         let operator_address = Json(
-            serde_json::json!({ "operator": public_key(&options.config.indexer.operator_mnemonic)?}),
+            serde_json::json!({ "publicKey": public_key(&options.config.indexer.operator_mnemonic)?}),
         );
 
         let mut misc_routes = Router::new()
