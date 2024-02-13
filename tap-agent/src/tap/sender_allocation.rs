@@ -1,7 +1,11 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
@@ -18,7 +22,6 @@ use tap_core::{
     tap_receipt::{ReceiptCheck, ReceivedReceipt},
 };
 use thegraph::types::Address;
-use tokio::sync::Mutex;
 use tracing::{error, warn};
 
 use crate::{
@@ -173,7 +176,7 @@ impl SenderAllocation {
         .fetch_one(&self.pgpool)
         .await?;
 
-        let mut unaggregated_fees = self.unaggregated_fees.lock().await;
+        let mut unaggregated_fees = self.unaggregated_fees.lock().unwrap();
 
         ensure!(
             res.sum.is_none() == res.max.is_none(),
@@ -359,8 +362,8 @@ impl SenderAllocation {
 
     /// Safe add the fees to the unaggregated fees value, log an error if there is an overflow and
     /// set the unaggregated fees value to u128::MAX.
-    pub async fn fees_add(&self, fees: u128) {
-        let mut unaggregated_fees = self.unaggregated_fees.lock().await;
+    pub fn fees_add(&self, fees: u128) {
+        let mut unaggregated_fees = self.unaggregated_fees.lock().unwrap();
         unaggregated_fees.value = unaggregated_fees
             .value
             .checked_add(fees)
@@ -375,8 +378,8 @@ impl SenderAllocation {
             });
     }
 
-    pub async fn get_unaggregated_fees(&self) -> UnaggregatedReceipts {
-        self.unaggregated_fees.lock().await.clone()
+    pub fn get_unaggregated_fees(&self) -> UnaggregatedReceipts {
+        self.unaggregated_fees.lock().unwrap().clone()
     }
 
     pub fn get_allocation_id(&self) -> Address {
@@ -476,7 +479,7 @@ mod tests {
 
         // Check that the unaggregated fees are correct.
         assert_eq!(
-            sender_allocation.unaggregated_fees.lock().await.value,
+            sender_allocation.unaggregated_fees.lock().unwrap().value,
             45u128
         );
     }
@@ -512,7 +515,7 @@ mod tests {
 
         // Check that the unaggregated fees are correct.
         assert_eq!(
-            sender_allocation.unaggregated_fees.lock().await.value,
+            sender_allocation.unaggregated_fees.lock().unwrap().value,
             35u128
         );
     }

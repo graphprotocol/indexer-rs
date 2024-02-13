@@ -4,7 +4,7 @@
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -15,12 +15,7 @@ use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use sqlx::PgPool;
 use thegraph::types::Address;
-use tokio::{
-    select,
-    sync::{Mutex, Notify},
-    task::JoinSet,
-    time,
-};
+use tokio::{select, sync::Notify, time};
 use tracing::{error, warn};
 
 use crate::config::{self};
@@ -39,10 +34,10 @@ enum AllocationState {
 pub struct Inner {
     config: &'static config::Cli,
     pgpool: PgPool,
-    allocations: Mutex<HashMap<Address, AllocationState>>,
+    allocations: Arc<Mutex<HashMap<Address, AllocationState>>>,
     sender: Address,
     sender_aggregator_endpoint: String,
-    unaggregated_fees: Mutex<UnaggregatedReceipts>,
+    unaggregated_fees: Arc<Mutex<UnaggregatedReceipts>>,
 }
 
 impl Inner {
@@ -53,7 +48,7 @@ impl Inner {
             self.rav_requester_single().await;
 
             // Check if we already need to send another RAV request.
-            let unaggregated_fees = self.unaggregated_fees.lock().await;
+            let unaggregated_fees = self.unaggregated_fees.lock().unwrap().clone();
             if unaggregated_fees.value >= self.config.tap.rav_request_trigger_value.into() {
                 // If so, "self-notify" to trigger another RAV request.
                 notif_value_trigger.notify_one();
@@ -81,7 +76,7 @@ impl Inner {
             let allocations_finalizing = self
                 .allocations
                 .lock()
-                .await
+                .unwrap()
                 .values()
                 .filter(|a| matches!(a, AllocationState::Ineligible(_)))
                 .map(|a| a.as_ineligible().unwrap())
@@ -112,7 +107,7 @@ impl Inner {
                 // Remove the allocation from the finalizing map.
                 self.allocations
                     .lock()
-                    .await
+                    .unwrap()
                     .remove(&allocation.get_allocation_id());
             }
         }
@@ -120,7 +115,7 @@ impl Inner {
 
     /// Does a single RAV request for the sender's allocation with the highest unaggregated fees
     async fn rav_requester_single(&self) {
-        let heaviest_allocation = match self.get_heaviest_allocation().await {
+        let heaviest_allocation = match self.get_heaviest_allocation() {
             Ok(a) => a,
             Err(e) => {
                 error!(
@@ -141,7 +136,7 @@ impl Inner {
             return;
         };
 
-        if let Err(e) = self.recompute_unaggregated_fees_static().await {
+        if let Err(e) = self.recompute_unaggregated_fees_static() {
             error!(
                 "Error while recomputing unaggregated fees for sender {}: {}",
                 self.sender, e
@@ -150,34 +145,21 @@ impl Inner {
     }
 
     /// Returns the allocation with the highest unaggregated fees value.
-    async fn get_heaviest_allocation(&self) -> Result<Arc<SenderAllocation>> {
+    fn get_heaviest_allocation(&self) -> Result<Arc<SenderAllocation>> {
         // Get a quick snapshot of all allocations. They are Arcs, so it should be cheap,
         // and we don't want to hold the lock for too long.
-        let allocations: Vec<_> = self.allocations.lock().await.values().cloned().collect();
+        let allocations: Vec<_> = self.allocations.lock().unwrap().values().cloned().collect();
 
         // Get the fees for each allocation in parallel. This is required because the
         // SenderAllocation's fees is behind a Mutex.
-        let mut set = JoinSet::new();
+
+        let mut heaviest_allocation = (None, 0u128);
         for allocation in allocations {
             let allocation: Arc<SenderAllocation> = match allocation {
                 AllocationState::Active(a) => a,
                 AllocationState::Ineligible(a) => a,
             };
-
-            set.spawn(async move {
-                (
-                    allocation.clone(),
-                    allocation.get_unaggregated_fees().await.value,
-                )
-            });
-        }
-
-        // Find the allocation with the highest fees. Doing it "manually" because we can't get an
-        // iterator from the JoinSet, and collecting into a Vec doesn't make it much simpler
-        // anyway.
-        let mut heaviest_allocation = (None, 0u128);
-        while let Some(res) = set.join_next().await {
-            let (allocation, fees) = res?;
+            let fees = allocation.get_unaggregated_fees().value;
             if fees > heaviest_allocation.1 {
                 heaviest_allocation = (Some(allocation), fees);
             }
@@ -189,34 +171,31 @@ impl Inner {
     }
 
     /// Recompute the sender's total unaggregated fees value and last receipt ID.
-    async fn recompute_unaggregated_fees_static(&self) -> Result<()> {
+    fn recompute_unaggregated_fees_static(&self) -> Result<()> {
         // Similar pattern to get_heaviest_allocation().
-        let allocations: Vec<_> = self.allocations.lock().await.values().cloned().collect();
+        let allocations: Vec<_> = self.allocations.lock().unwrap().values().cloned().collect();
 
-        let mut set = JoinSet::new();
+        let mut unaggregated_fees = self.unaggregated_fees.lock().unwrap();
+        *unaggregated_fees = UnaggregatedReceipts::default(); // Reset to 0.
         for allocation in allocations {
             let allocation: Arc<SenderAllocation> = match allocation {
                 AllocationState::Active(a) => a,
                 AllocationState::Ineligible(a) => a,
             };
-            set.spawn(async move { allocation.get_unaggregated_fees().await });
-        }
 
-        // Added benefit to this lock is that it pauses the handle_new_receipt_notification() calls
-        // while we're recomputing the unaggregated fees value. Hopefully this is a very short
-        // pause overall.
-        let mut unaggregated_fees = self.unaggregated_fees.lock().await;
-
-        // Recompute the sender's total unaggregated fees value and last receipt ID, because new
-        // receipts might have been added to the DB in the meantime.
-        *unaggregated_fees = UnaggregatedReceipts::default(); // Reset to 0.
-        while let Some(uf) = set.join_next().await {
-            let uf = uf?;
+            let uf = allocation.get_unaggregated_fees();
             *unaggregated_fees = UnaggregatedReceipts {
                 value: self.fees_add(unaggregated_fees.value, uf.value),
                 last_id: max(unaggregated_fees.last_id, uf.last_id),
             };
         }
+
+        // Added benefit to this lock is that it pauses the handle_new_receipt_notification() calls
+        // while we're recomputing the unaggregated fees value. Hopefully this is a very short
+        // pause overall.
+
+        // Recompute the sender's total unaggregated fees value and last receipt ID, because new
+        // receipts might have been added to the DB in the meantime.
 
         Ok(())
     }
@@ -274,10 +253,10 @@ impl SenderAccount {
         let inner = Arc::new(Inner {
             config,
             pgpool,
-            allocations: Mutex::new(HashMap::new()),
+            allocations: Arc::new(Mutex::new(HashMap::new())),
             sender: sender_id,
             sender_aggregator_endpoint,
-            unaggregated_fees: Mutex::new(UnaggregatedReceipts::default()),
+            unaggregated_fees: Arc::new(Mutex::new(UnaggregatedReceipts::default())),
         });
 
         let rav_requester_notify = Arc::new(Notify::new());
@@ -315,45 +294,50 @@ impl SenderAccount {
 
     /// Update the sender's allocations to match the target allocations.
     pub async fn update_allocations(&self, target_allocations: HashSet<Address>) {
-        let mut allocations = self.inner.allocations.lock().await;
-        let mut allocations_to_finalize = false;
+        {
+            let mut allocations = self.inner.allocations.lock().unwrap();
+            let mut allocations_to_finalize = false;
 
-        // Make allocations that are no longer to be active `AllocationState::Ineligible`.
-        for (allocation_id, allocation_state) in allocations.iter_mut() {
-            if !target_allocations.contains(allocation_id) {
-                match allocation_state {
-                    AllocationState::Active(allocation) => {
-                        *allocation_state = AllocationState::Ineligible(allocation.clone());
-                        allocations_to_finalize = true;
-                    }
-                    AllocationState::Ineligible(_) => {
-                        // Allocation is already ineligible, do nothing.
+            // Make allocations that are no longer to be active `AllocationState::Ineligible`.
+            for (allocation_id, allocation_state) in allocations.iter_mut() {
+                if !target_allocations.contains(allocation_id) {
+                    match allocation_state {
+                        AllocationState::Active(allocation) => {
+                            *allocation_state = AllocationState::Ineligible(allocation.clone());
+                            allocations_to_finalize = true;
+                        }
+                        AllocationState::Ineligible(_) => {
+                            // Allocation is already ineligible, do nothing.
+                        }
                     }
                 }
             }
-        }
 
-        if allocations_to_finalize {
-            self.rav_requester_finalize_notify.notify_waiters();
+            if allocations_to_finalize {
+                self.rav_requester_finalize_notify.notify_waiters();
+            }
         }
 
         // Add new allocations.
         for allocation_id in target_allocations {
-            if let std::collections::hash_map::Entry::Vacant(e) = allocations.entry(allocation_id) {
-                e.insert(AllocationState::Active(Arc::new(
-                    SenderAllocation::new(
-                        self.inner.config,
-                        self.inner.pgpool.clone(),
-                        allocation_id,
-                        self.inner.sender,
-                        self.escrow_accounts.clone(),
-                        self.escrow_subgraph,
-                        self.escrow_adapter.clone(),
-                        self.tap_eip712_domain_separator.clone(),
-                        self.inner.sender_aggregator_endpoint.clone(),
-                    )
-                    .await,
-                )));
+            let sender_allocation = AllocationState::Active(Arc::new(
+                SenderAllocation::new(
+                    self.inner.config,
+                    self.inner.pgpool.clone(),
+                    allocation_id,
+                    self.inner.sender,
+                    self.escrow_accounts.clone(),
+                    self.escrow_subgraph,
+                    self.escrow_adapter.clone(),
+                    self.tap_eip712_domain_separator.clone(),
+                    self.inner.sender_aggregator_endpoint.clone(),
+                )
+                .await,
+            ));
+            if let std::collections::hash_map::Entry::Vacant(e) =
+                self.inner.allocations.lock().unwrap().entry(allocation_id)
+            {
+                e.insert(sender_allocation);
             }
         }
     }
@@ -362,7 +346,7 @@ impl SenderAccount {
         &self,
         new_receipt_notification: NewReceiptNotification,
     ) {
-        let mut unaggregated_fees = self.inner.unaggregated_fees.lock().await;
+        let mut unaggregated_fees = self.inner.unaggregated_fees.lock().unwrap();
 
         // Else we already processed that receipt, most likely from pulling the receipts
         // from the database.
@@ -371,11 +355,11 @@ impl SenderAccount {
                 .inner
                 .allocations
                 .lock()
-                .await
+                .unwrap()
                 .get(&new_receipt_notification.allocation_id)
             {
                 // Add the receipt value to the allocation's unaggregated fees value.
-                allocation.fees_add(new_receipt_notification.value).await;
+                allocation.fees_add(new_receipt_notification.value);
                 // Add the receipt value to the sender's unaggregated fees value.
                 *unaggregated_fees = UnaggregatedReceipts {
                     value: self
@@ -399,8 +383,8 @@ impl SenderAccount {
         }
     }
 
-    pub async fn recompute_unaggregated_fees(&self) -> Result<()> {
-        self.inner.recompute_unaggregated_fees_static().await
+    pub fn recompute_unaggregated_fees(&self) -> Result<()> {
+        self.inner.recompute_unaggregated_fees_static()
     }
 }
 
@@ -442,7 +426,7 @@ mod tests {
             self.inner
                 .allocations
                 .lock()
-                .await
+                .unwrap()
                 .iter()
                 .filter_map(|(k, v)| {
                     if let AllocationState::Active(a) = v {
@@ -460,7 +444,7 @@ mod tests {
             self.inner
                 .allocations
                 .lock()
-                .await
+                .unwrap()
                 .iter()
                 .filter_map(|(k, v)| {
                     if let AllocationState::Ineligible(a) = v {
@@ -523,7 +507,7 @@ mod tests {
                 *ALLOCATION_ID_2,
             ]))
             .await;
-        sender.recompute_unaggregated_fees().await.unwrap();
+        sender.recompute_unaggregated_fees().unwrap();
 
         sender
     }
@@ -554,20 +538,19 @@ mod tests {
                 .inner
                 .allocations
                 .lock()
-                .await
+                .unwrap()
                 .get(&*ALLOCATION_ID_0)
                 .unwrap()
                 .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
-                .await
                 .value,
             expected_unaggregated_fees
         );
 
         // Check that the sender's unaggregated fees are correct.
         assert_eq!(
-            sender.inner.unaggregated_fees.lock().await.value,
+            sender.inner.unaggregated_fees.lock().unwrap().value,
             expected_unaggregated_fees
         );
 
@@ -591,20 +574,19 @@ mod tests {
                 .inner
                 .allocations
                 .lock()
-                .await
+                .unwrap()
                 .get(&*ALLOCATION_ID_0)
                 .unwrap()
                 .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
-                .await
                 .value,
             expected_unaggregated_fees
         );
 
         // Check that the unaggregated fees have *not* increased.
         assert_eq!(
-            sender.inner.unaggregated_fees.lock().await.value,
+            sender.inner.unaggregated_fees.lock().unwrap().value,
             expected_unaggregated_fees
         );
 
@@ -627,20 +609,19 @@ mod tests {
                 .inner
                 .allocations
                 .lock()
-                .await
+                .unwrap()
                 .get(&*ALLOCATION_ID_0)
                 .unwrap()
                 .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
-                .await
                 .value,
             expected_unaggregated_fees
         );
 
         // Check that the unaggregated fees are correct.
         assert_eq!(
-            sender.inner.unaggregated_fees.lock().await.value,
+            sender.inner.unaggregated_fees.lock().unwrap().value,
             expected_unaggregated_fees
         );
 
@@ -662,20 +643,19 @@ mod tests {
                 .inner
                 .allocations
                 .lock()
-                .await
+                .unwrap()
                 .get(&*ALLOCATION_ID_0)
                 .unwrap()
                 .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
-                .await
                 .value,
             expected_unaggregated_fees
         );
 
         // Check that the unaggregated fees have *not* increased.
         assert_eq!(
-            sender.inner.unaggregated_fees.lock().await.value,
+            sender.inner.unaggregated_fees.lock().unwrap().value,
             expected_unaggregated_fees
         );
     }
@@ -749,7 +729,7 @@ mod tests {
 
         // Wait for the RAV requester to finish.
         for _ in 0..100 {
-            if sender_account.inner.unaggregated_fees.lock().await.value < trigger_value {
+            if sender_account.inner.unaggregated_fees.lock().unwrap().value < trigger_value {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -783,22 +763,21 @@ mod tests {
                 .inner
                 .allocations
                 .lock()
-                .await
+                .unwrap()
                 .get(&*ALLOCATION_ID_0)
                 .unwrap()
                 .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
-                .await
                 .value
                 <= trigger_value
         );
 
         // Check that the sender's unaggregated fees value is reduced.
-        assert!(sender_account.inner.unaggregated_fees.lock().await.value <= trigger_value);
+        assert!(sender_account.inner.unaggregated_fees.lock().unwrap().value <= trigger_value);
 
         // Reset the total value and trigger value.
-        total_value = sender_account.inner.unaggregated_fees.lock().await.value;
+        total_value = sender_account.inner.unaggregated_fees.lock().unwrap().value;
         trigger_value = 0;
 
         // Add more receipts
@@ -829,7 +808,7 @@ mod tests {
 
         // Wait for the RAV requester to finish.
         for _ in 0..100 {
-            if sender_account.inner.unaggregated_fees.lock().await.value < trigger_value {
+            if sender_account.inner.unaggregated_fees.lock().unwrap().value < trigger_value {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -864,19 +843,18 @@ mod tests {
                 .inner
                 .allocations
                 .lock()
-                .await
+                .unwrap()
                 .get(&*ALLOCATION_ID_0)
                 .unwrap()
                 .as_active()
                 .unwrap()
                 .get_unaggregated_fees()
-                .await
                 .value
                 <= trigger_value
         );
 
         // Check that the unaggregated fees value is reduced.
-        assert!(sender_account.inner.unaggregated_fees.lock().await.value <= trigger_value);
+        assert!(sender_account.inner.unaggregated_fees.lock().unwrap().value <= trigger_value);
 
         // Stop the TAP aggregator server.
         handle.stop().unwrap();
@@ -899,7 +877,13 @@ mod tests {
                 for i in 0..iterations {
                     let value = (i + 10) as u128;
 
-                    let id = sender_account.inner.unaggregated_fees.lock().await.last_id + 1;
+                    let id = sender_account
+                        .inner
+                        .unaggregated_fees
+                        .lock()
+                        .unwrap()
+                        .last_id
+                        + 1;
 
                     sender_account
                         .handle_new_receipt_notification(NewReceiptNotification {
@@ -919,13 +903,12 @@ mod tests {
                         .inner
                         .allocations
                         .lock()
-                        .await
+                        .unwrap()
                         .get(&allocation_id)
                         .unwrap()
                         .as_active()
                         .unwrap()
                         .get_unaggregated_fees()
-                        .await
                         .value,
                     total_value
                 );
@@ -944,18 +927,14 @@ mod tests {
         let total_value_2 = add_receipts(*ALLOCATION_ID_2, 8).await;
 
         // Get the heaviest allocation.
-        let heaviest_allocation = sender_account
-            .inner
-            .get_heaviest_allocation()
-            .await
-            .unwrap();
+        let heaviest_allocation = sender_account.inner.get_heaviest_allocation().unwrap();
 
         // Check that the heaviest allocation is correct.
         assert_eq!(heaviest_allocation.get_allocation_id(), *ALLOCATION_ID_1);
 
         // Check that the sender's unaggregated fees value is correct.
         assert_eq!(
-            sender_account.inner.unaggregated_fees.lock().await.value,
+            sender_account.inner.unaggregated_fees.lock().unwrap().value,
             total_value_0 + total_value_1 + total_value_2
         );
     }
