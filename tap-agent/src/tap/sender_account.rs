@@ -153,9 +153,6 @@ impl Inner {
         // and we don't want to hold the lock for too long.
         let allocations: Vec<_> = self.allocations.lock().unwrap().values().cloned().collect();
 
-        // Get the fees for each allocation in parallel. This is required because the
-        // SenderAllocation's fees is behind a Mutex.
-
         let mut heaviest_allocation = (None, 0u128);
         for allocation in allocations {
             let allocation: Arc<SenderAllocation> = match allocation {
@@ -182,6 +179,7 @@ impl Inner {
         // Similar pattern to get_heaviest_allocation().
         let allocations: Vec<_> = self.allocations.lock().unwrap().values().cloned().collect();
 
+        // Gather the unaggregated fees from all allocations and sum them up.
         let mut unaggregated_fees = self.unaggregated_fees.lock().unwrap();
         *unaggregated_fees = UnaggregatedReceipts::default(); // Reset to 0.
         for allocation in allocations {
@@ -196,13 +194,6 @@ impl Inner {
                 last_id: max(unaggregated_fees.last_id, uf.last_id),
             };
         }
-
-        // Added benefit to this lock is that it pauses the handle_new_receipt_notification() calls
-        // while we're recomputing the unaggregated fees value. Hopefully this is a very short
-        // pause overall.
-
-        // Recompute the sender's total unaggregated fees value and last receipt ID, because new
-        // receipts might have been added to the DB in the meantime.
 
         Ok(())
     }
