@@ -1,10 +1,11 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Mutex as StdMutex;
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 
@@ -15,6 +16,7 @@ use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use sqlx::PgPool;
 use thegraph::types::Address;
+use tokio::sync::Mutex as TokioMutex;
 use tokio::{select, sync::Notify, time};
 use tracing::{error, warn};
 
@@ -34,10 +36,11 @@ enum AllocationState {
 pub struct Inner {
     config: &'static config::Cli,
     pgpool: PgPool,
-    allocations: Arc<Mutex<HashMap<Address, AllocationState>>>,
+    allocations: Arc<StdMutex<HashMap<Address, AllocationState>>>,
     sender: Address,
     sender_aggregator_endpoint: String,
-    unaggregated_fees: Arc<Mutex<UnaggregatedReceipts>>,
+    unaggregated_fees: Arc<StdMutex<UnaggregatedReceipts>>,
+    unaggregated_receipts_guard: Arc<TokioMutex<()>>,
 }
 
 impl Inner {
@@ -136,7 +139,7 @@ impl Inner {
             return;
         };
 
-        if let Err(e) = self.recompute_unaggregated_fees_static() {
+        if let Err(e) = self.recompute_unaggregated_fees().await {
             error!(
                 "Error while recomputing unaggregated fees for sender {}: {}",
                 self.sender, e
@@ -171,7 +174,11 @@ impl Inner {
     }
 
     /// Recompute the sender's total unaggregated fees value and last receipt ID.
-    fn recompute_unaggregated_fees_static(&self) -> Result<()> {
+    async fn recompute_unaggregated_fees(&self) -> Result<()> {
+        // Make sure to pause the handling of receipt notifications while we update the unaggregated
+        // fees.
+        let _guard = self.unaggregated_receipts_guard.lock().await;
+
         // Similar pattern to get_heaviest_allocation().
         let allocations: Vec<_> = self.allocations.lock().unwrap().values().cloned().collect();
 
@@ -236,6 +243,7 @@ pub struct SenderAccount {
     rav_requester_notify: Arc<Notify>,
     rav_requester_finalize_task: tokio::task::JoinHandle<()>,
     rav_requester_finalize_notify: Arc<Notify>,
+    unaggregated_receipts_guard: Arc<TokioMutex<()>>,
 }
 
 impl SenderAccount {
@@ -250,13 +258,16 @@ impl SenderAccount {
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoint: String,
     ) -> Self {
+        let unaggregated_receipts_guard = Arc::new(TokioMutex::new(()));
+
         let inner = Arc::new(Inner {
             config,
             pgpool,
-            allocations: Arc::new(Mutex::new(HashMap::new())),
+            allocations: Arc::new(StdMutex::new(HashMap::new())),
             sender: sender_id,
             sender_aggregator_endpoint,
-            unaggregated_fees: Arc::new(Mutex::new(UnaggregatedReceipts::default())),
+            unaggregated_fees: Arc::new(StdMutex::new(UnaggregatedReceipts::default())),
+            unaggregated_receipts_guard: unaggregated_receipts_guard.clone(),
         });
 
         let rav_requester_notify = Arc::new(Notify::new());
@@ -289,6 +300,7 @@ impl SenderAccount {
             rav_requester_notify,
             rav_requester_finalize_task,
             rav_requester_finalize_notify,
+            unaggregated_receipts_guard,
         }
     }
 
@@ -346,21 +358,32 @@ impl SenderAccount {
         &self,
         new_receipt_notification: NewReceiptNotification,
     ) {
-        let mut unaggregated_fees = self.inner.unaggregated_fees.lock().unwrap();
+        // Make sure to pause the handling of receipt notifications while we update the unaggregated
+        // fees.
+        let _guard = self.unaggregated_receipts_guard.lock().await;
 
-        // Else we already processed that receipt, most likely from pulling the receipts
-        // from the database.
-        if new_receipt_notification.id > unaggregated_fees.last_id {
-            if let Some(AllocationState::Active(allocation)) = self
-                .inner
-                .allocations
-                .lock()
-                .unwrap()
-                .get(&new_receipt_notification.allocation_id)
+        let allocation_state = self
+            .inner
+            .allocations
+            .lock()
+            .unwrap()
+            .get(&new_receipt_notification.allocation_id)
+            .cloned();
+
+        if let Some(AllocationState::Active(allocation)) = allocation_state {
+            // Try to add the receipt value to the allocation's unaggregated fees value.
+            // If the fees were not added, it means the receipt was already processed, so we
+            // don't need to do anything.
+            if allocation
+                .fees_add(new_receipt_notification.value, new_receipt_notification.id)
+                .await
             {
                 // Add the receipt value to the allocation's unaggregated fees value.
-                allocation.fees_add(new_receipt_notification.value);
+                allocation
+                    .fees_add(new_receipt_notification.value, new_receipt_notification.id)
+                    .await;
                 // Add the receipt value to the sender's unaggregated fees value.
+                let mut unaggregated_fees = self.inner.unaggregated_fees.lock().unwrap();
                 *unaggregated_fees = UnaggregatedReceipts {
                     value: self
                         .inner
@@ -373,18 +396,18 @@ impl SenderAccount {
                 {
                     self.rav_requester_notify.notify_waiters();
                 }
-            } else {
-                error!(
-                    "Received a new receipt notification for allocation {} that doesn't exist \
-                    or is ineligible for sender {}.",
-                    new_receipt_notification.allocation_id, self.inner.sender
-                );
             }
+        } else {
+            error!(
+                "Received a new receipt notification for allocation {} that doesn't exist \
+                or is ineligible for sender {}.",
+                new_receipt_notification.allocation_id, self.inner.sender
+            );
         }
     }
 
-    pub fn recompute_unaggregated_fees(&self) -> Result<()> {
-        self.inner.recompute_unaggregated_fees_static()
+    pub async fn recompute_unaggregated_fees(&self) -> Result<()> {
+        self.inner.recompute_unaggregated_fees().await
     }
 }
 
@@ -507,7 +530,7 @@ mod tests {
                 *ALLOCATION_ID_2,
             ]))
             .await;
-        sender.recompute_unaggregated_fees().unwrap();
+        sender.recompute_unaggregated_fees().await.unwrap();
 
         sender
     }

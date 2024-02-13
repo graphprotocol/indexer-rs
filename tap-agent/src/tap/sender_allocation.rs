@@ -1,11 +1,8 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    str::FromStr,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::sync::Mutex as StdMutex;
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
@@ -22,6 +19,7 @@ use tap_core::{
     tap_receipt::{ReceiptCheck, ReceivedReceipt},
 };
 use thegraph::types::Address;
+use tokio::sync::Mutex as TokioMutex;
 use tracing::{error, warn};
 
 use crate::{
@@ -48,10 +46,11 @@ pub struct SenderAllocation {
     allocation_id: Address,
     sender: Address,
     sender_aggregator_endpoint: String,
-    unaggregated_fees: Arc<Mutex<UnaggregatedReceipts>>,
+    unaggregated_fees: Arc<StdMutex<UnaggregatedReceipts>>,
     config: &'static config::Cli,
     escrow_accounts: Eventual<EscrowAccounts>,
-    rav_request_guard: tokio::sync::Mutex<()>,
+    rav_request_guard: TokioMutex<()>,
+    unaggregated_receipts_guard: TokioMutex<()>,
 }
 
 impl SenderAllocation {
@@ -110,10 +109,11 @@ impl SenderAllocation {
             allocation_id,
             sender,
             sender_aggregator_endpoint,
-            unaggregated_fees: Arc::new(Mutex::new(UnaggregatedReceipts::default())),
+            unaggregated_fees: Arc::new(StdMutex::new(UnaggregatedReceipts::default())),
             config,
             escrow_accounts,
-            rav_request_guard: tokio::sync::Mutex::new(()),
+            rav_request_guard: TokioMutex::new(()),
+            unaggregated_receipts_guard: TokioMutex::new(()),
         };
 
         sender_allocation
@@ -133,6 +133,10 @@ impl SenderAllocation {
     /// Delete obsolete receipts in the DB w.r.t. the last RAV in DB, then update the tap manager
     /// with the latest unaggregated fees from the database.
     async fn update_unaggregated_fees(&self) -> Result<()> {
+        // Make sure to pause the handling of receipt notifications while we update the unaggregated
+        // fees.
+        let _guard = self.unaggregated_receipts_guard.lock().await;
+
         self.tap_manager.remove_obsolete_receipts().await?;
 
         let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
@@ -176,19 +180,19 @@ impl SenderAllocation {
         .fetch_one(&self.pgpool)
         .await?;
 
-        let mut unaggregated_fees = self.unaggregated_fees.lock().unwrap();
-
         ensure!(
             res.sum.is_none() == res.max.is_none(),
             "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
         );
 
-        unaggregated_fees.last_id = res.max.unwrap_or(0).try_into()?;
-        unaggregated_fees.value = res
-            .sum
-            .unwrap_or(BigDecimal::from(0))
-            .to_string()
-            .parse::<u128>()?;
+        *self.unaggregated_fees.lock().unwrap() = UnaggregatedReceipts {
+            last_id: res.max.unwrap_or(0).try_into()?,
+            value: res
+                .sum
+                .unwrap_or(BigDecimal::from(0))
+                .to_string()
+                .parse::<u128>()?,
+        };
 
         // TODO: check if we need to run a RAV request here.
 
@@ -360,22 +364,40 @@ impl SenderAllocation {
         Ok(())
     }
 
-    /// Safe add the fees to the unaggregated fees value, log an error if there is an overflow and
-    /// set the unaggregated fees value to u128::MAX.
-    pub fn fees_add(&self, fees: u128) {
+    /// Safe add the fees to the unaggregated fees value if the receipt_id is greater than the
+    /// last_id. If the addition would overflow u128, log an error and set the unaggregated fees
+    /// value to u128::MAX.
+    ///
+    /// Returns true if the fees were added, false otherwise.
+    pub async fn fees_add(&self, fees: u128, receipt_id: u64) -> bool {
+        // Make sure to pause the handling of receipt notifications while we update the unaggregated
+        // fees.
+        let _guard = self.unaggregated_receipts_guard.lock().await;
+
+        let mut fees_added = false;
         let mut unaggregated_fees = self.unaggregated_fees.lock().unwrap();
-        unaggregated_fees.value = unaggregated_fees
-            .value
-            .checked_add(fees)
-            .unwrap_or_else(|| {
-                // This should never happen, but if it does, we want to know about it.
-                error!(
-                    "Overflow when adding receipt value {} to total unaggregated fees {} for \
-                    allocation {} and sender {}. Setting total unaggregated fees to u128::MAX.",
-                    fees, unaggregated_fees.value, self.allocation_id, self.sender
-                );
-                u128::MAX
-            });
+
+        if receipt_id > unaggregated_fees.last_id {
+            *unaggregated_fees = UnaggregatedReceipts {
+                last_id: receipt_id,
+                value: unaggregated_fees
+                    .value
+                    .checked_add(fees)
+                    .unwrap_or_else(|| {
+                        // This should never happen, but if it does, we want to know about it.
+                        error!(
+                            "Overflow when adding receipt value {} to total unaggregated fees {} \
+                            for allocation {} and sender {}. Setting total unaggregated fees to \
+                            u128::MAX.",
+                            fees, unaggregated_fees.value, self.allocation_id, self.sender
+                        );
+                        u128::MAX
+                    }),
+            };
+            fees_added = true;
+        }
+
+        fees_added
     }
 
     pub fn get_unaggregated_fees(&self) -> UnaggregatedReceipts {

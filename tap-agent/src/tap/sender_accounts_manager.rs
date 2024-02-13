@@ -262,6 +262,7 @@ impl SenderAccountsManager {
 
             sender
                 .recompute_unaggregated_fees()
+                .await
                 .expect("should be able to recompute unaggregated fees");
         }
         drop(sender_accounts_write_lock);
