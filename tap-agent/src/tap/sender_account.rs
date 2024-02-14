@@ -434,9 +434,7 @@ mod tests {
 
     // To help with testing from other modules.
     impl SenderAccount {
-        pub async fn _tests_get_allocations_active(
-            &self,
-        ) -> HashMap<Address, Arc<SenderAllocation>> {
+        pub fn _tests_get_allocations_active(&self) -> HashMap<Address, Arc<SenderAllocation>> {
             self.inner
                 .allocations
                 .lock()
@@ -452,9 +450,7 @@ mod tests {
                 .collect()
         }
 
-        pub async fn _tests_get_allocations_ineligible(
-            &self,
-        ) -> HashMap<Address, Arc<SenderAllocation>> {
+        pub fn _tests_get_allocations_ineligible(&self) -> HashMap<Address, Arc<SenderAllocation>> {
             self.inner
                 .allocations
                 .lock()
