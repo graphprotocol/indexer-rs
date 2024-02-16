@@ -1,11 +1,18 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
+use std::str::FromStr;
 
 use alloy_primitives::hex::ToHex;
 use anyhow::Result;
 use async_trait::async_trait;
+use bigdecimal::num_bigint::{BigInt, ToBigInt};
+use bigdecimal::ToPrimitive;
+use ethers::types::Signature;
+use open_fastrlp::{Decodable, Encodable};
+use sqlx::types::BigDecimal;
 use sqlx::PgPool;
 use tap_core::adapters::rav_storage_adapter::RAVStorageAdapter as RAVStorageAdapterTrait;
+use tap_core::receipt_aggregate_voucher::ReceiptAggregateVoucher;
 use tap_core::tap_manager::SignedRAV;
 use thegraph::types::Address;
 use thiserror::Error;
@@ -28,18 +35,21 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
     type AdapterError = AdapterError;
 
     async fn update_last_rav(&self, rav: SignedRAV) -> Result<(), Self::AdapterError> {
+        let mut signature_bytes: Vec<u8> = Vec::with_capacity(72);
+        rav.signature.encode(&mut signature_bytes);
+
         let _fut = sqlx::query!(
             r#"
-                INSERT INTO scalar_tap_ravs (allocation_id, sender_address, rav)
-                VALUES ($1, $2, $3)
+                INSERT INTO scalar_tap_ravs (sender_address, signature, allocation_id, timestamp_ns, value_aggregate)
+                VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (allocation_id, sender_address)
-                DO UPDATE SET rav = $3
+                DO UPDATE SET signature = $2, timestamp_ns = $4, value_aggregate = $5
             "#,
-            self.allocation_id.encode_hex::<String>(),
             self.sender.encode_hex::<String>(),
-            serde_json::to_value(rav).map_err(|e| AdapterError::AdapterError {
-                error: e.to_string()
-            })?
+            signature_bytes,
+            self.allocation_id.encode_hex::<String>(),
+            BigDecimal::from(rav.message.timestamp_ns),
+            BigDecimal::from(BigInt::from(rav.message.value_aggregate)),
         )
         .execute(&self.pgpool)
         .await
@@ -50,9 +60,9 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
     }
 
     async fn last_rav(&self) -> Result<Option<SignedRAV>, Self::AdapterError> {
-        let latest_rav = sqlx::query!(
+        let row = sqlx::query!(
             r#"
-                SELECT rav
+                SELECT signature, allocation_id, timestamp_ns, value_aggregate
                 FROM scalar_tap_ravs
                 WHERE allocation_id = $1 AND sender_address = $2
             "#,
@@ -61,17 +71,55 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
         )
         .fetch_optional(&self.pgpool)
         .await
-        .map(|r| r.map(|r| r.rav))
         .map_err(|e| AdapterError::AdapterError {
             error: e.to_string(),
         })?;
-        match latest_rav {
-            Some(latest_rav) => {
-                Ok(
-                    serde_json::from_value(latest_rav).map_err(|e| AdapterError::AdapterError {
-                        error: e.to_string(),
-                    }),
-                )?
+
+        match row {
+            Some(row) => {
+                let signature = Signature::decode(&mut row.signature.as_slice()).map_err(|e| {
+                    AdapterError::AdapterError {
+                        error: format!(
+                            "Error decoding signature while retrieving RAV from database: {}",
+                            e
+                        ),
+                    }
+                })?;
+                let allocation_id = Address::from_str(&row.allocation_id).map_err(|e| {
+                    AdapterError::AdapterError {
+                        error: format!(
+                            "Error decoding allocation_id while retrieving RAV from database: {}",
+                            e
+                        ),
+                    }
+                })?;
+                let timestamp_ns = row
+                    .timestamp_ns
+                    .to_u64()
+                    .ok_or(AdapterError::AdapterError {
+                        error: "Error decoding timestamp_ns while retrieving RAV from database"
+                            .to_string(),
+                    })?;
+                let value_aggregate = row
+                    .value_aggregate
+                    // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood.
+                    // So we're converting to BigInt to get a proper implementation of to_u128().
+                    .to_bigint()
+                    .and_then(|v| v.to_u128())
+                    .ok_or(AdapterError::AdapterError {
+                        error: "Error decoding value_aggregate while retrieving RAV from database"
+                            .to_string(),
+                    })?;
+
+                let rav = ReceiptAggregateVoucher {
+                    allocation_id,
+                    timestamp_ns,
+                    value_aggregate,
+                };
+                Ok(Some(SignedRAV {
+                    message: rav,
+                    signature,
+                }))
             }
             None => Ok(None),
         }

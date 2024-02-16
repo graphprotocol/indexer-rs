@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO scalar_tap_receipts (\n                allocation_id, signer_address, timestamp_ns, value, receipt\n            )\n            VALUES ($1, $2, $3, $4, $5)\n            RETURNING id\n        ",
+  "query": "\n            INSERT INTO scalar_tap_receipts (signer_address, signature, allocation_id, timestamp_ns, nonce, value)\n            VALUES ($1, $2, $3, $4, $5, $6)\n            RETURNING id\n        ",
   "describe": {
     "columns": [
       {
@@ -12,15 +12,16 @@
     "parameters": {
       "Left": [
         "Bpchar",
+        "Bytea",
         "Bpchar",
         "Numeric",
         "Numeric",
-        "Json"
+        "Numeric"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "0d0b4c9a450ef82c4fdd5903afc6f7f8b921e2316f1137476ed2e5265cba5e1b"
+  "hash": "74656664f9b27c28a8726800d7e57dbf78225c58f68e5f1b581f4f13c8678268"
 }

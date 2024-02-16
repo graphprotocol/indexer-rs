@@ -412,12 +412,18 @@ impl Drop for SenderAccount {
 
 #[cfg(test)]
 mod tests {
-
     use alloy_primitives::hex::ToHex;
+    use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
+    use ethers::types::Signature;
     use indexer_common::subgraph_client::DeploymentDetails;
+    use open_fastrlp::Decodable;
     use serde_json::json;
+    use std::str::FromStr;
     use tap_aggregator::server::run_server;
-    use tap_core::tap_manager::SignedRAV;
+    use tap_core::{
+        eip_712_signed_message::EIP712SignedMessage,
+        receipt_aggregate_voucher::ReceiptAggregateVoucher,
+    };
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockServer, ResponseTemplate,
@@ -748,7 +754,7 @@ mod tests {
         // Get the latest RAV from the database.
         let latest_rav = sqlx::query!(
             r#"
-                SELECT rav
+                SELECT signature, allocation_id, timestamp_ns, value_aggregate
                 FROM scalar_tap_ravs
                 WHERE allocation_id = $1 AND sender_address = $2
             "#,
@@ -757,12 +763,24 @@ mod tests {
         )
         .fetch_optional(&pgpool)
         .await
-        .map(|r| r.map(|r| r.rav))
+        .unwrap()
         .unwrap();
 
-        let latest_rav = latest_rav
-            .map(|r| serde_json::from_value::<SignedRAV>(r).unwrap())
-            .unwrap();
+        let latest_rav = EIP712SignedMessage {
+            message: ReceiptAggregateVoucher {
+                allocation_id: Address::from_str(&latest_rav.allocation_id).unwrap(),
+                timestamp_ns: latest_rav.timestamp_ns.to_u64().unwrap(),
+                // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
+                // So we're converting to BigInt to get a proper implementation of to_u128().
+                value_aggregate: latest_rav
+                    .value_aggregate
+                    .to_bigint()
+                    .map(|v| v.to_u128())
+                    .unwrap()
+                    .unwrap(),
+            },
+            signature: Signature::decode(&mut latest_rav.signature.as_slice()).unwrap(),
+        };
 
         // Check that the latest RAV value is correct.
         assert!(latest_rav.message.value_aggregate >= trigger_value);
@@ -827,7 +845,7 @@ mod tests {
         // Get the latest RAV from the database.
         let latest_rav = sqlx::query!(
             r#"
-                SELECT rav
+                SELECT signature, allocation_id, timestamp_ns, value_aggregate
                 FROM scalar_tap_ravs
                 WHERE allocation_id = $1 AND sender_address = $2
             "#,
@@ -836,12 +854,24 @@ mod tests {
         )
         .fetch_optional(&pgpool)
         .await
-        .map(|r| r.map(|r| r.rav))
+        .unwrap()
         .unwrap();
 
-        let latest_rav = latest_rav
-            .map(|r| serde_json::from_value::<SignedRAV>(r).unwrap())
-            .unwrap();
+        let latest_rav = EIP712SignedMessage {
+            message: ReceiptAggregateVoucher {
+                allocation_id: Address::from_str(&latest_rav.allocation_id).unwrap(),
+                timestamp_ns: latest_rav.timestamp_ns.to_u64().unwrap(),
+                // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
+                // So we're converting to BigInt to get a proper implementation of to_u128().
+                value_aggregate: latest_rav
+                    .value_aggregate
+                    .to_bigint()
+                    .map(|v| v.to_u128())
+                    .unwrap()
+                    .unwrap(),
+            },
+            signature: Signature::decode(&mut latest_rav.signature.as_slice()).unwrap(),
+        };
 
         // Check that the latest RAV value is correct.
 
