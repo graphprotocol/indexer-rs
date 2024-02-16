@@ -194,7 +194,7 @@ mod test {
 
     use super::*;
     use crate::tap::test_utils::{
-        create_received_receipt, store_receipt, ALLOCATION_ID, ALLOCATION_ID_IRRELEVANT, SENDER,
+        create_received_receipt, store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_IRRELEVANT, SENDER,
         SENDER_IRRELEVANT, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };
     use anyhow::Result;
@@ -381,7 +381,7 @@ mod test {
 
         let storage_adapter = ReceiptStorageAdapter::new(
             pgpool.clone(),
-            *ALLOCATION_ID,
+            *ALLOCATION_ID_0,
             SENDER.1,
             get_full_list_of_checks(),
             escrow_accounts.clone(),
@@ -392,7 +392,7 @@ mod test {
         for i in 0..10 {
             received_receipt_vec.push(
                 create_received_receipt(
-                    &ALLOCATION_ID,
+                    &ALLOCATION_ID_0,
                     &SIGNER.0,
                     i + 684,
                     i + 42,
@@ -416,7 +416,7 @@ mod test {
             );
             received_receipt_vec.push(
                 create_received_receipt(
-                    &ALLOCATION_ID,
+                    &ALLOCATION_ID_0,
                     &SENDER_IRRELEVANT.0,
                     i + 684,
                     i + 42,
@@ -525,7 +525,7 @@ mod test {
 
         let storage_adapter = ReceiptStorageAdapter::new(
             pgpool,
-            *ALLOCATION_ID,
+            *ALLOCATION_ID_0,
             SENDER.1,
             get_full_list_of_checks(),
             escrow_accounts.clone(),
@@ -536,7 +536,7 @@ mod test {
         for i in 0..10 {
             received_receipt_vec.push(
                 create_received_receipt(
-                    &ALLOCATION_ID,
+                    &ALLOCATION_ID_0,
                     &SIGNER.0,
                     i + 684,
                     i + 42,
@@ -560,7 +560,7 @@ mod test {
             );
             received_receipt_vec.push(
                 create_received_receipt(
-                    &ALLOCATION_ID,
+                    &ALLOCATION_ID_0,
                     &SENDER_IRRELEVANT.0,
                     i + 684,
                     i + 42,

@@ -9,11 +9,10 @@ use indexer_common::prelude::{
 };
 
 use crate::{
-    aggregator_endpoints, config, database,
-    tap::sender_allocation_relationships_manager::SenderAllocationRelationshipsManager,
+    aggregator_endpoints, config, database, tap::sender_accounts_manager::SenderAccountsManager,
 };
 
-pub async fn start_agent(config: &'static config::Cli) -> SenderAllocationRelationshipsManager {
+pub async fn start_agent(config: &'static config::Cli) -> SenderAccountsManager {
     let pgpool = database::connect(&config.postgres).await;
 
     let http_client = reqwest::Client::new();
@@ -80,7 +79,7 @@ pub async fn start_agent(config: &'static config::Cli) -> SenderAllocationRelati
         verifying_contract: config.receipts.receipts_verifier_address,
     };
 
-    SenderAllocationRelationshipsManager::new(
+    SenderAccountsManager::new(
         config,
         pgpool,
         indexer_allocations,

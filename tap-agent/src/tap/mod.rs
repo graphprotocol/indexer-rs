@@ -11,8 +11,10 @@ mod escrow_adapter;
 mod rav_storage_adapter;
 mod receipt_checks_adapter;
 mod receipt_storage_adapter;
-mod sender_allocation_relationship;
-pub mod sender_allocation_relationships_manager;
+mod sender_account;
+pub mod sender_accounts_manager;
+mod sender_allocation;
+mod unaggregated_receipts;
 
 #[cfg(test)]
 pub mod test_utils;

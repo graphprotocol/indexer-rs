@@ -17,8 +17,12 @@ use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt
 use thegraph::types::Address;
 
 lazy_static! {
-    pub static ref ALLOCATION_ID: Address =
+    pub static ref ALLOCATION_ID_0: Address =
         Address::from_str("0xabababababababababababababababababababab").unwrap();
+    pub static ref ALLOCATION_ID_1: Address =
+        Address::from_str("0xbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc").unwrap();
+    pub static ref ALLOCATION_ID_2: Address =
+        Address::from_str("0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd").unwrap();
     pub static ref ALLOCATION_ID_IRRELEVANT: Address =
         Address::from_str("0xbcdebcdebcdebcdebcdebcdebcdebcdebcdebcde").unwrap();
     pub static ref SENDER: (LocalWallet, Address) = wallet(0);
