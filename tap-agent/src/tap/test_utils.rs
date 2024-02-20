@@ -6,9 +6,10 @@ use std::str::FromStr;
 use alloy_primitives::hex::ToHex;
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use anyhow::Result;
+use bigdecimal::num_bigint::BigInt;
 use ethers_signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
 use lazy_static::lazy_static;
-use serde_json;
+use open_fastrlp::Encodable;
 use sqlx::{types::BigDecimal, PgPool};
 use tap_core::receipt_aggregate_voucher::ReceiptAggregateVoucher;
 use tap_core::tap_manager::{SignedRAV, SignedReceipt};
@@ -95,22 +96,27 @@ pub async fn create_rav(
 }
 
 pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Result<u64> {
+    let encoded_signature = {
+        let mut buf: Vec<u8> = Vec::with_capacity(72);
+        signed_receipt.signature.encode(&mut buf);
+        buf
+    };
+
     let record = sqlx::query!(
         r#"
-            INSERT INTO scalar_tap_receipts (
-                allocation_id, signer_address, timestamp_ns, value, receipt
-            )
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO scalar_tap_receipts (signer_address, signature, allocation_id, timestamp_ns, nonce, value)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
         "#,
-        signed_receipt.message.allocation_id.encode_hex::<String>(),
         signed_receipt
             .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
             .unwrap()
             .encode_hex::<String>(),
+        encoded_signature,
+        signed_receipt.message.allocation_id.encode_hex::<String>(),
         BigDecimal::from(signed_receipt.message.timestamp_ns),
-        BigDecimal::from_str(&signed_receipt.message.value.to_string())?,
-        serde_json::to_value(signed_receipt)?
+        BigDecimal::from(signed_receipt.message.nonce),
+        BigDecimal::from(BigInt::from(signed_receipt.message.value)),
     )
     .fetch_one(pgpool)
     .await?;
@@ -121,16 +127,19 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Re
 }
 
 pub async fn store_rav(pgpool: &PgPool, signed_rav: SignedRAV, sender: Address) -> Result<()> {
-    sqlx::query!(
+    let mut signature_bytes: Vec<u8> = Vec::with_capacity(72);
+    signed_rav.signature.encode(&mut signature_bytes);
+
+    let _fut = sqlx::query!(
         r#"
-            INSERT INTO scalar_tap_ravs (
-                allocation_id, sender_address, rav
-            )
-            VALUES ($1, $2, $3)
+            INSERT INTO scalar_tap_ravs (sender_address, signature, allocation_id, timestamp_ns, value_aggregate)
+            VALUES ($1, $2, $3, $4, $5)
         "#,
-        signed_rav.message.allocation_id.encode_hex::<String>(),
         sender.encode_hex::<String>(),
-        serde_json::to_value(signed_rav).unwrap(),
+        signature_bytes,
+        signed_rav.message.allocation_id.encode_hex::<String>(),
+        BigDecimal::from(signed_rav.message.timestamp_ns),
+        BigDecimal::from(BigInt::from(signed_rav.message.value_aggregate)),
     )
     .execute(pgpool)
     .await?;

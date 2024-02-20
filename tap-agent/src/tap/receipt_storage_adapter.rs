@@ -4,14 +4,21 @@
 use std::{
     num::TryFromIntError,
     ops::{Bound, RangeBounds},
+    str::FromStr,
 };
 
 use alloy_primitives::hex::ToHex;
 use async_trait::async_trait;
+use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
+use ethers::types::Signature;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
+use open_fastrlp::Decodable;
 use sqlx::{postgres::types::PgRange, types::BigDecimal, PgPool};
-use tap_core::adapters::receipt_storage_adapter::ReceiptStorageAdapter as ReceiptStorageAdapterTrait;
+use tap_core::{
+    adapters::receipt_storage_adapter::ReceiptStorageAdapter as ReceiptStorageAdapterTrait,
+    tap_receipt::Receipt,
+};
 use tap_core::{
     tap_manager::SignedReceipt,
     tap_receipt::{ReceiptCheck, ReceivedReceipt},
@@ -112,7 +119,7 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
 
         let records = sqlx::query!(
             r#"
-                SELECT id, receipt
+                SELECT id, signature, allocation_id, timestamp_ns, nonce, value
                 FROM scalar_tap_receipts
                 WHERE allocation_id = $1 AND signer_address IN (SELECT unnest($2::text[]))
                  AND $3::numrange @> timestamp_ns
@@ -127,7 +134,47 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
             .into_iter()
             .map(|record| {
                 let id: u64 = record.id.try_into()?;
-                let signed_receipt: SignedReceipt = serde_json::from_value(record.receipt)?;
+                let signature = Signature::decode(&mut record.signature.as_slice())
+                    .map_err(|e| AdapterError::AdapterError {
+                        error: format!(
+                            "Error decoding signature while retrieving receipt from database: {}",
+                            e
+                        ),
+                    })?;
+                let allocation_id = Address::from_str(&record.allocation_id).map_err(|e| {
+                    AdapterError::AdapterError {
+                        error: format!(
+                            "Error decoding allocation_id while retrieving receipt from database: {}",
+                            e
+                        ),
+                    }
+                })?;
+                let timestamp_ns = record
+                    .timestamp_ns
+                    .to_u64()
+                    .ok_or(AdapterError::AdapterError {
+                        error: "Error decoding timestamp_ns while retrieving receipt from database"
+                            .to_string(),
+                    })?;
+                let nonce = record.nonce.to_u64().ok_or(AdapterError::AdapterError {
+                    error: "Error decoding nonce while retrieving receipt from database".to_string(),
+                })?;
+                // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
+                // So we're converting to BigInt to get a proper implementation of to_u128().
+                let value = record.value.to_bigint().and_then(|v| v.to_u128()).ok_or(AdapterError::AdapterError {
+                    error: "Error decoding value while retrieving receipt from database".to_string(),
+                })?;
+
+                let signed_receipt = SignedReceipt {
+                    message: Receipt {
+                        allocation_id,
+                        timestamp_ns,
+                        nonce,
+                        value,
+                    },
+                    signature,
+                };
+
                 let received_receipt =
                     ReceivedReceipt::new(signed_receipt, id, &self.required_checks);
                 Ok((id, received_receipt))
@@ -202,6 +249,51 @@ mod test {
     use serde_json::Value;
     use sqlx::PgPool;
     use tap_core::tap_receipt::get_full_list_of_checks;
+
+    /// Insert a single receipt and retrieve it from the database using the adapter.
+    /// The point here it to test the deserialization of large numbers.
+    #[sqlx::test(migrations = "../migrations")]
+    async fn insert_and_retrieve_single_receipt(pgpool: PgPool) {
+        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
+
+        let storage_adapter = ReceiptStorageAdapter::new(
+            pgpool,
+            *ALLOCATION_ID_0,
+            SENDER.1,
+            get_full_list_of_checks(),
+            escrow_accounts.clone(),
+        );
+
+        let received_receipt = create_received_receipt(
+            &ALLOCATION_ID_0,
+            &SIGNER.0,
+            u64::MAX,
+            u64::MAX,
+            u128::MAX,
+            1,
+        )
+        .await;
+
+        // Storing the receipt
+        store_receipt(&storage_adapter.pgpool, received_receipt.signed_receipt())
+            .await
+            .unwrap();
+
+        let retrieved_receipt = storage_adapter
+            .retrieve_receipts_in_timestamp_range(.., None)
+            .await
+            .unwrap()[0]
+            .1
+            .clone();
+
+        let received_receipt_json = serde_json::to_value(received_receipt).unwrap();
+        let retrieved_receipt_json = serde_json::to_value(retrieved_receipt).unwrap();
+
+        assert_eq!(received_receipt_json, retrieved_receipt_json);
+    }
 
     /// This function compares a local receipts vector filter by timestamp range (we assume that the stdlib
     /// implementation is correct) with the receipts vector retrieved from the database using
@@ -321,7 +413,7 @@ mod test {
         // Retrieving all receipts in DB (including irrelevant ones)
         let records = sqlx::query!(
             r#"
-                SELECT receipt
+                SELECT signature, allocation_id, timestamp_ns, nonce, value
                 FROM scalar_tap_receipts
             "#
         )
@@ -335,7 +427,29 @@ mod test {
         let recovered_received_receipt_set: Vec<Value> = records
             .into_iter()
             .map(|record| {
-                let signed_receipt: SignedReceipt = serde_json::from_value(record.receipt).unwrap();
+                let signature = Signature::decode(&mut record.signature.as_slice()).unwrap();
+                let allocation_id = Address::from_str(&record.allocation_id).unwrap();
+                let timestamp_ns = record.timestamp_ns.to_u64().unwrap();
+                let nonce = record.nonce.to_u64().unwrap();
+                // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
+                // So we're converting to BigInt to get a proper implementation of to_u128().
+                let value = record
+                    .value
+                    .to_bigint()
+                    .map(|v| v.to_u128())
+                    .unwrap()
+                    .unwrap();
+
+                let signed_receipt = SignedReceipt {
+                    message: Receipt {
+                        allocation_id,
+                        timestamp_ns,
+                        nonce,
+                        value,
+                    },
+                    signature,
+                };
+
                 let reveived_receipt =
                     ReceivedReceipt::new(signed_receipt, 0, &get_full_list_of_checks());
                 serde_json::to_value(reveived_receipt).unwrap()

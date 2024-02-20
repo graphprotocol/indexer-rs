@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::sync::Mutex as StdMutex;
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, ensure, Result};
+use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
@@ -146,7 +147,7 @@ impl SenderAllocation {
             r#"
             WITH rav AS (
                 SELECT 
-                    rav -> 'message' ->> 'timestamp_ns' AS timestamp_ns 
+                    timestamp_ns 
                 FROM 
                     scalar_tap_ravs 
                 WHERE 
@@ -323,7 +324,9 @@ impl SenderAllocation {
                 self.allocation_id.encode_hex::<String>(),
                 self.sender.encode_hex::<String>(),
                 BigDecimal::from(received_receipt.signed_receipt().message.timestamp_ns),
-                BigDecimal::from_str(&received_receipt.signed_receipt().message.value.to_string())?,
+                BigDecimal::from(BigInt::from(
+                    received_receipt.signed_receipt().message.value
+                )),
                 serde_json::to_value(received_receipt)?
             )
             .execute(&self.pgpool)

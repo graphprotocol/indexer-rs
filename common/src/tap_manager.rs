@@ -4,8 +4,10 @@
 use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
+use bigdecimal::num_bigint::BigInt;
 use ethers_core::types::U256;
 use eventuals::Eventual;
+use open_fastrlp::Encodable;
 use sqlx::postgres::PgListener;
 use sqlx::{types::BigDecimal, PgPool};
 use std::collections::HashSet;
@@ -128,17 +130,24 @@ impl TapManager {
             );
         }
 
+        let encoded_signature = {
+            let mut buf: Vec<u8> = Vec::with_capacity(72);
+            receipt.signature.encode(&mut buf);
+            buf
+        };
+
         // TODO: consider doing this in another async task to avoid slowing down the paid query flow.
         sqlx::query!(
             r#"
-                INSERT INTO scalar_tap_receipts (allocation_id, signer_address, timestamp_ns, value, receipt)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO scalar_tap_receipts (signer_address, signature, allocation_id, timestamp_ns, nonce, value)
+                VALUES ($1, $2, $3, $4, $5, $6)
             "#,
-            allocation_id.encode_hex::<String>(),
             receipt_signer.encode_hex::<String>(),
+            encoded_signature,
+            allocation_id.encode_hex::<String>(),
             BigDecimal::from(receipt.message.timestamp_ns),
-            BigDecimal::from_str(&receipt.message.value.to_string())?,
-            serde_json::to_value(receipt).map_err(|e| anyhow!(e))?
+            BigDecimal::from(receipt.message.nonce),
+            BigDecimal::from(BigInt::from(receipt.message.value)),
         )
         .execute(&self.pgpool)
         .await
