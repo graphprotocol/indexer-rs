@@ -9,7 +9,7 @@ use bigdecimal::num_bigint::{BigInt, ToBigInt};
 use bigdecimal::ToPrimitive;
 use ethers::types::Signature;
 use open_fastrlp::{Decodable, Encodable};
-use sqlx::types::BigDecimal;
+use sqlx::types::{chrono, BigDecimal};
 use sqlx::PgPool;
 use tap_core::adapters::rav_storage_adapter::RAVStorageAdapter as RAVStorageAdapterTrait;
 use tap_core::receipt_aggregate_voucher::ReceiptAggregateVoucher;
@@ -45,21 +45,24 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
                     signature,
                     allocation_id,
                     timestamp_ns,
-                    value_aggregate
+                    value_aggregate,
+                    createdAt,
+                    updatedAt
                 )
-                VALUES ($1, $2, $3, $4, $5)
+                VALUES ($1, $2, $3, $4, $5, $6, $6)
                 ON CONFLICT (allocation_id, sender_address)
                 DO UPDATE SET
                     signature = $2,
                     timestamp_ns = $4,
                     value_aggregate = $5,
-                    updatedAt = default
+                    updatedAt = $6
             "#,
             self.sender.encode_hex::<String>(),
             signature_bytes,
             self.allocation_id.encode_hex::<String>(),
             BigDecimal::from(rav.message.timestamp_ns),
             BigDecimal::from(BigInt::from(rav.message.value_aggregate)),
+            chrono::Utc::now()
         )
         .execute(&self.pgpool)
         .await

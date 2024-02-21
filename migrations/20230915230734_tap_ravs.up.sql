@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS scalar_tap_ravs (
     PRIMARY KEY (allocation_id, sender_address),
 
     -- To make indexer-agent's sequelize happy
-    createdAt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updatedAt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    createdAt TIMESTAMP WITH TIME ZONE,
+    updatedAt TIMESTAMP WITH TIME ZONE
 );
 
 -- This table is used to store failed RAV requests.
