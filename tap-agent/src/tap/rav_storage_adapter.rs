@@ -40,10 +40,20 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
 
         let _fut = sqlx::query!(
             r#"
-                INSERT INTO scalar_tap_ravs (sender_address, signature, allocation_id, timestamp_ns, value_aggregate)
+                INSERT INTO scalar_tap_ravs (
+                    sender_address,
+                    signature,
+                    allocation_id,
+                    timestamp_ns,
+                    value_aggregate
+                )
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (allocation_id, sender_address)
-                DO UPDATE SET signature = $2, timestamp_ns = $4, value_aggregate = $5
+                DO UPDATE SET
+                    signature = $2,
+                    timestamp_ns = $4,
+                    value_aggregate = $5,
+                    updatedAt = default
             "#,
             self.sender.encode_hex::<String>(),
             signature_bytes,

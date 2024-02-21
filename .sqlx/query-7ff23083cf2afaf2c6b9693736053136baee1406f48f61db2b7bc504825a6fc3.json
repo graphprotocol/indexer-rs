@@ -32,6 +32,16 @@
         "ordinal": 5,
         "name": "final",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "createdat",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "updatedat",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -46,7 +56,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true,
+      true
     ]
   },
   "hash": "7ff23083cf2afaf2c6b9693736053136baee1406f48f61db2b7bc504825a6fc3"
