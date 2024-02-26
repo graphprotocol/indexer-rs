@@ -60,8 +60,8 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
             self.sender.encode_hex::<String>(),
             signature_bytes,
             self.allocation_id.encode_hex::<String>(),
-            BigDecimal::from(rav.message.timestamp_ns),
-            BigDecimal::from(BigInt::from(rav.message.value_aggregate)),
+            BigDecimal::from(rav.message.timestampNs),
+            BigDecimal::from(BigInt::from(rav.message.valueAggregate)),
             chrono::Utc::now()
         )
         .execute(&self.pgpool)
@@ -125,9 +125,9 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
                     })?;
 
                 let rav = ReceiptAggregateVoucher {
-                    allocation_id,
-                    timestamp_ns,
-                    value_aggregate,
+                    allocationId: allocation_id,
+                    timestampNs: timestamp_ns,
+                    valueAggregate: value_aggregate,
                 };
                 Ok(Some(SignedRAV {
                     message: rav,
