@@ -85,9 +85,9 @@ pub async fn create_rav(
     EIP712SignedMessage::new(
         &TAP_EIP712_DOMAIN_SEPARATOR,
         ReceiptAggregateVoucher {
-            allocation_id,
-            timestamp_ns,
-            value_aggregate,
+            allocationId: allocation_id,
+            timestampNs: timestamp_ns,
+            valueAggregate: value_aggregate,
         },
         &signer_wallet,
     )
@@ -137,9 +137,9 @@ pub async fn store_rav(pgpool: &PgPool, signed_rav: SignedRAV, sender: Address) 
         "#,
         sender.encode_hex::<String>(),
         signature_bytes,
-        signed_rav.message.allocation_id.encode_hex::<String>(),
-        BigDecimal::from(signed_rav.message.timestamp_ns),
-        BigDecimal::from(BigInt::from(signed_rav.message.value_aggregate)),
+        signed_rav.message.allocationId.encode_hex::<String>(),
+        BigDecimal::from(signed_rav.message.timestampNs),
+        BigDecimal::from(BigInt::from(signed_rav.message.valueAggregate)),
     )
     .execute(pgpool)
     .await?;

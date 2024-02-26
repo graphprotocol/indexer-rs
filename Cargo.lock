@@ -3124,7 +3124,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "tap_core",
+ "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=790e31f)",
  "test-log",
  "thegraph",
  "thiserror",
@@ -3164,7 +3164,7 @@ dependencies = [
  "serde_yaml",
  "sqlx",
  "tap_aggregator",
- "tap_core",
+ "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=790e31f)",
  "tempfile",
  "thegraph",
  "thiserror",
@@ -5716,7 +5716,7 @@ dependencies = [
  "serde_spanned",
  "sha3",
  "sqlx",
- "tap_core",
+ "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?branch=aasseman/tap_core_0_7_0_fix_toolshed_dep)",
  "test-log",
  "thegraph",
  "thiserror",
@@ -6354,7 +6354,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "tap_aggregator"
 version = "0.2.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?branch=aasseman/tap_core_0_7_0_fix_toolshed_dep#ae4fc69a5de5a33528b31284a32f71ae1093186c"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=790e31f#790e31fa3d2c1844c332e5a7ff8bb012c9c5a187"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -6373,7 +6373,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.24.1",
- "tap_core",
+ "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=790e31f)",
  "thegraph",
  "tokio",
  "tracing-subscriber",
@@ -6383,6 +6383,30 @@ dependencies = [
 name = "tap_core"
 version = "0.7.0"
 source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?branch=aasseman/tap_core_0_7_0_fix_toolshed_dep#ae4fc69a5de5a33528b31284a32f71ae1093186c"
+dependencies = [
+ "alloy-sol-types",
+ "anyhow",
+ "async-trait",
+ "ethereum-types",
+ "ethers",
+ "ethers-contract",
+ "ethers-contract-derive",
+ "ethers-core",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "rstest",
+ "serde",
+ "strum 0.24.1",
+ "strum_macros 0.24.3",
+ "thegraph",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "tap_core"
+version = "0.7.0"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=790e31f#790e31fa3d2c1844c332e5a7ff8bb012c9c5a187"
 dependencies = [
  "alloy-sol-types",
  "anyhow",
