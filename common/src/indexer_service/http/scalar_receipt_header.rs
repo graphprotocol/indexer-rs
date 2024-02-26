@@ -25,7 +25,7 @@ impl Deref for ScalarReceipt {
 }
 
 lazy_static! {
-    static ref SCALAR_RECEIPT: HeaderName = HeaderName::from_static("scalar-receipt");
+    static ref SCALAR_RECEIPT: HeaderName = HeaderName::from_static("Scalar-Receipt");
 }
 
 impl Header for ScalarReceipt {
