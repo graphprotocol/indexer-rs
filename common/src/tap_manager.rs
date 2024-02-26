@@ -7,7 +7,6 @@ use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
 use ethers_core::types::U256;
 use eventuals::Eventual;
-use open_fastrlp::Encodable;
 use sqlx::postgres::PgListener;
 use sqlx::{types::BigDecimal, PgPool};
 use std::collections::HashSet;
@@ -130,11 +129,7 @@ impl TapManager {
             );
         }
 
-        let encoded_signature = {
-            let mut buf: Vec<u8> = Vec::with_capacity(72);
-            receipt.signature.encode(&mut buf);
-            buf
-        };
+        let encoded_signature = receipt.signature.to_vec();
 
         // TODO: consider doing this in another async task to avoid slowing down the paid query flow.
         sqlx::query!(

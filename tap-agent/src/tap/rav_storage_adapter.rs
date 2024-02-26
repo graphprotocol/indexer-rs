@@ -7,8 +7,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use bigdecimal::num_bigint::{BigInt, ToBigInt};
 use bigdecimal::ToPrimitive;
-use ethers::types::Signature;
-use open_fastrlp::{Decodable, Encodable};
 use sqlx::types::BigDecimal;
 use sqlx::PgPool;
 use tap_core::adapters::rav_storage_adapter::RAVStorageAdapter as RAVStorageAdapterTrait;
@@ -35,8 +33,7 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
     type AdapterError = AdapterError;
 
     async fn update_last_rav(&self, rav: SignedRAV) -> Result<(), Self::AdapterError> {
-        let mut signature_bytes: Vec<u8> = Vec::with_capacity(72);
-        rav.signature.encode(&mut signature_bytes);
+        let signature_bytes: Vec<u8> = rav.signature.to_vec();
 
         let _fut = sqlx::query!(
             r#"
@@ -77,7 +74,7 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
 
         match row {
             Some(row) => {
-                let signature = Signature::decode(&mut row.signature.as_slice()).map_err(|e| {
+                let signature = row.signature.as_slice().try_into().map_err(|e| {
                     AdapterError::AdapterError {
                         error: format!(
                             "Error decoding signature while retrieving RAV from database: {}",

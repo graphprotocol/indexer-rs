@@ -46,7 +46,6 @@ tracing = "0.1.40"
 tower = "0.4.13"
 tower_governor = "0.1.0"
 tokio-util = "0.7.10"
-open-fastrlp = "0.1.4"
 bigdecimal = "0.4.2"
 
 [dev-dependencies]

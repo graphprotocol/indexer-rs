@@ -9,7 +9,6 @@ use anyhow::Result;
 use bigdecimal::num_bigint::BigInt;
 use ethers_signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
 use lazy_static::lazy_static;
-use open_fastrlp::Encodable;
 use sqlx::{types::BigDecimal, PgPool};
 use tap_core::receipt_aggregate_voucher::ReceiptAggregateVoucher;
 use tap_core::tap_manager::{SignedRAV, SignedReceipt};
@@ -96,11 +95,7 @@ pub async fn create_rav(
 }
 
 pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Result<u64> {
-    let encoded_signature = {
-        let mut buf: Vec<u8> = Vec::with_capacity(72);
-        signed_receipt.signature.encode(&mut buf);
-        buf
-    };
+    let encoded_signature = signed_receipt.signature.to_vec();
 
     let record = sqlx::query!(
         r#"
@@ -127,8 +122,7 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Re
 }
 
 pub async fn store_rav(pgpool: &PgPool, signed_rav: SignedRAV, sender: Address) -> Result<()> {
-    let mut signature_bytes: Vec<u8> = Vec::with_capacity(72);
-    signed_rav.signature.encode(&mut signature_bytes);
+    let signature_bytes = signed_rav.signature.to_vec();
 
     let _fut = sqlx::query!(
         r#"

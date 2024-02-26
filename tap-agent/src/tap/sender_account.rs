@@ -414,9 +414,7 @@ impl Drop for SenderAccount {
 mod tests {
     use alloy_primitives::hex::ToHex;
     use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
-    use ethers::types::Signature;
     use indexer_common::subgraph_client::DeploymentDetails;
-    use open_fastrlp::Decodable;
     use serde_json::json;
     use std::str::FromStr;
     use tap_aggregator::server::run_server;
@@ -779,7 +777,7 @@ mod tests {
                     .unwrap()
                     .unwrap(),
             },
-            signature: Signature::decode(&mut latest_rav.signature.as_slice()).unwrap(),
+            signature: latest_rav.signature.as_slice().try_into().unwrap(),
         };
 
         // Check that the latest RAV value is correct.
@@ -870,7 +868,7 @@ mod tests {
                     .unwrap()
                     .unwrap(),
             },
-            signature: Signature::decode(&mut latest_rav.signature.as_slice()).unwrap(),
+            signature: latest_rav.signature.as_slice().try_into().unwrap(),
         };
 
         // Check that the latest RAV value is correct.
