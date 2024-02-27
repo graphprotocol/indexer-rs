@@ -10,10 +10,8 @@ use std::{
 use alloy_primitives::hex::ToHex;
 use async_trait::async_trait;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
-use ethers::types::Signature;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
-use open_fastrlp::Decodable;
 use sqlx::{postgres::types::PgRange, types::BigDecimal, PgPool};
 use tap_core::{
     adapters::receipt_storage_adapter::ReceiptStorageAdapter as ReceiptStorageAdapterTrait,
@@ -27,6 +25,7 @@ use thegraph::types::Address;
 use thiserror::Error;
 use tracing::error;
 
+use crate::tap::decode_signature_rlp;
 use crate::tap::signers_trimmed;
 
 pub struct ReceiptStorageAdapter {
@@ -134,7 +133,7 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
             .into_iter()
             .map(|record| {
                 let id: u64 = record.id.try_into()?;
-                let signature = Signature::decode(&mut record.signature.as_slice())
+                let signature = decode_signature_rlp(&mut record.signature.as_slice())
                     .map_err(|e| AdapterError::AdapterError {
                         error: format!(
                             "Error decoding signature while retrieving receipt from database: {}",
@@ -427,7 +426,7 @@ mod test {
         let recovered_received_receipt_set: Vec<Value> = records
             .into_iter()
             .map(|record| {
-                let signature = Signature::decode(&mut record.signature.as_slice()).unwrap();
+                let signature = decode_signature_rlp(&mut record.signature.as_slice()).unwrap();
                 let allocation_id = Address::from_str(&record.allocation_id).unwrap();
                 let timestamp_ns = record.timestamp_ns.to_u64().unwrap();
                 let nonce = record.nonce.to_u64().unwrap();

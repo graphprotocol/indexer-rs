@@ -3104,6 +3104,7 @@ dependencies = [
  "axum",
  "bigdecimal 0.4.2",
  "build-info",
+ "bytes",
  "env_logger",
  "ethers",
  "ethers-core",

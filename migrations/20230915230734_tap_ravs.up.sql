@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS scalar_tap_ravs (
     sender_address CHAR(40) NOT NULL,
 
     -- Values below are the individual fields of the EIP-712 RAV
-    signature BYTEA NOT NULL,
+    signature BYTEA NOT NULL, -- RLP encoded (v, r, s)
     allocation_id CHAR(40) NOT NULL,
     timestamp_ns NUMERIC(20) NOT NULL,
     value_aggregate NUMERIC(39) NOT NULL,

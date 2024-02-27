@@ -9,13 +9,14 @@ use anyhow::Result;
 use bigdecimal::num_bigint::BigInt;
 use ethers_signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
 use lazy_static::lazy_static;
-use open_fastrlp::Encodable;
 use sqlx::{types::BigDecimal, PgPool};
 use tap_core::receipt_aggregate_voucher::ReceiptAggregateVoucher;
 use tap_core::tap_manager::{SignedRAV, SignedReceipt};
 use tap_core::tap_receipt::{get_full_list_of_checks, ReceivedReceipt};
 use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
 use thegraph::types::Address;
+
+use crate::tap::encode_signature_rlp;
 
 lazy_static! {
     pub static ref ALLOCATION_ID_0: Address =
@@ -96,11 +97,7 @@ pub async fn create_rav(
 }
 
 pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Result<u64> {
-    let encoded_signature = {
-        let mut buf: Vec<u8> = Vec::with_capacity(72);
-        signed_receipt.signature.encode(&mut buf);
-        buf
-    };
+    let rlp_encoded_signature = encode_signature_rlp(&signed_receipt.signature);
 
     let record = sqlx::query!(
         r#"
@@ -112,7 +109,7 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Re
             .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
             .unwrap()
             .encode_hex::<String>(),
-        encoded_signature,
+        rlp_encoded_signature.as_ref(),
         signed_receipt.message.allocation_id.encode_hex::<String>(),
         BigDecimal::from(signed_receipt.message.timestamp_ns),
         BigDecimal::from(signed_receipt.message.nonce),
@@ -127,8 +124,7 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Re
 }
 
 pub async fn store_rav(pgpool: &PgPool, signed_rav: SignedRAV, sender: Address) -> Result<()> {
-    let mut signature_bytes: Vec<u8> = Vec::with_capacity(72);
-    signed_rav.signature.encode(&mut signature_bytes);
+    let rlp_encoded_signature = encode_signature_rlp(&signed_rav.signature);
 
     let _fut = sqlx::query!(
         r#"
@@ -136,7 +132,7 @@ pub async fn store_rav(pgpool: &PgPool, signed_rav: SignedRAV, sender: Address) 
             VALUES ($1, $2, $3, $4, $5)
         "#,
         sender.encode_hex::<String>(),
-        signature_bytes,
+        rlp_encoded_signature.as_ref(),
         signed_rav.message.allocationId.encode_hex::<String>(),
         BigDecimal::from(signed_rav.message.timestampNs),
         BigDecimal::from(BigInt::from(signed_rav.message.valueAggregate)),

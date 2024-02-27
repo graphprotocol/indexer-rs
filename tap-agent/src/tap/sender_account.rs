@@ -414,9 +414,7 @@ impl Drop for SenderAccount {
 mod tests {
     use alloy_primitives::hex::ToHex;
     use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
-    use ethers::types::Signature;
     use indexer_common::subgraph_client::DeploymentDetails;
-    use open_fastrlp::Decodable;
     use serde_json::json;
     use std::str::FromStr;
     use tap_aggregator::server::run_server;
@@ -429,9 +427,12 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use crate::tap::test_utils::{
-        create_received_receipt, store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_1, ALLOCATION_ID_2,
-        INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+    use crate::tap::{
+        decode_signature_rlp,
+        test_utils::{
+            create_received_receipt, store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_1,
+            ALLOCATION_ID_2, INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+        },
     };
 
     use super::*;
@@ -779,7 +780,7 @@ mod tests {
                     .unwrap()
                     .unwrap(),
             },
-            signature: Signature::decode(&mut latest_rav.signature.as_slice()).unwrap(),
+            signature: decode_signature_rlp(&mut latest_rav.signature.as_slice()).unwrap(),
         };
 
         // Check that the latest RAV value is correct.
@@ -870,7 +871,7 @@ mod tests {
                     .unwrap()
                     .unwrap(),
             },
-            signature: Signature::decode(&mut latest_rav.signature.as_slice()).unwrap(),
+            signature: decode_signature_rlp(&mut latest_rav.signature.as_slice()).unwrap(),
         };
 
         // Check that the latest RAV value is correct.

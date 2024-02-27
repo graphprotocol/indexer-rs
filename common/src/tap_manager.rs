@@ -5,9 +5,11 @@ use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
+use bytes::BytesMut;
+use ethers::types::Signature;
 use ethers_core::types::U256;
 use eventuals::Eventual;
-use open_fastrlp::Encodable;
+use open_fastrlp::{Decodable, Encodable, RlpDecodable, RlpEncodable};
 use sqlx::postgres::PgListener;
 use sqlx::{types::BigDecimal, PgPool};
 use std::collections::HashSet;
@@ -18,6 +20,35 @@ use tokio::sync::RwLock;
 use tracing::error;
 
 use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
+
+#[derive(RlpEncodable, RlpDecodable)]
+struct PackedSignature {
+    pub v: u8,
+    pub r: U256,
+    pub s: U256,
+}
+
+pub fn encode_signature_rlp(signature: &Signature) -> BytesMut {
+    let mut signature_bytes = BytesMut::new();
+    PackedSignature {
+        v: signature.v.try_into().unwrap(),
+        r: signature.r,
+        s: signature.s,
+    }
+    .encode(&mut signature_bytes);
+    signature_bytes
+}
+
+pub fn decode_signature_rlp(
+    signature_bytes: &mut &[u8],
+) -> Result<Signature, open_fastrlp::DecodeError> {
+    let packed_signature = PackedSignature::decode(signature_bytes)?;
+    Ok(Signature {
+        r: packed_signature.r,
+        s: packed_signature.s,
+        v: packed_signature.v.into(),
+    })
+}
 
 #[derive(Clone)]
 pub struct TapManager {
@@ -130,11 +161,7 @@ impl TapManager {
             );
         }
 
-        let encoded_signature = {
-            let mut buf: Vec<u8> = Vec::with_capacity(72);
-            receipt.signature.encode(&mut buf);
-            buf
-        };
+        let rlp_encoded_signature = encode_signature_rlp(&receipt.signature);
 
         // TODO: consider doing this in another async task to avoid slowing down the paid query flow.
         sqlx::query!(
@@ -143,7 +170,7 @@ impl TapManager {
                 VALUES ($1, $2, $3, $4, $5, $6)
             "#,
             receipt_signer.encode_hex::<String>(),
-            encoded_signature,
+            rlp_encoded_signature.as_ref(),
             allocation_id.encode_hex::<String>(),
             BigDecimal::from(receipt.message.timestamp_ns),
             BigDecimal::from(receipt.message.nonce),

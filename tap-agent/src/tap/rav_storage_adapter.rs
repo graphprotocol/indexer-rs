@@ -7,8 +7,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use bigdecimal::num_bigint::{BigInt, ToBigInt};
 use bigdecimal::ToPrimitive;
-use ethers::types::Signature;
-use open_fastrlp::{Decodable, Encodable};
 use sqlx::types::{chrono, BigDecimal};
 use sqlx::PgPool;
 use tap_core::adapters::rav_storage_adapter::RAVStorageAdapter as RAVStorageAdapterTrait;
@@ -16,6 +14,8 @@ use tap_core::receipt_aggregate_voucher::ReceiptAggregateVoucher;
 use tap_core::tap_manager::SignedRAV;
 use thegraph::types::Address;
 use thiserror::Error;
+
+use crate::tap::{decode_signature_rlp, encode_signature_rlp};
 
 #[derive(Debug)]
 pub struct RAVStorageAdapter {
@@ -35,8 +35,7 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
     type AdapterError = AdapterError;
 
     async fn update_last_rav(&self, rav: SignedRAV) -> Result<(), Self::AdapterError> {
-        let mut signature_bytes: Vec<u8> = Vec::with_capacity(72);
-        rav.signature.encode(&mut signature_bytes);
+        let signature_bytes = encode_signature_rlp(&rav.signature);
 
         let _fut = sqlx::query!(
             r#"
@@ -58,7 +57,7 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
                     "updatedAt" = $6
             "#,
             self.sender.encode_hex::<String>(),
-            signature_bytes,
+            signature_bytes.as_ref(),
             self.allocation_id.encode_hex::<String>(),
             BigDecimal::from(rav.message.timestampNs),
             BigDecimal::from(BigInt::from(rav.message.valueAggregate)),
@@ -90,14 +89,15 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
 
         match row {
             Some(row) => {
-                let signature = Signature::decode(&mut row.signature.as_slice()).map_err(|e| {
-                    AdapterError::AdapterError {
-                        error: format!(
-                            "Error decoding signature while retrieving RAV from database: {}",
-                            e
-                        ),
-                    }
-                })?;
+                let signature =
+                    decode_signature_rlp(&mut row.signature.as_slice()).map_err(|e| {
+                        AdapterError::AdapterError {
+                            error: format!(
+                                "Error decoding signature while retrieving RAV from database: {}",
+                                e
+                            ),
+                        }
+                    })?;
                 let allocation_id = Address::from_str(&row.allocation_id).map_err(|e| {
                     AdapterError::AdapterError {
                         error: format!(

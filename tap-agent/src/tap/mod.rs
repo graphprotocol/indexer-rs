@@ -1,10 +1,12 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_primitives::hex::ToHex;
+use alloy_primitives::{bytes::BytesMut, hex::ToHex};
 use anyhow::anyhow;
+use ethers::types::Signature;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
+use open_fastrlp::{Decodable, Encodable, RlpDecodable, RlpEncodable};
 use thegraph::types::Address;
 
 mod escrow_adapter;
@@ -33,4 +35,33 @@ async fn signers_trimmed(
         .collect::<Vec<String>>();
 
     Ok(signers)
+}
+
+#[derive(RlpEncodable, RlpDecodable)]
+struct PackedSignature {
+    pub v: u8,
+    pub r: ethereum_types::U256,
+    pub s: ethereum_types::U256,
+}
+
+pub fn encode_signature_rlp(signature: &Signature) -> BytesMut {
+    let mut signature_bytes = BytesMut::new();
+    PackedSignature {
+        v: signature.v.try_into().unwrap(),
+        r: signature.r,
+        s: signature.s,
+    }
+    .encode(&mut signature_bytes);
+    signature_bytes
+}
+
+pub fn decode_signature_rlp(
+    signature_bytes: &mut &[u8],
+) -> Result<Signature, open_fastrlp::DecodeError> {
+    let packed_signature = PackedSignature::decode(signature_bytes)?;
+    Ok(Signature {
+        r: packed_signature.r,
+        s: packed_signature.s,
+        v: packed_signature.v.into(),
+    })
 }
