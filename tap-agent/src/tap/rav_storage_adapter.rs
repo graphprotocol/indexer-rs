@@ -7,7 +7,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use bigdecimal::num_bigint::{BigInt, ToBigInt};
 use bigdecimal::ToPrimitive;
-use sqlx::types::BigDecimal;
+use sqlx::types::{chrono, BigDecimal};
 use sqlx::PgPool;
 use tap_core::adapters::rav_storage_adapter::RAVStorageAdapter as RAVStorageAdapterTrait;
 use tap_core::receipt_aggregate_voucher::ReceiptAggregateVoucher;
@@ -37,16 +37,29 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
 
         let _fut = sqlx::query!(
             r#"
-                INSERT INTO scalar_tap_ravs (sender_address, signature, allocation_id, timestamp_ns, value_aggregate)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO scalar_tap_ravs (
+                    sender_address,
+                    signature,
+                    allocation_id,
+                    timestamp_ns,
+                    value_aggregate,
+                    "createdAt",
+                    "updatedAt"
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $6)
                 ON CONFLICT (allocation_id, sender_address)
-                DO UPDATE SET signature = $2, timestamp_ns = $4, value_aggregate = $5
+                DO UPDATE SET
+                    signature = $2,
+                    timestamp_ns = $4,
+                    value_aggregate = $5,
+                    "updatedAt" = $6
             "#,
             self.sender.encode_hex::<String>(),
             signature_bytes,
             self.allocation_id.encode_hex::<String>(),
-            BigDecimal::from(rav.message.timestamp_ns),
-            BigDecimal::from(BigInt::from(rav.message.value_aggregate)),
+            BigDecimal::from(rav.message.timestampNs),
+            BigDecimal::from(BigInt::from(rav.message.valueAggregate)),
+            chrono::Utc::now()
         )
         .execute(&self.pgpool)
         .await
@@ -109,9 +122,9 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
                     })?;
 
                 let rav = ReceiptAggregateVoucher {
-                    allocation_id,
-                    timestamp_ns,
-                    value_aggregate,
+                    allocationId: allocation_id,
+                    timestampNs: timestamp_ns,
+                    valueAggregate: value_aggregate,
                 };
                 Ok(Some(SignedRAV {
                     message: rav,

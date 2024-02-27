@@ -766,11 +766,11 @@ mod tests {
 
         let latest_rav = EIP712SignedMessage {
             message: ReceiptAggregateVoucher {
-                allocation_id: Address::from_str(&latest_rav.allocation_id).unwrap(),
-                timestamp_ns: latest_rav.timestamp_ns.to_u64().unwrap(),
+                allocationId: Address::from_str(&latest_rav.allocation_id).unwrap(),
+                timestampNs: latest_rav.timestamp_ns.to_u64().unwrap(),
                 // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
                 // So we're converting to BigInt to get a proper implementation of to_u128().
-                value_aggregate: latest_rav
+                valueAggregate: latest_rav
                     .value_aggregate
                     .to_bigint()
                     .map(|v| v.to_u128())
@@ -781,7 +781,7 @@ mod tests {
         };
 
         // Check that the latest RAV value is correct.
-        assert!(latest_rav.message.value_aggregate >= trigger_value);
+        assert!(latest_rav.message.valueAggregate >= trigger_value);
 
         // Check that the allocation's unaggregated fees value is reduced.
         assert!(
@@ -857,11 +857,11 @@ mod tests {
 
         let latest_rav = EIP712SignedMessage {
             message: ReceiptAggregateVoucher {
-                allocation_id: Address::from_str(&latest_rav.allocation_id).unwrap(),
-                timestamp_ns: latest_rav.timestamp_ns.to_u64().unwrap(),
+                allocationId: Address::from_str(&latest_rav.allocation_id).unwrap(),
+                timestampNs: latest_rav.timestamp_ns.to_u64().unwrap(),
                 // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
                 // So we're converting to BigInt to get a proper implementation of to_u128().
-                value_aggregate: latest_rav
+                valueAggregate: latest_rav
                     .value_aggregate
                     .to_bigint()
                     .map(|v| v.to_u128())
@@ -873,7 +873,7 @@ mod tests {
 
         // Check that the latest RAV value is correct.
 
-        assert!(latest_rav.message.value_aggregate >= trigger_value);
+        assert!(latest_rav.message.valueAggregate >= trigger_value);
 
         // Check that the allocation's unaggregated fees value is reduced.
         assert!(

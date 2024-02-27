@@ -322,7 +322,7 @@ mod test {
 
         // Second test: query with a deployment filter
         let sample_deployments = vec![
-            test_models.get(0).unwrap().deployment,
+            test_models.first().unwrap().deployment,
             test_models.get(1).unwrap().deployment,
         ];
         let models = cost_models(&pool, &sample_deployments)
@@ -394,7 +394,7 @@ mod test {
 
         // Second test: fetch cost models, filtering by the first two deployment IDs
         let sample_deployments = vec![
-            test_models.get(0).unwrap().deployment,
+            test_models.first().unwrap().deployment,
             test_models.get(1).unwrap().deployment,
         ];
         let models = dbg!(cost_models(&pool, &sample_deployments).await)
