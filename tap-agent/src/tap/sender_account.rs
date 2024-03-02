@@ -17,6 +17,7 @@ use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use sqlx::PgPool;
 use thegraph::types::Address;
 use tokio::sync::Mutex as TokioMutex;
+use tokio::time::sleep;
 use tokio::{select, sync::Notify, time};
 use tracing::{error, warn};
 
@@ -54,6 +55,8 @@ impl Inner {
                     "Error while requesting RAV for sender {}: {}",
                     self.sender, error
                 );
+                // simpler for now, maybe we can add a backoff strategy later
+                sleep(Duration::from_secs(5)).await;
                 continue;
             }
 
