@@ -264,9 +264,7 @@ impl SenderAccountsManager {
 
             sender.update_allocations(allocation_ids).await;
 
-            sender
-                .recompute_unaggregated_fees()
-                .await;
+            sender.recompute_unaggregated_fees().await;
         }
         // replace the sender_accounts with the updated sender_accounts
         *inner.sender_accounts.lock().unwrap() = sender_accounts;
