@@ -17,6 +17,7 @@ use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use sqlx::PgPool;
 use thegraph::types::Address;
 use tokio::sync::Mutex as TokioMutex;
+use tokio::time::sleep;
 use tokio::{select, sync::Notify, time};
 use tracing::{error, warn};
 
@@ -48,7 +49,16 @@ impl Inner {
         loop {
             notif_value_trigger.notified().await;
 
-            self.rav_requester_single().await;
+            if let Err(error) = self.rav_requester_single().await {
+                // If an error occoured, we shouldn't retry right away, so we wait for a bit.
+                error!(
+                    "Error while requesting RAV for sender {}: {}",
+                    self.sender, error
+                );
+                // simpler for now, maybe we can add a backoff strategy later
+                sleep(Duration::from_secs(5)).await;
+                continue;
+            }
 
             // Check if we already need to send another RAV request.
             let unaggregated_fees = self.unaggregated_fees.lock().unwrap().clone();
@@ -117,38 +127,30 @@ impl Inner {
     }
 
     /// Does a single RAV request for the sender's allocation with the highest unaggregated fees
-    async fn rav_requester_single(&self) {
-        let heaviest_allocation = match self.get_heaviest_allocation() {
-            Ok(a) => a,
-            Err(e) => {
-                error!(
-                    "Error while getting allocation with most unaggregated fees: {}",
+    async fn rav_requester_single(&self) -> Result<()> {
+        let heaviest_allocation = self.get_heaviest_allocation().ok_or(anyhow! {
+            "Error while getting allocation with most unaggregated fees",
+        })?;
+        heaviest_allocation
+            .rav_requester_single()
+            .await
+            .map_err(|e| {
+                anyhow! {
+                    "Error while requesting RAV for sender {} and allocation {}: {}",
+                    self.sender,
+                    heaviest_allocation.get_allocation_id(),
                     e
-                );
-                return;
-            }
-        };
+                }
+            })?;
 
-        if let Err(e) = heaviest_allocation.rav_requester_single().await {
-            error!(
-                "Error while requesting RAV for sender {} and allocation {}: {}",
-                self.sender,
-                heaviest_allocation.get_allocation_id(),
-                e
-            );
-            return;
-        };
+        self.recompute_unaggregated_fees().await;
 
-        if let Err(e) = self.recompute_unaggregated_fees().await {
-            error!(
-                "Error while recomputing unaggregated fees for sender {}: {}",
-                self.sender, e
-            );
-        }
+        Ok(())
     }
 
     /// Returns the allocation with the highest unaggregated fees value.
-    fn get_heaviest_allocation(&self) -> Result<Arc<SenderAllocation>> {
+    /// If there are no active allocations, returns None.
+    fn get_heaviest_allocation(&self) -> Option<Arc<SenderAllocation>> {
         // Get a quick snapshot of all allocations. They are Arcs, so it should be cheap,
         // and we don't want to hold the lock for too long.
         let allocations: Vec<_> = self.allocations.lock().unwrap().values().cloned().collect();
@@ -165,13 +167,11 @@ impl Inner {
             }
         }
 
-        heaviest_allocation
-            .0
-            .ok_or(anyhow!("Heaviest allocation is None"))
+        heaviest_allocation.0
     }
 
     /// Recompute the sender's total unaggregated fees value and last receipt ID.
-    async fn recompute_unaggregated_fees(&self) -> Result<()> {
+    async fn recompute_unaggregated_fees(&self) {
         // Make sure to pause the handling of receipt notifications while we update the unaggregated
         // fees.
         let _guard = self.unaggregated_receipts_guard.lock().await;
@@ -194,8 +194,6 @@ impl Inner {
                 last_id: max(unaggregated_fees.last_id, uf.last_id),
             };
         }
-
-        Ok(())
     }
 
     /// Safe add the fees to the unaggregated fees value, log an error if there is an overflow and
@@ -397,7 +395,7 @@ impl SenderAccount {
         }
     }
 
-    pub async fn recompute_unaggregated_fees(&self) -> Result<()> {
+    pub async fn recompute_unaggregated_fees(&self) {
         self.inner.recompute_unaggregated_fees().await
     }
 }
@@ -521,7 +519,7 @@ mod tests {
                 *ALLOCATION_ID_2,
             ]))
             .await;
-        sender.recompute_unaggregated_fees().await.unwrap();
+        sender.recompute_unaggregated_fees().await;
 
         sender
     }
