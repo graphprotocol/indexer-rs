@@ -190,10 +190,13 @@ mod test {
     use std::{collections::HashMap, sync::Arc};
 
     use super::*;
-    use crate::tap::{escrow_adapter::EscrowAdapter, test_utils::{
-        create_received_receipt, store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_IRRELEVANT, SENDER,
-        SENDER_IRRELEVANT, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
-    }};
+    use crate::tap::{
+        escrow_adapter::EscrowAdapter,
+        test_utils::{
+            create_received_receipt, store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_IRRELEVANT,
+            SENDER, SENDER_IRRELEVANT, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+        },
+    };
     use anyhow::Result;
 
     use eventuals::Eventual;

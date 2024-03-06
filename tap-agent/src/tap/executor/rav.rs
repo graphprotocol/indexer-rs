@@ -136,7 +136,10 @@ mod test {
     use tap_core::checks::TimestampCheck;
 
     use super::*;
-    use crate::tap::{escrow_adapter::EscrowAdapter, test_utils::{create_rav, ALLOCATION_ID_0, SENDER, SIGNER}};
+    use crate::tap::{
+        escrow_adapter::EscrowAdapter,
+        test_utils::{create_rav, ALLOCATION_ID_0, SENDER, SIGNER},
+    };
 
     #[sqlx::test(migrations = "../migrations")]
     async fn update_and_retrieve_rav(pool: PgPool) {

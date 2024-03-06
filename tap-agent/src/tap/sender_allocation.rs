@@ -69,7 +69,7 @@ impl SenderAllocation {
                 sender,
                 allocation_id,
                 escrow_subgraph,
-                &config,
+                config,
             )),
             Arc::new(Signature::new(
                 tap_eip712_domain_separator.clone(),
@@ -218,7 +218,7 @@ impl SenderAllocation {
             // TODO: consider doing that in a spawned task?
             Self::store_invalid_receipts(
                 self,
-                &invalid_receipts
+                invalid_receipts
                     .into_iter()
                     .map(|invalid| invalid.into())
                     .collect::<Vec<_>>()
@@ -245,7 +245,7 @@ impl SenderAllocation {
             warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
         }
         let escrow_accounts = self.escrow_accounts.clone();
-        let expected_sender = self.sender.clone();
+        let expected_sender = self.sender;
         match self
             .tap_manager
             .verify_and_store_rav(
