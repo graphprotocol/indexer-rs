@@ -8,9 +8,7 @@ use indexer_common::escrow_accounts::EscrowAccounts;
 use thegraph::types::Address;
 
 mod escrow_adapter;
-mod rav_storage_adapter;
-mod receipt_checks_adapter;
-mod receipt_storage_adapter;
+mod executor;
 mod sender_account;
 pub mod sender_accounts_manager;
 mod sender_allocation;

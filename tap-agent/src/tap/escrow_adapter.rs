@@ -1,15 +1,18 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use async_trait::async_trait;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use tap_core::adapters::escrow_adapter::EscrowAdapter as EscrowAdapterTrait;
 use thegraph::types::Address;
-use thiserror::Error;
-use tokio::sync::RwLock;
+
+use super::executor::AdapterError;
 
 /// The EscrowAdapter is used to track the available escrow for all senders. It is updated when
 /// receipt checks are finalized (right before a RAV request).
@@ -23,34 +26,6 @@ use tokio::sync::RwLock;
 pub struct EscrowAdapter {
     escrow_accounts: Eventual<EscrowAccounts>,
     sender_pending_fees: Arc<RwLock<HashMap<Address, u128>>>,
-}
-
-#[derive(Debug, Error)]
-pub enum AdapterError {
-    #[error("Could not get escrow accounts from eventual")]
-    EscrowEventualError { error: String },
-
-    #[error("Could not get available escrow for sender")]
-    AvailableEscrowError(#[from] indexer_common::escrow_accounts::EscrowAccountsError),
-
-    #[error("Sender {sender} escrow balance is too large to fit in u128, could not get available escrow.")]
-    BalanceTooLarge { sender: Address },
-
-    #[error("Sender {sender} does not have enough escrow to subtract {fees} from {balance}.")]
-    NotEnoughEscrow {
-        sender: Address,
-        fees: u128,
-        balance: u128,
-    },
-}
-
-// Conversion from eventuals::error::Closed to AdapterError::EscrowEventualError
-impl From<eventuals::error::Closed> for AdapterError {
-    fn from(e: eventuals::error::Closed) -> Self {
-        AdapterError::EscrowEventualError {
-            error: format!("{:?}", e),
-        }
-    }
 }
 
 impl EscrowAdapter {
@@ -81,7 +56,7 @@ impl EscrowAdapterTrait for EscrowAdapter {
         let fees = self
             .sender_pending_fees
             .read()
-            .await
+            .unwrap()
             .get(&sender)
             .copied()
             .unwrap_or(0);
@@ -95,7 +70,7 @@ impl EscrowAdapterTrait for EscrowAdapter {
 
         let sender = escrow_accounts.get_sender_for_signer(&sender)?;
 
-        let mut fees_write = self.sender_pending_fees.write().await;
+        let mut fees_write = self.sender_pending_fees.write().unwrap();
         let fees = fees_write.entry(sender.to_owned()).or_insert(0);
         if current_available_escrow < value {
             return Err(AdapterError::NotEnoughEscrow {
@@ -117,6 +92,19 @@ mod test {
 
     use super::*;
 
+    impl super::EscrowAdapter {
+        pub fn mock() -> Self {
+            let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+                HashMap::from([(SENDER.1, 1000.into())]),
+                HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+            ));
+            Self {
+                escrow_accounts,
+                sender_pending_fees: Arc::new(RwLock::new(HashMap::new())),
+            }
+        }
+    }
+
     #[tokio::test]
     async fn test_subtract_escrow() {
         let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
@@ -125,7 +113,7 @@ mod test {
         ));
 
         let sender_pending_fees = Arc::new(RwLock::new(HashMap::new()));
-        sender_pending_fees.write().await.insert(SENDER.1, 500);
+        sender_pending_fees.write().unwrap().insert(SENDER.1, 500);
 
         let adapter = EscrowAdapter {
             escrow_accounts,
@@ -150,7 +138,7 @@ mod test {
         ));
 
         let sender_pending_fees = Arc::new(RwLock::new(HashMap::new()));
-        sender_pending_fees.write().await.insert(SENDER.1, 500);
+        sender_pending_fees.write().unwrap().insert(SENDER.1, 500);
 
         let adapter = EscrowAdapter {
             escrow_accounts,

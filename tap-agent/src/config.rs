@@ -318,6 +318,7 @@ impl Cli {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum ConfigError {
     #[error("Validate the input: {0}")]
     ValidateInput(String),

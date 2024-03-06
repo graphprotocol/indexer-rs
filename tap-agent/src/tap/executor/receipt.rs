@@ -8,42 +8,21 @@ use std::{
 };
 
 use alloy_primitives::hex::ToHex;
-use async_trait::async_trait;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
-use eventuals::Eventual;
-use indexer_common::escrow_accounts::EscrowAccounts;
-use sqlx::{postgres::types::PgRange, types::BigDecimal, PgPool};
+use sqlx::{postgres::types::PgRange, types::BigDecimal};
 use tap_core::{
-    adapters::receipt_storage_adapter::ReceiptStorageAdapter as ReceiptStorageAdapterTrait,
+    adapters::receipt_storage_adapter::{ReceiptDelete, ReceiptRead, StoredReceipt},
     tap_receipt::Receipt,
 };
-use tap_core::{
-    tap_manager::SignedReceipt,
-    tap_receipt::{ReceiptCheck, ReceivedReceipt},
-};
+use tap_core::{tap_manager::SignedReceipt, tap_receipt::ReceivedReceipt};
 use thegraph::types::Address;
-use thiserror::Error;
-use tracing::error;
 
 use crate::tap::signers_trimmed;
 
-pub struct ReceiptStorageAdapter {
-    pgpool: PgPool,
-    allocation_id: Address,
-    sender: Address,
-    required_checks: Vec<ReceiptCheck>,
-    escrow_accounts: Eventual<EscrowAccounts>,
-}
-
-#[derive(Debug, Error)]
-pub enum AdapterError {
-    #[error("Error in ReceiptStorageAdapter: {error}")]
-    AdapterError { error: String },
-}
-
+use super::{error::AdapterError, TapAgentExecutor};
 impl From<TryFromIntError> for AdapterError {
     fn from(error: TryFromIntError) -> Self {
-        AdapterError::AdapterError {
+        AdapterError::ReceiptRead {
             error: error.to_string(),
         }
     }
@@ -51,7 +30,7 @@ impl From<TryFromIntError> for AdapterError {
 
 impl From<sqlx::Error> for AdapterError {
     fn from(error: sqlx::Error) -> Self {
-        AdapterError::AdapterError {
+        AdapterError::ReceiptRead {
             error: error.to_string(),
         }
     }
@@ -59,7 +38,7 @@ impl From<sqlx::Error> for AdapterError {
 
 impl From<serde_json::Error> for AdapterError {
     fn from(error: serde_json::Error) -> Self {
-        AdapterError::AdapterError {
+        AdapterError::ReceiptRead {
             error: error.to_string(),
         }
     }
@@ -94,24 +73,19 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
     ))
 }
 
-#[async_trait]
-impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
+#[async_trait::async_trait]
+impl ReceiptRead for TapAgentExecutor {
     type AdapterError = AdapterError;
-
-    /// We don't need this method in TAP Agent.
-    async fn store_receipt(&self, _receipt: ReceivedReceipt) -> Result<u64, Self::AdapterError> {
-        unimplemented!();
-    }
 
     async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
         &self,
         timestamp_range_ns: R,
         // TODO: Make use of this limit in this function
         _receipts_limit: Option<u64>,
-    ) -> Result<Vec<(u64, ReceivedReceipt)>, Self::AdapterError> {
+    ) -> Result<Vec<StoredReceipt>, Self::AdapterError> {
         let signers = signers_trimmed(&self.escrow_accounts, self.sender)
             .await
-            .map_err(|e| AdapterError::AdapterError {
+            .map_err(|e| AdapterError::ReceiptRead {
                 error: format!("{:?}.", e),
             })?;
 
@@ -131,16 +105,16 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
         records
             .into_iter()
             .map(|record| {
-                let id: u64 = record.id.try_into()?;
+                let receipt_id: u64 = record.id.try_into()?;
                 let signature = record.signature.as_slice().try_into()
-                    .map_err(|e| AdapterError::AdapterError {
+                    .map_err(|e| AdapterError::ReceiptRead {
                         error: format!(
                             "Error decoding signature while retrieving receipt from database: {}",
                             e
                         ),
                     })?;
                 let allocation_id = Address::from_str(&record.allocation_id).map_err(|e| {
-                    AdapterError::AdapterError {
+                    AdapterError::ReceiptRead {
                         error: format!(
                             "Error decoding allocation_id while retrieving receipt from database: {}",
                             e
@@ -150,16 +124,16 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
                 let timestamp_ns = record
                     .timestamp_ns
                     .to_u64()
-                    .ok_or(AdapterError::AdapterError {
+                    .ok_or(AdapterError::ReceiptRead {
                         error: "Error decoding timestamp_ns while retrieving receipt from database"
                             .to_string(),
                     })?;
-                let nonce = record.nonce.to_u64().ok_or(AdapterError::AdapterError {
+                let nonce = record.nonce.to_u64().ok_or(AdapterError::ReceiptRead {
                     error: "Error decoding nonce while retrieving receipt from database".to_string(),
                 })?;
                 // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
                 // So we're converting to BigInt to get a proper implementation of to_u128().
-                let value = record.value.to_bigint().and_then(|v| v.to_u128()).ok_or(AdapterError::AdapterError {
+                let value = record.value.to_bigint().and_then(|v| v.to_u128()).ok_or(AdapterError::ReceiptRead {
                     error: "Error decoding value while retrieving receipt from database".to_string(),
                 })?;
 
@@ -173,21 +147,17 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
                     signature,
                 };
 
-                let received_receipt =
-                    ReceivedReceipt::new(signed_receipt, id, &self.required_checks);
-                Ok((id, received_receipt))
+                let receipt =
+                    ReceivedReceipt::new(signed_receipt, receipt_id, &self.required_checks);
+                Ok(StoredReceipt {receipt_id, receipt})
             })
             .collect()
     }
+}
 
-    /// We don't need this method in TAP Agent.
-    async fn update_receipt_by_id(
-        &self,
-        _receipt_id: u64,
-        _receipt: ReceivedReceipt,
-    ) -> Result<(), Self::AdapterError> {
-        unimplemented!();
-    }
+#[async_trait::async_trait]
+impl ReceiptDelete for TapAgentExecutor {
+    type AdapterError = AdapterError;
 
     async fn remove_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
         &self,
@@ -195,7 +165,7 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
     ) -> Result<(), Self::AdapterError> {
         let signers = signers_trimmed(&self.escrow_accounts, self.sender)
             .await
-            .map_err(|e| AdapterError::AdapterError {
+            .map_err(|e| AdapterError::ReceiptDelete {
                 error: format!("{:?}.", e),
             })?;
 
@@ -215,38 +185,22 @@ impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
     }
 }
 
-impl ReceiptStorageAdapter {
-    pub fn new(
-        pgpool: PgPool,
-        allocation_id: Address,
-        sender: Address,
-        required_checks: Vec<ReceiptCheck>,
-        escrow_accounts: Eventual<EscrowAccounts>,
-    ) -> Self {
-        Self {
-            pgpool,
-            allocation_id,
-            sender,
-            required_checks,
-            escrow_accounts,
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Arc};
 
     use super::*;
-    use crate::tap::test_utils::{
+    use crate::tap::{escrow_adapter::EscrowAdapter, test_utils::{
         create_received_receipt, store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_IRRELEVANT, SENDER,
         SENDER_IRRELEVANT, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
-    };
+    }};
     use anyhow::Result;
 
+    use eventuals::Eventual;
+    use indexer_common::escrow_accounts::EscrowAccounts;
     use serde_json::Value;
     use sqlx::PgPool;
-    use tap_core::tap_receipt::get_full_list_of_checks;
+    use tap_core::checks::TimestampCheck;
 
     /// Insert a single receipt and retrieve it from the database using the adapter.
     /// The point here it to test the deserialization of large numbers.
@@ -257,12 +211,14 @@ mod test {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let storage_adapter = ReceiptStorageAdapter::new(
+        let storage_adapter = TapAgentExecutor::new(
             pgpool,
             *ALLOCATION_ID_0,
             SENDER.1,
-            get_full_list_of_checks(),
+            vec![],
             escrow_accounts.clone(),
+            EscrowAdapter::mock(),
+            Arc::new(TimestampCheck::new(0)),
         );
 
         let received_receipt = create_received_receipt(
@@ -284,7 +240,7 @@ mod test {
             .retrieve_receipts_in_timestamp_range(.., None)
             .await
             .unwrap()[0]
-            .1
+            .receipt
             .clone();
 
         let received_receipt_json = serde_json::to_value(received_receipt).unwrap();
@@ -297,7 +253,7 @@ mod test {
     /// implementation is correct) with the receipts vector retrieved from the database using
     /// retrieve_receipts_in_timestamp_range.
     async fn retrieve_range_and_check<R: RangeBounds<u64> + Send>(
-        storage_adapter: &ReceiptStorageAdapter,
+        storage_adapter: &TapAgentExecutor,
         escrow_accounts: &Eventual<EscrowAccounts>,
         received_receipt_vec: &[(u64, ReceivedReceipt)],
         range: R,
@@ -328,14 +284,14 @@ mod test {
             // TODO: Make use of the receipt limit if it makes sense here
             .retrieve_receipts_in_timestamp_range(range, None)
             .await?
-            .iter()
-            .map(|(id, received_receipt)| {
-                let mut received_receipt = serde_json::to_value(received_receipt).unwrap();
+            .into_iter()
+            .map(|stored_receipt| {
+                let mut receipt = serde_json::to_value(stored_receipt.receipt).unwrap();
 
                 // We set all query_id to 0 because we don't care about it in this test and it
                 // makes it easier.
-                received_receipt["query_id"] = Value::from(0u64);
-                (*id, received_receipt)
+                receipt["query_id"] = Value::from(0u64);
+                (stored_receipt.receipt_id, receipt)
             })
             .collect::<Vec<(u64, Value)>>();
 
@@ -355,7 +311,7 @@ mod test {
     }
 
     async fn remove_range_and_check<R: RangeBounds<u64> + Send>(
-        storage_adapter: &ReceiptStorageAdapter,
+        storage_adapter: &TapAgentExecutor,
         escrow_accounts: &Eventual<EscrowAccounts>,
         received_receipt_vec: &[ReceivedReceipt],
         range: R,
@@ -448,8 +404,7 @@ mod test {
                     signature,
                 };
 
-                let reveived_receipt =
-                    ReceivedReceipt::new(signed_receipt, 0, &get_full_list_of_checks());
+                let reveived_receipt = ReceivedReceipt::new(signed_receipt, 0, &[]);
                 serde_json::to_value(reveived_receipt).unwrap()
             })
             .collect();
@@ -491,12 +446,14 @@ mod test {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let storage_adapter = ReceiptStorageAdapter::new(
+        let storage_adapter = TapAgentExecutor::new(
             pgpool.clone(),
             *ALLOCATION_ID_0,
             SENDER.1,
-            get_full_list_of_checks(),
+            vec![],
             escrow_accounts.clone(),
+            EscrowAdapter::mock(),
+            Arc::new(TimestampCheck::new(0)),
         );
 
         // Creating 10 receipts with timestamps 42 to 51
@@ -635,12 +592,14 @@ mod test {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let storage_adapter = ReceiptStorageAdapter::new(
+        let storage_adapter = TapAgentExecutor::new(
             pgpool,
             *ALLOCATION_ID_0,
             SENDER.1,
-            get_full_list_of_checks(),
+            vec![],
             escrow_accounts.clone(),
+            EscrowAdapter::mock(),
+            Arc::new(TimestampCheck::new(0)),
         );
 
         // Creating 10 receipts with timestamps 42 to 51

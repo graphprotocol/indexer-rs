@@ -1,8 +1,10 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Mutex as StdMutex;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex as StdMutex},
+    time::Duration,
+};
 
 use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
@@ -13,11 +15,11 @@ use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
+use tap_core::checks::{Check, TimestampCheck};
 use tap_core::{
     eip_712_signed_message::EIP712SignedMessage,
-    receipt_aggregate_voucher::ReceiptAggregateVoucher,
-    tap_manager::RAVRequest,
-    tap_receipt::{ReceiptCheck, ReceivedReceipt},
+    receipt_aggregate_voucher::ReceiptAggregateVoucher, tap_manager::RAVRequest,
+    tap_receipt::ReceivedReceipt,
 };
 use thegraph::types::Address;
 use tokio::sync::Mutex as TokioMutex;
@@ -25,20 +27,13 @@ use tracing::{error, warn};
 
 use crate::{
     config::{self},
-    tap::{
-        escrow_adapter::EscrowAdapter, rav_storage_adapter::RAVStorageAdapter,
-        receipt_checks_adapter::ReceiptChecksAdapter,
-        receipt_storage_adapter::ReceiptStorageAdapter, signers_trimmed,
-        unaggregated_receipts::UnaggregatedReceipts,
-    },
+    tap::{signers_trimmed, unaggregated_receipts::UnaggregatedReceipts},
 };
 
-type TapManager = tap_core::tap_manager::Manager<
-    EscrowAdapter,
-    ReceiptChecksAdapter,
-    ReceiptStorageAdapter,
-    RAVStorageAdapter,
->;
+use super::executor::{checks::Signature, TapAgentExecutor};
+use super::{escrow_adapter::EscrowAdapter, executor::checks::AllocationId};
+
+type TapManager = tap_core::tap_manager::Manager<TapAgentExecutor>;
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 pub struct SenderAllocation {
@@ -67,41 +62,33 @@ impl SenderAllocation {
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoint: String,
     ) -> Self {
-        let required_checks = vec![
-            ReceiptCheck::CheckUnique,
-            ReceiptCheck::CheckAllocationId,
-            ReceiptCheck::CheckTimestamp,
-            // ReceiptCheck::CheckValue,
-            ReceiptCheck::CheckSignature,
-            ReceiptCheck::CheckAndReserveEscrow,
+        let timestamp_check = Arc::new(TimestampCheck::new(0));
+        let required_checks: Vec<Arc<dyn Check>> = vec![
+            timestamp_check.clone(),
+            Arc::new(AllocationId::new(
+                sender,
+                allocation_id,
+                escrow_subgraph,
+                &config,
+            )),
+            Arc::new(Signature::new(
+                tap_eip712_domain_separator.clone(),
+                escrow_accounts.clone(),
+            )),
         ];
-
-        let receipt_checks_adapter = ReceiptChecksAdapter::new(
-            config,
-            pgpool.clone(),
-            // TODO: Implement query appraisals.
-            None,
-            allocation_id,
-            escrow_accounts.clone(),
-            escrow_subgraph,
-            sender,
-        );
-        let receipt_storage_adapter = ReceiptStorageAdapter::new(
+        let executor = TapAgentExecutor::new(
             pgpool.clone(),
             allocation_id,
             sender,
             required_checks.clone(),
             escrow_accounts.clone(),
+            escrow_adapter,
+            timestamp_check,
         );
-        let rav_storage_adapter = RAVStorageAdapter::new(pgpool.clone(), allocation_id, sender);
         let tap_manager = TapManager::new(
             tap_eip712_domain_separator.clone(),
-            escrow_adapter,
-            receipt_checks_adapter,
-            rav_storage_adapter,
-            receipt_storage_adapter,
+            executor,
             required_checks,
-            0,
         );
 
         let sender_allocation = Self {
@@ -229,7 +216,15 @@ impl SenderAllocation {
 
             // Save invalid receipts to the database for logs.
             // TODO: consider doing that in a spawned task?
-            Self::store_invalid_receipts(self, &invalid_receipts).await?;
+            Self::store_invalid_receipts(
+                self,
+                &invalid_receipts
+                    .into_iter()
+                    .map(|invalid| invalid.into())
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )
+            .await?;
         }
         let client = HttpClientBuilder::default()
             .request_timeout(Duration::from_secs(
@@ -249,9 +244,30 @@ impl SenderAllocation {
         if let Some(warnings) = response.warnings {
             warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
         }
+        let escrow_accounts = self.escrow_accounts.clone();
+        let expected_sender = self.sender.clone();
         match self
             .tap_manager
-            .verify_and_store_rav(expected_rav.clone(), response.data.clone())
+            .verify_and_store_rav(
+                expected_rav.clone(),
+                response.data.clone(),
+                |signer| async move {
+                    let escrow_account = escrow_accounts.value().await.map_err(|_| {
+                        tap_core::Error::InvalidCheckError {
+                            check_string: "Could not load escrow_accounts eventual".into(),
+                        }
+                    })?;
+                    let sender = escrow_account.get_sender_for_signer(&signer).map_err(|_| {
+                        tap_core::Error::InvalidCheckError {
+                            check_string: format!(
+                                "Could not find the sender for the signer {}",
+                                signer
+                            ),
+                        }
+                    })?;
+                    Ok(sender == expected_sender)
+                },
+            )
             .await
         {
             Ok(_) => {}
@@ -415,7 +431,7 @@ impl SenderAllocation {
 #[cfg(test)]
 mod tests {
 
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use indexer_common::subgraph_client::DeploymentDetails;
     use serde_json::json;
@@ -551,6 +567,7 @@ mod tests {
         let (handle, aggregator_endpoint) = run_server(
             0,
             SIGNER.0.clone(),
+            HashSet::new(),
             TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             100 * 1024,
             100 * 1024,

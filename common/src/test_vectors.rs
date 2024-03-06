@@ -344,6 +344,5 @@ pub async fn create_signed_receipt(
         },
         wallet,
     )
-    .await
     .unwrap()
 }

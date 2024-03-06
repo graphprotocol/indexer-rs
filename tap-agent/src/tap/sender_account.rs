@@ -678,6 +678,7 @@ mod tests {
         let (handle, aggregator_endpoint) = run_server(
             0,
             SIGNER.0.clone(),
+            HashSet::new(),
             TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             100 * 1024,
             100 * 1024,
