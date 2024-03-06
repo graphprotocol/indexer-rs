@@ -1,0 +1,57 @@
+use std::collections::HashMap;
+
+use alloy_primitives::Address;
+use anyhow::anyhow;
+use eventuals::Eventual;
+use serde::{Deserialize, Serialize};
+use tap_core::{
+    checks::{Check, CheckError, CheckResult},
+    tap_receipt::{Checking, ReceiptWithState},
+};
+
+use crate::prelude::Allocation;
+
+#[derive(Serialize, Deserialize)]
+pub struct AllocationEligible {
+    #[serde(skip)]
+    #[serde(default = "super::default_eventual")]
+    indexer_allocations: Eventual<HashMap<Address, Allocation>>,
+}
+
+impl AllocationEligible {
+    pub fn new(indexer_allocations: Eventual<HashMap<Address, Allocation>>) -> Self {
+        Self {
+            indexer_allocations,
+        }
+    }
+}
+
+impl std::fmt::Debug for AllocationEligible {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AllocationEligible").finish()
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl Check for AllocationEligible {
+    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult<()> {
+        let allocation_id = receipt.signed_receipt().message.allocation_id;
+        if !self
+            .indexer_allocations
+            .value()
+            .await
+            .map(|allocations| allocations.contains_key(&allocation_id))
+            .unwrap_or(false)
+        {
+            return Err(CheckError(
+                anyhow!(
+                    "Receipt allocation ID `{}` is not eligible for this indexer",
+                    allocation_id
+                )
+                .to_string(),
+            ));
+        }
+        Ok(())
+    }
+}

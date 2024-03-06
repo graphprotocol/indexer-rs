@@ -3132,7 +3132,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=b3f7515)",
+ "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9400ad9)",
  "test-log",
  "thegraph",
  "thiserror",
@@ -3141,6 +3141,7 @@ dependencies = [
  "tower",
  "tower_governor",
  "tracing",
+ "typetag",
  "wiremock",
 ]
 
@@ -3171,7 +3172,7 @@ dependencies = [
  "serde_yaml",
  "sqlx",
  "tap_aggregator",
- "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=b3f7515)",
+ "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9400ad9)",
  "tempfile",
  "thegraph",
  "thiserror",
@@ -6368,7 +6369,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "tap_aggregator"
 version = "0.2.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=b3f7515#b3f75150c81b7f2e84cce3c41d94cef1adf90772"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9400ad9#9400ad9459125686b2e67f1200d3696a28ae1cda"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -6387,7 +6388,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.24.1",
- "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=b3f7515)",
+ "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9400ad9)",
  "tokio",
  "tracing-subscriber",
 ]
@@ -6419,7 +6420,7 @@ dependencies = [
 [[package]]
 name = "tap_core"
 version = "0.7.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=b3f7515#b3f75150c81b7f2e84cce3c41d94cef1adf90772"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9400ad9#9400ad9459125686b2e67f1200d3696a28ae1cda"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
