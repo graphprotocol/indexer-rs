@@ -13,7 +13,6 @@ use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
-use serde_json::json;
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
 use tap_core::checks::{Check, Checks, TimestampCheck};
@@ -48,6 +47,7 @@ pub struct SenderAllocation {
     escrow_accounts: Eventual<EscrowAccounts>,
     rav_request_guard: TokioMutex<()>,
     unaggregated_receipts_guard: TokioMutex<()>,
+    tap_eip712_domain_separator: Eip712Domain,
 }
 
 impl SenderAllocation {
@@ -102,6 +102,7 @@ impl SenderAllocation {
             escrow_accounts,
             rav_request_guard: TokioMutex::new(()),
             unaggregated_receipts_guard: TokioMutex::new(()),
+            tap_eip712_domain_separator,
         };
 
         sender_allocation
@@ -305,27 +306,28 @@ impl SenderAllocation {
 
     async fn store_invalid_receipts(&self, receipts: &[ReceivedReceipt]) -> Result<()> {
         for received_receipt in receipts.iter() {
+            let receipt = received_receipt.signed_receipt();
+            let allocation_id = receipt.message.allocation_id;
+            let encoded_signature = receipt.signature.to_vec();
+
+            let receipt_signer = receipt
+                .recover_signer(&self.tap_eip712_domain_separator)
+                .map_err(|e| {
+                    error!("Failed to recover receipt signer: {}", e);
+                    anyhow!(e)
+                })?;
+
             sqlx::query!(
                 r#"
-                    INSERT INTO scalar_tap_receipts_invalid (
-                        allocation_id,
-                        signer_address,
-                        timestamp_ns,
-                        value,
-                        received_receipt
-                    )
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO scalar_tap_receipts_invalid (signer_address, signature, allocation_id, timestamp_ns, nonce, value)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                 "#,
-                self.allocation_id.encode_hex::<String>(),
-                self.sender.encode_hex::<String>(),
-                BigDecimal::from(received_receipt.signed_receipt().message.timestamp_ns),
-                BigDecimal::from(BigInt::from(
-                    received_receipt.signed_receipt().message.value
-                )),
-                // TODO update this
-                json! ({
-                    "test": "test"
-                })
+                receipt_signer.encode_hex::<String>(),
+                encoded_signature,
+                allocation_id.encode_hex::<String>(),
+                BigDecimal::from(receipt.message.timestamp_ns),
+                BigDecimal::from(receipt.message.nonce),
+                BigDecimal::from(BigInt::from(receipt.message.value)),
             )
             .execute(&self.pgpool)
             .await
@@ -413,7 +415,7 @@ impl SenderAllocation {
 #[cfg(test)]
 mod tests {
 
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     use indexer_common::subgraph_client::DeploymentDetails;
     use serde_json::json;
@@ -462,7 +464,7 @@ mod tests {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let escrow_adapter = EscrowAdapter::new(escrow_accounts_eventual.clone(), Address::ZERO);
+        let escrow_adapter = EscrowAdapter::new(escrow_accounts_eventual.clone(), SENDER.1);
 
         SenderAllocation::new(
             config,
@@ -549,7 +551,7 @@ mod tests {
         let (handle, aggregator_endpoint) = run_server(
             0,
             SIGNER.0.clone(),
-            HashSet::new(),
+            vec![SIGNER.1].into_iter().collect(),
             TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             100 * 1024,
             100 * 1024,
