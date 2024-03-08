@@ -148,7 +148,7 @@ impl ReceiptRead for TapAgentExecutor {
                 };
 
                 let receipt =
-                    ReceivedReceipt::new(signed_receipt, receipt_id, &self.required_checks);
+                    ReceivedReceipt::new(signed_receipt);
                 Ok(StoredReceipt {receipt_id, receipt})
             })
             .collect()
@@ -201,7 +201,6 @@ mod test {
 
     use eventuals::Eventual;
     use indexer_common::escrow_accounts::EscrowAccounts;
-    use serde_json::Value;
     use sqlx::PgPool;
     use tap_core::checks::TimestampCheck;
 
@@ -218,21 +217,14 @@ mod test {
             pgpool,
             *ALLOCATION_ID_0,
             SENDER.1,
-            vec![],
             escrow_accounts.clone(),
             EscrowAdapter::mock(),
             Arc::new(TimestampCheck::new(0)),
         );
 
-        let received_receipt = create_received_receipt(
-            &ALLOCATION_ID_0,
-            &SIGNER.0,
-            u64::MAX,
-            u64::MAX,
-            u128::MAX,
-            1,
-        )
-        .await;
+        let received_receipt =
+            create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX)
+                .await;
 
         // Storing the receipt
         store_receipt(&storage_adapter.pgpool, received_receipt.signed_receipt())
@@ -246,10 +238,10 @@ mod test {
             .receipt
             .clone();
 
-        let received_receipt_json = serde_json::to_value(received_receipt).unwrap();
-        let retrieved_receipt_json = serde_json::to_value(retrieved_receipt).unwrap();
-
-        assert_eq!(received_receipt_json, retrieved_receipt_json);
+        assert_eq!(
+            received_receipt.signed_receipt().unique_hash(),
+            retrieved_receipt.signed_receipt().unique_hash(),
+        );
     }
 
     /// This function compares a local receipts vector filter by timestamp range (we assume that the stdlib
@@ -258,15 +250,15 @@ mod test {
     async fn retrieve_range_and_check<R: RangeBounds<u64> + Send>(
         storage_adapter: &TapAgentExecutor,
         escrow_accounts: &Eventual<EscrowAccounts>,
-        received_receipt_vec: &[(u64, ReceivedReceipt)],
+        received_receipt_vec: &[ReceivedReceipt],
         range: R,
     ) -> Result<()> {
         let escrow_accounts_snapshot = escrow_accounts.value().await.unwrap();
 
         // Filtering the received receipts by timestamp range
-        let received_receipt_vec: Vec<(u64, ReceivedReceipt)> = received_receipt_vec
+        let received_receipt_vec: Vec<ReceivedReceipt> = received_receipt_vec
             .iter()
-            .filter(|(_, received_receipt)| {
+            .filter(|received_receipt| {
                 range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
                     && (received_receipt.signed_receipt().message.allocation_id
                         == storage_adapter.allocation_id)
@@ -288,15 +280,8 @@ mod test {
             .retrieve_receipts_in_timestamp_range(range, None)
             .await?
             .into_iter()
-            .map(|stored_receipt| {
-                let mut receipt = serde_json::to_value(stored_receipt.receipt).unwrap();
-
-                // We set all query_id to 0 because we don't care about it in this test and it
-                // makes it easier.
-                receipt["query_id"] = Value::from(0u64);
-                (stored_receipt.receipt_id, receipt)
-            })
-            .collect::<Vec<(u64, Value)>>();
+            .map(|r| r.receipt.signed_receipt().unique_hash())
+            .collect::<Vec<_>>();
 
         // Check length
         assert_eq!(
@@ -306,9 +291,9 @@ mod test {
 
         // Checking that the receipts in recovered_received_receipt_vec are the same as
         // the ones in received_receipt_vec
-        assert!(received_receipt_vec.iter().all(|(id, received_receipt)| {
+        assert!(received_receipt_vec.iter().all(|received_receipt| {
             recovered_received_receipt_vec
-                .contains(&(*id, serde_json::to_value(received_receipt).unwrap()))
+                .contains(&received_receipt.signed_receipt().unique_hash())
         }));
         Ok(())
     }
@@ -381,7 +366,7 @@ mod test {
         assert_eq!(records.len(), received_receipt_vec.len());
 
         // Retrieving all receipts in DB (including irrelevant ones)
-        let recovered_received_receipt_set: Vec<Value> = records
+        let recovered_received_receipt_set: Vec<_> = records
             .into_iter()
             .map(|record| {
                 let signature = record.signature.as_slice().try_into().unwrap();
@@ -406,16 +391,14 @@ mod test {
                     },
                     signature,
                 };
-
-                let reveived_receipt = ReceivedReceipt::new(signed_receipt, 0, &[]);
-                serde_json::to_value(reveived_receipt).unwrap()
+                signed_receipt.unique_hash()
             })
             .collect();
 
         // Check values recovered_received_receipt_set contains values received_receipt_vec
         assert!(received_receipt_vec.iter().all(|(_, received_receipt)| {
             recovered_received_receipt_set
-                .contains(&serde_json::to_value(received_receipt).unwrap())
+                .contains(&received_receipt.signed_receipt().unique_hash())
         }));
 
         // Removing all the receipts in the DB
@@ -453,7 +436,6 @@ mod test {
             pgpool.clone(),
             *ALLOCATION_ID_0,
             SENDER.1,
-            vec![],
             escrow_accounts.clone(),
             EscrowAdapter::mock(),
             Arc::new(TimestampCheck::new(0)),
@@ -469,7 +451,6 @@ mod test {
                     i + 684,
                     i + 42,
                     (i + 124).into(),
-                    0,
                 )
                 .await,
             );
@@ -482,7 +463,6 @@ mod test {
                     i + 684,
                     i + 42,
                     (i + 124).into(),
-                    0,
                 )
                 .await,
             );
@@ -493,7 +473,6 @@ mod test {
                     i + 684,
                     i + 42,
                     (i + 124).into(),
-                    0,
                 )
                 .await,
             );
@@ -510,10 +489,6 @@ mod test {
         }
 
         // zip the 2 vectors together
-        let received_receipt_vec = received_receipt_id_vec
-            .into_iter()
-            .zip(received_receipt_vec.into_iter())
-            .collect::<Vec<_>>();
 
         macro_rules! test_ranges{
             ($($arg: expr), +) => {
@@ -599,7 +574,6 @@ mod test {
             pgpool,
             *ALLOCATION_ID_0,
             SENDER.1,
-            vec![],
             escrow_accounts.clone(),
             EscrowAdapter::mock(),
             Arc::new(TimestampCheck::new(0)),
@@ -615,7 +589,6 @@ mod test {
                     i + 684,
                     i + 42,
                     (i + 124).into(),
-                    0,
                 )
                 .await,
             );
@@ -628,7 +601,6 @@ mod test {
                     i + 684,
                     i + 42,
                     (i + 124).into(),
-                    0,
                 )
                 .await,
             );
@@ -639,7 +611,6 @@ mod test {
                     i + 684,
                     i + 42,
                     (i + 124).into(),
-                    0,
                 )
                 .await,
             );

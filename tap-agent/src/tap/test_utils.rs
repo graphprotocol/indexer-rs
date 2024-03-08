@@ -57,7 +57,6 @@ pub async fn create_received_receipt(
     nonce: u64,
     timestamp_ns: u64,
     value: u128,
-    query_id: u64,
 ) -> ReceivedReceipt {
     let receipt = EIP712SignedMessage::new(
         &TAP_EIP712_DOMAIN_SEPARATOR,
@@ -70,7 +69,7 @@ pub async fn create_received_receipt(
         signer_wallet,
     )
     .unwrap();
-    ReceivedReceipt::new(receipt, query_id, &[])
+    ReceivedReceipt::new(receipt)
 }
 
 /// Fixture to generate a RAV using the wallet from `keys()`

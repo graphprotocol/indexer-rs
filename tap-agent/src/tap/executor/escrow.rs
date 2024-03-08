@@ -27,4 +27,8 @@ impl EscrowAdapterTrait for TapAgentExecutor {
     async fn subtract_escrow(&self, sender: Address, value: u128) -> Result<(), AdapterError> {
         self.escrow_adapter.subtract_escrow(sender, value).await
     }
+
+    async fn verify_signer(&self, sender: Address) -> Result<bool, Self::AdapterError> {
+        self.escrow_adapter.verify_signer(sender).await
+    }
 }

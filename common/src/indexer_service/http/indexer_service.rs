@@ -22,7 +22,7 @@ use eventuals::Eventual;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
-use tap_core::tap_manager::Manager;
+use tap_core::{checks::Checks, tap_manager::Manager};
 use thegraph::types::Address;
 use thegraph::types::{Attestation, DeploymentId};
 use thiserror::Error;
@@ -297,7 +297,7 @@ impl IndexerService {
         )
         .await;
 
-        let tap_manager = Manager::new(domain_separator, indexer_executor, checks);
+        let tap_manager = Manager::new(domain_separator, indexer_executor, Checks::new(checks));
 
         let state = Arc::new(IndexerServiceState {
             config: options.config.clone(),

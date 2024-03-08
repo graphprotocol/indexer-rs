@@ -149,7 +149,6 @@ mod test {
             pool.clone(),
             *ALLOCATION_ID_0,
             SENDER.1,
-            vec![],
             Eventual::new().1,
             EscrowAdapter::mock(),
             Arc::new(TimestampCheck::new(0)),

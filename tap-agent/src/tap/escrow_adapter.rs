@@ -1,10 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use eventuals::Eventual;
@@ -25,14 +22,16 @@ use super::executor::AdapterError;
 #[derive(Clone)]
 pub struct EscrowAdapter {
     escrow_accounts: Eventual<EscrowAccounts>,
-    sender_pending_fees: Arc<RwLock<HashMap<Address, u128>>>,
+    sender_id: Address,
+    sender_pending_fees: Arc<RwLock<u128>>,
 }
 
 impl EscrowAdapter {
-    pub fn new(escrow_accounts: Eventual<EscrowAccounts>) -> Self {
+    pub fn new(escrow_accounts: Eventual<EscrowAccounts>, sender_id: Address) -> Self {
         Self {
             escrow_accounts,
-            sender_pending_fees: Arc::new(RwLock::new(HashMap::new())),
+            sender_pending_fees: Arc::new(RwLock::new(0)),
+            sender_id,
         }
     }
 }
@@ -53,13 +52,7 @@ impl EscrowAdapterTrait for EscrowAdapter {
                 sender: sender.to_owned(),
             })?;
 
-        let fees = self
-            .sender_pending_fees
-            .read()
-            .unwrap()
-            .get(&sender)
-            .copied()
-            .unwrap_or(0);
+        let fees = *self.sender_pending_fees.read().unwrap();
         Ok(balance - fees)
     }
 
@@ -70,8 +63,7 @@ impl EscrowAdapterTrait for EscrowAdapter {
 
         let sender = escrow_accounts.get_sender_for_signer(&sender)?;
 
-        let mut fees_write = self.sender_pending_fees.write().unwrap();
-        let fees = fees_write.entry(sender.to_owned()).or_insert(0);
+        let mut fees = self.sender_pending_fees.write().unwrap();
         if current_available_escrow < value {
             return Err(AdapterError::NotEnoughEscrow {
                 sender: sender.to_owned(),
@@ -82,11 +74,27 @@ impl EscrowAdapterTrait for EscrowAdapter {
         *fees += value;
         Ok(())
     }
+
+    async fn verify_signer(&self, signer: Address) -> Result<bool, Self::AdapterError> {
+        let escrow_account =
+            self.escrow_accounts
+                .value()
+                .await
+                .map_err(|_| AdapterError::ValidationError {
+                    error: "Could not load escrow_accounts eventual".into(),
+                })?;
+        let sender = escrow_account.get_sender_for_signer(&signer).map_err(|_| {
+            AdapterError::ValidationError {
+                error: format!("Could not find the sender for the signer {}", signer),
+            }
+        })?;
+        Ok(sender == self.sender_id)
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use std::vec;
+    use std::{collections::HashMap, vec};
 
     use crate::tap::test_utils::{SENDER, SIGNER};
 
@@ -100,7 +108,8 @@ mod test {
             ));
             Self {
                 escrow_accounts,
-                sender_pending_fees: Arc::new(RwLock::new(HashMap::new())),
+                sender_pending_fees: Arc::new(RwLock::new(0)),
+                sender_id: Address::ZERO,
             }
         }
     }
@@ -112,12 +121,12 @@ mod test {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let sender_pending_fees = Arc::new(RwLock::new(HashMap::new()));
-        sender_pending_fees.write().unwrap().insert(SENDER.1, 500);
+        let sender_pending_fees = Arc::new(RwLock::new(500));
 
         let adapter = EscrowAdapter {
             escrow_accounts,
             sender_pending_fees,
+            sender_id: Address::ZERO,
         };
         adapter
             .subtract_escrow(SIGNER.1, 500)
@@ -137,12 +146,12 @@ mod test {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let sender_pending_fees = Arc::new(RwLock::new(HashMap::new()));
-        sender_pending_fees.write().unwrap().insert(SENDER.1, 500);
+        let sender_pending_fees = Arc::new(RwLock::new(500));
 
         let adapter = EscrowAdapter {
             escrow_accounts,
             sender_pending_fees,
+            sender_id: Address::ZERO,
         };
         adapter
             .subtract_escrow(SIGNER.1, 250)

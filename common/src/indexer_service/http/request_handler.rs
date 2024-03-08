@@ -53,7 +53,7 @@ where
         // TODO update checks
         state
             .tap_manager
-            .verify_and_store_receipt(receipt, 0, &[])
+            .verify_and_store_receipt(receipt)
             .await
             .map_err(IndexerServiceError::ReceiptError)?;
 

@@ -243,11 +243,12 @@ impl SenderAccount {
         sender_id: Address,
         escrow_accounts: Eventual<EscrowAccounts>,
         escrow_subgraph: &'static SubgraphClient,
-        escrow_adapter: EscrowAdapter,
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoint: String,
     ) -> Self {
         let unaggregated_receipts_guard = Arc::new(TokioMutex::new(()));
+
+        let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone(), sender_id);
 
         let inner = Arc::new(Inner {
             config,
@@ -499,15 +500,12 @@ mod tests {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let escrow_adapter = EscrowAdapter::new(escrow_accounts_eventual.clone());
-
         let sender = SenderAccount::new(
             config,
             pgpool,
             SENDER.1,
             escrow_accounts_eventual,
             escrow_subgraph,
-            escrow_adapter,
             TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             sender_aggregator_endpoint,
         );
@@ -534,7 +532,7 @@ mod tests {
         let mut expected_unaggregated_fees = 0u128;
         for i in 10..20 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into()).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
@@ -720,7 +718,7 @@ mod tests {
             let value = (i + 10) as u128;
 
             let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, value, i).await;
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, value).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
@@ -810,7 +808,7 @@ mod tests {
             let value = (i + 10) as u128;
 
             let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into()).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();

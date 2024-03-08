@@ -10,7 +10,6 @@ use anyhow::Result;
 use ethers_core::types::U256;
 use eventuals::{timer, Eventual, EventualExt};
 use serde::Deserialize;
-use tap_core::checks::CheckError;
 use thegraph::types::Address;
 use thiserror::Error;
 use tokio::time::sleep;
@@ -26,12 +25,6 @@ pub enum EscrowAccountsError {
     NoBalanceFound { sender: Address },
     #[error("No sender found for signer {signer}")]
     NoSenderFound { signer: Address },
-}
-
-impl From<EscrowAccountsError> for CheckError {
-    fn from(value: EscrowAccountsError) -> Self {
-        Self(value.to_string())
-    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

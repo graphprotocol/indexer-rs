@@ -1,5 +1,4 @@
 use alloy_primitives::Address;
-use tap_core::checks::CheckError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AdapterError {
@@ -33,10 +32,4 @@ pub enum AdapterError {
 
     #[error("Error while validating receipts: {error}")]
     ValidationError { error: String },
-}
-
-impl From<AdapterError> for CheckError {
-    fn from(value: AdapterError) -> Self {
-        Self(value.to_string())
-    }
 }

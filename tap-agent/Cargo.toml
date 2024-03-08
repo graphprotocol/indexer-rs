@@ -33,8 +33,8 @@ sqlx = { version = "0.7.2", features = [
     "rust_decimal",
     "chrono",
 ] }
-tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "9400ad9" }
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "9400ad9" }
+tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "fbdd328" }
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "fbdd328" }
 thiserror = "1.0.44"
 tokio = { version = "1.33.0" }
 thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }

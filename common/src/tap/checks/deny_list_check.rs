@@ -4,31 +4,21 @@
 use crate::escrow_accounts::EscrowAccounts;
 use alloy_sol_types::Eip712Domain;
 use eventuals::Eventual;
-use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
 use std::collections::HashSet;
-use std::fmt::Debug;
 use std::sync::RwLock;
 use std::{str::FromStr, sync::Arc};
-use tap_core::checks::{Check, CheckError, CheckResult};
+use tap_core::checks::{Check, CheckResult};
 use tap_core::tap_receipt::{Checking, ReceiptWithState};
 use thegraph::types::Address;
 use tracing::error;
 
-#[derive(Serialize, Deserialize)]
 pub struct DenyListCheck {
-    #[serde[skip]]
-    #[serde(default = "super::default_eventual")]
     escrow_accounts: Eventual<EscrowAccounts>,
-    #[serde[skip]]
     domain_separator: Eip712Domain,
-
-    #[serde[skip]]
     sender_denylist: Arc<RwLock<HashSet<Address>>>,
-    #[serde[skip]]
     _sender_denylist_watcher_handle: Option<Arc<tokio::task::JoinHandle<()>>>,
-    #[serde[skip]]
     sender_denylist_watcher_cancel_token: tokio_util::sync::CancellationToken,
 }
 
@@ -152,22 +142,14 @@ impl DenyListCheck {
     }
 }
 
-impl Debug for DenyListCheck {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DenyListCheck").finish()
-    }
-}
-
 #[async_trait::async_trait]
-#[typetag::serde]
 impl Check for DenyListCheck {
-    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult<()> {
+    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult {
         let receipt_signer = receipt
             .signed_receipt()
             .recover_signer(&self.domain_separator)
-            .map_err(|e| {
+            .inspect_err(|e| {
                 error!("Failed to recover receipt signer: {}", e);
-                CheckError(e.to_string())
             })?;
         let escrow_accounts_snapshot = self.escrow_accounts.value_immediate().unwrap_or_default();
 
@@ -180,10 +162,10 @@ impl Check for DenyListCheck {
             .unwrap()
             .contains(&receipt_sender)
         {
-            return Err(CheckError(format!(
+            return Err(anyhow::anyhow!(
                 "Received a receipt from a denylisted sender: {}",
                 receipt_signer
-            )));
+            ));
         }
 
         Ok(())
@@ -246,7 +228,7 @@ mod tests {
 
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
-        let checking_receipt = ReceivedReceipt::new(signed_receipt, 0, &[]);
+        let checking_receipt = ReceivedReceipt::new(signed_receipt);
         let ReceivedReceipt::Checking(checking_receipt) = checking_receipt else {
             unreachable!()
         };
@@ -264,7 +246,7 @@ mod tests {
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
         // Check that the receipt is valid
-        let checking_receipt = ReceivedReceipt::new(signed_receipt, 0, &[]);
+        let checking_receipt = ReceivedReceipt::new(signed_receipt);
         let ReceivedReceipt::Checking(checking_receipt) = checking_receipt else {
             unreachable!()
         };

@@ -13,9 +13,10 @@ use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
+use serde_json::json;
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
-use tap_core::checks::{Check, TimestampCheck};
+use tap_core::checks::{Check, Checks, TimestampCheck};
 use tap_core::{
     eip_712_signed_message::EIP712SignedMessage,
     receipt_aggregate_voucher::ReceiptAggregateVoucher, tap_manager::RAVRequest,
@@ -63,7 +64,7 @@ impl SenderAllocation {
         sender_aggregator_endpoint: String,
     ) -> Self {
         let timestamp_check = Arc::new(TimestampCheck::new(0));
-        let required_checks: Vec<Arc<dyn Check>> = vec![
+        let required_checks: Vec<Arc<dyn Check + Send + Sync>> = vec![
             timestamp_check.clone(),
             Arc::new(AllocationId::new(
                 sender,
@@ -80,7 +81,6 @@ impl SenderAllocation {
             pgpool.clone(),
             allocation_id,
             sender,
-            required_checks.clone(),
             escrow_accounts.clone(),
             escrow_adapter,
             timestamp_check,
@@ -88,7 +88,7 @@ impl SenderAllocation {
         let tap_manager = TapManager::new(
             tap_eip712_domain_separator.clone(),
             executor,
-            required_checks,
+            Checks::new(required_checks),
         );
 
         let sender_allocation = Self {
@@ -244,30 +244,9 @@ impl SenderAllocation {
         if let Some(warnings) = response.warnings {
             warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
         }
-        let escrow_accounts = self.escrow_accounts.clone();
-        let expected_sender = self.sender;
         match self
             .tap_manager
-            .verify_and_store_rav(
-                expected_rav.clone(),
-                response.data.clone(),
-                |signer| async move {
-                    let escrow_account = escrow_accounts.value().await.map_err(|_| {
-                        tap_core::Error::InvalidCheckError {
-                            check_string: "Could not load escrow_accounts eventual".into(),
-                        }
-                    })?;
-                    let sender = escrow_account.get_sender_for_signer(&signer).map_err(|_| {
-                        tap_core::Error::InvalidCheckError {
-                            check_string: format!(
-                                "Could not find the sender for the signer {}",
-                                signer
-                            ),
-                        }
-                    })?;
-                    Ok(sender == expected_sender)
-                },
-            )
+            .verify_and_store_rav(expected_rav.clone(), response.data.clone())
             .await
         {
             Ok(_) => {}
@@ -343,7 +322,10 @@ impl SenderAllocation {
                 BigDecimal::from(BigInt::from(
                     received_receipt.signed_receipt().message.value
                 )),
-                serde_json::to_value(received_receipt)?
+                // TODO update this
+                json! ({
+                    "test": "test"
+                })
             )
             .execute(&self.pgpool)
             .await
@@ -480,7 +462,7 @@ mod tests {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let escrow_adapter = EscrowAdapter::new(escrow_accounts_eventual.clone());
+        let escrow_adapter = EscrowAdapter::new(escrow_accounts_eventual.clone(), Address::ZERO);
 
         SenderAllocation::new(
             config,
@@ -509,7 +491,7 @@ mod tests {
         // Add receipts to the database.
         for i in 1..10 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into()).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
@@ -545,7 +527,7 @@ mod tests {
         // Add receipts to the database.
         for i in 1..10 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into()).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
@@ -602,7 +584,7 @@ mod tests {
         // Add receipts to the database.
         for i in 0..10 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into()).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();

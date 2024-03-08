@@ -34,8 +34,7 @@ thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0
 graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-http-v0.2.1", features = [
   "http-reqwest",
 ] }
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "9400ad9" }
-typetag = "0.2.14"
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "fbdd328" }
 axum = { version = "0.6.20", default_features = true, features = ["headers"] }
 thiserror = "1.0.49"
 async-trait = "0.1.74"
