@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
-use tap_core::adapters::escrow_adapter::EscrowAdapter as EscrowAdapterTrait;
+use tap_core::manager::adapters::EscrowHandler as EscrowAdapterTrait;
 use thegraph::types::Address;
 
 use super::executor::AdapterError;

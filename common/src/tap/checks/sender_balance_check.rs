@@ -6,8 +6,10 @@ use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use ethers_core::types::U256;
 use eventuals::Eventual;
-use tap_core::checks::{Check, CheckResult};
-use tap_core::tap_receipt::{Checking, ReceiptWithState};
+use tap_core::receipt::{
+    checks::{Check, CheckResult},
+    Checking, ReceiptWithState,
+};
 use tracing::error;
 
 pub struct SenderBalanceCheck {

@@ -5,8 +5,10 @@ use alloy_primitives::hex::ToHex;
 use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
 use sqlx::types::BigDecimal;
-use tap_core::adapters::receipt_storage_adapter::ReceiptStore;
-use tap_core::tap_receipt::ReceivedReceipt;
+use tap_core::{
+    manager::adapters::ReceiptStore,
+    receipt::{Checking, ReceiptWithState},
+};
 use tracing::error;
 
 use super::{AdapterError, IndexerExecutor};
@@ -15,7 +17,10 @@ use super::{AdapterError, IndexerExecutor};
 impl ReceiptStore for IndexerExecutor {
     type AdapterError = AdapterError;
 
-    async fn store_receipt(&self, receipt: ReceivedReceipt) -> Result<u64, Self::AdapterError> {
+    async fn store_receipt(
+        &self,
+        receipt: ReceiptWithState<Checking>,
+    ) -> Result<u64, Self::AdapterError> {
         let receipt = receipt.signed_receipt();
         let allocation_id = receipt.message.allocation_id;
         let encoded_signature = receipt.signature.to_vec();

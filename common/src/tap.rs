@@ -10,7 +10,7 @@ use eventuals::Eventual;
 use sqlx::PgPool;
 use std::fmt::Debug;
 use std::{collections::HashMap, sync::Arc};
-use tap_core::checks::ReceiptCheck;
+use tap_core::receipt::checks::ReceiptCheck;
 use thegraph::types::Address;
 use tracing::error;
 

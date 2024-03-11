@@ -8,7 +8,8 @@ use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer
 use ethers_core::types::U256;
 use lazy_static::lazy_static;
 use tap_core::{
-    eip_712_signed_message::EIP712SignedMessage, tap_manager::SignedReceipt, tap_receipt::Receipt,
+    receipt::{Receipt, SignedReceipt},
+    signed_message::EIP712SignedMessage,
 };
 use thegraph::types::Address;
 use thegraph::types::DeploymentId;

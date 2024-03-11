@@ -9,8 +9,10 @@ use sqlx::PgPool;
 use std::collections::HashSet;
 use std::sync::RwLock;
 use std::{str::FromStr, sync::Arc};
-use tap_core::checks::{Check, CheckResult};
-use tap_core::tap_receipt::{Checking, ReceiptWithState};
+use tap_core::receipt::{
+    checks::{Check, CheckResult},
+    Checking, ReceiptWithState,
+};
 use thegraph::types::Address;
 use tracing::error;
 
@@ -185,7 +187,7 @@ mod tests {
     use std::str::FromStr;
 
     use alloy_primitives::hex::ToHex;
-    use tap_core::tap_receipt::ReceivedReceipt;
+    use tap_core::receipt::ReceiptWithState;
 
     use crate::test_vectors::{self, create_signed_receipt, TAP_SENDER};
 
@@ -228,10 +230,7 @@ mod tests {
 
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
-        let checking_receipt = ReceivedReceipt::new(signed_receipt);
-        let ReceivedReceipt::Checking(checking_receipt) = checking_receipt else {
-            unreachable!()
-        };
+        let checking_receipt = ReceiptWithState::new(signed_receipt);
 
         // Check that the receipt is rejected
         assert!(deny_list_check.check(&checking_receipt).await.is_err());
@@ -246,10 +245,7 @@ mod tests {
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
         // Check that the receipt is valid
-        let checking_receipt = ReceivedReceipt::new(signed_receipt);
-        let ReceivedReceipt::Checking(checking_receipt) = checking_receipt else {
-            unreachable!()
-        };
+        let checking_receipt = ReceiptWithState::new(signed_receipt);
 
         deny_list_check.check(&checking_receipt).await.unwrap();
 

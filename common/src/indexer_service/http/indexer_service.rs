@@ -22,7 +22,7 @@ use eventuals::Eventual;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
-use tap_core::{checks::Checks, tap_manager::Manager};
+use tap_core::{manager::Manager, receipt::checks::Checks};
 use thegraph::types::Address;
 use thegraph::types::{Attestation, DeploymentId};
 use thiserror::Error;

@@ -11,10 +11,9 @@ use alloy_primitives::hex::ToHex;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use sqlx::{postgres::types::PgRange, types::BigDecimal};
 use tap_core::{
-    adapters::receipt_storage_adapter::{ReceiptDelete, ReceiptRead, StoredReceipt},
-    tap_receipt::Receipt,
+    manager::adapters::{ReceiptDelete, ReceiptRead},
+    receipt::{Checking, Receipt, ReceiptWithState, SignedReceipt},
 };
-use tap_core::{tap_manager::SignedReceipt, tap_receipt::ReceivedReceipt};
 use thegraph::types::Address;
 
 use crate::tap::signers_trimmed;
@@ -82,7 +81,7 @@ impl ReceiptRead for TapAgentExecutor {
         timestamp_range_ns: R,
         // TODO: Make use of this limit in this function
         _receipts_limit: Option<u64>,
-    ) -> Result<Vec<StoredReceipt>, Self::AdapterError> {
+    ) -> Result<Vec<ReceiptWithState<Checking>>, Self::AdapterError> {
         let signers = signers_trimmed(&self.escrow_accounts, self.sender)
             .await
             .map_err(|e| AdapterError::ReceiptRead {
@@ -105,7 +104,6 @@ impl ReceiptRead for TapAgentExecutor {
         records
             .into_iter()
             .map(|record| {
-                let receipt_id: u64 = record.id.try_into()?;
                 let signature = record.signature.as_slice().try_into()
                     .map_err(|e| AdapterError::ReceiptRead {
                         error: format!(
@@ -147,9 +145,8 @@ impl ReceiptRead for TapAgentExecutor {
                     signature,
                 };
 
-                let receipt =
-                    ReceivedReceipt::new(signed_receipt);
-                Ok(StoredReceipt {receipt_id, receipt})
+                Ok(ReceiptWithState::new(signed_receipt))
+
             })
             .collect()
     }
@@ -202,7 +199,7 @@ mod test {
     use eventuals::Eventual;
     use indexer_common::escrow_accounts::EscrowAccounts;
     use sqlx::PgPool;
-    use tap_core::checks::TimestampCheck;
+    use tap_core::receipt::checks::TimestampCheck;
 
     /// Insert a single receipt and retrieve it from the database using the adapter.
     /// The point here it to test the deserialization of large numbers.
@@ -235,7 +232,6 @@ mod test {
             .retrieve_receipts_in_timestamp_range(.., None)
             .await
             .unwrap()[0]
-            .receipt
             .clone();
 
         assert_eq!(
@@ -250,13 +246,13 @@ mod test {
     async fn retrieve_range_and_check<R: RangeBounds<u64> + Send>(
         storage_adapter: &TapAgentExecutor,
         escrow_accounts: &Eventual<EscrowAccounts>,
-        received_receipt_vec: &[ReceivedReceipt],
+        received_receipt_vec: &[ReceiptWithState<Checking>],
         range: R,
     ) -> Result<()> {
         let escrow_accounts_snapshot = escrow_accounts.value().await.unwrap();
 
         // Filtering the received receipts by timestamp range
-        let received_receipt_vec: Vec<ReceivedReceipt> = received_receipt_vec
+        let received_receipt_vec: Vec<ReceiptWithState<Checking>> = received_receipt_vec
             .iter()
             .filter(|received_receipt| {
                 range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
@@ -280,7 +276,7 @@ mod test {
             .retrieve_receipts_in_timestamp_range(range, None)
             .await?
             .into_iter()
-            .map(|r| r.receipt.signed_receipt().unique_hash())
+            .map(|r| r.signed_receipt().unique_hash())
             .collect::<Vec<_>>();
 
         // Check length
@@ -301,7 +297,7 @@ mod test {
     async fn remove_range_and_check<R: RangeBounds<u64> + Send>(
         storage_adapter: &TapAgentExecutor,
         escrow_accounts: &Eventual<EscrowAccounts>,
-        received_receipt_vec: &[ReceivedReceipt],
+        received_receipt_vec: &[ReceiptWithState<Checking>],
         range: R,
     ) -> Result<()> {
         let escrow_accounts_snapshot = escrow_accounts.value().await.unwrap();
@@ -324,7 +320,7 @@ mod test {
 
         // Remove the received receipts by timestamp range for the correct (allocation_id,
         // sender)
-        let received_receipt_vec: Vec<(u64, &ReceivedReceipt)> = received_receipt_vec
+        let received_receipt_vec: Vec<(u64, &ReceiptWithState<Checking>)> = received_receipt_vec
             .iter()
             .filter(|(_, received_receipt)| {
                 if (received_receipt.signed_receipt().message.allocation_id

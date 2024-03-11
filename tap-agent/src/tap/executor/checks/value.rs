@@ -5,9 +5,11 @@ use std::{
 
 use anyhow::anyhow;
 use tap_core::{
-    checks::{Check, CheckResult},
-    eip_712_signed_message::MessageId,
-    tap_receipt::{Checking, ReceiptWithState},
+    receipt::{
+        checks::{Check, CheckResult},
+        Checking, ReceiptWithState,
+    },
+    signed_message::MessageId,
 };
 
 use crate::tap::executor::error::AdapterError;

@@ -15,11 +15,13 @@ use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
-use tap_core::checks::{Check, Checks, TimestampCheck};
 use tap_core::{
-    eip_712_signed_message::EIP712SignedMessage,
-    receipt_aggregate_voucher::ReceiptAggregateVoucher, tap_manager::RAVRequest,
-    tap_receipt::ReceivedReceipt,
+    rav::{RAVRequest, ReceiptAggregateVoucher},
+    receipt::{
+        checks::{Check, Checks, TimestampCheck},
+        Failed, ReceiptWithState,
+    },
+    signed_message::EIP712SignedMessage,
 };
 use thegraph::types::Address;
 use tokio::sync::Mutex as TokioMutex;
@@ -33,7 +35,7 @@ use crate::{
 use super::executor::{checks::Signature, TapAgentExecutor};
 use super::{escrow_adapter::EscrowAdapter, executor::checks::AllocationId};
 
-type TapManager = tap_core::tap_manager::Manager<TapAgentExecutor>;
+type TapManager = tap_core::manager::Manager<TapAgentExecutor>;
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 pub struct SenderAllocation {
@@ -217,15 +219,7 @@ impl SenderAllocation {
 
             // Save invalid receipts to the database for logs.
             // TODO: consider doing that in a spawned task?
-            Self::store_invalid_receipts(
-                self,
-                invalid_receipts
-                    .into_iter()
-                    .map(|invalid| invalid.into())
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            )
-            .await?;
+            Self::store_invalid_receipts(self, invalid_receipts.as_slice()).await?;
         }
         let client = HttpClientBuilder::default()
             .request_timeout(Duration::from_secs(
@@ -304,7 +298,7 @@ impl SenderAllocation {
         Ok(())
     }
 
-    async fn store_invalid_receipts(&self, receipts: &[ReceivedReceipt]) -> Result<()> {
+    async fn store_invalid_receipts(&self, receipts: &[ReceiptWithState<Failed>]) -> Result<()> {
         for received_receipt in receipts.iter() {
             let receipt = received_receipt.signed_receipt();
             let allocation_id = receipt.message.allocation_id;

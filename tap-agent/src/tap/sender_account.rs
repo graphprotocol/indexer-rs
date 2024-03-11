@@ -417,10 +417,7 @@ mod tests {
     use serde_json::json;
     use std::str::FromStr;
     use tap_aggregator::server::run_server;
-    use tap_core::{
-        eip_712_signed_message::EIP712SignedMessage,
-        receipt_aggregate_voucher::ReceiptAggregateVoucher,
-    };
+    use tap_core::{rav::ReceiptAggregateVoucher, signed_message::EIP712SignedMessage};
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockServer, ResponseTemplate,

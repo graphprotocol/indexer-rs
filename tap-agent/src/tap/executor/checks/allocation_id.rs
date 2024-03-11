@@ -4,9 +4,9 @@ use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt};
 use indexer_common::subgraph_client::{Query, SubgraphClient};
-use tap_core::{
+use tap_core::receipt::{
     checks::{Check, CheckResult},
-    tap_receipt::{Checking, ReceiptWithState},
+    Checking, ReceiptWithState,
 };
 use tokio::time::sleep;
 use tracing::error;

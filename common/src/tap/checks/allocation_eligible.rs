@@ -3,9 +3,10 @@ use std::collections::HashMap;
 use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::Eventual;
-use tap_core::{
+
+use tap_core::receipt::{
     checks::{Check, CheckResult},
-    tap_receipt::{Checking, ReceiptWithState},
+    Checking, ReceiptWithState,
 };
 
 use crate::prelude::Allocation;

@@ -4,7 +4,7 @@ use alloy_primitives::Address;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use sqlx::PgPool;
-use tap_core::checks::TimestampCheck;
+use tap_core::receipt::checks::TimestampCheck;
 
 use super::escrow_adapter::EscrowAdapter;
 

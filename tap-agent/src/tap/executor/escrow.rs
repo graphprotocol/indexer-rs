@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use async_trait::async_trait;
-use tap_core::adapters::escrow_adapter::EscrowAdapter as EscrowAdapterTrait;
+use tap_core::manager::adapters::EscrowHandler as EscrowAdapterTrait;
 use thegraph::types::Address;
 
 use super::{error::AdapterError, TapAgentExecutor};

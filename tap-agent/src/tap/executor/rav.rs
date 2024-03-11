@@ -9,9 +9,8 @@ use bigdecimal::num_bigint::{BigInt, ToBigInt};
 use bigdecimal::ToPrimitive;
 use sqlx::types::{chrono, BigDecimal};
 use tap_core::{
-    adapters::rav_storage_adapter::{RAVRead, RAVStore},
-    receipt_aggregate_voucher::ReceiptAggregateVoucher,
-    tap_manager::SignedRAV,
+    manager::adapters::{RAVRead, RAVStore},
+    rav::{ReceiptAggregateVoucher, SignedRAV},
 };
 
 #[async_trait::async_trait]
@@ -133,7 +132,7 @@ mod test {
 
     use eventuals::Eventual;
     use sqlx::PgPool;
-    use tap_core::checks::TimestampCheck;
+    use tap_core::receipt::checks::TimestampCheck;
 
     use super::*;
     use crate::tap::{

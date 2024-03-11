@@ -3,9 +3,9 @@ use anyhow::anyhow;
 use ethereum_types::U256;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
-use tap_core::{
+use tap_core::receipt::{
     checks::{Check, CheckResult},
-    tap_receipt::{Checking, ReceiptWithState},
+    Checking, ReceiptWithState,
 };
 
 use crate::tap::executor::error::AdapterError;
