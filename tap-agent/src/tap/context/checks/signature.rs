@@ -1,3 +1,6 @@
+// Copyright 2023-, GraphOps and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use ethereum_types::U256;
