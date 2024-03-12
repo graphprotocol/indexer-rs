@@ -286,7 +286,7 @@ impl IndexerService {
             chain_id: options.config.scalar.chain_id,
             verifying_contract: options.config.scalar.receipts_verifier_address,
         };
-        let indexer_executor =
+        let indexer_context =
             IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
 
         let checks = IndexerTapContext::get_checks(
@@ -297,7 +297,7 @@ impl IndexerService {
         )
         .await;
 
-        let tap_manager = Manager::new(domain_separator, indexer_executor, Checks::new(checks));
+        let tap_manager = Manager::new(domain_separator, indexer_context, Checks::new(checks));
 
         let state = Arc::new(IndexerServiceState {
             config: options.config.clone(),

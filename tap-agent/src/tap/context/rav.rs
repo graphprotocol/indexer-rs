@@ -139,7 +139,7 @@ mod test {
     async fn update_and_retrieve_rav(pool: PgPool) {
         let timestamp_ns = u64::MAX - 10;
         let value_aggregate = u128::MAX;
-        let executor = TapAgentContext::new(
+        let context = TapAgentContext::new(
             pool.clone(),
             *ALLOCATION_ID_0,
             SENDER.1,
@@ -155,11 +155,11 @@ mod test {
             value_aggregate,
         )
         .await;
-        executor.update_last_rav(new_rav.clone()).await.unwrap();
+        context.update_last_rav(new_rav.clone()).await.unwrap();
 
         // Should trigger a retrieve_last_rav So eventually the last rav should be the one
         // we inserted
-        let last_rav = executor.last_rav().await.unwrap();
+        let last_rav = context.last_rav().await.unwrap();
         assert_eq!(new_rav, last_rav.unwrap());
 
         // Update the RAV 3 times in quick succession
@@ -171,11 +171,11 @@ mod test {
                 value_aggregate - (i as u128),
             )
             .await;
-            executor.update_last_rav(new_rav.clone()).await.unwrap();
+            context.update_last_rav(new_rav.clone()).await.unwrap();
         }
 
         // Check that the last rav is the last one we inserted
-        let last_rav = executor.last_rav().await.unwrap();
+        let last_rav = context.last_rav().await.unwrap();
         assert_eq!(new_rav, last_rav.unwrap());
     }
 }
