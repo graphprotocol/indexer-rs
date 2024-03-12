@@ -310,7 +310,14 @@ impl SenderAllocation {
 
             sqlx::query!(
                 r#"
-                    INSERT INTO scalar_tap_receipts_invalid (signer_address, signature, allocation_id, timestamp_ns, nonce, value)
+                    INSERT INTO scalar_tap_receipts_invalid (
+                        signer_address,
+                        signature,
+                        allocation_id,
+                        timestamp_ns,
+                        nonce,
+                        value
+                    )
                     VALUES ($1, $2, $3, $4, $5, $6)
                 "#,
                 receipt_signer.encode_hex::<String>(),
