@@ -40,10 +40,10 @@ impl EscrowAdapter {
 impl EscrowAdapterTrait for EscrowAdapter {
     type AdapterError = AdapterError;
 
-    async fn get_available_escrow(&self, sender: Address) -> Result<u128, AdapterError> {
+    async fn get_available_escrow(&self, signer: Address) -> Result<u128, AdapterError> {
         let escrow_accounts = self.escrow_accounts.value().await?;
 
-        let sender = escrow_accounts.get_sender_for_signer(&sender)?;
+        let sender = escrow_accounts.get_sender_for_signer(&signer)?;
 
         let balance = escrow_accounts.get_balance_for_sender(&sender)?.to_owned();
         let balance: u128 = balance
@@ -56,12 +56,12 @@ impl EscrowAdapterTrait for EscrowAdapter {
         Ok(balance - fees)
     }
 
-    async fn subtract_escrow(&self, sender: Address, value: u128) -> Result<(), AdapterError> {
+    async fn subtract_escrow(&self, signer: Address, value: u128) -> Result<(), AdapterError> {
         let escrow_accounts = self.escrow_accounts.value().await?;
 
-        let current_available_escrow = self.get_available_escrow(sender).await?;
+        let current_available_escrow = self.get_available_escrow(signer).await?;
 
-        let sender = escrow_accounts.get_sender_for_signer(&sender)?;
+        let sender = escrow_accounts.get_sender_for_signer(&signer)?;
 
         let mut fees = self.sender_pending_fees.write().unwrap();
         if current_available_escrow < value {

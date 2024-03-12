@@ -20,15 +20,15 @@ impl From<eventuals::error::Closed> for AdapterError {
 impl EscrowAdapterTrait for TapAgentContext {
     type AdapterError = AdapterError;
 
-    async fn get_available_escrow(&self, sender: Address) -> Result<u128, AdapterError> {
-        self.escrow_adapter.get_available_escrow(sender).await
+    async fn get_available_escrow(&self, signer: Address) -> Result<u128, AdapterError> {
+        self.escrow_adapter.get_available_escrow(signer).await
     }
 
-    async fn subtract_escrow(&self, sender: Address, value: u128) -> Result<(), AdapterError> {
-        self.escrow_adapter.subtract_escrow(sender, value).await
+    async fn subtract_escrow(&self, signer: Address, value: u128) -> Result<(), AdapterError> {
+        self.escrow_adapter.subtract_escrow(signer, value).await
     }
 
-    async fn verify_signer(&self, sender: Address) -> Result<bool, Self::AdapterError> {
-        self.escrow_adapter.verify_signer(sender).await
+    async fn verify_signer(&self, signer: Address) -> Result<bool, Self::AdapterError> {
+        self.escrow_adapter.verify_signer(signer).await
     }
 }
