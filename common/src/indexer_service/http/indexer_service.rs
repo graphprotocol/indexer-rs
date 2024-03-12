@@ -40,7 +40,7 @@ use crate::{
         attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
         AttestationSigner, DeploymentDetails, SubgraphClient,
     },
-    tap::IndexerExecutor,
+    tap::IndexerTapContext,
 };
 
 use super::{request_handler::request_handler, IndexerServiceConfig};
@@ -180,7 +180,7 @@ where
 {
     pub config: IndexerServiceConfig,
     pub attestation_signers: Eventual<HashMap<Address, AttestationSigner>>,
-    pub tap_manager: Manager<IndexerExecutor>,
+    pub tap_manager: Manager<IndexerTapContext>,
     pub service_impl: Arc<I>,
     pub metrics: IndexerServiceMetrics,
 }
@@ -287,9 +287,9 @@ impl IndexerService {
             verifying_contract: options.config.scalar.receipts_verifier_address,
         };
         let indexer_executor =
-            IndexerExecutor::new(database.clone(), domain_separator.clone()).await;
+            IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
 
-        let checks = IndexerExecutor::get_checks(
+        let checks = IndexerTapContext::get_checks(
             database,
             allocations,
             escrow_accounts,

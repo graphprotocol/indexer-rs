@@ -18,7 +18,7 @@ mod checks;
 mod receipt_store;
 
 #[derive(Clone)]
-pub struct IndexerExecutor {
+pub struct IndexerTapContext {
     pgpool: PgPool,
     domain_separator: Arc<Eip712Domain>,
 }
@@ -29,7 +29,7 @@ pub enum AdapterError {
     AnyhowError(#[from] anyhow::Error),
 }
 
-impl IndexerExecutor {
+impl IndexerTapContext {
     pub async fn get_checks(
         pgpool: PgPool,
         indexer_allocations: Eventual<HashMap<Address, Allocation>>,

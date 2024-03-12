@@ -26,5 +26,5 @@ pub mod prelude {
     pub use super::escrow_accounts::escrow_accounts;
     pub use super::indexer_errors;
     pub use super::subgraph_client::{DeploymentDetails, Query, QueryVariables, SubgraphClient};
-    pub use super::tap::IndexerExecutor;
+    pub use super::tap::IndexerTapContext;
 }

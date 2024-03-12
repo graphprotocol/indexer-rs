@@ -11,10 +11,10 @@ use tap_core::{
 };
 use tracing::error;
 
-use super::{AdapterError, IndexerExecutor};
+use super::{AdapterError, IndexerTapContext};
 
 #[async_trait::async_trait]
-impl ReceiptStore for IndexerExecutor {
+impl ReceiptStore for IndexerTapContext {
     type AdapterError = AdapterError;
 
     async fn store_receipt(
