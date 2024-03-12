@@ -77,7 +77,7 @@ impl SenderAllocation {
                 escrow_accounts.clone(),
             )),
         ];
-        let executor = TapAgentContext::new(
+        let context = TapAgentContext::new(
             pgpool.clone(),
             allocation_id,
             sender,
@@ -86,7 +86,7 @@ impl SenderAllocation {
         );
         let tap_manager = TapManager::new(
             tap_eip712_domain_separator.clone(),
-            executor,
+            context,
             Checks::new(required_checks),
         );
 
