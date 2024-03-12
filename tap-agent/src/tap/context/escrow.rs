@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use tap_core::manager::adapters::EscrowHandler as EscrowAdapterTrait;
 use thegraph::types::Address;
 
-use super::{error::AdapterError, TapAgentExecutor};
+use super::{error::AdapterError, TapAgentContext};
 
 // Conversion from eventuals::error::Closed to AdapterError::EscrowEventualError
 impl From<eventuals::error::Closed> for AdapterError {
@@ -17,7 +17,7 @@ impl From<eventuals::error::Closed> for AdapterError {
 }
 
 #[async_trait]
-impl EscrowAdapterTrait for TapAgentExecutor {
+impl EscrowAdapterTrait for TapAgentContext {
     type AdapterError = AdapterError;
 
     async fn get_available_escrow(&self, sender: Address) -> Result<u128, AdapterError> {

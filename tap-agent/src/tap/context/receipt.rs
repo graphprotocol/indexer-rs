@@ -18,7 +18,7 @@ use thegraph::types::Address;
 
 use crate::tap::signers_trimmed;
 
-use super::{error::AdapterError, TapAgentExecutor};
+use super::{error::AdapterError, TapAgentContext};
 impl From<TryFromIntError> for AdapterError {
     fn from(error: TryFromIntError) -> Self {
         AdapterError::ReceiptRead {
@@ -73,7 +73,7 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
 }
 
 #[async_trait::async_trait]
-impl ReceiptRead for TapAgentExecutor {
+impl ReceiptRead for TapAgentContext {
     type AdapterError = AdapterError;
 
     async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
@@ -153,7 +153,7 @@ impl ReceiptRead for TapAgentExecutor {
 }
 
 #[async_trait::async_trait]
-impl ReceiptDelete for TapAgentExecutor {
+impl ReceiptDelete for TapAgentContext {
     type AdapterError = AdapterError;
 
     async fn remove_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
@@ -184,7 +184,7 @@ impl ReceiptDelete for TapAgentExecutor {
 
 #[cfg(test)]
 mod test {
-    use std::{collections::HashMap, sync::Arc};
+    use std::collections::HashMap;
 
     use super::*;
     use crate::tap::{
@@ -199,7 +199,6 @@ mod test {
     use eventuals::Eventual;
     use indexer_common::escrow_accounts::EscrowAccounts;
     use sqlx::PgPool;
-    use tap_core::receipt::checks::TimestampCheck;
 
     /// Insert a single receipt and retrieve it from the database using the adapter.
     /// The point here it to test the deserialization of large numbers.
@@ -210,13 +209,12 @@ mod test {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let storage_adapter = TapAgentExecutor::new(
+        let storage_adapter = TapAgentContext::new(
             pgpool,
             *ALLOCATION_ID_0,
             SENDER.1,
             escrow_accounts.clone(),
             EscrowAdapter::mock(),
-            Arc::new(TimestampCheck::new(0)),
         );
 
         let received_receipt =
@@ -244,7 +242,7 @@ mod test {
     /// implementation is correct) with the receipts vector retrieved from the database using
     /// retrieve_receipts_in_timestamp_range.
     async fn retrieve_range_and_check<R: RangeBounds<u64> + Send>(
-        storage_adapter: &TapAgentExecutor,
+        storage_adapter: &TapAgentContext,
         escrow_accounts: &Eventual<EscrowAccounts>,
         received_receipt_vec: &[ReceiptWithState<Checking>],
         range: R,
@@ -295,7 +293,7 @@ mod test {
     }
 
     async fn remove_range_and_check<R: RangeBounds<u64> + Send>(
-        storage_adapter: &TapAgentExecutor,
+        storage_adapter: &TapAgentContext,
         escrow_accounts: &Eventual<EscrowAccounts>,
         received_receipt_vec: &[ReceiptWithState<Checking>],
         range: R,
@@ -428,13 +426,12 @@ mod test {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let storage_adapter = TapAgentExecutor::new(
+        let storage_adapter = TapAgentContext::new(
             pgpool.clone(),
             *ALLOCATION_ID_0,
             SENDER.1,
             escrow_accounts.clone(),
             EscrowAdapter::mock(),
-            Arc::new(TimestampCheck::new(0)),
         );
 
         // Creating 10 receipts with timestamps 42 to 51
@@ -566,13 +563,12 @@ mod test {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let storage_adapter = TapAgentExecutor::new(
+        let storage_adapter = TapAgentContext::new(
             pgpool,
             *ALLOCATION_ID_0,
             SENDER.1,
             escrow_accounts.clone(),
             EscrowAdapter::mock(),
-            Arc::new(TimestampCheck::new(0)),
         );
 
         // Creating 10 receipts with timestamps 42 to 51

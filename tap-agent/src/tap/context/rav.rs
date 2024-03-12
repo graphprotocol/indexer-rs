@@ -3,7 +3,7 @@
 
 use std::str::FromStr;
 
-use super::{error::AdapterError, TapAgentExecutor};
+use super::{error::AdapterError, TapAgentContext};
 use alloy_primitives::{hex::ToHex, Address};
 use bigdecimal::num_bigint::{BigInt, ToBigInt};
 use bigdecimal::ToPrimitive;
@@ -14,7 +14,7 @@ use tap_core::{
 };
 
 #[async_trait::async_trait]
-impl RAVRead for TapAgentExecutor {
+impl RAVRead for TapAgentContext {
     type AdapterError = AdapterError;
 
     async fn last_rav(&self) -> Result<Option<SignedRAV>, Self::AdapterError> {
@@ -83,7 +83,7 @@ impl RAVRead for TapAgentExecutor {
 }
 
 #[async_trait::async_trait]
-impl RAVStore for TapAgentExecutor {
+impl RAVStore for TapAgentContext {
     type AdapterError = AdapterError;
 
     async fn update_last_rav(&self, rav: SignedRAV) -> Result<(), Self::AdapterError> {
@@ -120,19 +120,14 @@ impl RAVStore for TapAgentExecutor {
         .map_err(|e| AdapterError::RavStore {
             error: e.to_string(),
         })?;
-        self.timestamp_check
-            .update_min_timestamp_ns(rav.message.timestampNs);
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use eventuals::Eventual;
     use sqlx::PgPool;
-    use tap_core::receipt::checks::TimestampCheck;
 
     use super::*;
     use crate::tap::{
@@ -144,13 +139,12 @@ mod test {
     async fn update_and_retrieve_rav(pool: PgPool) {
         let timestamp_ns = u64::MAX - 10;
         let value_aggregate = u128::MAX;
-        let executor = TapAgentExecutor::new(
+        let executor = TapAgentContext::new(
             pool.clone(),
             *ALLOCATION_ID_0,
             SENDER.1,
             Eventual::new().1,
             EscrowAdapter::mock(),
-            Arc::new(TimestampCheck::new(0)),
         );
 
         // Insert a rav

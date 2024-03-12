@@ -18,7 +18,7 @@ use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
 use tap_core::{
     rav::{RAVRequest, ReceiptAggregateVoucher},
     receipt::{
-        checks::{Check, Checks, TimestampCheck},
+        checks::{Check, Checks},
         Failed, ReceiptWithState,
     },
     signed_message::EIP712SignedMessage,
@@ -32,10 +32,10 @@ use crate::{
     tap::{signers_trimmed, unaggregated_receipts::UnaggregatedReceipts},
 };
 
-use super::context::{checks::Signature, TapAgentExecutor};
+use super::context::{checks::Signature, TapAgentContext};
 use super::{context::checks::AllocationId, escrow_adapter::EscrowAdapter};
 
-type TapManager = tap_core::manager::Manager<TapAgentExecutor>;
+type TapManager = tap_core::manager::Manager<TapAgentContext>;
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 pub struct SenderAllocation {
@@ -65,9 +65,7 @@ impl SenderAllocation {
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoint: String,
     ) -> Self {
-        let timestamp_check = Arc::new(TimestampCheck::new(0));
         let required_checks: Vec<Arc<dyn Check + Send + Sync>> = vec![
-            timestamp_check.clone(),
             Arc::new(AllocationId::new(
                 sender,
                 allocation_id,
@@ -79,13 +77,12 @@ impl SenderAllocation {
                 escrow_accounts.clone(),
             )),
         ];
-        let executor = TapAgentExecutor::new(
+        let executor = TapAgentContext::new(
             pgpool.clone(),
             allocation_id,
             sender,
             escrow_accounts.clone(),
             escrow_adapter,
-            timestamp_check,
         );
         let tap_manager = TapManager::new(
             tap_eip712_domain_separator.clone(),
