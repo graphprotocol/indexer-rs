@@ -272,11 +272,11 @@ impl SenderAllocation {
         Ok(())
     }
 
-    pub async fn mark_rav_final(&self) -> Result<()> {
+    pub async fn mark_rav_last(&self) -> Result<()> {
         let updated_rows = sqlx::query!(
             r#"
                         UPDATE scalar_tap_ravs
-                        SET final = true
+                        SET last = true
                         WHERE allocation_id = $1 AND sender_address = $2
                         RETURNING *
                     "#,

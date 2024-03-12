@@ -107,9 +107,9 @@ impl Inner {
                     continue;
                 }
 
-                if let Err(e) = allocation.mark_rav_final().await {
+                if let Err(e) = allocation.mark_rav_last().await {
                     error!(
-                        "Error while marking allocation {} as final for sender {}: {}",
+                        "Error while marking allocation {} as last for sender {}: {}",
                         allocation.get_allocation_id(),
                         self.sender,
                         e
