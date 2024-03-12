@@ -8,7 +8,7 @@ use tap_core::receipt::{
     Checking, ReceiptWithState,
 };
 
-use crate::tap::executor::error::AdapterError;
+use crate::tap::context::error::AdapterError;
 
 pub struct Signature {
     domain_separator: Eip712Domain,

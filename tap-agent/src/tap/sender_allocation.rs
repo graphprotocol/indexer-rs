@@ -32,8 +32,8 @@ use crate::{
     tap::{signers_trimmed, unaggregated_receipts::UnaggregatedReceipts},
 };
 
-use super::executor::{checks::Signature, TapAgentExecutor};
-use super::{escrow_adapter::EscrowAdapter, executor::checks::AllocationId};
+use super::context::{checks::Signature, TapAgentExecutor};
+use super::{escrow_adapter::EscrowAdapter, context::checks::AllocationId};
 
 type TapManager = tap_core::manager::Manager<TapAgentExecutor>;
 

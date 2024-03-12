@@ -9,7 +9,7 @@ use indexer_common::escrow_accounts::EscrowAccounts;
 use tap_core::manager::adapters::EscrowHandler as EscrowAdapterTrait;
 use thegraph::types::Address;
 
-use super::executor::AdapterError;
+use super::context::AdapterError;
 
 /// The EscrowAdapter is used to track the available escrow for all senders. It is updated when
 /// receipt checks are finalized (right before a RAV request).

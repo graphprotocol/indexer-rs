@@ -8,7 +8,7 @@ use indexer_common::escrow_accounts::EscrowAccounts;
 use thegraph::types::Address;
 
 mod escrow_adapter;
-mod executor;
+mod context;
 mod sender_account;
 pub mod sender_accounts_manager;
 mod sender_allocation;

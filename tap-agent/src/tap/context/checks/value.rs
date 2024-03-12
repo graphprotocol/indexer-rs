@@ -12,7 +12,7 @@ use tap_core::{
     signed_message::MessageId,
 };
 
-use crate::tap::executor::error::AdapterError;
+use crate::tap::context::error::AdapterError;
 
 pub struct Value {
     query_appraisals: Option<Arc<RwLock<HashMap<MessageId, u128>>>>,
