@@ -20,7 +20,7 @@ pub struct DenyListCheck {
     escrow_accounts: Eventual<EscrowAccounts>,
     domain_separator: Eip712Domain,
     sender_denylist: Arc<RwLock<HashSet<Address>>>,
-    _sender_denylist_watcher_handle: Option<Arc<tokio::task::JoinHandle<()>>>,
+    _sender_denylist_watcher_handle: Arc<tokio::task::JoinHandle<()>>,
     sender_denylist_watcher_cancel_token: tokio_util::sync::CancellationToken,
 }
 
@@ -30,6 +30,8 @@ impl DenyListCheck {
         escrow_accounts: Eventual<EscrowAccounts>,
         domain_separator: Eip712Domain,
     ) -> Self {
+        // Listen to pg_notify events. We start it before updating the sender_denylist so that we
+        // don't miss any updates. PG will buffer the notifications until we start consuming them.
         let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
         pglistener
             .listen("scalar_tap_deny_notification")
@@ -56,7 +58,7 @@ impl DenyListCheck {
             domain_separator,
             escrow_accounts,
             sender_denylist,
-            _sender_denylist_watcher_handle: Some(sender_denylist_watcher_handle),
+            _sender_denylist_watcher_handle: sender_denylist_watcher_handle,
             sender_denylist_watcher_cancel_token,
         }
     }
