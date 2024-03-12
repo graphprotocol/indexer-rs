@@ -33,7 +33,7 @@ use crate::{
 };
 
 use super::context::{checks::Signature, TapAgentExecutor};
-use super::{escrow_adapter::EscrowAdapter, context::checks::AllocationId};
+use super::{context::checks::AllocationId, escrow_adapter::EscrowAdapter};
 
 type TapManager = tap_core::manager::Manager<TapAgentExecutor>;
 
