@@ -10,10 +10,11 @@ use bigdecimal::num_bigint::BigInt;
 use ethers_signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
 use lazy_static::lazy_static;
 use sqlx::{types::BigDecimal, PgPool};
-use tap_core::receipt_aggregate_voucher::ReceiptAggregateVoucher;
-use tap_core::tap_manager::{SignedRAV, SignedReceipt};
-use tap_core::tap_receipt::{get_full_list_of_checks, ReceivedReceipt};
-use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
+use tap_core::{
+    rav::{ReceiptAggregateVoucher, SignedRAV},
+    receipt::{Checking, Receipt, ReceiptWithState, SignedReceipt},
+    signed_message::EIP712SignedMessage,
+};
 use thegraph::types::Address;
 
 lazy_static! {
@@ -57,8 +58,7 @@ pub async fn create_received_receipt(
     nonce: u64,
     timestamp_ns: u64,
     value: u128,
-    query_id: u64,
-) -> ReceivedReceipt {
+) -> ReceiptWithState<Checking> {
     let receipt = EIP712SignedMessage::new(
         &TAP_EIP712_DOMAIN_SEPARATOR,
         Receipt {
@@ -69,9 +69,8 @@ pub async fn create_received_receipt(
         },
         signer_wallet,
     )
-    .await
     .unwrap();
-    ReceivedReceipt::new(receipt, query_id, &get_full_list_of_checks())
+    ReceiptWithState::new(receipt)
 }
 
 /// Fixture to generate a RAV using the wallet from `keys()`
@@ -90,11 +89,10 @@ pub async fn create_rav(
         },
         &signer_wallet,
     )
-    .await
     .unwrap()
 }
 
-pub async fn store_receipt(pgpool: &PgPool, signed_receipt: SignedReceipt) -> Result<u64> {
+pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> Result<u64> {
     let encoded_signature = signed_receipt.signature.to_vec();
 
     let record = sqlx::query!(

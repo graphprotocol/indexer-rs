@@ -5,7 +5,7 @@ use std::ops::Deref;
 
 use headers::{Header, HeaderName, HeaderValue};
 use lazy_static::lazy_static;
-use tap_core::tap_manager::SignedReceipt;
+use tap_core::receipt::SignedReceipt;
 
 #[derive(Debug, PartialEq)]
 pub struct ScalarReceipt(Option<SignedReceipt>);

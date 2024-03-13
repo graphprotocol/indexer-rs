@@ -22,6 +22,7 @@ use eventuals::Eventual;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
+use tap_core::{manager::Manager, receipt::checks::Checks};
 use thegraph::types::Address;
 use thegraph::types::{Attestation, DeploymentId};
 use thiserror::Error;
@@ -39,7 +40,7 @@ use crate::{
         attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
         AttestationSigner, DeploymentDetails, SubgraphClient,
     },
-    tap_manager::TapManager,
+    tap::IndexerTapContext,
 };
 
 use super::{request_handler::request_handler, IndexerServiceConfig};
@@ -75,7 +76,7 @@ where
     #[error("No receipt provided with the request")]
     NoReceipt,
     #[error("Issues with provided receipt: {0}")]
-    ReceiptError(anyhow::Error),
+    ReceiptError(tap_core::Error),
     #[error("Service is not ready yet, try again in a moment")]
     ServiceNotReady,
     #[error("No attestation signer found for allocation `{0}`")]
@@ -179,7 +180,7 @@ where
 {
     pub config: IndexerServiceConfig,
     pub attestation_signers: Eventual<HashMap<Address, AttestationSigner>>,
-    pub tap_manager: TapManager,
+    pub tap_manager: Manager<IndexerTapContext>,
     pub service_impl: Arc<I>,
     pub metrics: IndexerServiceMetrics,
 }
@@ -279,18 +280,24 @@ impl IndexerService {
             .connect(&options.config.database.postgres_url)
             .await?;
 
-        let tap_manager = TapManager::new(
+        let domain_separator = eip712_domain! {
+            name: "TAP",
+            version: "1",
+            chain_id: options.config.scalar.chain_id,
+            verifying_contract: options.config.scalar.receipts_verifier_address,
+        };
+        let indexer_context =
+            IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
+
+        let checks = IndexerTapContext::get_checks(
             database,
             allocations,
             escrow_accounts,
-            eip712_domain! {
-                name: "TAP",
-                version: "1",
-                chain_id: options.config.scalar.chain_id,
-                verifying_contract: options.config.scalar.receipts_verifier_address,
-            },
+            domain_separator.clone(),
         )
         .await;
+
+        let tap_manager = Manager::new(domain_separator, indexer_context, Checks::new(checks));
 
         let state = Arc::new(IndexerServiceState {
             config: options.config.clone(),

@@ -11,7 +11,7 @@ pub mod indexer_service;
 pub mod metrics;
 pub mod signature_verification;
 pub mod subgraph_client;
-pub mod tap_manager;
+pub mod tap;
 
 #[cfg(test)]
 mod test_vectors;
@@ -26,5 +26,5 @@ pub mod prelude {
     pub use super::escrow_accounts::escrow_accounts;
     pub use super::indexer_errors;
     pub use super::subgraph_client::{DeploymentDetails, Query, QueryVariables, SubgraphClient};
-    pub use super::tap_manager::TapManager;
+    pub use super::tap::IndexerTapContext;
 }

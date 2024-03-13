@@ -17,7 +17,6 @@ use thegraph::types::Address;
 use tracing::{error, warn};
 
 use crate::config;
-use crate::tap::escrow_adapter::EscrowAdapter;
 use crate::tap::sender_account::SenderAccount;
 
 #[derive(Deserialize, Debug)]
@@ -45,7 +44,6 @@ struct Inner {
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
     escrow_accounts: Eventual<EscrowAccounts>,
     escrow_subgraph: &'static SubgraphClient,
-    escrow_adapter: EscrowAdapter,
     tap_eip712_domain_separator: Eip712Domain,
     sender_aggregator_endpoints: HashMap<Address, String>,
 }
@@ -79,7 +77,6 @@ impl Inner {
                         *sender_id,
                         self.escrow_accounts.clone(),
                         self.escrow_subgraph,
-                        self.escrow_adapter.clone(),
                         self.tap_eip712_domain_separator.clone(),
                         self.sender_aggregator_endpoints
                             .get(sender_id)
@@ -117,8 +114,6 @@ impl SenderAccountsManager {
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoints: HashMap<Address, String>,
     ) -> Self {
-        let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone());
-
         let inner = Arc::new(Inner {
             config,
             pgpool,
@@ -126,7 +121,6 @@ impl SenderAccountsManager {
             indexer_allocations,
             escrow_accounts,
             escrow_subgraph,
-            escrow_adapter,
             tap_eip712_domain_separator,
             sender_aggregator_endpoints,
         });
@@ -253,7 +247,6 @@ impl SenderAccountsManager {
                     sender_id,
                     inner.escrow_accounts.clone(),
                     inner.escrow_subgraph,
-                    inner.escrow_adapter.clone(),
                     inner.tap_eip712_domain_separator.clone(),
                     inner
                         .sender_aggregator_endpoints

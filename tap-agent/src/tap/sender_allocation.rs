@@ -1,8 +1,10 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Mutex as StdMutex;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex as StdMutex},
+    time::Duration,
+};
 
 use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
@@ -14,10 +16,12 @@ use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_param
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
 use tap_core::{
-    eip_712_signed_message::EIP712SignedMessage,
-    receipt_aggregate_voucher::ReceiptAggregateVoucher,
-    tap_manager::RAVRequest,
-    tap_receipt::{ReceiptCheck, ReceivedReceipt},
+    rav::{RAVRequest, ReceiptAggregateVoucher},
+    receipt::{
+        checks::{Check, Checks},
+        Failed, ReceiptWithState,
+    },
+    signed_message::EIP712SignedMessage,
 };
 use thegraph::types::Address;
 use tokio::sync::Mutex as TokioMutex;
@@ -25,20 +29,13 @@ use tracing::{error, warn};
 
 use crate::{
     config::{self},
-    tap::{
-        escrow_adapter::EscrowAdapter, rav_storage_adapter::RAVStorageAdapter,
-        receipt_checks_adapter::ReceiptChecksAdapter,
-        receipt_storage_adapter::ReceiptStorageAdapter, signers_trimmed,
-        unaggregated_receipts::UnaggregatedReceipts,
-    },
+    tap::{signers_trimmed, unaggregated_receipts::UnaggregatedReceipts},
 };
 
-type TapManager = tap_core::tap_manager::Manager<
-    EscrowAdapter,
-    ReceiptChecksAdapter,
-    ReceiptStorageAdapter,
-    RAVStorageAdapter,
->;
+use super::context::{checks::Signature, TapAgentContext};
+use super::{context::checks::AllocationId, escrow_adapter::EscrowAdapter};
+
+type TapManager = tap_core::manager::Manager<TapAgentContext>;
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 pub struct SenderAllocation {
@@ -52,6 +49,7 @@ pub struct SenderAllocation {
     escrow_accounts: Eventual<EscrowAccounts>,
     rav_request_guard: TokioMutex<()>,
     unaggregated_receipts_guard: TokioMutex<()>,
+    tap_eip712_domain_separator: Eip712Domain,
 }
 
 impl SenderAllocation {
@@ -67,41 +65,29 @@ impl SenderAllocation {
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoint: String,
     ) -> Self {
-        let required_checks = vec![
-            ReceiptCheck::CheckUnique,
-            ReceiptCheck::CheckAllocationId,
-            ReceiptCheck::CheckTimestamp,
-            // ReceiptCheck::CheckValue,
-            ReceiptCheck::CheckSignature,
-            ReceiptCheck::CheckAndReserveEscrow,
+        let required_checks: Vec<Arc<dyn Check + Send + Sync>> = vec![
+            Arc::new(AllocationId::new(
+                sender,
+                allocation_id,
+                escrow_subgraph,
+                config,
+            )),
+            Arc::new(Signature::new(
+                tap_eip712_domain_separator.clone(),
+                escrow_accounts.clone(),
+            )),
         ];
-
-        let receipt_checks_adapter = ReceiptChecksAdapter::new(
-            config,
-            pgpool.clone(),
-            // TODO: Implement query appraisals.
-            None,
-            allocation_id,
-            escrow_accounts.clone(),
-            escrow_subgraph,
-            sender,
-        );
-        let receipt_storage_adapter = ReceiptStorageAdapter::new(
+        let context = TapAgentContext::new(
             pgpool.clone(),
             allocation_id,
             sender,
-            required_checks.clone(),
             escrow_accounts.clone(),
+            escrow_adapter,
         );
-        let rav_storage_adapter = RAVStorageAdapter::new(pgpool.clone(), allocation_id, sender);
         let tap_manager = TapManager::new(
             tap_eip712_domain_separator.clone(),
-            escrow_adapter,
-            receipt_checks_adapter,
-            rav_storage_adapter,
-            receipt_storage_adapter,
-            required_checks,
-            0,
+            context,
+            Checks::new(required_checks),
         );
 
         let sender_allocation = Self {
@@ -115,6 +101,7 @@ impl SenderAllocation {
             escrow_accounts,
             rav_request_guard: TokioMutex::new(()),
             unaggregated_receipts_guard: TokioMutex::new(()),
+            tap_eip712_domain_separator,
         };
 
         sender_allocation
@@ -229,7 +216,7 @@ impl SenderAllocation {
 
             // Save invalid receipts to the database for logs.
             // TODO: consider doing that in a spawned task?
-            Self::store_invalid_receipts(self, &invalid_receipts).await?;
+            Self::store_invalid_receipts(self, invalid_receipts.as_slice()).await?;
         }
         let client = HttpClientBuilder::default()
             .request_timeout(Duration::from_secs(
@@ -308,26 +295,37 @@ impl SenderAllocation {
         Ok(())
     }
 
-    async fn store_invalid_receipts(&self, receipts: &[ReceivedReceipt]) -> Result<()> {
+    async fn store_invalid_receipts(&self, receipts: &[ReceiptWithState<Failed>]) -> Result<()> {
         for received_receipt in receipts.iter() {
+            let receipt = received_receipt.signed_receipt();
+            let allocation_id = receipt.message.allocation_id;
+            let encoded_signature = receipt.signature.to_vec();
+
+            let receipt_signer = receipt
+                .recover_signer(&self.tap_eip712_domain_separator)
+                .map_err(|e| {
+                    error!("Failed to recover receipt signer: {}", e);
+                    anyhow!(e)
+                })?;
+
             sqlx::query!(
                 r#"
                     INSERT INTO scalar_tap_receipts_invalid (
-                        allocation_id,
                         signer_address,
+                        signature,
+                        allocation_id,
                         timestamp_ns,
-                        value,
-                        received_receipt
+                        nonce,
+                        value
                     )
-                    VALUES ($1, $2, $3, $4, $5)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                 "#,
-                self.allocation_id.encode_hex::<String>(),
-                self.sender.encode_hex::<String>(),
-                BigDecimal::from(received_receipt.signed_receipt().message.timestamp_ns),
-                BigDecimal::from(BigInt::from(
-                    received_receipt.signed_receipt().message.value
-                )),
-                serde_json::to_value(received_receipt)?
+                receipt_signer.encode_hex::<String>(),
+                encoded_signature,
+                allocation_id.encode_hex::<String>(),
+                BigDecimal::from(receipt.message.timestamp_ns),
+                BigDecimal::from(receipt.message.nonce),
+                BigDecimal::from(BigInt::from(receipt.message.value)),
             )
             .execute(&self.pgpool)
             .await
@@ -464,7 +462,7 @@ mod tests {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let escrow_adapter = EscrowAdapter::new(escrow_accounts_eventual.clone());
+        let escrow_adapter = EscrowAdapter::new(escrow_accounts_eventual.clone(), SENDER.1);
 
         SenderAllocation::new(
             config,
@@ -493,7 +491,7 @@ mod tests {
         // Add receipts to the database.
         for i in 1..10 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into()).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
@@ -529,7 +527,7 @@ mod tests {
         // Add receipts to the database.
         for i in 1..10 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into()).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
@@ -551,6 +549,7 @@ mod tests {
         let (handle, aggregator_endpoint) = run_server(
             0,
             SIGNER.0.clone(),
+            vec![SIGNER.1].into_iter().collect(),
             TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             100 * 1024,
             100 * 1024,
@@ -585,7 +584,7 @@ mod tests {
         // Add receipts to the database.
         for i in 0..10 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into(), i).await;
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into()).await;
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();

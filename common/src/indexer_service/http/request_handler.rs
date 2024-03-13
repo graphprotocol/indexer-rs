@@ -50,6 +50,7 @@ where
         let allocation_id = receipt.message.allocation_id;
 
         // Verify the receipt and store it in the database
+        // TODO update checks
         state
             .tap_manager
             .verify_and_store_receipt(receipt)

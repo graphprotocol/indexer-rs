@@ -29,10 +29,13 @@ CREATE INDEX IF NOT EXISTS scalar_tap_receipts_timestamp_ns_idx ON scalar_tap_re
 -- This table is used to store invalid receipts (receipts that fail at least one of the checks in the tap-agent).
 -- Used for logging and debugging purposes.
 CREATE TABLE IF NOT EXISTS scalar_tap_receipts_invalid (
-    id BIGSERIAL PRIMARY KEY,
-    allocation_id CHAR(40) NOT NULL,
+    id BIGSERIAL PRIMARY KEY, -- id being SERIAL is important for the function of tap-agent
     signer_address CHAR(40) NOT NULL,
+
+    -- Values below are the individual fields of the EIP-712 receipt
+    signature BYTEA NOT NULL,
+    allocation_id CHAR(40) NOT NULL,
     timestamp_ns NUMERIC(20) NOT NULL,
-    value NUMERIC(39) NOT NULL,
-    received_receipt JSON NOT NULL
+    nonce NUMERIC(20) NOT NULL,
+    value NUMERIC(39) NOT NULL
 );

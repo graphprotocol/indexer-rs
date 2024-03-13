@@ -7,10 +7,8 @@ use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use thegraph::types::Address;
 
+mod context;
 mod escrow_adapter;
-mod rav_storage_adapter;
-mod receipt_checks_adapter;
-mod receipt_storage_adapter;
 mod sender_account;
 pub mod sender_accounts_manager;
 mod sender_allocation;
