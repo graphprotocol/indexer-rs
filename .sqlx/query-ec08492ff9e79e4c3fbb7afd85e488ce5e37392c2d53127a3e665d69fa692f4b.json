@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO scalar_tap_ravs (\n                    sender_address,\n                    signature,\n                    allocation_id,\n                    timestamp_ns,\n                    value_aggregate,\n                    created_at,\n                    updated_at\n                )\n                VALUES ($1, $2, $3, $4, $5, $6, $6)\n                ON CONFLICT (allocation_id, sender_address)\n                DO UPDATE SET\n                    signature = $2,\n                    timestamp_ns = $4,\n                    value_aggregate = $5,\n                    updated_at = $6\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Bytea",
+        "Bpchar",
+        "Numeric",
+        "Numeric",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ec08492ff9e79e4c3fbb7afd85e488ce5e37392c2d53127a3e665d69fa692f4b"
+}

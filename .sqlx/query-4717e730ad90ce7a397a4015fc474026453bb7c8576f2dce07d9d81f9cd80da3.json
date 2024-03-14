@@ -35,12 +35,12 @@
       },
       {
         "ordinal": 6,
-        "name": "createdAt",
+        "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 7,
-        "name": "updatedAt",
+        "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
