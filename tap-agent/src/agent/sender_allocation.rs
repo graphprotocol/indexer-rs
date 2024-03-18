@@ -29,11 +29,10 @@ use tracing::{error, warn};
 
 use crate::{
     config::{self},
+    tap::context::{checks::Signature, TapAgentContext},
+    tap::{context::checks::AllocationId, escrow_adapter::EscrowAdapter},
     tap::{signers_trimmed, unaggregated_receipts::UnaggregatedReceipts},
 };
-
-use super::context::{checks::Signature, TapAgentContext};
-use super::{context::checks::AllocationId, escrow_adapter::EscrowAdapter};
 
 type TapManager = tap_core::manager::Manager<TapAgentContext>;
 

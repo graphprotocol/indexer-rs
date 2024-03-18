@@ -16,8 +16,8 @@ use sqlx::{postgres::PgListener, PgPool};
 use thegraph::types::Address;
 use tracing::{error, warn};
 
+use super::sender_account::SenderAccount;
 use crate::config;
-use crate::tap::sender_account::SenderAccount;
 
 #[derive(Deserialize, Debug)]
 pub struct NewReceiptNotification {
