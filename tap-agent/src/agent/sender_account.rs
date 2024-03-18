@@ -22,9 +22,10 @@ use tokio::{select, sync::Notify, time};
 use tracing::{error, warn};
 
 use super::{sender_accounts_manager::NewReceiptNotification, sender_allocation::SenderAllocation};
+use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::{
     config::{self},
-    tap::{escrow_adapter::EscrowAdapter, unaggregated_receipts::UnaggregatedReceipts},
+    tap::escrow_adapter::EscrowAdapter,
 };
 
 #[derive(Clone, EnumAsInner)]

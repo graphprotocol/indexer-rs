@@ -27,11 +27,12 @@ use thegraph::types::Address;
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{error, warn};
 
+use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::{
     config::{self},
     tap::context::{checks::Signature, TapAgentContext},
+    tap::signers_trimmed,
     tap::{context::checks::AllocationId, escrow_adapter::EscrowAdapter},
-    tap::{signers_trimmed, unaggregated_receipts::UnaggregatedReceipts},
 };
 
 type TapManager = tap_core::manager::Manager<TapAgentContext>;
