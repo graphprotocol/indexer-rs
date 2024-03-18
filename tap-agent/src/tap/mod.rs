@@ -9,7 +9,6 @@ use thegraph::types::Address;
 
 pub mod context;
 pub mod escrow_adapter;
-pub mod unaggregated_receipts;
 
 #[cfg(test)]
 pub mod test_utils;
