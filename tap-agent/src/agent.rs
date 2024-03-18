@@ -8,9 +8,12 @@ use indexer_common::prelude::{
     escrow_accounts, indexer_allocations, DeploymentDetails, SubgraphClient,
 };
 
-use crate::{
-    aggregator_endpoints, config, database, tap::sender_accounts_manager::SenderAccountsManager,
-};
+use crate::{aggregator_endpoints, config, database};
+use sender_accounts_manager::SenderAccountsManager;
+
+mod sender_account;
+pub mod sender_accounts_manager;
+mod sender_allocation;
 
 pub async fn start_agent(config: &'static config::Cli) -> SenderAccountsManager {
     let pgpool = database::connect(&config.postgres).await;

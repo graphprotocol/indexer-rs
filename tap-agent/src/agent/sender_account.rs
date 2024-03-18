@@ -21,10 +21,10 @@ use tokio::time::sleep;
 use tokio::{select, sync::Notify, time};
 use tracing::{error, warn};
 
-use crate::config::{self};
-use crate::tap::{
-    escrow_adapter::EscrowAdapter, sender_accounts_manager::NewReceiptNotification,
-    sender_allocation::SenderAllocation, unaggregated_receipts::UnaggregatedReceipts,
+use super::{sender_accounts_manager::NewReceiptNotification, sender_allocation::SenderAllocation};
+use crate::{
+    config::{self},
+    tap::{escrow_adapter::EscrowAdapter, unaggregated_receipts::UnaggregatedReceipts},
 };
 
 #[derive(Clone, EnumAsInner)]
