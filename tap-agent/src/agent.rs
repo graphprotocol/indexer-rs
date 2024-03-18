@@ -15,6 +15,7 @@ mod sender_account;
 pub mod sender_accounts_manager;
 mod sender_allocation;
 mod unaggregated_receipts;
+mod allocation_id_tracker;
 
 pub async fn start_agent(config: &'static config::Cli) -> SenderAccountsManager {
     let pgpool = database::connect(&config.postgres).await;
