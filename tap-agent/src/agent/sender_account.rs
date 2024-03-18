@@ -1,246 +1,29 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Mutex as StdMutex;
-use std::{
-    cmp::max,
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    time::Duration,
-};
+use std::collections::HashSet;
 
 use alloy_sol_types::Eip712Domain;
-use anyhow::{anyhow, Result};
-use enum_as_inner::EnumAsInner;
+use anyhow::Result;
 use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
+use ractor::{call, Actor, ActorProcessingErr, ActorRef};
 use sqlx::PgPool;
 use thegraph::types::Address;
-use tokio::sync::Mutex as TokioMutex;
-use tokio::time::sleep;
-use tokio::{select, sync::Notify, time};
-use tracing::{error, warn};
 
-use super::{sender_accounts_manager::NewReceiptNotification, sender_allocation::SenderAllocation};
+use super::sender_allocation::SenderAllocation;
+use crate::agent::allocation_id_tracker::AllocationIdTracker;
+use crate::agent::sender_allocation::SenderAllocationMsg;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::{
     config::{self},
     tap::escrow_adapter::EscrowAdapter,
 };
 
-#[derive(Clone, EnumAsInner)]
-enum AllocationState {
-    Active(Arc<SenderAllocation>),
-    Ineligible(Arc<SenderAllocation>),
-}
-
-/// The inner state of a SenderAccount. This is used to store an Arc state for spawning async tasks.
-pub struct Inner {
-    config: &'static config::Cli,
-    pgpool: PgPool,
-    allocations: Arc<StdMutex<HashMap<Address, AllocationState>>>,
-    sender: Address,
-    sender_aggregator_endpoint: String,
-    unaggregated_fees: Arc<StdMutex<UnaggregatedReceipts>>,
-    unaggregated_receipts_guard: Arc<TokioMutex<()>>,
-}
-
-/// Wrapper around a `Notify` to trigger RAV requests.
-/// This gives a better understanding of what is happening
-/// because the methods names are more explicit.
-#[derive(Clone)]
-pub struct RavTrigger(Arc<Notify>);
-
-impl RavTrigger {
-    pub fn new() -> Self {
-        Self(Arc::new(Notify::new()))
-    }
-
-    /// Trigger a RAV request if there are any waiters.
-    /// In case there are no waiters, nothing happens.
-    pub fn trigger_rav(&self) {
-        self.0.notify_waiters();
-    }
-
-    /// Wait for a RAV trigger.
-    pub async fn wait_for_rav_request(&self) {
-        self.0.notified().await;
-    }
-
-    /// Trigger a RAV request. In case there are no waiters, the request is queued
-    /// and is executed on the next call to wait_for_rav_trigger().
-    pub fn trigger_next_rav(&self) {
-        self.0.notify_one();
-    }
-}
-
-impl Inner {
-    async fn rav_requester(&self, trigger: RavTrigger) {
-        loop {
-            trigger.wait_for_rav_request().await;
-
-            if let Err(error) = self.rav_requester_single().await {
-                // If an error occoured, we shouldn't retry right away, so we wait for a bit.
-                error!(
-                    "Error while requesting RAV for sender {}: {}",
-                    self.sender, error
-                );
-                // simpler for now, maybe we can add a backoff strategy later
-                sleep(Duration::from_secs(5)).await;
-                continue;
-            }
-
-            // Check if we already need to send another RAV request.
-            let unaggregated_fees = self.unaggregated_fees.lock().unwrap().clone();
-            if unaggregated_fees.value >= self.config.tap.rav_request_trigger_value.into() {
-                // If so, "self-notify" to trigger another RAV request.
-                trigger.trigger_next_rav();
-
-                warn!(
-                    "Sender {} has {} unaggregated fees immediately after a RAV request, which is
-                    over the trigger value. Triggering another RAV request.",
-                    self.sender, unaggregated_fees.value,
-                );
-            }
-        }
-    }
-
-    async fn rav_requester_finalize(&self, finalize_trigger: RavTrigger) {
-        loop {
-            // Wait for either 5 minutes or a notification that we need to try to finalize
-            // allocation receipts.
-            select! {
-                _ = time::sleep(Duration::from_secs(300)) => (),
-                _ = finalize_trigger.wait_for_rav_request() => ()
-            }
-
-            // Get a quick snapshot of the current finalizing allocations. They are
-            // Arcs, so it should be cheap.
-            let allocations_finalizing = self
-                .allocations
-                .lock()
-                .unwrap()
-                .values()
-                .filter(|a| matches!(a, AllocationState::Ineligible(_)))
-                .map(|a| a.as_ineligible().unwrap())
-                .cloned()
-                .collect::<Vec<_>>();
-
-            for allocation in allocations_finalizing {
-                if let Err(e) = allocation.rav_requester_single().await {
-                    error!(
-                        "Error while requesting RAV for sender {} and allocation {}: {}",
-                        self.sender,
-                        allocation.get_allocation_id(),
-                        e
-                    );
-                    continue;
-                }
-
-                if let Err(e) = allocation.mark_rav_last().await {
-                    error!(
-                        "Error while marking allocation {} as last for sender {}: {}",
-                        allocation.get_allocation_id(),
-                        self.sender,
-                        e
-                    );
-                    continue;
-                }
-
-                // Remove the allocation from the finalizing map.
-                self.allocations
-                    .lock()
-                    .unwrap()
-                    .remove(&allocation.get_allocation_id());
-            }
-        }
-    }
-
-    /// Does a single RAV request for the sender's allocation with the highest unaggregated fees
-    async fn rav_requester_single(&self) -> Result<()> {
-        let heaviest_allocation = self.get_heaviest_allocation().ok_or(anyhow! {
-            "Error while getting allocation with most unaggregated fees",
-        })?;
-        heaviest_allocation
-            .rav_requester_single()
-            .await
-            .map_err(|e| {
-                anyhow! {
-                    "Error while requesting RAV for sender {} and allocation {}: {}",
-                    self.sender,
-                    heaviest_allocation.get_allocation_id(),
-                    e
-                }
-            })?;
-
-        self.recompute_unaggregated_fees().await;
-
-        Ok(())
-    }
-
-    /// Returns the allocation with the highest unaggregated fees value.
-    /// If there are no active allocations, returns None.
-    fn get_heaviest_allocation(&self) -> Option<Arc<SenderAllocation>> {
-        // Get a quick snapshot of all allocations. They are Arcs, so it should be cheap,
-        // and we don't want to hold the lock for too long.
-        let allocations: Vec<_> = self.allocations.lock().unwrap().values().cloned().collect();
-
-        let mut heaviest_allocation = (None, 0u128);
-        for allocation in allocations {
-            let allocation: Arc<SenderAllocation> = match allocation {
-                AllocationState::Active(a) => a,
-                AllocationState::Ineligible(a) => a,
-            };
-            let fees = allocation.get_unaggregated_fees().value;
-            if fees > heaviest_allocation.1 {
-                heaviest_allocation = (Some(allocation), fees);
-            }
-        }
-
-        heaviest_allocation.0
-    }
-
-    /// Recompute the sender's total unaggregated fees value and last receipt ID.
-    async fn recompute_unaggregated_fees(&self) {
-        // Make sure to pause the handling of receipt notifications while we update the unaggregated
-        // fees.
-        let _guard = self.unaggregated_receipts_guard.lock().await;
-
-        // Similar pattern to get_heaviest_allocation().
-        let allocations: Vec<_> = self.allocations.lock().unwrap().values().cloned().collect();
-
-        // Gather the unaggregated fees from all allocations and sum them up.
-        let mut unaggregated_fees = self.unaggregated_fees.lock().unwrap();
-        *unaggregated_fees = UnaggregatedReceipts::default(); // Reset to 0.
-        for allocation in allocations {
-            let allocation: Arc<SenderAllocation> = match allocation {
-                AllocationState::Active(a) => a,
-                AllocationState::Ineligible(a) => a,
-            };
-
-            let uf = allocation.get_unaggregated_fees();
-            *unaggregated_fees = UnaggregatedReceipts {
-                value: self.fees_add(unaggregated_fees.value, uf.value),
-                last_id: max(unaggregated_fees.last_id, uf.last_id),
-            };
-        }
-    }
-
-    /// Safe add the fees to the unaggregated fees value, log an error if there is an overflow and
-    /// set the unaggregated fees value to u128::MAX.
-    fn fees_add(&self, total_unaggregated_fees: u128, value_increment: u128) -> u128 {
-        total_unaggregated_fees
-            .checked_add(value_increment)
-            .unwrap_or_else(|| {
-                // This should never happen, but if it does, we want to know about it.
-                error!(
-                    "Overflow when adding receipt value {} to total unaggregated fees {} for \
-                    sender {}. Setting total unaggregated fees to u128::MAX.",
-                    value_increment, total_unaggregated_fees, self.sender
-                );
-                u128::MAX
-            })
-    }
+pub enum SenderAccountMessage {
+    CreateSenderAllocation(Address),
+    RemoveSenderAccount,
+    UpdateReceiptFees(Address, UnaggregatedReceipts),
 }
 
 /// A SenderAccount manages the receipts accounting between the indexer and the sender across
@@ -253,16 +36,75 @@ impl Inner {
 ///   certain threshold.
 /// - Requesting the last RAV from the sender's TAP aggregator for all EOL allocations.
 pub struct SenderAccount {
-    inner: Arc<Inner>,
     escrow_accounts: Eventual<EscrowAccounts>,
     escrow_subgraph: &'static SubgraphClient,
     escrow_adapter: EscrowAdapter,
     tap_eip712_domain_separator: Eip712Domain,
-    rav_requester_task: tokio::task::JoinHandle<()>,
-    rav_trigger: RavTrigger,
-    rav_requester_finalize_task: tokio::task::JoinHandle<()>,
-    rav_finalize_trigger: RavTrigger,
-    unaggregated_receipts_guard: Arc<TokioMutex<()>>,
+    config: &'static config::Cli,
+    pgpool: PgPool,
+    sender: Address,
+    sender_aggregator_endpoint: String,
+}
+
+#[async_trait::async_trait]
+impl Actor for SenderAccount {
+    type Msg = SenderAccountMessage;
+    type State = AllocationIdTracker;
+    type Arguments = HashSet<Address>;
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: Self::Arguments,
+    ) -> std::result::Result<Self::State, ActorProcessingErr> {
+        // todo look for allocations and create sender_allocations
+
+        // todo use the arguments to spawn the initial sender allocations
+        Ok(AllocationIdTracker::new())
+    }
+
+    async fn handle(
+        &self,
+        myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        state: &mut Self::State,
+    ) -> std::result::Result<(), ActorProcessingErr> {
+        match message {
+            SenderAccountMessage::RemoveSenderAccount => myself.stop(None),
+            SenderAccountMessage::UpdateReceiptFees(allocation_id, unaggregated_fees) => {
+                state.add_or_update(allocation_id, unaggregated_fees.value);
+
+                if state.get_total_fee() >= self.config.tap.rav_request_trigger_value.into() {
+                    self.rav_requester_single(state).await?;
+                }
+            }
+            SenderAccountMessage::CreateSenderAllocation(allocation_id) => {
+                let sender_allocation = SenderAllocation::new(
+                    self.config,
+                    self.pgpool.clone(),
+                    allocation_id,
+                    self.sender,
+                    self.escrow_accounts.clone(),
+                    self.escrow_subgraph,
+                    self.escrow_adapter.clone(),
+                    self.tap_eip712_domain_separator.clone(),
+                    self.sender_aggregator_endpoint.clone(),
+                    myself.clone(),
+                )
+                .await;
+                let sender_id = self.sender.clone();
+
+                let (_actor, _handle) = SenderAllocation::spawn_linked(
+                    Some(format!("{sender_id}:{allocation_id}")),
+                    sender_allocation,
+                    (),
+                    myself.get_cell(),
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl SenderAccount {
@@ -276,164 +118,39 @@ impl SenderAccount {
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoint: String,
     ) -> Self {
-        let unaggregated_receipts_guard = Arc::new(TokioMutex::new(()));
-
         let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone(), sender_id);
 
-        let inner = Arc::new(Inner {
-            config,
-            pgpool,
-            allocations: Arc::new(StdMutex::new(HashMap::new())),
-            sender: sender_id,
-            sender_aggregator_endpoint,
-            unaggregated_fees: Arc::new(StdMutex::new(UnaggregatedReceipts::default())),
-            unaggregated_receipts_guard: unaggregated_receipts_guard.clone(),
-        });
-
-        let rav_trigger = RavTrigger::new();
-        let rav_requester_task = tokio::spawn({
-            let inner = inner.clone();
-            let rav_trigger = rav_trigger.clone();
-            async move {
-                inner.rav_requester(rav_trigger).await;
-            }
-        });
-
-        let rav_finalize_trigger = RavTrigger::new();
-        let rav_requester_finalize_task = tokio::spawn({
-            let inner = inner.clone();
-            let rav_finalize_trigger = rav_finalize_trigger.clone();
-            async move {
-                inner.rav_requester_finalize(rav_finalize_trigger).await;
-            }
-        });
-
         Self {
-            inner: inner.clone(),
             escrow_accounts,
             escrow_subgraph,
             escrow_adapter,
             tap_eip712_domain_separator,
-            rav_requester_task,
-            rav_trigger,
-            rav_requester_finalize_task,
-            rav_finalize_trigger,
-            unaggregated_receipts_guard,
+            sender_aggregator_endpoint,
+            config,
+            pgpool,
+            sender: sender_id,
         }
     }
 
-    /// Update the sender's allocations to match the target allocations.
-    pub async fn update_allocations(&self, target_allocations: HashSet<Address>) {
-        {
-            let mut allocations = self.inner.allocations.lock().unwrap();
-            let mut allocations_to_finalize = false;
-
-            // Make allocations that are no longer to be active `AllocationState::Ineligible`.
-            for (allocation_id, allocation_state) in allocations.iter_mut() {
-                if !target_allocations.contains(allocation_id) {
-                    match allocation_state {
-                        AllocationState::Active(allocation) => {
-                            *allocation_state = AllocationState::Ineligible(allocation.clone());
-                            allocations_to_finalize = true;
-                        }
-                        AllocationState::Ineligible(_) => {
-                            // Allocation is already ineligible, do nothing.
-                        }
-                    }
-                }
-            }
-
-            if allocations_to_finalize {
-                self.rav_finalize_trigger.trigger_rav();
-            }
-        }
-
-        // Add new allocations.
-        for allocation_id in target_allocations {
-            let sender_allocation = AllocationState::Active(Arc::new(
-                SenderAllocation::new(
-                    self.inner.config,
-                    self.inner.pgpool.clone(),
-                    allocation_id,
-                    self.inner.sender,
-                    self.escrow_accounts.clone(),
-                    self.escrow_subgraph,
-                    self.escrow_adapter.clone(),
-                    self.tap_eip712_domain_separator.clone(),
-                    self.inner.sender_aggregator_endpoint.clone(),
-                )
-                .await,
-            ));
-            if let std::collections::hash_map::Entry::Vacant(e) =
-                self.inner.allocations.lock().unwrap().entry(allocation_id)
-            {
-                e.insert(sender_allocation);
-            }
-        }
-    }
-
-    pub async fn handle_new_receipt_notification(
+    async fn rav_requester_single(
         &self,
-        new_receipt_notification: NewReceiptNotification,
-    ) {
-        // Make sure to pause the handling of receipt notifications while we update the unaggregated
-        // fees.
-        let _guard = self.unaggregated_receipts_guard.lock().await;
+        heaviest_allocation: &mut AllocationIdTracker,
+    ) -> Result<()> {
+        let Some(allocation_id) = heaviest_allocation.get_heaviest_allocation_id() else {
+            anyhow::bail!("Error while getting allocation with most unaggregated fees");
+        };
+        let sender_id = self.sender;
+        let allocation =
+            ActorRef::<SenderAllocationMsg>::where_is(format!("{sender_id}:{allocation_id}"));
 
-        let allocation_state = self
-            .inner
-            .allocations
-            .lock()
-            .unwrap()
-            .get(&new_receipt_notification.allocation_id)
-            .cloned();
+        let Some(allocation) = allocation else {
+            anyhow::bail!("Error while getting allocation with most unaggregated fees");
+        };
+        // we call and wait for the response so we don't process anymore update
+        let result = call!(allocation, SenderAllocationMsg::TriggerRAVRequest)?;
 
-        if let Some(AllocationState::Active(allocation)) = allocation_state {
-            // Try to add the receipt value to the allocation's unaggregated fees value.
-            // If the fees were not added, it means the receipt was already processed, so we
-            // don't need to do anything.
-            if allocation
-                .fees_add(new_receipt_notification.value, new_receipt_notification.id)
-                .await
-            {
-                // Add the receipt value to the allocation's unaggregated fees value.
-                allocation
-                    .fees_add(new_receipt_notification.value, new_receipt_notification.id)
-                    .await;
-                // Add the receipt value to the sender's unaggregated fees value.
-                let mut unaggregated_fees = self.inner.unaggregated_fees.lock().unwrap();
-                *unaggregated_fees = UnaggregatedReceipts {
-                    value: self
-                        .inner
-                        .fees_add(unaggregated_fees.value, new_receipt_notification.value),
-                    last_id: new_receipt_notification.id,
-                };
-
-                // Check if we need to trigger a RAV request.
-                if unaggregated_fees.value >= self.inner.config.tap.rav_request_trigger_value.into()
-                {
-                    self.rav_trigger.trigger_rav();
-                }
-            }
-        } else {
-            error!(
-                "Received a new receipt notification for allocation {} that doesn't exist \
-                or is ineligible for sender {}.",
-                new_receipt_notification.allocation_id, self.inner.sender
-            );
-        }
-    }
-
-    pub async fn recompute_unaggregated_fees(&self) {
-        self.inner.recompute_unaggregated_fees().await
-    }
-}
-
-// Abort tasks on Drop
-impl Drop for SenderAccount {
-    fn drop(&mut self) {
-        self.rav_requester_task.abort();
-        self.rav_requester_finalize_task.abort();
+        heaviest_allocation.add_or_update(allocation_id, result.value);
+        Ok(())
     }
 }
 

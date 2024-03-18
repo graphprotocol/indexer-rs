@@ -13,6 +13,7 @@ use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
+use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
 use tap_core::{
@@ -27,6 +28,8 @@ use thegraph::types::Address;
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{error, warn};
 
+use crate::agent::sender_account::SenderAccountMessage;
+use crate::agent::sender_accounts_manager::NewReceiptNotification;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::{
     config::{self},
@@ -50,6 +53,98 @@ pub struct SenderAllocation {
     rav_request_guard: TokioMutex<()>,
     unaggregated_receipts_guard: TokioMutex<()>,
     tap_eip712_domain_separator: Eip712Domain,
+    sender_account_ref: ActorRef<SenderAccountMessage>,
+}
+
+pub enum SenderAllocationMsg {
+    NewReceipt(NewReceiptNotification),
+    TriggerRAVRequest(RpcReplyPort<UnaggregatedReceipts>),
+    CloseAllocation,
+}
+
+#[async_trait::async_trait]
+impl Actor for SenderAllocation {
+    type Msg = SenderAllocationMsg;
+    type State = UnaggregatedReceipts;
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: Self::Arguments,
+    ) -> std::result::Result<Self::State, ActorProcessingErr> {
+        Ok(UnaggregatedReceipts::default())
+    }
+
+    async fn handle(
+        &self,
+        myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        state: &mut Self::State,
+    ) -> std::result::Result<(), ActorProcessingErr> {
+        match message {
+            SenderAllocationMsg::NewReceipt(NewReceiptNotification {
+                id, value: fees, ..
+            }) => {
+                if id < state.last_id {
+                    state.last_id = id;
+                    state.value = state.value.checked_add(fees).unwrap_or_else(|| {
+                        // This should never happen, but if it does, we want to know about it.
+                        error!(
+                            "Overflow when adding receipt value {} to total unaggregated fees {} \
+                            for allocation {} and sender {}. Setting total unaggregated fees to \
+                            u128::MAX.",
+                            fees, state.value, self.allocation_id, self.sender
+                        );
+                        u128::MAX
+                    });
+                    // TODO send a message back to update the unaggregated fees of sender_account
+                }
+            }
+            SenderAllocationMsg::TriggerRAVRequest(reply) => {
+                self.rav_requester_single().await.map_err(|e| {
+                    anyhow! {
+                        "Error while requesting RAV for sender {} and allocation {}: {}",
+                        self.sender,
+                        self.allocation_id,
+                        e
+                    }
+                })?;
+
+                // TODO update with the new unaggregated fees
+                // An error sending means no one is listening anymore (the receiver was dropped),
+                // so we should shortcut the processing of this message probably!
+                if !reply.is_closed() {
+                    let _ = reply.send(state.clone());
+                }
+            }
+            SenderAllocationMsg::CloseAllocation => {
+                self.rav_requester_single().await.inspect_err(|e| {
+                    error!(
+                        "Error while requesting RAV for sender {} and allocation {}: {}",
+                        self.sender, self.allocation_id, e
+                    );
+                })?;
+                self.mark_rav_final().await.inspect_err(|e| {
+                    error!(
+                        "Error while marking allocation {} as final for sender {}: {}",
+                        self.allocation_id, self.sender, e
+                    );
+                })?;
+                // send back the receipt fees to sender_account
+                self.sender_account_ref
+                    .cast(SenderAccountMessage::UpdateReceiptFees(
+                        self.allocation_id,
+                        UnaggregatedReceipts {
+                            value: 0,
+                            last_id: 0,
+                        },
+                    ))?;
+                myself.stop(None);
+            }
+        }
+        Ok(())
+    }
 }
 
 impl SenderAllocation {
@@ -64,6 +159,7 @@ impl SenderAllocation {
         escrow_adapter: EscrowAdapter,
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoint: String,
+        sender_account_ref: ActorRef<SenderAccountMessage>,
     ) -> Self {
         let required_checks: Vec<Arc<dyn Check + Send + Sync>> = vec![
             Arc::new(AllocationId::new(
@@ -102,6 +198,7 @@ impl SenderAllocation {
             rav_request_guard: TokioMutex::new(()),
             unaggregated_receipts_guard: TokioMutex::new(()),
             tap_eip712_domain_separator,
+            sender_account_ref,
         };
 
         sender_allocation
@@ -189,7 +286,7 @@ impl SenderAllocation {
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
-    pub async fn rav_requester_single(&self) -> Result<()> {
+    async fn rav_requester_single(&self) -> Result<()> {
         // Making extra sure that only one RAV request is running at a time.
         let _guard = self.rav_request_guard.lock().await;
 
@@ -371,50 +468,6 @@ impl SenderAllocation {
         .map_err(|e| anyhow!("Failed to store failed RAV: {:?}", e))?;
 
         Ok(())
-    }
-
-    /// Safe add the fees to the unaggregated fees value if the receipt_id is greater than the
-    /// last_id. If the addition would overflow u128, log an error and set the unaggregated fees
-    /// value to u128::MAX.
-    ///
-    /// Returns true if the fees were added, false otherwise.
-    pub async fn fees_add(&self, fees: u128, receipt_id: u64) -> bool {
-        // Make sure to pause the handling of receipt notifications while we update the unaggregated
-        // fees.
-        let _guard = self.unaggregated_receipts_guard.lock().await;
-
-        let mut fees_added = false;
-        let mut unaggregated_fees = self.unaggregated_fees.lock().unwrap();
-
-        if receipt_id > unaggregated_fees.last_id {
-            *unaggregated_fees = UnaggregatedReceipts {
-                last_id: receipt_id,
-                value: unaggregated_fees
-                    .value
-                    .checked_add(fees)
-                    .unwrap_or_else(|| {
-                        // This should never happen, but if it does, we want to know about it.
-                        error!(
-                            "Overflow when adding receipt value {} to total unaggregated fees {} \
-                            for allocation {} and sender {}. Setting total unaggregated fees to \
-                            u128::MAX.",
-                            fees, unaggregated_fees.value, self.allocation_id, self.sender
-                        );
-                        u128::MAX
-                    }),
-            };
-            fees_added = true;
-        }
-
-        fees_added
-    }
-
-    pub fn get_unaggregated_fees(&self) -> UnaggregatedReceipts {
-        self.unaggregated_fees.lock().unwrap().clone()
-    }
-
-    pub fn get_allocation_id(&self) -> Address {
-        self.allocation_id
     }
 }
 

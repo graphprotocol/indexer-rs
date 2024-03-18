@@ -2,21 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashSet;
-use std::sync::Mutex as StdMutex;
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, str::FromStr};
 
+use crate::agent::sender_allocation::SenderAllocationMsg;
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use anyhow::Result;
 use eventuals::{Eventual, EventualExt, PipeHandle};
 use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::prelude::{Allocation, SubgraphClient};
+use ractor::{Actor, ActorProcessingErr, ActorRef};
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
 use thegraph::types::Address;
 use tracing::{error, warn};
 
-use super::sender_account::SenderAccount;
+use super::sender_account::{SenderAccount, SenderAccountMessage};
 use crate::config;
 
 #[derive(Deserialize, Debug)]
@@ -29,18 +30,8 @@ pub struct NewReceiptNotification {
 }
 
 pub struct SenderAccountsManager {
-    _inner: Arc<Inner>,
-    new_receipts_watcher_handle: tokio::task::JoinHandle<()>,
-    _eligible_allocations_senders_pipe: PipeHandle,
-}
-
-/// Inner struct for SenderAccountsManager. This is used to store an Arc state for spawning async
-/// tasks.
-struct Inner {
     config: &'static config::Cli,
     pgpool: PgPool,
-    /// Map of sender_address to SenderAllocation.
-    sender_accounts: Arc<StdMutex<HashMap<Address, Arc<SenderAccount>>>>,
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
     escrow_accounts: Eventual<EscrowAccounts>,
     escrow_subgraph: &'static SubgraphClient,
@@ -48,58 +39,120 @@ struct Inner {
     sender_aggregator_endpoints: HashMap<Address, String>,
 }
 
-impl Inner {
-    async fn update_sender_accounts(
-        &self,
-        indexer_allocations: HashMap<Address, Allocation>,
-        target_senders: HashSet<Address>,
-    ) -> Result<()> {
-        let eligible_allocations: HashSet<Address> = indexer_allocations.keys().copied().collect();
-        let mut sender_accounts_copy = self.sender_accounts.lock().unwrap().clone();
+pub enum NetworkMessage {
+    UpdateSenderAccounts(HashSet<Address>),
+    CreateSenderAccount(Address, HashSet<Address>),
+}
 
-        // For all Senders that are not in the target_senders HashSet, set all their allocations to
-        // ineligible. That will trigger a finalization of all their receipts.
-        for (sender_id, sender_account) in sender_accounts_copy.iter() {
-            if !target_senders.contains(sender_id) {
-                sender_account.update_allocations(HashSet::new()).await;
+pub struct State {
+    sender_ids: HashSet<Address>,
+    new_receipts_watcher_handle: tokio::task::JoinHandle<()>,
+    _eligible_allocations_senders_pipe: PipeHandle,
+}
+
+#[async_trait::async_trait]
+impl Actor for SenderAccountsManager {
+    type Msg = NetworkMessage;
+    type State = State;
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        myself: ActorRef<Self::Msg>,
+        _: Self::Arguments,
+    ) -> std::result::Result<Self::State, ActorProcessingErr> {
+        let mut pglistener = PgListener::connect_with(&self.pgpool.clone())
+            .await
+            .unwrap();
+        pglistener
+            .listen("scalar_tap_receipt_notification")
+            .await
+            .expect(
+                "should be able to subscribe to Postgres Notify events on the channel \
+                'scalar_tap_receipt_notification'",
+            );
+        // Start the new_receipts_watcher task that will consume from the `pglistener`
+        let new_receipts_watcher_handle = tokio::spawn(Self::new_receipts_watcher(
+            pglistener,
+            self.escrow_accounts.clone(),
+        ));
+        let clone = myself.clone();
+        let eligible_allocations_senders_pipe =
+            self.escrow_accounts
+                .clone()
+                .pipe_async(move |escrow_accounts| {
+                    let myself = clone.clone();
+
+                    async move {
+                        myself
+                            .cast(NetworkMessage::UpdateSenderAccounts(
+                                escrow_accounts.get_senders(),
+                            ))
+                            .unwrap_or_else(|e| {
+                                error!("Error while updating sender_accounts: {:?}", e);
+                            });
+                    }
+                });
+        let sender_allocation = self.get_pending_sender_allocation_id().await;
+        for (sender_id, allocation_ids) in sender_allocation {
+            myself.cast(NetworkMessage::CreateSenderAccount(
+                sender_id,
+                allocation_ids,
+            ))?;
+        }
+
+        Ok(State {
+            sender_ids: HashSet::new(),
+            new_receipts_watcher_handle,
+            _eligible_allocations_senders_pipe: eligible_allocations_senders_pipe,
+        })
+    }
+    async fn post_stop(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        state: &mut Self::State,
+    ) -> std::result::Result<(), ActorProcessingErr> {
+        // Abort the notification watcher on drop. Otherwise it may panic because the PgPool could
+        // get dropped before. (Observed in tests)
+        state.new_receipts_watcher_handle.abort();
+        Ok(())
+    }
+
+    async fn handle(
+        &self,
+        myself: ActorRef<Self::Msg>,
+        msg: Self::Msg,
+        state: &mut Self::State,
+    ) -> std::result::Result<(), ActorProcessingErr> {
+        match msg {
+            NetworkMessage::UpdateSenderAccounts(target_senders) => {
+                // Create new sender accounts
+                for sender in target_senders.difference(&state.sender_ids) {
+                    myself.cast(NetworkMessage::CreateSenderAccount(*sender, HashSet::new()))?;
+                }
+
+                // Remove sender accounts
+                for sender in state.sender_ids.difference(&target_senders) {
+                    if let Some(sender_handle) =
+                        ActorRef::<SenderAccountMessage>::where_is(sender.to_string())
+                    {
+                        sender_handle.cast(SenderAccountMessage::RemoveSenderAccount)?;
+                    }
+                }
+
+                state.sender_ids = target_senders;
+            }
+            NetworkMessage::CreateSenderAccount(sender_id, allocation_ids) => {
+                let sender_account = self.new_sender_account(&sender_id)?;
+                SenderAccount::spawn_linked(
+                    Some(sender_id.to_string()),
+                    sender_account,
+                    allocation_ids,
+                    myself.get_cell(),
+                )
+                .await?;
             }
         }
-
-        // Get or create SenderAccount instances for all currently eligible
-        // senders.
-        for sender_id in &target_senders {
-            let sender =
-                sender_accounts_copy
-                    .entry(*sender_id)
-                    .or_insert(Arc::new(SenderAccount::new(
-                        self.config,
-                        self.pgpool.clone(),
-                        *sender_id,
-                        self.escrow_accounts.clone(),
-                        self.escrow_subgraph,
-                        self.tap_eip712_domain_separator.clone(),
-                        self.sender_aggregator_endpoints
-                            .get(sender_id)
-                            .ok_or_else(|| {
-                                anyhow!(
-                                    "No sender_aggregator_endpoint found for sender {}",
-                                    sender_id
-                                )
-                            })?
-                            .clone(),
-                    )));
-
-            // Update sender's allocations
-            sender
-                .update_allocations(eligible_allocations.clone())
-                .await;
-        }
-
-        // Replace the sender_accounts with the updated sender_accounts_copy
-        *self.sender_accounts.lock().unwrap() = sender_accounts_copy;
-
-        // TODO: remove Sender instances that are finished. Ideally done in another async task?
-
         Ok(())
     }
 }
@@ -114,32 +167,19 @@ impl SenderAccountsManager {
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoints: HashMap<Address, String>,
     ) -> Self {
-        let inner = Arc::new(Inner {
+        Self {
             config,
             pgpool,
-            sender_accounts: Arc::new(StdMutex::new(HashMap::new())),
             indexer_allocations,
             escrow_accounts,
             escrow_subgraph,
             tap_eip712_domain_separator,
             sender_aggregator_endpoints,
-        });
+        }
+    }
 
-        // Listen to pg_notify events. We start it before updating the unaggregated_fees for all
-        // SenderAccount instances, so that we don't miss any receipts. PG will buffer the\
-        // notifications until we start consuming them with `new_receipts_watcher`.
-        let mut pglistener = PgListener::connect_with(&inner.pgpool.clone())
-            .await
-            .unwrap();
-        pglistener
-            .listen("scalar_tap_receipt_notification")
-            .await
-            .expect(
-                "should be able to subscribe to Postgres Notify events on the channel \
-                'scalar_tap_receipt_notification'",
-            );
-
-        let escrow_accounts_snapshot = inner
+    async fn get_pending_sender_allocation_id(&self) -> HashMap<Address, HashSet<Address>> {
+        let escrow_accounts_snapshot = self
             .escrow_accounts
             .value()
             .await
@@ -169,7 +209,7 @@ impl SenderAccountsManager {
                 FROM scalar_tap_receipts AS top
             "#
         )
-        .fetch_all(&inner.pgpool)
+        .fetch_all(&self.pgpool)
         .await
         .expect("should be able to fetch pending receipts from the database");
 
@@ -211,7 +251,7 @@ impl SenderAccountsManager {
                 FROM scalar_tap_ravs AS top
             "#
         )
-        .fetch_all(&inner.pgpool)
+        .fetch_all(&self.pgpool)
         .await
         .expect("should be able to fetch unfinalized RAVs from the database");
 
@@ -234,88 +274,32 @@ impl SenderAccountsManager {
                 .or_default()
                 .extend(allocation_ids);
         }
-
-        // Create SenderAccount instances for all senders that have unfinalized allocations and add
-        // the allocations to the SenderAccount instances.
-        let mut sender_accounts = HashMap::new();
-        for (sender_id, allocation_ids) in unfinalized_sender_allocations_map {
-            let sender = sender_accounts
-                .entry(sender_id)
-                .or_insert(Arc::new(SenderAccount::new(
-                    config,
-                    inner.pgpool.clone(),
-                    sender_id,
-                    inner.escrow_accounts.clone(),
-                    inner.escrow_subgraph,
-                    inner.tap_eip712_domain_separator.clone(),
-                    inner
-                        .sender_aggregator_endpoints
-                        .get(&sender_id)
-                        .expect("should be able to get sender_aggregator_endpoint for sender")
-                        .clone(),
-                )));
-
-            sender.update_allocations(allocation_ids).await;
-
-            sender.recompute_unaggregated_fees().await;
-        }
-        // replace the sender_accounts with the updated sender_accounts
-        *inner.sender_accounts.lock().unwrap() = sender_accounts;
-
-        // Update senders and allocations based on the current state of the network.
-        // It is important to do this after creating the Sender and SenderAllocation instances based
-        // on the receipts in the database, because now all ineligible allocation and/or sender that
-        // we created above will be set for receipt finalization.
-        inner
-            .update_sender_accounts(
-                inner
-                    .indexer_allocations
-                    .value()
-                    .await
-                    .expect("Should get indexer allocations from Eventual"),
-                escrow_accounts_snapshot.get_senders(),
-            )
-            .await
-            .expect("Should be able to update_sender_accounts");
-
-        // Start the new_receipts_watcher task that will consume from the `pglistener`
-        let new_receipts_watcher_handle = tokio::spawn(Self::new_receipts_watcher(
-            pglistener,
-            inner.sender_accounts.clone(),
-            inner.escrow_accounts.clone(),
-        ));
-
-        // Start the eligible_allocations_senders_pipe that watches for changes in eligible senders
-        // and allocations and updates the SenderAccount instances accordingly.
-        let inner_clone = inner.clone();
-        let eligible_allocations_senders_pipe = eventuals::join((
-            inner.indexer_allocations.clone(),
-            inner.escrow_accounts.clone(),
+        unfinalized_sender_allocations_map
+    }
+    fn new_sender_account(&self, sender_id: &Address) -> Result<SenderAccount> {
+        Ok(SenderAccount::new(
+            self.config,
+            self.pgpool.clone(),
+            *sender_id,
+            self.escrow_accounts.clone(),
+            self.escrow_subgraph,
+            self.tap_eip712_domain_separator.clone(),
+            self.sender_aggregator_endpoints
+                .get(sender_id)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "No sender_aggregator_endpoint found for sender {}",
+                        sender_id
+                    )
+                })?
+                .clone(),
         ))
-        .pipe_async(move |(indexer_allocations, escrow_accounts)| {
-            let inner = inner_clone.clone();
-            async move {
-                inner
-                    .update_sender_accounts(indexer_allocations, escrow_accounts.get_senders())
-                    .await
-                    .unwrap_or_else(|e| {
-                        error!("Error while updating sender_accounts: {:?}", e);
-                    });
-            }
-        });
-
-        Self {
-            _inner: inner,
-            new_receipts_watcher_handle,
-            _eligible_allocations_senders_pipe: eligible_allocations_senders_pipe,
-        }
     }
 
     /// Continuously listens for new receipt notifications from Postgres and forwards them to the
     /// corresponding SenderAccount.
     async fn new_receipts_watcher(
         mut pglistener: PgListener,
-        sender_accounts: Arc<StdMutex<HashMap<Address, Arc<SenderAccount>>>>,
         escrow_accounts: Eventual<EscrowAccounts>,
     ) {
         loop {
@@ -348,17 +332,16 @@ impl SenderAccountsManager {
                     continue;
                 }
             };
+            let allocation_id = &new_receipt_notification.allocation_id;
 
-            let sender_account = sender_accounts
-                .lock()
-                .unwrap()
-                .get(&sender_address)
-                .cloned();
-
-            if let Some(sender_account) = sender_account {
-                sender_account
-                    .handle_new_receipt_notification(new_receipt_notification)
-                    .await;
+            if let Some(sender_allocation) = ActorRef::<SenderAllocationMsg>::where_is(format!(
+                "{sender_address}:{allocation_id}"
+            )) {
+                if let Err(e) = sender_allocation
+                    .cast(SenderAllocationMsg::NewReceipt(new_receipt_notification))
+                {
+                    error!("Error while forwarding new receipt notification to sender_allocation: {:?}", e);
+                }
             } else {
                 warn!(
                     "No sender_allocation_manager found for sender_address {} to process new \
@@ -367,14 +350,6 @@ impl SenderAccountsManager {
                 );
             }
         }
-    }
-}
-
-impl Drop for SenderAccountsManager {
-    fn drop(&mut self) {
-        // Abort the notification watcher on drop. Otherwise it may panic because the PgPool could
-        // get dropped before. (Observed in tests)
-        self.new_receipts_watcher_handle.abort();
     }
 }
 
@@ -491,7 +466,7 @@ mod tests {
 
         // Check that the SenderAccount was created.
         assert!(sender_account
-            ._inner
+            .inner
             .sender_accounts
             .lock()
             .unwrap()
@@ -505,7 +480,7 @@ mod tests {
 
         // Check that the Sender's allocation moved from active to ineligible.
         assert!(sender_account
-            ._inner
+            .inner
             .sender_accounts
             .lock()
             .unwrap()
@@ -514,7 +489,7 @@ mod tests {
             ._tests_get_allocations_active()
             .is_empty());
         assert!(sender_account
-            ._inner
+            .inner
             .sender_accounts
             .lock()
             .unwrap()
