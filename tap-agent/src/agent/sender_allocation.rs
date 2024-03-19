@@ -1,10 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    sync::{Arc, Mutex as StdMutex},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
@@ -25,7 +22,6 @@ use tap_core::{
     signed_message::EIP712SignedMessage,
 };
 use thegraph::types::Address;
-use tokio::sync::Mutex as TokioMutex;
 use tracing::{error, warn};
 
 use crate::agent::sender_account::SenderAccountMessage;
@@ -47,11 +43,8 @@ pub struct SenderAllocation {
     allocation_id: Address,
     sender: Address,
     sender_aggregator_endpoint: String,
-    unaggregated_fees: Arc<StdMutex<UnaggregatedReceipts>>,
     config: &'static config::Cli,
     escrow_accounts: Eventual<EscrowAccounts>,
-    rav_request_guard: TokioMutex<()>,
-    unaggregated_receipts_guard: TokioMutex<()>,
     tap_eip712_domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
 }
@@ -73,7 +66,22 @@ impl Actor for SenderAllocation {
         _myself: ActorRef<Self::Msg>,
         _args: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
-        Ok(UnaggregatedReceipts::default())
+        let unaggregated_fees = self.calculate_unaggregated_fee().await?;
+        Ok(unaggregated_fees)
+    }
+
+    async fn post_stop(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _state: &mut Self::State,
+    ) -> std::result::Result<(), ActorProcessingErr> {
+        // cleanup receipt fees for sender
+        self.sender_account_ref
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                self.allocation_id,
+                UnaggregatedReceipts::default(),
+            ))?;
+        Ok(())
     }
 
     async fn handle(
@@ -98,7 +106,11 @@ impl Actor for SenderAllocation {
                         );
                         u128::MAX
                     });
-                    // TODO send a message back to update the unaggregated fees of sender_account
+                    self.sender_account_ref
+                        .cast(SenderAccountMessage::UpdateReceiptFees(
+                            self.allocation_id,
+                            state.clone(),
+                        ))?;
                 }
             }
             SenderAllocationMsg::TriggerRAVRequest(reply) => {
@@ -110,10 +122,7 @@ impl Actor for SenderAllocation {
                         e
                     }
                 })?;
-
-                // TODO update with the new unaggregated fees
-                // An error sending means no one is listening anymore (the receiver was dropped),
-                // so we should shortcut the processing of this message probably!
+                *state = self.calculate_unaggregated_fee().await?;
                 if !reply.is_closed() {
                     let _ = reply.send(state.clone());
                 }
@@ -131,15 +140,6 @@ impl Actor for SenderAllocation {
                         self.allocation_id, self.sender, e
                     );
                 })?;
-                // send back the receipt fees to sender_account
-                self.sender_account_ref
-                    .cast(SenderAccountMessage::UpdateReceiptFees(
-                        self.allocation_id,
-                        UnaggregatedReceipts {
-                            value: 0,
-                            last_id: 0,
-                        },
-                    ))?;
                 myself.stop(None);
             }
         }
@@ -186,42 +186,22 @@ impl SenderAllocation {
             Checks::new(required_checks),
         );
 
-        let sender_allocation = Self {
+        Self {
             pgpool,
             tap_manager,
             allocation_id,
             sender,
             sender_aggregator_endpoint,
-            unaggregated_fees: Arc::new(StdMutex::new(UnaggregatedReceipts::default())),
             config,
             escrow_accounts,
-            rav_request_guard: TokioMutex::new(()),
-            unaggregated_receipts_guard: TokioMutex::new(()),
             tap_eip712_domain_separator,
             sender_account_ref,
-        };
-
-        sender_allocation
-            .update_unaggregated_fees()
-            .await
-            .map_err(|e| {
-                error!(
-                    "Error while updating unaggregated fees for allocation {}: {}",
-                    allocation_id, e
-                )
-            })
-            .ok();
-
-        sender_allocation
+        }
     }
 
     /// Delete obsolete receipts in the DB w.r.t. the last RAV in DB, then update the tap manager
     /// with the latest unaggregated fees from the database.
-    async fn update_unaggregated_fees(&self) -> Result<()> {
-        // Make sure to pause the handling of receipt notifications while we update the unaggregated
-        // fees.
-        let _guard = self.unaggregated_receipts_guard.lock().await;
-
+    async fn calculate_unaggregated_fee(&self) -> Result<UnaggregatedReceipts> {
         self.tap_manager.remove_obsolete_receipts().await?;
 
         let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
@@ -270,26 +250,19 @@ impl SenderAllocation {
             "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
         );
 
-        *self.unaggregated_fees.lock().unwrap() = UnaggregatedReceipts {
+        Ok(UnaggregatedReceipts {
             last_id: res.max.unwrap_or(0).try_into()?,
             value: res
                 .sum
                 .unwrap_or(BigDecimal::from(0))
                 .to_string()
                 .parse::<u128>()?,
-        };
-
-        // TODO: check if we need to run a RAV request here.
-
-        Ok(())
+        })
     }
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
     async fn rav_requester_single(&self) -> Result<()> {
-        // Making extra sure that only one RAV request is running at a time.
-        let _guard = self.rav_request_guard.lock().await;
-
         let RAVRequest {
             valid_receipts,
             previous_rav,
@@ -374,7 +347,6 @@ impl SenderAllocation {
                 anyhow::bail!("Error while verifying and storing RAV: {:?}", e);
             }
         }
-        Self::update_unaggregated_fees(self).await?;
         Ok(())
     }
 
