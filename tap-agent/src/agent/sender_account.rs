@@ -92,7 +92,7 @@ impl Actor for SenderAccount {
                     myself.clone(),
                 )
                 .await;
-                let sender_id = self.sender.clone();
+                let sender_id = self.sender;
 
                 let (_actor, _handle) = SenderAllocation::spawn_linked(
                     Some(format!("{sender_id}:{allocation_id}")),
