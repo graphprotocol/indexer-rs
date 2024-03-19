@@ -1,15 +1,17 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use alloy_sol_types::Eip712Domain;
 use anyhow::Result;
-use eventuals::Eventual;
+use eventuals::{Eventual, EventualExt, PipeHandle};
+use indexer_common::allocations::Allocation;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use ractor::{call, Actor, ActorProcessingErr, ActorRef};
 use sqlx::PgPool;
 use thegraph::types::Address;
+use tracing::error;
 
 use super::sender_allocation::SenderAllocation;
 use crate::agent::allocation_id_tracker::AllocationIdTracker;
@@ -22,6 +24,7 @@ use crate::{
 
 pub enum SenderAccountMessage {
     CreateSenderAllocation(Address),
+    UpdateAllocationIds(HashSet<Address>),
     RemoveSenderAccount,
     UpdateReceiptFees(Address, UnaggregatedReceipts),
 }
@@ -36,7 +39,10 @@ pub enum SenderAccountMessage {
 ///   certain threshold.
 /// - Requesting the last RAV from the sender's TAP aggregator for all EOL allocations.
 pub struct SenderAccount {
+    //Eventuals
     escrow_accounts: Eventual<EscrowAccounts>,
+    indexer_allocations: Eventual<HashMap<Address, Allocation>>,
+
     escrow_subgraph: &'static SubgraphClient,
     escrow_adapter: EscrowAdapter,
     tap_eip712_domain_separator: Eip712Domain,
@@ -46,21 +52,51 @@ pub struct SenderAccount {
     sender_aggregator_endpoint: String,
 }
 
+pub struct State {
+    allocation_id_tracker: AllocationIdTracker,
+    allocation_ids: HashSet<Address>,
+    _indexer_allocations_handle: PipeHandle,
+}
+
 #[async_trait::async_trait]
 impl Actor for SenderAccount {
     type Msg = SenderAccountMessage;
-    type State = AllocationIdTracker;
+    type State = State;
     type Arguments = HashSet<Address>;
 
     async fn pre_start(
         &self,
-        _myself: ActorRef<Self::Msg>,
-        _args: Self::Arguments,
+        myself: ActorRef<Self::Msg>,
+        allocation_ids: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
-        // todo look for allocations and create sender_allocations
+        let clone = myself.clone();
+        let _indexer_allocations_handle =
+            self.indexer_allocations
+                .clone()
+                .pipe_async(move |escrow_accounts| {
+                    let myself = clone.clone();
+                    async move {
+                        // Update the allocation_ids
+                        myself
+                            .cast(SenderAccountMessage::UpdateAllocationIds(
+                                escrow_accounts.keys().cloned().into_iter().collect(),
+                            ))
+                            .unwrap_or_else(|e| {
+                                error!("Error while updating allocation_ids: {:?}", e);
+                            });
+                    }
+                });
 
-        // todo use the arguments to spawn the initial sender allocations
-        Ok(AllocationIdTracker::new())
+        for allocation_id in &allocation_ids {
+            // Create a sender allocation for each allocation
+            myself.cast(SenderAccountMessage::CreateSenderAllocation(*allocation_id))?;
+        }
+
+        Ok(State {
+            allocation_id_tracker: AllocationIdTracker::new(),
+            allocation_ids,
+            _indexer_allocations_handle,
+        })
     }
 
     async fn handle(
@@ -72,10 +108,11 @@ impl Actor for SenderAccount {
         match message {
             SenderAccountMessage::RemoveSenderAccount => myself.stop(None),
             SenderAccountMessage::UpdateReceiptFees(allocation_id, unaggregated_fees) => {
-                state.add_or_update(allocation_id, unaggregated_fees.value);
+                let tracker = &mut state.allocation_id_tracker;
+                tracker.add_or_update(allocation_id, unaggregated_fees.value);
 
-                if state.get_total_fee() >= self.config.tap.rav_request_trigger_value.into() {
-                    self.rav_requester_single(state).await?;
+                if tracker.get_total_fee() >= self.config.tap.rav_request_trigger_value.into() {
+                    self.rav_requester_single(tracker).await?;
                 }
             }
             SenderAccountMessage::CreateSenderAllocation(allocation_id) => {
@@ -102,6 +139,24 @@ impl Actor for SenderAccount {
                 )
                 .await?;
             }
+            SenderAccountMessage::UpdateAllocationIds(allocation_ids) => {
+                // Create new sender allocations
+                for allocation_id in allocation_ids.difference(&state.allocation_ids) {
+                    myself.cast(SenderAccountMessage::CreateSenderAllocation(*allocation_id))?;
+                }
+
+                // Remove sender allocations
+                let sender = self.sender;
+                for allocation_id in state.allocation_ids.difference(&allocation_ids) {
+                    if let Some(sender_handle) = ActorRef::<SenderAllocationMsg>::where_is(format!(
+                        "{sender}:{allocation_id}"
+                    )) {
+                        sender_handle.cast(SenderAllocationMsg::CloseAllocation)?;
+                    }
+                }
+
+                state.allocation_ids = allocation_ids;
+            }
         }
         Ok(())
     }
@@ -114,6 +169,7 @@ impl SenderAccount {
         pgpool: PgPool,
         sender_id: Address,
         escrow_accounts: Eventual<EscrowAccounts>,
+        indexer_allocations: Eventual<HashMap<Address, Allocation>>,
         escrow_subgraph: &'static SubgraphClient,
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoint: String,
@@ -122,6 +178,7 @@ impl SenderAccount {
 
         Self {
             escrow_accounts,
+            indexer_allocations,
             escrow_subgraph,
             escrow_adapter,
             tap_eip712_domain_separator,
@@ -156,11 +213,14 @@ impl SenderAccount {
 
 #[cfg(test)]
 mod tests {
+    use crate::agent::sender_accounts_manager::NewReceiptNotification;
     use alloy_primitives::hex::ToHex;
     use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
     use indexer_common::subgraph_client::DeploymentDetails;
     use serde_json::json;
+    use std::collections::HashMap;
     use std::str::FromStr;
+    use std::sync::Arc;
     use tap_aggregator::server::run_server;
     use tap_core::{rav::ReceiptAggregateVoucher, signed_message::EIP712SignedMessage};
     use wiremock::{
@@ -180,8 +240,7 @@ mod tests {
     // To help with testing from other modules.
     impl SenderAccount {
         pub fn _tests_get_allocations_active(&self) -> HashMap<Address, Arc<SenderAllocation>> {
-            self.inner
-                .allocations
+            self.allocations
                 .lock()
                 .unwrap()
                 .iter()
@@ -196,8 +255,7 @@ mod tests {
         }
 
         pub fn _tests_get_allocations_ineligible(&self) -> HashMap<Address, Arc<SenderAllocation>> {
-            self.inner
-                .allocations
+            self.allocations
                 .lock()
                 .unwrap()
                 .iter()
@@ -287,7 +345,6 @@ mod tests {
         // Check that the allocation's unaggregated fees are correct.
         assert_eq!(
             sender
-                .inner
                 .allocations
                 .lock()
                 .unwrap()
@@ -302,7 +359,7 @@ mod tests {
 
         // Check that the sender's unaggregated fees are correct.
         assert_eq!(
-            sender.inner.unaggregated_fees.lock().unwrap().value,
+            sender.unaggregated_fees.lock().unwrap().value,
             expected_unaggregated_fees
         );
 
@@ -323,7 +380,6 @@ mod tests {
         // Check that the allocation's unaggregated fees have *not* increased.
         assert_eq!(
             sender
-                .inner
                 .allocations
                 .lock()
                 .unwrap()
@@ -338,7 +394,7 @@ mod tests {
 
         // Check that the unaggregated fees have *not* increased.
         assert_eq!(
-            sender.inner.unaggregated_fees.lock().unwrap().value,
+            sender.unaggregated_fees.lock().unwrap().value,
             expected_unaggregated_fees
         );
 
@@ -358,7 +414,6 @@ mod tests {
         // Check that the allocation's unaggregated fees are correct.
         assert_eq!(
             sender
-                .inner
                 .allocations
                 .lock()
                 .unwrap()
@@ -373,7 +428,7 @@ mod tests {
 
         // Check that the unaggregated fees are correct.
         assert_eq!(
-            sender.inner.unaggregated_fees.lock().unwrap().value,
+            sender.unaggregated_fees.lock().unwrap().value,
             expected_unaggregated_fees
         );
 
@@ -392,7 +447,6 @@ mod tests {
         // Check that the allocation's unaggregated fees have *not* increased.
         assert_eq!(
             sender
-                .inner
                 .allocations
                 .lock()
                 .unwrap()
@@ -407,7 +461,7 @@ mod tests {
 
         // Check that the unaggregated fees have *not* increased.
         assert_eq!(
-            sender.inner.unaggregated_fees.lock().unwrap().value,
+            sender.unaggregated_fees.lock().unwrap().value,
             expected_unaggregated_fees
         );
     }
@@ -482,7 +536,7 @@ mod tests {
 
         // Wait for the RAV requester to finish.
         for _ in 0..100 {
-            if sender_account.inner.unaggregated_fees.lock().unwrap().value < trigger_value {
+            if sender_account.unaggregated_fees.lock().unwrap().value < trigger_value {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -525,7 +579,6 @@ mod tests {
         // Check that the allocation's unaggregated fees value is reduced.
         assert!(
             sender_account
-                .inner
                 .allocations
                 .lock()
                 .unwrap()
@@ -539,10 +592,10 @@ mod tests {
         );
 
         // Check that the sender's unaggregated fees value is reduced.
-        assert!(sender_account.inner.unaggregated_fees.lock().unwrap().value <= trigger_value);
+        assert!(sender_account.unaggregated_fees.lock().unwrap().value <= trigger_value);
 
         // Reset the total value and trigger value.
-        total_value = sender_account.inner.unaggregated_fees.lock().unwrap().value;
+        total_value = sender_account.unaggregated_fees.lock().unwrap().value;
         trigger_value = 0;
 
         // Add more receipts
@@ -573,7 +626,7 @@ mod tests {
 
         // Wait for the RAV requester to finish.
         for _ in 0..100 {
-            if sender_account.inner.unaggregated_fees.lock().unwrap().value < trigger_value {
+            if sender_account.unaggregated_fees.lock().unwrap().value < trigger_value {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -617,7 +670,6 @@ mod tests {
         // Check that the allocation's unaggregated fees value is reduced.
         assert!(
             sender_account
-                .inner
                 .allocations
                 .lock()
                 .unwrap()
@@ -631,7 +683,7 @@ mod tests {
         );
 
         // Check that the unaggregated fees value is reduced.
-        assert!(sender_account.inner.unaggregated_fees.lock().unwrap().value <= trigger_value);
+        assert!(sender_account.unaggregated_fees.lock().unwrap().value <= trigger_value);
 
         // Stop the TAP aggregator server.
         handle.stop().unwrap();
@@ -654,13 +706,7 @@ mod tests {
                 for i in 0..iterations {
                     let value = (i + 10) as u128;
 
-                    let id = sender_account
-                        .inner
-                        .unaggregated_fees
-                        .lock()
-                        .unwrap()
-                        .last_id
-                        + 1;
+                    let id = sender_account.unaggregated_fees.lock().unwrap().last_id + 1;
 
                     sender_account
                         .handle_new_receipt_notification(NewReceiptNotification {
@@ -677,7 +723,6 @@ mod tests {
 
                 assert_eq!(
                     sender_account
-                        .inner
                         .allocations
                         .lock()
                         .unwrap()
@@ -704,14 +749,14 @@ mod tests {
         let total_value_2 = add_receipts(*ALLOCATION_ID_2, 8).await;
 
         // Get the heaviest allocation.
-        let heaviest_allocation = sender_account.inner.get_heaviest_allocation().unwrap();
+        let heaviest_allocation = sender_account.get_heaviest_allocation().unwrap();
 
         // Check that the heaviest allocation is correct.
         assert_eq!(heaviest_allocation.get_allocation_id(), *ALLOCATION_ID_1);
 
         // Check that the sender's unaggregated fees value is correct.
         assert_eq!(
-            sender_account.inner.unaggregated_fees.lock().unwrap().value,
+            sender_account.unaggregated_fees.lock().unwrap().value,
             total_value_0 + total_value_1 + total_value_2
         );
     }

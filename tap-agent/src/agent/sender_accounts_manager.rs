@@ -77,7 +77,7 @@ impl Actor for SenderAccountsManager {
             self.escrow_accounts.clone(),
         ));
         let clone = myself.clone();
-        let eligible_allocations_senders_pipe =
+        let _eligible_allocations_senders_pipe =
             self.escrow_accounts
                 .clone()
                 .pipe_async(move |escrow_accounts| {
@@ -104,12 +104,12 @@ impl Actor for SenderAccountsManager {
         Ok(State {
             sender_ids: HashSet::new(),
             new_receipts_watcher_handle,
-            _eligible_allocations_senders_pipe: eligible_allocations_senders_pipe,
+            _eligible_allocations_senders_pipe,
         })
     }
     async fn post_stop(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        _: ActorRef<Self::Msg>,
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
         // Abort the notification watcher on drop. Otherwise it may panic because the PgPool could
@@ -282,6 +282,7 @@ impl SenderAccountsManager {
             self.pgpool.clone(),
             *sender_id,
             self.escrow_accounts.clone(),
+            self.indexer_allocations.clone(),
             self.escrow_subgraph,
             self.tap_eip712_domain_separator.clone(),
             self.sender_aggregator_endpoints
