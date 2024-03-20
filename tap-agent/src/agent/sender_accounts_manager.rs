@@ -29,41 +29,61 @@ pub struct NewReceiptNotification {
     pub value: u128,
 }
 
-pub struct SenderAccountsManager {
-    config: &'static config::Cli,
-    pgpool: PgPool,
-    indexer_allocations: Eventual<HashSet<Address>>,
-    escrow_accounts: Eventual<EscrowAccounts>,
-    escrow_subgraph: &'static SubgraphClient,
-    tap_eip712_domain_separator: Eip712Domain,
-    sender_aggregator_endpoints: HashMap<Address, String>,
-}
+pub struct SenderAccountsManager;
 
-pub enum NetworkMessage {
+pub enum SenderAccountsManagerMessage {
     UpdateSenderAccounts(HashSet<Address>),
     CreateSenderAccount(Address, HashSet<Address>),
+}
+
+pub struct SenderAccountsManagerArgs {
+    pub config: &'static config::Cli,
+    pub domain_separator: Eip712Domain,
+
+    pub pgpool: PgPool,
+    pub indexer_allocations: Eventual<HashMap<Address, Allocation>>,
+    pub escrow_accounts: Eventual<EscrowAccounts>,
+    pub escrow_subgraph: &'static SubgraphClient,
+    pub sender_aggregator_endpoints: HashMap<Address, String>,
 }
 
 pub struct State {
     sender_ids: HashSet<Address>,
     new_receipts_watcher_handle: tokio::task::JoinHandle<()>,
     _eligible_allocations_senders_pipe: PipeHandle,
+
+    config: &'static config::Cli,
+    domain_separator: Eip712Domain,
+    pgpool: PgPool,
+    indexer_allocations: Eventual<HashSet<Address>>,
+    escrow_accounts: Eventual<EscrowAccounts>,
+    escrow_subgraph: &'static SubgraphClient,
+    sender_aggregator_endpoints: HashMap<Address, String>,
 }
 
 #[async_trait::async_trait]
 impl Actor for SenderAccountsManager {
-    type Msg = NetworkMessage;
+    type Msg = SenderAccountsManagerMessage;
     type State = State;
-    type Arguments = ();
+    type Arguments = SenderAccountsManagerArgs;
 
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        _: Self::Arguments,
+        SenderAccountsManagerArgs {
+            config,
+            domain_separator,
+            indexer_allocations,
+            pgpool,
+            escrow_accounts,
+            escrow_subgraph,
+            sender_aggregator_endpoints,
+        }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
-        let mut pglistener = PgListener::connect_with(&self.pgpool.clone())
-            .await
-            .unwrap();
+        let indexer_allocations = indexer_allocations.map(|allocations| async move {
+            allocations.keys().cloned().collect::<HashSet<Address>>()
+        });
+        let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
         pglistener
             .listen("scalar_tap_receipt_notification")
             .await
@@ -72,40 +92,45 @@ impl Actor for SenderAccountsManager {
                 'scalar_tap_receipt_notification'",
             );
         // Start the new_receipts_watcher task that will consume from the `pglistener`
-        let new_receipts_watcher_handle = tokio::spawn(Self::new_receipts_watcher(
-            pglistener,
-            self.escrow_accounts.clone(),
-        ));
+        let new_receipts_watcher_handle =
+            tokio::spawn(new_receipts_watcher(pglistener, escrow_accounts.clone()));
         let clone = myself.clone();
         let _eligible_allocations_senders_pipe =
-            self.escrow_accounts
-                .clone()
-                .pipe_async(move |escrow_accounts| {
-                    let myself = clone.clone();
+            escrow_accounts.clone().pipe_async(move |escrow_accounts| {
+                let myself = clone.clone();
 
-                    async move {
-                        myself
-                            .cast(NetworkMessage::UpdateSenderAccounts(
-                                escrow_accounts.get_senders(),
-                            ))
-                            .unwrap_or_else(|e| {
-                                error!("Error while updating sender_accounts: {:?}", e);
-                            });
-                    }
-                });
-        let sender_allocation = self.get_pending_sender_allocation_id().await;
+                async move {
+                    myself
+                        .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
+                            escrow_accounts.get_senders(),
+                        ))
+                        .unwrap_or_else(|e| {
+                            error!("Error while updating sender_accounts: {:?}", e);
+                        });
+                }
+            });
+
+        let state = State {
+            config,
+            domain_separator,
+            sender_ids: HashSet::new(),
+            new_receipts_watcher_handle,
+            _eligible_allocations_senders_pipe,
+            pgpool,
+            indexer_allocations,
+            escrow_accounts,
+            escrow_subgraph,
+            sender_aggregator_endpoints,
+        };
+        let sender_allocation = state.get_pending_sender_allocation_id().await;
         for (sender_id, allocation_ids) in sender_allocation {
-            myself.cast(NetworkMessage::CreateSenderAccount(
+            myself.cast(SenderAccountsManagerMessage::CreateSenderAccount(
                 sender_id,
                 allocation_ids,
             ))?;
         }
 
-        Ok(State {
-            sender_ids: HashSet::new(),
-            new_receipts_watcher_handle,
-            _eligible_allocations_senders_pipe,
-        })
+        Ok(state)
     }
     async fn post_stop(
         &self,
@@ -125,10 +150,13 @@ impl Actor for SenderAccountsManager {
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
         match msg {
-            NetworkMessage::UpdateSenderAccounts(target_senders) => {
+            SenderAccountsManagerMessage::UpdateSenderAccounts(target_senders) => {
                 // Create new sender accounts
                 for sender in target_senders.difference(&state.sender_ids) {
-                    myself.cast(NetworkMessage::CreateSenderAccount(*sender, HashSet::new()))?;
+                    myself.cast(SenderAccountsManagerMessage::CreateSenderAccount(
+                        *sender,
+                        HashSet::new(),
+                    ))?;
                 }
 
                 // Remove sender accounts
@@ -142,8 +170,8 @@ impl Actor for SenderAccountsManager {
 
                 state.sender_ids = target_senders;
             }
-            NetworkMessage::CreateSenderAccount(sender_id, allocation_ids) => {
-                let sender_account = self.new_sender_account(&sender_id)?;
+            SenderAccountsManagerMessage::CreateSenderAccount(sender_id, allocation_ids) => {
+                let sender_account = state.new_sender_account(&sender_id)?;
                 SenderAccount::spawn_linked(
                     Some(sender_id.to_string()),
                     sender_account,
@@ -157,30 +185,7 @@ impl Actor for SenderAccountsManager {
     }
 }
 
-impl SenderAccountsManager {
-    pub async fn new(
-        config: &'static config::Cli,
-        pgpool: PgPool,
-        indexer_allocations: Eventual<HashMap<Address, Allocation>>,
-        escrow_accounts: Eventual<EscrowAccounts>,
-        escrow_subgraph: &'static SubgraphClient,
-        tap_eip712_domain_separator: Eip712Domain,
-        sender_aggregator_endpoints: HashMap<Address, String>,
-    ) -> Self {
-        let indexer_allocations = indexer_allocations.map(|allocations| async move {
-            allocations.keys().cloned().collect::<HashSet<Address>>()
-        });
-        Self {
-            config,
-            pgpool,
-            indexer_allocations,
-            escrow_accounts,
-            escrow_subgraph,
-            tap_eip712_domain_separator,
-            sender_aggregator_endpoints,
-        }
-    }
-
+impl State {
     async fn get_pending_sender_allocation_id(&self) -> HashMap<Address, HashSet<Address>> {
         let escrow_accounts_snapshot = self
             .escrow_accounts
@@ -287,7 +292,7 @@ impl SenderAccountsManager {
             self.escrow_accounts.clone(),
             self.indexer_allocations.clone(),
             self.escrow_subgraph,
-            self.tap_eip712_domain_separator.clone(),
+            self.domain_separator.clone(),
             self.sender_aggregator_endpoints
                 .get(sender_id)
                 .ok_or_else(|| {
@@ -299,60 +304,63 @@ impl SenderAccountsManager {
                 .clone(),
         ))
     }
+}
 
-    /// Continuously listens for new receipt notifications from Postgres and forwards them to the
-    /// corresponding SenderAccount.
-    async fn new_receipts_watcher(
-        mut pglistener: PgListener,
-        escrow_accounts: Eventual<EscrowAccounts>,
-    ) {
-        loop {
-            // TODO: recover from errors or shutdown the whole program?
-            let pg_notification = pglistener.recv().await.expect(
-                "should be able to receive Postgres Notify events on the channel \
+/// Continuously listens for new receipt notifications from Postgres and forwards them to the
+/// corresponding SenderAccount.
+async fn new_receipts_watcher(
+    mut pglistener: PgListener,
+    escrow_accounts: Eventual<EscrowAccounts>,
+) {
+    loop {
+        // TODO: recover from errors or shutdown the whole program?
+        let pg_notification = pglistener.recv().await.expect(
+            "should be able to receive Postgres Notify events on the channel \
                 'scalar_tap_receipt_notification'",
-            );
-            let new_receipt_notification: NewReceiptNotification =
-                serde_json::from_str(pg_notification.payload()).expect(
-                    "should be able to deserialize the Postgres Notify event payload as a \
+        );
+        let new_receipt_notification: NewReceiptNotification =
+            serde_json::from_str(pg_notification.payload()).expect(
+                "should be able to deserialize the Postgres Notify event payload as a \
                         NewReceiptNotification",
-                );
+            );
 
-            let sender_address = escrow_accounts
-                .value()
-                .await
-                .expect("should be able to get escrow accounts")
-                .get_sender_for_signer(&new_receipt_notification.signer_address);
+        let sender_address = escrow_accounts
+            .value()
+            .await
+            .expect("should be able to get escrow accounts")
+            .get_sender_for_signer(&new_receipt_notification.signer_address);
 
-            let sender_address = match sender_address {
-                Ok(sender_address) => sender_address,
-                Err(_) => {
-                    error!(
-                        "No sender address found for receipt signer address {}. \
+        let sender_address = match sender_address {
+            Ok(sender_address) => sender_address,
+            Err(_) => {
+                error!(
+                    "No sender address found for receipt signer address {}. \
                         This should not happen.",
-                        new_receipt_notification.signer_address
-                    );
-                    // TODO: save the receipt in the failed receipts table?
-                    continue;
-                }
-            };
-            let allocation_id = &new_receipt_notification.allocation_id;
+                    new_receipt_notification.signer_address
+                );
+                // TODO: save the receipt in the failed receipts table?
+                continue;
+            }
+        };
+        let allocation_id = &new_receipt_notification.allocation_id;
 
-            if let Some(sender_allocation) = ActorRef::<SenderAllocationMsg>::where_is(format!(
-                "{sender_address}:{allocation_id}"
-            )) {
-                if let Err(e) = sender_allocation
-                    .cast(SenderAllocationMsg::NewReceipt(new_receipt_notification))
-                {
-                    error!("Error while forwarding new receipt notification to sender_allocation: {:?}", e);
-                }
-            } else {
-                warn!(
-                    "No sender_allocation_manager found for sender_address {} to process new \
-                    receipt notification. This should not happen.",
-                    sender_address
+        if let Some(sender_allocation) =
+            ActorRef::<SenderAllocationMsg>::where_is(format!("{sender_address}:{allocation_id}"))
+        {
+            if let Err(e) =
+                sender_allocation.cast(SenderAllocationMsg::NewReceipt(new_receipt_notification))
+            {
+                error!(
+                    "Error while forwarding new receipt notification to sender_allocation: {:?}",
+                    e
                 );
             }
+        } else {
+            warn!(
+                "No sender_allocation_manager found for sender_address {} to process new \
+                    receipt notification. This should not happen.",
+                sender_address
+            );
         }
     }
 }
@@ -420,17 +428,19 @@ mod tests {
             DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
         )));
 
-        let sender_account = SenderAccountsManager::new(
+        let args = SenderAccountsManagerArgs {
             config,
-            pgpool.clone(),
-            indexer_allocations_eventual,
-            escrow_accounts_eventual,
+            domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+            pgpool: pgpool.clone(),
+            indexer_allocations: indexer_allocations_eventual,
+            escrow_accounts: escrow_accounts_eventual,
             escrow_subgraph,
-            TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            HashMap::from([(SENDER.1, String::from("http://localhost:8000"))]),
-        )
-        .await;
-        SenderAccountsManager::spawn(None, sender_account, ())
+            sender_aggregator_endpoints: HashMap::from([(
+                SENDER.1,
+                String::from("http://localhost:8000"),
+            )]),
+        };
+        SenderAccountsManager::spawn(None, SenderAccountsManager, args)
             .await
             .unwrap();
 
