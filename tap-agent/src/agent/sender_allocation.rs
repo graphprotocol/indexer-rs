@@ -24,7 +24,6 @@ use tap_core::{
 use thegraph::types::Address;
 use tracing::{error, warn};
 
-use crate::agent::allocation_id_tracker::AllocationIdTracker;
 use crate::agent::sender_account::SenderAccountMessage;
 use crate::agent::sender_accounts_manager::NewReceiptNotification;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;

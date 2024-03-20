@@ -1,12 +1,11 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use alloy_sol_types::Eip712Domain;
 use anyhow::Result;
 use eventuals::{Eventual, EventualExt, PipeHandle};
-use indexer_common::allocations::Allocation;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use ractor::{call, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use sqlx::PgPool;
@@ -220,17 +219,13 @@ mod tests {
     use crate::agent::sender_accounts_manager::NewReceiptNotification;
     use alloy_primitives::hex::ToHex;
     use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
-    use ethereum_types::U256;
-    use indexer_common::allocations::{AllocationStatus, SubgraphDeployment};
     use indexer_common::subgraph_client::DeploymentDetails;
     use serde_json::json;
     use std::collections::HashMap;
     use std::str::FromStr;
-    use std::sync::Arc;
     use std::time::Duration;
     use tap_aggregator::server::run_server;
     use tap_core::{rav::ReceiptAggregateVoucher, signed_message::EIP712SignedMessage};
-    use thegraph::types::DeploymentId;
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockServer, ResponseTemplate,
@@ -279,9 +274,6 @@ mod tests {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        let allocation_id =
-            Address::from_str("0xdd975e30aafebb143e54d215db8a3e8fd916a701").unwrap();
-
         let indexer_allocations = Eventual::from_value(HashSet::from([
             *ALLOCATION_ID_0,
             *ALLOCATION_ID_1,
@@ -299,10 +291,9 @@ mod tests {
             sender_aggregator_endpoint,
         );
 
-        let (sender, _handle) =
-            SenderAccount::spawn(Some(SENDER.1.to_string()), sender, HashSet::new())
-                .await
-                .unwrap();
+        let (sender, _handle) = SenderAccount::spawn(None, sender, HashSet::new())
+            .await
+            .unwrap();
 
         // await for the allocations to be created
         ractor::concurrency::sleep(Duration::from_millis(100)).await;
@@ -509,7 +500,7 @@ mod tests {
                 allocation_id: *ALLOCATION_ID_0,
                 signer_address: SIGNER.1,
                 id: i,
-                timestamp_ns: i + 1 ,
+                timestamp_ns: i + 1,
                 value,
             };
             allocation
@@ -679,74 +670,53 @@ mod tests {
         handle.stopped().await;
     }
 
-    // #[sqlx::test(migrations = "../migrations")]
-    // async fn test_sender_unaggregated_fees(pgpool: PgPool) {
-    //     // Create a sender_account.
-    //     let sender_account = Arc::new(
-    //         create_sender_with_allocations(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL).await,
-    //     );
-    //
-    //     // Closure that adds a number of receipts to an allocation.
-    //     let add_receipts = |allocation_id: Address, iterations: u64| {
-    //         let sender_account = sender_account.clone();
-    //
-    //         async move {
-    //             let mut total_value = 0;
-    //             for i in 0..iterations {
-    //                 let value = (i + 10) as u128;
-    //
-    //                 let id = sender_account.unaggregated_fees.lock().unwrap().last_id + 1;
-    //
-    //                 sender_account
-    //                     .handle_new_receipt_notification(NewReceiptNotification {
-    //                         allocation_id,
-    //                         signer_address: SIGNER.1,
-    //                         id,
-    //                         timestamp_ns: i + 1,
-    //                         value,
-    //                     })
-    //                     .await;
-    //
-    //                 total_value += value;
-    //             }
-    //
-    //             assert_eq!(
-    //                 sender_account
-    //                     .allocations
-    //                     .lock()
-    //                     .unwrap()
-    //                     .get(&allocation_id)
-    //                     .unwrap()
-    //                     .as_active()
-    //                     .unwrap()
-    //                     .get_unaggregated_fees()
-    //                     .value,
-    //                 total_value
-    //             );
-    //
-    //             total_value
-    //         }
-    //     };
-    //
-    //     // Add receipts to the database for allocation_0
-    //     let total_value_0 = add_receipts(*ALLOCATION_ID_0, 9).await;
-    //
-    //     // Add receipts to the database for allocation_1
-    //     let total_value_1 = add_receipts(*ALLOCATION_ID_1, 10).await;
-    //
-    //     // Add receipts to the database for allocation_2
-    //     let total_value_2 = add_receipts(*ALLOCATION_ID_2, 8).await;
-    //
-    //     // Get the heaviest allocation.
-    //     let heaviest_allocation = sender_account.get_heaviest_allocation().unwrap();
-    //
-    //     // Check that the heaviest allocation is correct.
-    //     assert_eq!(heaviest_allocation.get_allocation_id(), *ALLOCATION_ID_1);
-    //
-    //     // Check that the sender's unaggregated fees value is correct.
-    //     assert_eq!(
-    //         sender_account.unaggregated_fees.lock().unwrap().value,
-    //         total_value_0 + total_value_1 + total_value_2
-    //     );
-    // }
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_sender_unaggregated_fees(pgpool: PgPool) {
+        // Create a sender_account.
+        let sender_account =
+            create_sender_with_allocations(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL).await;
+
+        // Closure that adds a number of receipts to an allocation.
+        let update_receipt_fees = |allocation_id: Address, value: u128| {
+            let sender_account = sender_account.clone();
+            sender_account
+                .cast(SenderAccountMessage::UpdateReceiptFees(
+                    allocation_id,
+                    UnaggregatedReceipts {
+                        value,
+                        ..Default::default()
+                    },
+                ))
+                .unwrap();
+
+            value
+        };
+
+        // Add receipts to the database for allocation_0
+        let total_value_0 = update_receipt_fees(*ALLOCATION_ID_0, 90);
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // Add receipts to the database for allocation_1
+        let total_value_1 = update_receipt_fees(*ALLOCATION_ID_1, 100);
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // Add receipts to the database for allocation_2
+        let total_value_2 = update_receipt_fees(*ALLOCATION_ID_2, 80);
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let allocation_tracker =
+            call!(sender_account, SenderAccountMessage::GetAllocationTracker).unwrap();
+
+        // Get the heaviest allocation.
+        let heaviest_allocation = allocation_tracker.get_heaviest_allocation_id().unwrap();
+
+        // Check that the heaviest allocation is correct.
+        assert_eq!(heaviest_allocation, *ALLOCATION_ID_1);
+
+        // Check that the sender's unaggregated fees value is correct.
+        assert_eq!(
+            allocation_tracker.get_total_fee(),
+            total_value_0 + total_value_1 + total_value_2
+        );
+    }
 }
