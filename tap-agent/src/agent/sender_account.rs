@@ -324,7 +324,7 @@ mod tests {
         let allocation = ActorRef::<SenderAllocationMsg>::where_is(format!(
             "{sender}:{allocation_id}",
             sender = SENDER.1,
-            allocation_id = ALLOCATION_ID_0.to_string()
+            allocation_id = *ALLOCATION_ID_0
         ))
         .unwrap();
 
@@ -478,7 +478,7 @@ mod tests {
         let allocation = ActorRef::<SenderAllocationMsg>::where_is(format!(
             "{sender}:{allocation_id}",
             sender = SENDER.1,
-            allocation_id = ALLOCATION_ID_0.to_string()
+            allocation_id = *ALLOCATION_ID_0
         ))
         .unwrap();
 
