@@ -32,7 +32,7 @@ pub struct NewReceiptNotification {
 pub struct SenderAccountsManager {
     config: &'static config::Cli,
     pgpool: PgPool,
-    indexer_allocations: Eventual<HashMap<Address, Allocation>>,
+    indexer_allocations: Eventual<HashSet<Address>>,
     escrow_accounts: Eventual<EscrowAccounts>,
     escrow_subgraph: &'static SubgraphClient,
     tap_eip712_domain_separator: Eip712Domain,
@@ -167,6 +167,9 @@ impl SenderAccountsManager {
         tap_eip712_domain_separator: Eip712Domain,
         sender_aggregator_endpoints: HashMap<Address, String>,
     ) -> Self {
+        let indexer_allocations = indexer_allocations.map(|allocations| async move {
+            allocations.keys().cloned().collect::<HashSet<Address>>()
+        });
         Self {
             config,
             pgpool,
@@ -364,6 +367,7 @@ mod tests {
         prelude::{AllocationStatus, SubgraphDeployment},
         subgraph_client::DeploymentDetails,
     };
+    use ractor::ActorStatus;
     use serde_json::json;
     use thegraph::types::DeploymentId;
     use wiremock::{
@@ -426,6 +430,9 @@ mod tests {
             HashMap::from([(SENDER.1, String::from("http://localhost:8000"))]),
         )
         .await;
+        SenderAccountsManager::spawn(None, sender_account, ())
+            .await
+            .unwrap();
 
         let allocation_id =
             Address::from_str("0xdd975e30aafebb143e54d215db8a3e8fd916a701").unwrap();
@@ -466,12 +473,14 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Check that the SenderAccount was created.
-        assert!(sender_account
-            .inner
-            .sender_accounts
-            .lock()
-            .unwrap()
-            .contains_key(&SENDER.1));
+        let sender_account =
+            ActorRef::<SenderAccountMessage>::where_is(SENDER.1.to_string()).unwrap();
+        assert_eq!(sender_account.get_status(), ActorStatus::Running);
+
+        let sender_allocation_id = format!("{}:{}", SENDER.1, allocation_id);
+        let sender_allocation =
+            ActorRef::<SenderAllocationMsg>::where_is(sender_allocation_id).unwrap();
+        assert_eq!(sender_allocation.get_status(), ActorStatus::Running);
 
         // Remove the escrow account from the escrow_accounts Eventual.
         escrow_accounts_writer.write(EscrowAccounts::default());
@@ -480,23 +489,12 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Check that the Sender's allocation moved from active to ineligible.
-        assert!(sender_account
-            .inner
-            .sender_accounts
-            .lock()
-            .unwrap()
-            .get(&SENDER.1)
-            .unwrap()
-            ._tests_get_allocations_active()
-            .is_empty());
-        assert!(sender_account
-            .inner
-            .sender_accounts
-            .lock()
-            .unwrap()
-            .get(&SENDER.1)
-            .unwrap()
-            ._tests_get_allocations_ineligible()
-            .contains_key(&allocation_id));
+
+        assert_eq!(sender_account.get_status(), ActorStatus::Stopped);
+        assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
+
+        let sender_account = ActorRef::<SenderAccountMessage>::where_is(SENDER.1.to_string());
+
+        assert!(sender_account.is_none());
     }
 }
