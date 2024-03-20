@@ -1,7 +1,7 @@
 use alloy_primitives::Address;
 use std::collections::{BTreeMap, HashMap};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AllocationIdTracker {
     id_to_fee: HashMap<Address, u128>,
     fee_to_count: BTreeMap<u128, u32>,
