@@ -37,7 +37,10 @@ use crate::{
 type TapManager = tap_core::manager::Manager<TapAgentContext>;
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
-pub struct SenderAllocation {
+pub struct SenderAllocation;
+
+pub struct SenderAllocationState {
+    unaggregated_fees: UnaggregatedReceipts,
     pgpool: PgPool,
     tap_manager: TapManager,
     allocation_id: Address,
@@ -45,8 +48,21 @@ pub struct SenderAllocation {
     sender_aggregator_endpoint: String,
     config: &'static config::Cli,
     escrow_accounts: Eventual<EscrowAccounts>,
-    tap_eip712_domain_separator: Eip712Domain,
+    domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
+}
+
+pub struct SenderAllocationArgs {
+    pub config: &'static config::Cli,
+    pub pgpool: PgPool,
+    pub allocation_id: Address,
+    pub sender: Address,
+    pub escrow_accounts: Eventual<EscrowAccounts>,
+    pub escrow_subgraph: &'static SubgraphClient,
+    pub escrow_adapter: EscrowAdapter,
+    pub domain_separator: Eip712Domain,
+    pub sender_aggregator_endpoint: String,
+    pub sender_account_ref: ActorRef<SenderAccountMessage>,
 }
 
 pub enum SenderAllocationMessage {
@@ -61,123 +77,25 @@ pub enum SenderAllocationMessage {
 #[async_trait::async_trait]
 impl Actor for SenderAllocation {
     type Msg = SenderAllocationMessage;
-    type State = UnaggregatedReceipts;
-    type Arguments = ();
+    type State = SenderAllocationState;
+    type Arguments = SenderAllocationArgs;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _args: Self::Arguments,
+        SenderAllocationArgs {
+            config,
+            pgpool,
+            allocation_id,
+            sender,
+            escrow_accounts,
+            escrow_subgraph,
+            escrow_adapter,
+            domain_separator,
+            sender_aggregator_endpoint,
+            sender_account_ref,
+        }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
-        let unaggregated_fees = self.calculate_unaggregated_fee().await?;
-        self.sender_account_ref
-            .cast(SenderAccountMessage::UpdateReceiptFees(
-                self.allocation_id,
-                unaggregated_fees.clone(),
-            ))?;
-
-        Ok(unaggregated_fees)
-    }
-
-    async fn post_stop(
-        &self,
-        _myself: ActorRef<Self::Msg>,
-        _state: &mut Self::State,
-    ) -> std::result::Result<(), ActorProcessingErr> {
-        // cleanup receipt fees for sender
-        self.sender_account_ref
-            .cast(SenderAccountMessage::UpdateReceiptFees(
-                self.allocation_id,
-                UnaggregatedReceipts::default(),
-            ))?;
-        Ok(())
-    }
-
-    async fn handle(
-        &self,
-        myself: ActorRef<Self::Msg>,
-        message: Self::Msg,
-        state: &mut Self::State,
-    ) -> std::result::Result<(), ActorProcessingErr> {
-        match message {
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification {
-                id, value: fees, ..
-            }) => {
-                if id > state.last_id {
-                    state.last_id = id;
-                    state.value = state.value.checked_add(fees).unwrap_or_else(|| {
-                        // This should never happen, but if it does, we want to know about it.
-                        error!(
-                            "Overflow when adding receipt value {} to total unaggregated fees {} \
-                            for allocation {} and sender {}. Setting total unaggregated fees to \
-                            u128::MAX.",
-                            fees, state.value, self.allocation_id, self.sender
-                        );
-                        u128::MAX
-                    });
-                    self.sender_account_ref
-                        .cast(SenderAccountMessage::UpdateReceiptFees(
-                            self.allocation_id,
-                            state.clone(),
-                        ))?;
-                }
-            }
-            SenderAllocationMessage::TriggerRAVRequest(reply) => {
-                self.rav_requester_single().await.map_err(|e| {
-                    anyhow! {
-                        "Error while requesting RAV for sender {} and allocation {}: {}",
-                        self.sender,
-                        self.allocation_id,
-                        e
-                    }
-                })?;
-                *state = self.calculate_unaggregated_fee().await?;
-                if !reply.is_closed() {
-                    let _ = reply.send(state.clone());
-                }
-            }
-
-            SenderAllocationMessage::CloseAllocation => {
-                self.rav_requester_single().await.inspect_err(|e| {
-                    error!(
-                        "Error while requesting RAV for sender {} and allocation {}: {}",
-                        self.sender, self.allocation_id, e
-                    );
-                })?;
-                self.mark_rav_final().await.inspect_err(|e| {
-                    error!(
-                        "Error while marking allocation {} as final for sender {}: {}",
-                        self.allocation_id, self.sender, e
-                    );
-                })?;
-                myself.stop(None);
-            }
-
-            #[cfg(test)]
-            SenderAllocationMessage::GetUnaggregatedReceipts(reply) => {
-                if !reply.is_closed() {
-                    let _ = reply.send(state.clone());
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-impl SenderAllocation {
-    #[allow(clippy::too_many_arguments)]
-    pub async fn new(
-        config: &'static config::Cli,
-        pgpool: PgPool,
-        allocation_id: Address,
-        sender: Address,
-        escrow_accounts: Eventual<EscrowAccounts>,
-        escrow_subgraph: &'static SubgraphClient,
-        escrow_adapter: EscrowAdapter,
-        tap_eip712_domain_separator: Eip712Domain,
-        sender_aggregator_endpoint: String,
-        sender_account_ref: ActorRef<SenderAccountMessage>,
-    ) -> Self {
         let required_checks: Vec<Arc<dyn Check + Send + Sync>> = vec![
             Arc::new(AllocationId::new(
                 sender,
@@ -186,7 +104,7 @@ impl SenderAllocation {
                 config,
             )),
             Arc::new(Signature::new(
-                tap_eip712_domain_separator.clone(),
+                domain_separator.clone(),
                 escrow_accounts.clone(),
             )),
         ];
@@ -198,12 +116,12 @@ impl SenderAllocation {
             escrow_adapter,
         );
         let tap_manager = TapManager::new(
-            tap_eip712_domain_separator.clone(),
+            domain_separator.clone(),
             context,
             Checks::new(required_checks),
         );
 
-        Self {
+        let mut state = SenderAllocationState {
             pgpool,
             tap_manager,
             allocation_id,
@@ -211,11 +129,110 @@ impl SenderAllocation {
             sender_aggregator_endpoint,
             config,
             escrow_accounts,
-            tap_eip712_domain_separator,
-            sender_account_ref,
-        }
+            domain_separator,
+            sender_account_ref: sender_account_ref.clone(),
+            unaggregated_fees: UnaggregatedReceipts::default(),
+        };
+
+        state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
+        sender_account_ref.cast(SenderAccountMessage::UpdateReceiptFees(
+            allocation_id,
+            state.unaggregated_fees.clone(),
+        ))?;
+
+        Ok(state)
     }
 
+    async fn post_stop(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        state: &mut Self::State,
+    ) -> std::result::Result<(), ActorProcessingErr> {
+        // cleanup receipt fees for sender
+        state
+            .sender_account_ref
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                state.allocation_id,
+                UnaggregatedReceipts::default(),
+            ))?;
+        Ok(())
+    }
+
+    async fn handle(
+        &self,
+        myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        state: &mut Self::State,
+    ) -> std::result::Result<(), ActorProcessingErr> {
+        let unaggreated_fees = &mut state.unaggregated_fees;
+        match message {
+            SenderAllocationMessage::NewReceipt(NewReceiptNotification {
+                id, value: fees, ..
+            }) => {
+                if id > unaggreated_fees.last_id {
+                    unaggreated_fees.last_id = id;
+                    unaggreated_fees.value =
+                        unaggreated_fees.value.checked_add(fees).unwrap_or_else(|| {
+                            // This should never happen, but if it does, we want to know about it.
+                            error!(
+                            "Overflow when adding receipt value {} to total unaggregated fees {} \
+                            for allocation {} and sender {}. Setting total unaggregated fees to \
+                            u128::MAX.",
+                            fees, unaggreated_fees.value, state.allocation_id, state.sender
+                        );
+                            u128::MAX
+                        });
+                    state
+                        .sender_account_ref
+                        .cast(SenderAccountMessage::UpdateReceiptFees(
+                            state.allocation_id,
+                            unaggreated_fees.clone(),
+                        ))?;
+                }
+            }
+            SenderAllocationMessage::TriggerRAVRequest(reply) => {
+                state.rav_requester_single().await.map_err(|e| {
+                    anyhow! {
+                        "Error while requesting RAV for sender {} and allocation {}: {}",
+                        state.sender,
+                        state.allocation_id,
+                        e
+                    }
+                })?;
+                state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
+                if !reply.is_closed() {
+                    let _ = reply.send(state.unaggregated_fees.clone());
+                }
+            }
+
+            SenderAllocationMessage::CloseAllocation => {
+                state.rav_requester_single().await.inspect_err(|e| {
+                    error!(
+                        "Error while requesting RAV for sender {} and allocation {}: {}",
+                        state.sender, state.allocation_id, e
+                    );
+                })?;
+                state.mark_rav_final().await.inspect_err(|e| {
+                    error!(
+                        "Error while marking allocation {} as final for sender {}: {}",
+                        state.allocation_id, state.sender, e
+                    );
+                })?;
+                myself.stop(None);
+            }
+
+            #[cfg(test)]
+            SenderAllocationMessage::GetUnaggregatedReceipts(reply) => {
+                if !reply.is_closed() {
+                    let _ = reply.send(unaggreated_fees.clone());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SenderAllocationState {
     /// Delete obsolete receipts in the DB w.r.t. the last RAV in DB, then update the tap manager
     /// with the latest unaggregated fees from the database.
     async fn calculate_unaggregated_fee(&self) -> Result<UnaggregatedReceipts> {
@@ -396,7 +413,7 @@ impl SenderAllocation {
             let encoded_signature = receipt.signature.to_vec();
 
             let receipt_signer = receipt
-                .recover_signer(&self.tap_eip712_domain_separator)
+                .recover_signer(&self.domain_separator)
                 .map_err(|e| {
                     error!("Failed to recover receipt signer: {}", e);
                     anyhow!(e)
@@ -537,22 +554,22 @@ mod tests {
                 .await
                 .unwrap();
 
-        let allocation = SenderAllocation::new(
+        let args = SenderAllocationArgs {
             config,
-            pgpool.clone(),
-            *ALLOCATION_ID_0,
-            SENDER.1,
-            escrow_accounts_eventual,
+            pgpool: pgpool.clone(),
+            allocation_id: *ALLOCATION_ID_0,
+            sender: SENDER.1,
+            escrow_accounts: escrow_accounts_eventual,
             escrow_subgraph,
             escrow_adapter,
-            TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+            domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             sender_aggregator_endpoint,
             sender_account_ref,
-        )
-        .await;
+        };
 
-        let (allocation_ref, _join_handle) =
-            SenderAllocation::spawn(None, allocation, ()).await.unwrap();
+        let (allocation_ref, _join_handle) = SenderAllocation::spawn(None, SenderAllocation, args)
+            .await
+            .unwrap();
 
         allocation_ref
     }

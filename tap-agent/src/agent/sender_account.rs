@@ -12,7 +12,7 @@ use sqlx::PgPool;
 use thegraph::types::Address;
 use tracing::error;
 
-use super::sender_allocation::SenderAllocation;
+use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
 use crate::agent::allocation_id_tracker::AllocationIdTracker;
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
@@ -39,18 +39,19 @@ pub enum SenderAccountMessage {
 /// - Requesting RAVs from the sender's TAP aggregator once the cumulative unaggregated fees reach a
 ///   certain threshold.
 /// - Requesting the last RAV from the sender's TAP aggregator for all EOL allocations.
-pub struct SenderAccount {
-    //Eventuals
-    escrow_accounts: Eventual<EscrowAccounts>,
-    indexer_allocations: Eventual<HashSet<Address>>,
+pub struct SenderAccount;
 
-    escrow_subgraph: &'static SubgraphClient,
-    escrow_adapter: EscrowAdapter,
-    tap_eip712_domain_separator: Eip712Domain,
-    config: &'static config::Cli,
-    pgpool: PgPool,
-    sender: Address,
-    sender_aggregator_endpoint: String,
+pub struct SenderAccountArgs {
+    pub config: &'static config::Cli,
+    pub pgpool: PgPool,
+    pub sender_id: Address,
+    pub escrow_accounts: Eventual<EscrowAccounts>,
+    pub indexer_allocations: Eventual<HashSet<Address>>,
+    pub escrow_subgraph: &'static SubgraphClient,
+    pub domain_separator: Eip712Domain,
+    pub sender_aggregator_endpoint: String,
+    pub allocation_ids: HashSet<Address>,
+    pub prefix: Option<String>,
 }
 pub struct State {
     prefix: Option<String>,
@@ -58,6 +59,16 @@ pub struct State {
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: PipeHandle,
     sender: Address,
+
+    //Eventuals
+    escrow_accounts: Eventual<EscrowAccounts>,
+
+    escrow_subgraph: &'static SubgraphClient,
+    escrow_adapter: EscrowAdapter,
+    domain_separator: Eip712Domain,
+    config: &'static config::Cli,
+    pgpool: PgPool,
+    sender_aggregator_endpoint: String,
 }
 
 impl State {
@@ -94,16 +105,27 @@ impl State {
 impl Actor for SenderAccount {
     type Msg = SenderAccountMessage;
     type State = State;
-    type Arguments = (HashSet<Address>, Option<String>);
+    type Arguments = SenderAccountArgs;
 
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        (allocation_ids, prefix): Self::Arguments,
+        SenderAccountArgs {
+            config,
+            pgpool,
+            sender_id,
+            escrow_accounts,
+            indexer_allocations,
+            escrow_subgraph,
+            domain_separator,
+            sender_aggregator_endpoint,
+            allocation_ids,
+            prefix,
+        }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let clone = myself.clone();
         let _indexer_allocations_handle =
-            self.indexer_allocations
+            indexer_allocations
                 .clone()
                 .pipe_async(move |allocation_ids| {
                     let myself = clone.clone();
@@ -122,12 +144,21 @@ impl Actor for SenderAccount {
             myself.cast(SenderAccountMessage::CreateSenderAllocation(*allocation_id))?;
         }
 
+        let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone(), sender_id);
+
         Ok(State {
             allocation_id_tracker: AllocationIdTracker::new(),
             allocation_ids,
             _indexer_allocations_handle,
             prefix,
-            sender: self.sender,
+            escrow_accounts,
+            escrow_subgraph,
+            escrow_adapter,
+            domain_separator,
+            sender_aggregator_endpoint,
+            config,
+            pgpool,
+            sender: sender_id,
         })
     }
 
@@ -143,29 +174,28 @@ impl Actor for SenderAccount {
                 let tracker = &mut state.allocation_id_tracker;
                 tracker.add_or_update(allocation_id, unaggregated_fees.value);
 
-                if tracker.get_total_fee() >= self.config.tap.rav_request_trigger_value.into() {
+                if tracker.get_total_fee() >= state.config.tap.rav_request_trigger_value.into() {
                     state.rav_requester_single().await?;
                 }
             }
             SenderAccountMessage::CreateSenderAllocation(allocation_id) => {
-                let sender_allocation = SenderAllocation::new(
-                    self.config,
-                    self.pgpool.clone(),
+                let args = SenderAllocationArgs {
+                    config: state.config,
+                    pgpool: state.pgpool.clone(),
                     allocation_id,
-                    self.sender,
-                    self.escrow_accounts.clone(),
-                    self.escrow_subgraph,
-                    self.escrow_adapter.clone(),
-                    self.tap_eip712_domain_separator.clone(),
-                    self.sender_aggregator_endpoint.clone(),
-                    myself.clone(),
-                )
-                .await;
+                    sender: state.sender,
+                    escrow_accounts: state.escrow_accounts.clone(),
+                    escrow_subgraph: state.escrow_subgraph,
+                    escrow_adapter: state.escrow_adapter.clone(),
+                    domain_separator: state.domain_separator.clone(),
+                    sender_aggregator_endpoint: state.sender_aggregator_endpoint.clone(),
+                    sender_account_ref: myself.clone(),
+                };
 
                 SenderAllocation::spawn_linked(
                     Some(state.format_sender_allocation(&allocation_id)),
-                    sender_allocation,
-                    (),
+                    SenderAllocation,
+                    args,
                     myself.get_cell(),
                 )
                 .await?;
@@ -195,34 +225,6 @@ impl Actor for SenderAccount {
             }
         }
         Ok(())
-    }
-}
-
-impl SenderAccount {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        config: &'static config::Cli,
-        pgpool: PgPool,
-        sender_id: Address,
-        escrow_accounts: Eventual<EscrowAccounts>,
-        indexer_allocations: Eventual<HashSet<Address>>,
-        escrow_subgraph: &'static SubgraphClient,
-        tap_eip712_domain_separator: Eip712Domain,
-        sender_aggregator_endpoint: String,
-    ) -> Self {
-        let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone(), sender_id);
-
-        Self {
-            escrow_accounts,
-            indexer_allocations,
-            escrow_subgraph,
-            escrow_adapter,
-            tap_eip712_domain_separator,
-            sender_aggregator_endpoint,
-            config,
-            pgpool,
-            sender: sender_id,
-        }
     }
 }
 
@@ -295,29 +297,27 @@ mod tests {
             *ALLOCATION_ID_2,
         ]));
 
-        let sender = SenderAccount::new(
-            config,
-            pgpool,
-            SENDER.1,
-            escrow_accounts_eventual,
-            indexer_allocations,
-            escrow_subgraph,
-            TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            sender_aggregator_endpoint,
-        );
-
         let prefix = format!(
             "test-{}",
             PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         );
 
-        let (sender, handle) = SenderAccount::spawn(
-            Some(prefix.clone()),
-            sender,
-            (HashSet::new(), Some(prefix.clone())),
-        )
-        .await
-        .unwrap();
+        let args = SenderAccountArgs {
+            config,
+            pgpool,
+            sender_id: SENDER.1,
+            escrow_accounts: escrow_accounts_eventual,
+            indexer_allocations,
+            escrow_subgraph,
+            domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+            sender_aggregator_endpoint,
+            allocation_ids: HashSet::new(),
+            prefix: Some(prefix.clone()),
+        };
+
+        let (sender, handle) = SenderAccount::spawn(Some(prefix.clone()), SenderAccount, args)
+            .await
+            .unwrap();
 
         // await for the allocations to be created
         ractor::concurrency::sleep(Duration::from_millis(100)).await;

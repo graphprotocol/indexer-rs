@@ -17,7 +17,7 @@ use sqlx::{postgres::PgListener, PgPool};
 use thegraph::types::Address;
 use tracing::{error, warn};
 
-use super::sender_account::{SenderAccount, SenderAccountMessage};
+use super::sender_account::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
 use crate::config;
 
 #[derive(Deserialize, Debug)]
@@ -171,11 +171,11 @@ impl Actor for SenderAccountsManager {
                 state.sender_ids = target_senders;
             }
             SenderAccountsManagerMessage::CreateSenderAccount(sender_id, allocation_ids) => {
-                let sender_account = state.new_sender_account(&sender_id)?;
+                let args = state.new_sender_account_args(&sender_id, allocation_ids)?;
                 SenderAccount::spawn_linked(
                     Some(sender_id.to_string()),
-                    sender_account,
-                    (allocation_ids, None),
+                    SenderAccount,
+                    args,
                     myself.get_cell(),
                 )
                 .await?;
@@ -284,16 +284,21 @@ impl State {
         }
         unfinalized_sender_allocations_map
     }
-    fn new_sender_account(&self, sender_id: &Address) -> Result<SenderAccount> {
-        Ok(SenderAccount::new(
-            self.config,
-            self.pgpool.clone(),
-            *sender_id,
-            self.escrow_accounts.clone(),
-            self.indexer_allocations.clone(),
-            self.escrow_subgraph,
-            self.domain_separator.clone(),
-            self.sender_aggregator_endpoints
+    fn new_sender_account_args(
+        &self,
+        sender_id: &Address,
+        allocation_ids: HashSet<Address>,
+    ) -> Result<SenderAccountArgs> {
+        Ok(SenderAccountArgs {
+            config: self.config,
+            pgpool: self.pgpool.clone(),
+            sender_id: *sender_id,
+            escrow_accounts: self.escrow_accounts.clone(),
+            indexer_allocations: self.indexer_allocations.clone(),
+            escrow_subgraph: self.escrow_subgraph,
+            domain_separator: self.domain_separator.clone(),
+            sender_aggregator_endpoint: self
+                .sender_aggregator_endpoints
                 .get(sender_id)
                 .ok_or_else(|| {
                     anyhow!(
@@ -302,7 +307,9 @@ impl State {
                     )
                 })?
                 .clone(),
-        ))
+            allocation_ids,
+            prefix: None,
+        })
     }
 }
 
