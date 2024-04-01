@@ -7,14 +7,14 @@ use alloy_sol_types::Eip712Domain;
 use anyhow::Result;
 use eventuals::{Eventual, EventualExt, PipeHandle};
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
-use ractor::{call, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use ractor::{call, Actor, ActorProcessingErr, ActorRef};
 use sqlx::PgPool;
 use thegraph::types::Address;
 use tracing::error;
 
 use super::sender_allocation::SenderAllocation;
 use crate::agent::allocation_id_tracker::AllocationIdTracker;
-use crate::agent::sender_allocation::SenderAllocationMsg;
+use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::{
     config::{self},
@@ -26,7 +26,8 @@ pub enum SenderAccountMessage {
     UpdateAllocationIds(HashSet<Address>),
     RemoveSenderAccount,
     UpdateReceiptFees(Address, UnaggregatedReceipts),
-    GetAllocationTracker(RpcReplyPort<AllocationIdTracker>),
+    #[cfg(test)]
+    GetAllocationTracker(ractor::RpcReplyPort<AllocationIdTracker>),
 }
 
 /// A SenderAccount manages the receipts accounting between the indexer and the sender across
@@ -51,23 +52,54 @@ pub struct SenderAccount {
     sender: Address,
     sender_aggregator_endpoint: String,
 }
-
 pub struct State {
+    prefix: Option<String>,
     allocation_id_tracker: AllocationIdTracker,
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: PipeHandle,
+    sender: Address,
+}
+
+impl State {
+    fn format_sender_allocation(&self, allocation_id: &Address) -> String {
+        let mut sender_allocation_id = String::new();
+        if let Some(prefix) = &self.prefix {
+            sender_allocation_id.push_str(prefix);
+            sender_allocation_id.push(':');
+        }
+        sender_allocation_id.push_str(&format!("{}:{}", self.sender, allocation_id));
+        sender_allocation_id
+    }
+
+    async fn rav_requester_single(&mut self) -> Result<()> {
+        let Some(allocation_id) = self.allocation_id_tracker.get_heaviest_allocation_id() else {
+            anyhow::bail!("Error while getting allocation with most unaggregated fees");
+        };
+        let sender_allocation_id = self.format_sender_allocation(&allocation_id);
+        let allocation = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id);
+
+        let Some(allocation) = allocation else {
+            anyhow::bail!("Error while getting allocation with most unaggregated fees");
+        };
+        // we call and wait for the response so we don't process anymore update
+        let result = call!(allocation, SenderAllocationMessage::TriggerRAVRequest)?;
+
+        self.allocation_id_tracker
+            .add_or_update(allocation_id, result.value);
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
 impl Actor for SenderAccount {
     type Msg = SenderAccountMessage;
     type State = State;
-    type Arguments = HashSet<Address>;
+    type Arguments = (HashSet<Address>, Option<String>);
 
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        allocation_ids: Self::Arguments,
+        (allocation_ids, prefix): Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let clone = myself.clone();
         let _indexer_allocations_handle =
@@ -94,6 +126,8 @@ impl Actor for SenderAccount {
             allocation_id_tracker: AllocationIdTracker::new(),
             allocation_ids,
             _indexer_allocations_handle,
+            prefix,
+            sender: self.sender,
         })
     }
 
@@ -110,7 +144,7 @@ impl Actor for SenderAccount {
                 tracker.add_or_update(allocation_id, unaggregated_fees.value);
 
                 if tracker.get_total_fee() >= self.config.tap.rav_request_trigger_value.into() {
-                    self.rav_requester_single(tracker).await?;
+                    state.rav_requester_single().await?;
                 }
             }
             SenderAccountMessage::CreateSenderAllocation(allocation_id) => {
@@ -127,10 +161,9 @@ impl Actor for SenderAccount {
                     myself.clone(),
                 )
                 .await;
-                let sender_id = self.sender;
 
-                let (_actor, _handle) = SenderAllocation::spawn_linked(
-                    Some(format!("{sender_id}:{allocation_id}")),
+                SenderAllocation::spawn_linked(
+                    Some(state.format_sender_allocation(&allocation_id)),
                     sender_allocation,
                     (),
                     myself.get_cell(),
@@ -144,17 +177,17 @@ impl Actor for SenderAccount {
                 }
 
                 // Remove sender allocations
-                let sender = self.sender;
                 for allocation_id in state.allocation_ids.difference(&allocation_ids) {
-                    if let Some(sender_handle) = ActorRef::<SenderAllocationMsg>::where_is(format!(
-                        "{sender}:{allocation_id}"
-                    )) {
-                        sender_handle.cast(SenderAllocationMsg::CloseAllocation)?;
+                    if let Some(sender_handle) = ActorRef::<SenderAllocationMessage>::where_is(
+                        state.format_sender_allocation(allocation_id),
+                    ) {
+                        sender_handle.cast(SenderAllocationMessage::CloseAllocation)?;
                     }
                 }
 
                 state.allocation_ids = allocation_ids;
             }
+            #[cfg(test)]
             SenderAccountMessage::GetAllocationTracker(reply) => {
                 if !reply.is_closed() {
                     let _ = reply.send(state.allocation_id_tracker.clone());
@@ -191,27 +224,6 @@ impl SenderAccount {
             sender: sender_id,
         }
     }
-
-    async fn rav_requester_single(
-        &self,
-        heaviest_allocation: &mut AllocationIdTracker,
-    ) -> Result<()> {
-        let Some(allocation_id) = heaviest_allocation.get_heaviest_allocation_id() else {
-            anyhow::bail!("Error while getting allocation with most unaggregated fees");
-        };
-        let sender_id = self.sender;
-        let allocation =
-            ActorRef::<SenderAllocationMsg>::where_is(format!("{sender_id}:{allocation_id}"));
-
-        let Some(allocation) = allocation else {
-            anyhow::bail!("Error while getting allocation with most unaggregated fees");
-        };
-        // we call and wait for the response so we don't process anymore update
-        let result = call!(allocation, SenderAllocationMsg::TriggerRAVRequest)?;
-
-        heaviest_allocation.add_or_update(allocation_id, result.value);
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -220,12 +232,14 @@ mod tests {
     use alloy_primitives::hex::ToHex;
     use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
     use indexer_common::subgraph_client::DeploymentDetails;
+    use ractor::cast;
     use serde_json::json;
-    use std::collections::HashMap;
     use std::str::FromStr;
     use std::time::Duration;
+    use std::{collections::HashMap, sync::atomic::AtomicU32};
     use tap_aggregator::server::run_server;
     use tap_core::{rav::ReceiptAggregateVoucher, signed_message::EIP712SignedMessage};
+    use tokio::task::JoinHandle;
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockServer, ResponseTemplate,
@@ -241,6 +255,7 @@ mod tests {
     const DUMMY_URL: &str = "http://localhost:1234";
     const VALUE_PER_RECEIPT: u64 = 100;
     const TRIGGER_VALUE: u64 = 500;
+    static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
 
     // To help with testing from other modules.
 
@@ -248,7 +263,7 @@ mod tests {
         pgpool: PgPool,
         sender_aggregator_endpoint: String,
         escrow_subgraph_endpoint: &str,
-    ) -> ActorRef<SenderAccountMessage> {
+    ) -> (ActorRef<SenderAccountMessage>, JoinHandle<()>, String) {
         let config = Box::leak(Box::new(config::Cli {
             config: None,
             ethereum: config::Ethereum {
@@ -291,14 +306,23 @@ mod tests {
             sender_aggregator_endpoint,
         );
 
-        let (sender, _handle) = SenderAccount::spawn(None, sender, HashSet::new())
-            .await
-            .unwrap();
+        let prefix = format!(
+            "test-{}",
+            PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        );
+
+        let (sender, handle) = SenderAccount::spawn(
+            Some(prefix.clone()),
+            sender,
+            (HashSet::new(), Some(prefix.clone())),
+        )
+        .await
+        .unwrap();
 
         // await for the allocations to be created
         ractor::concurrency::sleep(Duration::from_millis(100)).await;
 
-        sender
+        (sender, handle, prefix)
     }
 
     /// Test that the sender_account correctly ignores new receipt notifications with
@@ -318,11 +342,11 @@ mod tests {
             expected_unaggregated_fees += u128::from(i);
         }
 
-        let sender =
+        let (sender, handle, prefix) =
             create_sender_with_allocations(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL).await;
 
-        let allocation = ActorRef::<SenderAllocationMsg>::where_is(format!(
-            "{sender}:{allocation_id}",
+        let allocation = ActorRef::<SenderAllocationMessage>::where_is(format!(
+            "{prefix}:{sender}:{allocation_id}",
             sender = SENDER.1,
             allocation_id = *ALLOCATION_ID_0
         ))
@@ -336,7 +360,7 @@ mod tests {
         );
 
         let allocation_unaggregated_fees =
-            call!(allocation, SenderAllocationMsg::GetUnaggregatedReceipts).unwrap();
+            call!(allocation, SenderAllocationMessage::GetUnaggregatedReceipts).unwrap();
 
         // Check that the allocation's unaggregated fees are correct.
         assert_eq!(
@@ -355,12 +379,14 @@ mod tests {
             value: 19,
         };
         allocation
-            .cast(SenderAllocationMsg::NewReceipt(new_receipt_notification))
+            .cast(SenderAllocationMessage::NewReceipt(
+                new_receipt_notification,
+            ))
             .unwrap();
         ractor::concurrency::sleep(Duration::from_millis(10)).await;
 
         let allocation_unaggregated_fees =
-            call!(allocation, SenderAllocationMsg::GetUnaggregatedReceipts).unwrap();
+            call!(allocation, SenderAllocationMessage::GetUnaggregatedReceipts).unwrap();
 
         // Check that the allocation's unaggregated fees have *not* increased.
         assert_eq!(
@@ -384,14 +410,16 @@ mod tests {
             value: 20,
         };
         allocation
-            .cast(SenderAllocationMsg::NewReceipt(new_receipt_notification))
+            .cast(SenderAllocationMessage::NewReceipt(
+                new_receipt_notification,
+            ))
             .unwrap();
         ractor::concurrency::sleep(Duration::from_millis(10)).await;
 
         expected_unaggregated_fees += 20;
 
         let allocation_unaggregated_fees =
-            call!(allocation, SenderAllocationMsg::GetUnaggregatedReceipts).unwrap();
+            call!(allocation, SenderAllocationMessage::GetUnaggregatedReceipts).unwrap();
 
         // Check that the allocation's unaggregated fees are correct.
         assert_eq!(
@@ -415,13 +443,15 @@ mod tests {
             value: 19,
         };
         allocation
-            .cast(SenderAllocationMsg::NewReceipt(new_receipt_notification))
+            .cast(SenderAllocationMessage::NewReceipt(
+                new_receipt_notification,
+            ))
             .unwrap();
 
         ractor::concurrency::sleep(Duration::from_millis(10)).await;
 
         let allocation_unaggregated_fees =
-            call!(allocation, SenderAllocationMsg::GetUnaggregatedReceipts).unwrap();
+            call!(allocation, SenderAllocationMessage::GetUnaggregatedReceipts).unwrap();
 
         // Check that the allocation's unaggregated fees have *not* increased.
         assert_eq!(
@@ -435,6 +465,9 @@ mod tests {
             allocation_tracker.get_total_fee(),
             expected_unaggregated_fees
         );
+
+        sender.stop(None);
+        handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../migrations")]
@@ -468,15 +501,15 @@ mod tests {
             .await;
 
         // Create a sender_account.
-        let sender_account = create_sender_with_allocations(
+        let (sender_account, sender_handle, prefix) = create_sender_with_allocations(
             pgpool.clone(),
             "http://".to_owned() + &aggregator_endpoint.to_string(),
             &mock_server.uri(),
         )
         .await;
 
-        let allocation = ActorRef::<SenderAllocationMsg>::where_is(format!(
-            "{sender}:{allocation_id}",
+        let allocation = ActorRef::<SenderAllocationMessage>::where_is(format!(
+            "{prefix}:{sender}:{allocation_id}",
             sender = SENDER.1,
             allocation_id = *ALLOCATION_ID_0
         ))
@@ -504,7 +537,9 @@ mod tests {
                 value,
             };
             allocation
-                .cast(SenderAllocationMsg::NewReceipt(new_receipt_notification))
+                .cast(SenderAllocationMessage::NewReceipt(
+                    new_receipt_notification,
+                ))
                 .unwrap();
 
             ractor::concurrency::sleep(Duration::from_millis(100)).await;
@@ -564,7 +599,7 @@ mod tests {
         // Check that the allocation's unaggregated fees value is reduced.
 
         let allocation_unaggregated_fees =
-            call!(allocation, SenderAllocationMsg::GetUnaggregatedReceipts).unwrap();
+            call!(allocation, SenderAllocationMessage::GetUnaggregatedReceipts).unwrap();
 
         // Check that the allocation's unaggregated fees have *not* increased.
         assert!(allocation_unaggregated_fees.value <= trigger_value);
@@ -596,7 +631,9 @@ mod tests {
                 value,
             };
             allocation
-                .cast(SenderAllocationMsg::NewReceipt(new_receipt_notification))
+                .cast(SenderAllocationMessage::NewReceipt(
+                    new_receipt_notification,
+                ))
                 .unwrap();
 
             ractor::concurrency::sleep(Duration::from_millis(10)).await;
@@ -655,7 +692,7 @@ mod tests {
         // Check that the allocation's unaggregated fees value is reduced.
 
         let allocation_unaggregated_fees =
-            call!(allocation, SenderAllocationMsg::GetUnaggregatedReceipts).unwrap();
+            call!(allocation, SenderAllocationMessage::GetUnaggregatedReceipts).unwrap();
 
         // Check that the allocation's unaggregated fees have *not* increased.
         assert!(allocation_unaggregated_fees.value <= trigger_value);
@@ -668,40 +705,51 @@ mod tests {
         // Stop the TAP aggregator server.
         handle.stop().unwrap();
         handle.stopped().await;
+
+        sender_account.stop(None);
+        sender_handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_sender_unaggregated_fees(pgpool: PgPool) {
         // Create a sender_account.
-        let sender_account =
+        let (sender_account, handle, _prefix) =
             create_sender_with_allocations(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL).await;
 
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
         // Closure that adds a number of receipts to an allocation.
-        let update_receipt_fees = |allocation_id: Address, value: u128| {
-            let sender_account = sender_account.clone();
-            sender_account
-                .cast(SenderAccountMessage::UpdateReceiptFees(
+
+        let update_receipt_fees = |sender_account: &ActorRef<SenderAccountMessage>,
+                                   allocation_id: Address,
+                                   value: u128| {
+            cast!(
+                sender_account,
+                SenderAccountMessage::UpdateReceiptFees(
                     allocation_id,
                     UnaggregatedReceipts {
                         value,
                         ..Default::default()
                     },
-                ))
-                .unwrap();
+                )
+            )
+            .unwrap();
 
             value
         };
 
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
         // Add receipts to the database for allocation_0
-        let total_value_0 = update_receipt_fees(*ALLOCATION_ID_0, 90);
+        let total_value_0 = update_receipt_fees(&sender_account, *ALLOCATION_ID_0, 90);
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         // Add receipts to the database for allocation_1
-        let total_value_1 = update_receipt_fees(*ALLOCATION_ID_1, 100);
+        let total_value_1 = update_receipt_fees(&sender_account, *ALLOCATION_ID_1, 100);
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         // Add receipts to the database for allocation_2
-        let total_value_2 = update_receipt_fees(*ALLOCATION_ID_2, 80);
+        let total_value_2 = update_receipt_fees(&sender_account, *ALLOCATION_ID_2, 80);
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         let allocation_tracker =
@@ -718,5 +766,8 @@ mod tests {
             allocation_tracker.get_total_fee(),
             total_value_0 + total_value_1 + total_value_2
         );
+
+        sender_account.stop(None);
+        handle.await.unwrap();
     }
 }

@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::{collections::HashMap, str::FromStr};
 
-use crate::agent::sender_allocation::SenderAllocationMsg;
+use crate::agent::sender_allocation::SenderAllocationMessage;
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -175,7 +175,7 @@ impl Actor for SenderAccountsManager {
                 SenderAccount::spawn_linked(
                     Some(sender_id.to_string()),
                     sender_account,
-                    allocation_ids,
+                    (allocation_ids, None),
                     myself.get_cell(),
                 )
                 .await?;
@@ -344,12 +344,12 @@ async fn new_receipts_watcher(
         };
         let allocation_id = &new_receipt_notification.allocation_id;
 
-        if let Some(sender_allocation) =
-            ActorRef::<SenderAllocationMsg>::where_is(format!("{sender_address}:{allocation_id}"))
-        {
-            if let Err(e) =
-                sender_allocation.cast(SenderAllocationMsg::NewReceipt(new_receipt_notification))
-            {
+        if let Some(sender_allocation) = ActorRef::<SenderAllocationMessage>::where_is(format!(
+            "{sender_address}:{allocation_id}"
+        )) {
+            if let Err(e) = sender_allocation.cast(SenderAllocationMessage::NewReceipt(
+                new_receipt_notification,
+            )) {
                 error!(
                     "Error while forwarding new receipt notification to sender_allocation: {:?}",
                     e
@@ -489,7 +489,7 @@ mod tests {
 
         let sender_allocation_id = format!("{}:{}", SENDER.1, allocation_id);
         let sender_allocation =
-            ActorRef::<SenderAllocationMsg>::where_is(sender_allocation_id).unwrap();
+            ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id).unwrap();
         assert_eq!(sender_allocation.get_status(), ActorStatus::Running);
 
         // Remove the escrow account from the escrow_accounts Eventual.
