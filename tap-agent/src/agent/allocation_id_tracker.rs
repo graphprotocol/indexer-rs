@@ -29,9 +29,13 @@ impl AllocationIdTracker {
             }
         }
 
-        self.id_to_fee.insert(id, fee);
-        self.total_fee += fee;
-        *self.fee_to_count.entry(fee).or_insert(0) += 1;
+        if fee > 0 {
+            self.id_to_fee.insert(id, fee);
+            self.total_fee += fee;
+            *self.fee_to_count.entry(fee).or_insert(0) += 1;
+        } else {
+            self.id_to_fee.remove(&id);
+        }
     }
 
     pub fn get_heaviest_allocation_id(&self) -> Option<Address> {
@@ -45,5 +49,54 @@ impl AllocationIdTracker {
 
     pub fn get_total_fee(&self) -> u128 {
         self.total_fee
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tap::test_utils::{ALLOCATION_ID_0, ALLOCATION_ID_1, ALLOCATION_ID_2};
+
+    use super::AllocationIdTracker;
+    #[test]
+    fn test_allocation_id_tracker() {
+        let allocation_id_0 = *ALLOCATION_ID_0;
+        let allocation_id_1 = *ALLOCATION_ID_1;
+        let allocation_id_2 = *ALLOCATION_ID_2;
+
+        let mut tracker = AllocationIdTracker::new();
+        assert_eq!(tracker.get_heaviest_allocation_id(), None);
+        assert_eq!(tracker.get_total_fee(), 0);
+
+        tracker.add_or_update(allocation_id_0, 10);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
+        assert_eq!(tracker.get_total_fee(), 10);
+
+        tracker.add_or_update(allocation_id_2, 20);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
+        assert_eq!(tracker.get_total_fee(), 30);
+
+        tracker.add_or_update(allocation_id_1, 30);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
+        assert_eq!(tracker.get_total_fee(), 60);
+
+        tracker.add_or_update(allocation_id_2, 10);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
+        assert_eq!(tracker.get_total_fee(), 50);
+
+        tracker.add_or_update(allocation_id_2, 40);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
+        assert_eq!(tracker.get_total_fee(), 80);
+
+        tracker.add_or_update(allocation_id_1, 0);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
+        assert_eq!(tracker.get_total_fee(), 50);
+
+        tracker.add_or_update(allocation_id_2, 0);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
+        assert_eq!(tracker.get_total_fee(), 10);
+
+        tracker.add_or_update(allocation_id_0, 0);
+        assert_eq!(tracker.get_heaviest_allocation_id(), None);
+        assert_eq!(tracker.get_total_fee(), 0);
     }
 }
