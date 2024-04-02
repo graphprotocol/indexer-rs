@@ -11,7 +11,7 @@ pub mod context;
 pub mod escrow_adapter;
 
 #[cfg(test)]
-mod test_utils;
+pub mod test_utils;
 
 pub async fn signers_trimmed(
     escrow_accounts: &Eventual<EscrowAccounts>,

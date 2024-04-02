@@ -127,35 +127,14 @@ impl RAVStore for TapAgentContext {
 
 #[cfg(test)]
 mod test {
-    use ethers_signers::LocalWallet;
     use eventuals::Eventual;
     use sqlx::PgPool;
-    use tap_core::signed_message::EIP712SignedMessage;
 
     use super::*;
     use crate::tap::{
         escrow_adapter::EscrowAdapter,
-        test_utils::{ALLOCATION_ID_0, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR},
+        test_utils::{create_rav, ALLOCATION_ID_0, SENDER, SIGNER},
     };
-
-    /// Fixture to generate a RAV using the wallet from `keys()`
-    fn create_rav(
-        allocation_id: Address,
-        signer_wallet: LocalWallet,
-        timestamp_ns: u64,
-        value_aggregate: u128,
-    ) -> SignedRAV {
-        EIP712SignedMessage::new(
-            &TAP_EIP712_DOMAIN_SEPARATOR,
-            ReceiptAggregateVoucher {
-                allocationId: allocation_id,
-                timestampNs: timestamp_ns,
-                valueAggregate: value_aggregate,
-            },
-            &signer_wallet,
-        )
-        .unwrap()
-    }
 
     #[sqlx::test(migrations = "../migrations")]
     async fn update_and_retrieve_rav(pool: PgPool) {

@@ -21,7 +21,6 @@ pub struct TapAgentContext {
     allocation_id: Address,
     sender: Address,
     escrow_accounts: Eventual<EscrowAccounts>,
-    // sender_pending_fees: Arc<RwLock<HashMap<Address, u128>>>,
     escrow_adapter: EscrowAdapter,
 }
 
@@ -38,7 +37,6 @@ impl TapAgentContext {
             allocation_id,
             sender,
             escrow_accounts,
-            // sender_pending_fees: Arc::new(RwLock::new(HashMap::new())),
             escrow_adapter,
         }
     }

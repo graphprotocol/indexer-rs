@@ -21,6 +21,7 @@ use crate::{
     tap::escrow_adapter::EscrowAdapter,
 };
 
+#[derive(Debug)]
 pub enum SenderAccountMessage {
     CreateSenderAllocation(Address),
     UpdateAllocationIds(HashSet<Address>),
@@ -229,6 +230,23 @@ impl Actor for SenderAccount {
 
 #[cfg(test)]
 mod tests {
+    use super::SenderAccountMessage;
+
+    // we implement the PartialEq and Eq traits for SenderAccountMessage to be able to compare
+    impl Eq for SenderAccountMessage {}
+
+    impl PartialEq for SenderAccountMessage {
+        fn eq(&self, other: &Self) -> bool {
+            match (self, other) {
+                (Self::CreateSenderAllocation(l0), Self::CreateSenderAllocation(r0)) => l0 == r0,
+                (Self::UpdateAllocationIds(l0), Self::UpdateAllocationIds(r0)) => l0 == r0,
+                (Self::UpdateReceiptFees(l0, l1), Self::UpdateReceiptFees(r0, r1)) => {
+                    l0 == r0 && l1 == r1
+                }
+                _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+            }
+        }
+    }
 
     #[test]
     fn test_update_allocation_ids() {}
