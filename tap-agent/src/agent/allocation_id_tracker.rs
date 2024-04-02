@@ -4,7 +4,7 @@
 use alloy_primitives::Address;
 use std::collections::{BTreeMap, HashMap};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AllocationIdTracker {
     id_to_fee: HashMap<Address, u128>,
     fee_to_count: BTreeMap<u128, u32>,
@@ -12,14 +12,6 @@ pub struct AllocationIdTracker {
 }
 
 impl AllocationIdTracker {
-    pub fn new() -> Self {
-        AllocationIdTracker {
-            id_to_fee: HashMap::new(),
-            fee_to_count: BTreeMap::new(),
-            total_fee: 0,
-        }
-    }
-
     pub fn add_or_update(&mut self, id: Address, fee: u128) {
         if let Some(&old_fee) = self.id_to_fee.get(&id) {
             self.total_fee -= old_fee;
@@ -54,16 +46,20 @@ impl AllocationIdTracker {
 
 #[cfg(test)]
 mod tests {
-    use crate::tap::test_utils::{ALLOCATION_ID_0, ALLOCATION_ID_1, ALLOCATION_ID_2};
-
     use super::AllocationIdTracker;
+    use std::str::FromStr;
+    use thegraph::types::Address;
+
     #[test]
     fn test_allocation_id_tracker() {
-        let allocation_id_0 = *ALLOCATION_ID_0;
-        let allocation_id_1 = *ALLOCATION_ID_1;
-        let allocation_id_2 = *ALLOCATION_ID_2;
+        let allocation_id_0: Address =
+            Address::from_str("0xabababababababababababababababababababab").unwrap();
+        let allocation_id_1: Address =
+            Address::from_str("0xbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc").unwrap();
+        let allocation_id_2: Address =
+            Address::from_str("0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd").unwrap();
 
-        let mut tracker = AllocationIdTracker::new();
+        let mut tracker = AllocationIdTracker::default();
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee(), 0);
 

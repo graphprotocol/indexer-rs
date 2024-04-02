@@ -184,21 +184,76 @@ impl ReceiptDelete for TapAgentContext {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-
     use super::*;
     use crate::tap::{
         escrow_adapter::EscrowAdapter,
-        test_utils::{
-            create_received_receipt, store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_IRRELEVANT,
-            SENDER, SENDER_IRRELEVANT, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
-        },
+        test_utils::{wallet, ALLOCATION_ID_0, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR},
     };
     use anyhow::Result;
-
+    use bigdecimal::num_bigint::BigInt;
+    use ethers_signers::LocalWallet;
     use eventuals::Eventual;
     use indexer_common::escrow_accounts::EscrowAccounts;
+    use lazy_static::lazy_static;
     use sqlx::PgPool;
+    use std::collections::HashMap;
+    use tap_core::signed_message::EIP712SignedMessage;
+
+    lazy_static! {
+        pub static ref SENDER_IRRELEVANT: (LocalWallet, Address) = wallet(1);
+        pub static ref ALLOCATION_ID_IRRELEVANT: Address =
+            Address::from_str("0xbcdebcdebcdebcdebcdebcdebcdebcdebcdebcde").unwrap();
+    }
+
+    /// Fixture to generate a signed receipt using the wallet from `keys()` and the
+    /// given `query_id` and `value`
+    fn create_received_receipt(
+        allocation_id: &Address,
+        signer_wallet: &LocalWallet,
+        nonce: u64,
+        timestamp_ns: u64,
+        value: u128,
+    ) -> ReceiptWithState<Checking> {
+        let receipt = EIP712SignedMessage::new(
+            &TAP_EIP712_DOMAIN_SEPARATOR,
+            Receipt {
+                allocation_id: *allocation_id,
+                nonce,
+                timestamp_ns,
+                value,
+            },
+            signer_wallet,
+        )
+        .unwrap();
+        ReceiptWithState::new(receipt)
+    }
+
+    pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> Result<u64> {
+        let encoded_signature = signed_receipt.signature.to_vec();
+
+        let record = sqlx::query!(
+        r#"
+            INSERT INTO scalar_tap_receipts (signer_address, signature, allocation_id, timestamp_ns, nonce, value)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id
+        "#,
+        signed_receipt
+            .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+            .unwrap()
+            .encode_hex::<String>(),
+        encoded_signature,
+        signed_receipt.message.allocation_id.encode_hex::<String>(),
+        BigDecimal::from(signed_receipt.message.timestamp_ns),
+        BigDecimal::from(signed_receipt.message.nonce),
+        BigDecimal::from(BigInt::from(signed_receipt.message.value)),
+    )
+    .fetch_one(pgpool)
+    .await?;
+
+        // id is BIGSERIAL, so it should be safe to cast to u64.
+        let id: u64 = record.id.try_into()?;
+        Ok(id)
+    }
 
     /// Insert a single receipt and retrieve it from the database using the adapter.
     /// The point here it to test the deserialization of large numbers.
@@ -218,8 +273,7 @@ mod test {
         );
 
         let received_receipt =
-            create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX)
-                .await;
+            create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX);
 
         // Storing the receipt
         store_receipt(&storage_adapter.pgpool, received_receipt.signed_receipt())
@@ -437,38 +491,29 @@ mod test {
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();
         for i in 0..10 {
-            received_receipt_vec.push(
-                create_received_receipt(
-                    &ALLOCATION_ID_0,
-                    &SIGNER.0,
-                    i + 684,
-                    i + 42,
-                    (i + 124).into(),
-                )
-                .await,
-            );
+            received_receipt_vec.push(create_received_receipt(
+                &ALLOCATION_ID_0,
+                &SIGNER.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
 
             // Adding irrelevant receipts to make sure they are not retrieved
-            received_receipt_vec.push(
-                create_received_receipt(
-                    &ALLOCATION_ID_IRRELEVANT,
-                    &SIGNER.0,
-                    i + 684,
-                    i + 42,
-                    (i + 124).into(),
-                )
-                .await,
-            );
-            received_receipt_vec.push(
-                create_received_receipt(
-                    &ALLOCATION_ID_0,
-                    &SENDER_IRRELEVANT.0,
-                    i + 684,
-                    i + 42,
-                    (i + 124).into(),
-                )
-                .await,
-            );
+            received_receipt_vec.push(create_received_receipt(
+                &ALLOCATION_ID_IRRELEVANT,
+                &SIGNER.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
+            received_receipt_vec.push(create_received_receipt(
+                &ALLOCATION_ID_0,
+                &SENDER_IRRELEVANT.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
         }
 
         // Storing the receipts
@@ -574,38 +619,29 @@ mod test {
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();
         for i in 0..10 {
-            received_receipt_vec.push(
-                create_received_receipt(
-                    &ALLOCATION_ID_0,
-                    &SIGNER.0,
-                    i + 684,
-                    i + 42,
-                    (i + 124).into(),
-                )
-                .await,
-            );
+            received_receipt_vec.push(create_received_receipt(
+                &ALLOCATION_ID_0,
+                &SIGNER.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
 
             // Adding irrelevant receipts to make sure they are not retrieved
-            received_receipt_vec.push(
-                create_received_receipt(
-                    &ALLOCATION_ID_IRRELEVANT,
-                    &SIGNER.0,
-                    i + 684,
-                    i + 42,
-                    (i + 124).into(),
-                )
-                .await,
-            );
-            received_receipt_vec.push(
-                create_received_receipt(
-                    &ALLOCATION_ID_0,
-                    &SENDER_IRRELEVANT.0,
-                    i + 684,
-                    i + 42,
-                    (i + 124).into(),
-                )
-                .await,
-            );
+            received_receipt_vec.push(create_received_receipt(
+                &ALLOCATION_ID_IRRELEVANT,
+                &SIGNER.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
+            received_receipt_vec.push(create_received_receipt(
+                &ALLOCATION_ID_0,
+                &SENDER_IRRELEVANT.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
         }
 
         macro_rules! test_ranges{

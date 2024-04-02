@@ -15,11 +15,11 @@ use crate::config::{Cli, EscrowSubgraph, Ethereum, IndexerInfrastructure, Networ
 use crate::{aggregator_endpoints, database, CONFIG, EIP_712_DOMAIN};
 use sender_accounts_manager::SenderAccountsManager;
 
-mod allocation_id_tracker;
-mod sender_account;
+pub mod allocation_id_tracker;
+pub mod sender_account;
 pub mod sender_accounts_manager;
-mod sender_allocation;
-mod unaggregated_receipts;
+pub mod sender_allocation;
+pub mod unaggregated_receipts;
 
 pub async fn start_agent() -> ActorRef<SenderAccountsManagerMessage> {
     let Cli {
