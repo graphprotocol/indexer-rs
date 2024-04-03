@@ -143,34 +143,42 @@ impl Actor for SenderAllocation {
                         ))?;
                 }
             }
+            // we use a blocking call here to ensure that only one RAV request is running at a time.
             SenderAllocationMessage::TriggerRAVRequest(reply) => {
-                state.rav_requester_single().await.map_err(|e| {
-                    anyhow! {
-                        "Error while requesting RAV for sender {} and allocation {}: {}",
-                        state.sender,
-                        state.allocation_id,
-                        e
-                    }
-                })?;
-                state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
+                if state.unaggregated_fees.value > 0 {
+                    state.rav_requester_single().await.map_err(|e| {
+                        anyhow! {
+                            "Error while requesting RAV for sender {} and allocation {}: {}",
+                            state.sender,
+                            state.allocation_id,
+                            e
+                        }
+                    })?;
+                    state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
+                }
                 if !reply.is_closed() {
                     let _ = reply.send(state.unaggregated_fees.clone());
                 }
             }
 
             SenderAllocationMessage::CloseAllocation => {
-                state.rav_requester_single().await.inspect_err(|e| {
-                    error!(
-                        "Error while requesting RAV for sender {} and allocation {}: {}",
-                        state.sender, state.allocation_id, e
-                    );
-                })?;
+                // Request a RAV and mark the allocation as final.
+
+                if state.unaggregated_fees.value > 0 {
+                    state.rav_requester_single().await.inspect_err(|e| {
+                        error!(
+                            "Error while requesting RAV for sender {} and allocation {}: {}",
+                            state.sender, state.allocation_id, e
+                        );
+                    })?;
+                }
                 state.mark_rav_final().await.inspect_err(|e| {
                     error!(
                         "Error while marking allocation {} as final for sender {}: {}",
                         state.allocation_id, state.sender, e
                     );
                 })?;
+                // stop and trigger post_stop
                 myself.stop(None);
             }
             SenderAllocationMessage::GetUnaggregatedReceipts(reply) => {
@@ -400,14 +408,23 @@ impl SenderAllocationState {
         )
         .execute(&self.pgpool)
         .await?;
-        if updated_rows.rows_affected() != 1 {
-            anyhow::bail!(
+
+        match updated_rows.rows_affected() {
+            // in case no rav was marked as final
+            0 => {
+                warn!(
+                    "No RAVs were updated as final for allocation {} and sender {}.",
+                    self.allocation_id, self.sender
+                );
+                Ok(())
+            }
+            1 => Ok(()),
+            _ => anyhow::bail!(
                 "Expected exactly one row to be updated in the latest RAVs table, \
                         but {} were updated.",
                 updated_rows.rows_affected()
-            );
-        };
-        Ok(())
+            ),
+        }
     }
 
     async fn store_invalid_receipts(&self, receipts: &[ReceiptWithState<Failed>]) -> Result<()> {
@@ -483,25 +500,9 @@ impl SenderAllocationState {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        sync::{Arc, Mutex},
+    use super::{
+        SenderAllocation, SenderAllocationArgs, SenderAllocationMessage, SenderAllocationState,
     };
-
-    use eventuals::Eventual;
-    use indexer_common::{
-        escrow_accounts::EscrowAccounts,
-        subgraph_client::{DeploymentDetails, SubgraphClient},
-    };
-    use ractor::{call, cast, concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef};
-    use serde_json::json;
-    use sqlx::PgPool;
-    use tap_aggregator::server::run_server;
-    use wiremock::{
-        matchers::{body_string_contains, method},
-        Mock, MockServer, ResponseTemplate,
-    };
-
     use crate::{
         agent::{
             sender_account::SenderAccountMessage, sender_accounts_manager::NewReceiptNotification,
@@ -516,15 +517,35 @@ mod tests {
             },
         },
     };
-
-    use super::{
-        SenderAllocation, SenderAllocationArgs, SenderAllocationMessage, SenderAllocationState,
+    use eventuals::Eventual;
+    use futures::future::join_all;
+    use indexer_common::{
+        escrow_accounts::EscrowAccounts,
+        subgraph_client::{DeploymentDetails, SubgraphClient},
+    };
+    use ractor::{
+        call, cast, concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef, ActorStatus,
+    };
+    use serde_json::json;
+    use sqlx::PgPool;
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
+    use tap_aggregator::{jsonrpsee_helpers::JsonRpcResponse, server::run_server};
+    use tap_core::receipt::{
+        checks::{Check, Checks},
+        Checking, ReceiptWithState,
+    };
+    use wiremock::{
+        matchers::{body_string_contains, method},
+        Mock, MockServer, Respond, ResponseTemplate,
     };
 
     const DUMMY_URL: &str = "http://localhost:1234";
 
     struct MockSenderAccount {
-        last_message_emitted: Arc<Mutex<Option<SenderAccountMessage>>>,
+        last_message_emitted: Arc<Mutex<Vec<SenderAccountMessage>>>,
     }
 
     #[async_trait::async_trait]
@@ -547,17 +568,17 @@ mod tests {
             message: Self::Msg,
             _state: &mut Self::State,
         ) -> std::result::Result<(), ActorProcessingErr> {
-            *self.last_message_emitted.lock().unwrap() = Some(message);
+            self.last_message_emitted.lock().unwrap().push(message);
             Ok(())
         }
     }
 
     async fn create_mock_sender_account() -> (
-        Arc<Mutex<Option<SenderAccountMessage>>>,
+        Arc<Mutex<Vec<SenderAccountMessage>>>,
         ActorRef<SenderAccountMessage>,
         JoinHandle<()>,
     ) {
-        let last_message_emitted = Arc::new(Mutex::new(None));
+        let last_message_emitted = Arc::new(Mutex::new(vec![]));
 
         let (sender_account, join_handle) = MockSenderAccount::spawn(
             None,
@@ -646,16 +667,23 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn should_update_unaggregated_fees_on_start(pgpool: PgPool) {
+        let (last_message_emitted, sender_account, _join_handle) =
+            create_mock_sender_account().await;
         // Add receipts to the database.
-        for i in 1..10 {
+        for i in 1..=10 {
             let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
         }
 
-        let sender_allocation =
-            create_sender_allocation(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None).await;
+        let sender_allocation = create_sender_allocation(
+            pgpool.clone(),
+            DUMMY_URL.to_string(),
+            DUMMY_URL,
+            Some(sender_account),
+        )
+        .await;
 
         // Get total_unaggregated_fees
         let total_unaggregated_fees = call!(
@@ -664,8 +692,20 @@ mod tests {
         )
         .unwrap();
 
+        // Should emit a message to the sender account with the unaggregated fees.
+        let expected_message = SenderAccountMessage::UpdateReceiptFees(
+            *ALLOCATION_ID_0,
+            UnaggregatedReceipts {
+                last_id: 10,
+                value: 55u128,
+            },
+        );
+        let last_message_emitted = last_message_emitted.lock().unwrap();
+        assert_eq!(last_message_emitted.len(), 1);
+        assert_eq!(last_message_emitted.last(), Some(&expected_message));
+
         // Check that the unaggregated fees are correct.
-        assert_eq!(total_unaggregated_fees.value, 45u128);
+        assert_eq!(total_unaggregated_fees.value, 55u128);
     }
 
     #[sqlx::test(migrations = "../migrations")]
@@ -716,10 +756,9 @@ mod tests {
                 value: 20,
             },
         );
-        assert_eq!(
-            *last_message_emitted.lock().unwrap(),
-            Some(expected_message)
-        );
+        let last_message_emitted = last_message_emitted.lock().unwrap();
+        assert_eq!(last_message_emitted.len(), 2);
+        assert_eq!(last_message_emitted.last(), Some(&expected_message));
     }
 
     #[sqlx::test(migrations = "../migrations")]
@@ -769,9 +808,7 @@ mod tests {
         )
         .await;
 
-        // Trigger a RAV request manually.
-
-        // Get total_unaggregated_fees
+        // Trigger a RAV request manually and wait for updated fees.
         let total_unaggregated_fees = call!(
             sender_allocation,
             SenderAllocationMessage::TriggerRAVRequest
@@ -786,19 +823,136 @@ mod tests {
         handle.stopped().await;
     }
 
-    #[test]
-    fn test_close_allocation() {
-        // create allocation
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_close_allocation_no_pending_fees(pgpool: PgPool) {
+        let (last_message_emitted, sender_account, _join_handle) =
+            create_mock_sender_account().await;
 
-        // populate db
+        // create allocation
+        let sender_allocation = create_sender_allocation(
+            pgpool.clone(),
+            DUMMY_URL.to_string(),
+            DUMMY_URL,
+            Some(sender_account),
+        )
+        .await;
+
+        cast!(sender_allocation, SenderAllocationMessage::CloseAllocation).unwrap();
 
         // should trigger rav request
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        // should mark rav final
-
-        // should stop actor
+        // check if the actor is actually stopped
+        assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
 
         // check if message is sent to sender account
+        assert_eq!(
+            last_message_emitted.lock().unwrap().last(),
+            Some(&SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                UnaggregatedReceipts::default()
+            ))
+        );
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_close_allocation_with_pending_fees(pgpool: PgPool) {
+        struct Response {
+            data: Arc<tokio::sync::Notify>,
+        }
+
+        impl Respond for Response {
+            fn respond(&self, _request: &wiremock::Request) -> wiremock::ResponseTemplate {
+                self.data.notify_one();
+
+                let mock_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 10, 45);
+
+                let json_response = JsonRpcResponse {
+                    data: mock_rav,
+                    warnings: None,
+                };
+
+                ResponseTemplate::new(200).set_body_json(json! (
+                    {
+                        "id": 0,
+                        "jsonrpc": "2.0",
+                        "result": json_response
+                    }
+                ))
+            }
+        }
+
+        let await_trigger = Arc::new(tokio::sync::Notify::new());
+        // Start a TAP aggregator server.
+        let aggregator_server = MockServer::start().await;
+
+        aggregator_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("aggregate_receipts"))
+                    .respond_with(Response {
+                        data: await_trigger.clone(),
+                    }),
+            )
+            .await;
+
+        // Start a mock graphql server using wiremock
+        let mock_server = MockServer::start().await;
+
+        // Mock result for TAP redeem txs for (allocation, sender) pair.
+        mock_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("transactions"))
+                    .respond_with(
+                        ResponseTemplate::new(200)
+                            .set_body_json(json!({ "data": { "transactions": []}})),
+                    ),
+            )
+            .await;
+
+        // Add receipts to the database.
+        for i in 0..10 {
+            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
+            store_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
+
+        let (last_message_emitted, sender_account, _join_handle) =
+            create_mock_sender_account().await;
+
+        // create allocation
+        let sender_allocation = create_sender_allocation(
+            pgpool.clone(),
+            aggregator_server.uri(),
+            &mock_server.uri(),
+            Some(sender_account),
+        )
+        .await;
+
+        cast!(sender_allocation, SenderAllocationMessage::CloseAllocation).unwrap();
+
+        // should trigger rav request
+        await_trigger.notified().await;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // check if rav request is made
+        assert!(aggregator_server.received_requests().await.is_some());
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // check if the actor is actually stopped
+        assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
+
+        // check if message is sent to sender account
+        assert_eq!(
+            last_message_emitted.lock().unwrap().last(),
+            Some(&SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                UnaggregatedReceipts::default()
+            ))
+        );
     }
 
     #[sqlx::test(migrations = "../migrations")]
@@ -861,21 +1015,53 @@ mod tests {
         let args =
             create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
                 .await;
-        let _state = SenderAllocationState::new(args);
+        let state = SenderAllocationState::new(args);
 
-        // state.store_failed_rav()
+        let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
 
-        // check database if failed rav is stored
+        // just unit test if it is working
+        let result = state
+            .store_failed_rav(&signed_rav.message, &signed_rav, "test")
+            .await;
+
+        assert!(result.is_ok());
     }
 
     #[sqlx::test(migrations = "../migrations")]
     fn test_store_invalid_receipts(pgpool: PgPool) {
+        struct FailingCheck;
+
+        #[async_trait::async_trait]
+        impl Check for FailingCheck {
+            async fn check(&self, _receipt: &ReceiptWithState<Checking>) -> anyhow::Result<()> {
+                Err(anyhow::anyhow!("Failing check"))
+            }
+        }
+
         let args =
             create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
                 .await;
-        let _state = SenderAllocationState::new(args);
+        let state = SenderAllocationState::new(args);
 
-        // verify if invalid receipts are stored correctly
+        let checks = Checks::new(vec![Arc::new(FailingCheck)]);
+
+        // create some checks
+        let checking_receipts = vec![
+            create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
+            create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
+        ];
+        // make sure to fail them
+        let failing_receipts = checking_receipts
+            .into_iter()
+            .map(|receipt| async { receipt.finalize_receipt_checks(&checks).await.unwrap_err() })
+            .collect::<Vec<_>>();
+        let failing_receipts = join_all(failing_receipts).await;
+
+        // store the failing receipts
+        let result = state.store_invalid_receipts(&failing_receipts).await;
+
+        // we just store a few and make sure it doesn't fail
+        assert!(result.is_ok());
     }
 
     #[sqlx::test(migrations = "../migrations")]
@@ -891,7 +1077,7 @@ mod tests {
         // mark rav as final
         let result = state.mark_rav_final().await;
 
-        // check if database contains final rav
+        // check if it fails
         assert!(result.is_ok());
     }
 }
