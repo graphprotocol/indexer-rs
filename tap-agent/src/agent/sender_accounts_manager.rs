@@ -155,21 +155,6 @@ impl Actor for SenderAccountsManager {
         Ok(())
     }
 
-    async fn handle_supervisor_evt(
-        &self,
-        _myself: ActorRef<Self::Msg>,
-        message: SupervisionEvent,
-        _state: &mut Self::State,
-    ) -> std::result::Result<(), ActorProcessingErr> {
-        match message {
-            SupervisionEvent::ActorTerminated(_, _, _) | SupervisionEvent::ActorPanicked(_, _) => {
-                // what to do in case of termination or panic
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -207,6 +192,21 @@ impl Actor for SenderAccountsManager {
                 )
                 .await?;
             }
+        }
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> std::result::Result<(), ActorProcessingErr> {
+        match message {
+            SupervisionEvent::ActorTerminated(_, _, _) | SupervisionEvent::ActorPanicked(_, _) => {
+                // what to do in case of termination or panic
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -561,11 +561,8 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         // verify if create sender account
-        let actor_ref = ActorRef::<SenderAccountMessage>::where_is(format!(
-            "{}:{}",
-            prefix.clone(),
-            SENDER.1.to_string()
-        ));
+        let actor_ref =
+            ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix.clone(), SENDER.1));
         assert!(actor_ref.is_some());
 
         actor
@@ -576,11 +573,8 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         // verify if it gets removed
-        let actor_ref = ActorRef::<SenderAccountMessage>::where_is(format!(
-            "{}:{}",
-            prefix,
-            SENDER.1.to_string()
-        ));
+        let actor_ref =
+            ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER.1));
         assert!(actor_ref.is_none());
 
         // safely stop the manager
@@ -603,11 +597,8 @@ mod tests {
         // we wait to check if the sender is created
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
-        let actor_ref = ActorRef::<SenderAccountMessage>::where_is(format!(
-            "{}:{}",
-            prefix,
-            SENDER_2.1.to_string()
-        ));
+        let actor_ref =
+            ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER_2.1));
         assert!(actor_ref.is_some());
 
         actor

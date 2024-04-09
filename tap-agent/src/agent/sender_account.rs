@@ -162,21 +162,6 @@ impl Actor for SenderAccount {
         })
     }
 
-    async fn handle_supervisor_evt(
-        &self,
-        _myself: ActorRef<Self::Msg>,
-        message: SupervisionEvent,
-        _state: &mut Self::State,
-    ) -> std::result::Result<(), ActorProcessingErr> {
-        match message {
-            SupervisionEvent::ActorTerminated(_, _, _) | SupervisionEvent::ActorPanicked(_, _) => {
-                // what to do in case of termination or panic?
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -240,6 +225,21 @@ impl Actor for SenderAccount {
                     let _ = reply.send(state.allocation_id_tracker.clone());
                 }
             }
+        }
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> std::result::Result<(), ActorProcessingErr> {
+        match message {
+            SupervisionEvent::ActorTerminated(_, _, _) | SupervisionEvent::ActorPanicked(_, _) => {
+                // what to do in case of termination or panic?
+            }
+            _ => {}
         }
         Ok(())
     }
