@@ -196,6 +196,8 @@ impl Actor for SenderAccountsManager {
         Ok(())
     }
 
+    // we define the supervisor event to overwrite the default behavior which
+    // is shutdown the supervisor on actor termination events
     async fn handle_supervisor_evt(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -502,10 +504,7 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn test_create_sender_accounts_manager(pgpool: PgPool) {
         let (_, (actor, join_handle)) = create_sender_accounts_manager(pgpool).await;
-        actor
-            .stop_and_wait(Some("Test".into()), None)
-            .await
-            .unwrap();
+        actor.stop_and_wait(None, None).await.unwrap();
         join_handle.await.unwrap();
     }
 
@@ -578,10 +577,7 @@ mod tests {
         assert!(actor_ref.is_none());
 
         // safely stop the manager
-        actor
-            .stop_and_wait(Some("Test".into()), None)
-            .await
-            .unwrap();
+        actor.stop_and_wait(None, None).await.unwrap();
         join_handle.await.unwrap();
     }
 
@@ -601,10 +597,7 @@ mod tests {
             ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER_2.1));
         assert!(actor_ref.is_some());
 
-        actor
-            .stop_and_wait(Some("Test".into()), None)
-            .await
-            .unwrap();
+        actor.stop_and_wait(None, None).await.unwrap();
         join_handle.await.unwrap();
     }
 }

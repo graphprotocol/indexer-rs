@@ -229,6 +229,8 @@ impl Actor for SenderAccount {
         Ok(())
     }
 
+    // we define the supervisor event to overwrite the default behavior which
+    // is shutdown the supervisor on actor termination events
     async fn handle_supervisor_evt(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -247,7 +249,18 @@ impl Actor for SenderAccount {
 
 #[cfg(test)]
 mod tests {
-    use super::SenderAccountMessage;
+    use super::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
+    use crate::config;
+    use crate::tap::test_utils::{INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR};
+    use eventuals::Eventual;
+    use indexer_common::escrow_accounts::EscrowAccounts;
+    use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
+    use ractor::concurrency::JoinHandle;
+    use ractor::ActorRef;
+    use sqlx::PgPool;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::atomic::AtomicU32;
+    use std::time::Duration;
 
     // we implement the PartialEq and Eq traits for SenderAccountMessage to be able to compare
     impl Eq for SenderAccountMessage {}
@@ -265,21 +278,88 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_update_allocation_ids() {}
+    static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
+    const DUMMY_URL: &str = "http://localhost:1234";
+    const VALUE_PER_RECEIPT: u64 = 100;
+    const TRIGGER_VALUE: u64 = 500;
 
-    #[test]
-    fn test_update_receipt_fees_no_rav() {}
+    async fn create_sender_with_allocations(
+        pgpool: PgPool,
+        sender_aggregator_endpoint: String,
+        escrow_subgraph_endpoint: &str,
+    ) -> (
+        ActorRef<SenderAccountMessage>,
+        tokio::task::JoinHandle<()>,
+        String,
+    ) {
+        let config = Box::leak(Box::new(config::Cli {
+            config: None,
+            ethereum: config::Ethereum {
+                indexer_address: INDEXER.1,
+            },
+            tap: config::Tap {
+                rav_request_trigger_value: TRIGGER_VALUE,
+                rav_request_timestamp_buffer_ms: 1,
+                rav_request_timeout_secs: 5,
+                ..Default::default()
+            },
+            ..Default::default()
+        }));
 
-    #[test]
-    fn test_update_receipt_fees_trigger_rav() {}
+        let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
+            reqwest::Client::new(),
+            None,
+            DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
+        )));
 
-    #[test]
-    fn test_remove_sender_account() {}
+        let escrow_accounts_eventual = Eventual::from_value(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
 
-    #[test]
-    fn test_create_sender_allocation() {}
+        let prefix = format!(
+            "test-{}",
+            PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        );
 
-    #[test]
-    fn test_create_sender_account() {}
+        let args = SenderAccountArgs {
+            config,
+            pgpool,
+            sender_id: SENDER.1,
+            escrow_accounts: escrow_accounts_eventual,
+            indexer_allocations: Eventual::from_value(HashSet::new()),
+            escrow_subgraph,
+            domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+            sender_aggregator_endpoint,
+            allocation_ids: HashSet::new(),
+            prefix: Some(prefix.clone()),
+        };
+
+        let (sender, handle) = SenderAccount::spawn(Some(prefix.clone()), SenderAccount, args)
+            .await
+            .unwrap();
+        (sender, handle, prefix)
+    }
+
+    fn create_sender_account(pgpool: PgPool) -> (ActorRef<SenderAccountMessage>, JoinHandle<()>) {
+        todo!()
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_update_allocation_ids(pgpool: PgPool) {}
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {}
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_update_receipt_fees_trigger_rav(pgpool: PgPool) {}
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_remove_sender_account(pgpool: PgPool) {}
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_create_sender_allocation(pgpool: PgPool) {}
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_create_sender_account(pgpool: PgPool) {}
 }
