@@ -22,7 +22,10 @@ use thegraph::types::Address;
 lazy_static! {
     pub static ref ALLOCATION_ID_0: Address =
         Address::from_str("0xabababababababababababababababababababab").unwrap();
+    pub static ref ALLOCATION_ID_1: Address =
+        Address::from_str("0xbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc").unwrap();
     pub static ref SENDER: (LocalWallet, Address) = wallet(0);
+    pub static ref SENDER_2: (LocalWallet, Address) = wallet(1);
     pub static ref SIGNER: (LocalWallet, Address) = wallet(2);
     pub static ref INDEXER: (LocalWallet, Address) = wallet(3);
     pub static ref TAP_EIP712_DOMAIN_SEPARATOR: Eip712Domain = eip712_domain! {

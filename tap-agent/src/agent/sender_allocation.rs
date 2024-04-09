@@ -709,7 +709,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    fn test_receive_new_receipt(pgpool: PgPool) {
+    async fn test_receive_new_receipt(pgpool: PgPool) {
         let (last_message_emitted, sender_account, _join_handle) =
             create_mock_sender_account().await;
 
@@ -762,7 +762,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    fn test_trigger_rav_request(pgpool: PgPool) {
+    async fn test_trigger_rav_request(pgpool: PgPool) {
         // Start a TAP aggregator server.
         let (handle, aggregator_endpoint) = run_server(
             0,
@@ -1028,7 +1028,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    fn test_store_invalid_receipts(pgpool: PgPool) {
+    async fn test_store_invalid_receipts(pgpool: PgPool) {
         struct FailingCheck;
 
         #[async_trait::async_trait]
@@ -1065,7 +1065,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    fn test_mark_rav_final(pgpool: PgPool) {
+    async fn test_mark_rav_final(pgpool: PgPool) {
         let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
         store_rav(&pgpool, signed_rav, SENDER.1).await.unwrap();
 

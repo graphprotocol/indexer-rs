@@ -7,7 +7,7 @@ use alloy_sol_types::Eip712Domain;
 use anyhow::Result;
 use eventuals::{Eventual, EventualExt, PipeHandle};
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
-use ractor::{call, Actor, ActorProcessingErr, ActorRef};
+use ractor::{call, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use sqlx::PgPool;
 use thegraph::types::Address;
 use tracing::error;
@@ -162,6 +162,21 @@ impl Actor for SenderAccount {
         })
     }
 
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> std::result::Result<(), ActorProcessingErr> {
+        match message {
+            SupervisionEvent::ActorTerminated(_, _, _) | SupervisionEvent::ActorPanicked(_, _) => {
+                // what to do in case of termination or panic?
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -169,7 +184,9 @@ impl Actor for SenderAccount {
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
         match message {
-            SenderAccountMessage::RemoveSenderAccount => myself.stop(None),
+            SenderAccountMessage::RemoveSenderAccount => {
+                myself.stop(Some("Received Remove Sender Account message".into()))
+            }
             SenderAccountMessage::UpdateReceiptFees(allocation_id, unaggregated_fees) => {
                 let tracker = &mut state.allocation_id_tracker;
                 tracker.add_or_update(allocation_id, unaggregated_fees.value);

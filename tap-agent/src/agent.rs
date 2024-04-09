@@ -111,6 +111,7 @@ pub async fn start_agent() -> ActorRef<SenderAccountsManagerMessage> {
         escrow_accounts,
         escrow_subgraph,
         sender_aggregator_endpoints,
+        prefix: None,
     };
 
     let (manager, _) = SenderAccountsManager::spawn(None, SenderAccountsManager, args)
