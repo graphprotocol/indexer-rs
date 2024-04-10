@@ -136,16 +136,6 @@ where
             .into_response()
     }
 }
-//
-// // Tell axum how to convert `RpcError` into a response.
-// impl<E> IntoResponse for IndexerServiceError<E>
-// where
-//     E: std::error::Error,
-// {
-//     fn into_response(self) -> Response {
-//         (StatusCode::from(&self), self.to_string()).into_response()
-//     }
-// }
 
 #[derive(Clone, Serialize)]
 pub struct IndexerServiceRelease {
