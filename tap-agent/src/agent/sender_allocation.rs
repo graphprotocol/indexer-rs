@@ -68,7 +68,6 @@ pub struct SenderAllocationArgs {
 pub enum SenderAllocationMessage {
     NewReceipt(NewReceiptNotification),
     TriggerRAVRequest(RpcReplyPort<UnaggregatedReceipts>),
-    CloseAllocation,
     #[cfg(test)]
     GetUnaggregatedReceipts(RpcReplyPort<UnaggregatedReceipts>),
 }
@@ -97,12 +96,29 @@ impl Actor for SenderAllocation {
         Ok(state)
     }
 
+    // this method only runs on graceful stop (real close allocation)
+    // if the actor crashes, this is not ran
     async fn post_stop(
         &self,
         _myself: ActorRef<Self::Msg>,
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
-        // cleanup receipt fees for sender
+        // Request a RAV and mark the allocation as final.
+        if state.unaggregated_fees.value > 0 {
+            state.rav_requester_single().await.inspect_err(|e| {
+                error!(
+                    "Error while requesting RAV for sender {} and allocation {}: {}",
+                    state.sender, state.allocation_id, e
+                );
+            })?;
+        }
+        state.mark_rav_final().await.inspect_err(|e| {
+            error!(
+                "Error while marking allocation {} as final for sender {}: {}",
+                state.allocation_id, state.sender, e
+            );
+        })?;
+
         state
             .sender_account_ref
             .cast(SenderAccountMessage::UpdateReceiptFees(
@@ -114,7 +130,7 @@ impl Actor for SenderAllocation {
 
     async fn handle(
         &self,
-        myself: ActorRef<Self::Msg>,
+        _myself: ActorRef<Self::Msg>,
         message: Self::Msg,
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
@@ -160,27 +176,6 @@ impl Actor for SenderAllocation {
                 if !reply.is_closed() {
                     let _ = reply.send(state.unaggregated_fees.clone());
                 }
-            }
-
-            SenderAllocationMessage::CloseAllocation => {
-                // Request a RAV and mark the allocation as final.
-
-                if state.unaggregated_fees.value > 0 {
-                    state.rav_requester_single().await.inspect_err(|e| {
-                        error!(
-                            "Error while requesting RAV for sender {} and allocation {}: {}",
-                            state.sender, state.allocation_id, e
-                        );
-                    })?;
-                }
-                state.mark_rav_final().await.inspect_err(|e| {
-                    error!(
-                        "Error while marking allocation {} as final for sender {}: {}",
-                        state.allocation_id, state.sender, e
-                    );
-                })?;
-                // stop and trigger post_stop
-                myself.stop(None);
             }
             #[cfg(test)]
             SenderAllocationMessage::GetUnaggregatedReceipts(reply) => {
@@ -839,10 +834,8 @@ mod tests {
         )
         .await;
 
-        cast!(sender_allocation, SenderAllocationMessage::CloseAllocation).unwrap();
-
-        // should trigger rav request
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        sender_allocation.stop_and_wait(None, None).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
@@ -933,7 +926,7 @@ mod tests {
         )
         .await;
 
-        cast!(sender_allocation, SenderAllocationMessage::CloseAllocation).unwrap();
+        sender_allocation.stop_and_wait(None, None).await.unwrap();
 
         // should trigger rav request
         await_trigger.notified().await;
@@ -942,7 +935,7 @@ mod tests {
         // check if rav request is made
         assert!(aggregator_server.received_requests().await.is_some());
 
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);

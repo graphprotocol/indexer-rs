@@ -11,7 +11,7 @@ use anyhow::Result;
 use eventuals::{Eventual, EventualExt, PipeHandle};
 use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::prelude::{Allocation, SubgraphClient};
-use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
 use thegraph::types::Address;
@@ -34,7 +34,6 @@ pub struct SenderAccountsManager;
 
 pub enum SenderAccountsManagerMessage {
     UpdateSenderAccounts(HashSet<Address>),
-    CreateSenderAccount(Address, HashSet<Address>),
 }
 
 pub struct SenderAccountsManagerArgs {
@@ -97,8 +96,11 @@ impl Actor for SenderAccountsManager {
                 'scalar_tap_receipt_notification'",
             );
         // Start the new_receipts_watcher task that will consume from the `pglistener`
-        let new_receipts_watcher_handle =
-            tokio::spawn(new_receipts_watcher(pglistener, escrow_accounts.clone()));
+        let new_receipts_watcher_handle = tokio::spawn(new_receipts_watcher(
+            pglistener,
+            escrow_accounts.clone(),
+            prefix.clone(),
+        ));
         let clone = myself.clone();
         let _eligible_allocations_senders_pipe =
             escrow_accounts.clone().pipe_async(move |escrow_accounts| {
@@ -136,10 +138,9 @@ impl Actor for SenderAccountsManager {
         };
 
         for (sender_id, allocation_ids) in sender_allocation {
-            myself.cast(SenderAccountsManagerMessage::CreateSenderAccount(
-                sender_id,
-                allocation_ids,
-            ))?;
+            state
+                .create_sender_account(myself.get_cell(), sender_id, allocation_ids)
+                .await?;
         }
 
         Ok(state)
@@ -165,10 +166,9 @@ impl Actor for SenderAccountsManager {
             SenderAccountsManagerMessage::UpdateSenderAccounts(target_senders) => {
                 // Create new sender accounts
                 for sender in target_senders.difference(&state.sender_ids) {
-                    myself.cast(SenderAccountsManagerMessage::CreateSenderAccount(
-                        *sender,
-                        HashSet::new(),
-                    ))?;
+                    state
+                        .create_sender_account(myself.get_cell(), *sender, HashSet::new())
+                        .await?;
                 }
 
                 // Remove sender accounts
@@ -176,21 +176,11 @@ impl Actor for SenderAccountsManager {
                     if let Some(sender_handle) = ActorRef::<SenderAccountMessage>::where_is(
                         state.format_sender_account(sender),
                     ) {
-                        sender_handle.cast(SenderAccountMessage::RemoveSenderAccount)?;
+                        sender_handle.stop(None);
                     }
                 }
 
                 state.sender_ids = target_senders;
-            }
-            SenderAccountsManagerMessage::CreateSenderAccount(sender_id, allocation_ids) => {
-                let args = state.new_sender_account_args(&sender_id, allocation_ids)?;
-                SenderAccount::spawn_linked(
-                    Some(state.format_sender_account(&sender_id)),
-                    SenderAccount,
-                    args,
-                    myself.get_cell(),
-                )
-                .await?;
             }
         }
         Ok(())
@@ -223,6 +213,23 @@ impl State {
         }
         sender_allocation_id.push_str(&format!("{}", sender));
         sender_allocation_id
+    }
+
+    async fn create_sender_account(
+        &self,
+        supervisor: ActorCell,
+        sender_id: Address,
+        allocation_ids: HashSet<Address>,
+    ) -> anyhow::Result<()> {
+        let args = self.new_sender_account_args(&sender_id, allocation_ids)?;
+        SenderAccount::spawn_linked(
+            Some(self.format_sender_account(&sender_id)),
+            SenderAccount,
+            args,
+            supervisor,
+        )
+        .await?;
+        Ok(())
     }
 
     async fn get_pending_sender_allocation_id(&self) -> HashMap<Address, HashSet<Address>> {
@@ -357,6 +364,7 @@ impl State {
 async fn new_receipts_watcher(
     mut pglistener: PgListener,
     escrow_accounts: Eventual<EscrowAccounts>,
+    prefix: Option<String>,
 ) {
     loop {
         // TODO: recover from errors or shutdown the whole program?
@@ -370,28 +378,28 @@ async fn new_receipts_watcher(
                         NewReceiptNotification",
             );
 
-        let sender_address = escrow_accounts
+        let Ok(sender_address) = escrow_accounts
             .value()
             .await
             .expect("should be able to get escrow accounts")
-            .get_sender_for_signer(&new_receipt_notification.signer_address);
-
-        let sender_address = match sender_address {
-            Ok(sender_address) => sender_address,
-            Err(_) => {
-                error!(
-                    "No sender address found for receipt signer address {}. \
+            .get_sender_for_signer(&new_receipt_notification.signer_address)
+        else {
+            error!(
+                "No sender address found for receipt signer address {}. \
                         This should not happen.",
-                    new_receipt_notification.signer_address
-                );
-                // TODO: save the receipt in the failed receipts table?
-                continue;
-            }
+                new_receipt_notification.signer_address
+            );
+            // TODO: save the receipt in the failed receipts table?
+            continue;
         };
+
         let allocation_id = &new_receipt_notification.allocation_id;
 
         if let Some(sender_allocation) = ActorRef::<SenderAllocationMessage>::where_is(format!(
-            "{sender_address}:{allocation_id}"
+            "{}{sender_address}:{allocation_id}",
+            prefix
+                .as_ref()
+                .map_or(String::default(), |prefix| format!("{prefix}:"))
         )) {
             if let Err(e) = sender_allocation.cast(SenderAllocationMessage::NewReceipt(
                 new_receipt_notification,
@@ -403,7 +411,7 @@ async fn new_receipts_watcher(
             }
         } else {
             warn!(
-                "No sender_allocation_manager found for sender_address {} to process new \
+                "No sender_allocation found for sender_address {} to process new \
                     receipt notification. This should not happen.",
                 sender_address
             );
@@ -414,8 +422,10 @@ async fn new_receipts_watcher(
 #[cfg(test)]
 mod tests {
     use super::{
-        SenderAccountsManager, SenderAccountsManagerArgs, SenderAccountsManagerMessage, State,
+        new_receipts_watcher, SenderAccountsManager, SenderAccountsManagerArgs,
+        SenderAccountsManagerMessage, State,
     };
+    use crate::agent::sender_account::tests::MockSenderAllocation;
     use crate::agent::sender_account::SenderAccountMessage;
     use crate::config;
     use crate::tap::test_utils::{
@@ -428,10 +438,12 @@ mod tests {
     use indexer_common::escrow_accounts::EscrowAccounts;
     use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
     use ractor::concurrency::JoinHandle;
-    use ractor::{Actor, ActorRef};
+    use ractor::{Actor, ActorProcessingErr, ActorRef};
+    use sqlx::postgres::PgListener;
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU32;
+    use std::time::Duration;
 
     const DUMMY_URL: &str = "http://localhost:1234";
     static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
@@ -508,24 +520,40 @@ mod tests {
         join_handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
-    async fn test_pending_sender_allocations(pgpool: PgPool) {
+    fn create_state(pgpool: PgPool) -> (String, State) {
         let config = get_config();
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
         let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
-        let state = State {
-            config,
-            domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            sender_ids: HashSet::new(),
-            new_receipts_watcher_handle: tokio::spawn(async {}),
-            _eligible_allocations_senders_pipe: Eventual::from_value(()).pipe_async(|_| async {}),
-            pgpool: pgpool.clone(),
-            indexer_allocations: Eventual::from_value(HashSet::new()),
-            escrow_accounts: Eventual::from_value(escrow_accounts),
-            escrow_subgraph: get_subgraph_client(),
-            sender_aggregator_endpoints: HashMap::new(),
-            prefix: None,
-        };
+
+        let prefix = format!(
+            "test-{}",
+            PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        );
+        (
+            prefix.clone(),
+            State {
+                config,
+                domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+                sender_ids: HashSet::new(),
+                new_receipts_watcher_handle: tokio::spawn(async {}),
+                _eligible_allocations_senders_pipe: Eventual::from_value(())
+                    .pipe_async(|_| async {}),
+                pgpool,
+                indexer_allocations: Eventual::from_value(HashSet::new()),
+                escrow_accounts: Eventual::from_value(escrow_accounts),
+                escrow_subgraph: get_subgraph_client(),
+                sender_aggregator_endpoints: HashMap::from([
+                    (SENDER.1, String::from("http://localhost:8000")),
+                    (SENDER_2.1, String::from("http://localhost:8000")),
+                ]),
+                prefix: Some(prefix),
+            },
+        )
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_pending_sender_allocations(pgpool: PgPool) {
+        let (_, state) = create_state(pgpool.clone());
 
         // add receipts to the database
         for i in 1..=10 {
@@ -583,21 +611,103 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_create_sender_account(pgpool: PgPool) {
-        let (prefix, (actor, join_handle)) = create_sender_accounts_manager(pgpool).await;
-        actor
-            .cast(SenderAccountsManagerMessage::CreateSenderAccount(
-                SENDER_2.1,
-                HashSet::new(),
-            ))
-            .unwrap();
+        struct DummyActor;
+        #[async_trait::async_trait]
+        impl Actor for DummyActor {
+            type Msg = ();
+            type State = ();
+            type Arguments = ();
+
+            async fn pre_start(
+                &self,
+                _: ActorRef<Self::Msg>,
+                _: Self::Arguments,
+            ) -> Result<Self::State, ActorProcessingErr> {
+                Ok(())
+            }
+        }
+
+        let (prefix, state) = create_state(pgpool.clone());
+        let (supervisor, handle) = DummyActor::spawn(None, DummyActor, ()).await.unwrap();
         // we wait to check if the sender is created
+
+        state
+            .create_sender_account(supervisor.get_cell(), SENDER_2.1, HashSet::new())
+            .await
+            .unwrap();
+
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         let actor_ref =
             ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER_2.1));
         assert!(actor_ref.is_some());
 
-        actor.stop_and_wait(None, None).await.unwrap();
-        join_handle.await.unwrap();
+        supervisor.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_receive_notifications_(pgpool: PgPool) {
+        let prefix = format!(
+            "test-{}",
+            PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        );
+        // create dummy allocation
+
+        let (mock_sender_allocation, receipts) = MockSenderAllocation::new_with_receipts();
+        let _ = MockSenderAllocation::spawn(
+            Some(format!(
+                "{}:{}:{}",
+                prefix.clone(),
+                SENDER.1,
+                *ALLOCATION_ID_0
+            )),
+            mock_sender_allocation,
+            (),
+        )
+        .await
+        .unwrap();
+
+        // create tokio task to listen for notifications
+
+        let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
+        pglistener
+            .listen("scalar_tap_receipt_notification")
+            .await
+            .expect(
+                "should be able to subscribe to Postgres Notify events on the channel \
+                'scalar_tap_receipt_notification'",
+            );
+
+        let escrow_accounts_eventual = Eventual::from_value(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
+
+        // Start the new_receipts_watcher task that will consume from the `pglistener`
+        let new_receipts_watcher_handle = tokio::spawn(new_receipts_watcher(
+            pglistener,
+            escrow_accounts_eventual,
+            Some(prefix.clone()),
+        ));
+
+        // add receipts to the database
+        for i in 1..=10 {
+            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
+            store_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // check if receipt notification was sent to the allocation
+        let receipts = receipts.lock().unwrap();
+        assert_eq!(receipts.len(), 10);
+        for (i, receipt) in receipts.iter().enumerate() {
+            assert_eq!((i + 1) as u64, receipt.id);
+        }
+
+        new_receipts_watcher_handle.abort();
     }
 }
