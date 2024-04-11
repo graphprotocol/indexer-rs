@@ -9,6 +9,8 @@ use std::{
 use alloy_sol_types::eip712_domain;
 use anyhow;
 use autometrics::prometheus_exporter;
+use axum::extract::MatchedPath;
+use axum::http::Request;
 use axum::{
     async_trait,
     body::Body,
@@ -29,7 +31,8 @@ use thiserror::Error;
 use tokio::signal;
 use tower::ServiceBuilder;
 use tower_governor::{errors::display_error, governor::GovernorConfigBuilder, GovernorLayer};
-use tracing::info;
+use tower_http::trace::TraceLayer;
+use tracing::{info, info_span};
 
 use crate::{
     address::public_key,
@@ -73,8 +76,6 @@ pub enum IndexerServiceError<E>
 where
     E: std::error::Error,
 {
-    #[error("No receipt provided with the request")]
-    NoReceipt,
     #[error("Issues with provided receipt: {0}")]
     ReceiptError(tap_core::Error),
     #[error("Service is not ready yet, try again in a moment")]
@@ -93,51 +94,46 @@ where
     InvalidFreeQueryAuthToken,
     #[error("Failed to sign attestation")]
     FailedToSignAttestation,
-    #[error("Failed to provide attestation")]
-    FailedToProvideAttestation,
-    #[error("Failed to provide response")]
-    FailedToProvideResponse,
     #[error("Failed to query subgraph: {0}")]
     FailedToQueryStaticSubgraph(anyhow::Error),
 }
 
-impl<E> From<&IndexerServiceError<E>> for StatusCode
-where
-    E: std::error::Error,
-{
-    fn from(err: &IndexerServiceError<E>) -> Self {
-        use IndexerServiceError::*;
-
-        match err {
-            ServiceNotReady => StatusCode::SERVICE_UNAVAILABLE,
-
-            NoReceipt => StatusCode::PAYMENT_REQUIRED,
-
-            Unauthorized => StatusCode::UNAUTHORIZED,
-
-            NoSignerForAllocation(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            NoSignerForManifest(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            FailedToSignAttestation => StatusCode::INTERNAL_SERVER_ERROR,
-            FailedToProvideAttestation => StatusCode::INTERNAL_SERVER_ERROR,
-            FailedToProvideResponse => StatusCode::INTERNAL_SERVER_ERROR,
-
-            ReceiptError(_) => StatusCode::BAD_REQUEST,
-            InvalidRequest(_) => StatusCode::BAD_REQUEST,
-            InvalidFreeQueryAuthToken => StatusCode::BAD_REQUEST,
-            ProcessingError(_) => StatusCode::BAD_REQUEST,
-
-            FailedToQueryStaticSubgraph(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        }
-    }
-}
-
-// Tell axum how to convert `RpcError` into a response.
 impl<E> IntoResponse for IndexerServiceError<E>
 where
     E: std::error::Error,
 {
     fn into_response(self) -> Response {
-        (StatusCode::from(&self), self.to_string()).into_response()
+        use IndexerServiceError::*;
+
+        #[derive(Serialize)]
+        struct ErrorResponse {
+            message: String,
+        }
+
+        let status = match self {
+            ServiceNotReady => StatusCode::SERVICE_UNAVAILABLE,
+
+            Unauthorized => StatusCode::UNAUTHORIZED,
+
+            NoSignerForAllocation(_) | NoSignerForManifest(_) | FailedToSignAttestation => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+
+            ReceiptError(_)
+            | InvalidRequest(_)
+            | InvalidFreeQueryAuthToken
+            | ProcessingError(_) => StatusCode::BAD_REQUEST,
+
+            FailedToQueryStaticSubgraph(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        tracing::error!(%self, "An IndexerServiceError occoured.");
+        (
+            status,
+            Json(ErrorResponse {
+                message: self.to_string(),
+            }),
+        )
+            .into_response()
     }
 }
 
@@ -402,6 +398,30 @@ impl IndexerService {
         let router = misc_routes
             .merge(data_routes)
             .merge(options.extra_routes)
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(|req: &Request<_>| {
+                        let method = req.method();
+                        let uri = req.uri();
+                        let matched_path = req
+                            .extensions()
+                            .get::<MatchedPath>()
+                            .map(MatchedPath::as_str);
+
+                        info_span!(
+                            "http_request",
+                            %method,
+                            %uri,
+                            matched_path,
+                        )
+                    })
+                    // we disable failures here because we doing our own error logging
+                    .on_failure(
+                        |_error: tower_http::classify::ServerErrorsFailureClass,
+                         _latency: Duration,
+                         _span: &tracing::Span| {},
+                    ),
+            )
             .with_state(state);
 
         Self::serve_metrics(options.config.server.metrics_host_and_port);
