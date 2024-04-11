@@ -205,7 +205,16 @@ impl SenderAllocation {
                 // TODO: limit the number of receipts to aggregate per request.
                 None,
             )
-            .await?;
+            .await
+            .map_err(|e| match e {
+                tap_core::Error::NoValidReceiptsForRAVRequest => anyhow!(
+                    "It looks like there are no valid receipts for the RAV request.\
+                 This may happen if your `rav_request_trigger_value` is too low \
+                 and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
+                 You can fix this by increasing the `rav_request_trigger_value`."
+                ),
+                _ => e.into(),
+            })?;
         if !invalid_receipts.is_empty() {
             warn!(
                 "Found {} invalid receipts for allocation {} and sender {}.",

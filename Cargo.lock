@@ -960,9 +960,9 @@ dependencies = [
 
 [[package]]
 name = "bstr"
-version = "1.7.0"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c79ad7fb2dd38f3dabd76b09c6a5a20c038fc0213ef1e9afd30eb777f120f019"
+checksum = "542f33a8835a0884b006a0c3df3dadd99c0c3f296ed26c2fdc8028e01ad6230c"
 dependencies = [
  "memchr",
  "serde",
@@ -2621,15 +2621,15 @@ checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 
 [[package]]
 name = "globset"
-version = "0.4.13"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "759c97c1e17c55525b57192c06a267cda0ac5210b222d6b82189a2338fa1c13d"
+checksum = "57da3b9b5b85bd66f31093f8c408b90a74431672542466497dcbdfdc02034be1"
 dependencies = [
  "aho-corasick",
  "bstr",
- "fnv",
  "log",
- "regex",
+ "regex-automata 0.4.3",
+ "regex-syntax 0.8.2",
 ]
 
 [[package]]
@@ -3132,7 +3132,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=351cf45)",
+ "tap_core",
  "test-log",
  "thegraph",
  "thiserror",
@@ -3171,7 +3171,7 @@ dependencies = [
  "serde_yaml",
  "sqlx",
  "tap_aggregator",
- "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=351cf45)",
+ "tap_core",
  "tempfile",
  "thegraph",
  "thiserror",
@@ -4060,9 +4060,9 @@ checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 
 [[package]]
 name = "opaque-debug"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
+checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "open-fastrlp"
@@ -5730,7 +5730,7 @@ dependencies = [
  "serde_spanned",
  "sha3",
  "sqlx",
- "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?branch=aasseman/tap_core_0_7_0_fix_toolshed_dep)",
+ "tap_core",
  "test-log",
  "thegraph",
  "thiserror",
@@ -6367,8 +6367,9 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tap_aggregator"
-version = "0.2.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=351cf45#351cf4535269c05a39252f2f4348a53aea050d34"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a512417ec0655553e8ea8d755aa8a7c85a9c1d9079487597680efbf6cda9db3b"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -6387,39 +6388,16 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.24.1",
- "tap_core 0.7.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=351cf45)",
+ "tap_core",
  "tokio",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "tap_core"
-version = "0.7.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?branch=aasseman/tap_core_0_7_0_fix_toolshed_dep#ae4fc69a5de5a33528b31284a32f71ae1093186c"
-dependencies = [
- "alloy-sol-types",
- "anyhow",
- "async-trait",
- "ethereum-types",
- "ethers",
- "ethers-contract",
- "ethers-contract-derive",
- "ethers-core",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "rstest",
- "serde",
- "strum 0.24.1",
- "strum_macros 0.24.3",
- "thegraph",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "tap_core"
-version = "0.7.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=351cf45#351cf4535269c05a39252f2f4348a53aea050d34"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ad526409d342a57c965a18f6a9138f999b12ca5d0529c198f8ae4a2395b0561"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
