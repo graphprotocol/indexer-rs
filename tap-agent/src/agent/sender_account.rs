@@ -27,6 +27,7 @@ pub enum SenderAccountMessage {
     UpdateAllocationIds(HashSet<Address>),
     RemoveSenderAccount,
     UpdateReceiptFees(Address, UnaggregatedReceipts),
+    #[cfg(test)]
     GetAllocationTracker(ractor::RpcReplyPort<AllocationIdTracker>),
 }
 
@@ -219,7 +220,7 @@ impl Actor for SenderAccount {
 
                 state.allocation_ids = allocation_ids;
             }
-            // #[cfg(test)]
+            #[cfg(test)]
             SenderAccountMessage::GetAllocationTracker(reply) => {
                 if !reply.is_closed() {
                     let _ = reply.send(state.allocation_id_tracker.clone());
@@ -250,16 +251,22 @@ impl Actor for SenderAccount {
 #[cfg(test)]
 mod tests {
     use super::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
+    use crate::agent::sender_allocation::SenderAllocationMessage;
+    use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
     use crate::config;
-    use crate::tap::test_utils::{INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR};
+    use crate::tap::test_utils::{
+        ALLOCATION_ID_0, INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+    };
+    use alloy_primitives::Address;
     use eventuals::Eventual;
     use indexer_common::escrow_accounts::EscrowAccounts;
     use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
     use ractor::concurrency::JoinHandle;
-    use ractor::ActorRef;
+    use ractor::{Actor, ActorProcessingErr, ActorRef, ActorStatus};
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
-    use std::sync::atomic::AtomicU32;
+    use std::sync::atomic::{AtomicBool, AtomicU32};
+    use std::sync::Arc;
     use std::time::Duration;
 
     // we implement the PartialEq and Eq traits for SenderAccountMessage to be able to compare
@@ -280,13 +287,12 @@ mod tests {
 
     static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
     const DUMMY_URL: &str = "http://localhost:1234";
-    const VALUE_PER_RECEIPT: u64 = 100;
-    const TRIGGER_VALUE: u64 = 500;
+    const VALUE_PER_RECEIPT: u128 = 100;
+    const TRIGGER_VALUE: u128 = 500;
 
-    async fn create_sender_with_allocations(
+    async fn create_sender_account(
         pgpool: PgPool,
-        sender_aggregator_endpoint: String,
-        escrow_subgraph_endpoint: &str,
+        initial_allocation: HashSet<Address>,
     ) -> (
         ActorRef<SenderAccountMessage>,
         tokio::task::JoinHandle<()>,
@@ -298,7 +304,7 @@ mod tests {
                 indexer_address: INDEXER.1,
             },
             tap: config::Tap {
-                rav_request_trigger_value: TRIGGER_VALUE,
+                rav_request_trigger_value: TRIGGER_VALUE as u64,
                 rav_request_timestamp_buffer_ms: 1,
                 rav_request_timeout_secs: 5,
                 ..Default::default()
@@ -309,7 +315,7 @@ mod tests {
         let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
+            DeploymentDetails::for_query_url(DUMMY_URL).unwrap(),
         )));
 
         let escrow_accounts_eventual = Eventual::from_value(EscrowAccounts::new(
@@ -327,10 +333,10 @@ mod tests {
             pgpool,
             sender_id: SENDER.1,
             escrow_accounts: escrow_accounts_eventual,
-            indexer_allocations: Eventual::from_value(HashSet::new()),
+            indexer_allocations: Eventual::from_value(initial_allocation),
             escrow_subgraph,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            sender_aggregator_endpoint,
+            sender_aggregator_endpoint: DUMMY_URL.to_string(),
             allocation_ids: HashSet::new(),
             prefix: Some(prefix.clone()),
         };
@@ -338,28 +344,187 @@ mod tests {
         let (sender, handle) = SenderAccount::spawn(Some(prefix.clone()), SenderAccount, args)
             .await
             .unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
         (sender, handle, prefix)
     }
 
-    fn create_sender_account(pgpool: PgPool) -> (ActorRef<SenderAccountMessage>, JoinHandle<()>) {
-        todo!()
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_update_allocation_ids(pgpool: PgPool) {
+        let (sender_account, handle, prefix) = create_sender_account(pgpool, HashSet::new()).await;
+
+        // we expect it to create a sender allocation
+        sender_account
+            .cast(SenderAccountMessage::UpdateAllocationIds(
+                vec![*ALLOCATION_ID_0].into_iter().collect(),
+            ))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // verify if create sender account
+        let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
+        let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
+        assert!(actor_ref.is_some());
+
+        sender_account
+            .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
+        assert!(actor_ref.is_none());
+
+        // safely stop the manager
+        sender_account.stop_and_wait(None, None).await.unwrap();
+
+        handle.await.unwrap();
+    }
+
+    struct MockSenderAllocation {
+        triggered_rav_request: Arc<AtomicBool>,
+    }
+
+    #[async_trait::async_trait]
+    impl Actor for MockSenderAllocation {
+        type Msg = SenderAllocationMessage;
+        type State = ();
+        type Arguments = ();
+
+        async fn pre_start(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            _allocation_ids: Self::Arguments,
+        ) -> Result<Self::State, ActorProcessingErr> {
+            Ok(())
+        }
+
+        async fn handle(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            message: Self::Msg,
+            _state: &mut Self::State,
+        ) -> Result<(), ActorProcessingErr> {
+            match message {
+                SenderAllocationMessage::TriggerRAVRequest(reply) => {
+                    self.triggered_rav_request
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    reply.send(UnaggregatedReceipts::default())?;
+                }
+                _ => {}
+            }
+            Ok(())
+        }
+    }
+
+    async fn create_mock_sender_allocation(
+        prefix: String,
+        sender: Address,
+        allocation: Address,
+    ) -> (
+        Arc<AtomicBool>,
+        ActorRef<SenderAllocationMessage>,
+        JoinHandle<()>,
+    ) {
+        let triggered_rav_request = Arc::new(AtomicBool::new(false));
+
+        let name = format!("{}:{}:{}", prefix, sender, allocation);
+        let (sender_account, join_handle) = MockSenderAllocation::spawn(
+            Some(name),
+            MockSenderAllocation {
+                triggered_rav_request: triggered_rav_request.clone(),
+            },
+            (),
+        )
+        .await
+        .unwrap();
+        (triggered_rav_request, sender_account, join_handle)
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_update_allocation_ids(pgpool: PgPool) {}
+    async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
+        let (sender_account, handle, prefix) = create_sender_account(pgpool, HashSet::new()).await;
+
+        let (triggered_rav_request, allocation, allocation_handle) =
+            create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
+
+        // create a fake sender allocation
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                UnaggregatedReceipts {
+                    value: VALUE_PER_RECEIPT,
+                    last_id: 10,
+                },
+            ))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        assert!(!triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst));
+
+        allocation.stop_and_wait(None, None).await.unwrap();
+        allocation_handle.await.unwrap();
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
+    }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {}
+    async fn test_update_receipt_fees_trigger_rav(pgpool: PgPool) {
+        let (sender_account, handle, prefix) = create_sender_account(pgpool, HashSet::new()).await;
+
+        let (triggered_rav_request, allocation, allocation_handle) =
+            create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
+
+        // create a fake sender allocation
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                UnaggregatedReceipts {
+                    value: TRIGGER_VALUE,
+                    last_id: 10,
+                },
+            ))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        assert!(triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst));
+
+        allocation.stop_and_wait(None, None).await.unwrap();
+        allocation_handle.await.unwrap();
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
+    }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_update_receipt_fees_trigger_rav(pgpool: PgPool) {}
+    async fn test_remove_sender_account(pgpool: PgPool) {
+        let (sender_account, handle, prefix) =
+            create_sender_account(pgpool, vec![*ALLOCATION_ID_0].into_iter().collect()).await;
 
-    #[sqlx::test(migrations = "../migrations")]
-    async fn test_remove_sender_account(pgpool: PgPool) {}
+        // check if allocation exists
+        let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
+        let Some(sender_allocation) =
+            ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone())
+        else {
+            panic!("Sender allocation was not created");
+        };
 
-    #[sqlx::test(migrations = "../migrations")]
-    async fn test_create_sender_allocation(pgpool: PgPool) {}
+        // stop
+        sender_account
+            .cast(SenderAccountMessage::RemoveSenderAccount)
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
 
-    #[sqlx::test(migrations = "../migrations")]
-    async fn test_create_sender_account(pgpool: PgPool) {}
+        // check if sender_account is stopped
+
+        assert_eq!(sender_account.get_status(), ActorStatus::Stopped);
+
+        // check if sender_allocation is also stopped
+        assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
+
+        handle.await.unwrap();
+    }
 }

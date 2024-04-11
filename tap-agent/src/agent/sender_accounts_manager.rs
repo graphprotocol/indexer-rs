@@ -566,7 +566,7 @@ mod tests {
 
         actor
             .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
-                vec![].into_iter().collect(),
+                HashSet::new(),
             ))
             .unwrap();
 

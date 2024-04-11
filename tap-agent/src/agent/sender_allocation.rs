@@ -69,6 +69,7 @@ pub enum SenderAllocationMessage {
     NewReceipt(NewReceiptNotification),
     TriggerRAVRequest(RpcReplyPort<UnaggregatedReceipts>),
     CloseAllocation,
+    #[cfg(test)]
     GetUnaggregatedReceipts(RpcReplyPort<UnaggregatedReceipts>),
 }
 
@@ -181,6 +182,7 @@ impl Actor for SenderAllocation {
                 // stop and trigger post_stop
                 myself.stop(None);
             }
+            #[cfg(test)]
             SenderAllocationMessage::GetUnaggregatedReceipts(reply) => {
                 if !reply.is_closed() {
                     let _ = reply.send(unaggreated_fees.clone());
