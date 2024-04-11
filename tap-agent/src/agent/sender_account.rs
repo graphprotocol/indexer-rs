@@ -305,7 +305,7 @@ pub mod tests {
         }
     }
 
-    static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
+    pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
     const DUMMY_URL: &str = "http://localhost:1234";
     const TRIGGER_VALUE: u128 = 500;
 

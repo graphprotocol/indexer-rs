@@ -425,7 +425,7 @@ mod tests {
         new_receipts_watcher, SenderAccountsManager, SenderAccountsManagerArgs,
         SenderAccountsManagerMessage, State,
     };
-    use crate::agent::sender_account::tests::MockSenderAllocation;
+    use crate::agent::sender_account::tests::{MockSenderAllocation, PREFIX_ID};
     use crate::agent::sender_account::SenderAccountMessage;
     use crate::config;
     use crate::tap::test_utils::{
@@ -442,11 +442,9 @@ mod tests {
     use sqlx::postgres::PgListener;
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
-    use std::sync::atomic::AtomicU32;
     use std::time::Duration;
 
     const DUMMY_URL: &str = "http://localhost:1234";
-    static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
 
     fn get_subgraph_client() -> &'static SubgraphClient {
         Box::leak(Box::new(SubgraphClient::new(
