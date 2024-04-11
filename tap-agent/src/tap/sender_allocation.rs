@@ -281,24 +281,23 @@ impl SenderAllocation {
         Ok(())
     }
 
-    pub async fn mark_rav_final(&self) -> Result<()> {
+    pub async fn mark_rav_last(&self) -> Result<()> {
         let updated_rows = sqlx::query!(
             r#"
                         UPDATE scalar_tap_ravs
-                        SET final = true
+                        SET last = true
                         WHERE allocation_id = $1 AND sender_address = $2
-                        RETURNING *
                     "#,
             self.allocation_id.encode_hex::<String>(),
             self.sender.encode_hex::<String>(),
         )
-        .fetch_all(&self.pgpool)
+        .execute(&self.pgpool)
         .await?;
-        if updated_rows.len() != 1 {
+        if updated_rows.rows_affected() != 1 {
             anyhow::bail!(
                 "Expected exactly one row to be updated in the latest RAVs table, \
                         but {} were updated.",
-                updated_rows.len()
+                updated_rows.rows_affected()
             );
         };
         Ok(())

@@ -97,8 +97,9 @@ impl RAVStore for TapAgentContext {
                     allocation_id,
                     timestamp_ns,
                     value_aggregate,
-                    "createdAt",
-                    "updatedAt"
+                    created_at,
+                    updated_at
+
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $6)
                 ON CONFLICT (allocation_id, sender_address)
@@ -106,7 +107,7 @@ impl RAVStore for TapAgentContext {
                     signature = $2,
                     timestamp_ns = $4,
                     value_aggregate = $5,
-                    "updatedAt" = $6
+                    updated_at = $6
             "#,
             self.sender.encode_hex::<String>(),
             signature_bytes,

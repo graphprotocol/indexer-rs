@@ -7,12 +7,12 @@ CREATE TABLE IF NOT EXISTS scalar_tap_ravs (
     timestamp_ns NUMERIC(20) NOT NULL,
     value_aggregate NUMERIC(39) NOT NULL,
 
-    final BOOLEAN DEFAULT FALSE NOT NULL,
+    last BOOLEAN DEFAULT FALSE NOT NULL,
     PRIMARY KEY (allocation_id, sender_address),
 
     -- To make indexer-agent's sequelize happy
-    "createdAt" TIMESTAMP WITH TIME ZONE,
-    "updatedAt" TIMESTAMP WITH TIME ZONE
+    created_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE
 );
 
 -- This table is used to store failed RAV requests.
