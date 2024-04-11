@@ -405,13 +405,10 @@ mod tests {
             message: Self::Msg,
             _state: &mut Self::State,
         ) -> Result<(), ActorProcessingErr> {
-            match message {
-                SenderAllocationMessage::TriggerRAVRequest(reply) => {
-                    self.triggered_rav_request
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
-                    reply.send(UnaggregatedReceipts::default())?;
-                }
-                _ => {}
+            if let SenderAllocationMessage::TriggerRAVRequest(reply) = message {
+                self.triggered_rav_request
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                reply.send(UnaggregatedReceipts::default())?;
             }
             Ok(())
         }
