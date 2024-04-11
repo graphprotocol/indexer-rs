@@ -189,6 +189,7 @@ impl Actor for SenderAccount {
                 .await?;
         }
 
+        tracing::info!(sender = %sender_id, "SenderAccount created!");
         Ok(state)
     }
 
@@ -198,6 +199,11 @@ impl Actor for SenderAccount {
         message: Self::Msg,
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
+        tracing::trace!(
+            sender = %state.sender,
+            message = ?message,
+            "New SenderAccount message"
+        );
         match message {
             SenderAccountMessage::UpdateReceiptFees(allocation_id, unaggregated_fees) => {
                 let tracker = &mut state.allocation_id_tracker;
@@ -248,6 +254,8 @@ impl Actor for SenderAccount {
             SupervisionEvent::ActorTerminated(cell, _, _)
             | SupervisionEvent::ActorPanicked(cell, _) => {
                 // what to do in case of termination or panic?
+                let sender_allocation = cell.get_name();
+                tracing::warn!(?sender_allocation, "Actor SenderAllocation was terminated");
 
                 let Some(allocation_id) = cell.get_name() else {
                     return Ok(());

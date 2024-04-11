@@ -32,6 +32,7 @@ pub struct NewReceiptNotification {
 
 pub struct SenderAccountsManager;
 
+#[derive(Debug)]
 pub enum SenderAccountsManagerMessage {
     UpdateSenderAccounts(HashSet<Address>),
 }
@@ -143,6 +144,7 @@ impl Actor for SenderAccountsManager {
                 .await?;
         }
 
+        tracing::info!("SenderAccountManager created!");
         Ok(state)
     }
     async fn post_stop(
@@ -162,6 +164,11 @@ impl Actor for SenderAccountsManager {
         msg: Self::Msg,
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
+        tracing::trace!(
+            message = ?msg,
+            "New SenderAccountManager message"
+        );
+
         match msg {
             SenderAccountsManagerMessage::UpdateSenderAccounts(target_senders) => {
                 // Create new sender accounts
@@ -195,8 +202,10 @@ impl Actor for SenderAccountsManager {
         _state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
         match message {
-            SupervisionEvent::ActorTerminated(_, _, _) | SupervisionEvent::ActorPanicked(_, _) => {
-                // what to do in case of termination or panic
+            SupervisionEvent::ActorTerminated(cell, _, _)
+            | SupervisionEvent::ActorPanicked(cell, _) => {
+                let sender_id = cell.get_name();
+                tracing::warn!(?sender_id, "Actor SenderAccount was terminated")
             }
             _ => {}
         }
@@ -378,6 +387,11 @@ async fn new_receipts_watcher(
                         NewReceiptNotification",
             );
 
+        tracing::debug!(
+            notification = ?new_receipt_notification,
+            "New receipt notification detected!"
+        );
+
         let Ok(sender_address) = escrow_accounts
             .value()
             .await
@@ -395,12 +409,14 @@ async fn new_receipts_watcher(
 
         let allocation_id = &new_receipt_notification.allocation_id;
 
-        if let Some(sender_allocation) = ActorRef::<SenderAllocationMessage>::where_is(format!(
+        let actor_name = format!(
             "{}{sender_address}:{allocation_id}",
             prefix
                 .as_ref()
                 .map_or(String::default(), |prefix| format!("{prefix}:"))
-        )) {
+        );
+
+        if let Some(sender_allocation) = ActorRef::<SenderAllocationMessage>::where_is(actor_name) {
             if let Err(e) = sender_allocation.cast(SenderAllocationMessage::NewReceipt(
                 new_receipt_notification,
             )) {
@@ -411,9 +427,10 @@ async fn new_receipts_watcher(
             }
         } else {
             warn!(
-                "No sender_allocation found for sender_address {} to process new \
+                "No sender_allocation found for sender_address {}, allocation_id {} to process new \
                     receipt notification. This should not happen.",
-                sender_address
+                sender_address,
+                allocation_id
             );
         }
     }

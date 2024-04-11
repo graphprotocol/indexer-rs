@@ -65,6 +65,7 @@ pub struct SenderAllocationArgs {
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
 }
 
+#[derive(Debug)]
 pub enum SenderAllocationMessage {
     NewReceipt(NewReceiptNotification),
     TriggerRAVRequest(RpcReplyPort<UnaggregatedReceipts>),
@@ -93,6 +94,12 @@ impl Actor for SenderAllocation {
             state.unaggregated_fees.clone(),
         ))?;
 
+        tracing::info!(
+            sender = %state.sender,
+            allocation_id = %state.allocation_id,
+            "SenderAllocation created!",
+        );
+
         Ok(state)
     }
 
@@ -103,6 +110,12 @@ impl Actor for SenderAllocation {
         _myself: ActorRef<Self::Msg>,
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
+        tracing::info!(
+            sender = %state.sender,
+            allocation_id = %state.allocation_id,
+            "Closing SenderAllocation, triggering last rav",
+        );
+
         // Request a RAV and mark the allocation as final.
         if state.unaggregated_fees.value > 0 {
             state.rav_requester_single().await.inspect_err(|e| {
@@ -134,6 +147,12 @@ impl Actor for SenderAllocation {
         message: Self::Msg,
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
+        tracing::trace!(
+            sender = %state.sender,
+            allocation_id = %state.allocation_id,
+            ?message,
+            "New SenderAllocation message"
+        );
         let unaggreated_fees = &mut state.unaggregated_fees;
         match message {
             SenderAllocationMessage::NewReceipt(NewReceiptNotification {
@@ -394,6 +413,11 @@ impl SenderAllocationState {
     }
 
     pub async fn mark_rav_last(&self) -> Result<()> {
+        tracing::info!(
+            sender = %self.sender,
+            allocation_id = %self.allocation_id,
+            "Marking rav as last!",
+        );
         let updated_rows = sqlx::query!(
             r#"
                         UPDATE scalar_tap_ravs
