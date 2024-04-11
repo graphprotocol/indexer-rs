@@ -112,7 +112,7 @@ impl Actor for SenderAllocation {
                 );
             })?;
         }
-        state.mark_rav_final().await.inspect_err(|e| {
+        state.mark_rav_last().await.inspect_err(|e| {
             error!(
                 "Error while marking allocation {} as final for sender {}: {}",
                 state.allocation_id, state.sender, e
@@ -410,7 +410,7 @@ impl SenderAllocationState {
             // in case no rav was marked as final
             0 => {
                 warn!(
-                    "No RAVs were updated as final for allocation {} and sender {}.",
+                    "No RAVs were updated as last for allocation {} and sender {}.",
                     self.allocation_id, self.sender
                 );
                 Ok(())
@@ -1060,7 +1060,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_mark_rav_final(pgpool: PgPool) {
+    async fn test_mark_rav_last(pgpool: PgPool) {
         let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
         store_rav(&pgpool, signed_rav, SENDER.1).await.unwrap();
 
@@ -1070,7 +1070,7 @@ mod tests {
         let state = SenderAllocationState::new(args);
 
         // mark rav as final
-        let result = state.mark_rav_final().await;
+        let result = state.mark_rav_last().await;
 
         // check if it fails
         assert!(result.is_ok());
