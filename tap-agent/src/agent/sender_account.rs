@@ -270,6 +270,12 @@ impl Actor for SenderAccount {
         message: SupervisionEvent,
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
+        tracing::trace!(
+            sender = %state.sender,
+            message = ?message,
+            "New SenderAccount supervision event"
+        );
+
         match message {
             SupervisionEvent::ActorTerminated(cell, _, _) => {
                 // what to do in case of termination or panic?

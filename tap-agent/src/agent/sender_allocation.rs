@@ -268,6 +268,7 @@ impl SenderAllocationState {
     /// Delete obsolete receipts in the DB w.r.t. the last RAV in DB, then update the tap manager
     /// with the latest unaggregated fees from the database.
     async fn calculate_unaggregated_fee(&self) -> Result<UnaggregatedReceipts> {
+        tracing::trace!("calculate_unaggregated_fee()");
         self.tap_manager.remove_obsolete_receipts().await?;
 
         let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
@@ -329,6 +330,7 @@ impl SenderAllocationState {
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
     async fn rav_requester_single(&self) -> Result<()> {
+        tracing::trace!("rav_requester_single()");
         let RAVRequest {
             valid_receipts,
             previous_rav,
