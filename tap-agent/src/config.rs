@@ -181,6 +181,14 @@ pub struct NetworkSubgraph {
         help = "Interval (in ms) for syncing indexer allocations from the network"
     )]
     pub allocation_syncing_interval_ms: u64,
+
+    #[clap(
+        long,
+        value_name = "chain-id",
+        env = "NETWORK_CHAIN_ID",
+        help = "Interval (in ms) for syncing indexer allocations from the network"
+    )]
+    pub chain_id: u64,
 }
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]

@@ -36,6 +36,7 @@ pub async fn start_agent() -> ActorRef<SenderAccountsManagerMessage> {
                 network_subgraph_deployment,
                 network_subgraph_endpoint,
                 allocation_syncing_interval_ms,
+                chain_id,
             },
         escrow_subgraph:
             EscrowSubgraph {
@@ -72,7 +73,7 @@ pub async fn start_agent() -> ActorRef<SenderAccountsManagerMessage> {
     let indexer_allocations = indexer_allocations(
         network_subgraph,
         *indexer_address,
-        1,
+        *chain_id,
         Duration::from_millis(*allocation_syncing_interval_ms),
     );
 
