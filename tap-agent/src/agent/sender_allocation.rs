@@ -182,15 +182,19 @@ impl Actor for SenderAllocation {
             // we use a blocking call here to ensure that only one RAV request is running at a time.
             SenderAllocationMessage::TriggerRAVRequest(reply) => {
                 if state.unaggregated_fees.value > 0 {
-                    state.rav_requester_single().await.map_err(|e| {
-                        anyhow! {
-                            "Error while requesting RAV for sender {} and allocation {}: {}",
-                            state.sender,
-                            state.allocation_id,
-                            e
+                    match state.rav_requester_single().await {
+                        Ok(_) => {
+                            state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
                         }
-                    })?;
-                    state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
+                        Err(e) => {
+                            error! (
+                                %state.sender,
+                                %state.allocation_id,
+                                error = %e,
+                                "Error while requesting RAV ",
+                            );
+                        }
+                    }
                 }
                 if !reply.is_closed() {
                     let _ = reply.send(state.unaggregated_fees.clone());

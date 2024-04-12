@@ -10,7 +10,7 @@ use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use ractor::{call, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use sqlx::PgPool;
 use thegraph::types::Address;
-use tracing::error;
+use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
 use crate::agent::allocation_id_tracker::AllocationIdTracker;
@@ -76,6 +76,11 @@ impl State {
         sender_account_ref: ActorRef<SenderAccountMessage>,
         allocation_id: Address,
     ) -> Result<()> {
+        tracing::trace!(
+            %self.sender,
+            %allocation_id,
+            "SenderAccount is creating allocation."
+        );
         let args = SenderAllocationArgs {
             config: self.config,
             pgpool: self.pgpool.clone(),
@@ -199,8 +204,12 @@ impl Actor for SenderAccount {
         message: Self::Msg,
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
-        tracing::trace!(
+        tracing::span!(
+            Level::TRACE,
+            "SenderAccount handle()",
             sender = %state.sender,
+        );
+        tracing::trace!(
             message = ?message,
             "New SenderAccount message"
         );
@@ -210,6 +219,11 @@ impl Actor for SenderAccount {
                 tracker.add_or_update(allocation_id, unaggregated_fees.value);
 
                 if tracker.get_total_fee() >= state.config.tap.rav_request_trigger_value.into() {
+                    tracing::debug!(
+                        total_fee = tracker.get_total_fee(),
+                        trigger_value = state.config.tap.rav_request_trigger_value,
+                        "Total fee greater than the trigger value. Triggering RAV request"
+                    );
                     state.rav_requester_single().await?;
                 }
             }
@@ -226,10 +240,16 @@ impl Actor for SenderAccount {
                     if let Some(sender_handle) = ActorRef::<SenderAllocationMessage>::where_is(
                         state.format_sender_allocation(allocation_id),
                     ) {
+                        tracing::trace!(%allocation_id, "SenderAccount shutting down SenderAllocation");
                         sender_handle.stop(None);
                     }
                 }
 
+                tracing::trace!(
+                    old_ids= ?state.allocation_ids,
+                    new_ids = ?allocation_ids,
+                    "Updating allocation ids"
+                );
                 state.allocation_ids = allocation_ids;
             }
             #[cfg(test)]
