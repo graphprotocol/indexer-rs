@@ -118,7 +118,7 @@ impl Actor for SenderAccountsManager {
                 }
             });
 
-        let state = State {
+        let mut state = State {
             config,
             domain_separator,
             sender_ids: HashSet::new(),
@@ -139,6 +139,7 @@ impl Actor for SenderAccountsManager {
         };
 
         for (sender_id, allocation_ids) in sender_allocation {
+            state.sender_ids.insert(sender_id);
             state
                 .create_sender_account(myself.get_cell(), sender_id, allocation_ids)
                 .await?;
