@@ -186,6 +186,7 @@ pub struct NetworkSubgraph {
         long,
         value_name = "chain-id",
         env = "NETWORK_CHAIN_ID",
+        default_value_t = 1,
         help = "Interval (in ms) for syncing indexer allocations from the network"
     )]
     pub chain_id: u64,
