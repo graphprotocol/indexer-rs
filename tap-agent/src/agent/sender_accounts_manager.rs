@@ -197,15 +197,50 @@ impl Actor for SenderAccountsManager {
     // is shutdown the supervisor on actor termination events
     async fn handle_supervisor_evt(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         message: SupervisionEvent,
-        _state: &mut Self::State,
+        state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
         match message {
-            SupervisionEvent::ActorTerminated(cell, _, _)
-            | SupervisionEvent::ActorPanicked(cell, _) => {
+            SupervisionEvent::ActorTerminated(cell, _, reason) => {
                 let sender_id = cell.get_name();
-                tracing::warn!(?sender_id, "Actor SenderAccount was terminated")
+                tracing::warn!(?sender_id, ?reason, "Actor SenderAccount was terminated")
+            }
+            SupervisionEvent::ActorPanicked(cell, error) => {
+                let sender_id = cell.get_name();
+                tracing::warn!(
+                    ?sender_id,
+                    ?error,
+                    "Actor SenderAccount panicked. Restarting..."
+                );
+                let Some(sender_id) = cell.get_name() else {
+                    tracing::error!("SenderAllocation doesn't have a name");
+                    return Ok(());
+                };
+                let Some(sender_id) = sender_id.split(':').last() else {
+                    tracing::error!(%sender_id, "Could not extract sender_id from name");
+                    return Ok(());
+                };
+                let Ok(sender_id) = Address::parse_checksummed(sender_id, None) else {
+                    tracing::error!(%sender_id, "Could not convert sender_id to Address");
+                    return Ok(());
+                };
+
+                let mut sender_allocation = select! {
+                    sender_allocation = state.get_pending_sender_allocation_id() => sender_allocation,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
+                        tracing::error!("Timeout while getting pending sender allocation ids");
+                        return Ok(());
+                    }
+                };
+
+                let allocations = sender_allocation
+                    .remove(&sender_id)
+                    .unwrap_or(HashSet::new());
+
+                state
+                    .create_sender_account(myself.get_cell(), sender_id, allocations)
+                    .await?;
             }
             _ => {}
         }

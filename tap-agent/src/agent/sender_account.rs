@@ -246,29 +246,55 @@ impl Actor for SenderAccount {
     // is shutdown the supervisor on actor termination events
     async fn handle_supervisor_evt(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         message: SupervisionEvent,
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
         match message {
-            SupervisionEvent::ActorTerminated(cell, _, _)
-            | SupervisionEvent::ActorPanicked(cell, _) => {
+            SupervisionEvent::ActorTerminated(cell, _, _) => {
                 // what to do in case of termination or panic?
                 let sender_allocation = cell.get_name();
                 tracing::warn!(?sender_allocation, "Actor SenderAllocation was terminated");
 
                 let Some(allocation_id) = cell.get_name() else {
+                    tracing::error!("SenderAllocation doesn't have a name");
                     return Ok(());
                 };
                 let Some(allocation_id) = allocation_id.split(':').last() else {
+                    tracing::error!(%allocation_id, "Could not extract allocation_id from name");
                     return Ok(());
                 };
                 let Ok(allocation_id) = Address::parse_checksummed(allocation_id, None) else {
+                    tracing::error!(%allocation_id, "Could not convert allocation_id to Address");
                     return Ok(());
                 };
 
                 let tracker = &mut state.allocation_id_tracker;
                 tracker.add_or_update(allocation_id, 0);
+            }
+            SupervisionEvent::ActorPanicked(cell, error) => {
+                let sender_allocation = cell.get_name();
+                tracing::warn!(
+                    ?sender_allocation,
+                    ?error,
+                    "Actor SenderAllocation panicked. Restarting..."
+                );
+                let Some(allocation_id) = cell.get_name() else {
+                    tracing::error!("SenderAllocation doesn't have a name");
+                    return Ok(());
+                };
+                let Some(allocation_id) = allocation_id.split(':').last() else {
+                    tracing::error!(%allocation_id, "Could not extract allocation_id from name");
+                    return Ok(());
+                };
+                let Ok(allocation_id) = Address::parse_checksummed(allocation_id, None) else {
+                    tracing::error!(%allocation_id, "Could not convert allocation_id to Address");
+                    return Ok(());
+                };
+
+                state
+                    .create_sender_allocation(myself.clone(), allocation_id)
+                    .await?;
             }
             _ => {}
         }
