@@ -6,6 +6,7 @@ use std::time::Duration;
 use indexer_common::prelude::{
     escrow_accounts, indexer_allocations, DeploymentDetails, SubgraphClient,
 };
+use ractor::concurrency::JoinHandle;
 use ractor::{Actor, ActorRef};
 
 use crate::agent::sender_accounts_manager::{
@@ -21,7 +22,7 @@ pub mod sender_accounts_manager;
 pub mod sender_allocation;
 pub mod unaggregated_receipts;
 
-pub async fn start_agent() -> ActorRef<SenderAccountsManagerMessage> {
+pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
     let Cli {
         ethereum: Ethereum { indexer_address },
         indexer_infrastructure:
@@ -115,8 +116,7 @@ pub async fn start_agent() -> ActorRef<SenderAccountsManagerMessage> {
         prefix: None,
     };
 
-    let (manager, _) = SenderAccountsManager::spawn(None, SenderAccountsManager, args)
+    SenderAccountsManager::spawn(None, SenderAccountsManager, args)
         .await
-        .expect("Failed to start sender accounts manager actor.");
-    manager
+        .expect("Failed to start sender accounts manager actor.")
 }
