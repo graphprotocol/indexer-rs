@@ -13,7 +13,7 @@ use thegraph::types::Address;
 use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
-use crate::agent::allocation_id_tracker::AllocationIdTracker;
+use crate::agent::allocation_id_tracker::SenderFeeTracker;
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::{
@@ -26,7 +26,7 @@ pub enum SenderAccountMessage {
     UpdateAllocationIds(HashSet<Address>),
     UpdateReceiptFees(Address, UnaggregatedReceipts),
     #[cfg(test)]
-    GetAllocationTracker(ractor::RpcReplyPort<AllocationIdTracker>),
+    GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
 }
 
 /// A SenderAccount manages the receipts accounting between the indexer and the sender across
@@ -54,7 +54,7 @@ pub struct SenderAccountArgs {
 }
 pub struct State {
     prefix: Option<String>,
-    allocation_id_tracker: AllocationIdTracker,
+    sender_fee_tracker: SenderFeeTracker,
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: PipeHandle,
     sender: Address,
@@ -114,7 +114,7 @@ impl State {
     }
 
     async fn rav_requester_single(&mut self) -> Result<()> {
-        let Some(allocation_id) = self.allocation_id_tracker.get_heaviest_allocation_id() else {
+        let Some(allocation_id) = self.sender_fee_tracker.get_heaviest_allocation_id() else {
             anyhow::bail!("Error while getting the heaviest allocation because none has unaggregated fees tracked");
         };
         let sender_allocation_id = self.format_sender_allocation(&allocation_id);
@@ -126,8 +126,7 @@ impl State {
         // we call and wait for the response so we don't process anymore update
         let result = call!(allocation, SenderAllocationMessage::TriggerRAVRequest)?;
 
-        self.allocation_id_tracker
-            .add_or_update(allocation_id, result.value);
+        self.sender_fee_tracker.update(allocation_id, result.value);
         Ok(())
     }
 }
@@ -173,7 +172,7 @@ impl Actor for SenderAccount {
         let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone(), sender_id);
 
         let state = State {
-            allocation_id_tracker: AllocationIdTracker::default(),
+            sender_fee_tracker: SenderFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
             _indexer_allocations_handle,
             prefix,
@@ -215,8 +214,8 @@ impl Actor for SenderAccount {
         );
         match message {
             SenderAccountMessage::UpdateReceiptFees(allocation_id, unaggregated_fees) => {
-                let tracker = &mut state.allocation_id_tracker;
-                tracker.add_or_update(allocation_id, unaggregated_fees.value);
+                let tracker = &mut state.sender_fee_tracker;
+                tracker.update(allocation_id, unaggregated_fees.value);
 
                 if tracker.get_total_fee() >= state.config.tap.rav_request_trigger_value.into() {
                     tracing::debug!(
@@ -253,9 +252,9 @@ impl Actor for SenderAccount {
                 state.allocation_ids = allocation_ids;
             }
             #[cfg(test)]
-            SenderAccountMessage::GetAllocationTracker(reply) => {
+            SenderAccountMessage::GetSenderFeeTracker(reply) => {
                 if !reply.is_closed() {
-                    let _ = reply.send(state.allocation_id_tracker.clone());
+                    let _ = reply.send(state.sender_fee_tracker.clone());
                 }
             }
         }
@@ -295,8 +294,8 @@ impl Actor for SenderAccount {
                     return Ok(());
                 };
 
-                let tracker = &mut state.allocation_id_tracker;
-                tracker.add_or_update(allocation_id, 0);
+                let tracker = &mut state.sender_fee_tracker;
+                tracker.update(allocation_id, 0);
             }
             SupervisionEvent::ActorPanicked(cell, error) => {
                 let sender_allocation = cell.get_name();

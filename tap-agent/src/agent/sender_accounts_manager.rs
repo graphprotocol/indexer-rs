@@ -205,7 +205,7 @@ impl Actor for SenderAccountsManager {
         match message {
             SupervisionEvent::ActorTerminated(cell, _, reason) => {
                 let sender_id = cell.get_name();
-                tracing::warn!(?sender_id, ?reason, "Actor SenderAccount was terminated")
+                tracing::info!(?sender_id, ?reason, "Actor SenderAccount was terminated")
             }
             SupervisionEvent::ActorPanicked(cell, error) => {
                 let sender_id = cell.get_name();

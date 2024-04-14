@@ -5,14 +5,14 @@ use alloy_primitives::Address;
 use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, Default)]
-pub struct AllocationIdTracker {
+pub struct SenderFeeTracker {
     id_to_fee: HashMap<Address, u128>,
     fee_to_count: BTreeMap<u128, u32>,
     total_fee: u128,
 }
 
-impl AllocationIdTracker {
-    pub fn add_or_update(&mut self, id: Address, fee: u128) {
+impl SenderFeeTracker {
+    pub fn update(&mut self, id: Address, fee: u128) {
         if let Some(&old_fee) = self.id_to_fee.get(&id) {
             self.total_fee -= old_fee;
             *self.fee_to_count.get_mut(&old_fee).unwrap() -= 1;
@@ -46,7 +46,7 @@ impl AllocationIdTracker {
 
 #[cfg(test)]
 mod tests {
-    use super::AllocationIdTracker;
+    use super::SenderFeeTracker;
     use std::str::FromStr;
     use thegraph::types::Address;
 
@@ -59,39 +59,39 @@ mod tests {
         let allocation_id_2: Address =
             Address::from_str("0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd").unwrap();
 
-        let mut tracker = AllocationIdTracker::default();
+        let mut tracker = SenderFeeTracker::default();
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee(), 0);
 
-        tracker.add_or_update(allocation_id_0, 10);
+        tracker.update(allocation_id_0, 10);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee(), 10);
 
-        tracker.add_or_update(allocation_id_2, 20);
+        tracker.update(allocation_id_2, 20);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
         assert_eq!(tracker.get_total_fee(), 30);
 
-        tracker.add_or_update(allocation_id_1, 30);
+        tracker.update(allocation_id_1, 30);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee(), 60);
 
-        tracker.add_or_update(allocation_id_2, 10);
+        tracker.update(allocation_id_2, 10);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee(), 50);
 
-        tracker.add_or_update(allocation_id_2, 40);
+        tracker.update(allocation_id_2, 40);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
         assert_eq!(tracker.get_total_fee(), 80);
 
-        tracker.add_or_update(allocation_id_1, 0);
+        tracker.update(allocation_id_1, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
         assert_eq!(tracker.get_total_fee(), 50);
 
-        tracker.add_or_update(allocation_id_2, 0);
+        tracker.update(allocation_id_2, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee(), 10);
 
-        tracker.add_or_update(allocation_id_0, 0);
+        tracker.update(allocation_id_0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee(), 0);
     }

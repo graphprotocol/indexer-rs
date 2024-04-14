@@ -132,12 +132,6 @@ impl Actor for SenderAllocation {
             );
         })?;
 
-        state
-            .sender_account_ref
-            .cast(SenderAccountMessage::UpdateReceiptFees(
-                state.allocation_id,
-                UnaggregatedReceipts::default(),
-            ))?;
         Ok(())
     }
 
