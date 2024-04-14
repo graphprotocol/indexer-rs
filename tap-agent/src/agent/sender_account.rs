@@ -13,8 +13,8 @@ use thegraph::types::Address;
 use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
-use crate::agent::allocation_id_tracker::SenderFeeTracker;
 use crate::agent::sender_allocation::SenderAllocationMessage;
+use crate::agent::sender_fee_tracker::SenderFeeTracker;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::{
     config::{self},

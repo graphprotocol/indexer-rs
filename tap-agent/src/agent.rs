@@ -16,10 +16,10 @@ use crate::config::{Cli, EscrowSubgraph, Ethereum, IndexerInfrastructure, Networ
 use crate::{aggregator_endpoints, database, CONFIG, EIP_712_DOMAIN};
 use sender_accounts_manager::SenderAccountsManager;
 
-pub mod allocation_id_tracker;
 pub mod sender_account;
 pub mod sender_accounts_manager;
 pub mod sender_allocation;
+pub mod sender_fee_tracker;
 pub mod unaggregated_receipts;
 
 /// constant graph network used in subgraphs

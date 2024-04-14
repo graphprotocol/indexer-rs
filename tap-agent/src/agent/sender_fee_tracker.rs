@@ -2,41 +2,52 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloy_primitives::Address;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
+use tracing::error;
 
 #[derive(Debug, Clone, Default)]
 pub struct SenderFeeTracker {
     id_to_fee: HashMap<Address, u128>,
-    fee_to_count: BTreeMap<u128, u32>,
     total_fee: u128,
 }
 
 impl SenderFeeTracker {
     pub fn update(&mut self, id: Address, fee: u128) {
-        if let Some(&old_fee) = self.id_to_fee.get(&id) {
-            self.total_fee -= old_fee;
-            *self.fee_to_count.get_mut(&old_fee).unwrap() -= 1;
-            if self.fee_to_count[&old_fee] == 0 {
-                self.fee_to_count.remove(&old_fee);
-            }
-        }
-
         if fee > 0 {
-            self.id_to_fee.insert(id, fee);
-            self.total_fee += fee;
-            *self.fee_to_count.entry(fee).or_insert(0) += 1;
-        } else {
-            self.id_to_fee.remove(&id);
+            // insert or update, if update remove old fee from total
+            if let Some(old_fee) = self.id_to_fee.insert(id, fee) {
+                self.total_fee -= old_fee;
+            }
+            self.total_fee = self.total_fee.checked_add(fee).unwrap_or_else(|| {
+                // This should never happen, but if it does, we want to know about it.
+                error!(
+                    "Overflow when adding receipt value {} to total fee {}. \
+                        Setting total fee to u128::MAX.",
+                    fee, self.total_fee
+                );
+                u128::MAX
+            });
+        } else if let Some(old_fee) = self.id_to_fee.remove(&id) {
+            self.total_fee -= old_fee;
         }
     }
 
     pub fn get_heaviest_allocation_id(&self) -> Option<Address> {
-        self.fee_to_count.iter().next_back().and_then(|(&fee, _)| {
-            self.id_to_fee
-                .iter()
-                .find(|(_, &f)| f == fee)
-                .map(|(&id, _)| id)
-        })
+        // just loop over and get the biggest fee
+        self.id_to_fee
+            .iter()
+            .fold(None, |acc: Option<(&Address, u128)>, (addr, fee)| {
+                if let Some((_, max_fee)) = acc {
+                    if *fee > max_fee {
+                        Some((addr, *fee))
+                    } else {
+                        acc
+                    }
+                } else {
+                    Some((addr, *fee))
+                }
+            })
+            .map(|(&id, _)| id)
     }
 
     pub fn get_total_fee(&self) -> u128 {
