@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH rav AS (\n                SELECT\n                    timestamp_ns\n                FROM\n                    scalar_tap_ravs\n                WHERE\n                    allocation_id = $1\n                    AND sender_address = $2\n            )\n            SELECT\n                MAX(id),\n                SUM(value)\n            FROM\n                scalar_tap_receipts\n            WHERE\n                allocation_id = $1\n                AND signer_address IN (SELECT unnest($3::text[]))\n                AND CASE WHEN (\n                    SELECT\n                        timestamp_ns :: NUMERIC\n                    FROM\n                        rav\n                ) IS NOT NULL THEN timestamp_ns > (\n                    SELECT\n                        timestamp_ns :: NUMERIC\n                    FROM\n                        rav\n                ) ELSE TRUE END\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "sum",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Bpchar",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "dbdcb666214a40762607e872c680bba5c3d01bc2106abe5839f1801d1683b8f6"
+}

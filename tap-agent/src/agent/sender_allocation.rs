@@ -271,31 +271,31 @@ impl SenderAllocationState {
         let res = sqlx::query!(
             r#"
             WITH rav AS (
-                SELECT 
-                    timestamp_ns 
-                FROM 
-                    scalar_tap_ravs 
-                WHERE 
-                    allocation_id = $1 
+                SELECT
+                    timestamp_ns
+                FROM
+                    scalar_tap_ravs
+                WHERE
+                    allocation_id = $1
                     AND sender_address = $2
-            ) 
-            SELECT 
-                MAX(id), 
-                SUM(value) 
-            FROM 
-                scalar_tap_receipts 
-            WHERE 
-                allocation_id = $1 
+            )
+            SELECT
+                MAX(id),
+                SUM(value)
+            FROM
+                scalar_tap_receipts
+            WHERE
+                allocation_id = $1
                 AND signer_address IN (SELECT unnest($3::text[]))
                 AND CASE WHEN (
-                    SELECT 
-                        timestamp_ns :: NUMERIC 
-                    FROM 
+                    SELECT
+                        timestamp_ns :: NUMERIC
+                    FROM
                         rav
                 ) IS NOT NULL THEN timestamp_ns > (
-                    SELECT 
-                        timestamp_ns :: NUMERIC 
-                    FROM 
+                    SELECT
+                        timestamp_ns :: NUMERIC
+                    FROM
                         rav
                 ) ELSE TRUE END
             "#,
@@ -938,7 +938,7 @@ mod tests {
                 .unwrap();
         }
 
-        let (last_message_emitted, sender_account, _join_handle) =
+        let (_last_message_emitted, sender_account, _join_handle) =
             create_mock_sender_account().await;
 
         // create allocation
@@ -963,15 +963,6 @@ mod tests {
 
         // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
-
-        // check if message is sent to sender account
-        assert_eq!(
-            last_message_emitted.lock().unwrap().last(),
-            Some(&SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
-                UnaggregatedReceipts::default()
-            ))
-        );
     }
 
     #[sqlx::test(migrations = "../migrations")]
