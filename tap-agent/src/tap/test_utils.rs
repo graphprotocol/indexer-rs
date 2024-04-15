@@ -4,12 +4,14 @@
 use std::str::FromStr;
 
 use alloy_primitives::hex::ToHex;
-use alloy_sol_types::{eip712_domain, Eip712Domain};
-use anyhow::Result;
 use bigdecimal::num_bigint::BigInt;
+
+use sqlx::types::BigDecimal;
+
+use alloy_sol_types::{eip712_domain, Eip712Domain};
 use ethers_signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
 use lazy_static::lazy_static;
-use sqlx::{types::BigDecimal, PgPool};
+use sqlx::PgPool;
 use tap_core::{
     rav::{ReceiptAggregateVoucher, SignedRAV},
     receipt::{Checking, Receipt, ReceiptWithState, SignedReceipt},
@@ -22,12 +24,8 @@ lazy_static! {
         Address::from_str("0xabababababababababababababababababababab").unwrap();
     pub static ref ALLOCATION_ID_1: Address =
         Address::from_str("0xbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc").unwrap();
-    pub static ref ALLOCATION_ID_2: Address =
-        Address::from_str("0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd").unwrap();
-    pub static ref ALLOCATION_ID_IRRELEVANT: Address =
-        Address::from_str("0xbcdebcdebcdebcdebcdebcdebcdebcdebcdebcde").unwrap();
     pub static ref SENDER: (LocalWallet, Address) = wallet(0);
-    pub static ref SENDER_IRRELEVANT: (LocalWallet, Address) = wallet(1);
+    pub static ref SENDER_2: (LocalWallet, Address) = wallet(1);
     pub static ref SIGNER: (LocalWallet, Address) = wallet(2);
     pub static ref INDEXER: (LocalWallet, Address) = wallet(3);
     pub static ref TAP_EIP712_DOMAIN_SEPARATOR: Eip712Domain = eip712_domain! {
@@ -38,21 +36,28 @@ lazy_static! {
     };
 }
 
-/// Fixture to generate a wallet and address
-pub fn wallet(index: u32) -> (LocalWallet, Address) {
-    let wallet: LocalWallet = MnemonicBuilder::<English>::default()
-        .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
-        .index(index)
-        .unwrap()
-        .build()
-        .unwrap();
-    let address = wallet.address();
-    (wallet, Address::from_slice(address.as_bytes()))
+/// Fixture to generate a RAV using the wallet from `keys()`
+pub fn create_rav(
+    allocation_id: Address,
+    signer_wallet: LocalWallet,
+    timestamp_ns: u64,
+    value_aggregate: u128,
+) -> SignedRAV {
+    EIP712SignedMessage::new(
+        &TAP_EIP712_DOMAIN_SEPARATOR,
+        ReceiptAggregateVoucher {
+            allocationId: allocation_id,
+            timestampNs: timestamp_ns,
+            valueAggregate: value_aggregate,
+        },
+        &signer_wallet,
+    )
+    .unwrap()
 }
 
 /// Fixture to generate a signed receipt using the wallet from `keys()` and the
 /// given `query_id` and `value`
-pub async fn create_received_receipt(
+pub fn create_received_receipt(
     allocation_id: &Address,
     signer_wallet: &LocalWallet,
     nonce: u64,
@@ -73,26 +78,7 @@ pub async fn create_received_receipt(
     ReceiptWithState::new(receipt)
 }
 
-/// Fixture to generate a RAV using the wallet from `keys()`
-pub async fn create_rav(
-    allocation_id: Address,
-    signer_wallet: LocalWallet,
-    timestamp_ns: u64,
-    value_aggregate: u128,
-) -> SignedRAV {
-    EIP712SignedMessage::new(
-        &TAP_EIP712_DOMAIN_SEPARATOR,
-        ReceiptAggregateVoucher {
-            allocationId: allocation_id,
-            timestampNs: timestamp_ns,
-            valueAggregate: value_aggregate,
-        },
-        &signer_wallet,
-    )
-    .unwrap()
-}
-
-pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> Result<u64> {
+pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> anyhow::Result<u64> {
     let encoded_signature = signed_receipt.signature.to_vec();
 
     let record = sqlx::query!(
@@ -119,7 +105,23 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> R
     Ok(id)
 }
 
-pub async fn store_rav(pgpool: &PgPool, signed_rav: SignedRAV, sender: Address) -> Result<()> {
+/// Fixture to generate a wallet and address
+pub fn wallet(index: u32) -> (LocalWallet, Address) {
+    let wallet: LocalWallet = MnemonicBuilder::<English>::default()
+        .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
+        .index(index)
+        .unwrap()
+        .build()
+        .unwrap();
+    let address = wallet.address();
+    (wallet, Address::from_slice(address.as_bytes()))
+}
+
+pub async fn store_rav(
+    pgpool: &PgPool,
+    signed_rav: SignedRAV,
+    sender: Address,
+) -> anyhow::Result<()> {
     let signature_bytes = signed_rav.signature.to_vec();
 
     let _fut = sqlx::query!(

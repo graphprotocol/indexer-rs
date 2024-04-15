@@ -154,8 +154,7 @@ mod test {
             SIGNER.0.clone(),
             timestamp_ns,
             value_aggregate,
-        )
-        .await;
+        );
         context.update_last_rav(new_rav.clone()).await.unwrap();
 
         // Should trigger a retrieve_last_rav So eventually the last rav should be the one
@@ -170,8 +169,7 @@ mod test {
                 SIGNER.0.clone(),
                 timestamp_ns + i,
                 value_aggregate - (i as u128),
-            )
-            .await;
+            );
             context.update_last_rav(new_rav.clone()).await.unwrap();
         }
 

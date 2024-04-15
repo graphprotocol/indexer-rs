@@ -7,17 +7,13 @@ use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use thegraph::types::Address;
 
-mod context;
-mod escrow_adapter;
-mod sender_account;
-pub mod sender_accounts_manager;
-mod sender_allocation;
-mod unaggregated_receipts;
+pub mod context;
+pub mod escrow_adapter;
 
 #[cfg(test)]
 pub mod test_utils;
 
-async fn signers_trimmed(
+pub async fn signers_trimmed(
     escrow_accounts: &Eventual<EscrowAccounts>,
     sender: Address,
 ) -> Result<Vec<String>, anyhow::Error> {

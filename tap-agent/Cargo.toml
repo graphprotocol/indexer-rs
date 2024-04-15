@@ -50,8 +50,10 @@ tracing-subscriber = { version = "0.3", features = [
 enum-as-inner = "0.6.0"
 ethers = "2.0.13"
 typetag = "0.2.14"
+ractor = "0.9.7"
 
 [dev-dependencies]
 ethers-signers = "2.0.8"
 tempfile = "3.8.0"
 wiremock = "0.5.19"
+futures = "0.3.30"
