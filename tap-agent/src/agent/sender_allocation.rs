@@ -1090,4 +1090,34 @@ mod tests {
         // check if it fails
         assert!(result.is_ok());
     }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_failed_rav_request(pgpool: PgPool) {
+        // Add receipts to the database.
+        for i in 0..10 {
+            let receipt =
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, u64::max_value(), i.into());
+            store_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
+
+        // Create a sender_allocation.
+        let sender_allocation =
+            create_sender_allocation(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None).await;
+
+        // Trigger a RAV request manually and wait for updated fees.
+        // this should fail because there's no receipt with valid timestamp
+        let total_unaggregated_fees = call!(
+            sender_allocation,
+            SenderAllocationMessage::TriggerRAVRequest
+        )
+        .unwrap();
+
+        // expect the actor to keep running
+        assert_eq!(sender_allocation.get_status(), ActorStatus::Running);
+
+        // Check that the unaggregated fees return the same value
+        assert_eq!(total_unaggregated_fees.value, 45u128);
+    }
 }
