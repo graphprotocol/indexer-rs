@@ -51,17 +51,13 @@ impl EscrowAccounts {
         }
     }
 
-    pub fn get_signers_for_sender(
-        &self,
-        sender: &Address,
-    ) -> Result<Vec<Address>, EscrowAccountsError> {
+    pub fn get_signers_for_sender(&self, sender: &Address) -> Vec<Address> {
         self.senders_to_signers
             .get(sender)
             .filter(|signers| !signers.is_empty())
-            .ok_or(EscrowAccountsError::NoSignerFound {
-                sender: sender.to_owned(),
-            })
             .map(|signers| signers.to_owned())
+            // if none, just return an empty vec
+            .unwrap_or_default()
     }
 
     pub fn get_sender_for_signer(&self, signer: &Address) -> Result<Address, EscrowAccountsError> {

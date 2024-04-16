@@ -21,7 +21,7 @@ pub async fn signers_trimmed(
         .value()
         .await
         .map_err(|e| anyhow!("Error while getting escrow accounts: {:?}", e))?
-        .get_signers_for_sender(&sender)?
+        .get_signers_for_sender(&sender)
         .iter()
         .map(|s| s.encode_hex::<String>())
         .collect::<Vec<String>>();
