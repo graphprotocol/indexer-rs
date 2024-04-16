@@ -123,8 +123,8 @@ fn tap_allocation_redeemed_eventual(
         },
         move |error: String| {
             error!(
-                "Failed to check the escrow redeem status for allocation {} and sender {}: {}",
-                allocation_id, sender_address, error
+                "Failed to check the escrow redeem status for allocation {},  sender {} and receiver {}: {}",
+                allocation_id, sender_address, indexer_address, error
             );
             sleep(Duration::from_millis(escrow_subgraph_polling_interval_ms).div_f32(2.))
         },
