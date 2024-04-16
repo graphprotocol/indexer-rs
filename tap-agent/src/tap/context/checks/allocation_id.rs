@@ -179,6 +179,6 @@ mod tests {
             escrow_subgraph,
         );
 
-        assert_eq!(result.await.unwrap(), true);
+        assert!(result.await.unwrap());
     }
 }
