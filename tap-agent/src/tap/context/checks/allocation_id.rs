@@ -73,6 +73,33 @@ fn tap_allocation_redeemed_eventual(
     escrow_subgraph: &'static SubgraphClient,
     escrow_subgraph_polling_interval_ms: u64,
 ) -> Eventual<bool> {
+    eventuals::timer(Duration::from_millis(escrow_subgraph_polling_interval_ms)).map_with_retry(
+        move |_| async move {
+            query_escrow_check_transactions(
+                allocation_id,
+                sender_address,
+                indexer_address,
+                escrow_subgraph,
+            )
+            .await
+            .map_err(|e| e.to_string())
+        },
+        move |error: String| {
+            error!(
+                "Failed to check the escrow redeem status for allocation {} and sender {}: {}",
+                allocation_id, sender_address, error
+            );
+            sleep(Duration::from_millis(escrow_subgraph_polling_interval_ms).div_f32(2.))
+        },
+    )
+}
+
+async fn query_escrow_check_transactions(
+    allocation_id: Address,
+    sender_address: Address,
+    indexer_address: Address,
+    escrow_subgraph: &'static SubgraphClient,
+) -> anyhow::Result<bool> {
     #[derive(serde::Deserialize)]
     struct AllocationResponse {
         #[allow(dead_code)]
@@ -83,50 +110,75 @@ fn tap_allocation_redeemed_eventual(
     struct TransactionsResponse {
         transactions: Vec<AllocationResponse>,
     }
-
-    eventuals::timer(Duration::from_millis(escrow_subgraph_polling_interval_ms)).map_with_retry(
-        move |_| async move {
-            let response = escrow_subgraph
-                .query::<TransactionsResponse>(Query::new_with_variables(
-                    r#"
-                            query (
-                                $sender_id: ID!,
-                                $receiver_id: ID!,
-                                $allocation_id: String!
-                            ) {
-                                transactions(
-                                    where: {
-                                        and: [
-                                            { type: "redeem" }
-                                            { sender_: { id: $sender_id } }
-                                            { receiver_: { id: $receiver_id } }
-                                            { allocationID: $allocation_id }
-                                        ]
-                                    }
-                                ) {
-                                    id
-                                }
+    let response = escrow_subgraph
+        .query::<TransactionsResponse>(Query::new_with_variables(
+            r#"
+                    query (
+                        $sender_id: ID!,
+                        $receiver_id: ID!,
+                        $allocation_id: String!
+                    ) {
+                        transactions(
+                            where: {
+                                and: [
+                                    { type: "redeem" }
+                                    { sender_: { id: $sender_id } }
+                                    { receiver_: { id: $receiver_id } }
+                                    { allocationID: $allocation_id }
+                                ]
                             }
-                        "#,
-                    [
-                        ("sender_id", sender_address.to_string().into()),
-                        ("receiver_id", indexer_address.to_string().into()),
-                        ("allocation_id", allocation_id.to_string().into()),
-                    ],
-                ))
-                .await
-                .map_err(|e| e.to_string())?;
+                        ) {
+                            id
+                        }
+                    }
+                "#,
+            [
+                (
+                    "sender_id",
+                    sender_address.to_string().to_lowercase().into(),
+                ),
+                (
+                    "receiver_id",
+                    indexer_address.to_string().to_lowercase().into(),
+                ),
+                (
+                    "allocation_id",
+                    allocation_id.to_string().to_lowercase().into(),
+                ),
+            ],
+        ))
+        .await?;
 
-            response
-                .map_err(|e| e.to_string())
-                .map(|data| !data.transactions.is_empty())
-        },
-        move |error: String| {
-            error!(
-                "Failed to check the escrow redeem status for allocation {} and sender {}: {}",
-                allocation_id, sender_address, error
-            );
-            sleep(Duration::from_millis(escrow_subgraph_polling_interval_ms).div_f32(2.))
-        },
-    )
+    Ok(response.map(|data| !data.transactions.is_empty())?)
+}
+
+#[cfg(test)]
+mod tests {
+    use indexer_common::subgraph_client::{DeploymentDetails, SubgraphClient};
+
+    #[tokio::test]
+    async fn test_transaction_exists() {
+        // testnet values
+        let allocation_id = "0x43f8ebe0b6181117eb2dcf8ec7d4e894fca060b8";
+        let sender_address = "0x21fed3c4340f67dbf2b78c670ebd1940668ca03e";
+        let indexer_address = "0x54d7db28ce0d0e2e87764cd09298f9e4e913e567";
+
+        let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
+            reqwest::Client::new(),
+            None,
+            DeploymentDetails::for_query_url(
+                "https://api.studio.thegraph.com/query/53925/arb-sepolia-tap-subgraph/version/latest"
+            )
+            .unwrap(),
+        )));
+
+        let result = super::query_escrow_check_transactions(
+            allocation_id.parse().unwrap(),
+            sender_address.parse().unwrap(),
+            indexer_address.parse().unwrap(),
+            escrow_subgraph,
+        );
+
+        assert!(result.await.unwrap());
+    }
 }
