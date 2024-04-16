@@ -104,10 +104,7 @@ fn tap_allocation_redeemed_eventual(
                                         ]
                                     }
                                 ) {
-                                    allocationID
-                                    sender {
-                                        id
-                                    }
+                                    id
                                 }
                             }
                         "#,
