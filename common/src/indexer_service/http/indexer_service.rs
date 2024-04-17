@@ -225,8 +225,13 @@ impl IndexerService {
         let allocations = indexer_allocations(
             network_subgraph,
             options.config.indexer.indexer_address,
-            options.config.graph_network.id,
             Duration::from_secs(options.config.network_subgraph.syncing_interval),
+            Duration::from_secs(
+                options
+                    .config
+                    .network_subgraph
+                    .recently_closed_allocation_buffer_seconds,
+            ),
         );
 
         // Maintain an up-to-date set of attestation signers, one for each

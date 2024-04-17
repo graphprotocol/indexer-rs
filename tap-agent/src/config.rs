@@ -181,6 +181,15 @@ pub struct NetworkSubgraph {
         help = "Interval (in ms) for syncing indexer allocations from the network"
     )]
     pub allocation_syncing_interval_ms: u64,
+
+    #[clap(
+        long,
+        value_name = "recently-closed-allocation-buffer",
+        env = "ALLOCATION_RECENTLY_CLOSED_ALLOCATION_BUFFER",
+        default_value_t = 3600,
+        help = "Interval (in seconds) that a closed allocation still accepts queries"
+    )]
+    pub recently_closed_allocation_buffer_seconds: u64,
 }
 
 #[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]

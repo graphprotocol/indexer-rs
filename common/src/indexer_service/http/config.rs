@@ -21,6 +21,12 @@ pub struct SubgraphConfig {
     pub deployment: Option<DeploymentId>,
     pub query_url: String,
     pub syncing_interval: u64,
+    #[serde(default = "one_hour")]
+    pub recently_closed_allocation_buffer_seconds: u64,
+}
+
+fn one_hour() -> u64 {
+    3600
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

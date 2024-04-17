@@ -22,9 +22,6 @@ pub mod sender_allocation;
 pub mod sender_fee_tracker;
 pub mod unaggregated_receipts;
 
-/// constant graph network used in subgraphs
-const GRAPH_NETWORK_ID: u64 = 1;
-
 pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
     let Cli {
         ethereum: Ethereum { indexer_address },
@@ -40,6 +37,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
                 network_subgraph_deployment,
                 network_subgraph_endpoint,
                 allocation_syncing_interval_ms,
+                recently_closed_allocation_buffer_seconds,
             },
         escrow_subgraph:
             EscrowSubgraph {
@@ -76,8 +74,8 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     let indexer_allocations = indexer_allocations(
         network_subgraph,
         *indexer_address,
-        GRAPH_NETWORK_ID,
         Duration::from_millis(*allocation_syncing_interval_ms),
+        Duration::from_secs(*recently_closed_allocation_buffer_seconds),
     );
 
     let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
