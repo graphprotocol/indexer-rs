@@ -82,7 +82,7 @@ pub fn indexer_allocations(
     // Refresh indexer allocations every now and then
     timer(interval).map_with_retry(
         move |_| async move {
-            // Allocations can be closed 5 mins into the past
+            // Allocations are eligible even if closed for up to `recently_closed_allocation_buffer`
             let start = SystemTime::now();
             let since_the_epoch = start
                 .duration_since(UNIX_EPOCH)
