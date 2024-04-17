@@ -1,9 +1,11 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use anyhow::anyhow;
 use eventuals::{timer, Eventual, EventualExt};
 use serde::Deserialize;
 use thegraph::types::Address;
@@ -14,42 +16,10 @@ use crate::prelude::{Query, SubgraphClient};
 
 use super::Allocation;
 
-async fn current_epoch(
-    network_subgraph: &'static SubgraphClient,
-    graph_network_id: u64,
-) -> Result<u64, anyhow::Error> {
-    // Types for deserializing the network subgraph response
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct GraphNetworkData {
-        graph_network: Option<GraphNetwork>,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct GraphNetwork {
-        current_epoch: u64,
-    }
-
-    // Query the current epoch
-    let query = r#"query epoch($id: ID!) { graphNetwork(id: $id) { currentEpoch } }"#;
-    let result = network_subgraph
-        .query::<GraphNetworkData>(Query::new_with_variables(
-            query,
-            [("id", graph_network_id.into())],
-        ))
-        .await?;
-
-    result?
-        .graph_network
-        .ok_or_else(|| anyhow!("Network {} not found", graph_network_id))
-        .map(|network| network.current_epoch)
-}
-
 /// An always up-to-date list of an indexer's active and recently closed allocations.
 pub fn indexer_allocations(
     network_subgraph: &'static SubgraphClient,
     indexer_address: Address,
-    graph_network_id: u64,
     interval: Duration,
 ) -> Eventual<HashMap<Address, Allocation>> {
     // Types for deserializing the network subgraph response
@@ -66,7 +36,7 @@ pub fn indexer_allocations(
     }
 
     let query = r#"
-        query allocations($indexer: ID!, $closedAtEpochThreshold: Int!) {
+        query allocations($indexer: ID!, $closedAtThreshold: Int!) {
             indexer(id: $indexer) {
                 activeAllocations: totalAllocations(
                     where: { status: Active }
@@ -87,7 +57,7 @@ pub fn indexer_allocations(
                     }
                 }
                 recentlyClosedAllocations: totalAllocations(
-                    where: { status: Closed, closedAtEpoch_gte: $closedAtEpochThreshold }
+                    where: { status: Closed, closedAt_gte: $closedAtThreshold }
                     orderDirection: desc
                     first: 1000
                 ) {
@@ -111,12 +81,13 @@ pub fn indexer_allocations(
     // Refresh indexer allocations every now and then
     timer(interval).map_with_retry(
         move |_| async move {
-            let current_epoch = current_epoch(network_subgraph, graph_network_id)
-                .await
-                .map_err(|e| format!("Failed to fetch current epoch: {}", e))?;
-
-            // Allocations can be closed one epoch into the past
-            let closed_at_epoch_threshold = current_epoch - 1;
+            // Allocations can be closed 5 mins into the past
+            let start = SystemTime::now();
+            let since_the_epoch = start
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards");
+            const MINUTES_THRESHOLD: u64 = 5;
+            let closed_at_threshold = since_the_epoch.as_secs() - MINUTES_THRESHOLD * 60;
 
             // Query active and recently closed allocations for the indexer,
             // using the network subgraph
@@ -125,7 +96,7 @@ pub fn indexer_allocations(
                     query,
                     [
                         ("indexer", format!("{indexer_address:?}").into()),
-                        ("closedAtEpochThreshold", closed_at_epoch_threshold.into()),
+                        ("closedAtThreshold", closed_at_threshold.into()),
                     ],
                 ))
                 .await
@@ -166,7 +137,6 @@ pub fn indexer_allocations(
 
 #[cfg(test)]
 mod test {
-    use serde_json::json;
     use wiremock::{
         matchers::{body_string_contains, method, path},
         Mock, MockServer, ResponseTemplate,
@@ -189,21 +159,6 @@ mod test {
             ))
             .unwrap(),
         );
-
-        // Mock result for current epoch requests
-        mock_server
-            .register(
-                Mock::given(method("POST"))
-                    .and(path(format!(
-                        "/subgraphs/id/{}",
-                        *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
-                    )))
-                    .and(body_string_contains("currentEpoch"))
-                    .respond_with(ResponseTemplate::new(200).set_body_json(
-                        json!({ "data": { "graphNetwork": { "currentEpoch": 896419 }}}),
-                    )),
-            )
-            .await;
 
         // Mock result for allocations query
         mock_server
@@ -231,7 +186,6 @@ mod test {
         let allocations = indexer_allocations(
             network_subgraph,
             *test_vectors::INDEXER_ADDRESS,
-            1,
             Duration::from_secs(60),
         );
 

@@ -22,9 +22,6 @@ pub mod sender_allocation;
 pub mod sender_fee_tracker;
 pub mod unaggregated_receipts;
 
-/// constant graph network used in subgraphs
-const GRAPH_NETWORK_ID: u64 = 1;
-
 pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
     let Cli {
         ethereum: Ethereum { indexer_address },
@@ -76,7 +73,6 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     let indexer_allocations = indexer_allocations(
         network_subgraph,
         *indexer_address,
-        GRAPH_NETWORK_ID,
         Duration::from_millis(*allocation_syncing_interval_ms),
     );
 

@@ -225,7 +225,6 @@ impl IndexerService {
         let allocations = indexer_allocations(
             network_subgraph,
             options.config.indexer.indexer_address,
-            options.config.graph_network.id,
             Duration::from_secs(options.config.network_subgraph.syncing_interval),
         );
 
