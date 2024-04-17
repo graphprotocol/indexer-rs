@@ -37,6 +37,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
                 network_subgraph_deployment,
                 network_subgraph_endpoint,
                 allocation_syncing_interval_ms,
+                recently_closed_allocation_buffer_seconds,
             },
         escrow_subgraph:
             EscrowSubgraph {
@@ -74,6 +75,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         network_subgraph,
         *indexer_address,
         Duration::from_millis(*allocation_syncing_interval_ms),
+        Duration::from_millis(*recently_closed_allocation_buffer_seconds),
     );
 
     let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(

@@ -21,6 +21,7 @@ pub fn indexer_allocations(
     network_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     interval: Duration,
+    recently_closed_allocation_buffer: Duration,
 ) -> Eventual<HashMap<Address, Allocation>> {
     // Types for deserializing the network subgraph response
     #[derive(Deserialize)]
@@ -86,8 +87,7 @@ pub fn indexer_allocations(
             let since_the_epoch = start
                 .duration_since(UNIX_EPOCH)
                 .expect("Time went backwards");
-            const MINUTES_THRESHOLD: u64 = 5;
-            let closed_at_threshold = since_the_epoch.as_secs() - MINUTES_THRESHOLD * 60;
+            let closed_at_threshold = since_the_epoch - recently_closed_allocation_buffer;
 
             // Query active and recently closed allocations for the indexer,
             // using the network subgraph
@@ -96,7 +96,7 @@ pub fn indexer_allocations(
                     query,
                     [
                         ("indexer", format!("{indexer_address:?}").into()),
-                        ("closedAtThreshold", closed_at_threshold.into()),
+                        ("closedAtThreshold", closed_at_threshold.as_secs().into()),
                     ],
                 ))
                 .await
@@ -187,6 +187,7 @@ mod test {
             network_subgraph,
             *test_vectors::INDEXER_ADDRESS,
             Duration::from_secs(60),
+            Duration::from_secs(300),
         );
 
         assert_eq!(

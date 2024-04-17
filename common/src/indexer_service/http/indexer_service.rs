@@ -226,6 +226,12 @@ impl IndexerService {
             network_subgraph,
             options.config.indexer.indexer_address,
             Duration::from_secs(options.config.network_subgraph.syncing_interval),
+            Duration::from_secs(
+                options
+                    .config
+                    .network_subgraph
+                    .recently_closed_allocation_buffer_seconds,
+            ),
         );
 
         // Maintain an up-to-date set of attestation signers, one for each
