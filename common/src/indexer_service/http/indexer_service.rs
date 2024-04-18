@@ -416,7 +416,9 @@ impl IndexerService {
             address = %options.config.server.host_and_port,
             "Serving requests",
         );
-        let listener = TcpListener::bind(&options.config.server.host_and_port).await?;
+        let listener = TcpListener::bind(&options.config.server.host_and_port)
+            .await
+            .expect("Failed to bind to indexer-service port");
 
         Ok(serve(
             listener,
@@ -436,7 +438,9 @@ impl IndexerService {
             );
 
             serve(
-                TcpListener::bind(host_and_port).await.unwrap(),
+                TcpListener::bind(host_and_port)
+                    .await
+                    .expect("Failed to bind to metrics port"),
                 router.into_make_service(),
             )
             .await
