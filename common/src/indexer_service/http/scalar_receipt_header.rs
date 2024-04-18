@@ -3,7 +3,7 @@
 
 use std::ops::Deref;
 
-use headers::{Header, HeaderName, HeaderValue};
+use axum_extra::headers::{self, Header, HeaderName, HeaderValue};
 use lazy_static::lazy_static;
 use tap_core::receipt::SignedReceipt;
 
@@ -61,7 +61,8 @@ impl Header for ScalarReceipt {
 mod test {
     use std::str::FromStr;
 
-    use axum::{headers::Header, http::HeaderValue};
+    use axum::http::HeaderValue;
+    use axum_extra::headers::Header;
     use thegraph::types::Address;
 
     use crate::test_vectors::create_signed_receipt;

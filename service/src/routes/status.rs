@@ -7,11 +7,11 @@ use std::sync::Arc;
 use async_graphql_axum::GraphQLRequest;
 use axum::{extract::State, response::IntoResponse, Json};
 use graphql::graphql_parser::query as q;
-use graphql_http::{
+use serde_json::{json, Map, Value};
+use thegraph_graphql_http::{
     http::request::{IntoRequestParameters, RequestParameters},
     http_client::{ReqwestExt, ResponseError},
 };
-use serde_json::{json, Map, Value};
 
 use crate::{SubgraphServiceError, SubgraphServiceState};
 

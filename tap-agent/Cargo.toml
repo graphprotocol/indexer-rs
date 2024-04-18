@@ -22,7 +22,7 @@ eventuals = "0.6.7"
 indexer-common = { version = "0.1.0", path = "../common" }
 jsonrpsee = { version = "0.20.2", features = ["http-client", "macros"] }
 lazy_static = "1.4.0"
-reqwest = "0.11.20"
+reqwest = "0.12"
 serde = "1.0.188"
 serde_json = "1.0.104"
 serde_yaml = "0.9.25"
@@ -38,7 +38,9 @@ tap_core = "0.8.0"
 thiserror = "1.0.44"
 tokio = { version = "1.33.0" }
 thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
-graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-http-v0.2.1" }
+thegraph-graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-graphql-http-v0.2.0", features = [
+    "http-client-reqwest",
+] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",
@@ -48,7 +50,7 @@ tracing-subscriber = { version = "0.3", features = [
     "json",
 ] }
 enum-as-inner = "0.6.0"
-ethers = "2.0.13"
+ethers = "2.0.14"
 typetag = "0.2.14"
 ractor = "0.9.7"
 
