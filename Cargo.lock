@@ -3205,7 +3205,7 @@ dependencies = [
  "tap_core",
  "test-log",
  "thegraph",
- "thegraph-graphql-http",
+ "thegraph-graphql-http 0.2.0 (git+https://github.com/semiotic-ai/toolshed?rev=89a8411)",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -3247,7 +3247,7 @@ dependencies = [
  "tap_core",
  "tempfile",
  "thegraph",
- "thegraph-graphql-http",
+ "thegraph-graphql-http 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror",
  "tokio",
  "tracing",
@@ -5859,7 +5859,7 @@ dependencies = [
  "tap_core",
  "test-log",
  "thegraph",
- "thegraph-graphql-http",
+ "thegraph-graphql-http 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror",
  "tokio",
  "tower",
@@ -6617,6 +6617,18 @@ name = "thegraph-graphql-http"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "013ce559c2fc1427dc22aacd2b6eb66f63be5680c04fa5e1b9ac9a79fb275937"
+dependencies = [
+ "async-trait",
+ "reqwest 0.12.3",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "thegraph-graphql-http"
+version = "0.2.0"
+source = "git+https://github.com/semiotic-ai/toolshed?rev=89a8411#89a8411352fab77e150d7fb08a038bd5dbbc8ae4"
 dependencies = [
  "async-trait",
  "reqwest 0.12.3",
