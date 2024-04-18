@@ -58,7 +58,7 @@ alloy-sol-types = "0.6"
 lazy_static = "1.4.0"
 thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0" }
-thegraph-graphql-http = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-graphql-http-v0.2.0", features = [
+thegraph-graphql-http = { version = "0.2.0", features = [
     "http-client-reqwest",
 ] }
 build-info = "0.0.34"
