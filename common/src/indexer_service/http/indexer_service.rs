@@ -377,7 +377,6 @@ impl IndexerService {
                     .join(format!("{}/id/:id", options.url_namespace))
                     .to_str()
                     .expect("Failed to set up `/{url_namespace}/id/:id` route"),
-                // post(|| async { "Test" }),
                 post(request_handler::<I>),
             )
             .with_state(state.clone());
