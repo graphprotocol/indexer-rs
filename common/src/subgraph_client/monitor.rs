@@ -4,14 +4,14 @@
 use std::time::Duration;
 
 use eventuals::{timer, Eventual, EventualExt};
-use graphql_http::{
-    http::request::IntoRequestParameters,
-    http_client::{ReqwestExt, ResponseResult},
-};
 use reqwest::Url;
 use serde::Deserialize;
 use serde_json::json;
 use thegraph::types::DeploymentId;
+use thegraph_graphql_http::{
+    http::request::IntoRequestParameters,
+    http_client::{ReqwestExt, ResponseResult},
+};
 use tokio::time::sleep;
 use tracing::warn;
 

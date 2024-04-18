@@ -4,15 +4,15 @@
 use anyhow::anyhow;
 use axum::body::Bytes;
 use eventuals::Eventual;
-use graphql_http::{
-    graphql::{Document, IntoDocument},
-    http::request::{IntoRequestParameters, RequestParameters},
-    http_client::{ReqwestExt, ResponseResult},
-};
 use reqwest::{header, Url};
 use serde::de::Deserialize;
 use serde_json::{Map, Value};
 use thegraph::types::DeploymentId;
+use thegraph_graphql_http::{
+    graphql::{Document, IntoDocument},
+    http::request::{IntoRequestParameters, RequestParameters},
+    http_client::{ReqwestExt, ResponseResult},
+};
 use tracing::warn;
 
 use super::monitor::{monitor_deployment_status, DeploymentStatus};

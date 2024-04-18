@@ -8,8 +8,8 @@ use axum::{
     extract::{Path, State},
     http::HeaderMap,
     response::IntoResponse,
-    TypedHeader,
 };
+use axum_extra::TypedHeader;
 use reqwest::StatusCode;
 use thegraph::types::DeploymentId;
 use tracing::trace;

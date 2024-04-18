@@ -11,13 +11,12 @@ use anyhow;
 use autometrics::prometheus_exporter;
 use axum::extract::MatchedPath;
 use axum::http::Request;
+use axum::serve;
 use axum::{
     async_trait,
-    body::Body,
-    error_handling::HandleErrorLayer,
     response::{IntoResponse, Response},
     routing::{get, post},
-    BoxError, Extension, Json, Router, Server,
+    Extension, Json, Router,
 };
 use build_info::BuildInfo;
 use eventuals::Eventual;
@@ -28,9 +27,9 @@ use tap_core::{manager::Manager, receipt::checks::Checks};
 use thegraph::types::Address;
 use thegraph::types::{Attestation, DeploymentId};
 use thiserror::Error;
+use tokio::net::TcpListener;
 use tokio::signal;
-use tower::ServiceBuilder;
-use tower_governor::{errors::display_error, governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{info, info_span};
 
@@ -167,7 +166,7 @@ where
     pub release: IndexerServiceRelease,
     pub url_namespace: &'static str,
     pub metrics_prefix: &'static str,
-    pub extra_routes: Router<Arc<IndexerServiceState<I>>, Body>,
+    pub extra_routes: Router<Arc<IndexerServiceState<I>>>,
 }
 
 pub struct IndexerServiceState<I>
@@ -329,13 +328,7 @@ impl IndexerService {
             .route("/", get("Service is up and running"))
             .route("/version", get(Json(options.release)))
             .route("/info", get(operator_address))
-            .layer(
-                ServiceBuilder::new()
-                    .layer(HandleErrorLayer::new(|e: BoxError| async move {
-                        display_error(e)
-                    }))
-                    .layer(misc_rate_limiter),
-            );
+            .layer(misc_rate_limiter);
 
         // Rate limits by allowing bursts of 50 requests and requiring 20ms of
         // time between consecutive requests after that, effectively rate
@@ -360,13 +353,7 @@ impl IndexerService {
                     .route_layer(Extension(
                         options.config.network_subgraph.serve_auth_token.clone(),
                     ))
-                    .route_layer(
-                        ServiceBuilder::new()
-                            .layer(HandleErrorLayer::new(|e: BoxError| async move {
-                                display_error(e)
-                            }))
-                            .layer(static_subgraph_rate_limiter.clone()),
-                    ),
+                    .route_layer(static_subgraph_rate_limiter.clone()),
             );
         }
 
@@ -379,13 +366,7 @@ impl IndexerService {
                 .route_layer(Extension(
                     options.config.escrow_subgraph.serve_auth_token.clone(),
                 ))
-                .route_layer(
-                    ServiceBuilder::new()
-                        .layer(HandleErrorLayer::new(|e: BoxError| async move {
-                            display_error(e)
-                        }))
-                        .layer(static_subgraph_rate_limiter),
-                );
+                .route_layer(static_subgraph_rate_limiter);
         }
 
         misc_routes = misc_routes.with_state(state.clone());
@@ -435,11 +416,16 @@ impl IndexerService {
             address = %options.config.server.host_and_port,
             "Serving requests",
         );
+        let listener = TcpListener::bind(&options.config.server.host_and_port)
+            .await
+            .expect("Failed to bind to indexer-service port");
 
-        Ok(Server::bind(&options.config.server.host_and_port)
-            .serve(router.into_make_service_with_connect_info::<SocketAddr>())
-            .with_graceful_shutdown(shutdown_signal())
-            .await?)
+        Ok(serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown_signal())
+        .await?)
     }
 
     fn serve_metrics(host_and_port: SocketAddr) {
@@ -451,10 +437,14 @@ impl IndexerService {
                 get(|| async { prometheus_exporter::encode_http_response() }),
             );
 
-            Server::bind(&host_and_port)
-                .serve(router.into_make_service())
-                .await
-                .expect("Failed to serve metrics")
+            serve(
+                TcpListener::bind(host_and_port)
+                    .await
+                    .expect("Failed to bind to metrics port"),
+                router.into_make_service(),
+            )
+            .await
+            .expect("Failed to serve metrics")
         });
     }
 }
