@@ -16,7 +16,9 @@ use reqwest::StatusCode;
 use thegraph_core::DeploymentId;
 use tracing::trace;
 
-use crate::indexer_service::http::IndexerServiceResponse;
+use serde_json::value::RawValue;
+
+use crate::{indexer_service::http::IndexerServiceResponse, tap::AgoraQuery};
 
 use super::{
     indexer_service::{AttestationOutput, IndexerServiceError, IndexerServiceState},
@@ -109,6 +111,31 @@ where
     };
 
     let allocation_id = receipt.message.allocation_id;
+    let signature = receipt.signature;
+
+    #[derive(Debug, serde::Deserialize)]
+    pub struct QueryBody {
+        pub query: String,
+        pub variables: Option<Box<RawValue>>,
+    }
+
+    let query_body: QueryBody =
+        serde_json::from_slice(&body).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
+    let variables = query_body
+        .variables
+        .as_ref()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    let _ = state
+        .value_check_sender
+        .tx_query
+        .send(AgoraQuery {
+            signature,
+            deployment_id: manifest_id,
+            query: query_body.query.clone(),
+            variables,
+        })
+        .await;
 
     // recover the signer address
     // get escrow accounts from eventual

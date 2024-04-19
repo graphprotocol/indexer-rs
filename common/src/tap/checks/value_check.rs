@@ -201,10 +201,10 @@ fn compile_cost_model(src: CostModelSource) -> anyhow::Result<CostModel> {
 }
 
 pub struct AgoraQuery {
-    signature: Signature,
-    deployment_id: DeploymentId,
-    query: String,
-    variables: String,
+    pub signature: Signature,
+    pub deployment_id: DeploymentId,
+    pub query: String,
+    pub variables: String,
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]
