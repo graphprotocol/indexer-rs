@@ -9,9 +9,11 @@ use std::{
     cmp::min,
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use thegraph_core::DeploymentId;
-use tokio::{select, sync::mpsc::Receiver, task::JoinHandle};
+use tokio::{sync::mpsc::Receiver, task::JoinHandle};
+use ttl_cache::TtlCache;
 
 use tap_core::{
     receipt::{
@@ -23,9 +25,10 @@ use tap_core::{
 };
 
 pub struct MinimumValue {
-    cost_model_cache: Arc<Mutex<HashMap<DeploymentId, CostModel>>>,
+    cost_model_cache: Arc<Mutex<HashMap<DeploymentId, CostModelCache>>>,
     query_ids: Arc<Mutex<HashMap<SignatureBytes, AgoraQuery>>>,
-    handle: JoinHandle<()>,
+    model_handle: JoinHandle<()>,
+    query_handle: JoinHandle<()>,
 }
 
 impl MinimumValue {
@@ -33,57 +36,66 @@ impl MinimumValue {
         mut rx_cost_model: Receiver<CostModelSource>,
         mut rx_query: Receiver<AgoraQuery>,
     ) -> Self {
-        let cost_model_cache = Arc::new(Mutex::new(HashMap::new()));
+        let cost_model_cache = Arc::new(Mutex::new(HashMap::<DeploymentId, CostModelCache>::new()));
         let query_ids = Arc::new(Mutex::new(HashMap::new()));
         let cache = cost_model_cache.clone();
         let query_ids_clone = query_ids.clone();
-        let handle = tokio::spawn(async move {
+        let model_handle = tokio::spawn(async move {
             loop {
-                select! {
-                    model = rx_cost_model.recv() => {
-                        match model {
-                            Some(value) => {
-                                let deployment_id = value.deployment_id;
+                let model = rx_cost_model.recv().await;
+                match model {
+                    Some(value) => {
+                        let deployment_id = value.deployment_id;
 
-                                match compile_cost_model(value) {
-                                    Ok(value) => {
-                                        // todo keep track of the last X models
-                                        cache.lock().unwrap().insert(deployment_id, value);
-                                    }
-                                    Err(err) => {
-                                        tracing::error!(
-                                            "Error while compiling cost model for deployment id {}. Error: {}",
-                                            deployment_id, err
-                                        )
-                                    }
+                        if let Some(query) = cache.lock().unwrap().get_mut(&deployment_id) {
+                            let _ = query.insert_model(value);
+                        } else {
+                            match CostModelCache::new(value) {
+                                Ok(value) => {
+                                    cache.lock().unwrap().insert(deployment_id, value);
+                                }
+                                Err(err) => {
+                                    tracing::error!(
+                                        "Error while compiling cost model for deployment id {}. Error: {}",
+                                        deployment_id, err
+                                    )
                                 }
                             }
-                            None => continue,
                         }
                     }
-                    query = rx_query.recv() => {
-                        match query {
-                            Some(query) => {
-                                query_ids_clone.lock().unwrap().insert(query.signature.get_signature_bytes(), query);
-                            },
-                            None => continue,
-                        }
+                    None => continue,
+                }
+            }
+        });
+
+        let query_handle = tokio::spawn(async move {
+            loop {
+                let query = rx_query.recv().await;
+                match query {
+                    Some(query) => {
+                        query_ids_clone
+                            .lock()
+                            .unwrap()
+                            .insert(query.signature.get_signature_bytes(), query);
                     }
+                    None => continue,
                 }
             }
         });
 
         Self {
             cost_model_cache,
-            handle,
+            model_handle,
             query_ids,
+            query_handle,
         }
     }
 }
 
 impl Drop for MinimumValue {
     fn drop(&mut self) {
-        self.handle.abort();
+        self.model_handle.abort();
+        self.query_handle.abort();
     }
 }
 
@@ -103,32 +115,16 @@ impl Check for MinimumValue {
             .map_err(CheckError::Failed)?;
 
         // get agora model for the allocation_id
-        let cache = self.cost_model_cache.lock().unwrap();
+        let mut cache = self.cost_model_cache.lock().unwrap();
 
         // on average, we'll have zero or one model
-        let models = cache
-            .get(&agora_query.deployment_id)
-            .map(|model| vec![model])
-            .unwrap_or_default();
+        let models = cache.get_mut(&agora_query.deployment_id);
 
         // get value
         let value = receipt.signed_receipt().message.value;
 
         let expected_value = models
-            .into_iter()
-            .fold(None, |acc, model| {
-                let value = model
-                    .cost(&agora_query.query, &agora_query.variables)
-                    .ok()
-                    .map(|fee| fee.to_u128().unwrap_or_default())
-                    .unwrap_or_default();
-                if let Some(acc) = acc {
-                    // return the minimum value of the cache list
-                    Some(min(acc, value))
-                } else {
-                    Some(value)
-                }
-            })
+            .map(|cache| cache.cost(&agora_query))
             .unwrap_or_default();
 
         let should_accept = value >= expected_value;
@@ -151,11 +147,11 @@ impl Check for MinimumValue {
     }
 }
 
-fn compile_cost_model(src: CostModelSource) -> Result<CostModel, String> {
+fn compile_cost_model(src: CostModelSource) -> anyhow::Result<CostModel> {
     if src.model.len() > (1 << 16) {
-        return Err("CostModelTooLarge".into());
+        return Err(anyhow!("CostModelTooLarge"));
     }
-    let model = CostModel::compile(&src.model, &src.variables).map_err(|err| err.to_string())?;
+    let model = CostModel::compile(&src.model, &src.variables)?;
     Ok(model)
 }
 
@@ -166,9 +162,68 @@ pub struct AgoraQuery {
     variables: String,
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct CostModelSource {
     deployment_id: DeploymentId,
     model: String,
     variables: String,
+}
+
+pub struct CostModelCache {
+    models: TtlCache<CostModelSource, CostModel>,
+    latest_model: CostModel,
+    latest_source: CostModelSource,
+}
+
+impl CostModelCache {
+    pub fn new(source: CostModelSource) -> anyhow::Result<Self> {
+        let model = compile_cost_model(source.clone())?;
+        Ok(Self {
+            latest_model: model,
+            latest_source: source,
+            // arbitrary number of models copy
+            models: TtlCache::new(10),
+        })
+    }
+
+    fn insert_model(&mut self, source: CostModelSource) -> anyhow::Result<()> {
+        if source != self.latest_source {
+            let model = compile_cost_model(source.clone())?;
+            // update latest and insert into ttl the old model
+            let old_model = std::mem::replace(&mut self.latest_model, model);
+            self.latest_source = source.clone();
+
+            self.models
+                // arbitrary cache duration
+                .insert(source, old_model, Duration::from_secs(60));
+        }
+        Ok(())
+    }
+
+    fn get_models(&mut self) -> Vec<&CostModel> {
+        let mut values: Vec<&CostModel> = self.models.iter().map(|(_, v)| v).collect();
+        values.push(&self.latest_model);
+        values
+    }
+
+    fn cost(&mut self, query: &AgoraQuery) -> u128 {
+        let models = self.get_models();
+
+        models
+            .into_iter()
+            .fold(None, |acc, model| {
+                let value = model
+                    .cost(&query.query, &query.variables)
+                    .ok()
+                    .map(|fee| fee.to_u128().unwrap_or_default())
+                    .unwrap_or_default();
+                if let Some(acc) = acc {
+                    // return the minimum value of the cache list
+                    Some(min(acc, value))
+                } else {
+                    Some(value)
+                }
+            })
+            .unwrap_or_default()
+    }
 }
