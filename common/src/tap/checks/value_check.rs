@@ -63,7 +63,7 @@ impl MinimumValue {
                             }
                         }
                     }
-                    None => continue,
+                    None => break,
                 }
             }
         });
@@ -78,7 +78,7 @@ impl MinimumValue {
                             .unwrap()
                             .insert(query.signature.get_signature_bytes(), query);
                     }
-                    None => continue,
+                    None => break,
                 }
             }
         });
