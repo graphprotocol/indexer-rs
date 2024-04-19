@@ -26,7 +26,7 @@ mod checks;
 mod receipt_store;
 
 pub use checks::value_check::{
-    create_value_check, CostModelSource, ValueCheckReceiver, ValueCheckSender,
+    create_value_check, AgoraQuery, CostModelSource, ValueCheckReceiver, ValueCheckSender,
 };
 
 #[derive(Clone)]
