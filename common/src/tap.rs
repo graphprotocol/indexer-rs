@@ -6,6 +6,7 @@ use crate::tap::checks::deny_list_check::DenyListCheck;
 use crate::tap::checks::receipt_max_val_check::ReceiptMaxValueCheck;
 use crate::tap::checks::sender_balance_check::SenderBalanceCheck;
 use crate::tap::checks::timestamp_check::TimestampCheck;
+use crate::tap::checks::value_check::MinimumValue;
 use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::Address;
@@ -24,6 +25,11 @@ use tracing::error;
 mod checks;
 mod receipt_store;
 
+pub use checks::value_check::{
+    create_value_check, CostModelSource, ValueCheckReceiver, ValueCheckSender,
+};
+
+#[derive(Clone)]
 pub struct IndexerTapContext {
     domain_separator: Arc<Eip712Domain>,
     receipt_producer: Sender<DatabaseReceipt>,
@@ -44,6 +50,7 @@ impl IndexerTapContext {
         domain_separator: Eip712Domain,
         timestamp_error_tolerance: Duration,
         receipt_max_value: u128,
+        value_check_receiver: ValueCheckReceiver,
     ) -> Vec<ReceiptCheck> {
         vec![
             Arc::new(AllocationEligible::new(indexer_allocations)),
@@ -54,6 +61,7 @@ impl IndexerTapContext {
             Arc::new(TimestampCheck::new(timestamp_error_tolerance)),
             Arc::new(DenyListCheck::new(pgpool, escrow_accounts, domain_separator).await),
             Arc::new(ReceiptMaxValueCheck::new(receipt_max_value)),
+            Arc::new(MinimumValue::new(value_check_receiver)),
         ]
     }
 

@@ -7,8 +7,9 @@ use std::time::Duration;
 use super::{error::SubgraphServiceError, routes};
 use anyhow::anyhow;
 use axum::{async_trait, routing::post, Json, Router};
-use indexer_common::indexer_service::http::{
-    AttestationOutput, IndexerServiceImpl, IndexerServiceResponse,
+use indexer_common::{
+    indexer_service::http::{AttestationOutput, IndexerServiceImpl, IndexerServiceResponse},
+    tap::{create_value_check, ValueCheckSender},
 };
 use indexer_config::Config;
 use reqwest::Url;
@@ -67,6 +68,7 @@ pub struct SubgraphServiceState {
     pub graph_node_client: reqwest::Client,
     pub graph_node_status_url: &'static Url,
     pub graph_node_query_base_url: &'static Url,
+    pub value_check_sender: ValueCheckSender,
 }
 
 struct SubgraphService {
@@ -146,6 +148,9 @@ pub async fn run() -> anyhow::Result<()> {
     build_info::build_info!(fn build_info);
     let release = IndexerServiceRelease::from(build_info());
 
+    // arbitrary value
+    let (value_check_sender, value_check_receiver) = create_value_check(10);
+
     // Some of the subgraph service configuration goes into the so-called
     // "state", which will be passed to any request handler, middleware etc.
     // that is involved in serving requests
@@ -161,6 +166,7 @@ pub async fn run() -> anyhow::Result<()> {
             .expect("Failed to init HTTP client for Graph Node"),
         graph_node_status_url: &config.graph_node.status_url,
         graph_node_query_base_url: &config.graph_node.query_url,
+        value_check_sender: value_check_sender.clone(),
     });
 
     IndexerService::run(IndexerServiceOptions {
@@ -172,6 +178,8 @@ pub async fn run() -> anyhow::Result<()> {
             .route("/cost", post(routes::cost::cost))
             .route("/status", post(routes::status))
             .with_state(state),
+        value_check_receiver,
+        value_check_sender,
     })
     .await
 }
