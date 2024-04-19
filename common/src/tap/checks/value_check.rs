@@ -12,7 +12,10 @@ use std::{
     time::Duration,
 };
 use thegraph_core::DeploymentId;
-use tokio::{sync::mpsc::Receiver, task::JoinHandle};
+use tokio::{
+    sync::mpsc::{Receiver, Sender},
+    task::JoinHandle,
+};
 use ttl_cache::TtlCache;
 
 use tap_core::{
@@ -31,10 +34,39 @@ pub struct MinimumValue {
     query_handle: JoinHandle<()>,
 }
 
+#[derive(Clone)]
+pub struct ValueCheckSender {
+    pub tx_cost_model: Sender<CostModelSource>,
+    pub tx_query: Sender<AgoraQuery>,
+}
+
+pub struct ValueCheckReceiver {
+    rx_cost_model: Receiver<CostModelSource>,
+    rx_query: Receiver<AgoraQuery>,
+}
+
+pub fn create_value_check(size: usize) -> (ValueCheckSender, ValueCheckReceiver) {
+    let (tx_cost_model, rx_cost_model) = tokio::sync::mpsc::channel(size);
+    let (tx_query, rx_query) = tokio::sync::mpsc::channel(size);
+
+    (
+        ValueCheckSender {
+            tx_query,
+            tx_cost_model,
+        },
+        ValueCheckReceiver {
+            rx_cost_model,
+            rx_query,
+        },
+    )
+}
+
 impl MinimumValue {
     pub fn new(
-        mut rx_cost_model: Receiver<CostModelSource>,
-        mut rx_query: Receiver<AgoraQuery>,
+        ValueCheckReceiver {
+            mut rx_query,
+            mut rx_cost_model,
+        }: ValueCheckReceiver,
     ) -> Self {
         let cost_model_cache = Arc::new(Mutex::new(HashMap::<DeploymentId, CostModelCache>::new()));
         let query_ids = Arc::new(Mutex::new(HashMap::new()));
@@ -48,7 +80,12 @@ impl MinimumValue {
                         let deployment_id = value.deployment_id;
 
                         if let Some(query) = cache.lock().unwrap().get_mut(&deployment_id) {
-                            let _ = query.insert_model(value);
+                            let _ = query.insert_model(value).inspect_err(|err| {
+                                tracing::error!(
+                                    "Error while compiling cost model for deployment id {}. Error: {}",
+                                    deployment_id, err
+                                )
+                            });
                         } else {
                             match CostModelCache::new(value) {
                                 Ok(value) => {
@@ -172,9 +209,9 @@ pub struct AgoraQuery {
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub struct CostModelSource {
-    deployment_id: DeploymentId,
-    model: String,
-    variables: String,
+    pub deployment_id: DeploymentId,
+    pub model: String,
+    pub variables: String,
 }
 
 pub struct CostModelCache {
