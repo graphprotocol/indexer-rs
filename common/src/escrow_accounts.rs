@@ -113,11 +113,11 @@ pub fn escrow_accounts(
     #[serde(rename_all = "camelCase")]
     struct Sender {
         id: Address,
-        authorized_signers: Vec<AuthorizedSigner>,
+        signers: Vec<Signer>,
     }
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
-    struct AuthorizedSigner {
+    struct Signer {
         id: Address,
     }
 
@@ -203,7 +203,7 @@ pub fn escrow_accounts(
                     let sender = account.sender.id;
                     let signers = account
                         .sender
-                        .authorized_signers
+                        .signers
                         .iter()
                         .map(|signer| signer.id)
                         .collect();
