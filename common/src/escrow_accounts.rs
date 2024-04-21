@@ -134,7 +134,7 @@ pub fn escrow_accounts(
                 totalAmountThawing
                 sender {
                     id
-                    authorizedSigners(
+                    Signers(
                         where: {thawEndTimestamp: "0", isAuthorized: true}
                     ) {
                         id
@@ -151,7 +151,7 @@ pub fn escrow_accounts(
                 totalAmountThawing
                 sender {
                     id
-                    authorizedSigners(
+                    Signers(
                         where: {isAuthorized: true}
                     ) {
                         id
