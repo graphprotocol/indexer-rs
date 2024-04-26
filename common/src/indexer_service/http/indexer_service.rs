@@ -288,12 +288,14 @@ impl IndexerService {
         };
         let indexer_context =
             IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
+        let timestamp_threshold = options.config.scalar.timestamp_threshold;
 
         let checks = IndexerTapContext::get_checks(
             database,
             allocations,
             escrow_accounts,
             domain_separator.clone(),
+            timestamp_threshold,
         )
         .await;
 

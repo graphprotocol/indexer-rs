@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use thegraph::types::Address;
@@ -71,4 +72,5 @@ pub struct IndexerConfig {
 pub struct ScalarConfig {
     pub chain_id: u64,
     pub receipts_verifier_address: Address,
+    pub timestamp_threshold: Duration,
 }
