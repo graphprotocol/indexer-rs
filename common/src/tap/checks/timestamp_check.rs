@@ -41,20 +41,24 @@ impl Check for TimestampCheck {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use alloy_primitives::Address;
     use std::str::FromStr;
 
+    use alloy_primitives::Address;
+    use alloy_sol_types::eip712_domain;
+    use alloy_sol_types::Eip712Domain;
+
+    use ethers::signers::coins_bip39::English;
+    use ethers::signers::{LocalWallet, MnemonicBuilder};
+
+    use super::*;
     use tap_core::{
         receipt::{checks::Check, Checking, Receipt, ReceiptWithState},
         signed_message::EIP712SignedMessage,
     };
 
-    use alloy_sol_types::eip712_domain;
-    use alloy_sol_types::Eip712Domain;
-    use ethers::signers::coins_bip39::English;
-    use ethers::signers::{LocalWallet, MnemonicBuilder};
-    fn create_signed_receipt_with_jitter(timestamp_ns: u64) -> ReceiptWithState<Checking> {
+    fn create_signed_receipt_with_custom_timestamp(
+        timestamp_ns: u64,
+    ) -> ReceiptWithState<Checking> {
         let index: u32 = 0;
         let wallet: LocalWallet = MnemonicBuilder::<English>::default()
             .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
@@ -93,7 +97,7 @@ mod tests {
             .as_nanos()
             + Duration::from_secs(15).as_nanos();
         let timestamp_ns = timestamp as u64;
-        let signed_receipt = create_signed_receipt_with_jitter(timestamp_ns);
+        let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns);
         let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
         assert!(timestamp_check.check(&signed_receipt).await.is_ok());
     }
@@ -106,7 +110,7 @@ mod tests {
             .as_nanos()
             + Duration::from_secs(33).as_nanos();
         let timestamp_ns = timestamp as u64;
-        let signed_receipt = create_signed_receipt_with_jitter(timestamp_ns);
+        let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns);
         let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
         assert!(timestamp_check.check(&signed_receipt).await.is_err());
     }
@@ -119,7 +123,7 @@ mod tests {
             .as_nanos()
             - Duration::from_secs(33).as_nanos();
         let timestamp_ns = timestamp as u64;
-        let signed_receipt = create_signed_receipt_with_jitter(timestamp_ns);
+        let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns);
         let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
         assert!(timestamp_check.check(&signed_receipt).await.is_err());
     }
