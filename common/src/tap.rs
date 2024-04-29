@@ -37,7 +37,7 @@ impl IndexerTapContext {
         indexer_allocations: Eventual<HashMap<Address, Allocation>>,
         escrow_accounts: Eventual<EscrowAccounts>,
         domain_separator: Eip712Domain,
-        timestamp_threshold: Duration,
+        timestamp_error_tolerance: Duration,
     ) -> Vec<ReceiptCheck> {
         vec![
             Arc::new(AllocationEligible::new(indexer_allocations)),
@@ -45,7 +45,7 @@ impl IndexerTapContext {
                 escrow_accounts.clone(),
                 domain_separator.clone(),
             )),
-            Arc::new(TimestampCheck::new(timestamp_threshold)),
+            Arc::new(TimestampCheck::new(timestamp_error_tolerance)),
             Arc::new(DenyListCheck::new(pgpool, escrow_accounts, domain_separator).await),
         ]
     }
