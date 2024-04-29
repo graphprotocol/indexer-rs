@@ -54,7 +54,7 @@ mod tests {
     use alloy_sol_types::Eip712Domain;
     use ethers::signers::coins_bip39::English;
     use ethers::signers::{LocalWallet, MnemonicBuilder};
-    fn create_signed_receipt_with_jitter(jitter: u64) -> ReceiptWithState<Checking> {
+    fn create_signed_receipt_with_jitter(timestamp_ns: u64) -> ReceiptWithState<Checking> {
         let index: u32 = 0;
         let wallet: LocalWallet = MnemonicBuilder::<English>::default()
             .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
@@ -70,12 +70,6 @@ mod tests {
         };
         let value: u128 = 1234;
         let nonce: u64 = 10;
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_nanos()
-            + Duration::from_secs(jitter).as_nanos();
-        let timestamp_ns = timestamp as u64;
         let receipt = EIP712SignedMessage::new(
             &eip712_domain_separator,
             Receipt {
@@ -93,14 +87,39 @@ mod tests {
 
     #[tokio::test]
     async fn test_timestamp_inside_tolerance() {
-        let signed_receipt = create_signed_receipt_with_jitter(15);
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_nanos()
+            + Duration::from_secs(15).as_nanos();
+        let timestamp_ns = timestamp as u64;
+        let signed_receipt = create_signed_receipt_with_jitter(timestamp_ns);
         let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
         assert!(timestamp_check.check(&signed_receipt).await.is_ok());
     }
 
     #[tokio::test]
-    async fn test_timestamp_outside_tolerance() {
-        let signed_receipt = create_signed_receipt_with_jitter(31);
+    async fn test_timestamp_more_than_tolerance() {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_nanos()
+            + Duration::from_secs(33).as_nanos();
+        let timestamp_ns = timestamp as u64;
+        let signed_receipt = create_signed_receipt_with_jitter(timestamp_ns);
+        let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
+        assert!(timestamp_check.check(&signed_receipt).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_timestamp_less_than_tolerance() {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_nanos()
+            - Duration::from_secs(33).as_nanos();
+        let timestamp_ns = timestamp as u64;
+        let signed_receipt = create_signed_receipt_with_jitter(timestamp_ns);
         let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
         assert!(timestamp_check.check(&signed_receipt).await.is_err());
     }
