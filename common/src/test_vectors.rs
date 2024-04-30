@@ -104,7 +104,7 @@ pub const ESCROW_QUERY_RESPONSE: &str = r#"
                     "totalAmountThawing": "10",
                     "sender": {
                         "id": "0x9858EfFD232B4033E47d90003D41EC34EcaEda94",
-                        "authorizedSigners": [
+                        "signers": [
                             {
                                 "id": "0x533661F0fb14d2E8B26223C86a610Dd7D2260892"
                             },
@@ -119,7 +119,7 @@ pub const ESCROW_QUERY_RESPONSE: &str = r#"
                     "totalAmountThawing": "0",
                     "sender": {
                         "id": "0x22d491bde2303f2f43325b2108d26f1eaba1e32b",
-                        "authorizedSigners": [
+                        "signers": [
                             {
                                 "id": "0x245059163ff6ee14279aa7b35ea8f0fdb967df6e"
                             }
@@ -131,7 +131,7 @@ pub const ESCROW_QUERY_RESPONSE: &str = r#"
                     "totalAmountThawing": "12",
                     "sender": {
                         "id": "0x192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002",
-                        "authorizedSigners": []
+                        "signers": []
                     }
                 }
             ]
