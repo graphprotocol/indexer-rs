@@ -11,10 +11,13 @@ use axum::{
 };
 use axum_extra::TypedHeader;
 use reqwest::StatusCode;
+use serde_json::value::RawValue;
 use thegraph::types::DeploymentId;
 use tracing::trace;
 
-use crate::{indexer_service::http::IndexerServiceResponse, prelude::AttestationSigner};
+use crate::{
+    indexer_service::http::IndexerServiceResponse, prelude::AttestationSigner, tap::AgoraQuery,
+};
 
 use super::{
     indexer_service::{IndexerServiceError, IndexerServiceState},
@@ -41,6 +44,12 @@ where
         .with_label_values(&[&manifest_id.to_string()])
         .inc();
 
+    #[derive(Debug, serde::Deserialize)]
+    pub struct QueryBody {
+        pub query: String,
+        pub variables: Option<Box<RawValue>>,
+    }
+
     let request =
         serde_json::from_slice(&body).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
 
@@ -48,9 +57,27 @@ where
 
     if let Some(receipt) = receipt.into_signed_receipt() {
         let allocation_id = receipt.message.allocation_id;
+        let signature = receipt.signature;
+
+        let request: QueryBody = serde_json::from_slice(&body)
+            .map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
+        let variables = request
+            .variables
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        let _ = state
+            .value_check_sender
+            .tx_query
+            .send(AgoraQuery {
+                signature,
+                deployment_id: manifest_id,
+                query: request.query.clone(),
+                variables,
+            })
+            .await;
 
         // Verify the receipt and store it in the database
-        // TODO update checks
         state
             .tap_manager
             .verify_and_store_receipt(receipt)

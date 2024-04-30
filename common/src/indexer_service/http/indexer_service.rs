@@ -33,6 +33,7 @@ use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{info, info_span};
 
+use crate::tap::{ValueCheckReceiver, ValueCheckSender};
 use crate::{
     address::public_key,
     indexer_service::http::{
@@ -167,6 +168,8 @@ where
     pub url_namespace: &'static str,
     pub metrics_prefix: &'static str,
     pub extra_routes: Router<Arc<IndexerServiceState<I>>>,
+    pub value_check_receiver: ValueCheckReceiver,
+    pub value_check_sender: ValueCheckSender,
 }
 
 pub struct IndexerServiceState<I>
@@ -178,6 +181,7 @@ where
     pub tap_manager: Manager<IndexerTapContext>,
     pub service_impl: Arc<I>,
     pub metrics: IndexerServiceMetrics,
+    pub value_check_sender: ValueCheckSender,
 }
 
 pub struct IndexerService {}
@@ -294,6 +298,7 @@ impl IndexerService {
             allocations,
             escrow_accounts,
             domain_separator.clone(),
+            options.value_check_receiver,
         )
         .await;
 
@@ -305,6 +310,7 @@ impl IndexerService {
             tap_manager,
             service_impl: Arc::new(options.service_impl),
             metrics,
+            value_check_sender: options.value_check_sender,
         });
 
         // Rate limits by allowing bursts of 10 requests and requiring 100ms of

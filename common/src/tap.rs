@@ -4,6 +4,7 @@
 use crate::tap::checks::allocation_eligible::AllocationEligible;
 use crate::tap::checks::deny_list_check::DenyListCheck;
 use crate::tap::checks::sender_balance_check::SenderBalanceCheck;
+use crate::tap::checks::value_check::MinimumValue;
 use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
 use alloy_sol_types::Eip712Domain;
 use eventuals::Eventual;
@@ -16,6 +17,10 @@ use tracing::error;
 
 mod checks;
 mod receipt_store;
+
+pub use checks::value_check::{
+    create_value_check, AgoraQuery, CostModelSource, ValueCheckReceiver, ValueCheckSender,
+};
 
 #[derive(Clone)]
 pub struct IndexerTapContext {
@@ -35,6 +40,7 @@ impl IndexerTapContext {
         indexer_allocations: Eventual<HashMap<Address, Allocation>>,
         escrow_accounts: Eventual<EscrowAccounts>,
         domain_separator: Eip712Domain,
+        value_check_receiver: ValueCheckReceiver,
     ) -> Vec<ReceiptCheck> {
         vec![
             Arc::new(AllocationEligible::new(indexer_allocations)),
@@ -43,6 +49,7 @@ impl IndexerTapContext {
                 domain_separator.clone(),
             )),
             Arc::new(DenyListCheck::new(pgpool, escrow_accounts, domain_separator).await),
+            Arc::new(MinimumValue::new(value_check_receiver)),
         ]
     }
 

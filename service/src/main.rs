@@ -12,9 +12,12 @@ use axum::{
     Json, Router,
 };
 use clap::Parser;
-use indexer_common::indexer_service::http::{
-    IndexerService, IndexerServiceImpl, IndexerServiceOptions, IndexerServiceRelease,
-    IndexerServiceResponse,
+use indexer_common::{
+    indexer_service::http::{
+        IndexerService, IndexerServiceImpl, IndexerServiceOptions, IndexerServiceRelease,
+        IndexerServiceResponse,
+    },
+    tap::{create_value_check, ValueCheckSender},
 };
 use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
@@ -104,6 +107,7 @@ pub struct SubgraphServiceState {
     pub graph_node_client: reqwest::Client,
     pub graph_node_status_url: String,
     pub graph_node_query_base_url: String,
+    pub value_check_sender: ValueCheckSender,
 }
 
 struct SubgraphService {
@@ -186,6 +190,9 @@ async fn main() -> Result<(), Error> {
     build_info::build_info!(fn build_info);
     let release = IndexerServiceRelease::from(build_info());
 
+    // arbitrary value
+    let (value_check_sender, value_check_receiver) = create_value_check(10);
+
     // Some of the subgrpah service configuration goes into the so-called
     // "state", which will be passed to any request handler, middleware etc.
     // that is involved in serving requests
@@ -212,6 +219,7 @@ async fn main() -> Result<(), Error> {
             .expect("config must have `common.graph_node.query_url` set")
             .query_base_url
             .clone(),
+        value_check_sender: value_check_sender.clone(),
     });
 
     IndexerService::run(IndexerServiceOptions {
@@ -224,6 +232,8 @@ async fn main() -> Result<(), Error> {
             .route("/cost", post(routes::cost::cost))
             .route("/status", post(routes::status))
             .with_state(state),
+        value_check_receiver,
+        value_check_sender,
     })
     .await
 }

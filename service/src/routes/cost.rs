@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::extract::State;
+use indexer_common::tap::CostModelSource;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thegraph::types::DeploymentId;
@@ -19,6 +20,16 @@ pub struct GraphQlCostModel {
     pub deployment: String,
     pub model: Option<String>,
     pub variables: Option<Value>,
+}
+
+impl From<CostModel> for CostModelSource {
+    fn from(value: CostModel) -> Self {
+        Self {
+            deployment_id: value.deployment,
+            model: value.model.unwrap_or_default(),
+            variables: value.variables.unwrap_or_default().to_string(),
+        }
+    }
 }
 
 impl From<CostModel> for GraphQlCostModel {
@@ -45,8 +56,20 @@ impl Query {
             .into_iter()
             .map(|s| DeploymentId::from_str(&s))
             .collect::<Result<Vec<DeploymentId>, _>>()?;
-        let pool = &ctx.data_unchecked::<Arc<SubgraphServiceState>>().database;
+        let state = &ctx.data_unchecked::<Arc<SubgraphServiceState>>();
+
+        let cost_model_sender = &state.value_check_sender;
+
+        let pool = &state.database;
         let cost_models = database::cost_models(pool, &deployment_ids).await?;
+
+        for model in &cost_models {
+            let _ = cost_model_sender
+                .tx_cost_model
+                .send(CostModelSource::from(model.clone()))
+                .await;
+        }
+
         Ok(cost_models.into_iter().map(|m| m.into()).collect())
     }
 
@@ -56,10 +79,20 @@ impl Query {
         deployment: String,
     ) -> Result<Option<GraphQlCostModel>, anyhow::Error> {
         let deployment_id = DeploymentId::from_str(&deployment)?;
+
+        let state = &ctx.data_unchecked::<Arc<SubgraphServiceState>>();
+        let cost_model_sender = &state.value_check_sender;
         let pool = &ctx.data_unchecked::<Arc<SubgraphServiceState>>().database;
-        database::cost_model(pool, &deployment_id)
-            .await
-            .map(|model_opt| model_opt.map(GraphQlCostModel::from))
+        let model = database::cost_model(pool, &deployment_id).await?;
+
+        if let Some(model) = &model {
+            let _ = cost_model_sender
+                .tx_cost_model
+                .send(CostModelSource::from(model.clone()))
+                .await;
+        }
+
+        Ok(model.map(GraphQlCostModel::from))
     }
 }
 
