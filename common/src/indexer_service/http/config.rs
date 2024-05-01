@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use thegraph::types::Address;
@@ -73,9 +72,9 @@ pub struct ScalarConfig {
     pub chain_id: u64,
     pub receipts_verifier_address: Address,
     #[serde(default = "half_min")]
-    pub timestamp_error_tolerance: Duration,
+    pub timestamp_error_tolerance: u64,
 }
 
-fn half_min() -> Duration {
-    Duration::from_secs(30)
+fn half_min() -> u64 {
+    30
 }

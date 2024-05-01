@@ -288,7 +288,8 @@ impl IndexerService {
         };
         let indexer_context =
             IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
-        let timestamp_error_tolerance = options.config.scalar.timestamp_error_tolerance;
+        let timestamp_error_tolerance =
+            Duration::from_secs(options.config.scalar.timestamp_error_tolerance);
 
         let checks = IndexerTapContext::get_checks(
             database,
