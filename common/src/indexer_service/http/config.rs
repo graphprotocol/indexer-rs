@@ -71,4 +71,10 @@ pub struct IndexerConfig {
 pub struct ScalarConfig {
     pub chain_id: u64,
     pub receipts_verifier_address: Address,
+    #[serde(default = "half_min")]
+    pub timestamp_error_tolerance: u64,
+}
+
+fn half_min() -> u64 {
+    30
 }

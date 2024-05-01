@@ -239,7 +239,7 @@ pub struct Tap {
         env = "RAV_REQUEST_TIMESTAMP_BUFFER",
         help = "Buffer (in ms) to add between the current time and the timestamp of the \
         last unaggregated fee when triggering a RAV request.",
-        default_value_t = 1_000 // 1 second
+        default_value_t = 60_000 // 60 seconds
     )]
     pub rav_request_timestamp_buffer_ms: u64,
     #[clap(
