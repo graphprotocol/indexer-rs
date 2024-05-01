@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_timestamp_more_than_tolerance() {
+    async fn test_timestamp_less_than_tolerance() {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("Time went backwards")
@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_timestamp_less_than_tolerance() {
+    async fn test_timestamp_more_than_tolerance() {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("Time went backwards")
