@@ -264,7 +264,7 @@ pub struct Tap {
         long,
         value_name = "rav-request-receipt-limit",
         env = "RAV_REQUEST_RECEIPT_LIMIT",
-        help = "Amount that will define the limit of receipts to aggregate per request",
+        help = "Maximum number of receipts per aggregation request",
         default_value_t = 10000
     )]
     pub rav_request_receipt_limit: u64,
