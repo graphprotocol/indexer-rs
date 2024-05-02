@@ -239,7 +239,7 @@ pub struct Tap {
         env = "RAV_REQUEST_TIMESTAMP_BUFFER",
         help = "Buffer (in ms) to add between the current time and the timestamp of the \
         last unaggregated fee when triggering a RAV request.",
-        default_value_t = 1_000 // 1 second
+        default_value_t = 60_000 // 60 seconds
     )]
     pub rav_request_timestamp_buffer_ms: u64,
     #[clap(
@@ -259,6 +259,15 @@ pub struct Tap {
         help = "YAML file with a map of sender addresses to aggregator endpoints."
     )]
     pub sender_aggregator_endpoints_file: PathBuf,
+
+    #[clap(
+        long,
+        value_name = "rav-request-receipt-limit",
+        env = "RAV_REQUEST_RECEIPT_LIMIT",
+        help = "Amount that will define the limit of receipts to aggregate per request",
+        default_value_t = 10000
+    )]
+    pub rav_request_receipt_limit: u64,
 }
 
 /// Sets up tracing, allows log level to be set from the environment variables

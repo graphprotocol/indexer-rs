@@ -334,8 +334,7 @@ impl SenderAllocationState {
             .tap_manager
             .create_rav_request(
                 self.config.tap.rav_request_timestamp_buffer_ms * 1_000_000,
-                // TODO: limit the number of receipts to aggregate per request.
-                None,
+                Some(self.config.tap.rav_request_receipt_limit),
             )
             .await
             .map_err(|e| match e {
@@ -628,6 +627,7 @@ mod tests {
                 rav_request_trigger_value: 100,
                 rav_request_timestamp_buffer_ms: 1,
                 rav_request_timeout_secs: 5,
+                rav_request_receipt_limit: 1000,
                 ..Default::default()
             },
             ..Default::default()
