@@ -259,6 +259,15 @@ pub struct Tap {
         help = "YAML file with a map of sender addresses to aggregator endpoints."
     )]
     pub sender_aggregator_endpoints_file: PathBuf,
+
+    #[clap(
+        long,
+        value_name = "rav-request-receipt-limit",
+        env = "RAV_REQUEST_RECEIPT_LIMIT",
+        help = "Maximum number of receipts per aggregation request",
+        default_value_t = 10000
+    )]
+    pub rav_request_receipt_limit: u64,
 }
 
 /// Sets up tracing, allows log level to be set from the environment variables
