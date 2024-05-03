@@ -1,0 +1,51 @@
+# WARNING:  This shows all the possible configuration options. Make sure you know what you are doing.
+#           Prefer starting with `minimal-config-example.toml`.
+#
+# All the optional values (missing from the minimal config) are set to the current default values.
+# You will have to change *most* the values below to match your setup.
+#
+# Some of the config below are global graph network values, which you can find here:
+# https://github.com/graphprotocol/indexer/tree/main/docs/networks
+#
+# Pro tip: if you need to load some values from the environment into this config, you
+# can use `envsubst`. https://linux.die.net/man/1/envsubst
+
+
+[common.indexer]
+indexer_address = "0x1111111111111111111111111111111111111111"
+operator_mnemonic = "abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon"
+
+[common.server]
+host_and_port = "0.0.0.0:7600"
+metrics_host_and_port = "0.0.0.0:7300"
+url_prefix = "/"
+
+[common.database]
+postgres_url = "postgresql://indexer@postgres:5432/indexer_components_0"
+
+[common.graph_node]
+status_url = "http://graph-node:8030/graphql"
+query_base_url = "http://graph-node:8000"
+
+[common.network_subgraph]
+serve_subgraph = false
+deployment = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+query_url = "http://example.com/network-subgraph"
+syncing_interval = 60
+recently_closed_allocation_buffer_seconds = 3600
+
+[common.escrow_subgraph]
+serve_subgraph = false
+deployment = "Qmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+query_url = "http://example.com/escrow-subgraph"
+syncing_interval = 60
+recently_closed_allocation_buffer_seconds = 3600
+
+[common.graph_network]
+id = 1
+chain_id = 99999999999999
+
+[common.scalar]
+chain_id = 99999999999999
+receipts_verifier_address = "0x2222222222222222222222222222222222222222"
+timestamp_error_tolerance = 30

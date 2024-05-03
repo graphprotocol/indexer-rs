@@ -63,10 +63,7 @@ thegraph-graphql-http = { version = "0.2.0", features = [
 ] }
 build-info = "0.0.34"
 figment = { version = "0.10", features = ["toml", "env"] }
-
-# FIXME: Needed due to a serde_spanned version conflict between
-# `ethers` and `figment`.
-serde_spanned = "=0.6.4"
+toml = "0.8.12"
 
 [dev-dependencies]
 faux = "0.1.10"
