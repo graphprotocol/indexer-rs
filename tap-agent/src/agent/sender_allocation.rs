@@ -10,6 +10,7 @@ use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
+use prometheus::{register_gauge_vec, GaugeVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
@@ -24,6 +25,8 @@ use tap_core::{
 use thegraph::types::Address;
 use tracing::{error, warn};
 
+use crate::lazy_static;
+
 use crate::agent::sender_account::SenderAccountMessage;
 use crate::agent::sender_accounts_manager::NewReceiptNotification;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
@@ -33,6 +36,15 @@ use crate::{
     tap::signers_trimmed,
     tap::{context::checks::AllocationId, escrow_adapter::EscrowAdapter},
 };
+
+lazy_static! {
+    static ref UNAGGREGATED_FEE_PER_SENDER_X_ALLOCATION: GaugeVec = register_gauge_vec!(
+        format!("unagregated_fee_per_sender_x_allocation"),
+        "Unggregated Fees",
+        &["sender_allocation"]
+    )
+    .unwrap();
+}
 
 type TapManager = tap_core::manager::Manager<TapAgentContext>;
 
@@ -99,6 +111,11 @@ impl Actor for SenderAllocation {
             allocation_id = %state.allocation_id,
             "SenderAllocation created!",
         );
+        let sender_allocation = state.sender.to_string() + "-" + &state.allocation_id.to_string();
+
+        UNAGGREGATED_FEE_PER_SENDER_X_ALLOCATION
+            .with_label_values(&[&sender_allocation])
+            .set(state.unaggregated_fees.value as f64);
 
         Ok(state)
     }
@@ -179,6 +196,12 @@ impl Actor for SenderAllocation {
                     match state.rav_requester_single().await {
                         Ok(_) => {
                             state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
+                            let sender_allocation =
+                                state.sender.to_string() + "-" + &state.allocation_id.to_string();
+
+                            UNAGGREGATED_FEE_PER_SENDER_X_ALLOCATION
+                                .with_label_values(&[&sender_allocation])
+                                .set(state.unaggregated_fees.value as f64);
                         }
                         Err(e) => {
                             error! (
