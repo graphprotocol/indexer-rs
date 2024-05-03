@@ -22,22 +22,29 @@ pub struct SubgraphConfig {
 
     pub deployment: Option<DeploymentId>,
     pub query_url: String,
+    #[serde_inline_default(60)]
     pub syncing_interval: u64,
     #[serde_inline_default(3600)]
     pub recently_closed_allocation_buffer_seconds: u64,
 }
 
+#[serde_inline_default]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ServerConfig {
+    #[serde_inline_default("0.0.0.0:7600".parse().unwrap())]
     pub host_and_port: SocketAddr,
+    #[serde_inline_default("0.0.0.0:7300".parse().unwrap())]
     pub metrics_host_and_port: SocketAddr,
+    #[serde_inline_default("/".to_string())]
     pub url_prefix: String,
     pub free_query_auth_token: Option<String>,
 }
 
+#[serde_inline_default]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct IndexerServiceConfig {
     pub indexer: IndexerConfig,
+    #[serde_inline_default(serde_json::from_str(r#"{}"#).unwrap())] // Allow missing
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub graph_node: Option<GraphNodeConfig>,
@@ -53,8 +60,10 @@ pub struct GraphNodeConfig {
     pub query_base_url: String,
 }
 
+#[serde_inline_default]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct GraphNetworkConfig {
+    #[serde_inline_default(1)]
     pub id: u64,
     pub chain_id: u64,
 }
