@@ -4,6 +4,7 @@
 use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
+use serde_inline_default::serde_inline_default;
 use thegraph::types::Address;
 use thegraph::types::DeploymentId;
 
@@ -12,6 +13,7 @@ pub struct DatabaseConfig {
     pub postgres_url: String,
 }
 
+#[serde_inline_default]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SubgraphConfig {
     #[serde(default)]
@@ -21,12 +23,8 @@ pub struct SubgraphConfig {
     pub deployment: Option<DeploymentId>,
     pub query_url: String,
     pub syncing_interval: u64,
-    #[serde(default = "one_hour")]
+    #[serde_inline_default(3600)]
     pub recently_closed_allocation_buffer_seconds: u64,
-}
-
-fn one_hour() -> u64 {
-    3600
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -67,15 +65,12 @@ pub struct IndexerConfig {
     pub operator_mnemonic: String,
 }
 
+#[serde_inline_default]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScalarConfig {
     pub chain_id: u64,
     pub receipts_verifier_address: Address,
-    #[serde(default = "half_min")]
+    #[serde_inline_default(30)]
     pub timestamp_error_tolerance: u64,
     pub receipt_max_value: u128,
-}
-
-fn half_min() -> u64 {
-    30
 }
