@@ -3237,6 +3237,7 @@ dependencies = [
  "indexer-common",
  "jsonrpsee 0.20.2",
  "lazy_static",
+ "prometheus",
  "ractor",
  "reqwest 0.12.3",
  "serde",
