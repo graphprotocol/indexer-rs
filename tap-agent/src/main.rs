@@ -6,7 +6,7 @@ use ractor::ActorStatus;
 use tokio::signal::unix::{signal, SignalKind};
 use tracing::{debug, error, info};
 
-use indexer_tap_agent::{agent, CONFIG};
+use indexer_tap_agent::{agent, metrics, CONFIG};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -16,6 +16,8 @@ async fn main() -> Result<()> {
 
     let (manager, handler) = agent::start_agent().await;
     info!("TAP Agent started.");
+
+    tokio::spawn(metrics::run_server(CONFIG.tap.metrics_port));
 
     // Have tokio wait for SIGTERM or SIGINT.
     let mut signal_sigint = signal(SignalKind::interrupt())?;
