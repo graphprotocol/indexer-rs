@@ -8,7 +8,7 @@
 # https://github.com/graphprotocol/indexer/tree/main/docs/networks
 #
 # Pro tip: if you need to load some values from the environment into this config, you
-# can use `envsubst`. https://linux.die.net/man/1/envsubst
+# can use shell expansions like with `envsubst`.
 
 
 [common.indexer]
