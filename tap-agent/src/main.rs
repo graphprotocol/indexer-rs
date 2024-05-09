@@ -18,6 +18,7 @@ async fn main() -> Result<()> {
     info!("TAP Agent started.");
 
     tokio::spawn(metrics::run_server(CONFIG.tap.metrics_port));
+    info!("Metrics port opened");
 
     // Have tokio wait for SIGTERM or SIGINT.
     let mut signal_sigint = signal(SignalKind::interrupt())?;
