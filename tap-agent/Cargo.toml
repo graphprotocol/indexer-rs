@@ -21,7 +21,7 @@ ethereum-types = "0.14.1"
 eventuals = "0.6.7"
 log = "0.4.19"
 prometheus = "0.13.3"
-axum = "0.6.18"
+axum = "0.7.5"
 futures-util = "0.3.28"
 indexer-common = { version = "0.1.0", path = "../common" }
 jsonrpsee = { version = "0.20.2", features = ["http-client", "macros"] }

@@ -3224,7 +3224,7 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "async-trait",
- "axum 0.6.20",
+ "axum 0.7.5",
  "bigdecimal 0.4.2",
  "clap",
  "confy",

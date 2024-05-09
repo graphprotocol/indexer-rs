@@ -3,7 +3,7 @@
 
 use std::{net::SocketAddr, panic};
 
-use axum::{http::StatusCode, response::IntoResponse, routing::get, Router, Server};
+use axum::{http::StatusCode, response::IntoResponse, routing::get, Router};
 use futures_util::FutureExt;
 use jsonrpsee::tracing::error;
 use log::{debug, info};
@@ -34,7 +34,8 @@ async fn _run_server(port: u16) {
         .route("/metrics", get(handler_metrics))
         .fallback(handler_404);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let server = Server::bind(&addr).serve(app.into_make_service());
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let server = axum::serve(listener, app.into_make_service());
 
     info!("Metrics server listening on {}", addr);
 
