@@ -47,7 +47,7 @@ lazy_static! {
     static ref UNAGGREGATED_FEE_PER_SENDER_X_ALLOCATION: GaugeVec = register_gauge_vec!(
         format!("unagregated_fee_per_sender_x_allocation"),
         "Unggregated Fees",
-        &["sender_allocation"]
+        &["sender", "allocation"]
     )
     .unwrap();
 }
@@ -69,7 +69,7 @@ lazy_static! {
     static ref RAVS_PER_SENDER_ALLOCATION: CounterVec = register_counter_vec!(
         format!("ravs_created_per_sender_allocation"),
         "RAVs updated or created per sender allocation",
-        &["sender_allocation"]
+        &["sender", "allocation"]
     )
     .unwrap();
 }
@@ -78,7 +78,7 @@ lazy_static! {
     static ref RAVS_FAILED_PER_SENDER_ALLOCATION: CounterVec = register_counter_vec!(
         format!("ravs_failed_per_sender_allocation"),
         "RAVs failed when created or updated per sender allocation",
-        &["sender_allocation"]
+        &["sender", "allocation"]
     )
     .unwrap();
 }
@@ -157,10 +157,9 @@ impl Actor for SenderAllocation {
             allocation_id = %state.allocation_id,
             "SenderAllocation created!",
         );
-        let sender_allocation = state.sender.to_string() + "-" + &state.allocation_id.to_string();
 
         UNAGGREGATED_FEE_PER_SENDER_X_ALLOCATION
-            .with_label_values(&[&sender_allocation])
+            .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
             .set(state.unaggregated_fees.value as f64);
 
         Ok(state)
@@ -178,7 +177,6 @@ impl Actor for SenderAllocation {
             allocation_id = %state.allocation_id,
             "Closing SenderAllocation, triggering last rav",
         );
-        let sender_allocation = state.sender.to_string() + "-" + &state.allocation_id.to_string();
         // Request a RAV and mark the allocation as final.
         if state.unaggregated_fees.value > 0 {
             state.rav_requester_single().await.inspect_err(|e| {
@@ -187,7 +185,10 @@ impl Actor for SenderAllocation {
                     state.sender, state.allocation_id, e
                 );
                 RAVS_FAILED_PER_SENDER_ALLOCATION
-                    .with_label_values(&[&sender_allocation])
+                    .with_label_values(&[
+                        &state.sender.to_string(),
+                        &state.allocation_id.to_string(),
+                    ])
                     .inc();
             })?;
         }
@@ -200,10 +201,6 @@ impl Actor for SenderAllocation {
 
         //Since this is only triggered after allocation is closed will be counted here
         CLOSED_ALLOCATIONS.inc();
-
-        RAVS_PER_SENDER_ALLOCATION
-            .with_label_values(&[&sender_allocation])
-            .inc();
 
         Ok(())
     }
@@ -252,14 +249,22 @@ impl Actor for SenderAllocation {
                     match state.rav_requester_single().await {
                         Ok(_) => {
                             state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
-                            let sender_allocation =
-                                state.sender.to_string() + "-" + &state.allocation_id.to_string();
 
                             UNAGGREGATED_FEE_PER_SENDER_X_ALLOCATION
-                                .with_label_values(&[&sender_allocation])
+                                .with_label_values(&[
+                                    &state.sender.to_string(),
+                                    &state.allocation_id.to_string(),
+                                ])
                                 .set(state.unaggregated_fees.value as f64);
                         }
                         Err(e) => {
+                            RAVS_FAILED_PER_SENDER_ALLOCATION
+                                .with_label_values(&[
+                                    &state.sender.to_string(),
+                                    &state.allocation_id.to_string(),
+                                ])
+                                .inc();
+
                             error! (
                                 %state.sender,
                                 %state.allocation_id,
@@ -498,7 +503,10 @@ impl SenderAllocationState {
         RAV_VALUE
             .with_label_values(&[&self.allocation_id.to_string()])
             .set(expected_rav.clone().valueAggregate as f64);
-        //TODO: ADD RAV VALUE
+        RAVS_PER_SENDER_ALLOCATION
+            .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+            .inc();
+
         Ok(())
     }
 
