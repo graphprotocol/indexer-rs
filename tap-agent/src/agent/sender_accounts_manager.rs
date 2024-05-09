@@ -456,6 +456,7 @@ async fn new_receipts_watcher(
         };
 
         let allocation_id = &new_receipt_notification.allocation_id;
+        let sender_allocation_str = sender_address.to_string() + "-" + &allocation_id.to_string();
 
         let actor_name = format!(
             "{}{sender_address}:{allocation_id}",
@@ -473,12 +474,6 @@ async fn new_receipts_watcher(
                     e
                 );
             }
-            // let sender_allocation_str =
-            //     sender_address.to_string() + "-" + &allocation_id.to_string();
-
-            // RECEIPTS_PER_SENDER_ALLOCATION
-            //     .with_label_values(&[&sender_allocation_str])
-            //     .inc();
         } else {
             warn!(
                 "No sender_allocation found for sender_address {}, allocation_id {} to process new \
@@ -487,6 +482,9 @@ async fn new_receipts_watcher(
                 allocation_id
             );
         }
+        RECEIPTS_PER_SENDER_ALLOCATION
+            .with_label_values(&[&sender_allocation_str])
+            .inc();
     }
 }
 
