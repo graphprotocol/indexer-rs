@@ -26,7 +26,7 @@ impl Check for ReceiptMaxValueCheck {
             Ok(())
         } else {
             Err(anyhow!(
-                "Receipt vallue `{}` is higher than the limit set by the user",
+                "Receipt value `{}` is higher than the limit set by the user",
                 receipt_value
             ))
         }
@@ -90,17 +90,25 @@ mod tests {
         ReceiptWithState::<Checking>::new(receipt)
     }
 
+    const RECEIPT_LIMIT: u128 = 10;
     #[tokio::test]
     async fn test_receipt_lower_than_limit() {
-        let signed_receipt = create_signed_receipt_with_custom_value(100);
-        let timestamp_check = ReceiptMaxValueCheck::new(10000);
+        let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT - 1);
+        let timestamp_check = ReceiptMaxValueCheck::new(RECEIPT_LIMIT);
         assert!(timestamp_check.check(&signed_receipt).await.is_ok());
     }
 
     #[tokio::test]
     async fn test_receipt_higher_than_limit() {
-        let signed_receipt = create_signed_receipt_with_custom_value(100000);
-        let timestamp_check = ReceiptMaxValueCheck::new(10000);
+        let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT + 1);
+        let timestamp_check = ReceiptMaxValueCheck::new(RECEIPT_LIMIT);
+        assert!(timestamp_check.check(&signed_receipt).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_receipt_same_as_limit() {
+        let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT);
+        let timestamp_check = ReceiptMaxValueCheck::new(RECEIPT_LIMIT);
         assert!(timestamp_check.check(&signed_receipt).await.is_err());
     }
 }
