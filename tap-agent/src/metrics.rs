@@ -5,9 +5,9 @@ use std::{net::SocketAddr, panic};
 
 use axum::{http::StatusCode, response::IntoResponse, routing::get, Router};
 use futures_util::FutureExt;
-use jsonrpsee::tracing::error;
 use log::{debug, info};
 use prometheus::TextEncoder;
+use tracing::error;
 
 async fn handler_metrics() -> (StatusCode, String) {
     let metric_families = prometheus::gather();
@@ -34,7 +34,9 @@ async fn _run_server(port: u16) {
         .route("/metrics", get(handler_metrics))
         .fallback(handler_404);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("Failed to Bind metrics address`");
     let server = axum::serve(listener, app.into_make_service());
 
     info!("Metrics server listening on {}", addr);
