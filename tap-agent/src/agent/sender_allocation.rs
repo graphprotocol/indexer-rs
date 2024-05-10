@@ -44,8 +44,8 @@ use crate::{
 };
 
 lazy_static! {
-    static ref UNAGGREGATED_FEE_PER_SENDER_X_ALLOCATION: GaugeVec = register_gauge_vec!(
-        format!("unagregated_fee_per_sender_x_allocation"),
+    static ref UNAGGREGATED_FEE_PER_SENDER_ALLOCATION: GaugeVec = register_gauge_vec!(
+        format!("unagregated_fee_per_sender_allocation"),
         "Unggregated Fees",
         &["sender", "allocation"]
     )
@@ -53,14 +53,18 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref RAV_VALUE: GaugeVec =
-        register_gauge_vec!(format!("rav_value"), "RAV Updated value", &["allocation"]).unwrap();
+    static ref RAV_VALUE: GaugeVec = register_gauge_vec!(
+        format!("rav_value"),
+        "RAV Updated value",
+        &["sender", "allocation"]
+    )
+    .unwrap();
 }
 
 lazy_static! {
-    static ref CLOSED_ALLOCATIONS: Counter = register_counter!(
-        format!("amount_of_closed_allocations"),
-        "allocations closed",
+    static ref CLOSED_SENDER_ALLOCATIONS: Counter = register_counter!(
+        format!("closed_sender_allocation_total"),
+        "Total count of sender-allocation managers closed.",
     )
     .unwrap();
 }
@@ -158,7 +162,7 @@ impl Actor for SenderAllocation {
             "SenderAllocation created!",
         );
 
-        UNAGGREGATED_FEE_PER_SENDER_X_ALLOCATION
+        UNAGGREGATED_FEE_PER_SENDER_ALLOCATION
             .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
             .set(state.unaggregated_fees.value as f64);
 
@@ -200,7 +204,7 @@ impl Actor for SenderAllocation {
         })?;
 
         //Since this is only triggered after allocation is closed will be counted here
-        CLOSED_ALLOCATIONS.inc();
+        CLOSED_SENDER_ALLOCATIONS.inc();
 
         Ok(())
     }
@@ -250,7 +254,7 @@ impl Actor for SenderAllocation {
                         Ok(_) => {
                             state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
 
-                            UNAGGREGATED_FEE_PER_SENDER_X_ALLOCATION
+                            UNAGGREGATED_FEE_PER_SENDER_ALLOCATION
                                 .with_label_values(&[
                                     &state.sender.to_string(),
                                     &state.allocation_id.to_string(),
@@ -501,7 +505,7 @@ impl SenderAllocationState {
         }
 
         RAV_VALUE
-            .with_label_values(&[&self.allocation_id.to_string()])
+            .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
             .set(expected_rav.clone().valueAggregate as f64);
         RAVS_PER_SENDER_ALLOCATION
             .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])

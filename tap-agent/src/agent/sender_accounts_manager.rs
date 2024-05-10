@@ -26,7 +26,7 @@ use crate::config;
 
 lazy_static! {
     static ref RECEIPTS_PER_SENDER_ALLOCATION: CounterVec = register_counter_vec!(
-        format!("aggregations_per_sender_x_allocation"),
+        format!("aggregations_per_sender_allocation"),
         "Unggregated Fees",
         &["sender", "allocation"]
     )
