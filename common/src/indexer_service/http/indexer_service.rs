@@ -291,12 +291,15 @@ impl IndexerService {
         let timestamp_error_tolerance =
             Duration::from_secs(options.config.scalar.timestamp_error_tolerance);
 
+        let receipt_max_value = options.config.scalar.receipt_max_value;
+
         let checks = IndexerTapContext::get_checks(
             database,
             allocations,
             escrow_accounts,
             domain_separator.clone(),
             timestamp_error_tolerance,
+            receipt_max_value,
         )
         .await;
 
