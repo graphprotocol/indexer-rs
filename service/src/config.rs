@@ -19,6 +19,14 @@ pub struct Config {
 impl Config {
     pub fn load(filename: &PathBuf) -> Result<Self> {
         let config_str = std::fs::read_to_string(filename)?;
+
+        // Remove TOML comments, so that we can have shell expansion examples in the file.
+        let config_str = config_str
+            .lines()
+            .filter(|line| !line.trim().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+
         let config_str = shellexpand::env(&config_str)?;
         Figment::new()
             .merge(Toml::string(&config_str))

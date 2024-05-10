@@ -4,7 +4,8 @@
 # https://github.com/graphprotocol/indexer/tree/main/docs/networks
 #
 # Pro tip: if you need to load some values from the environment into this config, you
-# can use shell expansions like with `envsubst`.
+# can use shell expansions with environment variables. Example:
+# postgres_url = "postgresql://indexer:${POSTGRES_PASSWORD}@postgres:5432/indexer_components_0"
 
 [common.indexer]
 indexer_address = "0x1111111111111111111111111111111111111111"
