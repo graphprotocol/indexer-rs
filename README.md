@@ -14,99 +14,22 @@ A Rust impl for The Graph [indexer service](https://github.com/graphprotocol/ind
 
 ## Quick start
 
-Configure required start-up args, check description by 
-```
-cargo run -p service -- --help
-```
+```txt
+$ cargo run -p service -- --help
 
-Set up configurations. To run with toml configurations
-```
-cargo run -- config "template.toml"
-
-```
-
-To run with CLI args
-```
-cargo run -- --ethereum <eth-node-provider> \
-  --mnemonic <operator-mnemonic> \
-  --indexer-address  <indexer-address ></indexer-address> \
-  --port 7300 \
-  --metrics-port 7500 \
-  --graph-node-query-endpoint http://localhost:8000 \
-  --graph-node-status-endpoint http://localhost:8030 \ 
-  --free-query-auth-token "free-query-auth" \
-  --postgres-host "127.0.0.1" \
-  --postgres-port 5432 \
-  --postgres-database postgres  \
-  --postgres-username <postgres-username> \
-  --postgres-password <postgres-password> \
-  --network-subgraph-endpoint "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network \
-  --network-subgraph-auth-token "network-subgraph-auth" \
-  --serve-network-subgraph true \
-  --client-signer-address "0xe1EC4339019eC9628438F8755f847e3023e4ff9c" \
-
-```
-
-
-## Configuring 
-
-```
-✗ cargo run -p service -- --help
-
-Usage: service [OPTIONS] <--ethereum <ethereum-node-provider>|--ethereum-polling-interval <ethereum-polling-interval>|--mnemonic <mnemonic>|--indexer-address <indexer-address>> <--port <port>|--metrics-port <metrics-port>|--graph-node-query-endpoint <graph-node-query-endpoint>|--graph-node-status-endpoint <graph-node-status-endpoint>|--log-level <log-level>|--gcloud-profiling|--free-query-auth-token <free-query-auth-token>> <--postgres-host <postgres-host>|--postgres-port <postgres-port>|--postgres-database <postgres-database>|--postgres-username <postgres-username>|--postgres-password <postgres-password>> <--network-subgraph-deployment <network-subgraph-deployment>|--network-subgraph-endpoint <network-subgraph-endpoint>|--network-subgraph-auth-token <network-subgraph-auth-token>|--serve-network-subgraph|--allocation-syncing-interval <allocation-syncing-interval>|--client-signer-address <client-signer-address>>
+Usage: service --config <FILE>
 
 Options:
-      --ethereum <ethereum-node-provider>
-          Ethereum node or provider URL [env: ETH_NODE=]
-      --ethereum-polling-interval <ethereum-polling-interval>
-          Polling interval for the Ethereum provider (ms) [env: ETHEREUM_POLLING_INTERVAL=] [default: 4000]
-      --mnemonic <mnemonic>
-          Mnemonic for the operator wallet [env: MNEMONIC=]
-      --indexer-address <indexer-address>
-          Ethereum address of the indexer [env: INDEXER_ADDRESS=]
-      --port <port>
-          Port to serve queries at [env: PORT=] [default: 7600]
-      --metrics-port <metrics-port>
-          Port to serve Prometheus metrics at [env: METRICS_PORT=] [default: 7300]
-      --graph-node-query-endpoint <graph-node-query-endpoint>
-          Graph node GraphQL HTTP service endpoint [env: GRAPH_NODE_QUERY_ENDPOINT=] [default: http://0.0.0.0:8000]
-      --graph-node-status-endpoint <graph-node-status-endpoint>
-          Graph node endpoint for the index node server [env: GRAPH_NODE_STATUS_ENDPOINT=] [default: http://0.0.0.0:8030]
-      --log-level <log-level>
-          Log level in RUST_LOG format [env: LOG_LEVEL=]
-      --gcloud-profiling
-          Whether to enable Google Cloud profiling [env: GCLOUD_PROFILING=]
-      --free-query-auth-token <free-query-auth-token>
-          Auth token that clients can use to query for free [env: FREE_QUERY_AUTH_TOKEN=]
-      --postgres-host <postgres-host>
-          Postgres host [env: POSTGRES_HOST=] [default: http://0.0.0.0/]
-      --postgres-port <postgres-port>
-          Postgres port [env: POSTGRES_PORT=] [default: 5432]
-      --postgres-database <postgres-database>
-          Postgres database name [env: POSTGRES_DATABASE=]
-      --postgres-username <postgres-username>
-          Postgres username [env: POSTGRES_USERNAME=] [default: postgres]
-      --postgres-password <postgres-password>
-          Postgres password [env: POSTGRES_PASSWORD=] [default: ]
-      --network-subgraph-deployment <network-subgraph-deployment>
-          Network subgraph deployment [env: NETWORK_SUBGRAPH_DEPLOYMENT=]
-      --network-subgraph-endpoint <network-subgraph-endpoint>
-          Endpoint to query the network subgraph from [env: NETWORK_SUBGRAPH_ENDPOINT=] [default: https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli]
-      --network-subgraph-auth-token <network-subgraph-auth-token>
-          Bearer token to require for /network queries [env: NETWORK_SUBGRAPH_AUTH_TOKEN=]
-      --serve-network-subgraph
-          Whether to serve the network subgraph at /network [env: SERVE_NETWORK_SUBGRAPH=]
-      --allocation-syncing-interval <allocation-syncing-interval>
-          Interval (in ms) for syncing indexer allocations from the network [env: ALLOCATION_SYNCING_INTERVAL=] [default: 120000]
-      --client-signer-address <client-signer-address>
-          Address that signs query fee receipts from a known client [env: CLIENT_SIGNER_ADDRESS=]
-  -c <config>
-          Indexer service configuration file (YAML format) [env: CONFIG=]
-  -h, --help
-          Print help
-  -V, --version
-          Print version
+      --config <FILE>  Path to the configuration file.
+                       See https://github.com/graphprotocol/indexer-rs/tree/main/service for examples.
+  -h, --help           Print help
 ```
+
+All the configuration is done through a TOML file. Please see up-to-date TOML configuration templates:
+
+- [Minimal configuration template (recommended)](service/minimal-config-example.toml)
+- [Maximal configuration template (not recommended, dangerous settings)](service/maximal-config-example.toml)
+
 ## Upgrading
 
 We follow conventional semantics for package versioning. An indexer may set a minor version specification for automatic patch updates while preventing breaking changes. To safely upgrading the package, we recommend the following steps:

@@ -1,0 +1,54 @@
+# You will have to change *all* the values below to match your setup.
+#
+# Some of the config below are global graph network values, which you can find here:
+# https://github.com/graphprotocol/indexer/tree/main/docs/networks
+#
+# Pro tip: if you need to load some values from the environment into this config, you
+# can use shell expansions with environment variables. Example:
+# postgres_url = "postgresql://indexer:${POSTGRES_PASSWORD}@postgres:5432/indexer_components_0"
+
+[common.indexer]
+indexer_address = "0x1111111111111111111111111111111111111111"
+operator_mnemonic = "abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon abondon"
+
+[common.graph_node]
+# URL to your graph-node's status endpoint
+status_url = "http://graph-node:8030/graphql"
+# URL to your graph-node's query endpoint
+query_base_url = "http://graph-node:8000"
+
+[common.database]
+# The URL of the Postgres database used for the indexer components. The same database
+# that is used by the `indexer-agent`. It is expected that `indexer-agent` will create
+# the necessary tables.
+postgres_url = "postgresql://indexer@postgres:5432/indexer_components_0"
+
+[common.network_subgraph]
+# Query URL for the Graph Network subgraph.
+query_url = "http://example.com/network-subgraph"
+# Optional, deployment to look for in the local `graph-node`, if locally indexed.
+# Locally indexing the subgraph is recommended.
+deployment = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+[common.escrow_subgraph]
+# Query URL for the Escrow subgraph.
+query_url = "http://example.com/escrow-subgraph"
+# Optional, deployment to look for in the local `graph-node`, if locally indexed.
+# Locally indexing the subgraph is recommended.
+deployment = "Qmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+[common.graph_network]
+# The chain ID of the network that the graph network is running on
+chain_id = 99999999999999
+
+[common.scalar]
+# The chain ID of the network that the graph network is running on
+# Should be the same as the chain ID of the network that the graph network is running on
+chain_id = 99999999999999
+# Contract address of TAP's receipt aggregate voucher (RAV) verifier.
+receipts_verifier_address = "0x2222222222222222222222222222222222222222"
+# Maximum value of a receipt, in GRT wei.
+# We need this because a large receipt, especially if it's larger than the RAV request trigger,
+# or worse, the unaggregated receipts limit (tap-agent), can cause the indexer to refuse service
+# to the sender for the duration of RAV request timestamp buffer.
+receipt_max_value = 1000000000000000  # 0.001 GRT
