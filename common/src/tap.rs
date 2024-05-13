@@ -3,6 +3,7 @@
 
 use crate::tap::checks::allocation_eligible::AllocationEligible;
 use crate::tap::checks::deny_list_check::DenyListCheck;
+use crate::tap::checks::receipt_max_val_check::ReceiptMaxValueCheck;
 use crate::tap::checks::sender_balance_check::SenderBalanceCheck;
 use crate::tap::checks::timestamp_check::TimestampCheck;
 use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
@@ -38,6 +39,7 @@ impl IndexerTapContext {
         escrow_accounts: Eventual<EscrowAccounts>,
         domain_separator: Eip712Domain,
         timestamp_error_tolerance: Duration,
+        receipt_max_value: u128,
     ) -> Vec<ReceiptCheck> {
         vec![
             Arc::new(AllocationEligible::new(indexer_allocations)),
@@ -47,6 +49,7 @@ impl IndexerTapContext {
             )),
             Arc::new(TimestampCheck::new(timestamp_error_tolerance)),
             Arc::new(DenyListCheck::new(pgpool, escrow_accounts, domain_separator).await),
+            Arc::new(ReceiptMaxValueCheck::new(receipt_max_value)),
         ]
     }
 

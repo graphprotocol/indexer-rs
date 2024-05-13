@@ -73,6 +73,7 @@ pub struct ScalarConfig {
     pub receipts_verifier_address: Address,
     #[serde(default = "half_min")]
     pub timestamp_error_tolerance: u64,
+    pub receipt_max_value: u128,
 }
 
 fn half_min() -> u64 {
