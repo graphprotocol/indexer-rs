@@ -1,7 +1,10 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
@@ -10,6 +13,10 @@ use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
+use prometheus::{
+    register_counter, register_counter_vec, register_gauge_vec, register_histogram_vec, Counter,
+    CounterVec, GaugeVec, HistogramVec,
+};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
@@ -24,6 +31,8 @@ use tap_core::{
 use thegraph::types::Address;
 use tracing::{error, warn};
 
+use crate::lazy_static;
+
 use crate::agent::sender_account::SenderAccountMessage;
 use crate::agent::sender_accounts_manager::NewReceiptNotification;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
@@ -33,6 +42,59 @@ use crate::{
     tap::signers_trimmed,
     tap::{context::checks::AllocationId, escrow_adapter::EscrowAdapter},
 };
+
+lazy_static! {
+    static ref UNAGGREGATED_FEES: GaugeVec = register_gauge_vec!(
+        format!("unagregated_fees"),
+        "Unggregated Fees",
+        &["sender", "allocation"]
+    )
+    .unwrap();
+}
+
+lazy_static! {
+    static ref RAV_VALUE: GaugeVec = register_gauge_vec!(
+        format!("rav_value"),
+        "RAV Updated value",
+        &["sender", "allocation"]
+    )
+    .unwrap();
+}
+
+lazy_static! {
+    static ref CLOSED_SENDER_ALLOCATIONS: Counter = register_counter!(
+        format!("closed_sender_allocation_total"),
+        "Total count of sender-allocation managers closed.",
+    )
+    .unwrap();
+}
+
+lazy_static! {
+    static ref RAVS_CREATED: CounterVec = register_counter_vec!(
+        format!("ravs_created"),
+        "RAVs updated or created per sender allocation",
+        &["sender", "allocation"]
+    )
+    .unwrap();
+}
+
+lazy_static! {
+    static ref RAVS_FAILED: CounterVec = register_counter_vec!(
+        format!("ravs_failed"),
+        "RAVs failed when created or updated per sender allocation",
+        &["sender", "allocation"]
+    )
+    .unwrap();
+}
+
+lazy_static! {
+    static ref RAV_RESPONSE_TIME: HistogramVec = register_histogram_vec!(
+        format!("rav_response_time"),
+        "RAV response time per sender",
+        &["sender"]
+    )
+    .unwrap();
+}
 
 type TapManager = tap_core::manager::Manager<TapAgentContext>;
 
@@ -100,6 +162,10 @@ impl Actor for SenderAllocation {
             "SenderAllocation created!",
         );
 
+        UNAGGREGATED_FEES
+            .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
+            .set(state.unaggregated_fees.value as f64);
+
         Ok(state)
     }
 
@@ -115,7 +181,6 @@ impl Actor for SenderAllocation {
             allocation_id = %state.allocation_id,
             "Closing SenderAllocation, triggering last rav",
         );
-
         // Request a RAV and mark the allocation as final.
         if state.unaggregated_fees.value > 0 {
             state.rav_requester_single().await.inspect_err(|e| {
@@ -123,6 +188,12 @@ impl Actor for SenderAllocation {
                     "Error while requesting RAV for sender {} and allocation {}: {}",
                     state.sender, state.allocation_id, e
                 );
+                RAVS_FAILED
+                    .with_label_values(&[
+                        &state.sender.to_string(),
+                        &state.allocation_id.to_string(),
+                    ])
+                    .inc();
             })?;
         }
         state.mark_rav_last().await.inspect_err(|e| {
@@ -131,6 +202,9 @@ impl Actor for SenderAllocation {
                 state.allocation_id, state.sender, e
             );
         })?;
+
+        //Since this is only triggered after allocation is closed will be counted here
+        CLOSED_SENDER_ALLOCATIONS.inc();
 
         Ok(())
     }
@@ -179,8 +253,22 @@ impl Actor for SenderAllocation {
                     match state.rav_requester_single().await {
                         Ok(_) => {
                             state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
+
+                            UNAGGREGATED_FEES
+                                .with_label_values(&[
+                                    &state.sender.to_string(),
+                                    &state.allocation_id.to_string(),
+                                ])
+                                .set(state.unaggregated_fees.value as f64);
                         }
                         Err(e) => {
+                            RAVS_FAILED
+                                .with_label_values(&[
+                                    &state.sender.to_string(),
+                                    &state.allocation_id.to_string(),
+                                ])
+                                .inc();
+
                             error! (
                                 %state.sender,
                                 %state.allocation_id,
@@ -363,6 +451,7 @@ impl SenderAllocationState {
                 self.config.tap.rav_request_timeout_secs,
             ))
             .build(&self.sender_aggregator_endpoint)?;
+        let rav_response_time_start = Instant::now();
         let response: JsonRpcResponse<EIP712SignedMessage<ReceiptAggregateVoucher>> = client
             .request(
                 "aggregate_receipts",
@@ -373,6 +462,12 @@ impl SenderAllocationState {
                 ),
             )
             .await?;
+
+        let rav_response_time = rav_response_time_start.elapsed();
+        RAV_RESPONSE_TIME
+            .with_label_values(&[&self.sender.to_string()])
+            .observe(rav_response_time.as_secs_f64());
+
         if let Some(warnings) = response.warnings {
             warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
         }
@@ -408,6 +503,14 @@ impl SenderAllocationState {
                 anyhow::bail!("Error while verifying and storing RAV: {:?}", e);
             }
         }
+
+        RAV_VALUE
+            .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+            .set(expected_rav.clone().valueAggregate as f64);
+        RAVS_CREATED
+            .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+            .inc();
+
         Ok(())
     }
 

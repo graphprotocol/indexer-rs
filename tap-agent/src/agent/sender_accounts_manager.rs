@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::{collections::HashMap, str::FromStr};
 
 use crate::agent::sender_allocation::SenderAllocationMessage;
+use crate::lazy_static;
 use alloy_sol_types::Eip712Domain;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -18,8 +19,19 @@ use thegraph::types::Address;
 use tokio::select;
 use tracing::{error, warn};
 
+use prometheus::{register_counter_vec, CounterVec};
+
 use super::sender_account::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
 use crate::config;
+
+lazy_static! {
+    static ref RECEIPTS_CREATED: CounterVec = register_counter_vec!(
+        format!("receipt_creted"),
+        "Receipt created",
+        &["sender", "allocation"]
+    )
+    .unwrap();
+}
 
 #[derive(Deserialize, Debug)]
 pub struct NewReceiptNotification {
@@ -444,6 +456,7 @@ async fn new_receipts_watcher(
         };
 
         let allocation_id = &new_receipt_notification.allocation_id;
+        let allocation_str = &allocation_id.to_string();
 
         let actor_name = format!(
             "{}{sender_address}:{allocation_id}",
@@ -469,6 +482,9 @@ async fn new_receipts_watcher(
                 allocation_id
             );
         }
+        RECEIPTS_CREATED
+            .with_label_values(&[&sender_address.to_string(), &allocation_str])
+            .inc();
     }
 }
 
