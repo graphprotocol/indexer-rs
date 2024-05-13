@@ -44,8 +44,8 @@ use crate::{
 };
 
 lazy_static! {
-    static ref UNAGGREGATED_FEE_PER_SENDER_ALLOCATION: GaugeVec = register_gauge_vec!(
-        format!("unagregated_fee_per_sender_allocation"),
+    static ref UNAGGREGATED_FEES: GaugeVec = register_gauge_vec!(
+        format!("unagregated_fees"),
         "Unggregated Fees",
         &["sender", "allocation"]
     )
@@ -70,8 +70,8 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref RAVS_PER_SENDER_ALLOCATION: CounterVec = register_counter_vec!(
-        format!("ravs_created_per_sender_allocation"),
+    static ref RAVS_CREATED: CounterVec = register_counter_vec!(
+        format!("ravs_created"),
         "RAVs updated or created per sender allocation",
         &["sender", "allocation"]
     )
@@ -79,8 +79,8 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref RAVS_FAILED_PER_SENDER_ALLOCATION: CounterVec = register_counter_vec!(
-        format!("ravs_failed_per_sender_allocation"),
+    static ref RAVS_FAILED: CounterVec = register_counter_vec!(
+        format!("ravs_failed"),
         "RAVs failed when created or updated per sender allocation",
         &["sender", "allocation"]
     )
@@ -88,8 +88,8 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref RAV_RESPONSE_TIME_PER_SENDER: HistogramVec = register_histogram_vec!(
-        format!("rav_response_time_per_sender"),
+    static ref RAV_RESPONSE_TIME: HistogramVec = register_histogram_vec!(
+        format!("rav_response_time"),
         "RAV response time per sender",
         &["sender"]
     )
@@ -162,7 +162,7 @@ impl Actor for SenderAllocation {
             "SenderAllocation created!",
         );
 
-        UNAGGREGATED_FEE_PER_SENDER_ALLOCATION
+        UNAGGREGATED_FEES
             .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
             .set(state.unaggregated_fees.value as f64);
 
@@ -188,7 +188,7 @@ impl Actor for SenderAllocation {
                     "Error while requesting RAV for sender {} and allocation {}: {}",
                     state.sender, state.allocation_id, e
                 );
-                RAVS_FAILED_PER_SENDER_ALLOCATION
+                RAVS_FAILED
                     .with_label_values(&[
                         &state.sender.to_string(),
                         &state.allocation_id.to_string(),
@@ -254,7 +254,7 @@ impl Actor for SenderAllocation {
                         Ok(_) => {
                             state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
 
-                            UNAGGREGATED_FEE_PER_SENDER_ALLOCATION
+                            UNAGGREGATED_FEES
                                 .with_label_values(&[
                                     &state.sender.to_string(),
                                     &state.allocation_id.to_string(),
@@ -262,7 +262,7 @@ impl Actor for SenderAllocation {
                                 .set(state.unaggregated_fees.value as f64);
                         }
                         Err(e) => {
-                            RAVS_FAILED_PER_SENDER_ALLOCATION
+                            RAVS_FAILED
                                 .with_label_values(&[
                                     &state.sender.to_string(),
                                     &state.allocation_id.to_string(),
@@ -464,7 +464,7 @@ impl SenderAllocationState {
             .await?;
 
         let rav_response_time = rav_response_time_start.elapsed();
-        RAV_RESPONSE_TIME_PER_SENDER
+        RAV_RESPONSE_TIME
             .with_label_values(&[&self.sender.to_string()])
             .observe(rav_response_time.as_secs_f64());
 
@@ -507,7 +507,7 @@ impl SenderAllocationState {
         RAV_VALUE
             .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
             .set(expected_rav.clone().valueAggregate as f64);
-        RAVS_PER_SENDER_ALLOCATION
+        RAVS_CREATED
             .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
             .inc();
 

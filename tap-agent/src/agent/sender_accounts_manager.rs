@@ -25,9 +25,9 @@ use super::sender_account::{SenderAccount, SenderAccountArgs, SenderAccountMessa
 use crate::config;
 
 lazy_static! {
-    static ref RECEIPTS_PER_SENDER_ALLOCATION: CounterVec = register_counter_vec!(
-        format!("aggregations_per_sender_allocation"),
-        "Unggregated Fees",
+    static ref RECEIPTS_CREATED: CounterVec = register_counter_vec!(
+        format!("receipt_creted"),
+        "Receipt created",
         &["sender", "allocation"]
     )
     .unwrap();
@@ -482,7 +482,7 @@ async fn new_receipts_watcher(
                 allocation_id
             );
         }
-        RECEIPTS_PER_SENDER_ALLOCATION
+        RECEIPTS_CREATED
             .with_label_values(&[&sender_address.to_string(), &allocation_str])
             .inc();
     }
