@@ -81,5 +81,5 @@ pub struct ScalarConfig {
     pub receipts_verifier_address: Address,
     #[serde_inline_default(30)]
     pub timestamp_error_tolerance: u64,
-    pub receipt_max_value: u128,
+    pub receipt_max_value: u64,
 }

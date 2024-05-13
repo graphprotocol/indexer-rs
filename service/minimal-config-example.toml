@@ -47,3 +47,8 @@ chain_id = 99999999999999
 chain_id = 99999999999999
 # Contract address of TAP's receipt aggregate voucher (RAV) verifier.
 receipts_verifier_address = "0x2222222222222222222222222222222222222222"
+# Maximum value of a receipt, in GRT wei.
+# We need this because a large receipt, especially if it's larger than the RAV request trigger,
+# or worse, the unaggregated receipts limit (tap-agent), can cause the indexer to refuse service
+# to the sender for the duration of RAV request timestamp buffer.
+receipt_max_value = 1000000000000000  # 0.001 GRT
