@@ -3,6 +3,7 @@
 
 use std::collections::HashSet;
 
+use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
 use anyhow::Result;
 use eventuals::{Eventual, EventualExt, PipeHandle};
@@ -27,6 +28,8 @@ pub enum SenderAccountMessage {
     UpdateReceiptFees(Address, UnaggregatedReceipts),
     #[cfg(test)]
     GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
+    #[cfg(test)]
+    GetDeny(ractor::RpcReplyPort<bool>),
 }
 
 /// A SenderAccount manages the receipts accounting between the indexer and the sender across
@@ -58,6 +61,9 @@ pub struct State {
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: PipeHandle,
     sender: Address,
+
+    // Deny reasons
+    deny: bool,
 
     //Eventuals
     escrow_accounts: Eventual<EscrowAccounts>,
@@ -129,6 +135,56 @@ impl State {
         self.sender_fee_tracker.update(allocation_id, result.value);
         Ok(())
     }
+
+    /// Deny the sender if the total fee is greater than the max-unnaggregated-fees-per-sender.
+    /// Will update [`State::deny`], as well as the denylist table in the database.
+    async fn maybe_deny(&mut self) {
+        if self.sender_fee_tracker.get_total_fee()
+            >= self.config.tap.max_unnaggregated_fees_per_sender.into()
+        {
+            tracing::warn!(
+                total_fee = self.sender_fee_tracker.get_total_fee(),
+                max_value = self.config.tap.max_unnaggregated_fees_per_sender,
+                "Total fee greater than max-unnaggregated-fees-per-sender. Denying sender."
+            );
+            self.deny = true;
+            sqlx::query!(
+                r#"
+                    INSERT INTO scalar_tap_denylist (sender_address)
+                    VALUES ($1) ON CONFLICT DO NOTHING
+                "#,
+                self.sender.encode_hex::<String>(),
+            )
+            .execute(&self.pgpool)
+            .await
+            .expect("Should not fail to insert into denylist");
+        }
+    }
+
+    /// Allow the sender if the total fee is less than the max-unnaggregated-fees-per-sender.
+    /// Will update [`State::deny`], as well as the denylist table in the database.
+    async fn maybe_allow(&mut self) {
+        if self.sender_fee_tracker.get_total_fee()
+            < self.config.tap.max_unnaggregated_fees_per_sender.into()
+        {
+            tracing::info!(
+                total_fee = self.sender_fee_tracker.get_total_fee(),
+                max_value = self.config.tap.max_unnaggregated_fees_per_sender,
+                "Total fee fell below max-unnaggregated-fees-per-sender. Allowing sender again."
+            );
+            self.deny = false;
+            sqlx::query!(
+                r#"
+                    DELETE FROM scalar_tap_denylist 
+                    WHERE sender_address = $1
+                "#,
+                self.sender.encode_hex::<String>(),
+            )
+            .execute(&self.pgpool)
+            .await
+            .expect("Should not fail to delete from denylist");
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -171,6 +227,22 @@ impl Actor for SenderAccount {
 
         let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone(), sender_id);
 
+        // Get deny status from the scalar_tap_denylist table
+        let deny = sqlx::query!(
+            r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM scalar_tap_denylist
+                    WHERE sender_address = $1
+                ) as deny
+            "#,
+            sender_id.encode_hex::<String>(),
+        )
+        .fetch_one(&pgpool)
+        .await?
+        .deny
+        .expect("Deny status cannot be null");
+
         let state = State {
             sender_fee_tracker: SenderFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
@@ -184,6 +256,7 @@ impl Actor for SenderAccount {
             config,
             pgpool,
             sender: sender_id,
+            deny,
         };
 
         for allocation_id in &allocation_ids {
@@ -214,16 +287,31 @@ impl Actor for SenderAccount {
         );
         match message {
             SenderAccountMessage::UpdateReceiptFees(allocation_id, unaggregated_fees) => {
-                let tracker = &mut state.sender_fee_tracker;
-                tracker.update(allocation_id, unaggregated_fees.value);
+                state
+                    .sender_fee_tracker
+                    .update(allocation_id, unaggregated_fees.value);
 
-                if tracker.get_total_fee() >= state.config.tap.rav_request_trigger_value.into() {
+                // Eagerly deny the sender (if needed), before the RAV request. To be sure not to
+                // delay the denial because of the RAV request, which could take some time.
+                if !state.deny {
+                    state.maybe_deny().await;
+                }
+
+                if state.sender_fee_tracker.get_total_fee()
+                    >= state.config.tap.rav_request_trigger_value.into()
+                {
                     tracing::debug!(
-                        total_fee = tracker.get_total_fee(),
+                        total_fee = state.sender_fee_tracker.get_total_fee(),
                         trigger_value = state.config.tap.rav_request_trigger_value,
                         "Total fee greater than the trigger value. Triggering RAV request"
                     );
                     state.rav_requester_single().await?;
+                }
+
+                // Maybe allow the sender right after the potential RAV request. This way, the
+                // sender can be allowed again as soon as possible if the RAV was successful.
+                if state.deny {
+                    state.maybe_allow().await;
                 }
             }
             SenderAccountMessage::UpdateAllocationIds(allocation_ids) => {
@@ -255,6 +343,12 @@ impl Actor for SenderAccount {
             SenderAccountMessage::GetSenderFeeTracker(reply) => {
                 if !reply.is_closed() {
                     let _ = reply.send(state.sender_fee_tracker.clone());
+                }
+            }
+            #[cfg(test)]
+            SenderAccountMessage::GetDeny(reply) => {
+                if !reply.is_closed() {
+                    let _ = reply.send(state.deny);
                 }
             }
         }
@@ -337,12 +431,13 @@ pub mod tests {
     use crate::tap::test_utils::{
         ALLOCATION_ID_0, INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };
+    use alloy_primitives::hex::ToHex;
     use alloy_primitives::Address;
     use eventuals::Eventual;
     use indexer_common::escrow_accounts::EscrowAccounts;
     use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
     use ractor::concurrency::JoinHandle;
-    use ractor::{Actor, ActorProcessingErr, ActorRef, ActorStatus};
+    use ractor::{call, Actor, ActorProcessingErr, ActorRef, ActorStatus};
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::{AtomicBool, AtomicU32};
@@ -371,6 +466,8 @@ pub mod tests {
     async fn create_sender_account(
         pgpool: PgPool,
         initial_allocation: HashSet<Address>,
+        rav_request_trigger_value: u64,
+        max_unnaggregated_fees_per_sender: u64,
     ) -> (
         ActorRef<SenderAccountMessage>,
         tokio::task::JoinHandle<()>,
@@ -382,9 +479,10 @@ pub mod tests {
                 indexer_address: INDEXER.1,
             },
             tap: config::Tap {
-                rav_request_trigger_value: TRIGGER_VALUE as u64,
+                rav_request_trigger_value,
                 rav_request_timestamp_buffer_ms: 1,
                 rav_request_timeout_secs: 5,
+                max_unnaggregated_fees_per_sender,
                 ..Default::default()
             },
             ..Default::default()
@@ -428,7 +526,13 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_update_allocation_ids(pgpool: PgPool) {
-        let (sender_account, handle, prefix) = create_sender_account(pgpool, HashSet::new()).await;
+        let (sender_account, handle, prefix) = create_sender_account(
+            pgpool,
+            HashSet::new(),
+            TRIGGER_VALUE as u64,
+            TRIGGER_VALUE as u64 * 2,
+        )
+        .await;
 
         // we expect it to create a sender allocation
         sender_account
@@ -545,7 +649,13 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
-        let (sender_account, handle, prefix) = create_sender_account(pgpool, HashSet::new()).await;
+        let (sender_account, handle, prefix) = create_sender_account(
+            pgpool,
+            HashSet::new(),
+            TRIGGER_VALUE as u64,
+            TRIGGER_VALUE as u64 * 2,
+        )
+        .await;
 
         let (triggered_rav_request, allocation, allocation_handle) =
             create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
@@ -574,7 +684,13 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_update_receipt_fees_trigger_rav(pgpool: PgPool) {
-        let (sender_account, handle, prefix) = create_sender_account(pgpool, HashSet::new()).await;
+        let (sender_account, handle, prefix) = create_sender_account(
+            pgpool,
+            HashSet::new(),
+            TRIGGER_VALUE as u64,
+            TRIGGER_VALUE as u64 * 2,
+        )
+        .await;
 
         let (triggered_rav_request, allocation, allocation_handle) =
             create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
@@ -603,8 +719,13 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_remove_sender_account(pgpool: PgPool) {
-        let (sender_account, handle, prefix) =
-            create_sender_account(pgpool, vec![*ALLOCATION_ID_0].into_iter().collect()).await;
+        let (sender_account, handle, prefix) = create_sender_account(
+            pgpool,
+            vec![*ALLOCATION_ID_0].into_iter().collect(),
+            TRIGGER_VALUE as u64,
+            TRIGGER_VALUE as u64 * 2,
+        )
+        .await;
 
         // check if allocation exists
         let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
@@ -625,6 +746,111 @@ pub mod tests {
         // check if sender_allocation is also stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
 
+        handle.await.unwrap();
+    }
+
+    /// Test that the deny status is correctly loaded from the DB at the start of the actor
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_init_deny(pgpool: PgPool) {
+        sqlx::query!(
+            r#"
+                INSERT INTO scalar_tap_denylist (sender_address)
+                VALUES ($1)
+            "#,
+            SENDER.1.encode_hex::<String>(),
+        )
+        .execute(&pgpool)
+        .await
+        .expect("Should not fail to insert into denylist");
+
+        let (sender_account, _handle, _) = create_sender_account(
+            pgpool.clone(),
+            HashSet::new(),
+            TRIGGER_VALUE as u64,
+            TRIGGER_VALUE as u64 * 2,
+        )
+        .await;
+
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(deny);
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_deny_allow(pgpool: PgPool) {
+        async fn get_deny_status(pgpool: PgPool) -> bool {
+            sqlx::query!(
+                r#"
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM scalar_tap_denylist
+                        WHERE sender_address = $1
+                    ) as deny
+                "#,
+                SENDER.1.encode_hex::<String>(),
+            )
+            .fetch_one(&pgpool)
+            .await
+            .unwrap()
+            .deny
+            .expect("Deny status cannot be null")
+        }
+
+        // Making sure no RAV is gonna be triggered during the test
+        let (sender_account, handle, _) =
+            create_sender_account(pgpool.clone(), HashSet::new(), u64::MAX, 1000).await;
+
+        // Set unnaggregated fees under the max_unnaggregated_fees_per_sender threshold
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                UnaggregatedReceipts {
+                    value: 800,
+                    last_id: 10,
+                },
+            ))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // check sender is not denied
+        let deny = get_deny_status(pgpool.clone()).await;
+        assert!(!deny);
+
+        // Set unnaggregated fees over the max_unnaggregated_fees_per_sender threshold
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                UnaggregatedReceipts {
+                    value: 1000,
+                    last_id: 11,
+                },
+            ))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // check if sender is denied
+        let deny = get_deny_status(pgpool.clone()).await;
+        assert!(deny);
+
+        // Set unnaggregated fees under the max_unnaggregated_fees_per_sender threshold
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                UnaggregatedReceipts {
+                    value: 800,
+                    last_id: 12,
+                },
+            ))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // check sender is not denied anymore
+        let deny = get_deny_status(pgpool.clone()).await;
+        assert!(!deny);
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
         handle.await.unwrap();
     }
 }

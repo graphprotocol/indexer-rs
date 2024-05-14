@@ -276,6 +276,18 @@ pub struct Tap {
         default_value_t = 10000
     )]
     pub rav_request_receipt_limit: u64,
+
+    #[clap(
+        long,
+        value_name = "max-unnaggregated-fees-per-sender",
+        env = "MAX_UNNAGGREGATED_FEES_PER_SENDER",
+        help = "Maximum amount of unaggregated fees in GRT per sender. This is the amount of fees \
+        you are willing to risk at any given time. For ex. if the sender stops supplying RAVs for \
+        long enough and the fees exceed this amount, the indexer-service will stop accepting \
+        queries from the sender until the fees are aggregated.",
+        default_value_t = 20
+    )]
+    pub max_unnaggregated_fees_per_sender: u64,
 }
 
 /// Sets up tracing, allows log level to be set from the environment variables
