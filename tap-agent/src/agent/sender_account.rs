@@ -63,7 +63,7 @@ pub struct State {
     sender: Address,
 
     // Deny reasons
-    deny: bool,
+    denied: bool,
 
     //Eventuals
     escrow_accounts: Eventual<EscrowAccounts>,
@@ -136,18 +136,9 @@ impl State {
         Ok(())
     }
 
-    /// Deny the sender if the total fee is greater than the max-unnaggregated-fees-per-sender.
-    /// Will update [`State::deny`], as well as the denylist table in the database.
-    async fn maybe_deny(&mut self) {
-        if self.sender_fee_tracker.get_total_fee()
-            >= self.config.tap.max_unnaggregated_fees_per_sender.into()
-        {
-            tracing::warn!(
-                total_fee = self.sender_fee_tracker.get_total_fee(),
-                max_value = self.config.tap.max_unnaggregated_fees_per_sender,
-                "Total fee greater than max-unnaggregated-fees-per-sender. Denying sender."
-            );
-            self.deny = true;
+    /// Will update [`State::denied`], as well as the denylist table in the database.
+    async fn add_to_denylist(&mut self) {
+        if !self.denied {
             sqlx::query!(
                 r#"
                     INSERT INTO scalar_tap_denylist (sender_address)
@@ -158,21 +149,13 @@ impl State {
             .execute(&self.pgpool)
             .await
             .expect("Should not fail to insert into denylist");
+            self.denied = true;
         }
     }
 
-    /// Allow the sender if the total fee is less than the max-unnaggregated-fees-per-sender.
-    /// Will update [`State::deny`], as well as the denylist table in the database.
-    async fn maybe_allow(&mut self) {
-        if self.sender_fee_tracker.get_total_fee()
-            < self.config.tap.max_unnaggregated_fees_per_sender.into()
-        {
-            tracing::info!(
-                total_fee = self.sender_fee_tracker.get_total_fee(),
-                max_value = self.config.tap.max_unnaggregated_fees_per_sender,
-                "Total fee fell below max-unnaggregated-fees-per-sender. Allowing sender again."
-            );
-            self.deny = false;
+    /// Will update [`State::denied`], as well as the denylist table in the database.
+    async fn remove_from_denylist(&mut self) {
+        if self.denied {
             sqlx::query!(
                 r#"
                     DELETE FROM scalar_tap_denylist 
@@ -183,6 +166,7 @@ impl State {
             .execute(&self.pgpool)
             .await
             .expect("Should not fail to delete from denylist");
+            self.denied = false;
         }
     }
 }
@@ -228,19 +212,19 @@ impl Actor for SenderAccount {
         let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone(), sender_id);
 
         // Get deny status from the scalar_tap_denylist table
-        let deny = sqlx::query!(
+        let denied = sqlx::query!(
             r#"
                 SELECT EXISTS (
                     SELECT 1
                     FROM scalar_tap_denylist
                     WHERE sender_address = $1
-                ) as deny
+                ) as denied
             "#,
             sender_id.encode_hex::<String>(),
         )
         .fetch_one(&pgpool)
         .await?
-        .deny
+        .denied
         .expect("Deny status cannot be null");
 
         let state = State {
@@ -256,7 +240,7 @@ impl Actor for SenderAccount {
             config,
             pgpool,
             sender: sender_id,
-            deny,
+            denied,
         };
 
         for allocation_id in &allocation_ids {
@@ -293,8 +277,17 @@ impl Actor for SenderAccount {
 
                 // Eagerly deny the sender (if needed), before the RAV request. To be sure not to
                 // delay the denial because of the RAV request, which could take some time.
-                if !state.deny {
-                    state.maybe_deny().await;
+
+                if state.sender_fee_tracker.get_total_fee()
+                    >= state.config.tap.max_unnaggregated_fees_per_sender.into()
+                {
+                    tracing::warn!(
+                        total_fee = state.sender_fee_tracker.get_total_fee(),
+                        max_value = state.config.tap.max_unnaggregated_fees_per_sender,
+                        "Total fee greater than max-unnaggregated-fees-per-sender. Denying sender."
+                    );
+
+                    state.add_to_denylist().await;
                 }
 
                 if state.sender_fee_tracker.get_total_fee()
@@ -310,8 +303,17 @@ impl Actor for SenderAccount {
 
                 // Maybe allow the sender right after the potential RAV request. This way, the
                 // sender can be allowed again as soon as possible if the RAV was successful.
-                if state.deny {
-                    state.maybe_allow().await;
+                if state.sender_fee_tracker.get_total_fee()
+                    < state.config.tap.max_unnaggregated_fees_per_sender.into()
+                {
+                    tracing::info!(
+                        total_fee = state.sender_fee_tracker.get_total_fee(),
+                        max_value = state.config.tap.max_unnaggregated_fees_per_sender,
+                        "Total fee fell below max-unnaggregated-fees-per-sender. Allowing sender \
+                        again."
+                    );
+
+                    state.remove_from_denylist().await;
                 }
             }
             SenderAccountMessage::UpdateAllocationIds(allocation_ids) => {
@@ -348,7 +350,7 @@ impl Actor for SenderAccount {
             #[cfg(test)]
             SenderAccountMessage::GetDeny(reply) => {
                 if !reply.is_closed() {
-                    let _ = reply.send(state.deny);
+                    let _ = reply.send(state.denied);
                 }
             }
         }
