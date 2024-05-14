@@ -797,58 +797,50 @@ pub mod tests {
             .expect("Deny status cannot be null")
         }
 
+        let max_unaggregated_fees_per_sender: u128 = 1000;
+
         // Making sure no RAV is gonna be triggered during the test
-        let (sender_account, handle, _) =
-            create_sender_account(pgpool.clone(), HashSet::new(), u64::MAX, 1000).await;
+        let (sender_account, handle, _) = create_sender_account(
+            pgpool.clone(),
+            HashSet::new(),
+            u64::MAX,
+            max_unaggregated_fees_per_sender as u64,
+        )
+        .await;
 
-        // Set unnaggregated fees under the max_unnaggregated_fees_per_sender threshold
-        sender_account
-            .cast(SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
-                UnaggregatedReceipts {
-                    value: 800,
-                    last_id: 10,
-                },
-            ))
-            .unwrap();
+        macro_rules! update_receipt_fees {
+            ($value:expr) => {
+                sender_account
+                    .cast(SenderAccountMessage::UpdateReceiptFees(
+                        *ALLOCATION_ID_0,
+                        UnaggregatedReceipts {
+                            value: $value,
+                            last_id: 11,
+                        },
+                    ))
+                    .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            };
+        }
 
-        // check sender is not denied
+        update_receipt_fees!(max_unaggregated_fees_per_sender - 1);
         let deny = get_deny_status(pgpool.clone()).await;
         assert!(!deny);
 
-        // Set unnaggregated fees over the max_unnaggregated_fees_per_sender threshold
-        sender_account
-            .cast(SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
-                UnaggregatedReceipts {
-                    value: 1000,
-                    last_id: 11,
-                },
-            ))
-            .unwrap();
-
-        tokio::time::sleep(Duration::from_millis(10)).await;
-
-        // check if sender is denied
+        update_receipt_fees!(max_unaggregated_fees_per_sender);
         let deny = get_deny_status(pgpool.clone()).await;
         assert!(deny);
 
-        // Set unnaggregated fees under the max_unnaggregated_fees_per_sender threshold
-        sender_account
-            .cast(SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
-                UnaggregatedReceipts {
-                    value: 800,
-                    last_id: 12,
-                },
-            ))
-            .unwrap();
+        update_receipt_fees!(max_unaggregated_fees_per_sender - 1);
+        let deny = get_deny_status(pgpool.clone()).await;
+        assert!(!deny);
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        update_receipt_fees!(max_unaggregated_fees_per_sender + 1);
+        let deny = get_deny_status(pgpool.clone()).await;
+        assert!(deny);
 
-        // check sender is not denied anymore
+        update_receipt_fees!(max_unaggregated_fees_per_sender - 1);
         let deny = get_deny_status(pgpool.clone()).await;
         assert!(!deny);
 
