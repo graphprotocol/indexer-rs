@@ -226,14 +226,6 @@ pub struct EscrowSubgraph {
 pub struct Tap {
     #[clap(
         long,
-        value_name = "tap-metrics-port",
-        env = "TAP_METRICS_PORT",
-        default_value_t = 7303,
-        help = "Port to serve tap agent Prometheus metrics at"
-    )]
-    pub metrics_port: u16,
-    #[clap(
-        long,
         value_name = "rav-request-trigger-value",
         env = "RAV_REQUEST_TRIGGER_VALUE",
         help = "Value of unaggregated fees that triggers a RAV request (in GRT).",
