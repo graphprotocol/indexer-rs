@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    DELETE FROM scalar_tap_denylist \n                    WHERE sender_address = $1\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6d1c71ee8f32e696e6a091b37ec415ca3e12356f3418a376980e5458fee7e200"
+}
