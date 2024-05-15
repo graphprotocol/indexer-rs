@@ -21,7 +21,8 @@ use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
 use tap_core::{
-    rav::{RAVRequest, ReceiptAggregateVoucher},
+    manager::adapters::RAVRead,
+    rav::{RAVRequest, ReceiptAggregateVoucher, SignedRAV},
     receipt::{
         checks::{Check, Checks},
         Failed, ReceiptWithState,
@@ -103,6 +104,7 @@ pub struct SenderAllocation;
 
 pub struct SenderAllocationState {
     unaggregated_fees: UnaggregatedReceipts,
+    latest_rav: Option<SignedRAV>,
     pgpool: PgPool,
     tap_manager: TapManager,
     allocation_id: Address,
@@ -130,7 +132,7 @@ pub struct SenderAllocationArgs {
 #[derive(Debug)]
 pub enum SenderAllocationMessage {
     NewReceipt(NewReceiptNotification),
-    TriggerRAVRequest(RpcReplyPort<UnaggregatedReceipts>),
+    TriggerRAVRequest(RpcReplyPort<(UnaggregatedReceipts, Option<SignedRAV>)>),
     #[cfg(test)]
     GetUnaggregatedReceipts(RpcReplyPort<UnaggregatedReceipts>),
 }
@@ -148,13 +150,18 @@ impl Actor for SenderAllocation {
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let sender_account_ref = args.sender_account_ref.clone();
         let allocation_id = args.allocation_id;
-        let mut state = SenderAllocationState::new(args);
+        let mut state = SenderAllocationState::new(args).await;
 
         state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
         sender_account_ref.cast(SenderAccountMessage::UpdateReceiptFees(
             allocation_id,
             state.unaggregated_fees.clone(),
         ))?;
+
+        // update rav tracker for sender account
+        if let Some(rav) = &state.latest_rav {
+            sender_account_ref.cast(SenderAccountMessage::UpdateRav(allocation_id, rav.clone()))?;
+        }
 
         tracing::info!(
             sender = %state.sender,
@@ -251,7 +258,8 @@ impl Actor for SenderAllocation {
             SenderAllocationMessage::TriggerRAVRequest(reply) => {
                 if state.unaggregated_fees.value > 0 {
                     match state.rav_requester_single().await {
-                        Ok(_) => {
+                        Ok(rav) => {
+                            state.latest_rav = Some(rav);
                             state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
 
                             UNAGGREGATED_FEES
@@ -278,8 +286,12 @@ impl Actor for SenderAllocation {
                         }
                     }
                 }
+                // let rav_value = state
+                //     .latest_rav
+                //     .as_ref()
+                //     .map_or(0, |rav| rav.valueAggregate);
                 if !reply.is_closed() {
-                    let _ = reply.send(state.unaggregated_fees.clone());
+                    let _ = reply.send((state.unaggregated_fees.clone(), state.latest_rav.clone()));
                 }
             }
             #[cfg(test)]
@@ -294,7 +306,7 @@ impl Actor for SenderAllocation {
 }
 
 impl SenderAllocationState {
-    fn new(
+    async fn new(
         SenderAllocationArgs {
             config,
             pgpool,
@@ -327,6 +339,7 @@ impl SenderAllocationState {
             escrow_accounts.clone(),
             escrow_adapter,
         );
+        let latest_rav = context.last_rav().await.unwrap_or_default();
         let tap_manager = TapManager::new(
             domain_separator.clone(),
             context,
@@ -344,6 +357,7 @@ impl SenderAllocationState {
             domain_separator,
             sender_account_ref: sender_account_ref.clone(),
             unaggregated_fees: UnaggregatedReceipts::default(),
+            latest_rav,
         }
     }
 
@@ -411,7 +425,7 @@ impl SenderAllocationState {
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
-    async fn rav_requester_single(&self) -> Result<()> {
+    async fn rav_requester_single(&self) -> Result<SignedRAV> {
         tracing::trace!("rav_requester_single()");
         let RAVRequest {
             valid_receipts,
@@ -503,7 +517,6 @@ impl SenderAllocationState {
                 anyhow::bail!("Error while verifying and storing RAV: {:?}", e);
             }
         }
-
         RAV_VALUE
             .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
             .set(expected_rav.clone().valueAggregate as f64);
@@ -511,7 +524,7 @@ impl SenderAllocationState {
             .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
             .inc();
 
-        Ok(())
+        Ok(response.data)
     }
 
     pub async fn mark_rav_last(&self) -> Result<()> {
@@ -933,7 +946,7 @@ mod tests {
         .await;
 
         // Trigger a RAV request manually and wait for updated fees.
-        let total_unaggregated_fees = call!(
+        let (total_unaggregated_fees, _rav) = call!(
             sender_allocation,
             SenderAllocationMessage::TriggerRAVRequest
         )
@@ -1073,7 +1086,7 @@ mod tests {
         let args =
             create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
                 .await;
-        let state = SenderAllocationState::new(args);
+        let state = SenderAllocationState::new(args).await;
 
         // Add receipts to the database.
         for i in 1..10 {
@@ -1101,7 +1114,7 @@ mod tests {
         let args =
             create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
                 .await;
-        let state = SenderAllocationState::new(args);
+        let state = SenderAllocationState::new(args).await;
 
         // Add the RAV to the database.
         // This RAV has timestamp 4. The sender_allocation should only consider receipts
@@ -1128,7 +1141,7 @@ mod tests {
         let args =
             create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
                 .await;
-        let state = SenderAllocationState::new(args);
+        let state = SenderAllocationState::new(args).await;
 
         let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
 
@@ -1154,7 +1167,7 @@ mod tests {
         let args =
             create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
                 .await;
-        let state = SenderAllocationState::new(args);
+        let state = SenderAllocationState::new(args).await;
 
         let checks = Checks::new(vec![Arc::new(FailingCheck)]);
 
@@ -1185,7 +1198,7 @@ mod tests {
         let args =
             create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
                 .await;
-        let state = SenderAllocationState::new(args);
+        let state = SenderAllocationState::new(args).await;
 
         // mark rav as final
         let result = state.mark_rav_last().await;
@@ -1211,7 +1224,7 @@ mod tests {
 
         // Trigger a RAV request manually and wait for updated fees.
         // this should fail because there's no receipt with valid timestamp
-        let total_unaggregated_fees = call!(
+        let (total_unaggregated_fees, _rav) = call!(
             sender_allocation,
             SenderAllocationMessage::TriggerRAVRequest
         )
