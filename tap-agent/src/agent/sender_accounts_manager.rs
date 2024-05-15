@@ -307,17 +307,22 @@ impl State {
 
         let receipts_signer_allocations_in_db = sqlx::query!(
             r#"
+                WITH grouped AS (
+                    SELECT signer_address, allocation_id
+                    FROM scalar_tap_receipts
+                    GROUP BY signer_address, allocation_id
+                )
                 SELECT DISTINCT 
                     signer_address,
                     (
                         SELECT ARRAY 
                         (
                             SELECT DISTINCT allocation_id
-                            FROM scalar_tap_receipts
+                            FROM grouped
                             WHERE signer_address = top.signer_address
                         )
                     ) AS allocation_ids
-                FROM scalar_tap_receipts AS top
+                FROM grouped AS top                
             "#
         )
         .fetch_all(&self.pgpool)
