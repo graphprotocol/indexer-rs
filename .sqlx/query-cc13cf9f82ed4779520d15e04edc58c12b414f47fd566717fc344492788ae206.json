@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                            SELECT allocation_id, value_aggregate FROM scalar_tap_ravs WHERE sender_address = $1 AND last AND NOT final;\n                        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "allocation_id",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "value_aggregate",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "cc13cf9f82ed4779520d15e04edc58c12b414f47fd566717fc344492788ae206"
+}

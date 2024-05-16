@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS scalar_tap_ravs (
     value_aggregate NUMERIC(39) NOT NULL,
 
     last BOOLEAN DEFAULT FALSE NOT NULL,
+    final BOOLEAN DEFAULT FALSE NOT NULL,
     PRIMARY KEY (allocation_id, sender_address),
 
     -- To make indexer-agent's sequelize happy

@@ -1,15 +1,18 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 
 use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
 use anyhow::Result;
 use ethereum_types::U256;
 use eventuals::{Eventual, EventualExt, PipeHandle};
+use indexer_common::subgraph_client::Query;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use ractor::{call, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use serde::Deserialize;
 use sqlx::PgPool;
 use tap_core::rav::SignedRAV;
 use thegraph::types::Address;
@@ -23,13 +26,15 @@ use crate::{
     config::{self},
     tap::escrow_adapter::EscrowAdapter,
 };
+type RavMap = HashMap<Address, u128>;
+type Balance = U256;
 
 #[derive(Debug)]
 pub enum SenderAccountMessage {
-    UpdateSenderBalance(U256),
+    UpdateBalanceAndLastRavs(Balance, RavMap),
     UpdateAllocationIds(HashSet<Address>),
     UpdateReceiptFees(Address, UnaggregatedReceipts),
-    UpdateRav(Address, SignedRAV),
+    UpdateRav(SignedRAV),
     #[cfg(test)]
     GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
     #[cfg(test)]
@@ -227,12 +232,12 @@ impl Actor for SenderAccount {
             prefix,
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
-        let clone = myself.clone();
+        let myself_clone = myself.clone();
         let _indexer_allocations_handle =
             indexer_allocations
                 .clone()
                 .pipe_async(move |allocation_ids| {
-                    let myself = clone.clone();
+                    let myself = myself_clone.clone();
                     async move {
                         // Update the allocation_ids
                         myself
@@ -243,24 +248,71 @@ impl Actor for SenderAccount {
                     }
                 });
 
-        let clone = myself.clone();
-        let sender = sender_id.clone();
+        let myself_clone = myself.clone();
+        let pgpool_clone = pgpool.clone();
         let _escrow_account_monitor = escrow_accounts.clone().pipe_async(move |escrow_account| {
-            let myself = clone.clone();
-            let sender = sender.clone();
+            let myself = myself_clone.clone();
+            let pgpool = pgpool_clone.clone();
             // get balance or default value for sender
             // this balance already takes into account thawing
             let balance = escrow_account
-                .get_balance_for_sender(&sender)
+                .get_balance_for_sender(&sender_id)
                 .unwrap_or_default();
+
+            #[derive(Deserialize)]
+            struct Transaction {
+                #[serde(rename="allocationID")]
+                allocation_id: String,
+            }
+
+            #[derive(Deserialize)]
+            struct Response {
+                transactions: Vec<Transaction>
+            }
+
             async move {
+                let last_non_final_ravs =
+                    sqlx::query!(
+                        r#"
+                            SELECT allocation_id, value_aggregate FROM scalar_tap_ravs WHERE sender_address = $1 AND last AND NOT final;
+                        "#,
+                        sender_id.encode_hex::<String>(),
+                    )
+                    .fetch_all(&pgpool)
+                .await
+                .expect("Should not fail to insert into denylist");
+
+                let query = r#"query transactions($unfinalizedRavsAllocationIds: [String!]!) {
+                              transactions(
+                                where: { type: "redeem", allocationID_in: $unfinalizedRavsAllocationIds }
+                              ) {
+                                allocationID
+                              }
+                            }"#;
+
+                // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
+                let redeemed_ravs_allocation_ids = escrow_subgraph.query::<Response>(Query::new_with_variables(query,
+                    [("unfinalizedRavsAllocationIds", last_non_final_ravs.iter().map(|rav| rav.allocation_id.to_string()).collect::<Vec<_>>().into())],
+                )).await.unwrap().unwrap().transactions.into_iter().map(|tx| tx.allocation_id).collect::<Vec<_>>();
+
+                // filter the ravs marked as last that were not redeemed yet
+                let non_redeemed_ravs = last_non_final_ravs
+                    .into_iter()
+                    .filter(|rav| redeemed_ravs_allocation_ids.contains(&rav.allocation_id.to_string()))
+                    .filter_map(|rav| Some((
+                        Address::from_str(&rav.allocation_id).ok()?,
+                        rav.value_aggregate.to_string().parse::<u128>().ok()?
+                    )))
+                    .collect::<HashMap<_, _>>();
+
+
                 // Update the allocation_ids
                 myself
-                    .cast(SenderAccountMessage::UpdateSenderBalance(balance))
+                    .cast(SenderAccountMessage::UpdateBalanceAndLastRavs(balance, non_redeemed_ravs))
                     .unwrap_or_else(|e| {
                         error!(
                             "Error while updating balance for sender {}: {:?}",
-                            sender, e
+                            sender_id, e
                         );
                     });
             }
@@ -284,6 +336,13 @@ impl Actor for SenderAccount {
         .denied
         .expect("Deny status cannot be null");
 
+        let sender_balance = escrow_accounts
+            .value()
+            .await
+            .expect("should be able to get escrow accounts")
+            .get_balance_for_sender(&sender_id)
+            .unwrap_or_default();
+
         let state = State {
             sender_fee_tracker: SenderFeeTracker::default(),
             rav_tracker: SenderFeeTracker::default(),
@@ -300,7 +359,7 @@ impl Actor for SenderAccount {
             pgpool,
             sender: sender_id,
             denied,
-            sender_balance: U256::from(0),
+            sender_balance,
         };
 
         for allocation_id in &allocation_ids {
@@ -330,10 +389,10 @@ impl Actor for SenderAccount {
             "New SenderAccount message"
         );
         match message {
-            SenderAccountMessage::UpdateRav(allocation_id, rav) => {
+            SenderAccountMessage::UpdateRav(rav) => {
                 state
                     .rav_tracker
-                    .update(allocation_id, rav.message.valueAggregate);
+                    .update(rav.message.allocationId, rav.message.valueAggregate);
                 let should_deny = !state.denied && state.deny_condition_reached();
                 if should_deny {
                     state.add_to_denylist().await;
@@ -396,8 +455,27 @@ impl Actor for SenderAccount {
                 );
                 state.allocation_ids = allocation_ids;
             }
-            SenderAccountMessage::UpdateSenderBalance(new_balance) => {
+            SenderAccountMessage::UpdateBalanceAndLastRavs(new_balance, non_final_last_ravs) => {
                 state.sender_balance = new_balance;
+
+                let tracked_ravs_not_active: Vec<Address> = state
+                    .rav_tracker
+                    .get_list_of_allocation_ids()
+                    .into_iter()
+                    .filter(|allocation| !state.allocation_ids.contains(allocation))
+                    .collect();
+
+                for rav in tracked_ravs_not_active {
+                    if let Some(value) = non_final_last_ravs.get(&rav) {
+                        state.rav_tracker.update(rav, *value);
+                    } else {
+                        // if it's being tracked and we didn't receive any update from the non_final_last_ravs
+                        // remove from the tracker
+                        state.rav_tracker.update(rav, 0);
+                    }
+                }
+
+                // now that balance and rav tracker is updated, check
                 let deny_condition_reached = state.deny_condition_reached();
                 let should_deny = !state.denied && deny_condition_reached;
                 let should_allow = state.denied && !deny_condition_reached;
@@ -458,6 +536,7 @@ impl Actor for SenderAccount {
 
                 let tracker = &mut state.sender_fee_tracker;
                 tracker.update(allocation_id, 0);
+                // rav tracker is not updated because it's still not redeemed
             }
             SupervisionEvent::ActorPanicked(cell, error) => {
                 let sender_allocation = cell.get_name();

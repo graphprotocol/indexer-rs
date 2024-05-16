@@ -50,6 +50,10 @@ impl SenderFeeTracker {
             .map(|(&id, _)| id)
     }
 
+    pub fn get_list_of_allocation_ids(&self) -> Vec<Address> {
+        self.id_to_fee.keys().cloned().collect()
+    }
+
     pub fn get_total_fee(&self) -> u128 {
         self.total_fee
     }

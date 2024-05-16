@@ -160,7 +160,7 @@ impl Actor for SenderAllocation {
 
         // update rav tracker for sender account
         if let Some(rav) = &state.latest_rav {
-            sender_account_ref.cast(SenderAccountMessage::UpdateRav(allocation_id, rav.clone()))?;
+            sender_account_ref.cast(SenderAccountMessage::UpdateRav(rav.clone()))?;
         }
 
         tracing::info!(
