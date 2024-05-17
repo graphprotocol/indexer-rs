@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloy_primitives::Address;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tracing::error;
 
 #[derive(Debug, Clone, Default)]
@@ -50,7 +50,7 @@ impl SenderFeeTracker {
             .map(|(&id, _)| id)
     }
 
-    pub fn get_list_of_allocation_ids(&self) -> Vec<Address> {
+    pub fn get_list_of_allocation_ids(&self) -> HashSet<Address> {
         self.id_to_fee.keys().cloned().collect()
     }
 
