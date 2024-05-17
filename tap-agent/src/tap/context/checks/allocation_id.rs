@@ -149,7 +149,9 @@ async fn query_escrow_check_transactions(
         ))
         .await?;
 
-    Ok(response.map(|data| !data.transactions.is_empty())?)
+    response
+        .map(|data| !data.transactions.is_empty())
+        .map_err(|err| anyhow!(err))
 }
 
 #[cfg(test)]

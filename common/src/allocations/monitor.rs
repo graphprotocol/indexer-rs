@@ -6,15 +6,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use super::Allocation;
+use crate::prelude::SubgraphClient;
 use eventuals::{timer, Eventual, EventualExt};
-use serde::Deserialize;
 use thegraph::types::Address;
 use tokio::time::sleep;
 use tracing::warn;
-
-use crate::prelude::{Query, SubgraphClient};
-
-use super::Allocation;
 
 /// An always up-to-date list of an indexer's active and recently closed allocations.
 pub fn indexer_allocations(
@@ -23,103 +20,16 @@ pub fn indexer_allocations(
     interval: Duration,
     recently_closed_allocation_buffer: Duration,
 ) -> Eventual<HashMap<Address, Allocation>> {
-    // Types for deserializing the network subgraph response
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct IndexerAllocationsResponse {
-        indexer: Option<Indexer>,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Indexer {
-        active_allocations: Vec<Allocation>,
-        recently_closed_allocations: Vec<Allocation>,
-    }
-
-    let query = r#"
-        query allocations($indexer: ID!, $closedAtThreshold: Int!) {
-            indexer(id: $indexer) {
-                activeAllocations: totalAllocations(
-                    where: { status: Active }
-                    orderDirection: desc
-                    first: 1000
-                ) {
-                    id
-                    indexer {
-                        id
-                    }
-                    allocatedTokens
-                    createdAtBlockHash
-                    createdAtEpoch
-                    closedAtEpoch
-                    subgraphDeployment {
-                        id
-                        deniedAt
-                    }
-                }
-                recentlyClosedAllocations: totalAllocations(
-                    where: { status: Closed, closedAt_gte: $closedAtThreshold }
-                    orderDirection: desc
-                    first: 1000
-                ) {
-                    id
-                    indexer {
-                        id
-                    }
-                    allocatedTokens
-                    createdAtBlockHash
-                    createdAtEpoch
-                    closedAtEpoch
-                    subgraphDeployment {
-                        id
-                        deniedAt
-                    }
-                }
-            }
-        }
-    "#;
-
     // Refresh indexer allocations every now and then
     timer(interval).map_with_retry(
         move |_| async move {
-            // Allocations are eligible even if closed for up to `recently_closed_allocation_buffer`
-            let start = SystemTime::now();
-            let since_the_epoch = start
-                .duration_since(UNIX_EPOCH)
-                .expect("Time went backwards");
-            let closed_at_threshold = since_the_epoch - recently_closed_allocation_buffer;
-
-            // Query active and recently closed allocations for the indexer,
-            // using the network subgraph
-            let response = network_subgraph
-                .query::<IndexerAllocationsResponse>(Query::new_with_variables(
-                    query,
-                    [
-                        ("indexer", format!("{indexer_address:?}").into()),
-                        ("closedAtThreshold", closed_at_threshold.as_secs().into()),
-                    ],
-                ))
-                .await
-                .map_err(|e| e.to_string())?;
-
-            let indexer = response.map_err(|e| e.to_string()).and_then(|data| {
-                // Verify that the indexer could be found at all
-                data.indexer
-                    .ok_or_else(|| format!("Indexer `{indexer_address}` not found on the network"))
-            })?;
-
-            // Pull active and recently closed allocations out of the indexer
-            let Indexer {
-                active_allocations,
-                recently_closed_allocations,
-            } = indexer;
-
-            Ok(HashMap::from_iter(
-                active_allocations
-                    .into_iter()
-                    .map(|a| (a.id, a))
-                    .chain(recently_closed_allocations.into_iter().map(|a| (a.id, a))),
-            ))
+            get_allocations(
+                network_subgraph,
+                indexer_address,
+                recently_closed_allocation_buffer,
+            )
+            .await
+            .map_err(|e| e.to_string())
         },
         // Need to use string errors here because eventuals `map_with_retry` retries
         // errors that can be cloned
@@ -135,64 +45,88 @@ pub fn indexer_allocations(
     )
 }
 
+pub async fn get_allocations(
+    network_subgraph: &'static SubgraphClient,
+    indexer_address: Address,
+    recently_closed_allocation_buffer: Duration,
+) -> Result<HashMap<Address, Allocation>, anyhow::Error> {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    let closed_at_threshold = since_the_epoch - recently_closed_allocation_buffer;
+
+    let query = format!(
+        r#"
+            allocations(
+                block: $block
+                orderBy: id
+                orderDirection: asc
+                first: $first
+                where: {{
+                and: [
+                    {{ id_gt: $last }}
+                    {{ indexer_: {{ id: "{}" }} }}
+                    {{
+                    or: [
+                        {{ status: Active }}
+                        {{ and: [{{ status: Closed, closedAt_gte: {} }}] }}
+                    ]
+                    }}
+                ]
+                }}
+            ) {{
+                id
+                indexer {{
+                    id
+                }}
+                allocatedTokens
+                createdAtBlockHash
+                createdAtEpoch
+                closedAtEpoch
+                subgraphDeployment {{
+                    id
+                    deniedAt
+                }}
+            }}
+        "#,
+        indexer_address.to_string().to_ascii_lowercase(),
+        closed_at_threshold.as_secs(),
+    );
+    let responses = network_subgraph
+        .paginated_query::<Allocation>(query, 200)
+        .await
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    Ok(HashMap::from_iter(responses.into_iter().map(|a| (a.id, a))))
+}
+
 #[cfg(test)]
 mod test {
-    use wiremock::{
-        matchers::{body_string_contains, method, path},
-        Mock, MockServer, ResponseTemplate,
-    };
+    const NETWORK_SUBGRAPH_URL: &str =
+        "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-arbitrum";
+    use std::str::FromStr;
 
-    use crate::{prelude::SubgraphClient, subgraph_client::DeploymentDetails, test_vectors};
+    use crate::{prelude::SubgraphClient, subgraph_client::DeploymentDetails};
 
     use super::*;
 
-    async fn setup_mock_network_subgraph() -> (&'static SubgraphClient, MockServer) {
-        // Set up a mock network subgraph
-        let mock_server = MockServer::start().await;
-        let network_subgraph = SubgraphClient::new(
+    fn network_subgraph_client() -> &'static SubgraphClient {
+        Box::leak(Box::new(SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(&format!(
-                "{}/subgraphs/id/{}",
-                &mock_server.uri(),
-                *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
-            ))
-            .unwrap(),
-        );
-
-        // Mock result for allocations query
-        mock_server
-            .register(
-                Mock::given(method("POST"))
-                    .and(path(format!(
-                        "/subgraphs/id/{}",
-                        *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
-                    )))
-                    .and(body_string_contains("activeAllocations"))
-                    .respond_with(ResponseTemplate::new(200).set_body_raw(
-                        test_vectors::ALLOCATIONS_QUERY_RESPONSE,
-                        "application/json",
-                    )),
-            )
-            .await;
-
-        (Box::leak(Box::new(network_subgraph)), mock_server)
+            DeploymentDetails::for_query_url(NETWORK_SUBGRAPH_URL).unwrap(),
+        )))
     }
 
-    #[test_log::test(tokio::test)]
-    async fn test_parses_allocation_data_from_network_subgraph_correctly() {
-        let (network_subgraph, _mock_server) = setup_mock_network_subgraph().await;
-
-        let allocations = indexer_allocations(
-            network_subgraph,
-            *test_vectors::INDEXER_ADDRESS,
-            Duration::from_secs(60),
-            Duration::from_secs(300),
-        );
-
-        assert_eq!(
-            allocations.value().await.unwrap(),
-            *test_vectors::INDEXER_ALLOCATIONS
-        );
+    #[tokio::test]
+    async fn test_network_query() {
+        let result = get_allocations(
+            network_subgraph_client(),
+            Address::from_str("0x326c584e0f0eab1f1f83c93cc6ae1acc0feba0bc").unwrap(),
+            Duration::from_secs(1712448507),
+        )
+        .await;
+        assert!(result.unwrap().len() > 2000)
     }
 }
