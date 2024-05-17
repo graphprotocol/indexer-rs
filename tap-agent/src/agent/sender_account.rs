@@ -288,32 +288,46 @@ impl Actor for SenderAccount {
                     )
                     .fetch_all(&pgpool)
                 .await
-                .expect("Should not fail to insert into denylist");
+                .expect("Should not fail to fetch from scalar_tap_ravs");
 
 
-                let query = r#"query transactions($unfinalizedRavsAllocationIds: [String!]!) {
-                              transactions(
-                                where: { type: "redeem", allocationID_in: $unfinalizedRavsAllocationIds }
-                              ) {
-                                allocationID
-                              }
-                            }"#;
+                let query = r#"
+                    query transactions(
+                        $unfinalizedRavsAllocationIds: [String!]!
+                        $sender: String!
+                    ) {
+                        transactions(
+                            where: {
+                                type: "redeem"
+                                allocationID_in: $unfinalizedRavsAllocationIds
+                                sender_: { id: $sender }
+                            }
+                        ) {
+                            allocationID
+                        }
+                    }
+                "#;
 
                 // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
-                let redeemed_ravs_allocation_ids = escrow_subgraph.query::<Response>(Query::new_with_variables(query,
-                    [("unfinalizedRavsAllocationIds", last_non_final_ravs.iter().map(|rav| rav.allocation_id.to_string()).collect::<Vec<_>>().into())],
-                )).await.unwrap().unwrap().transactions.into_iter().map(|tx| tx.allocation_id).collect::<Vec<_>>();
+                let redeemed_ravs_allocation_ids = match escrow_subgraph.query::<Response>(Query::new_with_variables(query,
+                    [("unfinalizedRavsAllocationIds", last_non_final_ravs.iter().map(|rav| rav.allocation_id.to_string()).collect::<Vec<_>>().into()),
+                        ("sender", format!("{:x?}", sender_id).into()),],
+                )).await {
+                    Ok(Ok(response)) => response.transactions.into_iter().map(|tx| tx.allocation_id).collect::<Vec<_>>(),
+                    // if we have any problems, we don't want to filter out
+                    _ => vec![]
+                };
 
                 // filter the ravs marked as last that were not redeemed yet
                 let non_redeemed_ravs = last_non_final_ravs
                     .into_iter()
-                    .filter(|rav| !redeemed_ravs_allocation_ids.contains(&rav.allocation_id.to_string()))
                     .filter_map(|rav| Some((
                         Address::from_str(&rav.allocation_id).ok()?,
                         rav.value_aggregate
                             .to_bigint()
                             .and_then(|v| v.to_u128())?
                     )))
+                    .filter(|(allocation, _value)| !redeemed_ravs_allocation_ids.contains(&format!("{:x?}", allocation)))
                     .collect::<HashMap<_, _>>();
 
                 // Update the allocation_ids
@@ -590,12 +604,12 @@ pub mod tests {
     use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
     use crate::config;
     use crate::tap::test_utils::{
-        create_rav, store_rav, store_rav_with_options, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER,
-        SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+        create_rav, store_rav_with_options, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER,
+        SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };
     use alloy_primitives::hex::ToHex;
     use alloy_primitives::Address;
-    use eventuals::Eventual;
+    use eventuals::{Eventual, EventualWriter};
     use indexer_common::escrow_accounts::EscrowAccounts;
     use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
     use ractor::concurrency::JoinHandle;
@@ -639,6 +653,7 @@ pub mod tests {
         ActorRef<SenderAccountMessage>,
         tokio::task::JoinHandle<()>,
         String,
+        EventualWriter<EscrowAccounts>,
     ) {
         let config = Box::leak(Box::new(config::Cli {
             config: None,
@@ -660,8 +675,9 @@ pub mod tests {
             None,
             DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
         )));
+        let (mut writer, escrow_accounts_eventual) = Eventual::new();
 
-        let escrow_accounts_eventual = Eventual::from_value(EscrowAccounts::new(
+        writer.write(EscrowAccounts::new(
             HashMap::from([(SENDER.1, ESCROW_VALUE.into())]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -688,12 +704,12 @@ pub mod tests {
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(10)).await;
-        (sender, handle, prefix)
+        (sender, handle, prefix, writer)
     }
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_update_allocation_ids(pgpool: PgPool) {
-        let (sender_account, handle, prefix) = create_sender_account(
+        let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE as u64,
@@ -733,6 +749,7 @@ pub mod tests {
 
     pub struct MockSenderAllocation {
         triggered_rav_request: Arc<AtomicBool>,
+        next_rav_value: Arc<Mutex<u128>>,
         receipts: Arc<Mutex<Vec<NewReceiptNotification>>>,
     }
 
@@ -743,8 +760,21 @@ pub mod tests {
                 Self {
                     triggered_rav_request: triggered_rav_request.clone(),
                     receipts: Arc::new(Mutex::new(Vec::new())),
+                    next_rav_value: Arc::new(Mutex::new(0)),
                 },
                 triggered_rav_request,
+            )
+        }
+
+        pub fn new_with_next_rav_value() -> (Self, Arc<Mutex<u128>>) {
+            let next_rav_value = Arc::new(Mutex::new(0));
+            (
+                Self {
+                    triggered_rav_request: Arc::new(AtomicBool::new(false)),
+                    receipts: Arc::new(Mutex::new(Vec::new())),
+                    next_rav_value: next_rav_value.clone(),
+                },
+                next_rav_value,
             )
         }
 
@@ -754,6 +784,7 @@ pub mod tests {
                 Self {
                     triggered_rav_request: Arc::new(AtomicBool::new(false)),
                     receipts: receipts.clone(),
+                    next_rav_value: Arc::new(Mutex::new(0)),
                 },
                 receipts,
             )
@@ -784,7 +815,13 @@ pub mod tests {
                 SenderAllocationMessage::TriggerRAVRequest(reply) => {
                     self.triggered_rav_request
                         .store(true, std::sync::atomic::Ordering::SeqCst);
-                    reply.send((UnaggregatedReceipts::default(), None))?;
+                    let signed_rav = create_rav(
+                        *ALLOCATION_ID_0,
+                        SIGNER.0.clone(),
+                        4,
+                        *self.next_rav_value.lock().unwrap(),
+                    );
+                    reply.send((UnaggregatedReceipts::default(), Some(signed_rav)))?;
                 }
                 SenderAllocationMessage::NewReceipt(receipt) => {
                     self.receipts.lock().unwrap().push(receipt);
@@ -817,7 +854,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
-        let (sender_account, handle, prefix) = create_sender_account(
+        let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE as u64,
@@ -853,7 +890,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_update_receipt_fees_trigger_rav(pgpool: PgPool) {
-        let (sender_account, handle, prefix) = create_sender_account(
+        let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE as u64,
@@ -889,7 +926,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_remove_sender_account(pgpool: PgPool) {
-        let (sender_account, handle, prefix) = create_sender_account(
+        let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             vec![*ALLOCATION_ID_0].into_iter().collect(),
             TRIGGER_VALUE as u64,
@@ -934,7 +971,13 @@ pub mod tests {
         .await
         .expect("Should not fail to insert into denylist");
 
-        let (sender_account, _handle, _) = create_sender_account(
+        // make sure there's a reason to keep denied
+        let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
+        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
+            .await
+            .unwrap();
+
+        let (sender_account, _handle, _, _) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
             TRIGGER_VALUE as u64,
@@ -956,7 +999,7 @@ pub mod tests {
         let max_unaggregated_fees_per_sender: u128 = 1000;
 
         // Making sure no RAV is gonna be triggered during the test
-        let (sender_account, handle, _) = create_sender_account(
+        let (sender_account, handle, _, _) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
             u64::MAX,
@@ -1006,7 +1049,124 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_deny_rav_over_(pgpool: PgPool) {
+    async fn test_initialization_with_pending_ravs_over_the_limit(pgpool: PgPool) {
+        // add last non-final ravs
+        let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
+        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
+            .await
+            .unwrap();
+
+        let (sender_account, handle, _, _) = create_sender_account(
+            pgpool.clone(),
+            HashSet::new(),
+            TRIGGER_VALUE as u64,
+            u64::MAX,
+            DUMMY_URL,
+        )
+        .await;
+
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(deny);
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_unaggregated_fees_over_balance(pgpool: PgPool) {
+        // add last non-final ravs
+        let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
+        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
+            .await
+            .unwrap();
+
+        // other rav final, should not be taken into account
+        let signed_rav = create_rav(*ALLOCATION_ID_1, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
+        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, true)
+            .await
+            .unwrap();
+
+        let trigger_rav_request = ESCROW_VALUE * 2;
+
+        // initialize with no trigger value and no max receipt deny
+        let (sender_account, handle, prefix, _) = create_sender_account(
+            pgpool.clone(),
+            HashSet::new(),
+            trigger_rav_request as u64,
+            u64::MAX,
+            DUMMY_URL,
+        )
+        .await;
+
+        let (mock_sender_allocation, next_rav_value) =
+            MockSenderAllocation::new_with_next_rav_value();
+
+        let name = format!("{}:{}:{}", prefix, SENDER.1, *ALLOCATION_ID_0);
+        let (allocation, allocation_handle) =
+            MockSenderAllocation::spawn(Some(name), mock_sender_allocation, ())
+                .await
+                .unwrap();
+
+        async fn get_deny_status(sender_account: &ActorRef<SenderAccountMessage>) -> bool {
+            call!(sender_account, SenderAccountMessage::GetDeny).unwrap()
+        }
+
+        macro_rules! update_receipt_fees {
+            ($value:expr) => {
+                sender_account
+                    .cast(SenderAccountMessage::UpdateReceiptFees(
+                        *ALLOCATION_ID_0,
+                        UnaggregatedReceipts {
+                            value: $value,
+                            last_id: 11,
+                        },
+                    ))
+                    .unwrap();
+
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            };
+        }
+
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(!deny);
+
+        let half_escrow = ESCROW_VALUE / 2;
+        update_receipt_fees!(half_escrow);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(deny);
+
+        update_receipt_fees!(half_escrow - 1);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(!deny);
+
+        update_receipt_fees!(half_escrow + 1);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(deny);
+
+        update_receipt_fees!(half_escrow + 2);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(deny);
+        // trigger rav request
+        // set the unnagregated fees to zero and the rav to the amount
+        *next_rav_value.lock().unwrap() = trigger_rav_request;
+        update_receipt_fees!(trigger_rav_request);
+
+        // receipt fees should already be 0, but we are setting to 0 again
+        update_receipt_fees!(0);
+
+        // should stay denied because the value was transfered to rav
+        let deny = get_deny_status(&sender_account).await;
+        assert!(deny);
+
+        allocation.stop_and_wait(None, None).await.unwrap();
+        allocation_handle.await.unwrap();
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_pending_rav_already_redeemed_and_redeem(pgpool: PgPool) {
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
 
@@ -1015,20 +1175,26 @@ pub mod tests {
             .register(
                 Mock::given(method("POST"))
                     .and(body_string_contains("transactions"))
-                    .respond_with(
-                        ResponseTemplate::new(200)
-                            .set_body_json(json!({ "data": { "transactions": []}})),
-                    ),
+                    .respond_with(ResponseTemplate::new(200).set_body_json(
+                        json!({ "data": { "transactions": [
+                            {"allocationID": *ALLOCATION_ID_0 }
+                        ]}}),
+                    )),
             )
             .await;
 
-        // add last non-final ravs
+        // redeemed
         let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
         store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
             .await
             .unwrap();
 
-        let (sender_account, _handle, _) = create_sender_account(
+        let signed_rav = create_rav(*ALLOCATION_ID_1, SIGNER.0.clone(), 4, ESCROW_VALUE - 1);
+        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
+            .await
+            .unwrap();
+
+        let (sender_account, handle, _, mut escrow_writer) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
             TRIGGER_VALUE as u64,
@@ -1038,6 +1204,84 @@ pub mod tests {
         .await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
-        assert!(deny);
+        assert!(!deny, "should start unblocked");
+
+        mock_server.reset().await;
+
+        // allocation_id sent to the blockchain
+        mock_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("transactions"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(
+                        json!({ "data": { "transactions": [
+                            {"allocationID": *ALLOCATION_ID_0 },
+                            {"allocationID": *ALLOCATION_ID_1 }
+                        ]}}),
+                    )),
+            )
+            .await;
+        // escrow_account updated
+        escrow_writer.write(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, 1.into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
+
+        // wait the actor react to the messages
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // should still be active with a 1 escrow available
+
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(!deny, "should keep unblocked");
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_thawing_deposit_process(pgpool: PgPool) {
+        // add last non-final ravs
+        let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
+        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
+            .await
+            .unwrap();
+
+        let (sender_account, handle, _, mut escrow_writer) = create_sender_account(
+            pgpool.clone(),
+            HashSet::new(),
+            TRIGGER_VALUE as u64,
+            u64::MAX,
+            DUMMY_URL,
+        )
+        .await;
+
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(!deny, "should start unblocked");
+
+        // update the escrow to a lower value
+        escrow_writer.write(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, (ESCROW_VALUE / 2).into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(deny, "should block the sender");
+
+        // simulate deposit
+        escrow_writer.write(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, (ESCROW_VALUE).into())]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ));
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(!deny, "should unblock the sender");
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
     }
 }

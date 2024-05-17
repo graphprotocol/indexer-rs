@@ -286,10 +286,6 @@ impl Actor for SenderAllocation {
                         }
                     }
                 }
-                // let rav_value = state
-                //     .latest_rav
-                //     .as_ref()
-                //     .map_or(0, |rav| rav.valueAggregate);
                 if !reply.is_closed() {
                     let _ = reply.send((state.unaggregated_fees.clone(), state.latest_rav.clone()));
                 }
