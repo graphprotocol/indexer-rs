@@ -362,6 +362,7 @@ impl State {
                             SELECT DISTINCT allocation_id
                             FROM scalar_tap_ravs
                             WHERE sender_address = top.sender_address
+                            AND NOT last
                         )
                     ) AS allocation_id
                 FROM scalar_tap_ravs AS top
