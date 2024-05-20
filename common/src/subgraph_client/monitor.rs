@@ -65,7 +65,7 @@ pub fn monitor_deployment_status(
 
                 response.map_err(|e| format!("{e}")).and_then(|data| {
                     data.indexing_statuses
-                        .and_then(|statuses| statuses.first().map(Clone::clone))
+                        .and_then(|statuses| statuses.first().cloned())
                         .ok_or_else(|| format!("Deployment `{deployment}` not found"))
                 })
             }

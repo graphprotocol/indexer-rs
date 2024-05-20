@@ -178,9 +178,11 @@ impl State {
     /// Will update [`State::denied`], as well as the denylist table in the database.
     async fn add_to_denylist(&mut self) {
         tracing::warn!(
-            total_fee = self.sender_fee_tracker.get_total_fee(),
-            max_value = self.config.tap.max_unnaggregated_fees_per_sender,
-            "Total fee greater than max-unnaggregated-fees-per-sender. Denying sender."
+            fee_tracker = self.sender_fee_tracker.get_total_fee(),
+            rav_tracker = self.rav_tracker.get_total_fee(),
+            max_fee_per_sender = self.config.tap.max_unnaggregated_fees_per_sender,
+            sender_balance = self.sender_balance.as_u128(),
+            "Denying sender."
         );
 
         sqlx::query!(
@@ -199,10 +201,11 @@ impl State {
     /// Will update [`State::denied`], as well as the denylist table in the database.
     async fn remove_from_denylist(&mut self) {
         tracing::info!(
-            total_fee = self.sender_fee_tracker.get_total_fee(),
-            max_value = self.config.tap.max_unnaggregated_fees_per_sender,
-            "Total fee fell below max-unnaggregated-fees-per-sender. Allowing sender \
-            again."
+            fee_tracker = self.sender_fee_tracker.get_total_fee(),
+            rav_tracker = self.rav_tracker.get_total_fee(),
+            max_fee_per_sender = self.config.tap.max_unnaggregated_fees_per_sender,
+            sender_balance = self.sender_balance.as_u128(),
+            "Allowing sender."
         );
         sqlx::query!(
             r#"
@@ -269,27 +272,27 @@ impl Actor for SenderAccount {
 
             #[derive(Deserialize)]
             struct Transaction {
-                #[serde(rename="allocationID")]
+                #[serde(rename = "allocationID")]
                 allocation_id: String,
             }
 
             #[derive(Deserialize)]
             struct Response {
-                transactions: Vec<Transaction>
+                transactions: Vec<Transaction>,
             }
 
             async move {
-                let last_non_final_ravs =
-                    sqlx::query!(
-                        r#"
-                            SELECT allocation_id, value_aggregate FROM scalar_tap_ravs WHERE sender_address = $1 AND last AND NOT final;
+                let last_non_final_ravs = sqlx::query!(
+                    r#"
+                            SELECT allocation_id, value_aggregate
+                            FROM scalar_tap_ravs
+                            WHERE sender_address = $1 AND last AND NOT final;
                         "#,
-                        sender_id.encode_hex::<String>(),
-                    )
-                    .fetch_all(&pgpool)
+                    sender_id.encode_hex::<String>(),
+                )
+                .fetch_all(&pgpool)
                 .await
                 .expect("Should not fail to fetch from scalar_tap_ravs");
-
 
                 let query = r#"
                     query transactions(
@@ -309,30 +312,52 @@ impl Actor for SenderAccount {
                 "#;
 
                 // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
-                let redeemed_ravs_allocation_ids = match escrow_subgraph.query::<Response>(Query::new_with_variables(query,
-                    [("unfinalizedRavsAllocationIds", last_non_final_ravs.iter().map(|rav| rav.allocation_id.to_string()).collect::<Vec<_>>().into()),
-                        ("sender", format!("{:x?}", sender_id).into()),],
-                )).await {
-                    Ok(Ok(response)) => response.transactions.into_iter().map(|tx| tx.allocation_id).collect::<Vec<_>>(),
+                let redeemed_ravs_allocation_ids = match escrow_subgraph
+                    .query::<Response>(Query::new_with_variables(
+                        query,
+                        [
+                            (
+                                "unfinalizedRavsAllocationIds",
+                                last_non_final_ravs
+                                    .iter()
+                                    .map(|rav| rav.allocation_id.to_string())
+                                    .collect::<Vec<_>>()
+                                    .into(),
+                            ),
+                            ("sender", format!("{:x?}", sender_id).into()),
+                        ],
+                    ))
+                    .await
+                {
+                    Ok(Ok(response)) => response
+                        .transactions
+                        .into_iter()
+                        .map(|tx| tx.allocation_id)
+                        .collect::<Vec<_>>(),
                     // if we have any problems, we don't want to filter out
-                    _ => vec![]
+                    _ => vec![],
                 };
 
                 // filter the ravs marked as last that were not redeemed yet
                 let non_redeemed_ravs = last_non_final_ravs
                     .into_iter()
-                    .filter_map(|rav| Some((
-                        Address::from_str(&rav.allocation_id).ok()?,
-                        rav.value_aggregate
-                            .to_bigint()
-                            .and_then(|v| v.to_u128())?
-                    )))
-                    .filter(|(allocation, _value)| !redeemed_ravs_allocation_ids.contains(&format!("{:x?}", allocation)))
+                    .filter_map(|rav| {
+                        Some((
+                            Address::from_str(&rav.allocation_id).ok()?,
+                            rav.value_aggregate.to_bigint().and_then(|v| v.to_u128())?,
+                        ))
+                    })
+                    .filter(|(allocation, _value)| {
+                        !redeemed_ravs_allocation_ids.contains(&format!("{:x?}", allocation))
+                    })
                     .collect::<HashMap<_, _>>();
 
                 // Update the allocation_ids
                 myself
-                    .cast(SenderAccountMessage::UpdateBalanceAndLastRavs(balance, non_redeemed_ravs))
+                    .cast(SenderAccountMessage::UpdateBalanceAndLastRavs(
+                        balance,
+                        non_redeemed_ravs,
+                    ))
                     .unwrap_or_else(|e| {
                         error!(
                             "Error while updating balance for sender {}: {:?}",
@@ -502,15 +527,11 @@ impl Actor for SenderAccount {
                 for (allocation_id, value) in non_final_last_ravs {
                     state.rav_tracker.update(allocation_id, value);
                 }
-
                 // now that balance and rav tracker is updated, check
-                let deny_condition_reached = state.deny_condition_reached();
-                let should_deny = !state.denied && deny_condition_reached;
-                let should_allow = state.denied && !deny_condition_reached;
-                if should_deny {
-                    state.add_to_denylist().await;
-                } else if should_allow {
-                    state.remove_from_denylist().await;
+                match (state.denied, state.deny_condition_reached()) {
+                    (true, false) => state.remove_from_denylist().await,
+                    (false, true) => state.add_to_denylist().await,
+                    (_, _) => {}
                 }
             }
             #[cfg(test)]

@@ -488,7 +488,7 @@ async fn new_receipts_watcher(
             );
         }
         RECEIPTS_CREATED
-            .with_label_values(&[&sender_address.to_string(), &allocation_str])
+            .with_label_values(&[&sender_address.to_string(), allocation_str])
             .inc();
     }
 }
