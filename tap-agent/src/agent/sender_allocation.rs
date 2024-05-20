@@ -189,23 +189,23 @@ impl Actor for SenderAllocation {
             "Closing SenderAllocation, triggering last rav",
         );
         // Request a RAV and mark the allocation as final.
-        if state.unaggregated_fees.value > 0 {
-            state.rav_requester_single().await.inspect_err(|e| {
-                error!(
-                    "Error while requesting RAV for sender {} and allocation {}: {}",
-                    state.sender, state.allocation_id, e
-                );
-                RAVS_FAILED
-                    .with_label_values(&[
-                        &state.sender.to_string(),
-                        &state.allocation_id.to_string(),
-                    ])
-                    .inc();
-            })?;
+        while state.unaggregated_fees.value > 0 {
+            if state.request_rav().await.is_err() {
+                break;
+            }
         }
+        if state.unaggregated_fees.value > 0 {
+            Err(anyhow!(
+                "There are still pending unaggregated_fees for sender {} and allocation {}.\
+                Not marking as last.",
+                state.sender,
+                state.allocation_id
+            ))?;
+        }
+
         state.mark_rav_last().await.inspect_err(|e| {
             error!(
-                "Error while marking allocation {} as final for sender {}: {}",
+                "Error while marking allocation {} as last for sender {}: {}",
                 state.allocation_id, state.sender, e
             );
         })?;
@@ -257,34 +257,8 @@ impl Actor for SenderAllocation {
             // we use a blocking call here to ensure that only one RAV request is running at a time.
             SenderAllocationMessage::TriggerRAVRequest(reply) => {
                 if state.unaggregated_fees.value > 0 {
-                    match state.rav_requester_single().await {
-                        Ok(rav) => {
-                            state.latest_rav = Some(rav);
-                            state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
-
-                            UNAGGREGATED_FEES
-                                .with_label_values(&[
-                                    &state.sender.to_string(),
-                                    &state.allocation_id.to_string(),
-                                ])
-                                .set(state.unaggregated_fees.value as f64);
-                        }
-                        Err(e) => {
-                            RAVS_FAILED
-                                .with_label_values(&[
-                                    &state.sender.to_string(),
-                                    &state.allocation_id.to_string(),
-                                ])
-                                .inc();
-
-                            error! (
-                                %state.sender,
-                                %state.allocation_id,
-                                error = %e,
-                                "Error while requesting RAV ",
-                            );
-                        }
-                    }
+                    // auto backoff retry, on error ignore
+                    let _ = state.request_rav().await;
                 }
                 if !reply.is_closed() {
                     let _ = reply.send((state.unaggregated_fees.clone(), state.latest_rav.clone()));
@@ -417,6 +391,43 @@ impl SenderAllocationState {
                 .to_string()
                 .parse::<u128>()?,
         })
+    }
+
+    async fn request_rav(&mut self) -> Result<()> {
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 3;
+        while retries < MAX_RETRIES {
+            match self.rav_requester_single().await {
+                Ok(rav) => {
+                    self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
+                    self.latest_rav = Some(rav);
+
+                    UNAGGREGATED_FEES
+                        .with_label_values(&[
+                            &self.sender.to_string(),
+                            &self.allocation_id.to_string(),
+                        ])
+                        .set(self.unaggregated_fees.value as f64);
+                    return Ok(());
+                }
+                Err(e) => {
+                    error!(
+                        "Error while requesting RAV for sender {} and allocation {}: {}",
+                        self.sender, self.allocation_id, e
+                    );
+                    RAVS_FAILED
+                        .with_label_values(&[
+                            &self.sender.to_string(),
+                            &self.allocation_id.to_string(),
+                        ])
+                        .inc();
+                    // backoff = 100ms * 2 ^ retries
+                    tokio::time::sleep(Duration::from_millis(100) * 2u32.pow(retries)).await;
+                    retries += 1;
+                }
+            }
+        }
+        Err(anyhow!("Could not finish rav request"))
     }
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
