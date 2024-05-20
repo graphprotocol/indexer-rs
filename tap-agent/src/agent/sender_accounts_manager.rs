@@ -312,17 +312,17 @@ impl State {
                     FROM scalar_tap_receipts
                     GROUP BY signer_address, allocation_id
                 )
-                SELECT DISTINCT 
+                SELECT DISTINCT
                     signer_address,
                     (
-                        SELECT ARRAY 
+                        SELECT ARRAY
                         (
                             SELECT DISTINCT allocation_id
                             FROM grouped
                             WHERE signer_address = top.signer_address
                         )
                     ) AS allocation_ids
-                FROM grouped AS top                
+                FROM grouped AS top
             "#
         )
         .fetch_all(&self.pgpool)
@@ -357,11 +357,12 @@ impl State {
                 SELECT DISTINCT
                     sender_address,
                     (
-                        SELECT ARRAY 
+                        SELECT ARRAY
                         (
                             SELECT DISTINCT allocation_id
                             FROM scalar_tap_ravs
                             WHERE sender_address = top.sender_address
+                            AND NOT last
                         )
                     ) AS allocation_id
                 FROM scalar_tap_ravs AS top
