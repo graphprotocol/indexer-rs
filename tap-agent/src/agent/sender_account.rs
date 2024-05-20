@@ -298,6 +298,13 @@ impl Actor for SenderAccount {
                         trigger_value = state.config.tap.rav_request_trigger_value,
                         "Total fee greater than the trigger value. Triggering RAV request"
                     );
+                    // There are only 3 scenarios where this can fail:
+                    // - No allocation ids
+                    // - The SenderAllocation could not be found
+                    // - The SenderAllocation could not process the message
+                    // In any case, we want to respawn this whole actor
+                    // and respawn all its children actors. Thus, we can safely
+                    // panic the actor by using ?
                     state.rav_requester_single().await?;
                 }
 
