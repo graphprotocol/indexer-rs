@@ -189,23 +189,42 @@ impl Actor for SenderAllocation {
             "Closing SenderAllocation, triggering last rav",
         );
         // Request a RAV and mark the allocation as final.
-        if state.unaggregated_fees.value > 0 {
-            state.rav_requester_single().await.inspect_err(|e| {
-                error!(
-                    "Error while requesting RAV for sender {} and allocation {}: {}",
-                    state.sender, state.allocation_id, e
-                );
-                RAVS_FAILED
-                    .with_label_values(&[
-                        &state.sender.to_string(),
-                        &state.allocation_id.to_string(),
-                    ])
-                    .inc();
-            })?;
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 3;
+        while state.unaggregated_fees.value > 0 && retries < MAX_RETRIES {
+            match state.rav_requester_single().await {
+                Ok(_) => {
+                    state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
+                }
+                Err(e) => {
+                    error!(
+                        "Error while requesting RAV for sender {} and allocation {}: {}",
+                        state.sender, state.allocation_id, e
+                    );
+                    RAVS_FAILED
+                        .with_label_values(&[
+                            &state.sender.to_string(),
+                            &state.allocation_id.to_string(),
+                        ])
+                        .inc();
+                    // backoff = 100ms * 2 ^ retries
+                    tokio::time::sleep(Duration::from_millis(100) * 2u32.pow(retries)).await;
+                    retries += 1;
+                }
+            }
         }
+        if state.unaggregated_fees.value > 0 {
+            Err(anyhow!(
+                "There are still pending unaggregated_fees for sender {} and allocation {}.\
+                Not marking as last.",
+                state.sender,
+                state.allocation_id
+            ))?;
+        }
+
         state.mark_rav_last().await.inspect_err(|e| {
             error!(
-                "Error while marking allocation {} as final for sender {}: {}",
+                "Error while marking allocation {} as last for sender {}: {}",
                 state.allocation_id, state.sender, e
             );
         })?;
