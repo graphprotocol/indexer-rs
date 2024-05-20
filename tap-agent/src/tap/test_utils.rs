@@ -122,18 +122,30 @@ pub async fn store_rav(
     signed_rav: SignedRAV,
     sender: Address,
 ) -> anyhow::Result<()> {
+    store_rav_with_options(pgpool, signed_rav, sender, false, false).await
+}
+
+pub async fn store_rav_with_options(
+    pgpool: &PgPool,
+    signed_rav: SignedRAV,
+    sender: Address,
+    last: bool,
+    final_rav: bool,
+) -> anyhow::Result<()> {
     let signature_bytes = signed_rav.signature.to_vec();
 
     let _fut = sqlx::query!(
         r#"
-            INSERT INTO scalar_tap_ravs (sender_address, signature, allocation_id, timestamp_ns, value_aggregate)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO scalar_tap_ravs (sender_address, signature, allocation_id, timestamp_ns, value_aggregate, last, final)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
         sender.encode_hex::<String>(),
         signature_bytes,
         signed_rav.message.allocationId.encode_hex::<String>(),
         BigDecimal::from(signed_rav.message.timestampNs),
         BigDecimal::from(BigInt::from(signed_rav.message.valueAggregate)),
+        last,
+        final_rav,
     )
     .execute(pgpool)
     .await?;
