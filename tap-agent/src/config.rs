@@ -202,8 +202,6 @@ mod tests {
             }};
         }
 
-        parse!("1").unwrap();
-
         assert_eq!(parse!("1").unwrap(), 1_000_000_000_000_000_000);
         assert_eq!(parse!("1.1").unwrap(), 1_100_000_000_000_000_000);
         assert_eq!(
@@ -211,11 +209,21 @@ mod tests {
             1_000_000_000_000_000_001
         );
         assert_eq!(parse!("0.000000000000000001").unwrap(), 1);
-        assert!(parse!("0").is_err());
-        assert!(parse!("-1").is_err());
+        assert_eq!(
+            parse!("0").unwrap_err().to_string(),
+            "GRT value must be greater than 0"
+        );
+        assert_eq!(
+            parse!("-1").unwrap_err().to_string(),
+            "GRT value must be greater than 0"
+        );
         assert_eq!(
             parse!("1.0000000000000000001").unwrap(),
             1_000_000_000_000_000_000
+        );
+        assert_eq!(
+            parse!(format!("{}0", u128::MAX)).unwrap_err().to_string(),
+            "GRT value cannot be represented as a u128 GRT wei value"
         );
     }
 
