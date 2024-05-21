@@ -3,19 +3,20 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    str::FromStr,
     time::Duration,
 };
 
 use anyhow::Result;
 use ethers_core::types::U256;
 use eventuals::{timer, Eventual, EventualExt};
-use serde::Deserialize;
+use graphql_client::GraphQLQuery;
 use thegraph::types::Address;
 use thiserror::Error;
 use tokio::time::sleep;
 use tracing::{error, warn};
 
-use crate::prelude::{Query, SubgraphClient};
+use crate::prelude::SubgraphClient;
 
 #[derive(Error, Debug)]
 pub enum EscrowAccountsError {
@@ -88,110 +89,59 @@ impl EscrowAccounts {
     }
 }
 
+type BigInt = U256;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "../graphql/tap.schema.graphql",
+    query_path = "../graphql/escrow_account.query.graphql",
+    response_derives = "Debug",
+    variables_derives = "Clone"
+)]
+pub struct EscrowAccountQuery;
+
 pub fn escrow_accounts(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     interval: Duration,
     reject_thawing_signers: bool,
 ) -> Eventual<EscrowAccounts> {
-    // Types for deserializing the network subgraph response
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct EscrowAccountsResponse {
-        escrow_accounts: Vec<EscrowAccount>,
-    }
-    // Note that U256's serde implementation is based on serializing the internal bytes, not the string decimal
-    // representation. This is why we deserialize them as strings below.
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct EscrowAccount {
-        balance: String,
-        total_amount_thawing: String,
-        sender: Sender,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Sender {
-        id: Address,
-        signers: Vec<Signer>,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Signer {
-        id: Address,
-    }
-
-    // thawEndTimestamp == 0 means that the signer is not thawing. This also means
-    // that we don't wait for the thawing period to end before stopping serving
-    // queries for this signer.
-    // isAuthorized == true means that the signer is still authorized to sign
-    // payments in the name of the sender.
-    let query = if reject_thawing_signers {
-        r#"
-        query ($indexer: ID!) {
-            escrowAccounts(where: {receiver_: {id: $indexer}}) {
-                balance
-                totalAmountThawing
-                sender {
-                    id
-                    signers(
-                        where: {thawEndTimestamp: "0", isAuthorized: true}
-                    ) {
-                        id
-                    }
-                }
-            }
-        }
-    "#
-    } else {
-        r#"
-        query ($indexer: ID!) {
-            escrowAccounts(where: {receiver_: {id: $indexer}}) {
-                balance
-                totalAmountThawing
-                sender {
-                    id
-                    signers(
-                        where: {isAuthorized: true}
-                    ) {
-                        id
-                    }
-                }
-            }
-        }
-    "#
-    };
-
     timer(interval).map_with_retry(
         move |_| async move {
+            // thawEndTimestamp == 0 means that the signer is not thawing. This also means
+            // that we don't wait for the thawing period to end before stopping serving
+            // queries for this signer.
+            // isAuthorized == true means that the signer is still authorized to sign
+            // payments in the name of the sender.
             let response = escrow_subgraph
-                .query::<EscrowAccountsResponse>(Query::new_with_variables(
-                    query,
-                    [("indexer", format!("{:x?}", indexer_address).into())],
-                ))
+                .query::<EscrowAccountQuery, _>(escrow_account_query::Variables {
+                    indexer: format!("{:x?}", indexer_address),
+                    thaw_end_timestamp: if reject_thawing_signers {
+                        Some("0".into())
+                    } else {
+                        None
+                    },
+                })
                 .await
                 .map_err(|e| e.to_string())?;
 
-            let response = response.map_err(|e| e.to_string())?;
+            let response = response.unwrap();
 
-            let senders_balances = response
+            let senders_balances: HashMap<Address, U256> = response
                 .escrow_accounts
                 .iter()
                 .map(|account| {
-                    let balance = U256::checked_sub(
-                        U256::from_dec_str(&account.balance)?,
-                        U256::from_dec_str(&account.total_amount_thawing)?,
-                    )
-                    .unwrap_or_else(|| {
-                        warn!(
-                            "Balance minus total amount thawing underflowed for account {}. \
+                    let balance = U256::checked_sub(account.balance, account.total_amount_thawing)
+                        .unwrap_or_else(|| {
+                            warn!(
+                                "Balance minus total amount thawing underflowed for account {}. \
                                  Setting balance to 0, no queries will be served for this sender.",
-                            account.sender.id
-                        );
-                        U256::from(0)
-                    });
+                                account.sender.id
+                            );
+                            U256::from(0)
+                        });
 
-                    Ok((account.sender.id, balance))
+                    Ok((Address::from_str(&account.sender.id).unwrap(), balance))
                 })
                 .collect::<Result<HashMap<_, _>, anyhow::Error>>()
                 .map_err(|e| format!("{}", e))?;
@@ -200,12 +150,14 @@ pub fn escrow_accounts(
                 .escrow_accounts
                 .iter()
                 .map(|account| {
-                    let sender = account.sender.id;
+                    let sender = Address::from_str(&account.sender.id).unwrap();
                     let signers = account
                         .sender
                         .signers
+                        .as_ref()
+                        .unwrap()
                         .iter()
-                        .map(|signer| signer.id)
+                        .map(|signer| Address::from_str(&signer.id).unwrap())
                         .collect();
                     (sender, signers)
                 })

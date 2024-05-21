@@ -4,14 +4,13 @@
 use anyhow::anyhow;
 use axum::body::Bytes;
 use eventuals::Eventual;
+use graphql_client::GraphQLQuery;
 use reqwest::{header, Url};
-use serde::de::Deserialize;
 use serde_json::{Map, Value};
 use thegraph::types::DeploymentId;
 use thegraph_graphql_http::{
     graphql::{Document, IntoDocument},
     http::request::{IntoRequestParameters, RequestParameters},
-    http_client::{ReqwestExt, ResponseResult},
 };
 use tracing::warn;
 
@@ -22,6 +21,8 @@ pub struct Query {
     pub query: Document,
     pub variables: Map<String, Value>,
 }
+
+pub type ResponseResult<T> = Result<T, anyhow::Error>;
 
 impl Query {
     pub fn new(query: &str) -> Self {
@@ -122,10 +123,10 @@ impl DeploymentClient {
         }
     }
 
-    pub async fn query<T: for<'de> Deserialize<'de>>(
+    pub async fn query<T: GraphQLQuery>(
         &self,
-        query: impl IntoRequestParameters + Send,
-    ) -> Result<ResponseResult<T>, anyhow::Error> {
+        variables: T::Variables,
+    ) -> Result<ResponseResult<T::ResponseData>, anyhow::Error> {
         if let Some(ref status) = self.status {
             let deployment_status = status.value().await.expect("reading deployment status");
 
@@ -137,12 +138,22 @@ impl DeploymentClient {
             }
         }
 
-        Ok(self
+        let body = T::build_query(variables);
+        let reqwest_response = self
             .http_client
             .post(self.query_url.as_ref())
             .header(header::USER_AGENT, "indexer-common")
-            .send_graphql(query)
-            .await?)
+            .json(&body)
+            .send()
+            .await?;
+        let response: graphql_client::Response<T::ResponseData> = reqwest_response.json().await?;
+
+        // TODO handle partial responses
+        Ok(match (response.data, response.errors) {
+            (Some(data), None) => Ok(data),
+            (_, Some(errors)) => Err(anyhow!("Query error")),
+            (_, _) => Err(anyhow!("Invalid error")),
+        })
     }
 
     pub async fn query_raw(&self, body: Bytes) -> Result<reqwest::Response, anyhow::Error> {
@@ -186,14 +197,18 @@ impl SubgraphClient {
         }
     }
 
-    pub async fn query<T: for<'de> Deserialize<'de>>(
+    pub async fn query<Q, V>(
         &self,
-        query: impl IntoRequestParameters + Send + Clone,
-    ) -> Result<ResponseResult<T>, anyhow::Error> {
+        variables: Q::Variables,
+    ) -> Result<ResponseResult<Q::ResponseData>, anyhow::Error>
+    where
+        Q: GraphQLQuery<Variables = V>,
+        V: Clone,
+    {
         // Try the local client first; if that fails, log the error and move on
         // to the remote client
         if let Some(ref local_client) = self.local_client {
-            match local_client.query(query.clone()).await {
+            match local_client.query::<Q>(variables.clone()).await {
                 Ok(response) => return Ok(response),
                 Err(err) => warn!(
                     "Failed to query local subgraph deployment `{}`, trying remote deployment next: {}",
@@ -203,14 +218,17 @@ impl SubgraphClient {
         }
 
         // Try the remote client
-        self.remote_client.query(query).await.map_err(|err| {
-            warn!(
-                "Failed to query remote subgraph deployment `{}`: {}",
-                self.remote_client.query_url, err
-            );
+        self.remote_client
+            .query::<Q>(variables)
+            .await
+            .map_err(|err| {
+                warn!(
+                    "Failed to query remote subgraph deployment `{}`: {}",
+                    self.remote_client.query_url, err
+                );
 
-            err
-        })
+                err
+            })
     }
 
     pub async fn query_raw(&self, query: Bytes) -> Result<reqwest::Response, anyhow::Error> {
@@ -242,6 +260,7 @@ impl SubgraphClient {
 mod test {
     use std::str::FromStr;
 
+    use alloy_primitives::U256;
     use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -285,26 +304,36 @@ mod test {
         )
     }
 
+    #[derive(GraphQLQuery)]
+    #[graphql(
+        schema_path = "../graphql/network.schema.graphql",
+        query_path = "../graphql/epoch.query.graphql",
+        response_derives = "Debug",
+        variables_derives = "Clone"
+    )]
+    struct CurrentEpoch;
+
     #[tokio::test]
     async fn test_network_query() {
         let _mock_server = mock_graph_node_server().await;
 
         // Check that the response is valid JSON
         let result = network_subgraph_client()
-            .query::<Value>(Query::new(
-                r#"
-                query {
-                 	graphNetwork(id: 1) {
-                 		currentEpoch
-                 	}
-                }
-                "#,
-            ))
+            .query::<CurrentEpoch, _>(current_epoch::Variables {})
             .await
             .unwrap();
 
         assert!(result.is_ok());
     }
+
+    #[derive(GraphQLQuery)]
+    #[graphql(
+        schema_path = "../graphql/test.schema.graphql",
+        query_path = "../graphql/user.query.graphql",
+        response_derives = "Debug",
+        variables_derives = "Clone"
+    )]
+    struct UserQuery;
 
     #[tokio::test]
     async fn test_uses_local_deployment_if_healthy_and_synced() {
@@ -378,12 +407,12 @@ mod test {
 
         // Query the subgraph
         let data = client
-            .query::<Value>(Query::new("{ user(id: 1} { name } }"))
+            .query::<UserQuery, _>(user_query::Variables {})
             .await
             .expect("Query should succeed")
             .expect("Query result should have a value");
 
-        assert_eq!(data, json!({ "user": { "name": "local" } }));
+        assert_eq!(data.user.name, "local".to_string());
     }
 
     #[tokio::test]
@@ -458,12 +487,12 @@ mod test {
 
         // Query the subgraph
         let data = client
-            .query::<Value>(Query::new("{ user(id: 1} { name } }"))
+            .query::<UserQuery, _>(user_query::Variables {})
             .await
             .expect("Query should succeed")
             .expect("Query result should have a value");
 
-        assert_eq!(data, json!({ "user": { "name": "remote" } }));
+        assert_eq!(data.user.name, "remote".to_string());
     }
 
     #[tokio::test]
@@ -538,11 +567,11 @@ mod test {
 
         // Query the subgraph
         let data = client
-            .query::<Value>(Query::new("{ user(id: 1} { name } }"))
+            .query::<UserQuery, _>(user_query::Variables {})
             .await
             .expect("Query should succeed")
             .expect("Query result should have a value");
 
-        assert_eq!(data, json!({ "user": { "name": "remote" } }));
+        assert_eq!(data.user.name, "remote".to_string());
     }
 }

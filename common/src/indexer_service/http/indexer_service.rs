@@ -214,11 +214,7 @@ impl IndexerService {
         )));
 
         // Identify the dispute manager for the configured network
-        let dispute_manager = dispute_manager(
-            network_subgraph,
-            options.config.graph_network.id,
-            Duration::from_secs(3600),
-        );
+        let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(3600));
 
         // Monitor the indexer's own allocations
         let allocations = indexer_allocations(

@@ -3,6 +3,7 @@
 
 use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
+use graphql_client::GraphQLQuery;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
@@ -11,10 +12,8 @@ use alloy_sol_types::Eip712Domain;
 use anyhow::Result;
 use ethereum_types::U256;
 use eventuals::{Eventual, EventualExt, PipeHandle};
-use indexer_common::subgraph_client::Query;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use ractor::{call, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
-use serde::Deserialize;
 use sqlx::PgPool;
 use tap_core::rav::SignedRAV;
 use thegraph::types::Address;
@@ -221,6 +220,15 @@ impl State {
     }
 }
 
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "../graphql/tap.schema.graphql",
+    query_path = "../graphql/transactions.query.graphql",
+    response_derives = "Debug",
+    variables_derives = "Clone"
+)]
+struct UnfinalizedTransactions;
+
 #[async_trait::async_trait]
 impl Actor for SenderAccount {
     type Msg = SenderAccountMessage;
@@ -270,17 +278,6 @@ impl Actor for SenderAccount {
                 .get_balance_for_sender(&sender_id)
                 .unwrap_or_default();
 
-            #[derive(Deserialize)]
-            struct Transaction {
-                #[serde(rename = "allocationID")]
-                allocation_id: String,
-            }
-
-            #[derive(Deserialize)]
-            struct Response {
-                transactions: Vec<Transaction>,
-            }
-
             async move {
                 let last_non_final_ravs = sqlx::query!(
                     r#"
@@ -294,45 +291,21 @@ impl Actor for SenderAccount {
                 .await
                 .expect("Should not fail to fetch from scalar_tap_ravs");
 
-                let query = r#"
-                    query transactions(
-                        $unfinalizedRavsAllocationIds: [String!]!
-                        $sender: String!
-                    ) {
-                        transactions(
-                            where: {
-                                type: "redeem"
-                                allocationID_in: $unfinalizedRavsAllocationIds
-                                sender_: { id: $sender }
-                            }
-                        ) {
-                            allocationID
-                        }
-                    }
-                "#;
-
                 // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
                 let redeemed_ravs_allocation_ids = match escrow_subgraph
-                    .query::<Response>(Query::new_with_variables(
-                        query,
-                        [
-                            (
-                                "unfinalizedRavsAllocationIds",
-                                last_non_final_ravs
-                                    .iter()
-                                    .map(|rav| rav.allocation_id.to_string())
-                                    .collect::<Vec<_>>()
-                                    .into(),
-                            ),
-                            ("sender", format!("{:x?}", sender_id).into()),
-                        ],
-                    ))
+                    .query::<UnfinalizedTransactions, _>(unfinalized_transactions::Variables {
+                        unfinalized_ravs_allocation_ids: last_non_final_ravs
+                            .iter()
+                            .map(|rav| rav.allocation_id.to_string())
+                            .collect::<Vec<_>>(),
+                        sender: format!("{:x?}", sender_id),
+                    })
                     .await
                 {
                     Ok(Ok(response)) => response
                         .transactions
                         .into_iter()
-                        .map(|tx| tx.allocation_id)
+                        .map(|tx| tx.allocation_id.unwrap())
                         .collect::<Vec<_>>(),
                     // if we have any problems, we don't want to filter out
                     _ => vec![],

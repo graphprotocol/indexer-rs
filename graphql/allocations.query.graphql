@@ -1,0 +1,33 @@
+query AllocationsQuery($indexer: ID!, $closedAtThreshold: Int!) {
+    indexer(id: $indexer) {
+        activeAllocations: totalAllocations(
+            where: { status: Active }
+            orderDirection: desc
+            first: 1000
+        ) {
+            ...AllocationFragment
+        }
+        recentlyClosedAllocations: totalAllocations(
+            where: { status: Closed, closedAt_gte: $closedAtThreshold }
+            orderDirection: desc
+            first: 1000
+        ) {
+            ...AllocationFragment
+        }
+    }
+}
+
+fragment AllocationFragment on Allocation {
+    id
+    indexer {
+        id
+    }
+    allocatedTokens
+    createdAtBlockHash
+    createdAtEpoch
+    closedAtEpoch
+    subgraphDeployment {
+        id
+        deniedAt
+    }
+}

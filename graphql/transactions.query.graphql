@@ -1,0 +1,33 @@
+query TapTransactions(
+    $sender_id: ID!
+    $receiver_id: ID!
+    $allocation_id: String!
+) {
+    transactions(
+        where: {
+            and: [
+                { type: "redeem" }
+                { sender_: { id: $sender_id } }
+                { receiver_: { id: $receiver_id } }
+                { allocationID: $allocation_id }
+            ]
+        }
+    ) {
+        id
+    }
+}
+
+query UnfinalizedTransactions(
+    $unfinalizedRavsAllocationIds: [String!]!
+    $sender: String!
+) {
+    transactions(
+        where: {
+            type: "redeem"
+            allocationID_in: $unfinalizedRavsAllocationIds
+            sender_: { id: $sender }
+        }
+    ) {
+        allocationID
+    }
+}

@@ -6,7 +6,8 @@ use std::time::Duration;
 use alloy_primitives::Address;
 use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt};
-use indexer_common::subgraph_client::{Query, SubgraphClient};
+use graphql_client::GraphQLQuery;
+use indexer_common::subgraph_client::SubgraphClient;
 use tap_core::receipt::{
     checks::{Check, CheckResult},
     Checking, ReceiptWithState,
@@ -94,59 +95,27 @@ fn tap_allocation_redeemed_eventual(
     )
 }
 
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "../graphql/tap.schema.graphql",
+    query_path = "../graphql/transactions.query.graphql",
+    response_derives = "Debug",
+    variables_derives = "Clone"
+)]
+struct TapTransactions;
+
 async fn query_escrow_check_transactions(
     allocation_id: Address,
     sender_address: Address,
     indexer_address: Address,
     escrow_subgraph: &'static SubgraphClient,
 ) -> anyhow::Result<bool> {
-    #[derive(serde::Deserialize)]
-    struct AllocationResponse {
-        #[allow(dead_code)]
-        id: String,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct TransactionsResponse {
-        transactions: Vec<AllocationResponse>,
-    }
     let response = escrow_subgraph
-        .query::<TransactionsResponse>(Query::new_with_variables(
-            r#"
-                    query (
-                        $sender_id: ID!,
-                        $receiver_id: ID!,
-                        $allocation_id: String!
-                    ) {
-                        transactions(
-                            where: {
-                                and: [
-                                    { type: "redeem" }
-                                    { sender_: { id: $sender_id } }
-                                    { receiver_: { id: $receiver_id } }
-                                    { allocationID: $allocation_id }
-                                ]
-                            }
-                        ) {
-                            id
-                        }
-                    }
-                "#,
-            [
-                (
-                    "sender_id",
-                    sender_address.to_string().to_lowercase().into(),
-                ),
-                (
-                    "receiver_id",
-                    indexer_address.to_string().to_lowercase().into(),
-                ),
-                (
-                    "allocation_id",
-                    allocation_id.to_string().to_lowercase().into(),
-                ),
-            ],
-        ))
+        .query::<TapTransactions, _>(tap_transactions::Variables {
+            sender_id: sender_address.to_string().to_lowercase(),
+            receiver_id: indexer_address.to_string().to_lowercase(),
+            allocation_id: allocation_id.to_string().to_lowercase(),
+        })
         .await?;
 
     Ok(response.map(|data| !data.transactions.is_empty())?)

@@ -3,18 +3,51 @@
 
 use std::{
     collections::HashMap,
+    str::FromStr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use eventuals::{timer, Eventual, EventualExt};
-use serde::Deserialize;
+use graphql_client::GraphQLQuery;
 use thegraph::types::Address;
 use tokio::time::sleep;
 use tracing::warn;
 
-use crate::prelude::{Query, SubgraphClient};
+use crate::prelude::SubgraphClient;
 
 use super::Allocation;
+
+type BigInt = String;
+type Bytes = String;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "../graphql/network.schema.graphql",
+    query_path = "../graphql/allocations.query.graphql",
+    response_derives = "Debug",
+    variables_derives = "Clone"
+)]
+pub struct AllocationsQuery;
+
+impl From<allocations_query::AllocationFragment> for Allocation {
+    fn from(value: allocations_query::AllocationsQueryIndexerActiveAllocations) -> Self {
+        Self {
+            id: Address::from_str(&value.id).unwrap(),
+            status: super::AllocationStatus::Null,
+            subgraph_deployment: todo!(),
+            indexer: todo!(),
+            allocated_tokens: todo!(),
+            created_at_epoch: todo!(),
+            created_at_block_hash: todo!(),
+            closed_at_epoch: todo!(),
+            closed_at_epoch_start_block_hash: todo!(),
+            previous_epoch_start_block_hash: todo!(),
+            poi: todo!(),
+            query_fee_rebates: todo!(),
+            query_fees_collected: todo!(),
+        }
+    }
+}
 
 /// An always up-to-date list of an indexer's active and recently closed allocations.
 pub fn indexer_allocations(
@@ -23,62 +56,6 @@ pub fn indexer_allocations(
     interval: Duration,
     recently_closed_allocation_buffer: Duration,
 ) -> Eventual<HashMap<Address, Allocation>> {
-    // Types for deserializing the network subgraph response
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct IndexerAllocationsResponse {
-        indexer: Option<Indexer>,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Indexer {
-        active_allocations: Vec<Allocation>,
-        recently_closed_allocations: Vec<Allocation>,
-    }
-
-    let query = r#"
-        query allocations($indexer: ID!, $closedAtThreshold: Int!) {
-            indexer(id: $indexer) {
-                activeAllocations: totalAllocations(
-                    where: { status: Active }
-                    orderDirection: desc
-                    first: 1000
-                ) {
-                    id
-                    indexer {
-                        id
-                    }
-                    allocatedTokens
-                    createdAtBlockHash
-                    createdAtEpoch
-                    closedAtEpoch
-                    subgraphDeployment {
-                        id
-                        deniedAt
-                    }
-                }
-                recentlyClosedAllocations: totalAllocations(
-                    where: { status: Closed, closedAt_gte: $closedAtThreshold }
-                    orderDirection: desc
-                    first: 1000
-                ) {
-                    id
-                    indexer {
-                        id
-                    }
-                    allocatedTokens
-                    createdAtBlockHash
-                    createdAtEpoch
-                    closedAtEpoch
-                    subgraphDeployment {
-                        id
-                        deniedAt
-                    }
-                }
-            }
-        }
-    "#;
-
     // Refresh indexer allocations every now and then
     timer(interval).map_with_retry(
         move |_| async move {
@@ -92,13 +69,10 @@ pub fn indexer_allocations(
             // Query active and recently closed allocations for the indexer,
             // using the network subgraph
             let response = network_subgraph
-                .query::<IndexerAllocationsResponse>(Query::new_with_variables(
-                    query,
-                    [
-                        ("indexer", format!("{indexer_address:?}").into()),
-                        ("closedAtThreshold", closed_at_threshold.as_secs().into()),
-                    ],
-                ))
+                .query::<AllocationsQuery, _>(allocations_query::Variables {
+                    indexer: format!("{indexer_address:?}"),
+                    closed_at_threshold: closed_at_threshold.as_secs() as i64,
+                })
                 .await
                 .map_err(|e| e.to_string())?;
 
@@ -109,7 +83,7 @@ pub fn indexer_allocations(
             })?;
 
             // Pull active and recently closed allocations out of the indexer
-            let Indexer {
+            let allocations_query::AllocationsQueryIndexer {
                 active_allocations,
                 recently_closed_allocations,
             } = indexer;
@@ -117,8 +91,12 @@ pub fn indexer_allocations(
             Ok(HashMap::from_iter(
                 active_allocations
                     .into_iter()
-                    .map(|a| (a.id, a))
-                    .chain(recently_closed_allocations.into_iter().map(|a| (a.id, a))),
+                    .map(|a| (Address::from_str(&a.id).unwrap(), a.into()))
+                    .chain(
+                        recently_closed_allocations
+                            .into_iter()
+                            .map(|a| (Address::from_str(&a.id).unwrap(), a.into())),
+                    ),
             ))
         },
         // Need to use string errors here because eventuals `map_with_retry` retries

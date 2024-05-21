@@ -57,6 +57,7 @@ enum-as-inner = "0.6.0"
 ethers = "2.0.14"
 typetag = "0.2.14"
 ractor = "0.9.7"
+graphql_client = { version = "0.14.0", features = ["reqwest-rustls"] }
 
 [dev-dependencies]
 ethers-signers = "2.0.8"
