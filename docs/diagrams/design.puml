@@ -1,0 +1,109 @@
+@startuml design
+
+' To generate a SVG file, use the following command:
+' plantuml design.puml -tsvg -DPLANTUML_LIMIT_SIZE=8192x8192
+' Or, use the VSCode extension "PlantUML" to preview the diagram
+' and export it to SVG.
+
+!theme bluegray
+skinparam classFontColor darkSlateGray
+skinparam PackageFontSize 30
+skinparam PackageFontColor darkSlateGray
+skinparam PackageBorderColor black
+skinparam TitleFontSize 40
+skinparam TitleFontColor black
+skinparam ObjectFontSize 25
+skinparam ObjectFontColor black
+
+title **Indexer**
+
+package Router {
+    object "endpoints" as r1 {
+        /cost -> serve agora models
+        /status -> graph node indexing status
+        /version -> version + dependencies
+        /info -> public key address
+        /metrics -> prometheus metrics
+    }
+    together {
+        object "data subgraphs" as r2 {
+            /subgraphs/id/:id -> data subgraphs
+        }
+        object "serve network subgraphs" as r3 {
+            /network          -> serve network
+            /escrow           -> serve escrow
+        }
+    }
+}
+
+' These "hidden" relationships are not shown in the diagram,
+' but they are used to influence the layout.
+r1 -[hidden]down- r2
+r2 -[hidden]down- r3
+Router.r2 -up-> QueryHandler
+
+object RateLimiter
+object Logging
+
+Router .left. RateLimiter
+Router . Logging
+RateLimiter -[hidden]down- Logging
+
+package QueryHandler {
+    object "scalar receipt header decoder" as q1 <<Feature>>
+    object "verify and store receipt" as q2
+    object "process query" as q3
+    object "create attestation" as q4
+    object "return the result" as q5
+}
+
+hide <<Feature>> stereotype
+
+skinparam object<<Feature>> {
+    FontColor black
+    BorderColor black
+}
+
+q2 -> q3
+q3 -> q4
+q4 -> q5
+
+QueryHandler.q4 -> AttestationSigners
+QueryHandler.q2 --down--> TAP
+QueryHandler -[hidden]down- AttestationSigners
+
+package TAP {
+    object "allocation eligible" as t1
+    object "sender balance" as t2
+    object "deny list" as t3
+    object "value check" as t4
+    object "timestamp check" as t5
+    object "store receipt" as t6
+}
+
+TAP.t1 -> AllocationMonitor
+TAP.t2 -> EscrowMonitor
+
+package AttestationSigners {
+    object "dispute manager" as a1<<Feature>>
+    object "get signer for allocation" as a2
+    object "create signature" as a3
+}
+
+a1 -[hidden]down- a2
+a1 -[hidden]down- a3
+TAP -[hidden]up- AttestationSigners
+
+AttestationSigners.a2 -> AllocationMonitor
+
+package AllocationMonitor {
+    object "-> eventual of indexer's allocations" as am1
+}
+
+package EscrowMonitor {
+    object "-> eventuals of sender's accounts and signers" as em1
+}
+
+EscrowMonitor -[hidden]down- AllocationMonitor
+
+@enduml
