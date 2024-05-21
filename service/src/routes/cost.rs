@@ -12,7 +12,7 @@ use serde_json::Value;
 use thegraph::types::DeploymentId;
 
 use crate::database::{self, CostModel};
-use crate::SubgraphServiceState;
+use crate::service::SubgraphServiceState;
 
 #[derive(Clone, Debug, Serialize, Deserialize, SimpleObject)]
 pub struct GraphQlCostModel {
