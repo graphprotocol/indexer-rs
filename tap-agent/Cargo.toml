@@ -13,7 +13,7 @@ alloy-primitives = "0.6"
 alloy-sol-types = "0.6"
 anyhow = "1.0.72"
 async-trait = "0.1.72"
-bigdecimal = "0.4.2"
+bigdecimal = { version = "0.4.2", features = ["serde", "string-only"] }
 clap = { version = "4.4.3", features = ["derive", "env"] }
 confy = "0.5.1"
 dotenvy = "0.15.7"
@@ -57,9 +57,13 @@ enum-as-inner = "0.6.0"
 ethers = "2.0.14"
 typetag = "0.2.14"
 ractor = "0.9.7"
+figment = { version = "0.10.19", features = ["toml"] }
+shellexpand = { version = "3.1.0", default-features = false, features = ["base-0"] }
 
 [dev-dependencies]
 ethers-signers = "2.0.8"
 tempfile = "3.8.0"
 wiremock = "0.5.19"
 futures = "0.3.30"
+serde_assert = "0.7.1"
+toml = "0.8.13"

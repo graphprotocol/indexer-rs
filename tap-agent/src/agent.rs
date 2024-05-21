@@ -12,7 +12,9 @@ use ractor::{Actor, ActorRef};
 use crate::agent::sender_accounts_manager::{
     SenderAccountsManagerArgs, SenderAccountsManagerMessage,
 };
-use crate::config::{Cli, EscrowSubgraph, Ethereum, IndexerInfrastructure, NetworkSubgraph, Tap};
+use crate::config::{
+    Config, EscrowSubgraph, Ethereum, IndexerInfrastructure, NetworkSubgraph, Tap,
+};
 use crate::{aggregator_endpoints, database, CONFIG, EIP_712_DOMAIN};
 use sender_accounts_manager::SenderAccountsManager;
 
@@ -23,7 +25,7 @@ pub mod sender_fee_tracker;
 pub mod unaggregated_receipts;
 
 pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
-    let Cli {
+    let Config {
         ethereum: Ethereum { indexer_address },
         indexer_infrastructure:
             IndexerInfrastructure {

@@ -4,10 +4,10 @@
 use alloy_sol_types::{eip712_domain, Eip712Domain};
 use lazy_static::lazy_static;
 
-use crate::config::Cli;
+use crate::config::Config;
 
 lazy_static! {
-    pub static ref CONFIG: Cli = Cli::args();
+    pub static ref CONFIG: Config = Config::from_cli().expect("Failed to load configuration");
     pub static ref EIP_712_DOMAIN: Eip712Domain = eip712_domain! {
         name: "TAP",
         version: "1",

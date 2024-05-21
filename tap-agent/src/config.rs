@@ -1,285 +1,107 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{path::PathBuf, str::FromStr};
+use std::path::PathBuf;
 
 use bigdecimal::{BigDecimal, ToPrimitive};
-use clap::{command, Args, Parser, ValueEnum};
-use dotenvy::dotenv;
-use serde::{Deserialize, Serialize};
-use thegraph::types::Address;
-use thegraph::types::DeploymentId;
+use clap::Parser;
+
+use anyhow::Result;
+use figment::providers::{Format, Toml};
+use figment::Figment;
+use serde::{de, Deserialize, Deserializer};
+use thegraph::types::{Address, DeploymentId};
 use tracing::subscriber::{set_global_default, SetGlobalDefaultError};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-#[derive(Clone, Debug, Parser, Serialize, Deserialize, Default)]
-#[clap(
-    name = "indexer-tap-agent",
-    about = "Agent that manages Timeline Aggregation Protocol (TAP) receipts as well \
-    as Receipt Aggregate Voucher (RAV) requests for an indexer."
-)]
-#[command(author, version, about, long_about = None, arg_required_else_help = true)]
+#[derive(Parser)]
 pub struct Cli {
-    #[command(flatten)]
+    /// Path to the configuration file.
+    /// See https://github.com/graphprotocol/indexer-rs/tree/main/tap-agent for examples.
+    #[arg(long, value_name = "FILE", verbatim_doc_comment)]
+    pub config: PathBuf,
+}
+
+#[derive(Clone, Debug, Deserialize, Default, PartialEq)]
+pub struct Config {
     pub ethereum: Ethereum,
-    #[command(flatten)]
     pub receipts: Receipts,
-    #[command(flatten)]
     pub indexer_infrastructure: IndexerInfrastructure,
-    #[command(flatten)]
     pub postgres: Postgres,
-    #[command(flatten)]
     pub network_subgraph: NetworkSubgraph,
-    #[command(flatten)]
     pub escrow_subgraph: EscrowSubgraph,
-    #[command(flatten)]
     pub tap: Tap,
-    #[arg(
-        short,
-        value_name = "config",
-        env = "CONFIG",
-        help = "Indexer service configuration file (YAML format)"
-    )]
     pub config: Option<String>,
 }
 
-#[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
-#[group(required = true, multiple = true)]
+#[derive(Clone, Debug, Deserialize, Default, PartialEq)]
 pub struct Ethereum {
-    #[clap(
-        long,
-        value_name = "indexer-address",
-        env = "INDEXER_ADDRESS",
-        help = "Ethereum address of the indexer"
-    )]
     pub indexer_address: Address,
 }
 
-#[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
-#[group(required = true, multiple = true)]
+#[derive(Clone, Debug, Deserialize, Default, PartialEq)]
 pub struct Receipts {
-    #[clap(
-        long,
-        value_name = "receipts-verifier-chain-id",
-        env = "RECEIPTS_VERIFIER_CHAIN_ID",
-        help = "Scalar TAP verifier chain ID"
-    )]
     pub receipts_verifier_chain_id: u64,
-    #[clap(
-        long,
-        value_name = "receipts-verifier-address",
-        env = "RECEIPTS_VERIFIER_ADDRESS",
-        help = "Scalar TAP verifier contract address"
-    )]
     pub receipts_verifier_address: Address,
 }
 
-#[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
-#[group(multiple = true)]
+#[derive(Clone, Debug, Deserialize, Default, PartialEq)]
 pub struct IndexerInfrastructure {
-    #[clap(
-        long,
-        value_name = "metrics-port",
-        env = "METRICS_PORT",
-        default_value_t = 7300,
-        help = "Port to serve Prometheus metrics at"
-    )]
     pub metrics_port: u16,
-    #[clap(
-        long,
-        value_name = "graph-node-query-endpoint",
-        env = "GRAPH_NODE_QUERY_ENDPOINT",
-        default_value_t = String::from("http://0.0.0.0:8000"),
-        help = "Graph node GraphQL HTTP service endpoint",
-    )]
     pub graph_node_query_endpoint: String,
-    #[clap(
-        long,
-        value_name = "graph-node-status-endpoint",
-        env = "GRAPH_NODE_STATUS_ENDPOINT",
-        default_value_t = String::from("http://0.0.0.0:8030"),
-        help = "Graph node endpoint for the index node server",
-    )]
     pub graph_node_status_endpoint: String,
-    #[clap(
-        long,
-        value_name = "log-level",
-        env = "LOG_LEVEL",
-        value_enum,
-        help = "Log level in RUST_LOG format"
-    )]
     pub log_level: Option<String>,
 }
 
-#[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
-#[group(required = true, multiple = true)]
+#[derive(Clone, Debug, Deserialize, Default, PartialEq)]
 pub struct Postgres {
-    #[clap(
-        long,
-        value_name = "postgres-host",
-        env = "POSTGRES_HOST",
-        default_value_t = String::from("http://0.0.0.0/"),
-        help = "Postgres host",
-    )]
     pub postgres_host: String,
-    #[clap(
-        long,
-        value_name = "postgres-port",
-        env = "POSTGRES_PORT",
-        default_value_t = 5432,
-        help = "Postgres port"
-    )]
     pub postgres_port: usize,
-    #[clap(
-        long,
-        value_name = "postgres-database",
-        env = "POSTGRES_DATABASE",
-        help = "Postgres database name"
-    )]
     pub postgres_database: String,
-    #[clap(
-        long,
-        value_name = "postgres-username",
-        env = "POSTGRES_USERNAME",
-        default_value_t = String::from("postgres"),
-        help = "Postgres username",
-    )]
     pub postgres_username: String,
-    #[clap(
-        long,
-        value_name = "postgres-password",
-        env = "POSTGRES_PASSWORD",
-        default_value_t = String::from(""),
-        help = "Postgres password",
-    )]
     pub postgres_password: String,
 }
 
-#[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
-#[group(multiple = true)]
+#[derive(Clone, Debug, Deserialize, Default, PartialEq)]
 pub struct NetworkSubgraph {
-    #[clap(
-        long,
-        value_name = "network-subgraph-deployment",
-        env = "NETWORK_SUBGRAPH_DEPLOYMENT",
-        help = "Network subgraph deployment"
-    )]
     pub network_subgraph_deployment: Option<DeploymentId>,
-    #[clap(
-        long,
-        value_name = "network-subgraph-endpoint",
-        env = "NETWORK_SUBGRAPH_ENDPOINT",
-        default_value_t = String::from("https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli"),
-        help = "Endpoint to query the network subgraph from",
-    )]
     pub network_subgraph_endpoint: String,
-    #[clap(
-        long,
-        value_name = "allocation-syncing-interval",
-        env = "ALLOCATION_SYNCING_INTERVAL",
-        default_value_t = 120_000,
-        help = "Interval (in ms) for syncing indexer allocations from the network"
-    )]
     pub allocation_syncing_interval_ms: u64,
-
-    #[clap(
-        long,
-        value_name = "recently-closed-allocation-buffer",
-        env = "ALLOCATION_RECENTLY_CLOSED_ALLOCATION_BUFFER",
-        default_value_t = 3600,
-        help = "Interval (in seconds) that a closed allocation still accepts queries"
-    )]
     pub recently_closed_allocation_buffer_seconds: u64,
 }
 
-#[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
-#[group(required = true, multiple = true)]
+#[derive(Clone, Debug, Deserialize, Default, PartialEq)]
 pub struct EscrowSubgraph {
-    #[clap(
-        long,
-        value_name = "escrow-subgraph-deployment",
-        env = "ESCROW_SUBGRAPH_DEPLOYMENT",
-        help = "Escrow subgraph deployment"
-    )]
     pub escrow_subgraph_deployment: Option<DeploymentId>,
-    #[clap(
-        long,
-        value_name = "escrow-subgraph-endpoint",
-        env = "ESCROW_SUBGRAPH_ENDPOINT",
-        // TODO:
-        // default_value_t = String::from("https://api.thegraph.com/subgraphs/name/?????????????"),
-        help = "Endpoint to query the network subgraph from"
-    )]
     pub escrow_subgraph_endpoint: String,
-    #[clap(
-        long,
-        value_name = "escrow-syncing-interval",
-        env = "ESCROW_SYNCING_INTERVAL",
-        default_value_t = 120_000,
-        help = "Interval (in ms) for syncing indexer escrow accounts from the escrow subgraph"
-    )]
     pub escrow_syncing_interval_ms: u64,
 }
 
-#[derive(Clone, Debug, Args, Serialize, Deserialize, Default)]
-#[group(required = true, multiple = true)]
+#[derive(Clone, Debug, Deserialize, Default, PartialEq)]
 pub struct Tap {
-    #[clap(
-        long,
-        value_name = "rav-request-trigger-value",
-        env = "RAV_REQUEST_TRIGGER_VALUE",
-        help = "Value of unaggregated fees that triggers a RAV request (in GRT).",
-        default_value = "10",
-        value_parser(parse_grt_value_to_nonzero_u64)
-    )]
-    pub rav_request_trigger_value: u64,
-    #[clap(
-        long,
-        value_name = "rav-request-timestamp-buffer",
-        env = "RAV_REQUEST_TIMESTAMP_BUFFER",
-        help = "Buffer (in ms) to add between the current time and the timestamp of the \
-        last unaggregated fee when triggering a RAV request.",
-        default_value_t = 60_000 // 60 seconds
-    )]
+    #[serde(deserialize_with = "parse_grt_value_to_nonzero_u128")]
+    pub rav_request_trigger_value: u128,
     pub rav_request_timestamp_buffer_ms: u64,
-    #[clap(
-        long,
-        value_name = "rav-request-timeout",
-        env = "RAV_REQUEST_TIMEOUT",
-        help = "Timeout (in seconds) for RAV requests.",
-        default_value_t = 5
-    )]
     pub rav_request_timeout_secs: u64,
-
-    // TODO: Remove this whenever the the gateway registry is ready
-    #[clap(
-        long,
-        value_name = "sender-aggregator-endpoints",
-        env = "SENDER_AGGREGATOR_ENDPOINTS",
-        help = "YAML file with a map of sender addresses to aggregator endpoints."
-    )]
     pub sender_aggregator_endpoints_file: PathBuf,
-
-    #[clap(
-        long,
-        value_name = "rav-request-receipt-limit",
-        env = "RAV_REQUEST_RECEIPT_LIMIT",
-        help = "Maximum number of receipts per aggregation request",
-        default_value_t = 10000
-    )]
     pub rav_request_receipt_limit: u64,
+    #[serde(deserialize_with = "parse_grt_value_to_nonzero_u128")]
+    pub max_unnaggregated_fees_per_sender: u128,
+}
 
-    #[clap(
-        long,
-        value_name = "max-unnaggregated-fees-per-sender",
-        env = "MAX_UNNAGGREGATED_FEES_PER_SENDER",
-        help = "Maximum amount of unaggregated fees in GRT per sender. This is the amount of fees \
-        you are willing to risk at any given time. For ex. if the sender stops supplying RAVs for \
-        long enough and the fees exceed this amount, the indexer-service will stop accepting \
-        queries from the sender until the fees are aggregated.",
-        default_value_t = 20
-    )]
-    pub max_unnaggregated_fees_per_sender: u64,
+fn parse_grt_value_to_nonzero_u128<'de, D>(deserializer: D) -> Result<u128, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = BigDecimal::deserialize(deserializer)?;
+    if v <= 0.into() {
+        return Err(de::Error::custom("GRT value must be greater than 0"));
+    }
+    // Convert to wei
+    let v = v * BigDecimal::from(10u64.pow(18));
+    // Convert to u128
+    v.to_u128()
+        .ok_or_else(|| de::Error::custom("GRT value cannot be represented as a u128 GRT wei value"))
 }
 
 /// Sets up tracing, allows log level to be set from the environment variables
@@ -298,43 +120,13 @@ fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
     }
 }
 
-fn parse_grt_value_to_nonzero_u64(s: &str) -> Result<u64, std::io::Error> {
-    let v = BigDecimal::from_str(s)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-    if v <= 0.into() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "GRT value must be greater than 0".to_string(),
-        ));
-    }
-    // Convert to wei
-    let v = v * BigDecimal::from(10u64.pow(18));
-    // Convert to u64
-    v.to_u64().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "GRT value cannot be represented as a u64 GRT wei value".to_string(),
-        )
-    })
-}
-
-impl Cli {
-    /// Parse config arguments If environmental variable for config is set to a valid
-    /// config file path, then parse from config Otherwise parse from command line
-    /// arguments
-    pub fn args() -> Self {
-        dotenv().ok();
-        let cli = if let Ok(file_path) = std::env::var("config") {
-            confy::load_path::<Cli>(file_path.clone())
-                .unwrap_or_else(|_| panic!("Parse config file at {}", file_path.clone()))
-        } else {
-            Cli::parse()
-            // Potentially store it for the user let _ = confy::store_path("./args.toml",
-            // cli.clone());
-        };
+impl Config {
+    pub fn from_cli() -> Result<Self> {
+        let cli = Cli::parse();
+        let config = Config::load(&cli.config)?;
 
         // Enables tracing under RUST_LOG variable
-        if let Some(log_setting) = &cli.indexer_infrastructure.log_level {
+        if let Some(log_setting) = &config.indexer_infrastructure.log_level {
             std::env::set_var("RUST_LOG", log_setting);
         };
 
@@ -343,63 +135,112 @@ impl Cli {
             "Could not set up global default subscriber for logger, check \
         environmental variable `RUST_LOG` or the CLI input `log-level`",
         );
-        cli
+
+        Ok(config)
     }
-}
 
-#[derive(Debug, thiserror::Error)]
-#[allow(dead_code)]
-pub enum ConfigError {
-    #[error("Validate the input: {0}")]
-    ValidateInput(String),
-    #[error("Generate JSON representation of the config file: {0}")]
-    GenerateJson(serde_json::Error),
-    #[error("Toml file error: {0}")]
-    ReadStr(std::io::Error),
-    #[error("Unknown error: {0}")]
-    Other(anyhow::Error),
-}
+    pub fn load(filename: &PathBuf) -> Result<Self> {
+        let config_defaults: &str = r##"
+            [indexer_infrastructure]
+            metrics_port = 7300
+            log_level = "info"
+            
+            [postgres]
+            postgres_port = 5432
+            
+            [network_subgraph]
+            allocation_syncing_interval_ms = 60000
+            recently_closed_allocation_buffer_seconds = 3600
+            
+            [escrow_subgraph]
+            escrow_syncing_interval_ms = 60000
+            
+            [tap]
+            rav_request_trigger_value = 10
+            rav_request_timestamp_buffer_ms = 60000
+            rav_request_timeout_secs = 5
+            rav_request_receipt_limit = 10000
+            max_unnaggregated_fees_per_sender = 20
+        "##;
 
-#[derive(
-    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize, Default,
-)]
-pub enum LogLevel {
-    Trace,
-    #[default]
-    Debug,
-    Info,
-    Warn,
-    Error,
-    Fatal,
+        // Load the user config file
+        let config_str = std::fs::read_to_string(filename)?;
+
+        // Remove TOML comments, so that we can have shell expansion examples in the file.
+        let config_str = config_str
+            .lines()
+            .filter(|line| !line.trim().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let config_str = shellexpand::env(&config_str)?;
+
+        let config: Config = Figment::new()
+            .merge(Toml::string(config_defaults))
+            .merge(Toml::string(&config_str))
+            .extract()?;
+
+        Ok(config)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use serde_assert::{Deserializer, Token};
+
     use super::*;
 
     #[test]
-    fn test_parse_grt_value_to_u64() {
+    fn test_parse_grt_value_to_u128_deserialize() {
+        macro_rules! parse {
+            ($input:expr) => {{
+                let mut deserializer =
+                    Deserializer::builder([Token::Str($input.to_string())]).build();
+                parse_grt_value_to_nonzero_u128(&mut deserializer)
+            }};
+        }
+
+        parse!("1").unwrap();
+
+        assert_eq!(parse!("1").unwrap(), 1_000_000_000_000_000_000);
+        assert_eq!(parse!("1.1").unwrap(), 1_100_000_000_000_000_000);
         assert_eq!(
-            parse_grt_value_to_nonzero_u64("1").unwrap(),
-            1_000_000_000_000_000_000
-        );
-        assert_eq!(
-            parse_grt_value_to_nonzero_u64("1.1").unwrap(),
-            1_100_000_000_000_000_000
-        );
-        assert_eq!(
-            parse_grt_value_to_nonzero_u64("1.000000000000000001").unwrap(),
+            parse!("1.000000000000000001").unwrap(),
             1_000_000_000_000_000_001
         );
+        assert_eq!(parse!("0.000000000000000001").unwrap(), 1);
+        assert!(parse!("0").is_err());
+        assert!(parse!("-1").is_err());
         assert_eq!(
-            parse_grt_value_to_nonzero_u64("0.000000000000000001").unwrap(),
-            1
-        );
-        assert!(parse_grt_value_to_nonzero_u64("0").is_err());
-        assert!(parse_grt_value_to_nonzero_u64("-1").is_err());
-        assert_eq!(
-            parse_grt_value_to_nonzero_u64("1.0000000000000000001").unwrap(),
+            parse!("1.0000000000000000001").unwrap(),
             1_000_000_000_000_000_000
         );
+    }
+
+    /// Test loading the minimal configuration example file.
+    /// Makes sure that the minimal template is up to date with the code.
+    /// Note that it doesn't check that the config is actually minimal, but rather that all missing
+    /// fields have defaults. The burden of making sure the config is minimal is on the developer.
+    #[test]
+    fn test_minimal_config() {
+        Config::load(&PathBuf::from("minimal-config-example.toml")).unwrap();
+    }
+
+    /// Test that the maximal configuration file is up to date with the code.
+    /// Make sure that `test_minimal_config` passes before looking at this.
+    #[test]
+    fn test_maximal_config() {
+        // Generate full config by deserializing the minimal config and let the code fill in the defaults.
+        let max_config = Config::load(&PathBuf::from("minimal-config-example.toml")).unwrap();
+        let max_config_file: Config = toml::from_str(
+            fs::read_to_string("maximal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+
+        assert_eq!(max_config, max_config_file);
     }
 }

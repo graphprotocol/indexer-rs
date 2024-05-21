@@ -26,7 +26,7 @@ impl AllocationId {
         sender_id: Address,
         allocation_id: Address,
         escrow_subgraph: &'static SubgraphClient,
-        config: &'static config::Cli,
+        config: &'static config::Config,
     ) -> Self {
         let tap_allocation_redeemed = tap_allocation_redeemed_eventual(
             allocation_id,

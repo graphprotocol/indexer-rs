@@ -110,14 +110,14 @@ pub struct SenderAllocationState {
     allocation_id: Address,
     sender: Address,
     sender_aggregator_endpoint: String,
-    config: &'static config::Cli,
+    config: &'static config::Config,
     escrow_accounts: Eventual<EscrowAccounts>,
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
 }
 
 pub struct SenderAllocationArgs {
-    pub config: &'static config::Cli,
+    pub config: &'static config::Config,
     pub pgpool: PgPool,
     pub allocation_id: Address,
     pub sender: Address,
@@ -741,7 +741,7 @@ mod tests {
         escrow_subgraph_endpoint: &str,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
     ) -> SenderAllocationArgs {
-        let config = Box::leak(Box::new(config::Cli {
+        let config = Box::leak(Box::new(config::Config {
             config: None,
             ethereum: config::Ethereum {
                 indexer_address: INDEXER.1,
