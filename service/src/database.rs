@@ -122,11 +122,7 @@ pub async fn cost_models(
         models = models
             .into_iter()
             .map(|model| merge_global(model, &global_model))
-            .collect();
-
-        // Inject a cost model for all deployments that don't have one
-        models = models
-            .into_iter()
+            // Inject a cost model for all deployments that don't have one
             .chain(
                 deployments_without_models
                     .into_iter()
