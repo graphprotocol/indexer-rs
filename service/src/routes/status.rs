@@ -13,7 +13,7 @@ use thegraph_graphql_http::{
     http_client::{ReqwestExt, ResponseError},
 };
 
-use crate::{SubgraphServiceError, SubgraphServiceState};
+use crate::{error::SubgraphServiceError, service::SubgraphServiceState};
 
 lazy_static::lazy_static! {
     static ref SUPPORTED_ROOT_FIELDS: HashSet<&'static str> =
