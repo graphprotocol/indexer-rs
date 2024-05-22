@@ -10,7 +10,7 @@ use alloy_sol_types::eip712_domain;
 use anyhow;
 use autometrics::prometheus_exporter;
 use axum::extract::MatchedPath;
-use axum::http::Request;
+use axum::http::{Method, Request};
 use axum::serve;
 use axum::{
     async_trait,
@@ -30,6 +30,8 @@ use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_http::cors;
+use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, info_span};
 
@@ -390,6 +392,12 @@ impl IndexerService {
         let router = misc_routes
             .merge(data_routes)
             .merge(options.extra_routes)
+            .layer(
+                CorsLayer::new()
+                    .allow_origin(cors::Any)
+                    .allow_headers(cors::Any)
+                    .allow_methods([Method::OPTIONS, Method::POST, Method::GET]),
+            )
             .layer(
                 TraceLayer::new_for_http()
                     .make_span_with(|req: &Request<_>| {
