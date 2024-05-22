@@ -215,3 +215,7 @@ Temporarily live inside the indexer-service package under `src/types`
 - [x] CLI args
 - [ ] App profiling
   - [ ] No gcloud profiling, can use `perf` to collect performance data.
+
+## Indexer Stack Design
+
+![Design Diagram](./docs/diagrams/design.svg)
