@@ -55,7 +55,7 @@ pub enum SenderAccountMessage {
 pub struct SenderAccount;
 
 pub struct SenderAccountArgs {
-    pub config: &'static config::Cli,
+    pub config: &'static config::Config,
     pub pgpool: PgPool,
     pub sender_id: Address,
     pub escrow_accounts: Eventual<EscrowAccounts>,
@@ -86,7 +86,7 @@ pub struct State {
     escrow_subgraph: &'static SubgraphClient,
     escrow_adapter: EscrowAdapter,
     domain_separator: Eip712Domain,
-    config: &'static config::Cli,
+    config: &'static config::Config,
     pgpool: PgPool,
     sender_aggregator_endpoint: String,
 }
@@ -163,7 +163,7 @@ impl State {
         let unaggregated_fees = self.sender_fee_tracker.get_total_fee();
         let pending_fees_over_balance =
             pending_ravs + unaggregated_fees >= self.sender_balance.as_u128();
-        let max_unaggregated_fees = self.config.tap.max_unnaggregated_fees_per_sender.into();
+        let max_unaggregated_fees = self.config.tap.max_unnaggregated_fees_per_sender;
         let total_fee_over_max_value = unaggregated_fees >= max_unaggregated_fees;
 
         tracing::trace!(
@@ -461,7 +461,7 @@ impl Actor for SenderAccount {
                 }
 
                 if state.sender_fee_tracker.get_total_fee()
-                    >= state.config.tap.rav_request_trigger_value.into()
+                    >= state.config.tap.rav_request_trigger_value
                 {
                     tracing::debug!(
                         total_fee = state.sender_fee_tracker.get_total_fee(),
@@ -674,8 +674,8 @@ pub mod tests {
     async fn create_sender_account(
         pgpool: PgPool,
         initial_allocation: HashSet<Address>,
-        rav_request_trigger_value: u64,
-        max_unnaggregated_fees_per_sender: u64,
+        rav_request_trigger_value: u128,
+        max_unnaggregated_fees_per_sender: u128,
         escrow_subgraph_endpoint: &str,
     ) -> (
         ActorRef<SenderAccountMessage>,
@@ -683,7 +683,7 @@ pub mod tests {
         String,
         EventualWriter<EscrowAccounts>,
     ) {
-        let config = Box::leak(Box::new(config::Cli {
+        let config = Box::leak(Box::new(config::Config {
             config: None,
             ethereum: config::Ethereum {
                 indexer_address: INDEXER.1,
@@ -740,8 +740,8 @@ pub mod tests {
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
-            TRIGGER_VALUE as u64,
-            TRIGGER_VALUE as u64 * 2,
+            TRIGGER_VALUE,
+            TRIGGER_VALUE,
             DUMMY_URL,
         )
         .await;
@@ -885,8 +885,8 @@ pub mod tests {
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
-            TRIGGER_VALUE as u64,
-            TRIGGER_VALUE as u64 * 2,
+            TRIGGER_VALUE,
+            TRIGGER_VALUE,
             DUMMY_URL,
         )
         .await;
@@ -921,8 +921,8 @@ pub mod tests {
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
-            TRIGGER_VALUE as u64,
-            TRIGGER_VALUE as u64 * 2,
+            TRIGGER_VALUE,
+            TRIGGER_VALUE,
             DUMMY_URL,
         )
         .await;
@@ -957,8 +957,8 @@ pub mod tests {
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             vec![*ALLOCATION_ID_0].into_iter().collect(),
-            TRIGGER_VALUE as u64,
-            TRIGGER_VALUE as u64 * 2,
+            TRIGGER_VALUE,
+            TRIGGER_VALUE,
             DUMMY_URL,
         )
         .await;
@@ -1008,8 +1008,8 @@ pub mod tests {
         let (sender_account, _handle, _, _) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
-            TRIGGER_VALUE as u64,
-            TRIGGER_VALUE as u64 * 2,
+            TRIGGER_VALUE,
+            TRIGGER_VALUE,
             DUMMY_URL,
         )
         .await;
@@ -1030,8 +1030,8 @@ pub mod tests {
         let (sender_account, handle, _, _) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
-            u64::MAX,
-            max_unaggregated_fees_per_sender as u64,
+            u128::MAX,
+            max_unaggregated_fees_per_sender,
             DUMMY_URL,
         )
         .await;
@@ -1087,8 +1087,8 @@ pub mod tests {
         let (sender_account, handle, _, _) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
-            TRIGGER_VALUE as u64,
-            u64::MAX,
+            TRIGGER_VALUE,
+            u128::MAX,
             DUMMY_URL,
         )
         .await;
@@ -1120,8 +1120,8 @@ pub mod tests {
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
-            trigger_rav_request as u64,
-            u64::MAX,
+            trigger_rav_request,
+            u128::MAX,
             DUMMY_URL,
         )
         .await;
@@ -1225,8 +1225,8 @@ pub mod tests {
         let (sender_account, handle, _, mut escrow_writer) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
-            TRIGGER_VALUE as u64,
-            u64::MAX,
+            TRIGGER_VALUE,
+            u128::MAX,
             &mock_server.uri(),
         )
         .await;
@@ -1278,8 +1278,8 @@ pub mod tests {
         let (sender_account, handle, _, mut escrow_writer) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
-            TRIGGER_VALUE as u64,
-            u64::MAX,
+            TRIGGER_VALUE,
+            u128::MAX,
             DUMMY_URL,
         )
         .await;

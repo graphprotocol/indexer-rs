@@ -50,7 +50,7 @@ pub enum SenderAccountsManagerMessage {
 }
 
 pub struct SenderAccountsManagerArgs {
-    pub config: &'static config::Cli,
+    pub config: &'static config::Config,
     pub domain_separator: Eip712Domain,
 
     pub pgpool: PgPool,
@@ -67,7 +67,7 @@ pub struct State {
     new_receipts_watcher_handle: tokio::task::JoinHandle<()>,
     _eligible_allocations_senders_pipe: PipeHandle,
 
-    config: &'static config::Cli,
+    config: &'static config::Config,
     domain_separator: Eip712Domain,
     pgpool: PgPool,
     indexer_allocations: Eventual<HashSet<Address>>,
@@ -529,8 +529,8 @@ mod tests {
         )))
     }
 
-    fn get_config() -> &'static config::Cli {
-        Box::leak(Box::new(config::Cli {
+    fn get_config() -> &'static config::Config {
+        Box::leak(Box::new(config::Config {
             config: None,
             ethereum: config::Ethereum {
                 indexer_address: INDEXER.1,

@@ -1,0 +1,78 @@
+# WARNING:  This shows all the possible configuration options. Make sure you know what 
+#           you are doing.
+#           Prefer starting with `minimal-config-example.toml`.
+#
+# You will have to change *all* the values below to match your setup.
+#
+# Some of the config below are global graph network values, which you can find here:
+# https://github.com/graphprotocol/indexer/tree/main/docs/networks
+#
+# Pro tip: if you need to load some values from the environment into this config, you
+# can use shell expansions with environment variables. Example:
+# postgres_url = "postgresql://indexer:${POSTGRES_PASSWORD}@postgres:5432/indexer_components_0"
+
+[ethereum]
+indexer_address = "0x0000000000000000000000000000000000000000"
+
+[receipts]
+# The chain ID of the network that the graph network is running on
+# Should be the same as the chain ID of the network that the graph network is running on
+receipts_verifier_chain_id = 123546
+# Contract address of TAP's receipt aggregate voucher (RAV) verifier.
+receipts_verifier_address = "0x1111111111111111111111111111111111111111"
+
+[indexer_infrastructure]
+graph_node_query_endpoint = "http://graph-node:8030/graphql"
+graph_node_status_endpoint = "http://graph-node:8000"
+# Port to serve the tap-agent metrics
+metrics_port = 7300
+# Rust log level. Possible values are: trace, debug, info, warn, error
+log_level ="info"
+
+# Credentials for the postgres database used for the indexer components. The same database
+# that is used by the `indexer-agent`. It is expected that `indexer-agent` will create
+# the necessary tables.
+[postgres]
+postgres_host = "postgres"
+postgres_port = 5432
+postgres_database = "indexer_components_0"
+postgres_username = "indexer"
+postgres_password = "let-me-in"
+
+[network_subgraph]
+# Optional, deployment to look for in the local `graph-node`, if locally indexed.
+# Locally indexing the subgraph is recommended.
+network_subgraph_deployment = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+# Query URL for the Graph Network subgraph.
+network_subgraph_endpoint = "http://example.com/network-subgraph"
+# Interval (in ms) for syncing indexer allocations from the network
+allocation_syncing_interval_ms = 60000
+# Interval (in seconds) that a closed allocation still accepts queries
+recently_closed_allocation_buffer_seconds = 3600
+
+[escrow_subgraph]
+# Optional, deployment to look for in the local `graph-node`, if locally indexed.
+# Locally indexing the subgraph is recommended.
+escrow_subgraph_deployment = "Qmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+# Query URL for the Escrow subgraph.
+escrow_subgraph_endpoint = "http://example.com/escrow-subgraph"
+# Interval (in ms) for syncing indexer escrow accounts from the escrow subgraph
+escrow_syncing_interval_ms = 60000
+
+[tap]
+# Value of unaggregated fees that triggers a RAV request (in GRT).
+rav_request_trigger_value = 10
+# Buffer (in ms) to add between the current time and the timestamp of the
+# last unaggregated fee when triggering a RAV request.
+rav_request_timestamp_buffer_ms = 60000
+# Timeout (in seconds) for RAV requests.
+rav_request_timeout_secs = 5
+# YAML file with a map of sender addresses to aggregator endpoints.
+sender_aggregator_endpoints_file = "endpoints.yaml"
+# Maximum number of receipts per aggregation request
+rav_request_receipt_limit = 10000
+# Maximum amount of unaggregated fees in GRT per sender. This is the amount of fees
+# you are willing to risk at any given time. For ex. if the sender stops supplying RAVs for
+# long enough and the fees exceed this amount, the indexer-service will stop accepting
+# queries from the sender until the fees are aggregated.
+max_unnaggregated_fees_per_sender = 20
