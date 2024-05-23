@@ -158,9 +158,17 @@ impl Actor for SenderAllocation {
             state.unaggregated_fees.clone(),
         ))?;
 
+        UNAGGREGATED_FEES
+            .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
+            .set(state.unaggregated_fees.value as f64);
+
         // update rav tracker for sender account
         if let Some(rav) = &state.latest_rav {
             sender_account_ref.cast(SenderAccountMessage::UpdateRav(rav.clone()))?;
+
+            RAV_VALUE
+                .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
+                .set(rav.message.valueAggregate as f64);
         }
 
         tracing::info!(
@@ -271,6 +279,12 @@ impl Actor for SenderAllocation {
                 }
             }
         }
+
+        // We expect the value to change for every received receipt, and after every RAV request.
+        UNAGGREGATED_FEES
+            .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
+            .set(state.unaggregated_fees.value as f64);
+
         Ok(())
     }
 }
@@ -401,13 +415,6 @@ impl SenderAllocationState {
                 Ok(rav) => {
                     self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
                     self.latest_rav = Some(rav);
-
-                    UNAGGREGATED_FEES
-                        .with_label_values(&[
-                            &self.sender.to_string(),
-                            &self.allocation_id.to_string(),
-                        ])
-                        .set(self.unaggregated_fees.value as f64);
                     return Ok(());
                 }
                 Err(e) => {
