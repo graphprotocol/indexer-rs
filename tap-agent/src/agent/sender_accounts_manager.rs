@@ -64,7 +64,7 @@ pub struct SenderAccountsManagerArgs {
 
 pub struct State {
     sender_ids: HashSet<Address>,
-    new_receipts_watcher_handle: tokio::task::JoinHandle<()>,
+    new_receipts_watcher_handle: Option<tokio::task::JoinHandle<()>>,
     _eligible_allocations_senders_pipe: PipeHandle,
 
     config: &'static config::Config,
@@ -108,12 +108,6 @@ impl Actor for SenderAccountsManager {
                 "should be able to subscribe to Postgres Notify events on the channel \
                 'scalar_tap_receipt_notification'",
             );
-        // Start the new_receipts_watcher task that will consume from the `pglistener`
-        let new_receipts_watcher_handle = tokio::spawn(new_receipts_watcher(
-            pglistener,
-            escrow_accounts.clone(),
-            prefix.clone(),
-        ));
         let clone = myself.clone();
         let _eligible_allocations_senders_pipe =
             escrow_accounts.clone().pipe_async(move |escrow_accounts| {
@@ -134,14 +128,14 @@ impl Actor for SenderAccountsManager {
             config,
             domain_separator,
             sender_ids: HashSet::new(),
-            new_receipts_watcher_handle,
+            new_receipts_watcher_handle: None,
             _eligible_allocations_senders_pipe,
             pgpool,
             indexer_allocations,
-            escrow_accounts,
+            escrow_accounts: escrow_accounts.clone(),
             escrow_subgraph,
             sender_aggregator_endpoints,
-            prefix,
+            prefix: prefix.clone(),
         };
         let sender_allocation = select! {
             sender_allocation = state.get_pending_sender_allocation_id() => sender_allocation,
@@ -157,6 +151,14 @@ impl Actor for SenderAccountsManager {
                 .await?;
         }
 
+        // Start the new_receipts_watcher task that will consume from the `pglistener`
+        // after starting all senders
+        state.new_receipts_watcher_handle = Some(tokio::spawn(new_receipts_watcher(
+            pglistener,
+            escrow_accounts,
+            prefix,
+        )));
+
         tracing::info!("SenderAccountManager created!");
         Ok(state)
     }
@@ -167,7 +169,9 @@ impl Actor for SenderAccountsManager {
     ) -> std::result::Result<(), ActorProcessingErr> {
         // Abort the notification watcher on drop. Otherwise it may panic because the PgPool could
         // get dropped before. (Observed in tests)
-        state.new_receipts_watcher_handle.abort();
+        if let Some(handle) = &state.new_receipts_watcher_handle {
+            handle.abort();
+        }
         Ok(())
     }
 
@@ -608,7 +612,7 @@ mod tests {
                 config,
                 domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
                 sender_ids: HashSet::new(),
-                new_receipts_watcher_handle: tokio::spawn(async {}),
+                new_receipts_watcher_handle: None,
                 _eligible_allocations_senders_pipe: Eventual::from_value(())
                     .pipe_async(|_| async {}),
                 pgpool,
