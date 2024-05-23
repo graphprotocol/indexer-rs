@@ -1,6 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use super::monitor::{monitor_deployment_status, DeploymentStatus};
 use anyhow::anyhow;
 use axum::body::Bytes;
 use eventuals::Eventual;
@@ -8,14 +9,13 @@ use reqwest::{header, Url};
 use serde::de::Deserialize;
 use serde_json::{Map, Value};
 use thegraph::types::DeploymentId;
+use thegraph_core::client::Client as GraphCoreSubgraphClient;
 use thegraph_graphql_http::{
     graphql::{Document, IntoDocument},
     http::request::{IntoRequestParameters, RequestParameters},
-    http_client::{ReqwestExt, ResponseResult},
 };
+use tokio::sync::Mutex;
 use tracing::warn;
-
-use super::monitor::{monitor_deployment_status, DeploymentStatus};
 
 #[derive(Clone)]
 pub struct Query {
@@ -106,14 +106,20 @@ impl DeploymentDetails {
 
 struct DeploymentClient {
     pub http_client: reqwest::Client,
+    pub subgraph_client: Mutex<GraphCoreSubgraphClient>,
     pub status: Option<Eventual<DeploymentStatus>>,
     pub query_url: Url,
 }
 
 impl DeploymentClient {
     pub fn new(http_client: reqwest::Client, details: DeploymentDetails) -> Self {
+        let subgraph_client = Mutex::new(GraphCoreSubgraphClient::new(
+            http_client.clone(),
+            details.query_url.clone(),
+        ));
         Self {
             http_client,
+            subgraph_client,
             status: details
                 .deployment
                 .zip(details.status_url)
@@ -125,7 +131,7 @@ impl DeploymentClient {
     pub async fn query<T: for<'de> Deserialize<'de>>(
         &self,
         query: impl IntoRequestParameters + Send,
-    ) -> Result<ResponseResult<T>, anyhow::Error> {
+    ) -> Result<Result<T, String>, anyhow::Error> {
         if let Some(ref status) = self.status {
             let deployment_status = status.value().await.expect("reading deployment status");
 
@@ -136,13 +142,47 @@ impl DeploymentClient {
                 ));
             }
         }
-
         Ok(self
-            .http_client
-            .post(self.query_url.as_ref())
-            .header(header::USER_AGENT, "indexer-common")
-            .send_graphql(query)
-            .await?)
+            .subgraph_client
+            .lock()
+            .await
+            .query::<T>(query)
+            .await
+            .inspect_err(|err| {
+                warn!(
+                    "Failed to query subgraph deployment `{}`: {}",
+                    self.query_url, err
+                );
+            }))
+    }
+
+    pub async fn paginated_query<T: for<'de> Deserialize<'de>>(
+        &self,
+        query: String,
+        items_per_page: usize,
+    ) -> Result<Vec<T>, anyhow::Error> {
+        if let Some(ref status) = self.status {
+            let deployment_status = status.value().await.expect("reading deployment status");
+
+            if !deployment_status.synced || &deployment_status.health != "healthy" {
+                return Err(anyhow!(
+                    "Deployment `{}` is not ready or healthy to be queried",
+                    self.query_url
+                ));
+            }
+        }
+        self.subgraph_client
+            .lock()
+            .await
+            .paginated_query::<T>(query, items_per_page)
+            .await
+            .map_err(|err| {
+                warn!(
+                    "Failed to query subgraph deployment `{}`: {}",
+                    self.query_url, err
+                );
+                anyhow!(err)
+            })
     }
 
     pub async fn query_raw(&self, body: Bytes) -> Result<reqwest::Response, anyhow::Error> {
@@ -189,7 +229,7 @@ impl SubgraphClient {
     pub async fn query<T: for<'de> Deserialize<'de>>(
         &self,
         query: impl IntoRequestParameters + Send + Clone,
-    ) -> Result<ResponseResult<T>, anyhow::Error> {
+    ) -> Result<Result<T, String>, anyhow::Error> {
         // Try the local client first; if that fails, log the error and move on
         // to the remote client
         if let Some(ref local_client) = self.local_client {
@@ -203,12 +243,11 @@ impl SubgraphClient {
         }
 
         // Try the remote client
-        self.remote_client.query(query).await.map_err(|err| {
+        self.remote_client.query::<T>(query).await.map_err(|err| {
             warn!(
                 "Failed to query remote subgraph deployment `{}`: {}",
                 self.remote_client.query_url, err
             );
-
             err
         })
     }
@@ -235,6 +274,35 @@ impl SubgraphClient {
 
             err
         })
+    }
+
+    pub async fn paginated_query<T: for<'de> Deserialize<'de>>(
+        &self,
+        query: String,
+        items_per_page: usize,
+    ) -> Result<Vec<T>, anyhow::Error> {
+        // Try the local client first; if that fails, log the error and move on
+        // to the remote client
+        if let Some(ref local_client) = self.local_client {
+            match local_client.paginated_query::<T>(query.clone(), items_per_page).await {
+                Ok(response) => return Ok(response),
+                Err(err) => warn!(
+                    "Failed to query local subgraph deployment `{}`, trying remote deployment next: {}",
+                    local_client.query_url, err
+                ),
+            }
+        }
+        // Try the remote client
+        self.remote_client
+            .paginated_query::<T>(query, 1000)
+            .await
+            .map_err(|err| {
+                warn!(
+                    "Failed to query remote subgraph deployment `{}`: {}",
+                    self.remote_client.query_url, err
+                );
+                anyhow!(err)
+            })
     }
 }
 
