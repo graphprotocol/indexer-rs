@@ -15,8 +15,6 @@ anyhow = "1.0.72"
 async-trait = "0.1.72"
 bigdecimal = { version = "0.4.2", features = ["serde", "string-only"] }
 clap = { version = "4.4.3", features = ["derive", "env"] }
-confy = "0.5.1"
-dotenvy = "0.15.7"
 ethereum-types = "0.14.1"
 eventuals = "0.6.7"
 log = "0.4.19"
@@ -42,9 +40,6 @@ tap_core = "0.8.0"
 thiserror = "1.0.44"
 tokio = { version = "1.33.0" }
 thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
-thegraph-graphql-http = { version = "0.2.0", features = [
-    "http-client-reqwest",
-] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",
@@ -53,9 +48,6 @@ tracing-subscriber = { version = "0.3", features = [
     "std",
     "json",
 ] }
-enum-as-inner = "0.6.0"
-ethers = "2.0.14"
-typetag = "0.2.14"
 ractor = "0.9.7"
 figment = { version = "0.10.19", features = ["toml"] }
 shellexpand = { version = "3.1.0", default-features = false, features = ["base-0"] }

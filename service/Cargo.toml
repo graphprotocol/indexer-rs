@@ -8,12 +8,6 @@ license = "Apache-2.0"
 
 [dependencies]
 indexer-common = { path = "../common" }
-confy = "0.5.1"
-ethers-core = "2.0.11"
-ethers = "2.0.11"
-eventuals = "0.6.7"
-dotenvy = "0.15"
-log = "0.4.17"
 anyhow = "1.0.57"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["rt", "macros", "sync", "full"] }
@@ -22,17 +16,8 @@ thiserror = "1.0.49"
 serde = { version = "1.0", features = ["rc", "derive"] }
 serde_json = "1"
 axum = "0.7.5"
-hyper = "0.14.27"
-tower = { version = "0.4", features = ["util", "timeout", "limit"] }
-tower-http = { version = "0.4.0", features = [
-    "add-extension",
-    "trace",
-    "cors",
-] }
-once_cell = "1.17"
 async-graphql = "7.0.3"
 async-graphql-axum = "7.0.3"
-sha3 = "0.10.6"
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",
     "ansi",
@@ -40,12 +25,7 @@ tracing-subscriber = { version = "0.3", features = [
     "std",
     "json",
 ] }
-autometrics = { version = "0.3.3", features = ["prometheus-exporter"] }
 clap = { version = "4.3.1", features = ["derive", "env"] }
-prometheus = "0.13.3"
-hex = "0.4.3"
-tap_core = "0.8.0"
-ethereum-types = "0.14.1"
 sqlx = { version = "0.7.1", features = [
     "postgres",
     "runtime-tokio",
@@ -53,8 +33,6 @@ sqlx = { version = "0.7.1", features = [
     "rust_decimal",
     "time",
 ] }
-alloy-primitives = { version = "0.6", features = ["serde"] }
-alloy-sol-types = "0.6"
 lazy_static = "1.4.0"
 thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0" }
@@ -67,21 +45,7 @@ toml = "0.8.12"
 shellexpand = { version = "3.1.0", default-features = false, features = ["base-0"] }
 
 [dev-dependencies]
-faux = "0.1.10"
 hex-literal = "0.4.1"
-indexer-common = { path = "../common", features = ["mock"] }
-test-log = "0.2.12"
-wiremock = "0.5.19"
 
 [build-dependencies]
 build-info-build = "0.0.34"
-
-# [[bin]]
-# name = "indexer-native"
-# path = "native"
-
-[dev-dependencies.cargo-husky]
-version = "1"
-default-features = false
-# Disable features which are enabled by default
-features = ["precommit-hook", "run-cargo-fmt", "run-cargo-clippy"]
