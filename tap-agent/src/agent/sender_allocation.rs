@@ -46,8 +46,8 @@ use crate::{
 
 lazy_static! {
     static ref UNAGGREGATED_FEES: GaugeVec = register_gauge_vec!(
-        format!("unagregated_fees"),
-        "Unggregated Fees",
+        format!("unaggregated_fees"),
+        "Unggregated Fees value",
         &["sender", "allocation"]
     )
     .unwrap();
@@ -56,7 +56,7 @@ lazy_static! {
 lazy_static! {
     static ref RAV_VALUE: GaugeVec = register_gauge_vec!(
         format!("rav_value"),
-        "RAV Updated value",
+        "Value of the last RAV",
         &["sender", "allocation"]
     )
     .unwrap();
@@ -64,8 +64,8 @@ lazy_static! {
 
 lazy_static! {
     static ref CLOSED_SENDER_ALLOCATIONS: Counter = register_counter!(
-        format!("closed_sender_allocation_total"),
-        "Total count of sender-allocation managers closed.",
+        format!("closed_sender_allocation"),
+        "Count of sender-allocation managers closed since the start of the program",
     )
     .unwrap();
 }
@@ -73,7 +73,7 @@ lazy_static! {
 lazy_static! {
     static ref RAVS_CREATED: CounterVec = register_counter_vec!(
         format!("ravs_created"),
-        "RAVs updated or created per sender allocation",
+        "RAVs updated or created per sender allocation since the start of the program",
         &["sender", "allocation"]
     )
     .unwrap();
@@ -82,7 +82,7 @@ lazy_static! {
 lazy_static! {
     static ref RAVS_FAILED: CounterVec = register_counter_vec!(
         format!("ravs_failed"),
-        "RAVs failed when created or updated per sender allocation",
+        "RAV requests failed since the start of the program",
         &["sender", "allocation"]
     )
     .unwrap();
@@ -176,10 +176,6 @@ impl Actor for SenderAllocation {
             allocation_id = %state.allocation_id,
             "SenderAllocation created!",
         );
-
-        UNAGGREGATED_FEES
-            .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
-            .set(state.unaggregated_fees.value as f64);
 
         Ok(state)
     }
