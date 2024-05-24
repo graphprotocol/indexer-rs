@@ -9,8 +9,9 @@ use tracing::error;
 pub struct SenderFeeTracker {
     id_to_fee: HashMap<Address, u128>,
     total_fee: u128,
-    // there are some addresses that we don't want it to be
-    // heaviest allocation
+    // there are some allocations that we don't want it to be
+    // heaviest allocation, because they are already marked for finalization,
+    // and thus requesting RAVs on their own in their `post_stop` routine.
     blocked_addresses: HashSet<Address>,
 }
 

@@ -138,7 +138,7 @@ impl State {
         let Some(allocation_id) = self.sender_fee_tracker.get_heaviest_allocation_id() else {
             anyhow::bail!(
                 "Error while getting the heaviest allocation because \
-                no unblocked allocation has enought unaggregated fees tracked"
+                no unblocked allocation has enough unaggregated fees tracked"
             );
         };
         let sender_allocation_id = self.format_sender_allocation(&allocation_id);
@@ -479,7 +479,7 @@ impl Actor for SenderAccount {
                     if let Err(err) = state.rav_requester_single().await {
                         tracing::error!(
                             error = %err,
-                            "There was an error while requesting a rav request."
+                            "There was an error while requesting a RAV."
                         );
                     }
                 }
