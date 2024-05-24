@@ -9,6 +9,9 @@ use tracing::error;
 pub struct SenderFeeTracker {
     id_to_fee: HashMap<Address, u128>,
     total_fee: u128,
+    // there are some addresses that we don't want it to be
+    // heaviest allocation
+    blocked_addresses: HashSet<Address>,
 }
 
 impl SenderFeeTracker {
@@ -32,10 +35,19 @@ impl SenderFeeTracker {
         }
     }
 
+    pub fn block_allocation_id(&mut self, address: Address) {
+        self.blocked_addresses.insert(address);
+    }
+
+    pub fn unblock_allocation_id(&mut self, address: Address) {
+        self.blocked_addresses.remove(&address);
+    }
+
     pub fn get_heaviest_allocation_id(&self) -> Option<Address> {
         // just loop over and get the biggest fee
         self.id_to_fee
             .iter()
+            .filter(|(addr, _)| !self.blocked_addresses.contains(*addr))
             .fold(None, |acc: Option<(&Address, u128)>, (addr, fee)| {
                 if let Some((_, max_fee)) = acc {
                     if *fee > max_fee {
@@ -82,9 +94,23 @@ mod tests {
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee(), 10);
 
+        tracker.block_allocation_id(allocation_id_0);
+        assert_eq!(tracker.get_heaviest_allocation_id(), None);
+        assert_eq!(tracker.get_total_fee(), 10);
+
+        tracker.unblock_allocation_id(allocation_id_0);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
+
         tracker.update(allocation_id_2, 20);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
         assert_eq!(tracker.get_total_fee(), 30);
+
+        tracker.block_allocation_id(allocation_id_2);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
+        assert_eq!(tracker.get_total_fee(), 30);
+
+        tracker.unblock_allocation_id(allocation_id_2);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
 
         tracker.update(allocation_id_1, 30);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
