@@ -194,27 +194,18 @@ impl Actor for SenderAllocation {
         );
         // Request a RAV and mark the allocation as final.
         while state.unaggregated_fees.value > 0 {
-            if state.request_rav().await.is_err() {
-                break;
+            if let Err(err) = state.request_rav().await {
+                error!(error = %err, "There was an error while requesting rav. Retrying in 30 seconds...");
+                tokio::time::sleep(Duration::from_secs(30)).await;
             }
         }
-        if state.unaggregated_fees.value > 0 {
-            Err(anyhow!(
-                "There are still pending unaggregated_fees for sender {} and allocation {}.\
-                Not marking as last.",
-                state.sender,
-                state.allocation_id
-            ))?;
+
+        while let Err(err) = state.mark_rav_last().await {
+            error!(error = %err, %state.allocation_id, %state.sender,  "Error while marking allocation last. Retrying in 30 seconds...");
+            tokio::time::sleep(Duration::from_secs(30)).await;
         }
 
-        state.mark_rav_last().await.inspect_err(|e| {
-            error!(
-                "Error while marking allocation {} as last for sender {}: {}",
-                state.allocation_id, state.sender, e
-            );
-        })?;
-
-        //Since this is only triggered after allocation is closed will be counted here
+        // Since this is only triggered after allocation is closed will be counted here
         CLOSED_SENDER_ALLOCATIONS.inc();
 
         Ok(())
@@ -250,6 +241,7 @@ impl Actor for SenderAllocation {
                         );
                             u128::MAX
                         });
+                    // it's fine to crash the actor, could not send a message to its parent
                     state
                         .sender_account_ref
                         .cast(SenderAccountMessage::UpdateReceiptFees(
