@@ -136,7 +136,10 @@ impl State {
 
     async fn rav_requester_single(&mut self) -> Result<()> {
         let Some(allocation_id) = self.sender_fee_tracker.get_heaviest_allocation_id() else {
-            anyhow::bail!("Error while getting the heaviest allocation because none has unaggregated fees tracked");
+            anyhow::bail!(
+                "Error while getting the heaviest allocation because \
+                no unblocked allocation has enought unaggregated fees tracked"
+            );
         };
         let sender_allocation_id = self.format_sender_allocation(&allocation_id);
         let allocation = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id);
@@ -147,7 +150,9 @@ impl State {
             );
         };
         // we call and wait for the response so we don't process anymore update
-        let (fees, rav) = call!(allocation, SenderAllocationMessage::TriggerRAVRequest)?;
+        let Ok((fees, rav)) = call!(allocation, SenderAllocationMessage::TriggerRAVRequest) else {
+            anyhow::bail!("Error while sending and waiting message for actor {allocation_id}");
+        };
 
         // update rav tracker
         self.rav_tracker.update(
@@ -470,14 +475,13 @@ impl Actor for SenderAccount {
                         trigger_value = state.config.tap.rav_request_trigger_value,
                         "Total fee greater than the trigger value. Triggering RAV request"
                     );
-                    // There are only 3 scenarios where this can fail:
-                    // - No allocation ids
-                    // - The SenderAllocation could not be found
-                    // - The SenderAllocation could not process the message
-                    // In any case, we want to respawn this whole actor
-                    // and respawn all its children actors. Thus, we can safely
-                    // panic the actor by using ?
-                    state.rav_requester_single().await?;
+                    // In case we fail, we want our actor to keep running
+                    if let Err(err) = state.rav_requester_single().await {
+                        tracing::error!(
+                            error = %err,
+                            "There was an error while requesting a rav request."
+                        );
+                    }
                 }
 
                 // Maybe allow the sender right after the potential RAV request. This way, the
@@ -502,6 +506,9 @@ impl Actor for SenderAccount {
                         state.format_sender_allocation(allocation_id),
                     ) {
                         tracing::trace!(%allocation_id, "SenderAccount shutting down SenderAllocation");
+                        // we can not send a rav request to this allocation
+                        // because it's gonna trigger the last rav
+                        state.sender_fee_tracker.block_allocation_id(*allocation_id);
                         sender_handle.stop(None);
                     }
                 }
@@ -594,6 +601,10 @@ impl Actor for SenderAccount {
 
                 let tracker = &mut state.sender_fee_tracker;
                 tracker.update(allocation_id, 0);
+                // clean up hashset
+                state
+                    .sender_fee_tracker
+                    .unblock_allocation_id(allocation_id);
                 // rav tracker is not updated because it's still not redeemed
             }
             SupervisionEvent::ActorPanicked(cell, error) => {
