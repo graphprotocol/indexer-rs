@@ -142,7 +142,9 @@ impl State {
         let allocation = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id);
 
         let Some(allocation) = allocation else {
-            anyhow::bail!("Error while getting allocation actor with most unaggregated fees");
+            anyhow::bail!(
+                "Error while getting allocation actor {allocation_id} with most unaggregated fees"
+            );
         };
         // we call and wait for the response so we don't process anymore update
         let (fees, rav) = call!(allocation, SenderAllocationMessage::TriggerRAVRequest)?;
