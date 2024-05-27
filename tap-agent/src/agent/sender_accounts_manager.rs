@@ -190,9 +190,16 @@ impl Actor for SenderAccountsManager {
             SenderAccountsManagerMessage::UpdateSenderAccounts(target_senders) => {
                 // Create new sender accounts
                 for sender in target_senders.difference(&state.sender_ids) {
-                    state
+                    if let Err(e) = state
                         .create_sender_account(myself.get_cell(), *sender, HashSet::new())
-                        .await?;
+                        .await
+                    {
+                        error!(
+                            sender_address = %sender,
+                            error = %e,
+                            "There was an error while creating a sender account."
+                        );
+                    }
                 }
 
                 // Remove sender accounts
@@ -255,9 +262,16 @@ impl Actor for SenderAccountsManager {
                     .remove(&sender_id)
                     .unwrap_or(HashSet::new());
 
-                state
+                if let Err(e) = state
                     .create_sender_account(myself.get_cell(), sender_id, allocations)
-                    .await?;
+                    .await
+                {
+                    error!(
+                        error = %e,
+                        sender_address = %sender_id,
+                        "There was an error while re-creating sender account."
+                    );
+                }
             }
             _ => {}
         }
