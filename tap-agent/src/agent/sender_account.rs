@@ -495,9 +495,16 @@ impl Actor for SenderAccount {
             SenderAccountMessage::UpdateAllocationIds(allocation_ids) => {
                 // Create new sender allocations
                 for allocation_id in allocation_ids.difference(&state.allocation_ids) {
-                    state
+                    if let Err(error) = state
                         .create_sender_allocation(myself.clone(), *allocation_id)
-                        .await?;
+                        .await
+                    {
+                        error!(
+                            %error,
+                            %allocation_id,
+                            "There was an error while creating Sender Allocation."
+                        );
+                    }
                 }
 
                 // Remove sender allocations
@@ -627,9 +634,16 @@ impl Actor for SenderAccount {
                     return Ok(());
                 };
 
-                state
+                if let Err(error) = state
                     .create_sender_allocation(myself.clone(), allocation_id)
-                    .await?;
+                    .await
+                {
+                    error!(
+                        %error,
+                        %allocation_id,
+                        "Error while recreating Sender Allocation."
+                    );
+                }
             }
             _ => {}
         }
