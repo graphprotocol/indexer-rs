@@ -5,6 +5,8 @@ use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
+use std::time::Duration;
+use tokio::task::JoinHandle;
 
 use alloy_primitives::hex::ToHex;
 use alloy_sol_types::Eip712Domain;
@@ -13,7 +15,7 @@ use ethereum_types::U256;
 use eventuals::{Eventual, EventualExt, PipeHandle};
 use indexer_common::subgraph_client::Query;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
-use ractor::{call, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{call, Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use serde::Deserialize;
 use sqlx::PgPool;
 use tap_core::rav::SignedRAV;
@@ -73,6 +75,7 @@ pub struct State {
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: PipeHandle,
     _escrow_account_monitor: PipeHandle,
+    scheduled_rav_request: Option<JoinHandle<Result<(), MessagingErr<SenderAccountMessage>>>>,
 
     sender: Address,
 
@@ -416,6 +419,7 @@ impl Actor for SenderAccount {
             sender: sender_id,
             denied,
             sender_balance,
+            scheduled_rav_request: None,
         };
 
         for allocation_id in &allocation_ids {
@@ -455,6 +459,11 @@ impl Actor for SenderAccount {
                 }
             }
             SenderAccountMessage::UpdateReceiptFees(allocation_id, unaggregated_fees) => {
+                // new update receipt fee, abort any scheduled rav request
+                if let Some(scheduled_rav_request) = state.scheduled_rav_request.take() {
+                    scheduled_rav_request.abort();
+                }
+
                 state
                     .sender_fee_tracker
                     .update(allocation_id, unaggregated_fees.value);
@@ -484,12 +493,23 @@ impl Actor for SenderAccount {
                     }
                 }
 
-                // Maybe allow the sender right after the potential RAV request. This way, the
-                // sender can be allowed again as soon as possible if the RAV was successful.
-
-                let should_allow = state.denied && !state.deny_condition_reached();
-                if should_allow {
-                    state.remove_from_denylist().await;
+                match (state.denied, state.deny_condition_reached()) {
+                    // Maybe allow the sender right after the potential RAV request. This way, the
+                    // sender can be allowed again as soon as possible if the RAV was successful.
+                    (true, false) => state.remove_from_denylist().await,
+                    // if couldn't remove from denylist, resend the message in 30 seconds
+                    // this will trigger another rav request
+                    (true, true) => {
+                        // retry in a moment
+                        state.scheduled_rav_request =
+                            Some(myself.send_after(Duration::from_secs(30), move || {
+                                SenderAccountMessage::UpdateReceiptFees(
+                                    allocation_id,
+                                    unaggregated_fees,
+                                )
+                            }));
+                    }
+                    _ => {}
                 }
             }
             SenderAccountMessage::UpdateAllocationIds(allocation_ids) => {
