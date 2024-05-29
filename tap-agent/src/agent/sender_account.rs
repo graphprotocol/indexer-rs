@@ -1115,6 +1115,22 @@ pub mod tests {
             };
         }
 
+        macro_rules! update_invalid_receipt_fees {
+            ($value:expr) => {
+                sender_account
+                    .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
+                        *ALLOCATION_ID_0,
+                        UnaggregatedReceipts {
+                            value: $value,
+                            last_id: 11,
+                        },
+                    ))
+                    .unwrap();
+
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            };
+        }
+
         update_receipt_fees!(max_unaggregated_fees_per_sender - 1);
         let deny = get_deny_status(&sender_account).await;
         assert!(!deny);
@@ -1133,6 +1149,28 @@ pub mod tests {
 
         update_receipt_fees!(max_unaggregated_fees_per_sender - 1);
         let deny = get_deny_status(&sender_account).await;
+        assert!(!deny);
+
+        update_receipt_fees!(0);
+
+        update_invalid_receipt_fees!(max_unaggregated_fees_per_sender - 1);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(!deny);
+
+        update_invalid_receipt_fees!(max_unaggregated_fees_per_sender);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(deny);
+
+        // invalid receipts should not go down
+        update_invalid_receipt_fees!(0);
+        let deny = get_deny_status(&sender_account).await;
+        // keep denied
+        assert!(deny);
+
+        // condition reached using receipts
+        update_receipt_fees!(0);
+        let deny = get_deny_status(&sender_account).await;
+        // allow sender
         assert!(!deny);
 
         sender_account.stop_and_wait(None, None).await.unwrap();
