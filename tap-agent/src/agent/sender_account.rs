@@ -459,7 +459,7 @@ impl Actor for SenderAccount {
                 }
             }
             SenderAccountMessage::UpdateReceiptFees(allocation_id, unaggregated_fees) => {
-                // new update receipt fee, abort any scheduled rav request
+                // If we're here because of a new receipt, abort any scheduled UpdateReceiptFees
                 if let Some(scheduled_rav_request) = state.scheduled_rav_request.take() {
                     scheduled_rav_request.abort();
                 }
@@ -494,11 +494,11 @@ impl Actor for SenderAccount {
                 }
 
                 match (state.denied, state.deny_condition_reached()) {
-                    // Maybe allow the sender right after the potential RAV request. This way, the
+                    // Allow the sender right after the potential RAV request. This way, the
                     // sender can be allowed again as soon as possible if the RAV was successful.
                     (true, false) => state.remove_from_denylist().await,
                     // if couldn't remove from denylist, resend the message in 30 seconds
-                    // this will trigger another rav request
+                    // this may trigger another rav request
                     (true, true) => {
                         // retry in a moment
                         state.scheduled_rav_request =
