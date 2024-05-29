@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                MAX(id),\n                SUM(value)\n            FROM\n                scalar_tap_receipts_invalid\n            WHERE\n                allocation_id = $1\n                AND signer_address IN (SELECT unnest($2::text[]))\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "sum",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "0393f3408c1802950e39b3ecbcfae3ac4ff99253a4973d18df83d8645ac75cfc"
+}

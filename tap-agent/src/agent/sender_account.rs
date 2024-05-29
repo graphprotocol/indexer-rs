@@ -38,6 +38,7 @@ pub enum SenderAccountMessage {
     UpdateBalanceAndLastRavs(Balance, RavMap),
     UpdateAllocationIds(HashSet<Address>),
     UpdateReceiptFees(Address, UnaggregatedReceipts),
+    UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
     UpdateRav(SignedRAV),
     #[cfg(test)]
     GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
@@ -72,6 +73,7 @@ pub struct State {
     prefix: Option<String>,
     sender_fee_tracker: SenderFeeTracker,
     rav_tracker: SenderFeeTracker,
+    invalid_receipts_tracker: SenderFeeTracker,
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: PipeHandle,
     _escrow_account_monitor: PipeHandle,
@@ -174,7 +176,9 @@ impl State {
         let pending_fees_over_balance =
             pending_ravs + unaggregated_fees >= self.sender_balance.as_u128();
         let max_unaggregated_fees = self.config.tap.max_unnaggregated_fees_per_sender;
-        let total_fee_over_max_value = unaggregated_fees >= max_unaggregated_fees;
+        let invalid_receipt_fees = self.invalid_receipts_tracker.get_total_fee();
+        let total_fee_over_max_value =
+            unaggregated_fees + invalid_receipt_fees >= max_unaggregated_fees;
 
         tracing::trace!(
             %pending_fees_over_balance,
@@ -405,6 +409,7 @@ impl Actor for SenderAccount {
         let state = State {
             sender_fee_tracker: SenderFeeTracker::default(),
             rav_tracker: SenderFeeTracker::default(),
+            invalid_receipts_tracker: SenderFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
             _indexer_allocations_handle,
             _escrow_account_monitor,
@@ -453,6 +458,17 @@ impl Actor for SenderAccount {
                 state
                     .rav_tracker
                     .update(rav.message.allocationId, rav.message.valueAggregate);
+                let should_deny = !state.denied && state.deny_condition_reached();
+                if should_deny {
+                    state.add_to_denylist().await;
+                }
+            }
+            SenderAccountMessage::UpdateInvalidReceiptFees(allocation_id, unaggregated_fees) => {
+                state
+                    .invalid_receipts_tracker
+                    .update(allocation_id, unaggregated_fees.value);
+
+                // invalid receipts can't go down
                 let should_deny = !state.denied && state.deny_condition_reached();
                 if should_deny {
                     state.add_to_denylist().await;
