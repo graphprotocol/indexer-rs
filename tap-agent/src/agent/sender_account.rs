@@ -68,7 +68,7 @@ pub struct SenderAccountArgs {
     pub allocation_ids: HashSet<Address>,
     pub prefix: Option<String>,
 
-    pub retry_duration: Duration,
+    pub retry_interval: Duration,
 }
 pub struct State {
     prefix: Option<String>,
@@ -84,7 +84,7 @@ pub struct State {
     // Deny reasons
     denied: bool,
     sender_balance: U256,
-    retry_duration: Duration,
+    retry_interval: Duration,
 
     //Eventuals
     escrow_accounts: Eventual<EscrowAccounts>,
@@ -254,7 +254,7 @@ impl Actor for SenderAccount {
             sender_aggregator_endpoint,
             allocation_ids,
             prefix,
-            retry_duration,
+            retry_interval,
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
@@ -423,7 +423,7 @@ impl Actor for SenderAccount {
             sender: sender_id,
             denied,
             sender_balance,
-            retry_duration,
+            retry_interval,
             scheduled_rav_request: None,
         };
 
@@ -507,7 +507,7 @@ impl Actor for SenderAccount {
                     (true, true) => {
                         // retry in a moment
                         state.scheduled_rav_request =
-                            Some(myself.send_after(state.retry_duration, move || {
+                            Some(myself.send_after(state.retry_interval, move || {
                                 SenderAccountMessage::UpdateReceiptFees(
                                     allocation_id,
                                     unaggregated_fees,
@@ -778,7 +778,7 @@ pub mod tests {
             sender_aggregator_endpoint: DUMMY_URL.to_string(),
             allocation_ids: HashSet::new(),
             prefix: Some(prefix.clone()),
-            retry_duration: Duration::from_millis(10),
+            retry_interval: Duration::from_millis(10),
         };
 
         let (sender, handle) = SenderAccount::spawn(Some(prefix.clone()), SenderAccount, args)

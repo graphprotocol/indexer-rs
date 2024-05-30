@@ -437,7 +437,7 @@ impl State {
                 .clone(),
             allocation_ids,
             prefix: self.prefix.clone(),
-            retry_duration: Duration::from_secs(30),
+            retry_interval: Duration::from_secs(30),
         })
     }
 }
