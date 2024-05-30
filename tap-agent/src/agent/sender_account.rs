@@ -67,6 +67,8 @@ pub struct SenderAccountArgs {
     pub sender_aggregator_endpoint: String,
     pub allocation_ids: HashSet<Address>,
     pub prefix: Option<String>,
+
+    pub retry_interval: Duration,
 }
 pub struct State {
     prefix: Option<String>,
@@ -82,6 +84,7 @@ pub struct State {
     // Deny reasons
     denied: bool,
     sender_balance: U256,
+    retry_interval: Duration,
 
     //Eventuals
     escrow_accounts: Eventual<EscrowAccounts>,
@@ -251,6 +254,7 @@ impl Actor for SenderAccount {
             sender_aggregator_endpoint,
             allocation_ids,
             prefix,
+            retry_interval,
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
@@ -419,6 +423,7 @@ impl Actor for SenderAccount {
             sender: sender_id,
             denied,
             sender_balance,
+            retry_interval,
             scheduled_rav_request: None,
         };
 
@@ -502,7 +507,7 @@ impl Actor for SenderAccount {
                     (true, true) => {
                         // retry in a moment
                         state.scheduled_rav_request =
-                            Some(myself.send_after(Duration::from_secs(30), move || {
+                            Some(myself.send_after(state.retry_interval, move || {
                                 SenderAccountMessage::UpdateReceiptFees(
                                     allocation_id,
                                     unaggregated_fees,
@@ -692,7 +697,7 @@ pub mod tests {
     use serde_json::json;
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
-    use std::sync::atomic::{AtomicBool, AtomicU32};
+    use std::sync::atomic::AtomicU32;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use wiremock::matchers::{body_string_contains, method};
@@ -773,6 +778,7 @@ pub mod tests {
             sender_aggregator_endpoint: DUMMY_URL.to_string(),
             allocation_ids: HashSet::new(),
             prefix: Some(prefix.clone()),
+            retry_interval: Duration::from_millis(10),
         };
 
         let (sender, handle) = SenderAccount::spawn(Some(prefix.clone()), SenderAccount, args)
@@ -823,14 +829,14 @@ pub mod tests {
     }
 
     pub struct MockSenderAllocation {
-        triggered_rav_request: Arc<AtomicBool>,
+        triggered_rav_request: Arc<AtomicU32>,
         next_rav_value: Arc<Mutex<u128>>,
         receipts: Arc<Mutex<Vec<NewReceiptNotification>>>,
     }
 
     impl MockSenderAllocation {
-        pub fn new_with_triggered_rav_request() -> (Self, Arc<AtomicBool>) {
-            let triggered_rav_request = Arc::new(AtomicBool::new(false));
+        pub fn new_with_triggered_rav_request() -> (Self, Arc<AtomicU32>) {
+            let triggered_rav_request = Arc::new(AtomicU32::new(0));
             (
                 Self {
                     triggered_rav_request: triggered_rav_request.clone(),
@@ -845,7 +851,7 @@ pub mod tests {
             let next_rav_value = Arc::new(Mutex::new(0));
             (
                 Self {
-                    triggered_rav_request: Arc::new(AtomicBool::new(false)),
+                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
                     receipts: Arc::new(Mutex::new(Vec::new())),
                     next_rav_value: next_rav_value.clone(),
                 },
@@ -857,7 +863,7 @@ pub mod tests {
             let receipts = Arc::new(Mutex::new(Vec::new()));
             (
                 Self {
-                    triggered_rav_request: Arc::new(AtomicBool::new(false)),
+                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
                     receipts: receipts.clone(),
                     next_rav_value: Arc::new(Mutex::new(0)),
                 },
@@ -889,7 +895,7 @@ pub mod tests {
             match message {
                 SenderAllocationMessage::TriggerRAVRequest(reply) => {
                     self.triggered_rav_request
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let signed_rav = create_rav(
                         *ALLOCATION_ID_0,
                         SIGNER.0.clone(),
@@ -912,7 +918,7 @@ pub mod tests {
         sender: Address,
         allocation: Address,
     ) -> (
-        Arc<AtomicBool>,
+        Arc<AtomicU32>,
         ActorRef<SenderAllocationMessage>,
         JoinHandle<()>,
     ) {
@@ -954,7 +960,10 @@ pub mod tests {
 
         tokio::time::sleep(Duration::from_millis(10)).await;
 
-        assert!(!triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(
+            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
 
         allocation.stop_and_wait(None, None).await.unwrap();
         allocation_handle.await.unwrap();
@@ -990,7 +999,10 @@ pub mod tests {
 
         tokio::time::sleep(Duration::from_millis(10)).await;
 
-        assert!(triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(
+            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
 
         allocation.stop_and_wait(None, None).await.unwrap();
         allocation_handle.await.unwrap();
@@ -1063,6 +1075,53 @@ pub mod tests {
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny);
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_retry_unaggregated_fees(pgpool: PgPool) {
+        // we set to zero to block the sender, no matter the fee
+        let max_unaggregated_fees_per_sender: u128 = 0;
+
+        let (sender_account, handle, prefix, _) = create_sender_account(
+            pgpool,
+            HashSet::new(),
+            TRIGGER_VALUE,
+            max_unaggregated_fees_per_sender,
+            DUMMY_URL,
+        )
+        .await;
+
+        let (triggered_rav_request, allocation, allocation_handle) =
+            create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
+
+        assert_eq!(
+            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                UnaggregatedReceipts {
+                    value: TRIGGER_VALUE,
+                    last_id: 11,
+                },
+            ))
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        let retry_value = triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(retry_value > 1, "It didn't retry more than once");
+
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        let new_value = triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(new_value > retry_value, "It didn't retry anymore");
+
+        allocation.stop_and_wait(None, None).await.unwrap();
+        allocation_handle.await.unwrap();
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../migrations")]

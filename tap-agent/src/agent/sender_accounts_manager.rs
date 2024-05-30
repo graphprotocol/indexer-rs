@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashSet;
+use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 
 use crate::agent::sender_allocation::SenderAllocationMessage;
@@ -436,6 +437,7 @@ impl State {
                 .clone(),
             allocation_ids,
             prefix: self.prefix.clone(),
+            retry_interval: Duration::from_secs(30),
         })
     }
 }
