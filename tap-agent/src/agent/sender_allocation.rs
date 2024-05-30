@@ -654,7 +654,24 @@ impl SenderAllocationState {
             .await
             .map_err(|e| anyhow!("Failed to store invalid receipt: {:?}", e))?;
         }
-        self.invalid_receipts_fees = self.calculate_invalid_receipts_fee().await?;
+        let fees = receipts
+            .iter()
+            .map(|receipt| receipt.signed_receipt().message.value)
+            .sum();
+
+        self.invalid_receipts_fees
+            .value
+            .checked_add(fees)
+            .unwrap_or_else(|| {
+                // This should never happen, but if it does, we want to know about it.
+                error!(
+                    "Overflow when adding receipt value {} to total unaggregated fees {} \
+            for allocation {} and sender {}. Setting total unaggregated fees to \
+            u128::MAX.",
+                    fees, self.invalid_receipts_fees.value, self.allocation_id, self.sender
+                );
+                u128::MAX
+            });
         self.sender_account_ref
             .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
                 self.allocation_id,
