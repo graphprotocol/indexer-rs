@@ -724,7 +724,11 @@ pub mod tests {
                 (Self::UpdateReceiptFees(l0, l1), Self::UpdateReceiptFees(r0, r1)) => {
                     l0 == r0 && l1 == r1
                 }
-                _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+                (
+                    Self::UpdateInvalidReceiptFees(l0, l1),
+                    Self::UpdateInvalidReceiptFees(r0, r1),
+                ) => l0 == r0 && l1 == r1,
+                (a, b) => unimplemented!("PartialEq not implementated for {a:?} and {b:?}"),
             }
         }
     }

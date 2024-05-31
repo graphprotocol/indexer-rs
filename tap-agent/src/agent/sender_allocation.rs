@@ -659,13 +659,14 @@ impl SenderAllocationState {
             .map(|receipt| receipt.signed_receipt().message.value)
             .sum();
 
-        self.invalid_receipts_fees
+        self.invalid_receipts_fees.value = self
+            .invalid_receipts_fees
             .value
             .checked_add(fees)
             .unwrap_or_else(|| {
                 // This should never happen, but if it does, we want to know about it.
                 error!(
-                    "Overflow when adding receipt value {} to total unaggregated fees {} \
+                    "Overflow when adding receipt value {} to invalid receipts fees {} \
             for allocation {} and sender {}. Setting total unaggregated fees to \
             u128::MAX.",
                     fees, self.invalid_receipts_fees.value, self.allocation_id, self.sender
@@ -1089,8 +1090,8 @@ mod tests {
         let expected_message = SenderAccountMessage::UpdateInvalidReceiptFees(
             *ALLOCATION_ID_0,
             UnaggregatedReceipts {
-                last_id: 10,
-                value: 55u128,
+                last_id: 0,
+                value: 45u128,
             },
         );
         {
