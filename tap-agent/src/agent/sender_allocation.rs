@@ -104,6 +104,7 @@ pub struct SenderAllocation;
 
 pub struct SenderAllocationState {
     unaggregated_fees: UnaggregatedReceipts,
+    invalid_receipts_fees: UnaggregatedReceipts,
     latest_rav: Option<SignedRAV>,
     pgpool: PgPool,
     tap_manager: TapManager,
@@ -152,6 +153,16 @@ impl Actor for SenderAllocation {
         let allocation_id = args.allocation_id;
         let mut state = SenderAllocationState::new(args).await;
 
+        // update invalid receipts
+        state.invalid_receipts_fees = state.calculate_invalid_receipts_fee().await?;
+        if state.invalid_receipts_fees.value > 0 {
+            sender_account_ref.cast(SenderAccountMessage::UpdateInvalidReceiptFees(
+                allocation_id,
+                state.invalid_receipts_fees.clone(),
+            ))?;
+        }
+
+        // update unaggregated_fees
         state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
         sender_account_ref.cast(SenderAccountMessage::UpdateReceiptFees(
             allocation_id,
@@ -329,6 +340,7 @@ impl SenderAllocationState {
             domain_separator,
             sender_account_ref: sender_account_ref.clone(),
             unaggregated_fees: UnaggregatedReceipts::default(),
+            invalid_receipts_fees: UnaggregatedReceipts::default(),
             latest_rav,
         }
     }
@@ -395,6 +407,43 @@ impl SenderAllocationState {
         })
     }
 
+    async fn calculate_invalid_receipts_fee(&self) -> Result<UnaggregatedReceipts> {
+        tracing::trace!("calculate_invalid_receipts_fee()");
+        let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
+
+        // TODO: Get `rav.timestamp_ns` from the TAP Manager's RAV storage adapter instead?
+        let res = sqlx::query!(
+            r#"
+            SELECT
+                MAX(id),
+                SUM(value)
+            FROM
+                scalar_tap_receipts_invalid
+            WHERE
+                allocation_id = $1
+                AND signer_address IN (SELECT unnest($2::text[]))
+            "#,
+            self.allocation_id.encode_hex::<String>(),
+            &signers
+        )
+        .fetch_one(&self.pgpool)
+        .await?;
+
+        ensure!(
+            res.sum.is_none() == res.max.is_none(),
+            "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
+        );
+
+        Ok(UnaggregatedReceipts {
+            last_id: res.max.unwrap_or(0).try_into()?,
+            value: res
+                .sum
+                .unwrap_or(BigDecimal::from(0))
+                .to_string()
+                .parse::<u128>()?,
+        })
+    }
+
     async fn request_rav(&mut self) -> Result<()> {
         let mut retries = 0;
         const MAX_RETRIES: u32 = 3;
@@ -427,7 +476,7 @@ impl SenderAllocationState {
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
-    async fn rav_requester_single(&self) -> Result<SignedRAV> {
+    async fn rav_requester_single(&mut self) -> Result<SignedRAV> {
         tracing::trace!("rav_requester_single()");
         let RAVRequest {
             valid_receipts,
@@ -460,7 +509,8 @@ impl SenderAllocationState {
 
             // Save invalid receipts to the database for logs.
             // TODO: consider doing that in a spawned task?
-            Self::store_invalid_receipts(self, invalid_receipts.as_slice()).await?;
+            self.store_invalid_receipts(invalid_receipts.as_slice())
+                .await?;
         }
         let client = HttpClientBuilder::default()
             .request_timeout(Duration::from_secs(
@@ -565,7 +615,10 @@ impl SenderAllocationState {
         }
     }
 
-    async fn store_invalid_receipts(&self, receipts: &[ReceiptWithState<Failed>]) -> Result<()> {
+    async fn store_invalid_receipts(
+        &mut self,
+        receipts: &[ReceiptWithState<Failed>],
+    ) -> Result<()> {
         for received_receipt in receipts.iter() {
             let receipt = received_receipt.signed_receipt();
             let allocation_id = receipt.message.allocation_id;
@@ -599,8 +652,32 @@ impl SenderAllocationState {
             )
             .execute(&self.pgpool)
             .await
-            .map_err(|e| anyhow!("Failed to store failed receipt: {:?}", e))?;
+            .map_err(|e| anyhow!("Failed to store invalid receipt: {:?}", e))?;
         }
+        let fees = receipts
+            .iter()
+            .map(|receipt| receipt.signed_receipt().message.value)
+            .sum();
+
+        self.invalid_receipts_fees.value = self
+            .invalid_receipts_fees
+            .value
+            .checked_add(fees)
+            .unwrap_or_else(|| {
+                // This should never happen, but if it does, we want to know about it.
+                error!(
+                    "Overflow when adding receipt value {} to invalid receipts fees {} \
+            for allocation {} and sender {}. Setting total unaggregated fees to \
+            u128::MAX.",
+                    fees, self.invalid_receipts_fees.value, self.allocation_id, self.sender
+                );
+                u128::MAX
+            });
+        self.sender_account_ref
+            .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
+                self.allocation_id,
+                self.invalid_receipts_fees.clone(),
+            ))?;
 
         Ok(())
     }
@@ -650,8 +727,9 @@ mod tests {
         tap::{
             escrow_adapter::EscrowAdapter,
             test_utils::{
-                create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
-                INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+                create_rav, create_received_receipt, store_invalid_receipt, store_rav,
+                store_receipt, ALLOCATION_ID_0, INDEXER, SENDER, SIGNER,
+                TAP_EIP712_DOMAIN_SEPARATOR,
             },
         },
     };
@@ -848,6 +926,49 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
+    async fn should_return_invalid_receipts_on_startup(pgpool: PgPool) {
+        let (last_message_emitted, sender_account, _join_handle) =
+            create_mock_sender_account().await;
+        // Add receipts to the database.
+        for i in 1..=10 {
+            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
+            store_invalid_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
+
+        let sender_allocation = create_sender_allocation(
+            pgpool.clone(),
+            DUMMY_URL.to_string(),
+            DUMMY_URL,
+            Some(sender_account),
+        )
+        .await;
+
+        // Get total_unaggregated_fees
+        let total_unaggregated_fees = call!(
+            sender_allocation,
+            SenderAllocationMessage::GetUnaggregatedReceipts
+        )
+        .unwrap();
+
+        // Should emit a message to the sender account with the unaggregated fees.
+        let expected_message = SenderAccountMessage::UpdateInvalidReceiptFees(
+            *ALLOCATION_ID_0,
+            UnaggregatedReceipts {
+                last_id: 10,
+                value: 55u128,
+            },
+        );
+        let last_message_emitted = last_message_emitted.lock().unwrap();
+        assert_eq!(last_message_emitted.len(), 2);
+        assert_eq!(last_message_emitted.first(), Some(&expected_message));
+
+        // Check that the unaggregated fees are correct.
+        assert_eq!(total_unaggregated_fees.value, 0u128);
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_receive_new_receipt(pgpool: PgPool) {
         let (last_message_emitted, sender_account, _join_handle) =
             create_mock_sender_account().await;
@@ -936,14 +1057,22 @@ mod tests {
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
+
+            // store a copy that should fail in the uniqueness test
+            store_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
         }
+
+        let (last_message_emitted, sender_account, _join_handle) =
+            create_mock_sender_account().await;
 
         // Create a sender_allocation.
         let sender_allocation = create_sender_allocation(
             pgpool.clone(),
             "http://".to_owned() + &aggregator_endpoint.to_string(),
             &mock_server.uri(),
-            None,
+            Some(sender_account),
         )
         .await;
 
@@ -956,6 +1085,19 @@ mod tests {
 
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 0u128);
+
+        // Check if the sender received invalid receipt fees
+        let expected_message = SenderAccountMessage::UpdateInvalidReceiptFees(
+            *ALLOCATION_ID_0,
+            UnaggregatedReceipts {
+                last_id: 0,
+                value: 45u128,
+            },
+        );
+        {
+            let last_message_emitted = last_message_emitted.lock().unwrap();
+            assert_eq!(last_message_emitted.last(), Some(&expected_message));
+        }
 
         // Stop the TAP aggregator server.
         handle.stop().unwrap();
@@ -1105,6 +1247,28 @@ mod tests {
         assert_eq!(total_unaggregated_fees.value, 45u128);
     }
 
+    #[sqlx::test(migrations = "../migrations")]
+    async fn should_calculate_invalid_receipts_fee(pgpool: PgPool) {
+        let args =
+            create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
+                .await;
+        let state = SenderAllocationState::new(args).await;
+
+        // Add receipts to the database.
+        for i in 1..10 {
+            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
+            store_invalid_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
+
+        // calculate invalid unaggregated fee
+        let total_invalid_receipts = state.calculate_invalid_receipts_fee().await.unwrap();
+
+        // Check that the unaggregated fees are correct.
+        assert_eq!(total_invalid_receipts.value, 45u128);
+    }
+
     /// Test that the sender_allocation correctly updates the unaggregated fees from the
     /// database when there is a RAV in the database as well as receipts which timestamp are lesser
     /// and greater than the RAV's timestamp.
@@ -1169,7 +1333,7 @@ mod tests {
         let args =
             create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
                 .await;
-        let state = SenderAllocationState::new(args).await;
+        let mut state = SenderAllocationState::new(args).await;
 
         let checks = Checks::new(vec![Arc::new(FailingCheck)]);
 

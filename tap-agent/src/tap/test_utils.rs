@@ -105,6 +105,36 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> a
     Ok(id)
 }
 
+pub async fn store_invalid_receipt(
+    pgpool: &PgPool,
+    signed_receipt: &SignedReceipt,
+) -> anyhow::Result<u64> {
+    let encoded_signature = signed_receipt.signature.to_vec();
+
+    let record = sqlx::query!(
+        r#"
+            INSERT INTO scalar_tap_receipts_invalid (signer_address, signature, allocation_id, timestamp_ns, nonce, value)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id
+        "#,
+        signed_receipt
+            .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+            .unwrap()
+            .encode_hex::<String>(),
+        encoded_signature,
+        signed_receipt.message.allocation_id.encode_hex::<String>(),
+        BigDecimal::from(signed_receipt.message.timestamp_ns),
+        BigDecimal::from(signed_receipt.message.nonce),
+        BigDecimal::from(BigInt::from(signed_receipt.message.value)),
+    )
+    .fetch_one(pgpool)
+    .await?;
+
+    // id is BIGSERIAL, so it should be safe to cast to u64.
+    let id: u64 = record.id.try_into()?;
+    Ok(id)
+}
+
 /// Fixture to generate a wallet and address
 pub fn wallet(index: u32) -> (LocalWallet, Address) {
     let wallet: LocalWallet = MnemonicBuilder::<English>::default()

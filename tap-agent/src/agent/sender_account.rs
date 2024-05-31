@@ -38,6 +38,7 @@ pub enum SenderAccountMessage {
     UpdateBalanceAndLastRavs(Balance, RavMap),
     UpdateAllocationIds(HashSet<Address>),
     UpdateReceiptFees(Address, UnaggregatedReceipts),
+    UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
     UpdateRav(SignedRAV),
     #[cfg(test)]
     GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
@@ -74,6 +75,7 @@ pub struct State {
     prefix: Option<String>,
     sender_fee_tracker: SenderFeeTracker,
     rav_tracker: SenderFeeTracker,
+    invalid_receipts_tracker: SenderFeeTracker,
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: PipeHandle,
     _escrow_account_monitor: PipeHandle,
@@ -177,7 +179,9 @@ impl State {
         let pending_fees_over_balance =
             pending_ravs + unaggregated_fees >= self.sender_balance.as_u128();
         let max_unaggregated_fees = self.config.tap.max_unnaggregated_fees_per_sender;
-        let total_fee_over_max_value = unaggregated_fees >= max_unaggregated_fees;
+        let invalid_receipt_fees = self.invalid_receipts_tracker.get_total_fee();
+        let total_fee_over_max_value =
+            unaggregated_fees + invalid_receipt_fees >= max_unaggregated_fees;
 
         tracing::trace!(
             %pending_fees_over_balance,
@@ -409,6 +413,7 @@ impl Actor for SenderAccount {
         let state = State {
             sender_fee_tracker: SenderFeeTracker::default(),
             rav_tracker: SenderFeeTracker::default(),
+            invalid_receipts_tracker: SenderFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
             _indexer_allocations_handle,
             _escrow_account_monitor,
@@ -458,6 +463,17 @@ impl Actor for SenderAccount {
                 state
                     .rav_tracker
                     .update(rav.message.allocationId, rav.message.valueAggregate);
+                let should_deny = !state.denied && state.deny_condition_reached();
+                if should_deny {
+                    state.add_to_denylist().await;
+                }
+            }
+            SenderAccountMessage::UpdateInvalidReceiptFees(allocation_id, unaggregated_fees) => {
+                state
+                    .invalid_receipts_tracker
+                    .update(allocation_id, unaggregated_fees.value);
+
+                // invalid receipts can't go down
                 let should_deny = !state.denied && state.deny_condition_reached();
                 if should_deny {
                     state.add_to_denylist().await;
@@ -713,7 +729,11 @@ pub mod tests {
                 (Self::UpdateReceiptFees(l0, l1), Self::UpdateReceiptFees(r0, r1)) => {
                     l0 == r0 && l1 == r1
                 }
-                _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+                (
+                    Self::UpdateInvalidReceiptFees(l0, l1),
+                    Self::UpdateInvalidReceiptFees(r0, r1),
+                ) => l0 == r0 && l1 == r1,
+                (a, b) => unimplemented!("PartialEq not implementated for {a:?} and {b:?}"),
             }
         }
     }
@@ -1158,6 +1178,22 @@ pub mod tests {
             };
         }
 
+        macro_rules! update_invalid_receipt_fees {
+            ($value:expr) => {
+                sender_account
+                    .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
+                        *ALLOCATION_ID_0,
+                        UnaggregatedReceipts {
+                            value: $value,
+                            last_id: 11,
+                        },
+                    ))
+                    .unwrap();
+
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            };
+        }
+
         update_receipt_fees!(max_unaggregated_fees_per_sender - 1);
         let deny = get_deny_status(&sender_account).await;
         assert!(!deny);
@@ -1176,6 +1212,28 @@ pub mod tests {
 
         update_receipt_fees!(max_unaggregated_fees_per_sender - 1);
         let deny = get_deny_status(&sender_account).await;
+        assert!(!deny);
+
+        update_receipt_fees!(0);
+
+        update_invalid_receipt_fees!(max_unaggregated_fees_per_sender - 1);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(!deny);
+
+        update_invalid_receipt_fees!(max_unaggregated_fees_per_sender);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(deny);
+
+        // invalid receipts should not go down
+        update_invalid_receipt_fees!(0);
+        let deny = get_deny_status(&sender_account).await;
+        // keep denied
+        assert!(deny);
+
+        // condition reached using receipts
+        update_receipt_fees!(0);
+        let deny = get_deny_status(&sender_account).await;
+        // allow sender
         assert!(!deny);
 
         sender_account.stop_and_wait(None, None).await.unwrap();
