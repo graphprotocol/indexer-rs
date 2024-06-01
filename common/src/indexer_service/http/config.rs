@@ -51,7 +51,7 @@ pub struct IndexerServiceConfig {
     pub network_subgraph: SubgraphConfig,
     pub escrow_subgraph: SubgraphConfig,
     pub graph_network: GraphNetworkConfig,
-    pub scalar: ScalarConfig,
+    pub tap: TapConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -76,7 +76,7 @@ pub struct IndexerConfig {
 
 #[serde_inline_default]
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ScalarConfig {
+pub struct TapConfig {
     pub chain_id: u64,
     pub receipts_verifier_address: Address,
     #[serde_inline_default(30)]

@@ -33,6 +33,6 @@ metrics_host_and_port = "0.0.0.0:7601"
 # optional:
 free_query_auth_token = "i-am-authorized-right?"
 
-[common.scalar]
+[common.tap]
 chain_id = 1
 receipts_verifier_address = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"

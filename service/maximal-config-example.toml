@@ -1,4 +1,4 @@
-# WARNING:  This shows all the possible configuration options. Make sure you know what 
+# WARNING:  This shows all the possible configuration options. Make sure you know what
 #           you are doing.
 #           Prefer starting with `minimal-config-example.toml`.
 #
@@ -75,7 +75,7 @@ id = 1
 # The chain ID of the network that the graph network is running on
 chain_id = 99999999999999
 
-[common.scalar]
+[common.tap]
 # The chain ID of the network that the graph network is running on
 # Should be the same as the chain ID of the network that the graph network is running on
 chain_id = 99999999999999
@@ -88,4 +88,4 @@ timestamp_error_tolerance = 30
 # We need this because a large receipt, especially if it's larger than the RAV request trigger,
 # or worse, the unaggregated receipts limit (tap-agent), can cause the indexer to refuse service
 # to the sender for the duration of RAV request timestamp buffer.
-receipt_max_value = 1000000000000000  # 0.001 GRT
+receipt_max_value = 1000000000000000 # 0.001 GRT
