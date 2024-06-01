@@ -44,6 +44,5 @@ escrow_subgraph_deployment = "Qmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 # Query URL for the Escrow subgraph.
 escrow_subgraph_endpoint = "http://example.com/escrow-subgraph"
 
-[tap]
-# YAML file with a map of sender addresses to aggregator endpoints.
-sender_aggregator_endpoints_file = "endpoints.yaml"
+[tap.sender_aggregator_endpoints]
+0xdeadbeefcafebabedeadbeefcafebabedeadbeef = "https://example.com/aggregate-receipts"

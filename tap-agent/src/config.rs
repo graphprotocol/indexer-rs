@@ -1,6 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use bigdecimal::{BigDecimal, ToPrimitive};
@@ -83,7 +84,7 @@ pub struct Tap {
     pub rav_request_trigger_value: u128,
     pub rav_request_timestamp_buffer_ms: u64,
     pub rav_request_timeout_secs: u64,
-    pub sender_aggregator_endpoints_file: PathBuf,
+    pub sender_aggregator_endpoints: HashMap<Address, String>,
     pub rav_request_receipt_limit: u64,
     #[serde(deserialize_with = "parse_grt_value_to_nonzero_u128")]
     pub max_unnaggregated_fees_per_sender: u128,
@@ -144,17 +145,17 @@ impl Config {
             [indexer_infrastructure]
             metrics_port = 7300
             log_level = "info"
-            
+
             [postgres]
             postgres_port = 5432
-            
+
             [network_subgraph]
             allocation_syncing_interval_ms = 60000
             recently_closed_allocation_buffer_seconds = 3600
-            
+
             [escrow_subgraph]
             escrow_syncing_interval_ms = 60000
-            
+
             [tap]
             rav_request_trigger_value = 10
             rav_request_timestamp_buffer_ms = 60000
