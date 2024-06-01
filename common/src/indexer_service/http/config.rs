@@ -63,8 +63,6 @@ pub struct GraphNodeConfig {
 #[serde_inline_default]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct GraphNetworkConfig {
-    #[serde_inline_default(1)]
-    pub id: u64,
     pub chain_id: u64,
 }
 
