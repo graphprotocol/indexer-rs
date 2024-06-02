@@ -85,9 +85,6 @@ host_and_port = "0.0.0.0:7600"
 url_prefix = "/"
 
 [service.tap]
-# Timestamp error tolerance for incoming query receipts. If a query receipt timestamp
-# is outside now() +/- timestamp_error_tolerance, the query is rejected.
-timestamp_off_tolerance_secs = 30
 # Maximum value of a receipt, in GRT wei.
 # We need this because a large receipt, especially if it's larger than the RAV request trigger,
 # or worse, the unaggregated receipts limit (tap-agent), can cause the indexer to refuse service

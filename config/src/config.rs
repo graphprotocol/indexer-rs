@@ -8,7 +8,8 @@ use figment::{
 };
 use serde_repr::Deserialize_repr;
 use serde_with::DurationSecondsWithFrac;
-use std::{collections::HashMap, net::SocketAddr, path::PathBuf, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, str::FromStr, time::Duration};
+use tracing::warn;
 
 use alloy_primitives::Address;
 use bip39::Mnemonic;
@@ -62,6 +63,58 @@ impl Config {
 
     // custom validation of the values
     fn validate(&self) -> Result<(), String> {
+        let one = BigDecimal::from(1);
+        let ten = BigDecimal::from(10);
+        match &self.tap.rav_request.trigger_value_divisor {
+            x if x <= &one => {
+                return Err("trigger_value_divisor must be greater than 1".to_string())
+            }
+            x if x > &one && x < &ten => warn!(
+                "It's recommended that trigger_value_divisor \
+                be a value greater than 10."
+            ),
+            _ => {}
+        }
+
+        let usual_grt_price = BigDecimal::from_str("0.0001").unwrap() * &ten;
+        if &self.tap.max_amount_willing_to_lose_grt.get_value()
+            < &usual_grt_price.to_u128().unwrap()
+        {
+            warn!(
+                "Your `max_amount_willing_to_lose_grt` value is too close to zero. \
+                This may deny the sender too often or even break the whole system. \
+                It's recommended it to be a value greater than 100x an usual query price."
+            );
+        }
+
+        if &self.subgraphs.escrow.config.syncing_interval_secs < &Duration::from_secs(10)
+            || &self.subgraphs.network.config.syncing_interval_secs < &Duration::from_secs(10)
+        {
+            warn!(
+                "Your `syncing_interval_secs` value it too low. \
+                This may overload your graph-node instance, \
+                a recommended value is about 60 seconds."
+            );
+        }
+
+        if &self.subgraphs.escrow.config.syncing_interval_secs > &Duration::from_secs(600)
+            || &self.subgraphs.network.config.syncing_interval_secs > &Duration::from_secs(600)
+        {
+            warn!(
+                "Your `syncing_interval_secs` value it too high. \
+                This may cause issues while reacting to updates in the blockchain. \
+                a recommended value is about 60 seconds."
+            );
+        }
+
+        if &self.tap.rav_request.timestamp_buffer_secs < &Duration::from_secs(10) {
+            warn!(
+                "Your `timestamp_off_tolerance_secs` value it too low. \
+                You may discart receipts in case of any synchronization issues, \
+                a recommended value is about 30 seconds."
+            );
+        }
+
         Ok(())
     }
 }
@@ -151,9 +204,6 @@ pub struct ServiceConfig {
 #[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct ServiceTapConfig {
-    /// how long a receipt timestamp can be off
-    #[serde_as(as = "DurationSecondsWithFrac<f64>")]
-    pub timestamp_off_tolerance_secs: Duration,
     /// what's the maximum value we accept in a receipt
     pub max_receipt_value: NonZeroGRT,
 }
