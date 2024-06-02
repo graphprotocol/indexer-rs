@@ -9,8 +9,8 @@ mod static_subgraph;
 mod tap_receipt_header;
 
 pub use config::{
-    DatabaseConfig, GraphNetworkConfig, IndexerConfig, IndexerServiceConfig, ServerConfig,
-    SubgraphConfig,
+    DatabaseConfig, GraphNetworkConfig, GraphNodeConfig, IndexerConfig, IndexerServiceConfig,
+    ServerConfig, SubgraphConfig, TapConfig,
 };
 pub use indexer_service::{
     IndexerService, IndexerServiceImpl, IndexerServiceOptions, IndexerServiceRelease,

@@ -1,0 +1,25 @@
+[metrics]
+port = 7300
+
+[subgraphs.network]
+syncing_interval_secs = 60
+recently_closed_allocation_buffer_secs = 3600
+
+[subgraphs.escrow]
+syncing_interval_secs = 60
+
+[service]
+serve_network_subgraph = false
+serve_escrow_subgraph = false
+host_and_port = "0.0.0.0:7600"
+url_prefix = "/"
+
+[service.tap]
+timestamp_off_tolerance_secs = 30
+max_receipt_value = 1000000000000000 # 0.001 GRT
+
+[tap.rav_request]
+trigger_value_divisor = 10
+timestamp_buffer_secs = 60
+request_timeout_secs = 5
+max_receipts_per_request = 10000

@@ -914,6 +914,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bip39"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93f2635620bf0b9d4576eb7bb9a38a55df78bd1205d26fa994b25911a69f212f"
+dependencies = [
+ "bitcoin_hashes",
+ "serde",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -927,6 +938,12 @@ name = "bit-vec"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
+
+[[package]]
+name = "bitcoin_hashes"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90064b8dee6815a6470d60bad07bbbaee885c0e12d04177138fa3291a01b7bc4"
 
 [[package]]
 name = "bitflags"
@@ -3157,6 +3174,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer-config"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives 0.6.4",
+ "bigdecimal 0.4.3",
+ "bip39",
+ "figment",
+ "serde",
+ "serde_repr",
+ "serde_test",
+ "serde_with",
+ "thegraph",
+ "url",
+]
+
+[[package]]
 name = "indexer-tap-agent"
 version = "0.1.0"
 dependencies = [
@@ -3170,10 +3203,10 @@ dependencies = [
  "ethereum-types",
  "ethers-signers",
  "eventuals",
- "figment",
  "futures",
  "futures-util",
  "indexer-common",
+ "indexer-config",
  "jsonrpsee 0.20.3",
  "lazy_static",
  "log",
@@ -3181,10 +3214,8 @@ dependencies = [
  "ractor",
  "reqwest 0.12.4",
  "serde",
- "serde_assert",
  "serde_json",
  "serde_yaml",
- "shellexpand",
  "sqlx",
  "tap_aggregator",
  "tap_core 0.8.0",
@@ -3192,7 +3223,6 @@ dependencies = [
  "thegraph",
  "thiserror",
  "tokio",
- "toml",
  "tracing",
  "tracing-subscriber",
  "wiremock",
@@ -5545,15 +5575,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_assert"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92b7be0ad5a7b2eefaa5418eb141838270f1ad2d2c6e88acec3795d2425ffa97"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "serde_derive"
 version = "1.0.202"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5597,10 +5618,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_repr"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c64451ba24fc7a6a2d60fc75dd9c83c90903b19028d4eff35e88fc1e86564e9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.65",
+]
+
+[[package]]
 name = "serde_spanned"
 version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79e674e01f999af37c49f70a6ede167a8a60b2503e56c5599532a65baa5969a0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "serde_test"
+version = "1.0.176"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a2f49ace1498612d14f7e0b8245519584db8299541dfe31a06374a828d620ab"
 dependencies = [
  "serde",
 ]
@@ -5671,21 +5712,19 @@ dependencies = [
  "build-info",
  "build-info-build",
  "clap",
- "figment",
  "graphql",
  "hex-literal",
  "indexer-common",
+ "indexer-config",
  "lazy_static",
  "reqwest 0.12.4",
  "serde",
  "serde_json",
- "shellexpand",
  "sqlx",
  "thegraph",
  "thegraph-graphql-http",
  "thiserror",
  "tokio",
- "toml",
  "tracing",
  "tracing-subscriber",
 ]
@@ -5753,12 +5792,6 @@ checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
 ]
-
-[[package]]
-name = "shellexpand"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da03fa3b94cc19e3ebfc88c4229c49d8f08cdbd1228870a45f0ffdf84988e14b"
 
 [[package]]
 name = "signal-hook-registry"
@@ -7010,9 +7043,9 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 
 [[package]]
 name = "unicode-normalization"
-version = "0.1.23"
+version = "0.1.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a56d1686db2308d901306f92a263857ef59ea39678a5458e7cb17f01415101f5"
+checksum = "5c5713f0fc4b5db668a2ac63cdb7bb4469d8c9fed047b1d0292cc7b0ce2ba921"
 dependencies = [
  "tinyvec",
 ]

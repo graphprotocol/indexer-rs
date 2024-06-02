@@ -9,24 +9,17 @@ use tracing::debug;
 use crate::config;
 
 pub async fn connect(config: &config::Postgres) -> PgPool {
-    let url = format!(
-        "postgresql://{}:{}@{}:{}/{}",
-        config.postgres_username,
-        config.postgres_password,
-        config.postgres_host,
-        config.postgres_port,
-        config.postgres_database
-    );
+    let url = &config.postgres_url;
     debug!(
-        postgres_host = tracing::field::debug(&config.postgres_host),
-        postgres_port = tracing::field::debug(&config.postgres_port),
-        postgres_database = tracing::field::debug(&config.postgres_database),
+        postgres_host = tracing::field::debug(&url.host()),
+        postgres_port = tracing::field::debug(&url.port()),
+        postgres_database = tracing::field::debug(&url.path()),
         "Connecting to database"
     );
     PgPoolOptions::new()
         .max_connections(50)
         .acquire_timeout(Duration::from_secs(3))
-        .connect(&url)
+        .connect(&url.as_str())
         .await
         .expect("Could not connect to DATABASE_URL")
 }
