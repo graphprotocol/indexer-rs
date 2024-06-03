@@ -3156,7 +3156,6 @@ dependencies = [
  "reqwest 0.12.4",
  "secp256k1",
  "serde",
- "serde-inline-default",
  "serde_json",
  "sqlx",
  "tap_core 0.8.0",
@@ -5563,17 +5562,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "226b61a0d411b2ba5ff6d7f73a476ac4f8bb900373459cd00fab8512828ba395"
 dependencies = [
  "serde_derive",
-]
-
-[[package]]
-name = "serde-inline-default"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9980133dc534d02ab08df3b384295223a45090c40a4c46240e3eaa982b495910"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.65",
 ]
 
 [[package]]
