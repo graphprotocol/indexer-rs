@@ -37,7 +37,7 @@ impl From<IndexerConfig> for Config {
                 log_level: None,
             },
             postgres: Postgres {
-                postgres_url: value.database.postgres_url.into(),
+                postgres_url: value.database.postgres_url,
             },
             network_subgraph: NetworkSubgraph {
                 network_subgraph_deployment: value.subgraphs.network.config.deployment_id,

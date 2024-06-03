@@ -19,7 +19,7 @@ pub async fn connect(config: &config::Postgres) -> PgPool {
     PgPoolOptions::new()
         .max_connections(50)
         .acquire_timeout(Duration::from_secs(3))
-        .connect(&url.as_str())
+        .connect(url.as_str())
         .await
         .expect("Could not connect to DATABASE_URL")
 }

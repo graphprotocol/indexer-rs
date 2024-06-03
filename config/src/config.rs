@@ -78,8 +78,7 @@ impl Config {
         }
 
         let usual_grt_price = BigDecimal::from_str("0.0001").unwrap() * &ten;
-        if &self.tap.max_amount_willing_to_lose_grt.get_value()
-            < &usual_grt_price.to_u128().unwrap()
+        if self.tap.max_amount_willing_to_lose_grt.get_value() < usual_grt_price.to_u128().unwrap()
         {
             warn!(
                 "Your `max_amount_willing_to_lose_grt` value is too close to zero. \
@@ -88,8 +87,8 @@ impl Config {
             );
         }
 
-        if &self.subgraphs.escrow.config.syncing_interval_secs < &Duration::from_secs(10)
-            || &self.subgraphs.network.config.syncing_interval_secs < &Duration::from_secs(10)
+        if self.subgraphs.escrow.config.syncing_interval_secs < Duration::from_secs(10)
+            || self.subgraphs.network.config.syncing_interval_secs < Duration::from_secs(10)
         {
             warn!(
                 "Your `syncing_interval_secs` value it too low. \
@@ -98,8 +97,8 @@ impl Config {
             );
         }
 
-        if &self.subgraphs.escrow.config.syncing_interval_secs > &Duration::from_secs(600)
-            || &self.subgraphs.network.config.syncing_interval_secs > &Duration::from_secs(600)
+        if self.subgraphs.escrow.config.syncing_interval_secs > Duration::from_secs(600)
+            || self.subgraphs.network.config.syncing_interval_secs > Duration::from_secs(600)
         {
             warn!(
                 "Your `syncing_interval_secs` value it too high. \
@@ -108,7 +107,7 @@ impl Config {
             );
         }
 
-        if &self.tap.rav_request.timestamp_buffer_secs < &Duration::from_secs(10) {
+        if self.tap.rav_request.timestamp_buffer_secs < Duration::from_secs(10) {
             warn!(
                 "Your `tap.rav_request.timestamp_buffer_secs` value it too low. \
                 You may discart receipts in case of any synchronization issues, \
@@ -175,18 +174,10 @@ pub struct EscrowSubgraphConfig {
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct SubgraphConfig {
-    #[serde(flatten)]
-    pub connection: SubgraphConnection,
+    pub query_url: Url,
+    pub deployment_id: Option<DeploymentId>,
     #[serde_as(as = "DurationSecondsWithFrac<f64>")]
     pub syncing_interval_secs: Duration,
-}
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(test, derive(PartialEq))]
-#[serde(untagged)]
-pub enum SubgraphConnection {
-    QueryUrl { query_url: Url },
-    DeploymentId { deployment_id: DeploymentId },
 }
 
 #[derive(Debug, Deserialize_repr, Clone)]
