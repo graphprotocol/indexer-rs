@@ -93,7 +93,7 @@ serve_escrow_subgraph = false
 # We need this because a large receipt, especially if it's larger than the RAV request trigger,
 # or worse, the unaggregated receipts limit (tap-agent), can cause the indexer to refuse service
 # to the sender for the duration of RAV request timestamp buffer.
-max_receipt_value_grt = 1000000000000000 # 0.001 GRT
+max_receipt_value_grt = "0.001" # 0.001 GRT. We use strings to prevent rounding errors
 
 ########################################
 # Specific configurations to tap-agent #

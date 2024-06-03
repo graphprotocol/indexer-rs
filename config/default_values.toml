@@ -15,7 +15,7 @@ host_and_port = "0.0.0.0:7600"
 url_prefix = "/"
 
 [service.tap]
-max_receipt_value_grt = 1000000000000000 # 0.001 GRT
+max_receipt_value_grt = "0.001" # We use strings to prevent rounding errors
 
 [tap.rav_request]
 trigger_value_divisor = 10
