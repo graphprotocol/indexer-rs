@@ -15,7 +15,6 @@ host_and_port = "0.0.0.0:7600"
 url_prefix = "/"
 
 [service.tap]
-timestamp_off_tolerance_secs = 30
 max_receipt_value = 1000000000000000 # 0.001 GRT
 
 [tap.rav_request]

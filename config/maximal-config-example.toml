@@ -42,6 +42,7 @@ status_url = "http://graph-node:8000/graphql"
 query_url = "http://example.com/network-subgraph"
 # Optional, deployment to look for in the local `graph-node`, if locally indexed.
 # Locally indexing the subgraph is recommended.
+# NOTE: Use `query_url` or `deployment_id` only
 deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Refreshing interval for the Graph contracts information from the Graph Network
 # subgraph.
@@ -56,6 +57,7 @@ recently_closed_allocation_buffer_secs = 3600
 query_url = "http://example.com/network-subgraph"
 # Optional, deployment to look for in the local `graph-node`, if locally indexed.
 # Locally indexing the subgraph is recommended.
+# NOTE: Use `query_url` or `deployment_id` only
 deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Refreshing interval for the Escrow contracts information from the Escrow subgraph.
 syncing_interval_secs = 60
@@ -70,19 +72,21 @@ receipts_verifier_address = "0x2222222222222222222222222222222222222222"
 # Specific configurations to indexer-service #
 ##############################################
 [service]
-# Serve the network subgraph on `common.server.host_and_port`/network
-serve_network_subgraph = false
-# Serve the escrow subgraph on `common.server.host_and_port`/escrow
-serve_escrow_subgraph = false
-# OPTIONAL: use this to add a layer while serving network/escrow subgraph
-serve_auth_token = "token"
-# OPTIONAL: allow queries using this token
-free_query_auth_token = "i-am-authorized-right?"
 # Host and port to serve the indexer-service query endpoint. This one should have a
 # public ingress.
 host_and_port = "0.0.0.0:7600"
 # URL prefix for the query endpoint.
 url_prefix = "/"
+# Serve the network subgraph on `common.server.host_and_port`/network
+serve_network_subgraph = false
+# Serve the escrow subgraph on `common.server.host_and_port`/escrow
+serve_escrow_subgraph = false
+#### OPTIONAL VALUES ####
+## use this to add a layer while serving network/escrow subgraph
+# serve_auth_token = "token"
+## allow queries using this token
+# free_query_auth_token = "i-am-authorized-right?"
+
 
 [service.tap]
 # Maximum value of a receipt, in GRT wei.

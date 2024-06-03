@@ -17,3 +17,4 @@ tracing = "0.1.34"
 
 [dev-dependencies]
 serde_test = "1.0.176"
+toml = "0.8.12"

@@ -21,6 +21,7 @@ use url::Url;
 use crate::NonZeroGRT;
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct Config {
     pub indexer: IndexerConfig,
     pub database: DatabaseConfig,
@@ -109,7 +110,7 @@ impl Config {
 
         if &self.tap.rav_request.timestamp_buffer_secs < &Duration::from_secs(10) {
             warn!(
-                "Your `timestamp_off_tolerance_secs` value it too low. \
+                "Your `tap.rav_request.timestamp_buffer_secs` value it too low. \
                 You may discart receipts in case of any synchronization issues, \
                 a recommended value is about 30 seconds."
             );
@@ -120,28 +121,33 @@ impl Config {
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct IndexerConfig {
     pub indexer_address: Address,
     pub operator_mnemonic: Mnemonic,
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct DatabaseConfig {
     pub postgres_url: Url,
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct GraphNodeConfig {
     pub query_url: Url,
     pub status_url: Url,
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct MetricsConfig {
     pub port: u16,
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
     pub escrow: EscrowSubgraphConfig,
@@ -149,6 +155,7 @@ pub struct SubgraphsConfig {
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct NetworkSubgraphConfig {
     #[serde(flatten)]
     pub config: SubgraphConfig,
@@ -158,6 +165,7 @@ pub struct NetworkSubgraphConfig {
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct EscrowSubgraphConfig {
     #[serde(flatten)]
     pub config: SubgraphConfig,
@@ -165,14 +173,24 @@ pub struct EscrowSubgraphConfig {
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct SubgraphConfig {
-    pub query_url: Url,
-    pub deployment_id: Option<DeploymentId>,
+    #[serde(flatten)]
+    pub connection: SubgraphConnection,
     #[serde_as(as = "DurationSecondsWithFrac<f64>")]
     pub syncing_interval_secs: Duration,
 }
 
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+#[serde(untagged)]
+pub enum SubgraphConnection {
+    QueryUrl { query_url: Url },
+    DeploymentId { deployment_id: DeploymentId },
+}
+
 #[derive(Debug, Deserialize_repr, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
 #[repr(u64)]
 pub enum TheGraphChainId {
     Ethereum = 1,
@@ -185,12 +203,14 @@ pub enum TheGraphChainId {
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
     pub receipts_verifier_address: Address,
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct ServiceConfig {
     pub serve_network_subgraph: bool,
     pub serve_escrow_subgraph: bool,
@@ -203,12 +223,14 @@ pub struct ServiceConfig {
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct ServiceTapConfig {
     /// what's the maximum value we accept in a receipt
     pub max_receipt_value: NonZeroGRT,
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct TapConfig {
     /// what is the maximum amount the indexer is willing to lose in grt
     pub max_amount_willing_to_lose_grt: NonZeroGRT,
@@ -230,6 +252,7 @@ impl TapConfig {
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct RavRequestConfig {
     /// what divisor of the amount willing to lose to trigger the rav request
     pub trigger_value_divisor: BigDecimal,
@@ -245,7 +268,7 @@ pub struct RavRequestConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf};
 
     use crate::{Config, ConfigPrefix};
 
@@ -266,13 +289,13 @@ mod tests {
             &PathBuf::from("minimal-config-example.toml"),
         )
         .unwrap();
-        // let max_config_file: Config = toml::from_str(
-        //     fs::read_to_string("maximal-config-example.toml")
-        //         .unwrap()
-        //         .as_str(),
-        // )
-        // .unwrap();
+        let max_config_file: Config = toml::from_str(
+            fs::read_to_string("maximal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
 
-        // assert_eq!(max_config, max_config_file);
+        assert_eq!(max_config, max_config_file);
     }
 }
