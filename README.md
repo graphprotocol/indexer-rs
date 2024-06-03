@@ -46,9 +46,7 @@ These steps should ensure a smooth transition to the latest version of `indexer-
 
 [Contributions guide](/contributing.md)
 
-
 ### Supported request and response format examples
-
 
 ```
 ✗ curl http://localhost:7300/
@@ -74,7 +72,7 @@ Ready to roll!
 
 # Free query auth token check failed
 ✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: blah' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/0xb655ca6f49e73728a102219726ff678d61d8fb792874792e9f0d9887dc616600
-"Invalid Tap-Receipt header provided"%
+"Invalid Scalar-Receipt header provided"%
 
 # Subgraph health check
 ✗ curl http://localhost:7300/subgraphs/health/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
@@ -125,12 +123,12 @@ curl -X GET -H 'Content-Type: application/json' --data '{"query": "{ costModels(
 - `postgres` database connection required to indexer management server database, shared with the indexer agent
 - No migration in indexer service as it might introduce conflicts to the database; indexer agent is solely responsible for database management.
 
-
 ### Indexer common components
 
 Temporarily live inside the indexer-service package under `src/common`.
 
 Simple indexer management client to track NetworkSubgraph and postgres connection.
+
 - NetworkSubgraph instance track both remote API endpoint and local deployment query endpoint.
   - TODO: query indexing status of local deployment, only use remote API as fallback.
 - Keeps cost model schema and resolvers with postgres and graphQL types: `costModel(deployment)` and `costModels(deployments)`. If deployments is empty, all cost models are returned.
