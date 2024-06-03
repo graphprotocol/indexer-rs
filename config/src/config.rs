@@ -217,7 +217,7 @@ pub struct ServiceConfig {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct ServiceTapConfig {
     /// what's the maximum value we accept in a receipt
-    pub max_receipt_value: NonZeroGRT,
+    pub max_receipt_value_grt: NonZeroGRT,
 }
 
 #[derive(Debug, Deserialize)]

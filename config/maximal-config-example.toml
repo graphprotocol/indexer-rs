@@ -109,6 +109,13 @@ max_receipt_value = 1000000000000000 # 0.001 GRT
 max_amount_willing_to_lose_grt = 20
 
 [tap.rav_request]
+# Trigger value is the amount used to trigger a rav request
+# The dividor is used to define the trigger value of a RAV request using
+# the following formula:
+#
+#   max_amount_willing_to_lose_grt / trigger_value_divisor = trigger_value
+#
+# Must be value greater than 1, but recommended to be 10 or more
 trigger_value_divisor = 10
 # Buffer (in seconds) to add between the current time and the timestamp of the
 # last unaggregated fee when triggering a RAV request.

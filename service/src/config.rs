@@ -73,7 +73,7 @@ impl From<MainConfig> for Config {
                 chain_id: value.blockchain.chain_id as u64,
                 receipts_verifier_address: value.blockchain.receipts_verifier_address,
                 timestamp_error_tolerance: value.tap.rav_request.timestamp_buffer_secs.as_secs(),
-                receipt_max_value: value.service.tap.max_receipt_value.get_value() as u64,
+                receipt_max_value: value.service.tap.max_receipt_value_grt.get_value() as u64,
             },
         })
     }
