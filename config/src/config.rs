@@ -64,20 +64,19 @@ impl Config {
 
     // custom validation of the values
     fn validate(&self) -> Result<(), String> {
-        let one = BigDecimal::from(1);
-        let ten = BigDecimal::from(10);
         match &self.tap.rav_request.trigger_value_divisor {
-            x if x <= &one => {
+            x if *x <= 1.into() => {
                 return Err("trigger_value_divisor must be greater than 1".to_string())
             }
-            x if x > &one && x < &ten => warn!(
+            x if *x > 1.into() && *x < 10.into() => warn!(
                 "It's recommended that trigger_value_divisor \
                 be a value greater than 10."
             ),
             _ => {}
         }
 
-        let usual_grt_price = BigDecimal::from_str("0.0001").unwrap() * &ten;
+        let ten: BigDecimal = 10.into();
+        let usual_grt_price = BigDecimal::from_str("0.0001").unwrap() * ten;
         if self.tap.max_amount_willing_to_lose_grt.get_value() < usual_grt_price.to_u128().unwrap()
         {
             warn!(
