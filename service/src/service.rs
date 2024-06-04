@@ -5,9 +5,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::{config::Config, error::SubgraphServiceError, routes};
-use anyhow::Error;
+use anyhow::anyhow;
 use axum::{async_trait, routing::post, Json, Router};
 use indexer_common::indexer_service::http::{IndexerServiceImpl, IndexerServiceResponse};
+use indexer_config::Config as MainConfig;
 use reqwest::Url;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -116,21 +117,24 @@ impl IndexerServiceImpl for SubgraphService {
 }
 
 /// Run the subgraph indexer service
-pub async fn run() -> Result<(), Error> {
+pub async fn run() -> anyhow::Result<()> {
     // Parse command line and environment arguments
     let cli = Cli::parse();
 
     // Load the json-rpc service configuration, which is a combination of the
     // general configuration options for any indexer service and specific
     // options added for JSON-RPC
-    let config = Config::load(&cli.config).map_err(|e| {
-        error!(
-            "Invalid configuration file `{}`: {}",
-            cli.config.display(),
-            e
-        );
-        e
-    })?;
+    let config =
+        MainConfig::parse(indexer_config::ConfigPrefix::Service, &cli.config).map_err(|e| {
+            error!(
+                "Invalid configuration file `{}`: {}",
+                cli.config.display(),
+                e
+            );
+            anyhow!(e)
+        })?;
+
+    let config: Config = config.into();
 
     // Parse basic configurations
     build_info::build_info!(fn build_info);
@@ -141,7 +145,7 @@ pub async fn run() -> Result<(), Error> {
     // that is involved in serving requests
     let state = Arc::new(SubgraphServiceState {
         config: config.clone(),
-        database: database::connect(&config.common.database.postgres_url).await,
+        database: database::connect(&config.0.database.postgres_url).await,
         cost_schema: routes::cost::build_schema().await,
         graph_node_client: reqwest::ClientBuilder::new()
             .tcp_nodelay(true)
@@ -149,14 +153,14 @@ pub async fn run() -> Result<(), Error> {
             .build()
             .expect("Failed to init HTTP client for Graph Node"),
         graph_node_status_url: config
-            .common
+            .0
             .graph_node
             .as_ref()
             .expect("Config must have `common.graph_node.status_url` set")
             .status_url
             .clone(),
         graph_node_query_base_url: config
-            .common
+            .0
             .graph_node
             .as_ref()
             .expect("config must have `common.graph_node.query_url` set")
@@ -166,7 +170,7 @@ pub async fn run() -> Result<(), Error> {
 
     IndexerService::run(IndexerServiceOptions {
         release,
-        config: config.common.clone(),
+        config: config.0.clone(),
         url_namespace: "subgraphs",
         metrics_prefix: "subgraph",
         service_impl: SubgraphService::new(state.clone()),

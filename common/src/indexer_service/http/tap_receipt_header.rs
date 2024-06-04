@@ -8,15 +8,15 @@ use lazy_static::lazy_static;
 use tap_core::receipt::SignedReceipt;
 
 #[derive(Debug, PartialEq)]
-pub struct ScalarReceipt(Option<SignedReceipt>);
+pub struct TapReceipt(Option<SignedReceipt>);
 
-impl ScalarReceipt {
+impl TapReceipt {
     pub fn into_signed_receipt(self) -> Option<SignedReceipt> {
         self.0
     }
 }
 
-impl Deref for ScalarReceipt {
+impl Deref for TapReceipt {
     type Target = Option<SignedReceipt>;
 
     fn deref(&self) -> &Self::Target {
@@ -25,12 +25,12 @@ impl Deref for ScalarReceipt {
 }
 
 lazy_static! {
-    static ref SCALAR_RECEIPT: HeaderName = HeaderName::from_static("scalar-receipt");
+    static ref TAP_RECEIPT: HeaderName = HeaderName::from_static("scalar-receipt");
 }
 
-impl Header for ScalarReceipt {
+impl Header for TapReceipt {
     fn name() -> &'static HeaderName {
-        &SCALAR_RECEIPT
+        &TAP_RECEIPT
     }
 
     fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
@@ -46,7 +46,7 @@ impl Header for ScalarReceipt {
             .map(serde_json::from_str)
             .transpose()
             .map_err(|_| headers::Error::invalid())?;
-        Ok(ScalarReceipt(parsed_receipt))
+        Ok(TapReceipt(parsed_receipt))
     }
 
     fn encode<E>(&self, _values: &mut E)
@@ -67,39 +67,36 @@ mod test {
 
     use crate::test_vectors::create_signed_receipt;
 
-    use super::ScalarReceipt;
+    use super::TapReceipt;
 
     #[tokio::test]
-    async fn test_decode_valid_scalar_receipt_header() {
+    async fn test_decode_valid_tap_receipt_header() {
         let allocation = Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap();
         let original_receipt =
             create_signed_receipt(allocation, u64::MAX, u64::MAX, u128::MAX).await;
         let serialized_receipt = serde_json::to_string(&original_receipt).unwrap();
         let header_value = HeaderValue::from_str(&serialized_receipt).unwrap();
         let header_values = vec![&header_value];
-        let decoded_receipt = ScalarReceipt::decode(&mut header_values.into_iter())
-            .expect("scalar receipt header value should be valid");
+        let decoded_receipt = TapReceipt::decode(&mut header_values.into_iter())
+            .expect("tap receipt header value should be valid");
 
-        assert_eq!(
-            decoded_receipt,
-            ScalarReceipt(Some(original_receipt.clone()))
-        );
+        assert_eq!(decoded_receipt, TapReceipt(Some(original_receipt.clone())));
     }
 
     #[test]
-    fn test_decode_non_string_scalar_receipt_header() {
+    fn test_decode_non_string_tap_receipt_header() {
         let header_value = HeaderValue::from_static("123");
         let header_values = vec![&header_value];
-        let result = ScalarReceipt::decode(&mut header_values.into_iter());
+        let result = TapReceipt::decode(&mut header_values.into_iter());
 
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_decode_invalid_scalar_receipt_header() {
+    fn test_decode_invalid_tap_receipt_header() {
         let header_value = HeaderValue::from_bytes(b"invalid").unwrap();
         let header_values = vec![&header_value];
-        let result = ScalarReceipt::decode(&mut header_values.into_iter());
+        let result = TapReceipt::decode(&mut header_values.into_iter());
 
         assert!(result.is_err());
     }

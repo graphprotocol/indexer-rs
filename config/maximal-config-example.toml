@@ -1,0 +1,131 @@
+# WARNING:  This shows all the possible configuration options. Make sure you know what
+#           you are doing.
+#           Prefer starting with `minimal-config-example.toml`.
+#
+# All the optional values (missing from the minimal config) are set to the current
+# default values.
+# You will have to change *most* the values below to match your setup.
+#
+# Some of the config below are global graph network values, which you can find here:
+# https://github.com/graphprotocol/indexer/tree/main/docs/networks
+#
+# Pro tip: if you need to load some values from the environment into this config, you
+# can overwrite with environment variables. For example, the following can be replaced
+# by [PREFIX]_DATABASE_POSTGRESURL, where PREFIX can be `INDEXER_SERVICE` or `TAP_AGENT`:
+#
+# [database]
+# postgres_url = "postgresql://indexer:${POSTGRES_PASSWORD}@postgres:5432/indexer_components_0"
+
+
+[indexer]
+indexer_address = "0x1111111111111111111111111111111111111111"
+operator_mnemonic = "celery smart tip orange scare van steel radio dragon joy alarm crane"
+
+[metrics]
+# Port to serve metrics. This one should stay private.
+port = 7300
+
+[database]
+# The URL of the Postgres database used for the indexer components. The same database
+# that is used by the `indexer-agent`. It is expected that `indexer-agent` will create
+# the necessary tables.
+postgres_url = "postgres://postgres@postgres:5432/postgres"
+
+[graph_node]
+# URL to your graph-node's query endpoint
+query_url = "http://graph-node:8000"
+# URL to your graph-node's status endpoint
+status_url = "http://graph-node:8000/graphql"
+
+[subgraphs.network]
+# Query URL for the Graph Network subgraph.
+query_url = "http://example.com/network-subgraph"
+# Optional, deployment to look for in the local `graph-node`, if locally indexed.
+# Locally indexing the subgraph is recommended.
+# NOTE: Use `query_url` or `deployment_id` only
+deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+# Refreshing interval for the Graph contracts information from the Graph Network
+# subgraph.
+syncing_interval_secs = 60
+# Amount of time to keep treating an allocation as active after it has been closed.
+# So that we can keep serving queries while the information about the allocation closure
+# propagates to all the consumers.
+recently_closed_allocation_buffer_secs = 3600
+
+[subgraphs.escrow]
+# Query URL for the Escrow subgraph.
+query_url = "http://example.com/network-subgraph"
+# Optional, deployment to look for in the local `graph-node`, if locally indexed.
+# Locally indexing the subgraph is recommended.
+# NOTE: Use `query_url` or `deployment_id` only
+deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+# Refreshing interval for the Escrow contracts information from the Escrow subgraph.
+syncing_interval_secs = 60
+
+[blockchain]
+# The chain ID of the network that the graph network is running on
+chain_id = 1337
+# Contract address of TAP's receipt aggregate voucher (RAV) verifier.
+receipts_verifier_address = "0x2222222222222222222222222222222222222222"
+
+##############################################
+# Specific configurations to indexer-service #
+##############################################
+[service]
+# Host and port to serve the indexer-service query endpoint. This one should have a
+# public ingress.
+host_and_port = "0.0.0.0:7600"
+# URL prefix for the query endpoint.
+url_prefix = "/"
+# Serve the network subgraph on `common.server.host_and_port`/network
+serve_network_subgraph = false
+# Serve the escrow subgraph on `common.server.host_and_port`/escrow
+serve_escrow_subgraph = false
+#### OPTIONAL VALUES ####
+## use this to add a layer while serving network/escrow subgraph
+# serve_auth_token = "token"
+## allow queries using this token
+# free_query_auth_token = "i-am-authorized-right?"
+
+
+[service.tap]
+# Maximum value of a receipt, in GRT wei.
+# We need this because a large receipt, especially if it's larger than the RAV request trigger,
+# or worse, the unaggregated receipts limit (tap-agent), can cause the indexer to refuse service
+# to the sender for the duration of RAV request timestamp buffer.
+max_receipt_value_grt = "0.001" # 0.001 GRT. We use strings to prevent rounding errors
+
+########################################
+# Specific configurations to tap-agent #
+########################################
+[tap]
+# This is the amount of fees you are willing to risk at any given time. For ex.
+# if the sender stops supplying RAVs for long enough and the fees exceed this
+# amount, the indexer-service will stop accepting queries from the sender
+# until the fees are aggregated.
+# NOTE: Use strings for decimal values to prevent rounding errors
+# e.g:
+# max_amount_willing_to_lose_grt = "0.1"
+max_amount_willing_to_lose_grt = 20
+
+[tap.rav_request]
+# Trigger value is the amount used to trigger a rav request
+# The dividor is used to define the trigger value of a RAV request using
+# the following formula:
+#
+#   max_amount_willing_to_lose_grt / trigger_value_divisor = trigger_value
+#
+# Must be value greater than 1, but recommended to be 10 or more
+trigger_value_divisor = 10
+# Buffer (in seconds) to add between the current time and the timestamp of the
+# last unaggregated fee when triggering a RAV request.
+timestamp_buffer_secs = 60
+# Timeout (in seconds) for RAV requests.
+request_timeout_secs = 5
+# Maximum number of receipts per aggregation request
+max_receipts_per_request = 10000
+
+[tap.sender_aggregator_endpoints]
+# Key-Value of all senders and their aggregator endpoints
+0xdeadbeefcafebabedeadbeefcafebabedeadbeef = "https://example.com/aggregate-receipts"
+0x0123456789abcdef0123456789abcdef01234567 = "https://other.example.com/aggregate-receipts"

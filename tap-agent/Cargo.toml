@@ -22,6 +22,7 @@ prometheus = "0.13.3"
 axum = "0.7.5"
 futures-util = "0.3.28"
 indexer-common = { version = "0.1.0", path = "../common" }
+indexer-config = { version = "0.1.0", path = "../config" }
 jsonrpsee = { version = "0.20.2", features = ["http-client", "macros"] }
 lazy_static = "1.4.0"
 reqwest = "0.12"
@@ -49,13 +50,9 @@ tracing-subscriber = { version = "0.3", features = [
     "json",
 ] }
 ractor = "0.9"
-figment = { version = "0.10.19", features = ["toml"] }
-shellexpand = { version = "3.1.0", default-features = false, features = ["base-0"] }
 
 [dev-dependencies]
 ethers-signers = "2.0.8"
 tempfile = "3.8.0"
 wiremock = "0.5.19"
 futures = "0.3.30"
-serde_assert = "0.7.1"
-toml = "0.8.13"

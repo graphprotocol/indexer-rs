@@ -15,7 +15,7 @@ use crate::agent::sender_accounts_manager::{
 use crate::config::{
     Config, EscrowSubgraph, Ethereum, IndexerInfrastructure, NetworkSubgraph, Tap,
 };
-use crate::{aggregator_endpoints, database, CONFIG, EIP_712_DOMAIN};
+use crate::{database, CONFIG, EIP_712_DOMAIN};
 use sender_accounts_manager::SenderAccountsManager;
 
 pub mod sender_account;
@@ -47,10 +47,12 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
                 escrow_subgraph_endpoint,
                 escrow_syncing_interval_ms,
             },
-        tap: Tap {
-            sender_aggregator_endpoints_file,
-            ..
-        },
+        tap:
+            Tap {
+                // TODO: replace with a proper implementation once the gateway registry contract is ready
+                sender_aggregator_endpoints,
+                ..
+            },
         ..
     } = &*CONFIG;
     let pgpool = database::connect(postgres).await;
@@ -103,10 +105,6 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         false,
     );
 
-    // TODO: replace with a proper implementation once the gateway registry contract is ready
-    let sender_aggregator_endpoints =
-        aggregator_endpoints::load_aggregator_endpoints(sender_aggregator_endpoints_file.clone());
-
     let args = SenderAccountsManagerArgs {
         config: &CONFIG,
         domain_separator: EIP_712_DOMAIN.clone(),
@@ -114,7 +112,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         indexer_allocations,
         escrow_accounts,
         escrow_subgraph,
-        sender_aggregator_endpoints,
+        sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
         prefix: None,
     };
 

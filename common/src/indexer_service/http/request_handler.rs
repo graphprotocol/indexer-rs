@@ -18,14 +18,14 @@ use crate::{indexer_service::http::IndexerServiceResponse, prelude::AttestationS
 
 use super::{
     indexer_service::{IndexerServiceError, IndexerServiceState},
-    scalar_receipt_header::ScalarReceipt,
+    tap_receipt_header::TapReceipt,
     IndexerServiceImpl,
 };
 
 #[autometrics::autometrics]
 pub async fn request_handler<I>(
     Path(manifest_id): Path<DeploymentId>,
-    TypedHeader(receipt): TypedHeader<ScalarReceipt>,
+    TypedHeader(receipt): TypedHeader<TapReceipt>,
     State(state): State<Arc<IndexerServiceState<I>>>,
     headers: HeaderMap,
     body: Bytes,
