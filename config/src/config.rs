@@ -185,8 +185,8 @@ pub struct SubgraphConfig {
 pub enum TheGraphChainId {
     Ethereum = 1,
     Goerli = 5,
-    Arbitrum = 42161,
     Sepolia = 11155111,
+    Arbitrum = 42161,
     ArbitrumGoerli = 421613,
     ArbitrumSepolia = 421614,
     Test = 1337,
