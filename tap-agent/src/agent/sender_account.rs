@@ -49,7 +49,7 @@ pub enum SenderAccountMessage {
 /// A SenderAccount manages the receipts accounting between the indexer and the sender across
 /// multiple allocations.
 ///
-/// Manages the lifecycle of Scalar TAP for the SenderAccount, including:
+/// Manages the lifecycle of TAP for the SenderAccount, including:
 /// - Monitoring new receipts and keeping track of the cumulative unaggregated fees across
 ///   allocations.
 /// - Requesting RAVs from the sender's TAP aggregator once the cumulative unaggregated fees reach a

@@ -25,7 +25,7 @@ impl Deref for TapReceipt {
 }
 
 lazy_static! {
-    static ref TAP_RECEIPT: HeaderName = HeaderName::from_static("scalar-receipt");
+    static ref TAP_RECEIPT: HeaderName = HeaderName::from_static("tap-receipt");
 }
 
 impl Header for TapReceipt {
