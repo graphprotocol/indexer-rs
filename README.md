@@ -72,7 +72,7 @@ Ready to roll!
 
 # Free query auth token check failed
 ✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: blah' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/0xb655ca6f49e73728a102219726ff678d61d8fb792874792e9f0d9887dc616600
-"Invalid Scalar-Receipt header provided"%
+"Invalid Tap-Receipt header provided"%
 
 # Subgraph health check
 ✗ curl http://localhost:7300/subgraphs/health/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
