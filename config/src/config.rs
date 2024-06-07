@@ -22,6 +22,7 @@ use crate::NonZeroGRT;
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub indexer: IndexerConfig,
     pub database: DatabaseConfig,
@@ -120,6 +121,7 @@ impl Config {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct IndexerConfig {
     pub indexer_address: Address,
     pub operator_mnemonic: Mnemonic,
@@ -127,12 +129,14 @@ pub struct IndexerConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct DatabaseConfig {
     pub postgres_url: Url,
 }
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct GraphNodeConfig {
     pub query_url: Url,
     pub status_url: Url,
@@ -140,12 +144,14 @@ pub struct GraphNodeConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct MetricsConfig {
     pub port: u16,
 }
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
     pub escrow: EscrowSubgraphConfig,
@@ -154,6 +160,7 @@ pub struct SubgraphsConfig {
 #[serde_as]
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct NetworkSubgraphConfig {
     #[serde(flatten)]
     pub config: SubgraphConfig,
@@ -164,6 +171,7 @@ pub struct NetworkSubgraphConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct EscrowSubgraphConfig {
     #[serde(flatten)]
     pub config: SubgraphConfig,
@@ -172,6 +180,7 @@ pub struct EscrowSubgraphConfig {
 #[serde_as]
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct SubgraphConfig {
     pub query_url: Url,
     pub deployment_id: Option<DeploymentId>,
@@ -194,6 +203,7 @@ pub enum TheGraphChainId {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
     pub receipts_verifier_address: Address,
@@ -201,6 +211,7 @@ pub struct BlockchainConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct ServiceConfig {
     pub serve_network_subgraph: bool,
     pub serve_escrow_subgraph: bool,
@@ -214,6 +225,7 @@ pub struct ServiceConfig {
 #[serde_as]
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct ServiceTapConfig {
     /// what's the maximum value we accept in a receipt
     pub max_receipt_value_grt: NonZeroGRT,
@@ -221,6 +233,7 @@ pub struct ServiceTapConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct TapConfig {
     /// what is the maximum amount the indexer is willing to lose in grt
     pub max_amount_willing_to_lose_grt: NonZeroGRT,
@@ -243,6 +256,7 @@ impl TapConfig {
 #[serde_as]
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[serde(deny_unknown_fields)]
 pub struct RavRequestConfig {
     /// what divisor of the amount willing to lose to trigger the rav request
     pub trigger_value_divisor: BigDecimal,
