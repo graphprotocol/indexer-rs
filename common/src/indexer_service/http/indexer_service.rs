@@ -10,14 +10,15 @@ use alloy_sol_types::eip712_domain;
 use anyhow;
 use autometrics::prometheus_exporter;
 use axum::extract::MatchedPath;
+use axum::extract::Request as ExtractRequest;
 use axum::http::{Method, Request};
-use axum::serve;
 use axum::{
     async_trait,
     response::{IntoResponse, Response},
     routing::{get, post},
     Extension, Json, Router,
 };
+use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
 use eventuals::Eventual;
 use reqwest::StatusCode;
@@ -30,9 +31,7 @@ use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
-use tower_http::cors;
-use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
+use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::TraceLayer};
 use tracing::{info, info_span};
 
 use crate::{
@@ -385,40 +384,42 @@ impl IndexerService {
             )
             .with_state(state.clone());
 
-        let router = misc_routes
-            .merge(data_routes)
-            .merge(options.extra_routes)
-            .layer(
-                CorsLayer::new()
-                    .allow_origin(cors::Any)
-                    .allow_headers(cors::Any)
-                    .allow_methods([Method::OPTIONS, Method::POST, Method::GET]),
-            )
-            .layer(
-                TraceLayer::new_for_http()
-                    .make_span_with(|req: &Request<_>| {
-                        let method = req.method();
-                        let uri = req.uri();
-                        let matched_path = req
-                            .extensions()
-                            .get::<MatchedPath>()
-                            .map(MatchedPath::as_str);
+        let router = NormalizePath::trim_trailing_slash(
+            misc_routes
+                .merge(data_routes)
+                .merge(options.extra_routes)
+                .layer(
+                    CorsLayer::new()
+                        .allow_origin(cors::Any)
+                        .allow_headers(cors::Any)
+                        .allow_methods([Method::OPTIONS, Method::POST, Method::GET]),
+                )
+                .layer(
+                    TraceLayer::new_for_http()
+                        .make_span_with(|req: &Request<_>| {
+                            let method = req.method();
+                            let uri = req.uri();
+                            let matched_path = req
+                                .extensions()
+                                .get::<MatchedPath>()
+                                .map(MatchedPath::as_str);
 
-                        info_span!(
-                            "http_request",
-                            %method,
-                            %uri,
-                            matched_path,
-                        )
-                    })
-                    // we disable failures here because we doing our own error logging
-                    .on_failure(
-                        |_error: tower_http::classify::ServerErrorsFailureClass,
-                         _latency: Duration,
-                         _span: &tracing::Span| {},
-                    ),
-            )
-            .with_state(state);
+                            info_span!(
+                                "http_request",
+                                %method,
+                                %uri,
+                                matched_path,
+                            )
+                        })
+                        // we disable failures here because we doing our own error logging
+                        .on_failure(
+                            |_error: tower_http::classify::ServerErrorsFailureClass,
+                             _latency: Duration,
+                             _span: &tracing::Span| {},
+                        ),
+                )
+                .with_state(state),
+        );
 
         Self::serve_metrics(options.config.server.metrics_host_and_port);
 
@@ -432,7 +433,7 @@ impl IndexerService {
 
         Ok(serve(
             listener,
-            router.into_make_service_with_connect_info::<SocketAddr>(),
+            ServiceExt::<ExtractRequest>::into_make_service_with_connect_info::<SocketAddr>(router),
         )
         .with_graceful_shutdown(shutdown_signal())
         .await?)
