@@ -17,7 +17,6 @@ lazy_static! {
 }
 
 pub mod agent;
-pub mod aggregator_endpoints;
 pub mod config;
 pub mod database;
 pub mod metrics;

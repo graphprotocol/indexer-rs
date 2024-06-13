@@ -27,8 +27,8 @@ Options:
 
 All the configuration is done through a TOML file. Please see up-to-date TOML configuration templates:
 
-- [Minimal configuration template (recommended)](service/minimal-config-example.toml)
-- [Maximal configuration template (not recommended, dangerous settings)](service/maximal-config-example.toml)
+- [Minimal configuration template (recommended)](config/minimal-config-example.toml)
+- [Maximal configuration template (not recommended, dangerous settings)](config/maximal-config-example.toml)
 
 ## Upgrading
 
