@@ -37,6 +37,7 @@ type Balance = U256;
 pub enum SenderAccountMessage {
     UpdateBalanceAndLastRavs(Balance, RavMap),
     UpdateAllocationIds(HashSet<Address>),
+    NewAllocationId(Address),
     UpdateReceiptFees(Address, UnaggregatedReceipts),
     UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
     UpdateRav(SignedRAV),
@@ -568,6 +569,19 @@ impl Actor for SenderAccount {
                 );
                 state.allocation_ids = allocation_ids;
             }
+            SenderAccountMessage::NewAllocationId(allocation_id) => {
+                if let Err(error) = state
+                    .create_sender_allocation(myself.clone(), allocation_id)
+                    .await
+                {
+                    error!(
+                        %error,
+                        %allocation_id,
+                        "There was an error while creating Sender Allocation."
+                    );
+                }
+                state.allocation_ids.insert(allocation_id);
+            }
             SenderAccountMessage::UpdateBalanceAndLastRavs(new_balance, non_final_last_ravs) => {
                 state.sender_balance = new_balance;
 
@@ -733,6 +747,7 @@ pub mod tests {
                     Self::UpdateInvalidReceiptFees(l0, l1),
                     Self::UpdateInvalidReceiptFees(r0, r1),
                 ) => l0 == r0 && l1 == r1,
+                (Self::NewAllocationId(l0), Self::NewAllocationId(r0)) => l0 == r0,
                 (a, b) => unimplemented!("PartialEq not implementated for {a:?} and {b:?}"),
             }
         }
@@ -833,6 +848,53 @@ pub mod tests {
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_some());
 
+        sender_account
+            .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
+        assert!(actor_ref.is_none());
+
+        // safely stop the manager
+        sender_account.stop_and_wait(None, None).await.unwrap();
+
+        handle.await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_new_allocation_id(pgpool: PgPool) {
+        let (sender_account, handle, prefix, _) = create_sender_account(
+            pgpool,
+            HashSet::new(),
+            TRIGGER_VALUE,
+            TRIGGER_VALUE,
+            DUMMY_URL,
+        )
+        .await;
+
+        // we expect it to create a sender allocation
+        sender_account
+            .cast(SenderAccountMessage::NewAllocationId(*ALLOCATION_ID_0))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // verify if create sender account
+        let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
+        let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
+        assert!(actor_ref.is_some());
+
+        // nothing should change because we already created
+        sender_account
+            .cast(SenderAccountMessage::UpdateAllocationIds(
+                vec![*ALLOCATION_ID_0].into_iter().collect(),
+            ))
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // try to delete sender allocation_id
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();

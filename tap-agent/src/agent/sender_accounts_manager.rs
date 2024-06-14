@@ -8,8 +8,8 @@ use std::{collections::HashMap, str::FromStr};
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::lazy_static;
 use alloy_sol_types::Eip712Domain;
-use anyhow::anyhow;
 use anyhow::Result;
+use anyhow::{anyhow, bail};
 use eventuals::{Eventual, EventualExt, PipeHandle};
 use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::prelude::{Allocation, SubgraphClient};
@@ -460,58 +460,98 @@ async fn new_receipts_watcher(
                 "should be able to deserialize the Postgres Notify event payload as a \
                         NewReceiptNotification",
             );
+        if let Err(e) = handle_notification(
+            new_receipt_notification,
+            &escrow_accounts,
+            prefix.as_deref(),
+        )
+        .await
+        {
+            error!("{}", e);
+        }
+    }
+}
 
-        tracing::debug!(
-            notification = ?new_receipt_notification,
-            "New receipt notification detected!"
+async fn handle_notification(
+    new_receipt_notification: NewReceiptNotification,
+    escrow_accounts: &Eventual<EscrowAccounts>,
+    prefix: Option<&str>,
+) -> Result<()> {
+    tracing::debug!(
+        notification = ?new_receipt_notification,
+        "New receipt notification detected!"
+    );
+
+    let Ok(sender_address) = escrow_accounts
+        .value()
+        .await
+        .expect("should be able to get escrow accounts")
+        .get_sender_for_signer(&new_receipt_notification.signer_address)
+    else {
+        // TODO: save the receipt in the failed receipts table?
+        bail!(
+            "No sender address found for receipt signer address {}. \
+                    This should not happen.",
+            new_receipt_notification.signer_address
         );
+    };
 
-        let Ok(sender_address) = escrow_accounts
-            .value()
-            .await
-            .expect("should be able to get escrow accounts")
-            .get_sender_for_signer(&new_receipt_notification.signer_address)
-        else {
-            error!(
-                "No sender address found for receipt signer address {}. \
-                        This should not happen.",
-                new_receipt_notification.signer_address
-            );
-            // TODO: save the receipt in the failed receipts table?
-            continue;
-        };
+    let allocation_id = &new_receipt_notification.allocation_id;
+    let allocation_str = &allocation_id.to_string();
 
-        let allocation_id = &new_receipt_notification.allocation_id;
-        let allocation_str = &allocation_id.to_string();
+    let actor_name = format!(
+        "{}{sender_address}:{allocation_id}",
+        prefix
+            .as_ref()
+            .map_or(String::default(), |prefix| format!("{prefix}:"))
+    );
 
-        let actor_name = format!(
-            "{}{sender_address}:{allocation_id}",
+    let Some(sender_allocation) = ActorRef::<SenderAllocationMessage>::where_is(actor_name) else {
+        warn!(
+            "No sender_allocation found for sender_address {}, allocation_id {} to process new \
+                receipt notification. Starting a new sender_allocation.",
+            sender_address, allocation_id
+        );
+        let sender_account_name = format!(
+            "{}{sender_address}",
             prefix
                 .as_ref()
                 .map_or(String::default(), |prefix| format!("{prefix}:"))
         );
 
-        if let Some(sender_allocation) = ActorRef::<SenderAllocationMessage>::where_is(actor_name) {
-            if let Err(e) = sender_allocation.cast(SenderAllocationMessage::NewReceipt(
-                new_receipt_notification,
-            )) {
-                error!(
-                    "Error while forwarding new receipt notification to sender_allocation: {:?}",
-                    e
-                );
-            }
-        } else {
-            warn!(
-                "No sender_allocation found for sender_address {}, allocation_id {} to process new \
-                    receipt notification. This should not happen.",
-                sender_address,
-                allocation_id
+        let Some(sender_account) = ActorRef::<SenderAccountMessage>::where_is(sender_account_name)
+        else {
+            bail!(
+                "No sender_account was found for address: {}.",
+                sender_address
             );
-        }
-        RECEIPTS_CREATED
-            .with_label_values(&[&sender_address.to_string(), allocation_str])
-            .inc();
-    }
+        };
+        sender_account
+            .cast(SenderAccountMessage::NewAllocationId(*allocation_id))
+            .map_err(|e| {
+                anyhow!(
+                    "Error while sendeing new allocation id message to sender_account: {:?}",
+                    e
+                )
+            })?;
+        return Ok(());
+    };
+
+    sender_allocation
+        .cast(SenderAllocationMessage::NewReceipt(
+            new_receipt_notification,
+        ))
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Error while forwarding new receipt notification to sender_allocation: {:?}",
+                e
+            )
+        })?;
+
+    RECEIPTS_CREATED
+        .with_label_values(&[&sender_address.to_string(), allocation_str])
+        .inc();
+    Ok(())
 }
 
 #[cfg(test)]
@@ -522,6 +562,8 @@ mod tests {
     };
     use crate::agent::sender_account::tests::{MockSenderAllocation, PREFIX_ID};
     use crate::agent::sender_account::SenderAccountMessage;
+    use crate::agent::sender_accounts_manager::{handle_notification, NewReceiptNotification};
+    use crate::agent::sender_allocation::tests::MockSenderAccount;
     use crate::config;
     use crate::tap::test_utils::{
         create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
@@ -537,6 +579,7 @@ mod tests {
     use sqlx::postgres::PgListener;
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     const DUMMY_URL: &str = "http://localhost:1234";
@@ -802,5 +845,50 @@ mod tests {
         }
 
         new_receipts_watcher_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_create_allocation_id() {
+        let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
+        let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
+        let escrow_accounts = Eventual::from_value(escrow_accounts);
+
+        let prefix = format!(
+            "test-{}",
+            PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        );
+
+        let last_message_emitted = Arc::new(Mutex::new(vec![]));
+
+        let (sender_account, join_handle) = MockSenderAccount::spawn(
+            Some(format!("{}:{}", prefix.clone(), SENDER.1,)),
+            MockSenderAccount {
+                last_message_emitted: last_message_emitted.clone(),
+            },
+            (),
+        )
+        .await
+        .unwrap();
+
+        let new_receipt_notification = NewReceiptNotification {
+            id: 1,
+            allocation_id: *ALLOCATION_ID_0,
+            signer_address: SIGNER.1,
+            timestamp_ns: 1,
+            value: 1,
+        };
+
+        handle_notification(new_receipt_notification, &escrow_accounts, Some(&prefix))
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        assert_eq!(
+            last_message_emitted.lock().unwrap().last().unwrap(),
+            &SenderAccountMessage::NewAllocationId(*ALLOCATION_ID_0)
+        );
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        join_handle.await.unwrap();
     }
 }

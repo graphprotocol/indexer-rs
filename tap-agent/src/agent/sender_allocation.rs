@@ -714,7 +714,7 @@ impl SenderAllocationState {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::{
         SenderAllocation, SenderAllocationArgs, SenderAllocationMessage, SenderAllocationState,
     };
@@ -760,8 +760,8 @@ mod tests {
 
     const DUMMY_URL: &str = "http://localhost:1234";
 
-    struct MockSenderAccount {
-        last_message_emitted: Arc<Mutex<Vec<SenderAccountMessage>>>,
+    pub struct MockSenderAccount {
+        pub last_message_emitted: Arc<Mutex<Vec<SenderAccountMessage>>>,
     }
 
     #[async_trait::async_trait]
