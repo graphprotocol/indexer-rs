@@ -6513,8 +6513,7 @@ dependencies = [
 [[package]]
 name = "thegraph-core"
 version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cff46d3b5fbf4a774c59ef9fdc1010faff8e721d0422be39126f6acd5cefbe5d"
+source = "git+https://github.com/semiotic-ai/toolshed?rev=1c51b837f5e7b2d0f6430dfda6b253b517f5ba18#1c51b837f5e7b2d0f6430dfda6b253b517f5ba18"
 dependencies = [
  "alloy-primitives 0.7.4",
  "alloy-sol-types 0.7.4",

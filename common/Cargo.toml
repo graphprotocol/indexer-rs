@@ -43,7 +43,11 @@ tower_governor = "0.3.2"
 tower-http = { version = "0.5.2", features = ["trace", "cors", "normalize-path"] }
 tokio-util = "0.7.10"
 bigdecimal = "0.4.2"
-thegraph-core = { version = "0.4.1", features = ["subgraph-client"] }
+
+# Based on v0.4.1
+# Quick and dirty fix for the `Err(EmptyResponse)` issue
+# TODO: replace with a proper release when it gets fixed
+thegraph-core = { git = "https://github.com/semiotic-ai/toolshed", rev = "1c51b837f5e7b2d0f6430dfda6b253b517f5ba18", features = ["subgraph-client"] }
 
 [dev-dependencies]
 env_logger = "0.9.0"
