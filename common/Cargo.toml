@@ -43,7 +43,7 @@ tower_governor = "0.3.2"
 tower-http = { version = "0.5.2", features = ["trace", "cors", "normalize-path"] }
 tokio-util = "0.7.10"
 bigdecimal = "0.4.2"
-thegraph-core = { version = "0.4.1", features = ["subgraph-client"] }
+thegraph-core = { version = "0.5.2", features = ["subgraph-client"] }
 
 [dev-dependencies]
 env_logger = "0.9.0"
