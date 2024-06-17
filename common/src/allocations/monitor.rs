@@ -129,4 +129,16 @@ mod test {
         .await;
         assert!(result.unwrap().len() > 2000)
     }
+
+    #[tokio::test]
+    async fn test_network_query_empty_response() {
+        let result = get_allocations(
+            network_subgraph_client(),
+            Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
+            Duration::from_secs(1712448507),
+        )
+        .await
+        .unwrap();
+        assert!(result.is_empty())
+    }
 }
