@@ -168,7 +168,7 @@ impl Check for DenyListCheck {
         {
             return Err(anyhow::anyhow!(
                 "Received a receipt from a denylisted sender: {}",
-                receipt_signer
+                receipt_sender
             ));
         }
 
