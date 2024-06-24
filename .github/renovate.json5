@@ -1,0 +1,109 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
+    ':semanticCommits',
+    ':semanticCommitTypeAll(chore)',
+    'helpers:pinGitHubActionDigests',
+  ],
+  schedule: [
+    'before 6am on Monday',
+  ],
+  configMigration: true,
+  rebaseWhen: 'behind-base-branch',
+  lockFileMaintenance: {
+    enabled: true,
+  },
+  packageRules: [
+    {
+      groupName: 'futures crates',
+      groupSlug: 'futures',
+      matchManagers: [
+        'cargo',
+      ],
+      matchPackageNames: [
+        'futures',
+      ],
+      matchPackagePrefixes: [
+        'futures-',
+        'futures_',
+      ],
+    },
+    {
+      groupName: 'serde crates',
+      groupSlug: 'serde',
+      matchManagers: [
+        'cargo',
+      ],
+      matchPackageNames: [
+        'serde',
+      ],
+      matchPackagePrefixes: [
+        'serde-',
+        'serde_',
+      ],
+    },
+    {
+      groupName: 'tonic crates',
+      groupSlug: 'tonic',
+      matchManagers: [
+        'cargo',
+      ],
+      matchSourceUrlPrefixes: [
+        'https://github.com/hyperium/tonic',
+        'https://github.com/tokio-rs/prost',
+      ],
+    },
+    {
+      groupName: 'tracing crates',
+      groupSlug: 'tracing',
+      matchManagers: [
+        'cargo',
+      ],
+      matchSourceUrlPrefixes: [
+        'https://github.com/tokio-rs/tracing',
+      ],
+      matchPackagePrefixes: [
+        'tracing-',
+        'tracing_',
+      ],
+    },
+    {
+      groupName: 'alloy-rs core types monorepo',
+      groupSlug: 'alloy-core',
+      matchManagers: [
+        'cargo',
+      ],
+      matchSourceUrlPrefixes: [
+        'https://github.com/alloy-rs/core',
+      ],
+    },
+    {
+      groupName: 'async-graphql crates',
+      groupSlug: 'async-graphql',
+      matchManagers: [
+        'cargo',
+      ],
+      matchPackageNames: [
+        'async-graphql',
+      ],
+      matchPackagePrefixes: [
+        'async-graphql-',
+      ],
+    },
+  ],
+  customManagers: [
+    {
+      customType: 'regex',
+      fileMatch: [
+        '^rust-toolchain(\\.toml)?$',
+      ],
+      matchStrings: [
+        'channel\\s*=\\s*"(?<currentValue>\\d+\\.\\d+\\.\\d+)"',
+      ],
+      depNameTemplate: 'rust',
+      packageNameTemplate: 'rust-lang/rust',
+      datasourceTemplate: 'github-releases',
+    },
+  ],
+}
