@@ -260,6 +260,13 @@ impl Actor for SenderAllocation {
                             unaggreated_fees.clone(),
                         ))?;
                 }
+
+                UNAGGREGATED_FEES
+                    .with_label_values(&[
+                        &state.sender.to_string(),
+                        &state.allocation_id.to_string(),
+                    ])
+                    .set(state.unaggregated_fees.value as f64);
             }
             // we use a blocking call here to ensure that only one RAV request is running at a time.
             SenderAllocationMessage::TriggerRAVRequest(reply) => {
@@ -278,11 +285,6 @@ impl Actor for SenderAllocation {
                 }
             }
         }
-
-        // We expect the value to change for every received receipt, and after every RAV request.
-        UNAGGREGATED_FEES
-            .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
-            .set(state.unaggregated_fees.value as f64);
 
         Ok(())
     }
@@ -575,6 +577,9 @@ impl SenderAllocationState {
         RAVS_CREATED
             .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
             .inc();
+        UNAGGREGATED_FEES
+            .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+            .set(self.unaggregated_fees.value as f64);
 
         Ok(response.data)
     }
