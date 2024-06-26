@@ -91,7 +91,8 @@ impl DeploymentDetails {
         Ok(Self {
             deployment: Some(deployment),
             status_url: Some(Url::parse(graph_node_status_url)?),
-            query_url: Url::parse(&format!("{graph_node_base_url}/subgraphs/id/{deployment}"))?,
+            query_url: Url::parse(graph_node_base_url)?
+                .join(&format!("subgraphs/id/{deployment}"))?,
         })
     }
 
