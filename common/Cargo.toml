@@ -46,6 +46,6 @@ bigdecimal = "0.4.2"
 thegraph-core = { version = "0.5.2", features = ["subgraph-client"] }
 
 [dev-dependencies]
-env_logger = "0.9.0"
+env_logger = "0.11.0"
 test-log = "0.2.12"
 wiremock = "0.5.19"
