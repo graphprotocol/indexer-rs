@@ -38,6 +38,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
             NetworkSubgraph {
                 network_subgraph_deployment,
                 network_subgraph_endpoint,
+                network_subgraph_auth_token,
                 allocation_syncing_interval_ms,
                 recently_closed_allocation_buffer_seconds,
             },
@@ -45,6 +46,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
             EscrowSubgraph {
                 escrow_subgraph_deployment,
                 escrow_subgraph_endpoint,
+                escrow_subgraph_auth_token,
                 escrow_syncing_interval_ms,
             },
         tap:
@@ -71,8 +73,11 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
             })
             .transpose()
             .expect("Failed to parse graph node query endpoint and network subgraph deployment"),
-        DeploymentDetails::for_query_url(network_subgraph_endpoint)
-            .expect("Failed to parse network subgraph endpoint"),
+        DeploymentDetails::for_query_url(
+            network_subgraph_endpoint,
+            network_subgraph_auth_token.clone(),
+        )
+        .expect("Failed to parse network subgraph endpoint"),
     )));
 
     let indexer_allocations = indexer_allocations(
@@ -94,8 +99,11 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
             })
             .transpose()
             .expect("Failed to parse graph node query endpoint and escrow subgraph deployment"),
-        DeploymentDetails::for_query_url(escrow_subgraph_endpoint)
-            .expect("Failed to parse escrow subgraph endpoint"),
+        DeploymentDetails::for_query_url(
+            escrow_subgraph_endpoint,
+            escrow_subgraph_auth_token.clone(),
+        )
+        .expect("Failed to parse escrow subgraph endpoint"),
     )));
 
     let escrow_accounts = escrow_accounts(

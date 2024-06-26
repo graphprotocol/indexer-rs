@@ -832,7 +832,7 @@ pub mod tests {
         let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
+            DeploymentDetails::for_query_url(escrow_subgraph_endpoint, None).unwrap(),
         )));
 
         let escrow_accounts_eventual = Eventual::from_value(EscrowAccounts::new(

@@ -183,6 +183,7 @@ pub struct EscrowSubgraphConfig {
 #[serde(deny_unknown_fields)]
 pub struct SubgraphConfig {
     pub query_url: Url,
+    pub query_auth_token: Option<String>,
     pub deployment_id: Option<DeploymentId>,
     #[serde_as(as = "DurationSecondsWithFrac<f64>")]
     pub syncing_interval_secs: Duration,

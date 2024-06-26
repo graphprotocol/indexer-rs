@@ -169,7 +169,7 @@ mod tests {
             reqwest::Client::new(),
             None,
             DeploymentDetails::for_query_url(
-                "https://api.studio.thegraph.com/query/53925/arb-sepolia-tap-subgraph/version/latest"
+                "https://api.studio.thegraph.com/query/53925/arb-sepolia-tap-subgraph/version/latest", None
             )
             .unwrap(),
         )));
