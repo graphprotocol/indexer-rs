@@ -91,6 +91,19 @@
         'async-graphql-',
       ],
     },
+    {
+      groupName: 'build-info crates',
+      groupSlug: 'build-info',
+      matchManagers: [
+        'cargo',
+      ],
+      matchPackageNames: [
+        'build-info',
+      ],
+      matchPackagePrefixes: [
+        'build-info-',
+      ],
+    },
   ],
   customManagers: [
     {
