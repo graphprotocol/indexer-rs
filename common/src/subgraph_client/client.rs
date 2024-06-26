@@ -426,7 +426,6 @@ mod test {
             )
             .await;
 
-        println!("mock_server_local.uri(): {}", mock_server_local.uri());
         // Create the subgraph client
         let client = SubgraphClient::new(
             reqwest::Client::new(),
