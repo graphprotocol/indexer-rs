@@ -11,7 +11,7 @@ jobs:
     name: License headers check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
       - name: Install addlicense
         run: |
           wget https://github.com/google/addlicense/releases/download/v1.1.1/addlicense_1.1.1_Linux_x86_64.tar.gz
