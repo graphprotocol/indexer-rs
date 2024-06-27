@@ -296,7 +296,7 @@ impl IndexerService {
             escrow_accounts,
             domain_separator.clone(),
             timestamp_error_tolerance,
-            receipt_max_value.into(),
+            receipt_max_value,
         )
         .await;
 

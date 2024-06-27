@@ -66,5 +66,5 @@ pub struct TapConfig {
     pub chain_id: u64,
     pub receipts_verifier_address: Address,
     pub timestamp_error_tolerance: u64,
-    pub receipt_max_value: u64,
+    pub receipt_max_value: u128,
 }
