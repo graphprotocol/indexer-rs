@@ -355,6 +355,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[ignore = "depends on the defunct hosted-service"]
     async fn test_network_query() {
         let _mock_server = mock_graph_node_server().await;
 
