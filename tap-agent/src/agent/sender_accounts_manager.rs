@@ -588,7 +588,7 @@ mod tests {
         Box::leak(Box::new(SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(DUMMY_URL).unwrap(),
+            DeploymentDetails::for_query_url(DUMMY_URL, None).unwrap(),
         )))
     }
 

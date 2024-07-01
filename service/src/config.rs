@@ -41,6 +41,7 @@ impl From<MainConfig> for Config {
                 serve_auth_token: value.service.serve_auth_token.clone(),
                 deployment: value.subgraphs.network.config.deployment_id,
                 query_url: value.subgraphs.network.config.query_url.into(),
+                query_auth_token: value.subgraphs.network.config.query_auth_token.clone(),
                 syncing_interval: value
                     .subgraphs
                     .network
@@ -58,6 +59,7 @@ impl From<MainConfig> for Config {
                 serve_auth_token: value.service.serve_auth_token,
                 deployment: value.subgraphs.escrow.config.deployment_id,
                 query_url: value.subgraphs.escrow.config.query_url.into(),
+                query_auth_token: value.subgraphs.network.config.query_auth_token.clone(),
                 syncing_interval: value
                     .subgraphs
                     .escrow

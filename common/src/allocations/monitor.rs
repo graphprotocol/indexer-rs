@@ -115,7 +115,7 @@ mod test {
         Box::leak(Box::new(SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(NETWORK_SUBGRAPH_URL).unwrap(),
+            DeploymentDetails::for_query_url(NETWORK_SUBGRAPH_URL, None).unwrap(),
         )))
     }
 

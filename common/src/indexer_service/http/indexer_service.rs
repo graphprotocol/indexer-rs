@@ -211,7 +211,10 @@ impl IndexerService {
                     )
                 })
                 .transpose()?,
-            DeploymentDetails::for_query_url(&options.config.network_subgraph.query_url)?,
+            DeploymentDetails::for_query_url(
+                &options.config.network_subgraph.query_url,
+                options.config.network_subgraph.query_auth_token.clone(),
+            )?,
         )));
 
         // Identify the dispute manager for the configured network
@@ -254,7 +257,10 @@ impl IndexerService {
                     )
                 })
                 .transpose()?,
-            DeploymentDetails::for_query_url(&options.config.escrow_subgraph.query_url)?,
+            DeploymentDetails::for_query_url(
+                &options.config.escrow_subgraph.query_url,
+                options.config.escrow_subgraph.query_auth_token.clone(),
+            )?,
         )));
 
         let escrow_accounts = escrow_accounts(

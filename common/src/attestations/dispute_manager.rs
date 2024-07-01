@@ -79,11 +79,14 @@ mod test {
         let network_subgraph = SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(&format!(
-                "{}/subgraphs/id/{}",
-                &mock_server.uri(),
-                *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
-            ))
+            DeploymentDetails::for_query_url(
+                &format!(
+                    "{}/subgraphs/id/{}",
+                    &mock_server.uri(),
+                    *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
+                ),
+                None,
+            )
             .unwrap(),
         );
 
