@@ -98,7 +98,16 @@ impl DeploymentDetails {
         })
     }
 
-    pub fn for_query_url(
+    pub fn for_query_url(query_url: &str) -> Result<Self, anyhow::Error> {
+        Ok(Self {
+            deployment: None,
+            status_url: None,
+            query_url: Url::parse(query_url)?,
+            query_auth_token: None,
+        })
+    }
+
+    pub fn for_query_url_with_token(
         query_url: &str,
         query_auth_token: Option<String>,
     ) -> Result<Self, anyhow::Error> {
@@ -357,7 +366,7 @@ mod test {
         SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(NETWORK_SUBGRAPH_URL, None).unwrap(),
+            DeploymentDetails::for_query_url(NETWORK_SUBGRAPH_URL).unwrap(),
         )
     }
 
@@ -444,10 +453,11 @@ mod test {
                 )
                 .unwrap(),
             ),
-            DeploymentDetails::for_query_url(
-                &format!("{}/subgraphs/id/{}", mock_server_remote.uri(), deployment),
-                None,
-            )
+            DeploymentDetails::for_query_url(&format!(
+                "{}/subgraphs/id/{}",
+                mock_server_remote.uri(),
+                deployment
+            ))
             .unwrap(),
         );
 
@@ -523,10 +533,11 @@ mod test {
                 )
                 .unwrap(),
             ),
-            DeploymentDetails::for_query_url(
-                &format!("{}/subgraphs/id/{}", mock_server_remote.uri(), deployment),
-                None,
-            )
+            DeploymentDetails::for_query_url(&format!(
+                "{}/subgraphs/id/{}",
+                mock_server_remote.uri(),
+                deployment
+            ))
             .unwrap(),
         );
 
@@ -602,10 +613,11 @@ mod test {
                 )
                 .unwrap(),
             ),
-            DeploymentDetails::for_query_url(
-                &format!("{}/subgraphs/id/{}", mock_server_remote.uri(), deployment),
-                None,
-            )
+            DeploymentDetails::for_query_url(&format!(
+                "{}/subgraphs/id/{}",
+                mock_server_remote.uri(),
+                deployment
+            ))
             .unwrap(),
         );
 

@@ -73,7 +73,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
             })
             .transpose()
             .expect("Failed to parse graph node query endpoint and network subgraph deployment"),
-        DeploymentDetails::for_query_url(
+        DeploymentDetails::for_query_url_with_token(
             network_subgraph_endpoint,
             network_subgraph_auth_token.clone(),
         )
@@ -99,7 +99,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
             })
             .transpose()
             .expect("Failed to parse graph node query endpoint and escrow subgraph deployment"),
-        DeploymentDetails::for_query_url(
+        DeploymentDetails::for_query_url_with_token(
             escrow_subgraph_endpoint,
             escrow_subgraph_auth_token.clone(),
         )

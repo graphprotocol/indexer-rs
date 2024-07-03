@@ -255,14 +255,11 @@ mod tests {
         let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(
-                &format!(
-                    "{}/subgraphs/id/{}",
-                    &mock_server.uri(),
-                    *test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT
-                ),
-                None,
-            )
+            DeploymentDetails::for_query_url(&format!(
+                "{}/subgraphs/id/{}",
+                &mock_server.uri(),
+                *test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT
+            ))
             .unwrap(),
         )));
 

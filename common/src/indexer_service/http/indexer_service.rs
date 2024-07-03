@@ -211,7 +211,7 @@ impl IndexerService {
                     )
                 })
                 .transpose()?,
-            DeploymentDetails::for_query_url(
+            DeploymentDetails::for_query_url_with_token(
                 &options.config.network_subgraph.query_url,
                 options.config.network_subgraph.query_auth_token.clone(),
             )?,
@@ -257,7 +257,7 @@ impl IndexerService {
                     )
                 })
                 .transpose()?,
-            DeploymentDetails::for_query_url(
+            DeploymentDetails::for_query_url_with_token(
                 &options.config.escrow_subgraph.query_url,
                 options.config.escrow_subgraph.query_auth_token.clone(),
             )?,
