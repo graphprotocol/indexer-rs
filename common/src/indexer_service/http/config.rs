@@ -20,6 +20,7 @@ pub struct SubgraphConfig {
 
     pub deployment: Option<DeploymentId>,
     pub query_url: String,
+    pub query_auth_token: Option<String>,
     pub syncing_interval: u64,
     pub recently_closed_allocation_buffer_seconds: u64,
 }

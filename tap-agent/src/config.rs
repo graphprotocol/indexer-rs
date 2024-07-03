@@ -42,6 +42,7 @@ impl From<IndexerConfig> for Config {
             network_subgraph: NetworkSubgraph {
                 network_subgraph_deployment: value.subgraphs.network.config.deployment_id,
                 network_subgraph_endpoint: value.subgraphs.network.config.query_url.into(),
+                network_subgraph_auth_token: value.subgraphs.network.config.query_auth_token,
                 allocation_syncing_interval_ms: value
                     .subgraphs
                     .network
@@ -57,6 +58,7 @@ impl From<IndexerConfig> for Config {
             escrow_subgraph: EscrowSubgraph {
                 escrow_subgraph_deployment: value.subgraphs.escrow.config.deployment_id,
                 escrow_subgraph_endpoint: value.subgraphs.escrow.config.query_url.into(),
+                escrow_subgraph_auth_token: value.subgraphs.escrow.config.query_auth_token,
                 escrow_syncing_interval_ms: value
                     .subgraphs
                     .escrow
@@ -137,6 +139,7 @@ impl Default for Postgres {
 pub struct NetworkSubgraph {
     pub network_subgraph_deployment: Option<DeploymentId>,
     pub network_subgraph_endpoint: String,
+    pub network_subgraph_auth_token: Option<String>,
     pub allocation_syncing_interval_ms: u64,
     pub recently_closed_allocation_buffer_seconds: u64,
 }
@@ -145,6 +148,7 @@ pub struct NetworkSubgraph {
 pub struct EscrowSubgraph {
     pub escrow_subgraph_deployment: Option<DeploymentId>,
     pub escrow_subgraph_endpoint: String,
+    pub escrow_subgraph_auth_token: Option<String>,
     pub escrow_syncing_interval_ms: u64,
 }
 
