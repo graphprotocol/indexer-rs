@@ -3160,7 +3160,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-config"
-version = "1.0.0-rc.2"
+version = "1.0.0-rc.3"
 dependencies = [
  "alloy-primitives 0.6.4",
  "bigdecimal 0.4.5",
@@ -3178,7 +3178,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-tap-agent"
-version = "1.0.0-rc.2"
+version = "1.0.0-rc.3"
 dependencies = [
  "alloy-primitives 0.6.4",
  "alloy-sol-types 0.6.4",
@@ -5694,7 +5694,7 @@ dependencies = [
 
 [[package]]
 name = "service"
-version = "1.0.0-rc.2"
+version = "1.0.0-rc.3"
 dependencies = [
  "anyhow",
  "async-graphql",
