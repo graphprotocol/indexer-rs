@@ -85,11 +85,10 @@ impl IndexerServiceImpl for SubgraphService {
         deployment: DeploymentId,
         request: Self::Request,
     ) -> Result<(Self::Request, Self::Response), Self::Error> {
-        let deployment_url = Url::parse(&format!(
-            "{}/subgraphs/id/{}",
-            &self.state.graph_node_query_base_url, deployment
-        ))
-        .map_err(|_| SubgraphServiceError::InvalidDeployment(deployment))?;
+        let deployment_url = Url::parse(&self.state.graph_node_query_base_url)
+            .expect("Invalid `graph_node.query_url` in config")
+            .join(&format!("subgraphs/id/{deployment}"))
+            .map_err(|_| SubgraphServiceError::InvalidDeployment(deployment))?;
 
         let response = self
             .state
