@@ -272,7 +272,9 @@ impl Actor for SenderAllocation {
             SenderAllocationMessage::TriggerRAVRequest(reply) => {
                 if state.unaggregated_fees.value > 0 {
                     // auto backoff retry, on error ignore
-                    let _ = state.request_rav().await;
+                    if let Err(err) = state.request_rav().await {
+                        error!(error = %err, "Error while requesting rav.");
+                    }
                 }
                 if !reply.is_closed() {
                     let _ = reply.send((state.unaggregated_fees.clone(), state.latest_rav.clone()));
