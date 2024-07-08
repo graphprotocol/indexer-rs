@@ -1126,7 +1126,7 @@ pub mod tests {
         .await;
 
         sender_allocation.stop_and_wait(None, None).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 
         // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);

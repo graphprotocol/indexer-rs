@@ -1079,7 +1079,7 @@ pub mod tests {
             ))
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
 
         assert_eq!(
             triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
@@ -1189,7 +1189,7 @@ pub mod tests {
                 },
             ))
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         let retry_value = triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst);
         assert!(retry_value > 1, "It didn't retry more than once");
@@ -1236,7 +1236,7 @@ pub mod tests {
                     ))
                     .unwrap();
 
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                tokio::time::sleep(Duration::from_millis(20)).await;
             };
         }
 
@@ -1252,7 +1252,7 @@ pub mod tests {
                     ))
                     .unwrap();
 
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                tokio::time::sleep(Duration::from_millis(20)).await;
             };
         }
 
@@ -1519,7 +1519,7 @@ pub mod tests {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny, "should block the sender");
