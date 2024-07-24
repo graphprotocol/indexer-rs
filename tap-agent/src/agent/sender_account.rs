@@ -45,6 +45,8 @@ pub enum SenderAccountMessage {
     GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
     #[cfg(test)]
     GetDeny(ractor::RpcReplyPort<bool>),
+    #[cfg(test)]
+    HasSchedulerEnabled(ractor::RpcReplyPort<bool>),
 }
 
 /// A SenderAccount manages the receipts accounting between the indexer and the sender across
@@ -624,6 +626,12 @@ impl Actor for SenderAccount {
                     let _ = reply.send(state.denied);
                 }
             }
+            #[cfg(test)]
+            SenderAccountMessage::HasSchedulerEnabled(reply) => {
+                if !reply.is_closed() {
+                    let _ = reply.send(state.scheduled_rav_request.is_some());
+                }
+            }
         }
         Ok(())
     }
@@ -661,12 +669,16 @@ impl Actor for SenderAccount {
                     return Ok(());
                 };
 
-                let tracker = &mut state.sender_fee_tracker;
-                tracker.update(allocation_id, 0);
                 // clean up hashset
                 state
                     .sender_fee_tracker
                     .unblock_allocation_id(allocation_id);
+                // update the receipt fees by reseting to 0
+                myself.cast(SenderAccountMessage::UpdateReceiptFees(
+                    allocation_id,
+                    UnaggregatedReceipts::default(),
+                ))?;
+
                 // rav tracker is not updated because it's still not redeemed
             }
             SupervisionEvent::ActorPanicked(cell, error) => {
@@ -913,6 +925,7 @@ pub mod tests {
     pub struct MockSenderAllocation {
         triggered_rav_request: Arc<AtomicU32>,
         next_rav_value: Arc<Mutex<u128>>,
+        next_unaggregated_fees_value: Arc<Mutex<u128>>,
         receipts: Arc<Mutex<Vec<NewReceiptNotification>>>,
     }
 
@@ -924,8 +937,22 @@ pub mod tests {
                     triggered_rav_request: triggered_rav_request.clone(),
                     receipts: Arc::new(Mutex::new(Vec::new())),
                     next_rav_value: Arc::new(Mutex::new(0)),
+                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
                 },
                 triggered_rav_request,
+            )
+        }
+
+        pub fn new_with_next_unaggregated_fees_value() -> (Self, Arc<Mutex<u128>>) {
+            let unaggregated_fees = Arc::new(Mutex::new(0));
+            (
+                Self {
+                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
+                    receipts: Arc::new(Mutex::new(Vec::new())),
+                    next_rav_value: Arc::new(Mutex::new(0)),
+                    next_unaggregated_fees_value: unaggregated_fees.clone(),
+                },
+                unaggregated_fees,
             )
         }
 
@@ -936,6 +963,7 @@ pub mod tests {
                     triggered_rav_request: Arc::new(AtomicU32::new(0)),
                     receipts: Arc::new(Mutex::new(Vec::new())),
                     next_rav_value: next_rav_value.clone(),
+                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
                 },
                 next_rav_value,
             )
@@ -948,6 +976,7 @@ pub mod tests {
                     triggered_rav_request: Arc::new(AtomicU32::new(0)),
                     receipts: receipts.clone(),
                     next_rav_value: Arc::new(Mutex::new(0)),
+                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
                 },
                 receipts,
             )
@@ -984,7 +1013,13 @@ pub mod tests {
                         4,
                         *self.next_rav_value.lock().unwrap(),
                     );
-                    reply.send((UnaggregatedReceipts::default(), Some(signed_rav)))?;
+                    reply.send((
+                        UnaggregatedReceipts {
+                            value: *self.next_unaggregated_fees_value.lock().unwrap(),
+                            last_id: 0,
+                        },
+                        Some(signed_rav),
+                    ))?;
                 }
                 SenderAllocationMessage::NewReceipt(receipt) => {
                     self.receipts.lock().unwrap().push(receipt);
@@ -1534,6 +1569,71 @@ pub mod tests {
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(!deny, "should unblock the sender");
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_sender_denied_close_allocation_stop_retry(pgpool: PgPool) {
+        // we set to 1 to block the sender on a really low value
+        let max_unaggregated_fees_per_sender: u128 = 1;
+
+        let (sender_account, handle, prefix, _) = create_sender_account(
+            pgpool,
+            HashSet::new(),
+            TRIGGER_VALUE,
+            max_unaggregated_fees_per_sender,
+            DUMMY_URL,
+        )
+        .await;
+
+        let (mock_sender_allocation, next_unaggregated_fees) =
+            MockSenderAllocation::new_with_next_unaggregated_fees_value();
+
+        let name = format!("{}:{}:{}", prefix, SENDER.1, *ALLOCATION_ID_0);
+        let (allocation, allocation_handle) = MockSenderAllocation::spawn_linked(
+            Some(name),
+            mock_sender_allocation,
+            (),
+            sender_account.get_cell(),
+        )
+        .await
+        .unwrap();
+        *next_unaggregated_fees.lock().unwrap() = TRIGGER_VALUE;
+
+        // set retry
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                UnaggregatedReceipts {
+                    value: TRIGGER_VALUE,
+                    last_id: 11,
+                },
+            ))
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(deny, "should be blocked");
+
+        let scheuduler_enabled =
+            call!(sender_account, SenderAccountMessage::HasSchedulerEnabled).unwrap();
+        assert!(scheuduler_enabled, "should have an scheduler enabled");
+
+        // close the allocation and trigger
+        allocation.stop_and_wait(None, None).await.unwrap();
+        allocation_handle.await.unwrap();
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // should remove the block and the retry
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(!deny, "should be unblocked");
+
+        let scheuduler_enabled =
+            call!(sender_account, SenderAccountMessage::HasSchedulerEnabled).unwrap();
+        assert!(!scheuduler_enabled, "should have an scheduler disabled");
 
         sender_account.stop_and_wait(None, None).await.unwrap();
         handle.await.unwrap();
