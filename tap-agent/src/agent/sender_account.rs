@@ -46,7 +46,7 @@ pub enum SenderAccountMessage {
     #[cfg(test)]
     GetDeny(ractor::RpcReplyPort<bool>),
     #[cfg(test)]
-    HasSchedulerEnabled(ractor::RpcReplyPort<bool>),
+    IsSchedulerEnabled(ractor::RpcReplyPort<bool>),
 }
 
 /// A SenderAccount manages the receipts accounting between the indexer and the sender across
@@ -627,7 +627,7 @@ impl Actor for SenderAccount {
                 }
             }
             #[cfg(test)]
-            SenderAccountMessage::HasSchedulerEnabled(reply) => {
+            SenderAccountMessage::IsSchedulerEnabled(reply) => {
                 if !reply.is_closed() {
                     let _ = reply.send(state.scheduled_rav_request.is_some());
                 }
@@ -1617,9 +1617,9 @@ pub mod tests {
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny, "should be blocked");
 
-        let scheuduler_enabled =
-            call!(sender_account, SenderAccountMessage::HasSchedulerEnabled).unwrap();
-        assert!(scheuduler_enabled, "should have an scheduler enabled");
+        let scheduler_enabled =
+            call!(sender_account, SenderAccountMessage::IsSchedulerEnabled).unwrap();
+        assert!(scheduler_enabled, "should have an scheduler enabled");
 
         // close the allocation and trigger
         allocation.stop_and_wait(None, None).await.unwrap();
@@ -1632,7 +1632,7 @@ pub mod tests {
         assert!(!deny, "should be unblocked");
 
         let scheuduler_enabled =
-            call!(sender_account, SenderAccountMessage::HasSchedulerEnabled).unwrap();
+            call!(sender_account, SenderAccountMessage::IsSchedulerEnabled).unwrap();
         assert!(!scheuduler_enabled, "should have an scheduler disabled");
 
         sender_account.stop_and_wait(None, None).await.unwrap();
