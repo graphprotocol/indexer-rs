@@ -12,7 +12,6 @@ use indexer_tap_agent::{agent, metrics, CONFIG};
 async fn main() -> Result<()> {
     // Parse basic configurations, also initializes logging.
     lazy_static::initialize(&CONFIG);
-    debug!("Config: {:?}", *CONFIG);
 
     let (manager, handler) = agent::start_agent().await;
     info!("TAP Agent started.");
