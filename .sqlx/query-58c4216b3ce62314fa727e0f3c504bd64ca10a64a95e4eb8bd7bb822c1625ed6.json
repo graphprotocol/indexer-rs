@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE \"CostModels\"(\n                id INT,\n                deployment VARCHAR NOT NULL,\n                model TEXT,\n                variables JSONB,\n                PRIMARY KEY( deployment )\n            );\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "58c4216b3ce62314fa727e0f3c504bd64ca10a64a95e4eb8bd7bb822c1625ed6"
+}
