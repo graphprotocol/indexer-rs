@@ -37,18 +37,22 @@ type Balance = U256;
 pub enum SenderAccountMessage {
     UpdateBalanceAndLastRavs(Balance, RavMap),
     UpdateAllocationIds(HashSet<Address>),
+    NewAllocationId(Address),
     UpdateReceiptFees(Address, UnaggregatedReceipts),
+    UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
     UpdateRav(SignedRAV),
     #[cfg(test)]
     GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
     #[cfg(test)]
     GetDeny(ractor::RpcReplyPort<bool>),
+    #[cfg(test)]
+    IsSchedulerEnabled(ractor::RpcReplyPort<bool>),
 }
 
 /// A SenderAccount manages the receipts accounting between the indexer and the sender across
 /// multiple allocations.
 ///
-/// Manages the lifecycle of Scalar TAP for the SenderAccount, including:
+/// Manages the lifecycle of TAP for the SenderAccount, including:
 /// - Monitoring new receipts and keeping track of the cumulative unaggregated fees across
 ///   allocations.
 /// - Requesting RAVs from the sender's TAP aggregator once the cumulative unaggregated fees reach a
@@ -74,6 +78,7 @@ pub struct State {
     prefix: Option<String>,
     sender_fee_tracker: SenderFeeTracker,
     rav_tracker: SenderFeeTracker,
+    invalid_receipts_tracker: SenderFeeTracker,
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: PipeHandle,
     _escrow_account_monitor: PipeHandle,
@@ -177,7 +182,9 @@ impl State {
         let pending_fees_over_balance =
             pending_ravs + unaggregated_fees >= self.sender_balance.as_u128();
         let max_unaggregated_fees = self.config.tap.max_unnaggregated_fees_per_sender;
-        let total_fee_over_max_value = unaggregated_fees >= max_unaggregated_fees;
+        let invalid_receipt_fees = self.invalid_receipts_tracker.get_total_fee();
+        let total_fee_over_max_value =
+            unaggregated_fees + invalid_receipt_fees >= max_unaggregated_fees;
 
         tracing::trace!(
             %pending_fees_over_balance,
@@ -409,6 +416,7 @@ impl Actor for SenderAccount {
         let state = State {
             sender_fee_tracker: SenderFeeTracker::default(),
             rav_tracker: SenderFeeTracker::default(),
+            invalid_receipts_tracker: SenderFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
             _indexer_allocations_handle,
             _escrow_account_monitor,
@@ -458,6 +466,17 @@ impl Actor for SenderAccount {
                 state
                     .rav_tracker
                     .update(rav.message.allocationId, rav.message.valueAggregate);
+                let should_deny = !state.denied && state.deny_condition_reached();
+                if should_deny {
+                    state.add_to_denylist().await;
+                }
+            }
+            SenderAccountMessage::UpdateInvalidReceiptFees(allocation_id, unaggregated_fees) => {
+                state
+                    .invalid_receipts_tracker
+                    .update(allocation_id, unaggregated_fees.value);
+
+                // invalid receipts can't go down
                 let should_deny = !state.denied && state.deny_condition_reached();
                 if should_deny {
                     state.add_to_denylist().await;
@@ -552,6 +571,19 @@ impl Actor for SenderAccount {
                 );
                 state.allocation_ids = allocation_ids;
             }
+            SenderAccountMessage::NewAllocationId(allocation_id) => {
+                if let Err(error) = state
+                    .create_sender_allocation(myself.clone(), allocation_id)
+                    .await
+                {
+                    error!(
+                        %error,
+                        %allocation_id,
+                        "There was an error while creating Sender Allocation."
+                    );
+                }
+                state.allocation_ids.insert(allocation_id);
+            }
             SenderAccountMessage::UpdateBalanceAndLastRavs(new_balance, non_final_last_ravs) => {
                 state.sender_balance = new_balance;
 
@@ -594,6 +626,12 @@ impl Actor for SenderAccount {
                     let _ = reply.send(state.denied);
                 }
             }
+            #[cfg(test)]
+            SenderAccountMessage::IsSchedulerEnabled(reply) => {
+                if !reply.is_closed() {
+                    let _ = reply.send(state.scheduled_rav_request.is_some());
+                }
+            }
         }
         Ok(())
     }
@@ -631,12 +669,16 @@ impl Actor for SenderAccount {
                     return Ok(());
                 };
 
-                let tracker = &mut state.sender_fee_tracker;
-                tracker.update(allocation_id, 0);
                 // clean up hashset
                 state
                     .sender_fee_tracker
                     .unblock_allocation_id(allocation_id);
+                // update the receipt fees by reseting to 0
+                myself.cast(SenderAccountMessage::UpdateReceiptFees(
+                    allocation_id,
+                    UnaggregatedReceipts::default(),
+                ))?;
+
                 // rav tracker is not updated because it's still not redeemed
             }
             SupervisionEvent::ActorPanicked(cell, error) => {
@@ -713,7 +755,12 @@ pub mod tests {
                 (Self::UpdateReceiptFees(l0, l1), Self::UpdateReceiptFees(r0, r1)) => {
                     l0 == r0 && l1 == r1
                 }
-                _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+                (
+                    Self::UpdateInvalidReceiptFees(l0, l1),
+                    Self::UpdateInvalidReceiptFees(r0, r1),
+                ) => l0 == r0 && l1 == r1,
+                (Self::NewAllocationId(l0), Self::NewAllocationId(r0)) => l0 == r0,
+                (a, b) => unimplemented!("PartialEq not implementated for {a:?} and {b:?}"),
             }
         }
     }
@@ -828,9 +875,57 @@ pub mod tests {
         handle.await.unwrap();
     }
 
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_new_allocation_id(pgpool: PgPool) {
+        let (sender_account, handle, prefix, _) = create_sender_account(
+            pgpool,
+            HashSet::new(),
+            TRIGGER_VALUE,
+            TRIGGER_VALUE,
+            DUMMY_URL,
+        )
+        .await;
+
+        // we expect it to create a sender allocation
+        sender_account
+            .cast(SenderAccountMessage::NewAllocationId(*ALLOCATION_ID_0))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // verify if create sender account
+        let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
+        let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
+        assert!(actor_ref.is_some());
+
+        // nothing should change because we already created
+        sender_account
+            .cast(SenderAccountMessage::UpdateAllocationIds(
+                vec![*ALLOCATION_ID_0].into_iter().collect(),
+            ))
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // try to delete sender allocation_id
+        sender_account
+            .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
+        assert!(actor_ref.is_none());
+
+        // safely stop the manager
+        sender_account.stop_and_wait(None, None).await.unwrap();
+
+        handle.await.unwrap();
+    }
+
     pub struct MockSenderAllocation {
         triggered_rav_request: Arc<AtomicU32>,
         next_rav_value: Arc<Mutex<u128>>,
+        next_unaggregated_fees_value: Arc<Mutex<u128>>,
         receipts: Arc<Mutex<Vec<NewReceiptNotification>>>,
     }
 
@@ -842,8 +937,22 @@ pub mod tests {
                     triggered_rav_request: triggered_rav_request.clone(),
                     receipts: Arc::new(Mutex::new(Vec::new())),
                     next_rav_value: Arc::new(Mutex::new(0)),
+                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
                 },
                 triggered_rav_request,
+            )
+        }
+
+        pub fn new_with_next_unaggregated_fees_value() -> (Self, Arc<Mutex<u128>>) {
+            let unaggregated_fees = Arc::new(Mutex::new(0));
+            (
+                Self {
+                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
+                    receipts: Arc::new(Mutex::new(Vec::new())),
+                    next_rav_value: Arc::new(Mutex::new(0)),
+                    next_unaggregated_fees_value: unaggregated_fees.clone(),
+                },
+                unaggregated_fees,
             )
         }
 
@@ -854,6 +963,7 @@ pub mod tests {
                     triggered_rav_request: Arc::new(AtomicU32::new(0)),
                     receipts: Arc::new(Mutex::new(Vec::new())),
                     next_rav_value: next_rav_value.clone(),
+                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
                 },
                 next_rav_value,
             )
@@ -866,6 +976,7 @@ pub mod tests {
                     triggered_rav_request: Arc::new(AtomicU32::new(0)),
                     receipts: receipts.clone(),
                     next_rav_value: Arc::new(Mutex::new(0)),
+                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
                 },
                 receipts,
             )
@@ -902,7 +1013,13 @@ pub mod tests {
                         4,
                         *self.next_rav_value.lock().unwrap(),
                     );
-                    reply.send((UnaggregatedReceipts::default(), Some(signed_rav)))?;
+                    reply.send((
+                        UnaggregatedReceipts {
+                            value: *self.next_unaggregated_fees_value.lock().unwrap(),
+                            last_id: 0,
+                        },
+                        Some(signed_rav),
+                    ))?;
                 }
                 SenderAllocationMessage::NewReceipt(receipt) => {
                     self.receipts.lock().unwrap().push(receipt);
@@ -997,7 +1114,7 @@ pub mod tests {
             ))
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
 
         assert_eq!(
             triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
@@ -1107,7 +1224,7 @@ pub mod tests {
                 },
             ))
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         let retry_value = triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst);
         assert!(retry_value > 1, "It didn't retry more than once");
@@ -1154,7 +1271,23 @@ pub mod tests {
                     ))
                     .unwrap();
 
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            };
+        }
+
+        macro_rules! update_invalid_receipt_fees {
+            ($value:expr) => {
+                sender_account
+                    .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
+                        *ALLOCATION_ID_0,
+                        UnaggregatedReceipts {
+                            value: $value,
+                            last_id: 11,
+                        },
+                    ))
+                    .unwrap();
+
+                tokio::time::sleep(Duration::from_millis(20)).await;
             };
         }
 
@@ -1176,6 +1309,28 @@ pub mod tests {
 
         update_receipt_fees!(max_unaggregated_fees_per_sender - 1);
         let deny = get_deny_status(&sender_account).await;
+        assert!(!deny);
+
+        update_receipt_fees!(0);
+
+        update_invalid_receipt_fees!(max_unaggregated_fees_per_sender - 1);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(!deny);
+
+        update_invalid_receipt_fees!(max_unaggregated_fees_per_sender);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(deny);
+
+        // invalid receipts should not go down
+        update_invalid_receipt_fees!(0);
+        let deny = get_deny_status(&sender_account).await;
+        // keep denied
+        assert!(deny);
+
+        // condition reached using receipts
+        update_receipt_fees!(0);
+        let deny = get_deny_status(&sender_account).await;
+        // allow sender
         assert!(!deny);
 
         sender_account.stop_and_wait(None, None).await.unwrap();
@@ -1399,7 +1554,7 @@ pub mod tests {
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny, "should block the sender");
@@ -1414,6 +1569,71 @@ pub mod tests {
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(!deny, "should unblock the sender");
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_sender_denied_close_allocation_stop_retry(pgpool: PgPool) {
+        // we set to 1 to block the sender on a really low value
+        let max_unaggregated_fees_per_sender: u128 = 1;
+
+        let (sender_account, handle, prefix, _) = create_sender_account(
+            pgpool,
+            HashSet::new(),
+            TRIGGER_VALUE,
+            max_unaggregated_fees_per_sender,
+            DUMMY_URL,
+        )
+        .await;
+
+        let (mock_sender_allocation, next_unaggregated_fees) =
+            MockSenderAllocation::new_with_next_unaggregated_fees_value();
+
+        let name = format!("{}:{}:{}", prefix, SENDER.1, *ALLOCATION_ID_0);
+        let (allocation, allocation_handle) = MockSenderAllocation::spawn_linked(
+            Some(name),
+            mock_sender_allocation,
+            (),
+            sender_account.get_cell(),
+        )
+        .await
+        .unwrap();
+        *next_unaggregated_fees.lock().unwrap() = TRIGGER_VALUE;
+
+        // set retry
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                UnaggregatedReceipts {
+                    value: TRIGGER_VALUE,
+                    last_id: 11,
+                },
+            ))
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(deny, "should be blocked");
+
+        let scheduler_enabled =
+            call!(sender_account, SenderAccountMessage::IsSchedulerEnabled).unwrap();
+        assert!(scheduler_enabled, "should have an scheduler enabled");
+
+        // close the allocation and trigger
+        allocation.stop_and_wait(None, None).await.unwrap();
+        allocation_handle.await.unwrap();
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // should remove the block and the retry
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(!deny, "should be unblocked");
+
+        let scheuduler_enabled =
+            call!(sender_account, SenderAccountMessage::IsSchedulerEnabled).unwrap();
+        assert!(!scheuduler_enabled, "should have an scheduler disabled");
 
         sender_account.stop_and_wait(None, None).await.unwrap();
         handle.await.unwrap();

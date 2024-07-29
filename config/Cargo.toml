@@ -1,0 +1,20 @@
+[package]
+name = "indexer-config"
+version = "1.0.0-rc.4"
+edition = "2021"
+
+[dependencies]
+alloy-primitives = "0.6"
+bigdecimal = { version = "0.4.3", features = ["serde"] }
+bip39 = "2.0.0"
+figment = { version = "0.10.19", features = ["env", "toml"] }
+serde = "1.0.188"
+serde_with = "3.8.1"
+serde_repr = "0.1.19"
+thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
+url = { version = "2.5.0", features = ["serde"] }
+tracing = "0.1.34"
+
+[dev-dependencies]
+serde_test = "1.0.176"
+toml = "0.8.12"

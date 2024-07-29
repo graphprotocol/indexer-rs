@@ -1,6 +1,6 @@
 [package]
 name = "service"
-version = "1.0.0-alpha.0"
+version = "1.0.0-rc.4"
 edition = "2021"
 license = "Apache-2.0"
 
@@ -8,6 +8,7 @@ license = "Apache-2.0"
 
 [dependencies]
 indexer-common = { path = "../common" }
+indexer-config = { path = "../config" }
 anyhow = "1.0.57"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["rt", "macros", "sync", "full"] }
@@ -40,9 +41,6 @@ thegraph-graphql-http = { version = "0.2.0", features = [
     "http-client-reqwest",
 ] }
 build-info = "0.0.34"
-figment = { version = "0.10", features = ["toml", "env"] }
-toml = "0.8.12"
-shellexpand = { version = "3.1.0", default-features = false, features = ["base-0"] }
 
 [dev-dependencies]
 hex-literal = "0.4.1"
