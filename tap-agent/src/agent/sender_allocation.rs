@@ -574,8 +574,8 @@ impl SenderAllocationState {
                 .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
                 .inc();
             UNAGGREGATED_FEES
-            .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
-            .set(self.unaggregated_fees.value as f64);
+                .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+                .set(self.unaggregated_fees.value as f64);
 
             Ok(response.data)
         } else {
@@ -603,7 +603,6 @@ impl SenderAllocationState {
                     },
                 ))
         }
-
     }
 
     pub async fn mark_rav_last(&self) -> Result<()> {
