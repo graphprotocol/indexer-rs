@@ -1498,9 +1498,13 @@ pub mod tests {
             None,
         )
         .await;
-
-        // expect the actor to keep running
-        assert_eq!(sender_allocation.get_status(), ActorStatus::Running);
+        // Trigger a RAV request manually and wait for updated fees.
+        // this should fail because there's no receipt with valid timestamp
+        let (_total_unaggregated_fees, _rav) = call!(
+            sender_allocation,
+            SenderAllocationMessage::TriggerRAVRequest
+        )
+        .unwrap();
 
         let invalid_receipts = sqlx::query!(
             r#"
