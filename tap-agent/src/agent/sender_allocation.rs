@@ -1470,7 +1470,7 @@ pub mod tests {
         .expect("Should not fail to fetch from scalar_tap_receipts_invalid");
 
         //No receipts should be found at this point
-        assert_eq!(0, invalid_receipts_at_start.len());
+        assert!(invalid_receipts_at_start.is_empty());
 
         // Add receipts to the database.
         let timestamp = SystemTime::now()
@@ -1512,6 +1512,6 @@ pub mod tests {
         .expect("Should not fail to fetch from scalar_tap_receipts_invalid");
 
         // Invalid receipts should be found inside the table
-        assert!(invalid_receipts.len() != 0);
+        assert!(!invalid_receipts.is_empty());
     }
 }
