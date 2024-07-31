@@ -503,19 +503,6 @@ impl SenderAllocationState {
                 ),
                 _ => e.into(),
             })?;
-        if !invalid_receipts.is_empty() {
-            warn!(
-                "Found {} invalid receipts for allocation {} and sender {}.",
-                invalid_receipts.len(),
-                self.allocation_id,
-                self.sender
-            );
-
-            // Save invalid receipts to the database for logs.
-            // TODO: consider doing that in a spawned task?
-            self.store_invalid_receipts(invalid_receipts.as_slice())
-                .await?;
-        }
         let client = HttpClientBuilder::default()
             .request_timeout(Duration::from_secs(
                 self.config.tap.rav_request_timeout_secs,
@@ -538,9 +525,27 @@ impl SenderAllocationState {
             .with_label_values(&[&self.sender.to_string()])
             .observe(rav_response_time.as_secs_f64());
 
+        // we only save invalid receipts when we are about to store our rav
+        //
+        // store them before we call remove_obsolete_receipts()
+        if !invalid_receipts.is_empty() {
+            warn!(
+                "Found {} invalid receipts for allocation {} and sender {}.",
+                invalid_receipts.len(),
+                self.allocation_id,
+                self.sender
+            );
+
+            // Save invalid receipts to the database for logs.
+            // TODO: consider doing that in a spawned task?
+            self.store_invalid_receipts(invalid_receipts.as_slice())
+                .await?;
+        }
+
         if let Some(warnings) = response.warnings {
             warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
         }
+
         match self
             .tap_manager
             .verify_and_store_rav(expected_rav.clone(), response.data.clone())
