@@ -276,6 +276,7 @@ mod tests {
     use std::{fs, path::PathBuf};
 
     use crate::{Config, ConfigPrefix};
+    use sealed_test::prelude::*;
 
     #[test]
     fn test_minimal_config() {
@@ -302,5 +303,18 @@ mod tests {
         .unwrap();
 
         assert_eq!(max_config, max_config_file);
+    }
+
+    // Test that we can load config with unknown fields, in particular coming from environment variables
+    #[sealed_test(files = ["minimal-config-example.toml"])]
+    fn test_unknown_fields() {
+        // Add environment variable that would correspond to an unknown field
+        std::env::set_var("INDEXER_SERVICE_PLUMBUS", "howisitmade?");
+
+        Config::parse(
+            ConfigPrefix::Service,
+            &PathBuf::from("minimal-config-example.toml"),
+        )
+        .unwrap();
     }
 }
