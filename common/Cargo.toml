@@ -31,7 +31,7 @@ thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0
 thegraph-graphql-http = { version = "0.2.1", features = [
     "http-client-reqwest",
 ] }
-tap_core = "0.8.0"
+tap_core = "1.0.0"
 axum = { version = "0.7.5", default_features = true }
 axum-extra = { version = "0.9.3", features = ["typed-header"] }
 thiserror = "1.0.49"
@@ -40,7 +40,11 @@ build-info = "0.0.34"
 autometrics = { version = "1.0.1", features = ["prometheus-exporter"] }
 tracing = "0.1.40"
 tower_governor = "0.3.2"
-tower-http = { version = "0.5.2", features = ["trace", "cors", "normalize-path"] }
+tower-http = { version = "0.5.2", features = [
+    "trace",
+    "cors",
+    "normalize-path",
+] }
 tokio-util = "0.7.10"
 bigdecimal = "0.4.2"
 thegraph-core = { version = "0.5.2", features = ["subgraph-client"] }

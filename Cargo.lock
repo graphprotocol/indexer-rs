@@ -3149,7 +3149,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "tap_core 0.8.0",
+ "tap_core",
  "test-log",
  "thegraph",
  "thegraph-core",
@@ -3213,7 +3213,7 @@ dependencies = [
  "serde_yaml",
  "sqlx",
  "tap_aggregator",
- "tap_core 0.8.0",
+ "tap_core",
  "tempfile",
  "thegraph",
  "thiserror",
@@ -6436,34 +6436,9 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.24.1",
- "tap_core 1.0.0",
+ "tap_core",
  "tokio",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "tap_core"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ad526409d342a57c965a18f6a9138f999b12ca5d0529c198f8ae4a2395b0561"
-dependencies = [
- "alloy-primitives 0.6.4",
- "alloy-sol-types 0.6.4",
- "anyhow",
- "async-trait",
- "ethereum-types",
- "ethers",
- "ethers-contract",
- "ethers-contract-derive",
- "ethers-core",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "rstest",
- "serde",
- "strum 0.24.1",
- "strum_macros 0.24.3",
- "thiserror",
- "tokio",
 ]
 
 [[package]]

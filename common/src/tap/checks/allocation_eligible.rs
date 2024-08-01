@@ -9,7 +9,8 @@ use eventuals::Eventual;
 
 use tap_core::receipt::{
     checks::{Check, CheckResult},
-    Checking, ReceiptWithState,
+    state::Checking,
+    ReceiptWithState,
 };
 
 use crate::prelude::Allocation;

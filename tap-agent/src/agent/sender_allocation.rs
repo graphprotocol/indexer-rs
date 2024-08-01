@@ -24,8 +24,9 @@ use tap_core::{
     manager::adapters::RAVRead,
     rav::{RAVRequest, ReceiptAggregateVoucher, SignedRAV},
     receipt::{
-        checks::{Check, Checks},
-        Failed, ReceiptWithState,
+        checks::{Check, CheckList},
+        state::Failed,
+        ReceiptWithState,
     },
     signed_message::EIP712SignedMessage,
 };
@@ -331,7 +332,7 @@ impl SenderAllocationState {
         let tap_manager = TapManager::new(
             domain_separator.clone(),
             context,
-            Checks::new(required_checks),
+            CheckList::new(required_checks),
         );
 
         let http_client = HttpClientBuilder::default()
@@ -508,6 +509,10 @@ impl SenderAllocationState {
                 ),
                 _ => e.into(),
             })?;
+        let valid_receipts: Vec<_> = valid_receipts
+            .into_iter()
+            .map(|r| r.signed_receipt().clone())
+            .collect();
         let rav_response_time_start = Instant::now();
         let response: JsonRpcResponse<EIP712SignedMessage<ReceiptAggregateVoucher>> = self
             .http_client
@@ -763,8 +768,9 @@ pub mod tests {
     };
     use tap_aggregator::{jsonrpsee_helpers::JsonRpcResponse, server::run_server};
     use tap_core::receipt::{
-        checks::{Check, Checks},
-        Checking, ReceiptWithState,
+        checks::{Check, CheckList},
+        state::Checking,
+        ReceiptWithState,
     };
     use wiremock::{
         matchers::{body_string_contains, method},
@@ -1348,7 +1354,7 @@ pub mod tests {
                 .await;
         let mut state = SenderAllocationState::new(args).await.unwrap();
 
-        let checks = Checks::new(vec![Arc::new(FailingCheck)]);
+        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
 
         // create some checks
         let checking_receipts = vec![
@@ -1360,7 +1366,7 @@ pub mod tests {
             .into_iter()
             .map(|receipt| async { receipt.finalize_receipt_checks(&checks).await.unwrap_err() })
             .collect::<Vec<_>>();
-        let failing_receipts = join_all(failing_receipts).await;
+        let failing_receipts: Vec<_> = join_all(failing_receipts).await;
 
         // store the failing receipts
         let result = state.store_invalid_receipts(&failing_receipts).await;

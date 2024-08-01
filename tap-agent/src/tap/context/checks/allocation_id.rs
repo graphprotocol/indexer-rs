@@ -9,7 +9,8 @@ use eventuals::{Eventual, EventualExt};
 use indexer_common::subgraph_client::{Query, SubgraphClient};
 use tap_core::receipt::{
     checks::{Check, CheckResult},
-    Checking, ReceiptWithState,
+    state::Checking,
+    ReceiptWithState,
 };
 use tokio::time::sleep;
 use tracing::error;

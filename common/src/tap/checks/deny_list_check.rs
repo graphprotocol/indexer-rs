@@ -11,7 +11,8 @@ use std::sync::RwLock;
 use std::{str::FromStr, sync::Arc};
 use tap_core::receipt::{
     checks::{Check, CheckResult},
-    Checking, ReceiptWithState,
+    state::Checking,
+    ReceiptWithState,
 };
 use thegraph::types::Address;
 use tracing::error;

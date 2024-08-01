@@ -12,7 +12,7 @@ use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use sqlx::{postgres::types::PgRange, types::BigDecimal};
 use tap_core::{
     manager::adapters::{safe_truncate_receipts, ReceiptDelete, ReceiptRead},
-    receipt::{Checking, Receipt, ReceiptWithState, SignedReceipt},
+    receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
 };
 use thegraph::types::Address;
 

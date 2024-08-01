@@ -7,7 +7,7 @@ use bigdecimal::num_bigint::BigInt;
 use sqlx::types::BigDecimal;
 use tap_core::{
     manager::adapters::ReceiptStore,
-    receipt::{Checking, ReceiptWithState},
+    receipt::{state::Checking, ReceiptWithState},
 };
 use tracing::error;
 
