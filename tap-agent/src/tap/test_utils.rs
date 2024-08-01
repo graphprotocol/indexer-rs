@@ -14,7 +14,7 @@ use lazy_static::lazy_static;
 use sqlx::PgPool;
 use tap_core::{
     rav::{ReceiptAggregateVoucher, SignedRAV},
-    receipt::{Checking, Receipt, ReceiptWithState, SignedReceipt},
+    receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
     signed_message::EIP712SignedMessage,
 };
 use thegraph::types::Address;

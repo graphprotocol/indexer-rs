@@ -9,7 +9,8 @@ pub struct TimestampCheck {
 
 use tap_core::receipt::{
     checks::{Check, CheckResult},
-    Checking, ReceiptWithState,
+    state::Checking,
+    ReceiptWithState,
 };
 
 impl TimestampCheck {
@@ -52,7 +53,7 @@ mod tests {
 
     use super::*;
     use tap_core::{
-        receipt::{checks::Check, Checking, Receipt, ReceiptWithState},
+        receipt::{checks::Check, state::Checking, Receipt, ReceiptWithState},
         signed_message::EIP712SignedMessage,
     };
 

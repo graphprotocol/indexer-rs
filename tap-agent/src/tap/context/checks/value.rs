@@ -10,7 +10,8 @@ use anyhow::anyhow;
 use tap_core::{
     receipt::{
         checks::{Check, CheckResult},
-        Checking, ReceiptWithState,
+        state::Checking,
+        ReceiptWithState,
     },
     signed_message::MessageId,
 };
