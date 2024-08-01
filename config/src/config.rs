@@ -22,7 +22,6 @@ use crate::NonZeroGRT;
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct Config {
     pub indexer: IndexerConfig,
     pub database: DatabaseConfig,
@@ -32,6 +31,26 @@ pub struct Config {
     pub blockchain: BlockchainConfig,
     pub service: ServiceConfig,
     pub tap: TapConfig,
+}
+
+// Newtype wrapping Config to be able use serde_ignored with Figment
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct ConfigWrapper(pub Config);
+
+// Custom Deserializer for ConfigWrapper
+// This is needed to warn about unknown fields
+impl<'de> Deserialize<'de> for ConfigWrapper {
+    fn deserialize<D>(deserializer: D) -> Result<ConfigWrapper, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let config: Config = serde_ignored::deserialize(deserializer, |path| {
+            warn!("Ignoring unknown configuration field: {}", path);
+        })?;
+
+        Ok(ConfigWrapper(config))
+    }
 }
 
 pub enum ConfigPrefix {
@@ -52,15 +71,15 @@ impl Config {
     pub fn parse(prefix: ConfigPrefix, filename: &PathBuf) -> Result<Self, String> {
         let config_defaults = include_str!("../default_values.toml");
 
-        let config: Self = Figment::new()
+        let config: ConfigWrapper = Figment::new()
             .merge(Toml::string(config_defaults))
             .merge(Toml::file(filename))
             .merge(Env::prefixed(prefix.get_prefix()))
             .extract()
             .map_err(|e| e.to_string())?;
-        config.validate()?;
+        config.0.validate()?;
 
-        Ok(config)
+        Ok(config.0)
     }
 
     // custom validation of the values
@@ -121,7 +140,6 @@ impl Config {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct IndexerConfig {
     pub indexer_address: Address,
     pub operator_mnemonic: Mnemonic,
@@ -129,14 +147,12 @@ pub struct IndexerConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct DatabaseConfig {
     pub postgres_url: Url,
 }
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct GraphNodeConfig {
     pub query_url: Url,
     pub status_url: Url,
@@ -144,14 +160,12 @@ pub struct GraphNodeConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct MetricsConfig {
     pub port: u16,
 }
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
     pub escrow: EscrowSubgraphConfig,
@@ -160,7 +174,6 @@ pub struct SubgraphsConfig {
 #[serde_as]
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct NetworkSubgraphConfig {
     #[serde(flatten)]
     pub config: SubgraphConfig,
@@ -171,7 +184,6 @@ pub struct NetworkSubgraphConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct EscrowSubgraphConfig {
     #[serde(flatten)]
     pub config: SubgraphConfig,
@@ -180,7 +192,6 @@ pub struct EscrowSubgraphConfig {
 #[serde_as]
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct SubgraphConfig {
     pub query_url: Url,
     pub query_auth_token: Option<String>,
@@ -204,7 +215,6 @@ pub enum TheGraphChainId {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
     pub receipts_verifier_address: Address,
@@ -212,7 +222,6 @@ pub struct BlockchainConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct ServiceConfig {
     pub serve_network_subgraph: bool,
     pub serve_escrow_subgraph: bool,
@@ -226,7 +235,6 @@ pub struct ServiceConfig {
 #[serde_as]
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct ServiceTapConfig {
     /// what's the maximum value we accept in a receipt
     pub max_receipt_value_grt: NonZeroGRT,
@@ -234,7 +242,6 @@ pub struct ServiceTapConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct TapConfig {
     /// what is the maximum amount the indexer is willing to lose in grt
     pub max_amount_willing_to_lose_grt: NonZeroGRT,
@@ -257,7 +264,6 @@ impl TapConfig {
 #[serde_as]
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(deny_unknown_fields)]
 pub struct RavRequestConfig {
     /// what divisor of the amount willing to lose to trigger the rav request
     pub trigger_value_divisor: BigDecimal,
@@ -275,8 +281,10 @@ pub struct RavRequestConfig {
 mod tests {
     use std::{fs, path::PathBuf};
 
-    use crate::{Config, ConfigPrefix};
     use sealed_test::prelude::*;
+    use tracing_test::traced_test;
+
+    use crate::{Config, ConfigPrefix};
 
     #[test]
     fn test_minimal_config() {
@@ -307,6 +315,7 @@ mod tests {
 
     // Test that we can load config with unknown fields, in particular coming from environment variables
     #[sealed_test(files = ["minimal-config-example.toml"])]
+    #[traced_test]
     fn test_unknown_fields() {
         // Add environment variable that would correspond to an unknown field
         std::env::set_var("INDEXER_SERVICE_PLUMBUS", "howisitmade?");
@@ -316,5 +325,9 @@ mod tests {
             &PathBuf::from("minimal-config-example.toml"),
         )
         .unwrap();
+
+        assert!(logs_contain(
+            "Ignoring unknown configuration field: plumbus"
+        ));
     }
 }
