@@ -9,13 +9,16 @@
 # Some of the config below are global graph network values, which you can find here:
 # https://github.com/graphprotocol/indexer/tree/main/docs/networks
 #
-# Pro tip: if you need to load some values from the environment into this config, you
-# can overwrite with environment variables. For example, the following can be replaced
-# by [PREFIX]_DATABASE_POSTGRESURL, where PREFIX can be `INDEXER_SERVICE` or `TAP_AGENT`:
+# If you want to supply some or all of the configuration below using environment variables,
+# use the prefix "INDEXER_SERVICE" or "TAP_AGENT" for indexer-service or tap-agent, respectively,
+# followed by the name of the field, using double underscores "__" for nesting. Example:
 #
-# [database]
-# postgres_url = "postgresql://indexer:${POSTGRES_PASSWORD}@postgres:5432/indexer_components_0"
-
+#       INDEXER_SERVICE_SUBGRAPHS__NETWORK__QUERY_URL = [...]
+#
+#   For
+#
+#       [subgraphs.network]
+#       query_url = [...]
 
 [indexer]
 indexer_address = "0x1111111111111111111111111111111111111111"

@@ -3177,6 +3177,7 @@ dependencies = [
  "serde_repr",
  "serde_test",
  "serde_with",
+ "tempfile",
  "thegraph",
  "toml",
  "tracing",
