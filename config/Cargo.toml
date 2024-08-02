@@ -19,5 +19,6 @@ serde_ignored = "0.1.10"
 [dev-dependencies]
 sealed_test = "1.1.0"
 serde_test = "1.0.176"
+tempfile = "3.10.1"
 toml = "0.8.12"
 tracing-test = "0.2.5"

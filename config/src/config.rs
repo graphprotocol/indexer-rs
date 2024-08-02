@@ -74,7 +74,7 @@ impl Config {
         let config: ConfigWrapper = Figment::new()
             .merge(Toml::string(config_defaults))
             .merge(Toml::file(filename))
-            .merge(Env::prefixed(prefix.get_prefix()))
+            .merge(Env::prefixed(prefix.get_prefix()).split("__"))
             .extract()
             .map_err(|e| e.to_string())?;
         config.0.validate()?;
@@ -329,5 +329,73 @@ mod tests {
         assert!(logs_contain(
             "Ignoring unknown configuration field: plumbus"
         ));
+    }
+
+    // Test that we can fill in mandatory config fields missing from the config file with
+    // environment variables
+    #[sealed_test(files = ["minimal-config-example.toml"])]
+    fn test_fill_in_missing_with_env() {
+        let mut minimal_config: toml::Value = toml::from_str(
+            fs::read_to_string("minimal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        // Remove the subgraphs.network.query_url field from minimal config
+        minimal_config
+            .get_mut("subgraphs")
+            .unwrap()
+            .get_mut("network")
+            .unwrap()
+            .as_table_mut()
+            .unwrap()
+            .remove("query_url");
+
+        // Save the modified minimal config to a named temporary file using tempfile
+        let temp_minimal_config_path = tempfile::NamedTempFile::new().unwrap();
+        fs::write(
+            temp_minimal_config_path.path(),
+            toml::to_string(&minimal_config).unwrap(),
+        )
+        .unwrap();
+
+        // This should fail because the subgraphs.network.query_url field is missing
+        Config::parse(
+            ConfigPrefix::Service,
+            &PathBuf::from(temp_minimal_config_path.path()),
+        )
+        .unwrap_err();
+
+        let test_value = "http://localhost:8000/testvalue";
+        std::env::set_var("INDEXER_SERVICE_SUBGRAPHS__NETWORK__QUERY_URL", test_value);
+
+        let config = Config::parse(
+            ConfigPrefix::Service,
+            &PathBuf::from(temp_minimal_config_path.path()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.subgraphs.network.config.query_url.as_str(),
+            test_value
+        );
+    }
+
+    // Test that we can override nested config values with environment variables
+    #[sealed_test(files = ["minimal-config-example.toml"])]
+    fn test_override_with_env() {
+        let test_value = "http://localhost:8000/testvalue";
+        std::env::set_var("INDEXER_SERVICE_SUBGRAPHS__NETWORK__QUERY_URL", test_value);
+
+        let config = Config::parse(
+            ConfigPrefix::Service,
+            &PathBuf::from("minimal-config-example.toml"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.subgraphs.network.config.query_url.as_str(),
+            test_value
+        );
     }
 }
