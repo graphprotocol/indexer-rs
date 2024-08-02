@@ -120,6 +120,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[ignore = "depends on the defunct hosted-service"]
     async fn test_network_query() {
         let result = get_allocations(
             network_subgraph_client(),
@@ -131,6 +132,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[ignore = "depends on the defunct hosted-service"]
     async fn test_network_query_empty_response() {
         let result = get_allocations(
             network_subgraph_client(),
