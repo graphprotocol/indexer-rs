@@ -1,10 +1,9 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use ethers_core::types::U256;
+use alloy::primitives::U256;
 use serde::{Deserialize, Deserializer};
-use thegraph::types::Address;
-use thegraph::types::DeploymentId;
+use thegraph_core::{Address, DeploymentId};
 
 pub mod monitor;
 

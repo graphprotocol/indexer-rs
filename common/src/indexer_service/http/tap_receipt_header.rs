@@ -63,7 +63,7 @@ mod test {
 
     use axum::http::HeaderValue;
     use axum_extra::headers::Header;
-    use thegraph::types::Address;
+    use thegraph_core::Address;
 
     use crate::test_vectors::create_signed_receipt;
 

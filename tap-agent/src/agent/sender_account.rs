@@ -1,6 +1,8 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloy::hex::ToHexExt;
+use alloy::primitives::U256;
 use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
 use std::collections::{HashMap, HashSet};
@@ -8,10 +10,8 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 
-use alloy_primitives::hex::ToHex;
-use alloy_sol_types::Eip712Domain;
+use alloy::dyn_abi::Eip712Domain;
 use anyhow::Result;
-use ethereum_types::U256;
 use eventuals::{Eventual, EventualExt, PipeHandle};
 use indexer_common::subgraph_client::Query;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
@@ -19,7 +19,7 @@ use ractor::{call, Actor, ActorProcessingErr, ActorRef, MessagingErr, Supervisio
 use serde::Deserialize;
 use sqlx::PgPool;
 use tap_core::rav::SignedRAV;
-use thegraph::types::Address;
+use thegraph_core::Address;
 use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
@@ -180,7 +180,7 @@ impl State {
         let pending_ravs = self.rav_tracker.get_total_fee();
         let unaggregated_fees = self.sender_fee_tracker.get_total_fee();
         let pending_fees_over_balance =
-            pending_ravs + unaggregated_fees >= self.sender_balance.as_u128();
+            U256::from(pending_ravs + unaggregated_fees) >= self.sender_balance;
         let max_unaggregated_fees = self.config.tap.max_unnaggregated_fees_per_sender;
         let invalid_receipt_fees = self.invalid_receipts_tracker.get_total_fee();
         let total_fee_over_max_value =
@@ -201,7 +201,7 @@ impl State {
             fee_tracker = self.sender_fee_tracker.get_total_fee(),
             rav_tracker = self.rav_tracker.get_total_fee(),
             max_fee_per_sender = self.config.tap.max_unnaggregated_fees_per_sender,
-            sender_balance = self.sender_balance.as_u128(),
+            sender_balance = self.sender_balance.to_u128(),
             "Denying sender."
         );
 
@@ -210,7 +210,7 @@ impl State {
                     INSERT INTO scalar_tap_denylist (sender_address)
                     VALUES ($1) ON CONFLICT DO NOTHING
                 "#,
-            self.sender.encode_hex::<String>(),
+            self.sender.encode_hex(),
         )
         .execute(&self.pgpool)
         .await
@@ -224,7 +224,7 @@ impl State {
             fee_tracker = self.sender_fee_tracker.get_total_fee(),
             rav_tracker = self.rav_tracker.get_total_fee(),
             max_fee_per_sender = self.config.tap.max_unnaggregated_fees_per_sender,
-            sender_balance = self.sender_balance.as_u128(),
+            sender_balance = self.sender_balance.to_u128(),
             "Allowing sender."
         );
         sqlx::query!(
@@ -232,7 +232,7 @@ impl State {
                     DELETE FROM scalar_tap_denylist
                     WHERE sender_address = $1
                 "#,
-            self.sender.encode_hex::<String>(),
+            self.sender.encode_hex(),
         )
         .execute(&self.pgpool)
         .await
@@ -309,7 +309,7 @@ impl Actor for SenderAccount {
                             FROM scalar_tap_ravs
                             WHERE sender_address = $1 AND last AND NOT final;
                         "#,
-                    sender_id.encode_hex::<String>(),
+                    sender_id.encode_hex(),
                 )
                 .fetch_all(&pgpool)
                 .await
@@ -399,7 +399,7 @@ impl Actor for SenderAccount {
                     WHERE sender_address = $1
                 ) as denied
             "#,
-            sender_id.encode_hex::<String>(),
+            sender_id.encode_hex(),
         )
         .fetch_one(&pgpool)
         .await?
@@ -729,8 +729,8 @@ pub mod tests {
         create_rav, store_rav_with_options, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER,
         SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };
-    use alloy_primitives::hex::ToHex;
-    use alloy_primitives::Address;
+    use alloy::hex::ToHexExt;
+    use alloy::primitives::{Address, U256};
     use eventuals::{Eventual, EventualWriter};
     use indexer_common::escrow_accounts::EscrowAccounts;
     use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
@@ -805,7 +805,7 @@ pub mod tests {
         let (mut writer, escrow_accounts_eventual) = Eventual::new();
 
         writer.write(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, ESCROW_VALUE.into())]),
+            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
@@ -1169,7 +1169,7 @@ pub mod tests {
                 INSERT INTO scalar_tap_denylist (sender_address)
                 VALUES ($1)
             "#,
-            SENDER.1.encode_hex::<String>(),
+            SENDER.1.encode_hex(),
         )
         .execute(&pgpool)
         .await
@@ -1512,7 +1512,7 @@ pub mod tests {
             .await;
         // escrow_account updated
         escrow_writer.write(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, 1.into())]),
+            HashMap::from([(SENDER.1, U256::from(1))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
@@ -1550,7 +1550,7 @@ pub mod tests {
 
         // update the escrow to a lower value
         escrow_writer.write(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, (ESCROW_VALUE / 2).into())]),
+            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE / 2))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
@@ -1561,7 +1561,7 @@ pub mod tests {
 
         // simulate deposit
         escrow_writer.write(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, (ESCROW_VALUE).into())]),
+            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 

@@ -7,7 +7,7 @@ use std::{collections::HashMap, str::FromStr};
 
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::lazy_static;
-use alloy_sol_types::Eip712Domain;
+use alloy::dyn_abi::Eip712Domain;
 use anyhow::Result;
 use anyhow::{anyhow, bail};
 use eventuals::{Eventual, EventualExt, PipeHandle};
@@ -16,7 +16,7 @@ use indexer_common::prelude::{Allocation, SubgraphClient};
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
-use thegraph::types::Address;
+use thegraph_core::Address;
 use tokio::select;
 use tracing::{error, warn};
 
@@ -569,13 +569,14 @@ mod tests {
         create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
         ALLOCATION_ID_1, INDEXER, SENDER, SENDER_2, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };
-    use alloy_primitives::Address;
+    use alloy::primitives::Address;
     use eventuals::{Eventual, EventualExt};
     use indexer_common::allocations::Allocation;
     use indexer_common::escrow_accounts::EscrowAccounts;
     use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
     use ractor::concurrency::JoinHandle;
     use ractor::{Actor, ActorProcessingErr, ActorRef};
+    use ruint::aliases::U256;
     use sqlx::postgres::PgListener;
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
@@ -816,7 +817,7 @@ mod tests {
             );
 
         let escrow_accounts_eventual = Eventual::from_value(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 

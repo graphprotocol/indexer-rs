@@ -7,14 +7,14 @@ use crate::tap::checks::receipt_max_val_check::ReceiptMaxValueCheck;
 use crate::tap::checks::sender_balance_check::SenderBalanceCheck;
 use crate::tap::checks::timestamp_check::TimestampCheck;
 use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
-use alloy_sol_types::Eip712Domain;
+use alloy::dyn_abi::Eip712Domain;
 use eventuals::Eventual;
 use sqlx::PgPool;
 use std::fmt::Debug;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use tap_core::receipt::checks::ReceiptCheck;
-use thegraph::types::Address;
+use thegraph_core::Address;
 use tracing::error;
 
 mod checks;

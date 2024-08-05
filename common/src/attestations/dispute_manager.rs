@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use eventuals::{timer, Eventual, EventualExt};
 use serde::Deserialize;
-use thegraph::types::Address;
+use thegraph_core::Address;
 use tokio::time::sleep;
 use tracing::warn;
 
