@@ -128,6 +128,7 @@ impl RAVStore for TapAgentContext {
 
 #[cfg(test)]
 mod test {
+    use alloy::signers::{local::PrivateKeySigner, SignerSync};
     use eventuals::Eventual;
     use sqlx::PgPool;
 
