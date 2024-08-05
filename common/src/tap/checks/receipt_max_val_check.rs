@@ -39,12 +39,12 @@ mod tests {
     use std::time::Duration;
     use std::time::SystemTime;
 
-    use alloy_primitives::Address;
-    use alloy_sol_types::eip712_domain;
-    use alloy_sol_types::Eip712Domain;
-
-    use ethers::signers::coins_bip39::English;
-    use ethers::signers::{LocalWallet, MnemonicBuilder};
+    use alloy::dyn_abi::Eip712Domain;
+    use alloy::primitives::Address;
+    use alloy::signers::local::coins_bip39::English;
+    use alloy::signers::local::MnemonicBuilder;
+    use alloy::signers::local::PrivateKeySigner;
+    use alloy::sol_types::eip712_domain;
 
     use super::*;
     use tap_core::{
@@ -54,7 +54,7 @@ mod tests {
 
     fn create_signed_receipt_with_custom_value(value: u128) -> ReceiptWithState<Checking> {
         let index: u32 = 0;
-        let wallet: LocalWallet = MnemonicBuilder::<English>::default()
+        let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
             .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
             .index(index)
             .unwrap()

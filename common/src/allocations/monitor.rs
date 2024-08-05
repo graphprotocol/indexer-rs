@@ -9,7 +9,7 @@ use std::{
 use super::Allocation;
 use crate::prelude::SubgraphClient;
 use eventuals::{timer, Eventual, EventualExt};
-use thegraph::types::Address;
+use thegraph_core::Address;
 use tokio::time::sleep;
 use tracing::warn;
 

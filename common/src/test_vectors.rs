@@ -3,16 +3,18 @@
 
 use std::{collections::HashMap, str::FromStr};
 
-use alloy_sol_types::{eip712_domain, Eip712Domain};
-use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
-use ethers_core::types::U256;
+use alloy::{
+    dyn_abi::Eip712Domain,
+    primitives::U256,
+    signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
+    sol_types::eip712_domain,
+};
 use lazy_static::lazy_static;
 use tap_core::{
     receipt::{Receipt, SignedReceipt},
     signed_message::EIP712SignedMessage,
 };
-use thegraph::types::Address;
-use thegraph::types::DeploymentId;
+use thegraph_core::{Address, DeploymentId};
 
 use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
 
@@ -228,26 +230,26 @@ lazy_static! {
 
     /// Fixture to generate a wallet and address.
     /// Address: 0x9858EfFD232B4033E47d90003D41EC34EcaEda94
-    pub static ref TAP_SENDER: (LocalWallet, Address) = {
-        let wallet: LocalWallet = MnemonicBuilder::<English>::default()
+    pub static ref TAP_SENDER: (PrivateKeySigner, Address) = {
+        let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
             .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
             .build()
             .unwrap();
         let address = wallet.address();
 
-        (wallet, Address::from_slice(address.as_bytes()))
+        (wallet, address)
     };
 
     /// Fixture to generate a wallet and address.
     /// Address: 0x533661F0fb14d2E8B26223C86a610Dd7D2260892
-    pub static ref TAP_SIGNER: (LocalWallet, Address) = {
-        let wallet: LocalWallet = MnemonicBuilder::<English>::default()
+    pub static ref TAP_SIGNER: (PrivateKeySigner, Address) = {
+        let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
             .phrase("rude pipe parade travel organ vendor card festival magnet novel forget refuse keep draft tool")
             .build()
             .unwrap();
         let address = wallet.address();
 
-        (wallet, Address::from_slice(address.as_bytes()))
+        (wallet, address)
     };
 
     pub static ref TAP_EIP712_DOMAIN: Eip712Domain = eip712_domain! {

@@ -1,7 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_primitives::Address;
+use alloy::primitives::Address;
 use std::collections::{HashMap, HashSet};
 use tracing::error;
 
@@ -76,7 +76,7 @@ impl SenderFeeTracker {
 mod tests {
     use super::SenderFeeTracker;
     use std::str::FromStr;
-    use thegraph::types::Address;
+    use thegraph_core::Address;
 
     #[test]
     fn test_allocation_id_tracker() {

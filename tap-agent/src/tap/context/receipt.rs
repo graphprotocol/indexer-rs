@@ -7,14 +7,14 @@ use std::{
     str::FromStr,
 };
 
-use alloy_primitives::hex::ToHex;
+use alloy::hex::ToHexExt;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use sqlx::{postgres::types::PgRange, types::BigDecimal};
 use tap_core::{
     manager::adapters::{safe_truncate_receipts, ReceiptDelete, ReceiptRead},
     receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
 };
-use thegraph::types::Address;
+use thegraph_core::Address;
 
 use crate::tap::signers_trimmed;
 
@@ -98,7 +98,7 @@ impl ReceiptRead for TapAgentContext {
                 ORDER BY timestamp_ns ASC
                 LIMIT $4
             "#,
-            self.allocation_id.encode_hex::<String>(),
+            self.allocation_id.encode_hex(),
             &signers,
             rangebounds_to_pgrange(timestamp_range_ns),
             (receipts_limit + 1) as i64,
@@ -180,7 +180,7 @@ impl ReceiptDelete for TapAgentContext {
                 WHERE allocation_id = $1 AND signer_address IN (SELECT unnest($2::text[]))
                     AND $3::numrange @> timestamp_ns
             "#,
-            self.allocation_id.encode_hex::<String>(),
+            self.allocation_id.encode_hex(),
             &signers,
             rangebounds_to_pgrange(timestamp_ns)
         )
@@ -200,8 +200,8 @@ mod test {
             TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
+    use alloy::{primitives::U256, signers::local::PrivateKeySigner};
     use anyhow::Result;
-    use ethers_signers::LocalWallet;
     use eventuals::Eventual;
     use indexer_common::escrow_accounts::EscrowAccounts;
     use lazy_static::lazy_static;
@@ -209,7 +209,7 @@ mod test {
     use std::collections::HashMap;
 
     lazy_static! {
-        pub static ref SENDER_IRRELEVANT: (LocalWallet, Address) = wallet(1);
+        pub static ref SENDER_IRRELEVANT: (PrivateKeySigner, Address) = wallet(1);
         pub static ref ALLOCATION_ID_IRRELEVANT: Address =
             Address::from_str("0xbcdebcdebcdebcdebcdebcdebcdebcdebcdebcde").unwrap();
     }
@@ -219,7 +219,7 @@ mod test {
     #[sqlx::test(migrations = "../migrations")]
     async fn insert_and_retrieve_single_receipt(pgpool: PgPool) {
         let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
@@ -434,7 +434,7 @@ mod test {
     #[sqlx::test(migrations = "../migrations")]
     async fn retrieve_receipts_with_limit(pgpool: PgPool) {
         let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
@@ -502,7 +502,7 @@ mod test {
     #[sqlx::test(migrations = "../migrations")]
     async fn retrieve_receipts_in_timestamp_range(pgpool: PgPool) {
         let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
@@ -630,7 +630,7 @@ mod test {
     #[sqlx::test(migrations = "../migrations")]
     async fn remove_receipts_in_timestamp_range(pgpool: PgPool) {
         let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 

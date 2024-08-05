@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use tap_core::manager::adapters::EscrowHandler as EscrowAdapterTrait;
-use thegraph::types::Address;
+use thegraph_core::Address;
 
 use super::context::AdapterError;
 
@@ -96,6 +96,8 @@ impl EscrowAdapterTrait for EscrowAdapter {
 mod test {
     use std::{collections::HashMap, vec};
 
+    use alloy::primitives::U256;
+
     use crate::tap::test_utils::{SENDER, SIGNER};
 
     use super::*;
@@ -103,7 +105,7 @@ mod test {
     impl super::EscrowAdapter {
         pub fn mock() -> Self {
             let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
-                HashMap::from([(SENDER.1, 1000.into())]),
+                HashMap::from([(SENDER.1, U256::from(1000))]),
                 HashMap::from([(SENDER.1, vec![SIGNER.1])]),
             ));
             Self {
@@ -117,7 +119,7 @@ mod test {
     #[tokio::test]
     async fn test_subtract_escrow() {
         let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
@@ -142,7 +144,7 @@ mod test {
     #[tokio::test]
     async fn test_subtract_escrow_overflow() {
         let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 

@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use alloy_primitives::Address;
+use alloy::primitives::Address;
 use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt};
 use indexer_common::subgraph_client::{Query, SubgraphClient};

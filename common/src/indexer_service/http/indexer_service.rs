@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use alloy_sol_types::eip712_domain;
+use alloy::sol_types::eip712_domain;
 use anyhow;
 use autometrics::prometheus_exporter;
 use axum::extract::MatchedPath;
@@ -25,8 +25,7 @@ use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use tap_core::{manager::Manager, receipt::checks::CheckList};
-use thegraph::types::Address;
-use thegraph::types::{Attestation, DeploymentId};
+use thegraph_core::{Address, Attestation, DeploymentId};
 use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -238,7 +237,7 @@ impl IndexerService {
         let attestation_signers = attestation_signers(
             allocations.clone(),
             options.config.indexer.operator_mnemonic.clone(),
-            options.config.graph_network.chain_id.into(),
+            options.config.graph_network.chain_id,
             dispute_manager,
         );
 

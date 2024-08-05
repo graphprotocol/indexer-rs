@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::escrow_accounts::EscrowAccounts;
-use alloy_sol_types::Eip712Domain;
+use alloy::dyn_abi::Eip712Domain;
+use alloy::primitives::U256;
 use anyhow::anyhow;
-use ethers_core::types::U256;
 use eventuals::Eventual;
 use tap_core::receipt::{
     checks::{Check, CheckResult},
@@ -48,7 +48,7 @@ impl Check for SenderBalanceCheck {
         // `tap-agent`.
         if !escrow_accounts_snapshot
             .get_balance_for_sender(&receipt_sender)
-            .map_or(false, |balance| balance > U256::zero())
+            .map_or(false, |balance| balance > U256::ZERO)
         {
             return Err(anyhow!(
                 "Receipt sender `{}` does not have a sufficient balance",

@@ -8,8 +8,7 @@ use eventuals::Eventual;
 use reqwest::{header, Url};
 use serde::de::Deserialize;
 use serde_json::{Map, Value};
-use thegraph::types::DeploymentId;
-use thegraph_core::client::Client as GraphCoreSubgraphClient;
+use thegraph_core::{client::Client as GraphCoreSubgraphClient, DeploymentId};
 use thegraph_graphql_http::{
     graphql::{Document, IntoDocument},
     http::request::{IntoRequestParameters, RequestParameters},

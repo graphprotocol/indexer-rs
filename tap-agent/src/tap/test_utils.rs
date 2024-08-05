@@ -3,13 +3,16 @@
 
 use std::str::FromStr;
 
-use alloy_primitives::hex::ToHex;
+use alloy::{
+    primitives::hex::ToHexExt,
+    signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
+    sol_types::eip712_domain,
+};
 use bigdecimal::num_bigint::BigInt;
 
 use sqlx::types::BigDecimal;
 
-use alloy_sol_types::{eip712_domain, Eip712Domain};
-use ethers_signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
+use alloy::dyn_abi::Eip712Domain;
 use lazy_static::lazy_static;
 use sqlx::PgPool;
 use tap_core::{
@@ -17,17 +20,17 @@ use tap_core::{
     receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
     signed_message::EIP712SignedMessage,
 };
-use thegraph::types::Address;
+use thegraph_core::Address;
 
 lazy_static! {
     pub static ref ALLOCATION_ID_0: Address =
         Address::from_str("0xabababababababababababababababababababab").unwrap();
     pub static ref ALLOCATION_ID_1: Address =
         Address::from_str("0xbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc").unwrap();
-    pub static ref SENDER: (LocalWallet, Address) = wallet(0);
-    pub static ref SENDER_2: (LocalWallet, Address) = wallet(1);
-    pub static ref SIGNER: (LocalWallet, Address) = wallet(2);
-    pub static ref INDEXER: (LocalWallet, Address) = wallet(3);
+    pub static ref SENDER: (PrivateKeySigner, Address) = wallet(0);
+    pub static ref SENDER_2: (PrivateKeySigner, Address) = wallet(1);
+    pub static ref SIGNER: (PrivateKeySigner, Address) = wallet(2);
+    pub static ref INDEXER: (PrivateKeySigner, Address) = wallet(3);
     pub static ref TAP_EIP712_DOMAIN_SEPARATOR: Eip712Domain = eip712_domain! {
         name: "TAP",
         version: "1",
@@ -39,7 +42,7 @@ lazy_static! {
 /// Fixture to generate a RAV using the wallet from `keys()`
 pub fn create_rav(
     allocation_id: Address,
-    signer_wallet: LocalWallet,
+    signer_wallet: PrivateKeySigner,
     timestamp_ns: u64,
     value_aggregate: u128,
 ) -> SignedRAV {
@@ -59,7 +62,7 @@ pub fn create_rav(
 /// given `query_id` and `value`
 pub fn create_received_receipt(
     allocation_id: &Address,
-    signer_wallet: &LocalWallet,
+    signer_wallet: &PrivateKeySigner,
     nonce: u64,
     timestamp_ns: u64,
     value: u128,
@@ -79,7 +82,7 @@ pub fn create_received_receipt(
 }
 
 pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> anyhow::Result<u64> {
-    let encoded_signature = signed_receipt.signature.to_vec();
+    let encoded_signature = signed_receipt.signature.as_bytes().to_vec();
 
     let record = sqlx::query!(
         r#"
@@ -90,9 +93,9 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> a
         signed_receipt
             .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
             .unwrap()
-            .encode_hex::<String>(),
+            .encode_hex(),
         encoded_signature,
-        signed_receipt.message.allocation_id.encode_hex::<String>(),
+        signed_receipt.message.allocation_id.encode_hex(),
         BigDecimal::from(signed_receipt.message.timestamp_ns),
         BigDecimal::from(signed_receipt.message.nonce),
         BigDecimal::from(BigInt::from(signed_receipt.message.value)),
@@ -109,7 +112,7 @@ pub async fn store_invalid_receipt(
     pgpool: &PgPool,
     signed_receipt: &SignedReceipt,
 ) -> anyhow::Result<u64> {
-    let encoded_signature = signed_receipt.signature.to_vec();
+    let encoded_signature = signed_receipt.signature.as_bytes().to_vec();
 
     let record = sqlx::query!(
         r#"
@@ -120,9 +123,9 @@ pub async fn store_invalid_receipt(
         signed_receipt
             .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
             .unwrap()
-            .encode_hex::<String>(),
+            .encode_hex(),
         encoded_signature,
-        signed_receipt.message.allocation_id.encode_hex::<String>(),
+        signed_receipt.message.allocation_id.encode_hex(),
         BigDecimal::from(signed_receipt.message.timestamp_ns),
         BigDecimal::from(signed_receipt.message.nonce),
         BigDecimal::from(BigInt::from(signed_receipt.message.value)),
@@ -136,15 +139,15 @@ pub async fn store_invalid_receipt(
 }
 
 /// Fixture to generate a wallet and address
-pub fn wallet(index: u32) -> (LocalWallet, Address) {
-    let wallet: LocalWallet = MnemonicBuilder::<English>::default()
+pub fn wallet(index: u32) -> (PrivateKeySigner, Address) {
+    let wallet: PrivateKeySigner= MnemonicBuilder::<English>::default()
         .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
         .index(index)
         .unwrap()
         .build()
         .unwrap();
     let address = wallet.address();
-    (wallet, Address::from_slice(address.as_bytes()))
+    (wallet, address)
 }
 
 pub async fn store_rav(
@@ -162,16 +165,16 @@ pub async fn store_rav_with_options(
     last: bool,
     final_rav: bool,
 ) -> anyhow::Result<()> {
-    let signature_bytes = signed_rav.signature.to_vec();
+    let signature_bytes = signed_rav.signature.as_bytes().to_vec();
 
     let _fut = sqlx::query!(
         r#"
             INSERT INTO scalar_tap_ravs (sender_address, signature, allocation_id, timestamp_ns, value_aggregate, last, final)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
-        sender.encode_hex::<String>(),
+        sender.encode_hex(),
         signature_bytes,
-        signed_rav.message.allocationId.encode_hex::<String>(),
+        signed_rav.message.allocationId.encode_hex(),
         BigDecimal::from(signed_rav.message.timestampNs),
         BigDecimal::from(BigInt::from(signed_rav.message.valueAggregate)),
         last,

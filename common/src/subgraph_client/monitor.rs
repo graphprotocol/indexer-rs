@@ -7,7 +7,7 @@ use eventuals::{timer, Eventual, EventualExt};
 use reqwest::Url;
 use serde::Deserialize;
 use serde_json::json;
-use thegraph::types::DeploymentId;
+use thegraph_core::DeploymentId;
 use thegraph_graphql_http::{
     http::request::IntoRequestParameters,
     http_client::{ReqwestExt, ResponseResult},
