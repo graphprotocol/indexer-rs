@@ -522,7 +522,7 @@ impl SenderAllocationState {
         if let Some(warnings) = response.warnings {
             warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
         }
-
+        let expected_rav = expected_rav?;
         match self
             .tap_manager
             .verify_and_store_rav(expected_rav.clone(), response.data.clone())
