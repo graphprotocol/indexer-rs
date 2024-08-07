@@ -44,25 +44,25 @@ use crate::{
 
 lazy_static! {
     static ref CLOSED_SENDER_ALLOCATIONS: CounterVec = register_counter_vec!(
-        "tap_agent_closed_sender_allocation",
+        "tap_closed_sender_allocation_total",
         "Count of sender-allocation managers closed since the start of the program",
         &["sender"]
     )
     .unwrap();
     static ref RAVS_CREATED: CounterVec = register_counter_vec!(
-        "tap_agent_ravs_created",
+        "tap_ravs_created_total",
         "RAVs updated or created per sender allocation since the start of the program",
         &["sender", "allocation"]
     )
     .unwrap();
     static ref RAVS_FAILED: CounterVec = register_counter_vec!(
-        "tap_agent_ravs_failed",
+        "tap_ravs_failed_total",
         "RAV requests failed since the start of the program",
         &["sender", "allocation"]
     )
     .unwrap();
     static ref RAV_RESPONSE_TIME: HistogramVec = register_histogram_vec!(
-        "tap_agent_rav_response_time",
+        "tap_rav_response_time_seconds",
         "RAV response time per sender",
         &["sender"]
     )

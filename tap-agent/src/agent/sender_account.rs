@@ -3,7 +3,7 @@
 
 use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
-use prometheus::{register_gauge_vec, GaugeVec};
+use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::time::Duration;
@@ -34,35 +34,35 @@ use crate::{
 use lazy_static::lazy_static;
 
 lazy_static! {
-    static ref SENDER_DENIED: GaugeVec =
-        register_gauge_vec!("tap_agent_sender_denied", "Sender is denied", &["sender"]).unwrap();
+    static ref SENDER_DENIED: IntGaugeVec =
+        register_int_gauge_vec!("tap_sender_denied", "Sender is denied", &["sender"]).unwrap();
     static ref ESCROW_BALANCE: GaugeVec = register_gauge_vec!(
-        "tap_agent_sender_escrow_balance",
+        "tap_sender_escrow_balance_grt_total",
         "Sender escrow balance",
         &["sender"]
     )
     .unwrap();
     static ref UNAGGREGATED_FEES: GaugeVec = register_gauge_vec!(
-        "tap_agent_unaggregated_fees",
+        "tap_unaggregated_fees_grt_total",
         "Unggregated Fees value",
         &["sender", "allocation"]
     )
     .unwrap();
     static ref INVALID_RECEIPT_FEES: GaugeVec = register_gauge_vec!(
-        "tap_agent_invalid_receipt_fees",
+        "tap_invalid_receipt_fees_grt_total",
         "Failed receipt fees",
         &["sender", "allocation"]
     )
     .unwrap();
-    static ref PENDING_RAVS: GaugeVec = register_gauge_vec!(
-        "tap_agent_pending_ravs",
+    static ref PENDING_RAV: GaugeVec = register_gauge_vec!(
+        "tap_pending_rav_grt_total",
         "Pending ravs values",
         &["sender", "allocation"]
     )
     .unwrap();
     static ref MAX_FEE_PER_SENDER: GaugeVec = register_gauge_vec!(
-        "tap_agent_max_fee_per_sender",
-        "Pending ravs values",
+        "tap_max_fee_per_sender_grt_total",
+        "Max fee per sender in the config",
         &["sender"]
     )
     .unwrap();
@@ -206,7 +206,7 @@ impl State {
         let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
         // update rav tracker
         self.rav_tracker.update(allocation_id, rav_value);
-        PENDING_RAVS
+        PENDING_RAV
             .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
             .set(rav_value as f64);
 
@@ -260,7 +260,7 @@ impl State {
         self.denied = true;
         SENDER_DENIED
             .with_label_values(&[&self.sender.to_string()])
-            .set(1f64);
+            .set(1);
     }
 
     /// Will update [`State::denied`], as well as the denylist table in the database.
@@ -286,7 +286,7 @@ impl State {
 
         SENDER_DENIED
             .with_label_values(&[&self.sender.to_string()])
-            .set(0f64);
+            .set(0);
     }
 }
 
@@ -464,7 +464,7 @@ impl Actor for SenderAccount {
 
         SENDER_DENIED
             .with_label_values(&[&sender_id.to_string()])
-            .set(denied as u32 as f64);
+            .set(denied as i64);
 
         MAX_FEE_PER_SENDER
             .with_label_values(&[&sender_id.to_string()])
@@ -524,7 +524,7 @@ impl Actor for SenderAccount {
                     .rav_tracker
                     .update(rav.message.allocationId, rav.message.valueAggregate);
 
-                PENDING_RAVS
+                PENDING_RAV
                     .with_label_values(&[
                         &state.sender.to_string(),
                         &rav.message.allocationId.to_string(),
@@ -678,14 +678,16 @@ impl Actor for SenderAccount {
                     // if it's being tracked and we didn't receive any update from the non_final_last_ravs
                     // remove from the tracker
                     state.rav_tracker.update(*allocation_id, 0);
-                    PENDING_RAVS
-                        .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
-                        .set(0f64);
+
+                    let _ = PENDING_RAV.remove_label_values(&[
+                        &state.sender.to_string(),
+                        &allocation_id.to_string(),
+                    ]);
                 }
 
                 for (allocation_id, value) in non_final_last_ravs {
                     state.rav_tracker.update(allocation_id, value);
-                    PENDING_RAVS
+                    PENDING_RAV
                         .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
                         .set(value as f64);
                 }
