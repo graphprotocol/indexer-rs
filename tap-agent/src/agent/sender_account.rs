@@ -60,6 +60,12 @@ lazy_static! {
         &["sender", "allocation"]
     )
     .unwrap();
+    static ref MAX_FEE_PER_SENDER: GaugeVec = register_gauge_vec!(
+        "tap_agent_max_fee_per_sender",
+        "Pending ravs values",
+        &["sender"]
+    )
+    .unwrap();
 }
 
 type RavMap = HashMap<Address, u128>;
@@ -459,6 +465,10 @@ impl Actor for SenderAccount {
         SENDER_DENIED
             .with_label_values(&[&sender_id.to_string()])
             .set(denied as u32 as f64);
+
+        MAX_FEE_PER_SENDER
+            .with_label_values(&[&sender_id.to_string()])
+            .set(config.tap.max_unnaggregated_fees_per_sender as f64);
 
         let state = State {
             sender_fee_tracker: SenderFeeTracker::default(),
