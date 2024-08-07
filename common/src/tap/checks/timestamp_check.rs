@@ -44,12 +44,12 @@ impl Check for TimestampCheck {
 mod tests {
     use std::str::FromStr;
 
-    use alloy_primitives::Address;
-    use alloy_sol_types::eip712_domain;
-    use alloy_sol_types::Eip712Domain;
-
-    use ethers::signers::coins_bip39::English;
-    use ethers::signers::{LocalWallet, MnemonicBuilder};
+    use alloy::{
+        dyn_abi::Eip712Domain,
+        primitives::Address,
+        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
+        sol_types::eip712_domain,
+    };
 
     use super::*;
     use tap_core::{
@@ -61,7 +61,7 @@ mod tests {
         timestamp_ns: u64,
     ) -> ReceiptWithState<Checking> {
         let index: u32 = 0;
-        let wallet: LocalWallet = MnemonicBuilder::<English>::default()
+        let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
             .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
             .index(index)
             .unwrap()

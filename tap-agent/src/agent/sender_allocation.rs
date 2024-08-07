@@ -6,8 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy_primitives::hex::ToHex;
-use alloy_sol_types::Eip712Domain;
+use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt};
 use anyhow::{anyhow, ensure, Result};
 use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
@@ -27,7 +26,7 @@ use tap_core::{
     },
     signed_message::EIP712SignedMessage,
 };
-use thegraph::types::Address;
+use thegraph_core::Address;
 use tracing::{error, warn};
 
 use crate::{agent::sender_account::ReceiptFees, lazy_static};
@@ -356,8 +355,8 @@ impl SenderAllocationState {
                         rav
                 ) ELSE TRUE END
             "#,
-            self.allocation_id.encode_hex::<String>(),
-            self.sender.encode_hex::<String>(),
+            self.allocation_id.encode_hex(),
+            self.sender.encode_hex(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -394,7 +393,7 @@ impl SenderAllocationState {
                 allocation_id = $1
                 AND signer_address IN (SELECT unnest($2::text[]))
             "#,
-            self.allocation_id.encode_hex::<String>(),
+            self.allocation_id.encode_hex(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -477,6 +476,45 @@ impl SenderAllocationState {
                 ),
                 _ => e.into(),
             })?;
+
+        // store invalid receipts and if all are invalid remove them
+        if !invalid_receipts.is_empty() {
+            warn!(
+                "Found {} invalid receipts for allocation {} and sender {}.",
+                invalid_receipts.len(),
+                self.allocation_id,
+                self.sender
+            );
+
+            // Save invalid receipts to the database for logs.
+            // TODO: consider doing that in a spawned task?
+            self.store_invalid_receipts(invalid_receipts.as_slice())
+                .await?;
+            if valid_receipts.is_empty() {
+                let min_timestamp = invalid_receipts
+                    .first()
+                    .expect("There should be atleast one receipt")
+                    .signed_receipt()
+                    .message
+                    .timestamp_ns;
+                let max_timestamp = invalid_receipts
+                    .last()
+                    .expect("There should be atleast one receipt")
+                    .signed_receipt()
+                    .message
+                    .timestamp_ns;
+                sqlx::query!(
+                    r#"
+                        DELETE FROM scalar_tap_receipts
+                        WHERE timestamp_ns BETWEEN $1 AND $2;
+                    "#,
+                    BigDecimal::from(min_timestamp),
+                    BigDecimal::from(max_timestamp)
+                )
+                .execute(&self.pgpool)
+                .await?;
+            }
+        }
         let valid_receipts: Vec<_> = valid_receipts
             .into_iter()
             .map(|r| r.signed_receipt().clone())
@@ -499,27 +537,10 @@ impl SenderAllocationState {
             .with_label_values(&[&self.sender.to_string()])
             .observe(rav_response_time.as_secs_f64());
 
-        // we only save invalid receipts when we are about to store our rav
-        //
-        // store them before we call remove_obsolete_receipts()
-        if !invalid_receipts.is_empty() {
-            warn!(
-                "Found {} invalid receipts for allocation {} and sender {}.",
-                invalid_receipts.len(),
-                self.allocation_id,
-                self.sender
-            );
-
-            // Save invalid receipts to the database for logs.
-            // TODO: consider doing that in a spawned task?
-            self.store_invalid_receipts(invalid_receipts.as_slice())
-                .await?;
-        }
-
         if let Some(warnings) = response.warnings {
             warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
         }
-
+        let expected_rav = expected_rav?;
         match self
             .tap_manager
             .verify_and_store_rav(expected_rav.clone(), response.data.clone())
@@ -567,8 +588,8 @@ impl SenderAllocationState {
                         SET last = true
                         WHERE allocation_id = $1 AND sender_address = $2
                     "#,
-            self.allocation_id.encode_hex::<String>(),
-            self.sender.encode_hex::<String>(),
+            self.allocation_id.encode_hex(),
+            self.sender.encode_hex(),
         )
         .execute(&self.pgpool)
         .await?;
@@ -598,7 +619,7 @@ impl SenderAllocationState {
         for received_receipt in receipts.iter() {
             let receipt = received_receipt.signed_receipt();
             let allocation_id = receipt.message.allocation_id;
-            let encoded_signature = receipt.signature.to_vec();
+            let encoded_signature = receipt.signature.as_bytes().to_vec();
 
             let receipt_signer = receipt
                 .recover_signer(&self.domain_separator)
@@ -619,9 +640,9 @@ impl SenderAllocationState {
                     )
                     VALUES ($1, $2, $3, $4, $5, $6)
                 "#,
-                receipt_signer.encode_hex::<String>(),
+                receipt_signer.encode_hex(),
                 encoded_signature,
-                allocation_id.encode_hex::<String>(),
+                allocation_id.encode_hex(),
                 BigDecimal::from(receipt.message.timestamp_ns),
                 BigDecimal::from(receipt.message.nonce),
                 BigDecimal::from(BigInt::from(receipt.message.value)),
@@ -675,8 +696,8 @@ impl SenderAllocationState {
                 )
                 VALUES ($1, $2, $3, $4, $5)
             "#,
-            self.allocation_id.encode_hex::<String>(),
-            self.sender.encode_hex::<String>(),
+            self.allocation_id.encode_hex(),
+            self.sender.encode_hex(),
             serde_json::to_value(expected_rav)?,
             serde_json::to_value(rav)?,
             reason
@@ -719,11 +740,13 @@ pub mod tests {
     use ractor::{
         call, cast, concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef, ActorStatus,
     };
+    use ruint::aliases::U256;
     use serde_json::json;
     use sqlx::PgPool;
     use std::{
         collections::HashMap,
         sync::{Arc, Mutex},
+        time::{SystemTime, UNIX_EPOCH},
     };
     use tap_aggregator::{jsonrpsee_helpers::JsonRpcResponse, server::run_server};
     use tap_core::receipt::{
@@ -814,7 +837,7 @@ pub mod tests {
         )));
 
         let escrow_accounts_eventual = Eventual::from_value(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 
@@ -1379,5 +1402,119 @@ pub mod tests {
 
         // Check that the unaggregated fees return the same value
         assert_eq!(total_unaggregated_fees.value, 45u128);
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_all_invalid_receipts(pgpool: PgPool) {
+        // Start a TAP aggregator server.
+        let (_handle, aggregator_endpoint) = run_server(
+            0,
+            SIGNER.0.clone(),
+            vec![SIGNER.1].into_iter().collect(),
+            TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+            100 * 1024,
+            100 * 1024,
+            1,
+        )
+        .await
+        .unwrap();
+
+        // Start a mock graphql server using wiremock
+        let mock_server = MockServer::start().await;
+
+        // Mock result for TAP redeem txs for (allocation, sender) pair.
+        mock_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("transactions"))
+                    .respond_with(
+                        ResponseTemplate::new(200)
+                            .set_body_json(json!({ "data": { "transactions": []}})),
+                    ),
+            )
+            .await;
+
+        let invalid_receipts_at_start = sqlx::query!(
+            r#"
+                SELECT * FROM scalar_tap_receipts_invalid;
+            "#,
+        )
+        .fetch_all(&pgpool)
+        .await
+        .expect("Should not fail to fetch from scalar_tap_receipts_invalid");
+
+        //No receipts should be found at this point
+        assert!(invalid_receipts_at_start.is_empty());
+
+        // Add receipts to the database.
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_nanos() as u64
+            - 10000;
+        for i in 0..10 {
+            let receipt = create_received_receipt(
+                &ALLOCATION_ID_0,
+                &SIGNER.0,
+                i,
+                timestamp,
+                1622018441284756158,
+            );
+            store_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
+        // Verify scalar_tap_receipts have receipts in it
+        let all_receipts = sqlx::query!(
+            r#"
+                SELECT * FROM scalar_tap_receipts;
+            "#,
+        )
+        .fetch_all(&pgpool)
+        .await
+        .expect("Should not fail to fetch from scalar_tap_receipts");
+
+        // Invalid receipts should be found inside the table
+        assert_eq!(all_receipts.len(), 10);
+
+        let sender_allocation = create_sender_allocation(
+            pgpool.clone(),
+            "http://".to_owned() + &aggregator_endpoint.to_string(),
+            &mock_server.uri(),
+            None,
+        )
+        .await;
+        // Trigger a RAV request manually and wait for updated fees.
+        // this should fail because there's no receipt with valid timestamp
+        let (_total_unaggregated_fees, _rav) = call!(
+            sender_allocation,
+            SenderAllocationMessage::TriggerRAVRequest
+        )
+        .unwrap();
+
+        let invalid_receipts = sqlx::query!(
+            r#"
+                SELECT * FROM scalar_tap_receipts_invalid;
+            "#,
+        )
+        .fetch_all(&pgpool)
+        .await
+        .expect("Should not fail to fetch from scalar_tap_receipts_invalid");
+
+        // Invalid receipts should be found inside the table
+        assert!(!invalid_receipts.is_empty());
+
+        // make sure scalar_tap_receipts gets emptied
+        let all_receipts = sqlx::query!(
+            r#"
+                SELECT * FROM scalar_tap_receipts;
+            "#,
+        )
+        .fetch_all(&pgpool)
+        .await
+        .expect("Should not fail to fetch from scalar_tap_receipts");
+
+        // Invalid receipts should be found inside the table
+        assert!(all_receipts.is_empty());
     }
 }

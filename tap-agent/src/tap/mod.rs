@@ -1,11 +1,11 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_primitives::hex::ToHex;
+use alloy::hex::ToHexExt;
 use anyhow::anyhow;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
-use thegraph::types::Address;
+use thegraph_core::Address;
 
 pub mod context;
 pub mod escrow_adapter;
@@ -23,7 +23,7 @@ pub async fn signers_trimmed(
         .map_err(|e| anyhow!("Error while getting escrow accounts: {:?}", e))?
         .get_signers_for_sender(&sender)
         .iter()
-        .map(|s| s.encode_hex::<String>())
+        .map(|s| s.encode_hex())
         .collect::<Vec<String>>();
 
     Ok(signers)

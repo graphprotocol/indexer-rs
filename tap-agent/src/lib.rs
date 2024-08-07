@@ -1,7 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_sol_types::{eip712_domain, Eip712Domain};
+use alloy::{dyn_abi::Eip712Domain, sol_types::eip712_domain};
 use lazy_static::lazy_static;
 
 use crate::config::Config;

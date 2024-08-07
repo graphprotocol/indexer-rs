@@ -4,7 +4,7 @@
 use anyhow::Error;
 use axum::response::{IntoResponse, Response};
 use reqwest::StatusCode;
-use thegraph::types::DeploymentId;
+use thegraph_core::DeploymentId;
 use thiserror::Error;
 
 #[derive(Debug, Error)]

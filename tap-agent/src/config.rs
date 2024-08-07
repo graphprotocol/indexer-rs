@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::{collections::HashMap, str::FromStr};
 
 use anyhow::Result;
-use thegraph::types::{Address, DeploymentId};
+use thegraph_core::{Address, DeploymentId};
 use tracing::subscriber::{set_global_default, SetGlobalDefaultError};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 

@@ -35,7 +35,9 @@ sqlx = { version = "0.7.1", features = [
     "time",
 ] }
 lazy_static = "1.4.0"
-thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
+thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "85ee00b", features = [
+    "subgraph-client",
+] }
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0" }
 thegraph-graphql-http = { version = "0.2.0", features = [
     "http-client-reqwest",
