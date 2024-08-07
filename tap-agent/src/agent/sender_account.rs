@@ -1023,16 +1023,18 @@ pub mod tests {
     }
 
     impl MockSenderAllocation {
-        pub fn new_with_triggered_rav_request() -> (Self, Arc<AtomicU32>) {
+        pub fn new_with_triggered_rav_request() -> (Self, Arc<AtomicU32>, Arc<Mutex<u128>>) {
             let triggered_rav_request = Arc::new(AtomicU32::new(0));
+            let unaggregated_fees = Arc::new(Mutex::new(0));
             (
                 Self {
                     triggered_rav_request: triggered_rav_request.clone(),
                     receipts: Arc::new(Mutex::new(Vec::new())),
                     next_rav_value: Arc::new(Mutex::new(0)),
-                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
+                    next_unaggregated_fees_value: unaggregated_fees.clone(),
                 },
                 triggered_rav_request,
+                unaggregated_fees,
             )
         }
 
@@ -1129,10 +1131,11 @@ pub mod tests {
         allocation: Address,
     ) -> (
         Arc<AtomicU32>,
+        Arc<Mutex<u128>>,
         ActorRef<SenderAllocationMessage>,
         JoinHandle<()>,
     ) {
-        let (mock_sender_allocation, triggered_rav_request) =
+        let (mock_sender_allocation, triggered_rav_request, next_unaggregated_fees) =
             MockSenderAllocation::new_with_triggered_rav_request();
 
         let name = format!("{}:{}:{}", prefix, sender, allocation);
@@ -1140,7 +1143,12 @@ pub mod tests {
             MockSenderAllocation::spawn(Some(name), mock_sender_allocation, ())
                 .await
                 .unwrap();
-        (triggered_rav_request, sender_account, join_handle)
+        (
+            triggered_rav_request,
+            next_unaggregated_fees,
+            sender_account,
+            join_handle,
+        )
     }
 
     #[sqlx::test(migrations = "../migrations")]
@@ -1154,7 +1162,7 @@ pub mod tests {
         )
         .await;
 
-        let (triggered_rav_request, allocation, allocation_handle) =
+        let (triggered_rav_request, _, allocation, allocation_handle) =
             create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
 
         // create a fake sender allocation
@@ -1193,7 +1201,7 @@ pub mod tests {
         )
         .await;
 
-        let (triggered_rav_request, allocation, allocation_handle) =
+        let (triggered_rav_request, _, allocation, allocation_handle) =
             create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
 
         // create a fake sender allocation
@@ -1301,13 +1309,14 @@ pub mod tests {
         )
         .await;
 
-        let (triggered_rav_request, allocation, allocation_handle) =
+        let (triggered_rav_request, next_value, allocation, allocation_handle) =
             create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
 
         assert_eq!(
             triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
             0
         );
+        *next_value.lock().unwrap() = TRIGGER_VALUE;
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
@@ -1317,7 +1326,7 @@ pub mod tests {
                 }),
             ))
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let retry_value = triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst);
         assert!(retry_value > 1, "It didn't retry more than once");
