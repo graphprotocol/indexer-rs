@@ -13,10 +13,7 @@ use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
-use prometheus::{
-    register_counter_vec, register_gauge_vec, register_histogram_vec, CounterVec, GaugeVec,
-    HistogramVec,
-};
+use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
@@ -46,18 +43,6 @@ use crate::{
 };
 
 lazy_static! {
-    static ref UNAGGREGATED_FEES: GaugeVec = register_gauge_vec!(
-        "tap_agent_unaggregated_fees",
-        "Unggregated Fees value",
-        &["sender", "allocation"]
-    )
-    .unwrap();
-    static ref RAV_VALUE: GaugeVec = register_gauge_vec!(
-        "tap_agent_rav_value",
-        "Value of the last RAV",
-        &["sender", "allocation"]
-    )
-    .unwrap();
     static ref CLOSED_SENDER_ALLOCATIONS: CounterVec = register_counter_vec!(
         "tap_agent_closed_sender_allocation",
         "Count of sender-allocation managers closed since the start of the program",
@@ -152,9 +137,6 @@ impl Actor for SenderAllocation {
 
         // update unaggregated_fees
         state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
-        UNAGGREGATED_FEES
-            .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
-            .set(state.unaggregated_fees.value as f64);
 
         sender_account_ref.cast(SenderAccountMessage::UpdateReceiptFees(
             allocation_id,
@@ -164,10 +146,6 @@ impl Actor for SenderAllocation {
         // update rav tracker for sender account
         if let Some(rav) = &state.latest_rav {
             sender_account_ref.cast(SenderAccountMessage::UpdateRav(rav.clone()))?;
-
-            RAV_VALUE
-                .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
-                .set(rav.message.valueAggregate as f64);
         }
 
         tracing::info!(
@@ -244,12 +222,6 @@ impl Actor for SenderAllocation {
                         );
                             u128::MAX
                         });
-                    UNAGGREGATED_FEES
-                        .with_label_values(&[
-                            &state.sender.to_string(),
-                            &state.allocation_id.to_string(),
-                        ])
-                        .set(unaggregated_fees.value as f64);
                     // it's fine to crash the actor, could not send a message to its parent
                     state
                         .sender_account_ref
@@ -450,19 +422,7 @@ impl SenderAllocationState {
             match self.rav_requester_single().await {
                 Ok(rav) => {
                     self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
-                    RAV_VALUE
-                        .with_label_values(&[
-                            &self.sender.to_string(),
-                            &self.allocation_id.to_string(),
-                        ])
-                        .set(rav.message.valueAggregate as f64);
                     self.latest_rav = Some(rav);
-                    UNAGGREGATED_FEES
-                        .with_label_values(&[
-                            &self.sender.to_string(),
-                            &self.allocation_id.to_string(),
-                        ])
-                        .set(self.unaggregated_fees.value as f64);
                     RAVS_CREATED
                         .with_label_values(&[
                             &self.sender.to_string(),

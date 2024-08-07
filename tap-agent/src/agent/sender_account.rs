@@ -42,6 +42,24 @@ lazy_static! {
         &["sender"]
     )
     .unwrap();
+    static ref UNAGGREGATED_FEES: GaugeVec = register_gauge_vec!(
+        "tap_agent_unaggregated_fees",
+        "Unggregated Fees value",
+        &["sender", "allocation"]
+    )
+    .unwrap();
+    static ref INVALID_RECEIPT_FEES: GaugeVec = register_gauge_vec!(
+        "tap_agent_invalid_receipt_fees",
+        "Failed receipt fees",
+        &["sender", "allocation"]
+    )
+    .unwrap();
+    static ref PENDING_RAVS: GaugeVec = register_gauge_vec!(
+        "tap_agent_pending_ravs",
+        "Pending ravs values",
+        &["sender", "allocation"]
+    )
+    .unwrap();
 }
 
 type RavMap = HashMap<Address, u128>;
@@ -179,14 +197,18 @@ impl State {
             anyhow::bail!("Error while sending and waiting message for actor {allocation_id}");
         };
 
+        let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
         // update rav tracker
-        self.rav_tracker.update(
-            allocation_id,
-            rav.map_or(0, |rav| rav.message.valueAggregate),
-        );
+        self.rav_tracker.update(allocation_id, rav_value);
+        PENDING_RAVS
+            .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
+            .set(rav_value as f64);
 
         // update sender fee tracker
         self.sender_fee_tracker.update(allocation_id, fees.value);
+        UNAGGREGATED_FEES
+            .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
+            .set(fees.value as f64);
         Ok(())
     }
 
@@ -491,12 +513,24 @@ impl Actor for SenderAccount {
                 state
                     .rav_tracker
                     .update(rav.message.allocationId, rav.message.valueAggregate);
+
+                PENDING_RAVS
+                    .with_label_values(&[
+                        &state.sender.to_string(),
+                        &rav.message.allocationId.to_string(),
+                    ])
+                    .set(rav.message.valueAggregate as f64);
+
                 let should_deny = !state.denied && state.deny_condition_reached();
                 if should_deny {
                     state.add_to_denylist().await;
                 }
             }
             SenderAccountMessage::UpdateInvalidReceiptFees(allocation_id, unaggregated_fees) => {
+                INVALID_RECEIPT_FEES
+                    .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
+                    .set(unaggregated_fees.value as f64);
+
                 state
                     .invalid_receipts_tracker
                     .update(allocation_id, unaggregated_fees.value);
@@ -508,6 +542,10 @@ impl Actor for SenderAccount {
                 }
             }
             SenderAccountMessage::UpdateReceiptFees(allocation_id, unaggregated_fees) => {
+                UNAGGREGATED_FEES
+                    .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
+                    .set(unaggregated_fees.value as f64);
+
                 // If we're here because of a new receipt, abort any scheduled UpdateReceiptFees
                 if let Some(scheduled_rav_request) = state.scheduled_rav_request.take() {
                     scheduled_rav_request.abort();
@@ -630,10 +668,16 @@ impl Actor for SenderAccount {
                     // if it's being tracked and we didn't receive any update from the non_final_last_ravs
                     // remove from the tracker
                     state.rav_tracker.update(*allocation_id, 0);
+                    PENDING_RAVS
+                        .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
+                        .set(0f64);
                 }
 
                 for (allocation_id, value) in non_final_last_ravs {
                     state.rav_tracker.update(allocation_id, value);
+                    PENDING_RAVS
+                        .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
+                        .set(value as f64);
                 }
                 // now that balance and rav tracker is updated, check
                 match (state.denied, state.deny_condition_reached()) {
