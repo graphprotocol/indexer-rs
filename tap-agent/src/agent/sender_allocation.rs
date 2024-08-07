@@ -14,8 +14,8 @@ use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
 use prometheus::{
-    register_counter, register_counter_vec, register_gauge_vec, register_histogram_vec, Counter,
-    CounterVec, GaugeVec, HistogramVec,
+    register_counter_vec, register_gauge_vec, register_histogram_vec, CounterVec, GaugeVec,
+    HistogramVec,
 };
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use sqlx::{types::BigDecimal, PgPool};
@@ -47,51 +47,37 @@ use crate::{
 
 lazy_static! {
     static ref UNAGGREGATED_FEES: GaugeVec = register_gauge_vec!(
-        format!("unaggregated_fees"),
+        "tap_agent_unaggregated_fees",
         "Unggregated Fees value",
         &["sender", "allocation"]
     )
     .unwrap();
-}
-
-lazy_static! {
     static ref RAV_VALUE: GaugeVec = register_gauge_vec!(
-        format!("rav_value"),
+        "tap_agent_rav_value",
         "Value of the last RAV",
         &["sender", "allocation"]
     )
     .unwrap();
-}
-
-lazy_static! {
-    static ref CLOSED_SENDER_ALLOCATIONS: Counter = register_counter!(
-        format!("closed_sender_allocation"),
+    static ref CLOSED_SENDER_ALLOCATIONS: CounterVec = register_counter_vec!(
+        "tap_agent_closed_sender_allocation",
         "Count of sender-allocation managers closed since the start of the program",
+        &["sender"]
     )
     .unwrap();
-}
-
-lazy_static! {
     static ref RAVS_CREATED: CounterVec = register_counter_vec!(
-        format!("ravs_created"),
+        "tap_agent_ravs_created",
         "RAVs updated or created per sender allocation since the start of the program",
         &["sender", "allocation"]
     )
     .unwrap();
-}
-
-lazy_static! {
     static ref RAVS_FAILED: CounterVec = register_counter_vec!(
-        format!("ravs_failed"),
+        "tap_agent_ravs_failed",
         "RAV requests failed since the start of the program",
         &["sender", "allocation"]
     )
     .unwrap();
-}
-
-lazy_static! {
     static ref RAV_RESPONSE_TIME: HistogramVec = register_histogram_vec!(
-        format!("rav_response_time"),
+        "tap_agent_rav_response_time",
         "RAV response time per sender",
         &["sender"]
     )
@@ -166,14 +152,14 @@ impl Actor for SenderAllocation {
 
         // update unaggregated_fees
         state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
+        UNAGGREGATED_FEES
+            .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
+            .set(state.unaggregated_fees.value as f64);
+
         sender_account_ref.cast(SenderAccountMessage::UpdateReceiptFees(
             allocation_id,
             state.unaggregated_fees.clone(),
         ))?;
-
-        UNAGGREGATED_FEES
-            .with_label_values(&[&state.sender.to_string(), &state.allocation_id.to_string()])
-            .set(state.unaggregated_fees.value as f64);
 
         // update rav tracker for sender account
         if let Some(rav) = &state.latest_rav {
@@ -219,7 +205,9 @@ impl Actor for SenderAllocation {
         }
 
         // Since this is only triggered after allocation is closed will be counted here
-        CLOSED_SENDER_ALLOCATIONS.inc();
+        CLOSED_SENDER_ALLOCATIONS
+            .with_label_values(&[&state.sender.to_string()])
+            .inc();
 
         Ok(())
     }
@@ -236,39 +224,40 @@ impl Actor for SenderAllocation {
             ?message,
             "New SenderAllocation message"
         );
-        let unaggreated_fees = &mut state.unaggregated_fees;
+        let unaggregated_fees = &mut state.unaggregated_fees;
         match message {
             SenderAllocationMessage::NewReceipt(NewReceiptNotification {
                 id, value: fees, ..
             }) => {
-                if id > unaggreated_fees.last_id {
-                    unaggreated_fees.last_id = id;
-                    unaggreated_fees.value =
-                        unaggreated_fees.value.checked_add(fees).unwrap_or_else(|| {
+                if id > unaggregated_fees.last_id {
+                    unaggregated_fees.last_id = id;
+                    unaggregated_fees.value = unaggregated_fees
+                        .value
+                        .checked_add(fees)
+                        .unwrap_or_else(|| {
                             // This should never happen, but if it does, we want to know about it.
                             error!(
                             "Overflow when adding receipt value {} to total unaggregated fees {} \
                             for allocation {} and sender {}. Setting total unaggregated fees to \
                             u128::MAX.",
-                            fees, unaggreated_fees.value, state.allocation_id, state.sender
+                            fees, unaggregated_fees.value, state.allocation_id, state.sender
                         );
                             u128::MAX
                         });
+                    UNAGGREGATED_FEES
+                        .with_label_values(&[
+                            &state.sender.to_string(),
+                            &state.allocation_id.to_string(),
+                        ])
+                        .set(unaggregated_fees.value as f64);
                     // it's fine to crash the actor, could not send a message to its parent
                     state
                         .sender_account_ref
                         .cast(SenderAccountMessage::UpdateReceiptFees(
                             state.allocation_id,
-                            unaggreated_fees.clone(),
+                            unaggregated_fees.clone(),
                         ))?;
                 }
-
-                UNAGGREGATED_FEES
-                    .with_label_values(&[
-                        &state.sender.to_string(),
-                        &state.allocation_id.to_string(),
-                    ])
-                    .set(state.unaggregated_fees.value as f64);
             }
             // we use a blocking call here to ensure that only one RAV request is running at a time.
             SenderAllocationMessage::TriggerRAVRequest(reply) => {
@@ -285,7 +274,7 @@ impl Actor for SenderAllocation {
             #[cfg(test)]
             SenderAllocationMessage::GetUnaggregatedReceipts(reply) => {
                 if !reply.is_closed() {
-                    let _ = reply.send(unaggreated_fees.clone());
+                    let _ = reply.send(unaggregated_fees.clone());
                 }
             }
         }
@@ -461,7 +450,26 @@ impl SenderAllocationState {
             match self.rav_requester_single().await {
                 Ok(rav) => {
                     self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
+                    RAV_VALUE
+                        .with_label_values(&[
+                            &self.sender.to_string(),
+                            &self.allocation_id.to_string(),
+                        ])
+                        .set(rav.message.valueAggregate as f64);
                     self.latest_rav = Some(rav);
+                    UNAGGREGATED_FEES
+                        .with_label_values(&[
+                            &self.sender.to_string(),
+                            &self.allocation_id.to_string(),
+                        ])
+                        .set(self.unaggregated_fees.value as f64);
+                    RAVS_CREATED
+                        .with_label_values(&[
+                            &self.sender.to_string(),
+                            &self.allocation_id.to_string(),
+                        ])
+                        .inc();
+
                     return Ok(());
                 }
                 Err(e) => {
@@ -584,16 +592,6 @@ impl SenderAllocationState {
                 anyhow::bail!("Error while verifying and storing RAV: {:?}", e);
             }
         }
-        RAV_VALUE
-            .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
-            .set(expected_rav.clone().valueAggregate as f64);
-        RAVS_CREATED
-            .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
-            .inc();
-        UNAGGREGATED_FEES
-            .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
-            .set(self.unaggregated_fees.value as f64);
-
         Ok(response.data)
     }
 

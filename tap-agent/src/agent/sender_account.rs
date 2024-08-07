@@ -3,6 +3,7 @@
 
 use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
+use prometheus::{register_gauge_vec, GaugeVec};
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::time::Duration;
@@ -30,6 +31,19 @@ use crate::{
     config::{self},
     tap::escrow_adapter::EscrowAdapter,
 };
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref SENDER_DENIED: GaugeVec =
+        register_gauge_vec!("tap_agent_sender_denied", "Sender is denied", &["sender"]).unwrap();
+    static ref ESCROW_BALANCE: GaugeVec = register_gauge_vec!(
+        "tap_agent_sender_escrow_balance",
+        "Sender escrow balance",
+        &["sender"]
+    )
+    .unwrap();
+}
+
 type RavMap = HashMap<Address, u128>;
 type Balance = U256;
 
@@ -216,6 +230,9 @@ impl State {
         .await
         .expect("Should not fail to insert into denylist");
         self.denied = true;
+        SENDER_DENIED
+            .with_label_values(&[&self.sender.to_string()])
+            .set(1f64);
     }
 
     /// Will update [`State::denied`], as well as the denylist table in the database.
@@ -238,6 +255,10 @@ impl State {
         .await
         .expect("Should not fail to delete from denylist");
         self.denied = false;
+
+        SENDER_DENIED
+            .with_label_values(&[&self.sender.to_string()])
+            .set(0f64);
     }
 }
 
@@ -413,6 +434,10 @@ impl Actor for SenderAccount {
             .get_balance_for_sender(&sender_id)
             .unwrap_or_default();
 
+        SENDER_DENIED
+            .with_label_values(&[&sender_id.to_string()])
+            .set(denied as u32 as f64);
+
         let state = State {
             sender_fee_tracker: SenderFeeTracker::default(),
             rav_tracker: SenderFeeTracker::default(),
@@ -586,6 +611,9 @@ impl Actor for SenderAccount {
             }
             SenderAccountMessage::UpdateBalanceAndLastRavs(new_balance, non_final_last_ravs) => {
                 state.sender_balance = new_balance;
+                ESCROW_BALANCE
+                    .with_label_values(&[&state.sender.to_string()])
+                    .set(new_balance.as_u128() as f64);
 
                 let non_final_last_ravs_set: HashSet<_> =
                     non_final_last_ravs.keys().cloned().collect();

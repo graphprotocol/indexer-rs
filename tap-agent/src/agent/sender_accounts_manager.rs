@@ -27,7 +27,7 @@ use crate::config;
 
 lazy_static! {
     static ref RECEIPTS_CREATED: CounterVec = register_counter_vec!(
-        format!("receipts_received"),
+        "tap_agent_receipts_received",
         "Receipts received since start of the program.",
         &["sender", "allocation"]
     )
