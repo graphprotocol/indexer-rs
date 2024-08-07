@@ -49,7 +49,7 @@ tracing-subscriber = { version = "0.3", features = [
     "std",
     "json",
 ] }
-ractor = "0.9"
+ractor = "0.10"
 
 [dev-dependencies]
 ethers-signers = "2.0.8"
