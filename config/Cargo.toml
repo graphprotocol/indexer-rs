@@ -4,7 +4,7 @@ version = "1.0.0-rc.4"
 edition = "2021"
 
 [dependencies]
-alloy-primitives = "0.6"
+alloy-primitives = "0.7"
 bigdecimal = { version = "0.4.3", features = ["serde"] }
 bip39 = "2.0.0"
 figment = { version = "0.10.19", features = ["env", "toml"] }
