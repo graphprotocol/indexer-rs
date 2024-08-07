@@ -71,12 +71,18 @@ lazy_static! {
 type RavMap = HashMap<Address, u128>;
 type Balance = U256;
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum ReceiptFees {
+    NewValue(UnaggregatedReceipts),
+    Retry,
+}
+
 #[derive(Debug)]
 pub enum SenderAccountMessage {
     UpdateBalanceAndLastRavs(Balance, RavMap),
     UpdateAllocationIds(HashSet<Address>),
     NewAllocationId(Address),
-    UpdateReceiptFees(Address, UnaggregatedReceipts),
+    UpdateReceiptFees(Address, ReceiptFees),
     UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
     UpdateRav(SignedRAV),
     #[cfg(test)]
@@ -551,19 +557,21 @@ impl Actor for SenderAccount {
                     state.add_to_denylist().await;
                 }
             }
-            SenderAccountMessage::UpdateReceiptFees(allocation_id, unaggregated_fees) => {
-                UNAGGREGATED_FEES
-                    .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
-                    .set(unaggregated_fees.value as f64);
-
+            SenderAccountMessage::UpdateReceiptFees(allocation_id, receipt_fees) => {
                 // If we're here because of a new receipt, abort any scheduled UpdateReceiptFees
                 if let Some(scheduled_rav_request) = state.scheduled_rav_request.take() {
                     scheduled_rav_request.abort();
                 }
 
-                state
-                    .sender_fee_tracker
-                    .update(allocation_id, unaggregated_fees.value);
+                if let ReceiptFees::NewValue(unaggregated_fees) = receipt_fees {
+                    state
+                        .sender_fee_tracker
+                        .update(allocation_id, unaggregated_fees.value);
+
+                    UNAGGREGATED_FEES
+                        .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
+                        .set(unaggregated_fees.value as f64);
+                }
 
                 // Eagerly deny the sender (if needed), before the RAV request. To be sure not to
                 // delay the denial because of the RAV request, which could take some time.
@@ -602,7 +610,7 @@ impl Actor for SenderAccount {
                             Some(myself.send_after(state.retry_interval, move || {
                                 SenderAccountMessage::UpdateReceiptFees(
                                     allocation_id,
-                                    unaggregated_fees,
+                                    ReceiptFees::Retry,
                                 )
                             }));
                     }
@@ -760,7 +768,7 @@ impl Actor for SenderAccount {
                 // update the receipt fees by reseting to 0
                 myself.cast(SenderAccountMessage::UpdateReceiptFees(
                     allocation_id,
-                    UnaggregatedReceipts::default(),
+                    ReceiptFees::NewValue(UnaggregatedReceipts::default()),
                 ))?;
 
                 // rav tracker is not updated because it's still not redeemed
@@ -805,6 +813,7 @@ impl Actor for SenderAccount {
 #[cfg(test)]
 pub mod tests {
     use super::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
+    use crate::agent::sender_account::ReceiptFees;
     use crate::agent::sender_accounts_manager::NewReceiptNotification;
     use crate::agent::sender_allocation::SenderAllocationMessage;
     use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
@@ -1152,10 +1161,10 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                UnaggregatedReceipts {
+                ReceiptFees::NewValue(UnaggregatedReceipts {
                     value: TRIGGER_VALUE - 1,
                     last_id: 10,
-                },
+                }),
             ))
             .unwrap();
 
@@ -1191,10 +1200,10 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                UnaggregatedReceipts {
+                ReceiptFees::NewValue(UnaggregatedReceipts {
                     value: TRIGGER_VALUE,
                     last_id: 10,
-                },
+                }),
             ))
             .unwrap();
 
@@ -1302,10 +1311,10 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                UnaggregatedReceipts {
+                ReceiptFees::NewValue(UnaggregatedReceipts {
                     value: TRIGGER_VALUE,
                     last_id: 11,
-                },
+                }),
             ))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1348,10 +1357,10 @@ pub mod tests {
                 sender_account
                     .cast(SenderAccountMessage::UpdateReceiptFees(
                         *ALLOCATION_ID_0,
-                        UnaggregatedReceipts {
+                        ReceiptFees::NewValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
-                        },
+                        }),
                     ))
                     .unwrap();
 
@@ -1489,10 +1498,10 @@ pub mod tests {
                 sender_account
                     .cast(SenderAccountMessage::UpdateReceiptFees(
                         *ALLOCATION_ID_0,
-                        UnaggregatedReceipts {
+                        ReceiptFees::NewValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
-                        },
+                        }),
                     ))
                     .unwrap();
 
@@ -1690,10 +1699,10 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                UnaggregatedReceipts {
+                ReceiptFees::NewValue(UnaggregatedReceipts {
                     value: TRIGGER_VALUE,
                     last_id: 11,
-                },
+                }),
             ))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
