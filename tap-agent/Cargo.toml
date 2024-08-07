@@ -9,8 +9,8 @@ name = "indexer-tap-agent"
 path = "src/main.rs"
 
 [dependencies]
-alloy-primitives = "0.6"
-alloy-sol-types = "0.6"
+alloy-primitives = "0.7"
+alloy-sol-types = "0.7"
 anyhow = "1.0.72"
 async-trait = "0.1.72"
 bigdecimal = { version = "0.4.2", features = ["serde", "string-only"] }

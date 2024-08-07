@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alloy-primitives = { version = "0.6", features = ["serde"] }
-alloy-sol-types = "0.6"
+alloy-primitives = { version = "0.7", features = ["serde"] }
+alloy-sol-types = "0.7"
 anyhow = "1.0.75"
 arc-swap = "1.6.0"
 ethers = "2.0.10"
