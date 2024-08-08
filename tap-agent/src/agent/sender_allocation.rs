@@ -6,8 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy_primitives::hex::ToHex;
-use alloy_sol_types::Eip712Domain;
+use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt};
 use anyhow::{anyhow, ensure, Result};
 use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
@@ -27,7 +26,7 @@ use tap_core::{
     },
     signed_message::EIP712SignedMessage,
 };
-use thegraph::types::Address;
+use thegraph_core::Address;
 use tracing::{error, warn};
 
 use crate::{agent::sender_account::ReceiptFees, lazy_static};
@@ -356,8 +355,8 @@ impl SenderAllocationState {
                         rav
                 ) ELSE TRUE END
             "#,
-            self.allocation_id.encode_hex::<String>(),
-            self.sender.encode_hex::<String>(),
+            self.allocation_id.encode_hex(),
+            self.sender.encode_hex(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -394,7 +393,7 @@ impl SenderAllocationState {
                 allocation_id = $1
                 AND signer_address IN (SELECT unnest($2::text[]))
             "#,
-            self.allocation_id.encode_hex::<String>(),
+            self.allocation_id.encode_hex(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -567,8 +566,8 @@ impl SenderAllocationState {
                         SET last = true
                         WHERE allocation_id = $1 AND sender_address = $2
                     "#,
-            self.allocation_id.encode_hex::<String>(),
-            self.sender.encode_hex::<String>(),
+            self.allocation_id.encode_hex(),
+            self.sender.encode_hex(),
         )
         .execute(&self.pgpool)
         .await?;
@@ -598,7 +597,7 @@ impl SenderAllocationState {
         for received_receipt in receipts.iter() {
             let receipt = received_receipt.signed_receipt();
             let allocation_id = receipt.message.allocation_id;
-            let encoded_signature = receipt.signature.to_vec();
+            let encoded_signature = receipt.signature.as_bytes().to_vec();
 
             let receipt_signer = receipt
                 .recover_signer(&self.domain_separator)
@@ -619,9 +618,9 @@ impl SenderAllocationState {
                     )
                     VALUES ($1, $2, $3, $4, $5, $6)
                 "#,
-                receipt_signer.encode_hex::<String>(),
+                receipt_signer.encode_hex(),
                 encoded_signature,
-                allocation_id.encode_hex::<String>(),
+                allocation_id.encode_hex(),
                 BigDecimal::from(receipt.message.timestamp_ns),
                 BigDecimal::from(receipt.message.nonce),
                 BigDecimal::from(BigInt::from(receipt.message.value)),
@@ -675,8 +674,8 @@ impl SenderAllocationState {
                 )
                 VALUES ($1, $2, $3, $4, $5)
             "#,
-            self.allocation_id.encode_hex::<String>(),
-            self.sender.encode_hex::<String>(),
+            self.allocation_id.encode_hex(),
+            self.sender.encode_hex(),
             serde_json::to_value(expected_rav)?,
             serde_json::to_value(rav)?,
             reason
@@ -719,6 +718,7 @@ pub mod tests {
     use ractor::{
         call, cast, concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef, ActorStatus,
     };
+    use ruint::aliases::U256;
     use serde_json::json;
     use sqlx::PgPool;
     use std::{
@@ -814,7 +814,7 @@ pub mod tests {
         )));
 
         let escrow_accounts_eventual = Eventual::from_value(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, 1000.into())]),
+            HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
 

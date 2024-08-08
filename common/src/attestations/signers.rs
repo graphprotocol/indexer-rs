@@ -1,11 +1,10 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use ethers_core::types::U256;
 use eventuals::{join, Eventual, EventualExt};
 use std::collections::HashMap;
 use std::sync::Arc;
-use thegraph::types::Address;
+use thegraph_core::{Address, ChainId};
 use tokio::sync::Mutex;
 use tracing::warn;
 
@@ -15,7 +14,7 @@ use crate::prelude::{Allocation, AttestationSigner};
 pub fn attestation_signers(
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
     indexer_mnemonic: String,
-    chain_id: U256,
+    chain_id: ChainId,
     dispute_manager: Eventual<Address>,
 ) -> Eventual<HashMap<Address, AttestationSigner>> {
     let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
@@ -77,7 +76,7 @@ mod tests {
         let signers = attestation_signers(
             allocations,
             (*INDEXER_OPERATOR_MNEMONIC).to_string(),
-            U256::from(1),
+            1,
             dispute_manager,
         );
         let mut signers = signers.subscribe();

@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use tap_core::manager::adapters::EscrowHandler as EscrowAdapterTrait;
-use thegraph::types::Address;
+use thegraph_core::Address;
 
 use super::{error::AdapterError, TapAgentContext};
 

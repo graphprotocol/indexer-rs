@@ -7,7 +7,7 @@ use std::{collections::HashSet, str::FromStr};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use thegraph::types::{DeploymentId, DeploymentIdError};
+use thegraph_core::{DeploymentId, ParseDeploymentIdError};
 use tracing::debug;
 
 pub async fn connect(url: &str) -> PgPool {
@@ -42,7 +42,7 @@ pub struct CostModel {
 }
 
 impl TryFrom<DbCostModel> for CostModel {
-    type Error = DeploymentIdError;
+    type Error = ParseDeploymentIdError;
 
     fn try_from(db_model: DbCostModel) -> Result<Self, Self::Error> {
         Ok(Self {

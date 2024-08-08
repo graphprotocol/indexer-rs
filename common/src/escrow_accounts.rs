@@ -3,14 +3,15 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    str::FromStr,
     time::Duration,
 };
 
+use alloy::primitives::U256;
 use anyhow::Result;
-use ethers_core::types::U256;
 use eventuals::{timer, Eventual, EventualExt};
 use serde::Deserialize;
-use thegraph::types::Address;
+use thegraph_core::Address;
 use thiserror::Error;
 use tokio::time::sleep;
 use tracing::{error, warn};
@@ -179,8 +180,8 @@ pub fn escrow_accounts(
                 .iter()
                 .map(|account| {
                     let balance = U256::checked_sub(
-                        U256::from_dec_str(&account.balance)?,
-                        U256::from_dec_str(&account.total_amount_thawing)?,
+                        U256::from_str(&account.balance)?,
+                        U256::from_str(&account.total_amount_thawing)?,
                     )
                     .unwrap_or_else(|| {
                         warn!(
