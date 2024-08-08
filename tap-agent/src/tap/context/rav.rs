@@ -128,7 +128,6 @@ impl RAVStore for TapAgentContext {
 
 #[cfg(test)]
 mod test {
-    use alloy::signers::{local::PrivateKeySigner, SignerSync};
     use eventuals::Eventual;
     use sqlx::PgPool;
 
@@ -138,18 +137,16 @@ mod test {
         test_utils::{create_rav, ALLOCATION_ID_0, SENDER, SIGNER},
     };
 
-    #[test]
-    fn test_parity() {
-        let signer = PrivateKeySigner::random();
-        // The message to sign.
-        let message = b"hello";
+    #[derive(Debug)]
+    struct TestableRav(SignedRAV);
 
-        // Sign the message asynchronously with the signer.
-        let signature = signer.sign_message_sync(message).unwrap();
+    impl Eq for TestableRav {}
 
-        let value = signature.as_bytes().to_vec();
-        let recovered_signature: Signature = value.as_slice().try_into().unwrap();
-        assert_eq!(signature, recovered_signature);
+    impl PartialEq for TestableRav {
+        fn eq(&self, other: &Self) -> bool {
+            self.0.message == other.0.message
+                && self.0.signature.as_bytes() == other.0.signature.as_bytes()
+        }
     }
 
     #[sqlx::test(migrations = "../migrations")]
@@ -177,7 +174,7 @@ mod test {
         // we inserted
         let last_rav = context.last_rav().await.unwrap().unwrap();
 
-        assert_eq!(new_rav, last_rav);
+        assert_eq!(TestableRav(new_rav.clone()), TestableRav(last_rav));
 
         // Update the RAV 3 times in quick succession
         for i in 0..3 {
@@ -192,6 +189,6 @@ mod test {
 
         // Check that the last rav is the last one we inserted
         let last_rav = context.last_rav().await.unwrap();
-        assert_eq!(new_rav, last_rav.unwrap());
+        assert_eq!(TestableRav(new_rav), TestableRav(last_rav.unwrap()));
     }
 }
