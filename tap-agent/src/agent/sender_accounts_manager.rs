@@ -708,7 +708,7 @@ mod tests {
 
         // check if pending allocations are correct
         assert_eq!(pending_allocation_id.len(), 1);
-        assert!(pending_allocation_id.get(&SENDER.1).is_some());
+        assert!(pending_allocation_id.contains_key(&SENDER.1));
         assert_eq!(pending_allocation_id.get(&SENDER.1).unwrap().len(), 2);
     }
 

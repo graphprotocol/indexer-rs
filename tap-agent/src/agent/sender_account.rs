@@ -669,7 +669,7 @@ impl Actor for SenderAccount {
                 state.sender_balance = new_balance;
                 ESCROW_BALANCE
                     .with_label_values(&[&state.sender.to_string()])
-                    .set(new_balance.as_u128() as f64);
+                    .set(new_balance.to_u128().expect("should be less than 128 bits") as f64);
 
                 let non_final_last_ravs_set: HashSet<_> =
                     non_final_last_ravs.keys().cloned().collect();
