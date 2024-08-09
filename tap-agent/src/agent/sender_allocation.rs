@@ -86,6 +86,8 @@ pub struct SenderAllocationState {
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
 
+    failed_ravs_count: u32,
+
     http_client: jsonrpsee::http_client::HttpClient,
 }
 
@@ -310,6 +312,7 @@ impl SenderAllocationState {
             sender_account_ref: sender_account_ref.clone(),
             unaggregated_fees: UnaggregatedReceipts::default(),
             invalid_receipts_fees: UnaggregatedReceipts::default(),
+            failed_ravs_count: 0,
             latest_rav,
             http_client,
         })
@@ -415,9 +418,9 @@ impl SenderAllocationState {
     }
 
     async fn request_rav(&mut self) -> Result<()> {
-        let mut retries = 0;
+        let failed_ravs_count = self.failed_ravs_count;
         const MAX_RETRIES: u32 = 3;
-        while retries < MAX_RETRIES {
+        while self.failed_ravs_count < failed_ravs_count + MAX_RETRIES {
             match self.rav_requester_single().await {
                 Ok(rav) => {
                     self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
@@ -428,7 +431,7 @@ impl SenderAllocationState {
                             &self.allocation_id.to_string(),
                         ])
                         .inc();
-
+                    self.failed_ravs_count = 0;
                     return Ok(());
                 }
                 Err(e) => {
@@ -442,9 +445,13 @@ impl SenderAllocationState {
                             &self.allocation_id.to_string(),
                         ])
                         .inc();
-                    // backoff = 100ms * 2 ^ retries
-                    tokio::time::sleep(Duration::from_millis(100) * 2u32.pow(retries)).await;
-                    retries += 1;
+                    // backoff = max(100ms * 2 ^ retries, 60s)
+                    tokio::time::sleep(
+                        (Duration::from_millis(100) * 2u32.pow(self.failed_ravs_count))
+                            .max(Duration::from_secs(60)),
+                    )
+                    .await;
+                    self.failed_ravs_count += 1;
                 }
             }
         }
