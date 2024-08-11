@@ -22,7 +22,7 @@ axum = "0.7.5"
 futures-util = "0.3.28"
 indexer-common = { path = "../common" }
 indexer-config = { path = "../config" }
-jsonrpsee = { version = "0.20.2", features = ["http-client", "macros"] }
+jsonrpsee = { version = "0.24.0", features = ["http-client", "macros"] }
 lazy_static = "1.4.0"
 reqwest = "0.12"
 serde = "1.0.188"
