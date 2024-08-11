@@ -1,7 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_primitives::hex::ToHex;
+use alloy::hex::ToHexExt;
 use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
 use sqlx::types::BigDecimal;
@@ -23,7 +23,7 @@ impl ReceiptStore for IndexerTapContext {
     ) -> Result<u64, Self::AdapterError> {
         let receipt = receipt.signed_receipt();
         let allocation_id = receipt.message.allocation_id;
-        let encoded_signature = receipt.signature.to_vec();
+        let encoded_signature = receipt.signature.as_bytes().to_vec();
 
         let receipt_signer = receipt
             .recover_signer(self.domain_separator.as_ref())
@@ -38,9 +38,9 @@ impl ReceiptStore for IndexerTapContext {
                 INSERT INTO scalar_tap_receipts (signer_address, signature, allocation_id, timestamp_ns, nonce, value)
                 VALUES ($1, $2, $3, $4, $5, $6)
             "#,
-            receipt_signer.encode_hex::<String>(),
+            receipt_signer.encode_hex(),
             encoded_signature,
-            allocation_id.encode_hex::<String>(),
+            allocation_id.encode_hex(),
             BigDecimal::from(receipt.message.timestamp_ns),
             BigDecimal::from(receipt.message.nonce),
             BigDecimal::from(BigInt::from(receipt.message.value)),

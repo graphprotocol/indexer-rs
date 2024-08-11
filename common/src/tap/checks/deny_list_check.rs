@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::escrow_accounts::EscrowAccounts;
-use alloy_sol_types::Eip712Domain;
+use alloy::dyn_abi::Eip712Domain;
 use eventuals::Eventual;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
@@ -14,7 +14,7 @@ use tap_core::receipt::{
     state::Checking,
     ReceiptWithState,
 };
-use thegraph::types::Address;
+use thegraph_core::Address;
 use tracing::error;
 
 pub struct DenyListCheck {
@@ -189,7 +189,7 @@ impl Drop for DenyListCheck {
 mod tests {
     use std::str::FromStr;
 
-    use alloy_primitives::hex::ToHex;
+    use alloy::hex::ToHexExt;
     use tap_core::receipt::ReceiptWithState;
 
     use crate::test_vectors::{self, create_signed_receipt, TAP_SENDER};
@@ -221,7 +221,7 @@ mod tests {
                 INSERT INTO scalar_tap_denylist (sender_address)
                 VALUES ($1)
             "#,
-            TAP_SENDER.1.encode_hex::<String>()
+            TAP_SENDER.1.encode_hex()
         )
         .execute(&pgpool)
         .await
@@ -258,7 +258,7 @@ mod tests {
                 INSERT INTO scalar_tap_denylist (sender_address)
                 VALUES ($1)
             "#,
-            TAP_SENDER.1.encode_hex::<String>()
+            TAP_SENDER.1.encode_hex()
         )
         .execute(&pgpool)
         .await
@@ -274,7 +274,7 @@ mod tests {
                 DELETE FROM scalar_tap_denylist
                 WHERE sender_address = $1
             "#,
-            TAP_SENDER.1.encode_hex::<String>()
+            TAP_SENDER.1.encode_hex()
         )
         .execute(&pgpool)
         .await

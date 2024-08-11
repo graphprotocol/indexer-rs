@@ -9,14 +9,13 @@ name = "indexer-tap-agent"
 path = "src/main.rs"
 
 [dependencies]
-alloy-primitives = "0.6"
-alloy-sol-types = "0.6"
+alloy = { version = "0.2.1", features = ["full", "signer-mnemonic"] }
 anyhow = "1.0.72"
 async-trait = "0.1.72"
 bigdecimal = { version = "0.4.2", features = ["serde", "string-only"] }
 clap = { version = "4.4.3", features = ["derive", "env"] }
-ethereum-types = "0.14.1"
 eventuals = "0.6.7"
+ruint = { version = "1.12.3", features = ["num-traits"] }
 log = "0.4.19"
 prometheus = "0.13.3"
 axum = "0.7.5"
@@ -36,11 +35,11 @@ sqlx = { version = "0.7.2", features = [
     "rust_decimal",
     "chrono",
 ] }
-tap_aggregator = "0.3.1"
-tap_core = "1.0.0"
+tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "b5f2135" }
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "b5f2135" }
 thiserror = "1.0.44"
 tokio = { version = "1.33.0" }
-thegraph = { git = "https://github.com/edgeandnode/toolshed", tag = "thegraph-v0.5.0" }
+thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "85ee00b" }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",
@@ -52,7 +51,6 @@ tracing-subscriber = { version = "0.3", features = [
 ractor = "0.9"
 
 [dev-dependencies]
-ethers-signers = "2.0.8"
 tempfile = "3.8.0"
 wiremock = "0.5.19"
 futures = "0.3.30"

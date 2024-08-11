@@ -11,11 +11,11 @@ use serde_with::DurationSecondsWithFrac;
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, str::FromStr, time::Duration};
 use tracing::warn;
 
-use alloy_primitives::Address;
+use alloy::primitives::Address;
 use bip39::Mnemonic;
 use serde::Deserialize;
 use serde_with::serde_as;
-use thegraph::types::DeploymentId;
+use thegraph_core::DeploymentId;
 use url::Url;
 
 use crate::NonZeroGRT;

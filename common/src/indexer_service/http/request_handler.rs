@@ -11,7 +11,7 @@ use axum::{
 };
 use axum_extra::TypedHeader;
 use reqwest::StatusCode;
-use thegraph::types::DeploymentId;
+use thegraph_core::DeploymentId;
 use tracing::trace;
 
 use crate::{indexer_service::http::IndexerServiceResponse, prelude::AttestationSigner};

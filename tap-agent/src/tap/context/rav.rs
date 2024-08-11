@@ -4,7 +4,8 @@
 use std::str::FromStr;
 
 use super::{error::AdapterError, TapAgentContext};
-use alloy_primitives::{hex::ToHex, Address};
+use alloy::signers::Signature;
+use alloy::{hex::ToHexExt, primitives::Address};
 use bigdecimal::num_bigint::{BigInt, ToBigInt};
 use bigdecimal::ToPrimitive;
 use sqlx::types::{chrono, BigDecimal};
@@ -24,8 +25,8 @@ impl RAVRead for TapAgentContext {
                 FROM scalar_tap_ravs
                 WHERE allocation_id = $1 AND sender_address = $2
             "#,
-            self.allocation_id.encode_hex::<String>(),
-            self.sender.encode_hex::<String>()
+            self.allocation_id.encode_hex(),
+            self.sender.encode_hex()
         )
         .fetch_optional(&self.pgpool)
         .await
@@ -35,7 +36,7 @@ impl RAVRead for TapAgentContext {
 
         match row {
             Some(row) => {
-                let signature =
+                let signature: Signature =
                     row.signature
                         .as_slice()
                         .try_into()
@@ -87,7 +88,7 @@ impl RAVStore for TapAgentContext {
     type AdapterError = AdapterError;
 
     async fn update_last_rav(&self, rav: SignedRAV) -> Result<(), Self::AdapterError> {
-        let signature_bytes: Vec<u8> = rav.signature.to_vec();
+        let signature_bytes: Vec<u8> = rav.signature.as_bytes().to_vec();
 
         let _fut = sqlx::query!(
             r#"
@@ -109,9 +110,9 @@ impl RAVStore for TapAgentContext {
                     value_aggregate = $5,
                     updated_at = $6
             "#,
-            self.sender.encode_hex::<String>(),
+            self.sender.encode_hex(),
             signature_bytes,
-            self.allocation_id.encode_hex::<String>(),
+            self.allocation_id.encode_hex(),
             BigDecimal::from(rav.message.timestampNs),
             BigDecimal::from(BigInt::from(rav.message.valueAggregate)),
             chrono::Utc::now()
@@ -136,6 +137,18 @@ mod test {
         test_utils::{create_rav, ALLOCATION_ID_0, SENDER, SIGNER},
     };
 
+    #[derive(Debug)]
+    struct TestableRav(SignedRAV);
+
+    impl Eq for TestableRav {}
+
+    impl PartialEq for TestableRav {
+        fn eq(&self, other: &Self) -> bool {
+            self.0.message == other.0.message
+                && self.0.signature.as_bytes() == other.0.signature.as_bytes()
+        }
+    }
+
     #[sqlx::test(migrations = "../migrations")]
     async fn update_and_retrieve_rav(pool: PgPool) {
         let timestamp_ns = u64::MAX - 10;
@@ -159,8 +172,9 @@ mod test {
 
         // Should trigger a retrieve_last_rav So eventually the last rav should be the one
         // we inserted
-        let last_rav = context.last_rav().await.unwrap();
-        assert_eq!(new_rav, last_rav.unwrap());
+        let last_rav = context.last_rav().await.unwrap().unwrap();
+
+        assert_eq!(TestableRav(new_rav.clone()), TestableRav(last_rav));
 
         // Update the RAV 3 times in quick succession
         for i in 0..3 {
@@ -175,6 +189,6 @@ mod test {
 
         // Check that the last rav is the last one we inserted
         let last_rav = context.last_rav().await.unwrap();
-        assert_eq!(new_rav, last_rav.unwrap());
+        assert_eq!(TestableRav(new_rav), TestableRav(last_rav.unwrap()));
     }
 }

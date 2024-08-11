@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use alloy_primitives::Address;
+use alloy::primitives::Address;
 use anyhow::anyhow;
 use eventuals::Eventual;
 

@@ -12,7 +12,7 @@ use indexer_config::Config as MainConfig;
 use reqwest::Url;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use thegraph::types::{Attestation, DeploymentId};
+use thegraph_core::{Attestation, DeploymentId};
 
 use crate::{cli::Cli, database};
 

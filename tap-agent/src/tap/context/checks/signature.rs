@@ -1,9 +1,8 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_sol_types::Eip712Domain;
+use alloy::{dyn_abi::Eip712Domain, primitives::U256};
 use anyhow::anyhow;
-use ethereum_types::U256;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use tap_core::receipt::{
@@ -46,7 +45,7 @@ impl Check for Signature {
 
         let balance = escrow_accounts.get_balance_for_sender(&sender)?;
 
-        if balance == U256::from(0) {
+        if balance == U256::ZERO {
             Err(anyhow!(
                 "Balance for sender {}, signer {} is not positive",
                 sender,
