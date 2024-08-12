@@ -243,7 +243,7 @@ impl Actor for SenderAllocation {
                         }
                     } else {
                         error!(
-                            "Cann't trigger rav request until {:?}",
+                            "Can't trigger rav request until {:?} (backoff)",
                             state.failed_rav_backoff
                         );
                     }
