@@ -5768,7 +5768,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "tap_aggregator"
 version = "0.3.1"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=b5f2135#b5f21359c660d5a68e433e8003fad9f5c9014a17"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=eb8447e#eb8447ed4566ced6846c03b510b25b915f985186"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5791,7 +5791,7 @@ dependencies = [
 [[package]]
 name = "tap_core"
 version = "1.0.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=b5f2135#b5f21359c660d5a68e433e8003fad9f5c9014a17"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=eb8447e#eb8447ed4566ced6846c03b510b25b915f985186"
 dependencies = [
  "alloy",
  "anyhow",

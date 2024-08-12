@@ -35,7 +35,7 @@ ruint = { version = "1.12.3", features = [
 ], default-features = false }
 futures-util = { version = "0.3.28", default-features = false }
 jsonrpsee = { version = "0.24.0", features = ["http-client", "tracing"] }
-tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "b5f2135" }
+tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "eb8447e" }
 ractor = { version = "0.9", features = [
     "async-trait",
 ], default-features = false }
