@@ -4,3 +4,42 @@ resolver = "2"
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[workspace.dependencies]
+alloy = { version = "0.2.1", features = ["full", "signer-mnemonic"] }
+clap = { version = "4.4.3", features = ["derive", "env"] }
+lazy_static = "1.4.0"
+axum = "0.7.5"
+tokio = "1.39.2"
+prometheus = "0.13.3"
+anyhow = "1.0.72"
+thiserror = "1.0.49"
+async-trait = "0.1.72"
+eventuals = "0.6.7"
+reqwest = "0.12"
+serde = "1.0.206"
+serde_json = "1.0.124"
+sqlx = { version = "0.7.2", features = [
+    "postgres",
+    "runtime-tokio",
+    "bigdecimal",
+    "rust_decimal",
+    "chrono",
+] }
+tracing = "0.1.40"
+bigdecimal = "0.4.3"
+build-info = "0.0.38"
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "b5f2135" }
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "ansi",
+    "fmt",
+    "std",
+    "json",
+] }
+thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "85ee00b", features = [
+    "subgraph-client",
+] }
+thegraph-graphql-http = { version = "0.2.0", features = [
+    "http-client-reqwest",
+] }
