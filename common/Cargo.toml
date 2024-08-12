@@ -4,50 +4,40 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alloy = { version = "0.2.1", features = ["full", "signer-mnemonic"] }
-anyhow = "1.0.75"
-arc-swap = "1.6.0"
-eventuals = "0.6.7"
-keccak-hash = "0.10.0"
-lazy_static = "1.4.0"
-prometheus = "0.13.3"
+thiserror.workspace = true
+async-trait.workspace = true
+alloy.workspace = true
+anyhow.workspace = true
+eventuals.workspace = true
+reqwest.workspace = true
+sqlx.workspace = true
+tap_core.workspace = true
+tracing.workspace = true
+bigdecimal.workspace = true
+prometheus.workspace = true
+thegraph-core.workspace = true
+axum.workspace = true
+lazy_static.workspace = true
+thegraph-graphql-http.workspace = true
+build-info.workspace = true
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["fs", "tokio-macros"] }
 regex = "1.7.1"
-reqwest = "0.12"
-secp256k1 = { version = "0.28.0", features = ["recovery"] }
-serde = { version = "1.0.188", features = ["derive"] }
-serde_json = { version = "1.0.117", features = ["arbitrary_precision"] }
-sqlx = { version = "0.7.1", features = [
-    "postgres",
-    "runtime-tokio",
-    "bigdecimal",
-    "rust_decimal",
-    "time",
-] }
-tokio = { version = "1.32.0", features = ["full", "macros", "rt"] }
-thegraph-graphql-http = { version = "0.2.1", features = [
-    "http-client-reqwest",
-] }
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "b5f2135" }
-axum = { version = "0.7.5", default_features = true }
-axum-extra = { version = "0.9.3", features = ["typed-header"] }
-thiserror = "1.0.49"
-async-trait = "0.1.74"
-build-info = "0.0.34"
+axum-extra = { version = "0.9.3", features = [
+    "typed-header",
+], default-features = false }
 autometrics = { version = "1.0.1", features = ["prometheus-exporter"] }
-tracing = "0.1.40"
 tower_governor = "0.3.2"
 tower-http = { version = "0.5.2", features = [
-    "trace",
     "cors",
     "normalize-path",
+    "trace",
 ] }
 tokio-util = "0.7.10"
-bigdecimal = "0.4.2"
-thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "85ee00b", features = [
-    "subgraph-client",
-] }
 
 [dev-dependencies]
-env_logger = "0.11.0"
-test-log = "0.2.12"
+env_logger = { version = "0.11.0", default-features = false }
+test-log = { version = "0.2.12", default-features = false }
 wiremock = "0.5.19"

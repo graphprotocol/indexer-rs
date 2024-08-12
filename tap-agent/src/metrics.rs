@@ -5,9 +5,8 @@ use std::{net::SocketAddr, panic};
 
 use axum::{http::StatusCode, response::IntoResponse, routing::get, Router};
 use futures_util::FutureExt;
-use log::{debug, info};
 use prometheus::TextEncoder;
-use tracing::error;
+use tracing::{debug, error, info};
 
 async fn handler_metrics() -> (StatusCode, String) {
     let metric_families = prometheus::gather();

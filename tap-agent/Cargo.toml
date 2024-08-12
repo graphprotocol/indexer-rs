@@ -9,48 +9,38 @@ name = "indexer-tap-agent"
 path = "src/main.rs"
 
 [dependencies]
-alloy = { version = "0.2.1", features = ["full", "signer-mnemonic"] }
-anyhow = "1.0.72"
-async-trait = "0.1.72"
-bigdecimal = { version = "0.4.2", features = ["serde", "string-only"] }
-clap = { version = "4.4.3", features = ["derive", "env"] }
-eventuals = "0.6.7"
-ruint = { version = "1.12.3", features = ["num-traits"] }
-log = "0.4.19"
-prometheus = "0.13.3"
-axum = "0.7.5"
-futures-util = "0.3.28"
 indexer-common = { path = "../common" }
 indexer-config = { path = "../config" }
-jsonrpsee = { version = "0.20.2", features = ["http-client", "macros"] }
-lazy_static = "1.4.0"
-reqwest = "0.12"
-serde = "1.0.188"
-serde_json = "1.0.104"
-serde_yaml = "0.9.25"
-sqlx = { version = "0.7.2", features = [
-    "postgres",
-    "runtime-tokio",
-    "bigdecimal",
-    "rust_decimal",
-    "chrono",
-] }
+alloy.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+sqlx.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+eventuals.workspace = true
+tracing.workspace = true
+prometheus.workspace = true
+axum.workspace = true
+tap_core.workspace = true
+tokio.workspace = true
+lazy_static.workspace = true
+thegraph-core.workspace = true
+clap.workspace = true
+tracing-subscriber.workspace = true
+bigdecimal = { workspace = true, features = ["serde"] }
+ruint = { version = "1.12.3", features = [
+    "num-traits",
+], default-features = false }
+futures-util = { version = "0.3.28", default-features = false }
+jsonrpsee = { version = "0.24.0", features = ["http-client", "tracing"] }
 tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "b5f2135" }
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "b5f2135" }
-thiserror = "1.0.44"
-tokio = { version = "1.33.0" }
-thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "85ee00b" }
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3", features = [
-    "env-filter",
-    "ansi",
-    "fmt",
-    "std",
-    "json",
-] }
-ractor = "0.9"
+ractor = { version = "0.9", features = [
+    "async-trait",
+], default-features = false }
 
 [dev-dependencies]
 tempfile = "3.8.0"
-wiremock = "0.5.19"
-futures = "0.3.30"
+wiremock = "0.6.1"
+futures = { version = "0.3.30", default-features = false }
