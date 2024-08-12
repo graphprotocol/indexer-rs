@@ -83,12 +83,13 @@ impl IndexerTapContext {
             loop {
                 let mut buffer = Vec::with_capacity(BUFFER_SIZE);
                 select! {
-                    _ = cancelation_token.cancelled() => { break },
+                    biased;
                     _ = receiver.recv_many(&mut buffer, BUFFER_SIZE) => {
                         if let Err(e) = inner_context.store_receipts(buffer).await {
                             error!("Failed to store receipts: {}", e);
                         }
                     }
+                    _ = cancelation_token.cancelled() => { break },
                 }
             }
         })
@@ -105,7 +106,7 @@ impl ReceiptStore for IndexerTapContext {
     ) -> Result<u64, Self::AdapterError> {
         let db_receipt = DatabaseReceipt::from_receipt(receipt, &self.domain_separator)?;
         self.receipt_producer.send(db_receipt).await.map_err(|e| {
-            error!("Failed to store receipt: {}", e);
+            error!("Failed to queue receipt for storage: {}", e);
             anyhow!(e)
         })?;
 
