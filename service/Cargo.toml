@@ -10,11 +10,11 @@ license = "Apache-2.0"
 indexer-common = { path = "../common" }
 indexer-config = { path = "../config" }
 anyhow.workspace = true
-reqwest = { workspace = true, features = ["json"] }
-tokio = { workspace = true, features = ["rt", "macros", "sync", "full"] }
+reqwest = { workspace = true }
+tokio = { workspace = true }
 tracing.workspace = true
 thiserror.workspace = true
-serde = { workspace = true, features = ["rc", "derive"] }
+serde = { workspace = true }
 serde_json.workspace = true
 axum.workspace = true
 sqlx.workspace = true
@@ -24,8 +24,7 @@ tracing-subscriber.workspace = true
 clap.workspace = true
 build-info.workspace = true
 lazy_static.workspace = true
-
-async-graphql = "7.0.3"
+async-graphql = { version = "7.0.3", default-features = false }
 async-graphql-axum = "7.0.3"
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0" }
 

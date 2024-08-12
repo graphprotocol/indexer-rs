@@ -22,24 +22,22 @@ thegraph-graphql-http.workspace = true
 build-info.workspace = true
 
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true, features = ["arbitrary_precision"] }
-tokio = { workspace = true, features = ["full", "macros", "rt"] }
-
-arc-swap = "1.6.0"
-keccak-hash = "0.10.0"
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["fs", "tokio-macros"] }
 regex = "1.7.1"
-secp256k1 = { version = "0.29.0", features = ["recovery"] }
-axum-extra = { version = "0.9.3", features = ["typed-header"] }
+axum-extra = { version = "0.9.3", features = [
+    "typed-header",
+], default-features = false }
 autometrics = { version = "1.0.1", features = ["prometheus-exporter"] }
 tower_governor = "0.3.2"
 tower-http = { version = "0.5.2", features = [
-    "trace",
     "cors",
     "normalize-path",
+    "trace",
 ] }
 tokio-util = "0.7.10"
 
 [dev-dependencies]
-env_logger = "0.11.0"
-test-log = "0.2.12"
+env_logger = { version = "0.11.0", default-features = false }
+test-log = { version = "0.2.12", default-features = false }
 wiremock = "0.5.19"
