@@ -470,31 +470,22 @@ impl SenderAllocationState {
                 self.config.tap.rav_request_timestamp_buffer_ms * 1_000_000,
                 Some(self.config.tap.rav_request_receipt_limit),
             )
-            .await
-            .map_err(|e| match e {
-                tap_core::Error::NoValidReceiptsForRAVRequest => anyhow!(
-                    "It looks like there are no valid receipts for the RAV request.\
-                 This may happen if your `rav_request_trigger_value` is too low \
-                 and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
-                 You can fix this by increasing the `rav_request_trigger_value`."
-                ),
-                _ => e.into(),
-            })?;
-
-        // store invalid receipts and if all are invalid remove them
-        if !invalid_receipts.is_empty() {
-            warn!(
-                "Found {} invalid receipts for allocation {} and sender {}.",
-                invalid_receipts.len(),
-                self.allocation_id,
-                self.sender
-            );
-
-            // Save invalid receipts to the database for logs.
-            // TODO: consider doing that in a spawned task?
-            self.store_invalid_receipts(invalid_receipts.as_slice())
-                .await?;
-            if valid_receipts.is_empty() {
+            .await?;
+        match (
+            expected_rav,
+            valid_receipts.is_empty(),
+            invalid_receipts.is_empty(),
+        ) {
+            // No valid receipts, but there are invalid
+            (Err(tap_core::Error::NoValidReceiptsForRAVRequest), true, false) => {
+                warn!(
+                    "Found {} invalid receipts for allocation {} and sender {}.",
+                    invalid_receipts.len(),
+                    self.allocation_id,
+                    self.sender
+                );
+                self.store_invalid_receipts(invalid_receipts.as_slice())
+                    .await?;
                 let min_timestamp = invalid_receipts
                     .first()
                     .expect("There should be atleast one receipt")
@@ -517,67 +508,91 @@ impl SenderAllocationState {
                 )
                 .execute(&self.pgpool)
                 .await?;
+                Err(anyhow!(
+                    "Error {} \n It looks like there are no valid receipts for the RAV request.\
+                    This may happen if your `rav_request_trigger_value` is too low \
+                    and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
+                    You can fix this by increasing the `rav_request_trigger_value`.",
+                    tap_core::Error::NoValidReceiptsForRAVRequest
+                ))
             }
-        }
-        let valid_receipts: Vec<_> = valid_receipts
-            .into_iter()
-            .map(|r| r.signed_receipt().clone())
-            .collect();
-        let rav_response_time_start = Instant::now();
-        let response: JsonRpcResponse<EIP712SignedMessage<ReceiptAggregateVoucher>> = self
-            .http_client
-            .request(
-                "aggregate_receipts",
-                rpc_params!(
-                    "0.0", // TODO: Set the version in a smarter place.
-                    valid_receipts,
-                    previous_rav
-                ),
-            )
-            .await?;
+            // When it receives both valid and invalid receipts or just valid
+            (Ok(expected_rav), ..) => {
+                let valid_receipts: Vec<_> = valid_receipts
+                    .into_iter()
+                    .map(|r| r.signed_receipt().clone())
+                    .collect();
+                let rav_response_time_start = Instant::now();
+                let response: JsonRpcResponse<EIP712SignedMessage<ReceiptAggregateVoucher>> = self
+                    .http_client
+                    .request(
+                        "aggregate_receipts",
+                        rpc_params!(
+                            "0.0", // TODO: Set the version in a smarter place.
+                            valid_receipts,
+                            previous_rav
+                        ),
+                    )
+                    .await?;
 
-        let rav_response_time = rav_response_time_start.elapsed();
-        RAV_RESPONSE_TIME
-            .with_label_values(&[&self.sender.to_string()])
-            .observe(rav_response_time.as_secs_f64());
+                let rav_response_time = rav_response_time_start.elapsed();
+                RAV_RESPONSE_TIME
+                    .with_label_values(&[&self.sender.to_string()])
+                    .observe(rav_response_time.as_secs_f64());
 
-        if let Some(warnings) = response.warnings {
-            warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
-        }
-        let expected_rav = expected_rav?;
-        match self
-            .tap_manager
-            .verify_and_store_rav(expected_rav.clone(), response.data.clone())
-            .await
-        {
-            Ok(_) => {}
-
-            // Adapter errors are local software errors. Shouldn't be a problem with the sender.
-            Err(tap_core::Error::AdapterError { source_error: e }) => {
-                anyhow::bail!("TAP Adapter error while storing RAV: {:?}", e)
-            }
-
-            // The 3 errors below signal an invalid RAV, which should be about problems with the
-            // sender. The sender could be malicious.
-            Err(
-                e @ tap_core::Error::InvalidReceivedRAV {
-                    expected_rav: _,
-                    received_rav: _,
+                if let Some(warnings) = response.warnings {
+                    warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
                 }
-                | e @ tap_core::Error::SignatureError(_)
-                | e @ tap_core::Error::InvalidRecoveredSigner { address: _ },
-            ) => {
-                Self::store_failed_rav(self, &expected_rav, &response.data, &e.to_string()).await?;
-                anyhow::bail!("Invalid RAV, sender could be malicious: {:?}.", e);
-            }
+                match self
+                    .tap_manager
+                    .verify_and_store_rav(expected_rav.clone(), response.data.clone())
+                    .await
+                {
+                    Ok(_) => {}
 
-            // All relevant errors should be handled above. If we get here, we forgot to handle
-            // an error case.
-            Err(e) => {
-                anyhow::bail!("Error while verifying and storing RAV: {:?}", e);
+                    // Adapter errors are local software errors. Shouldn't be a problem with the sender.
+                    Err(tap_core::Error::AdapterError { source_error: e }) => {
+                        anyhow::bail!("TAP Adapter error while storing RAV: {:?}", e)
+                    }
+
+                    // The 3 errors below signal an invalid RAV, which should be about problems with the
+                    // sender. The sender could be malicious.
+                    Err(
+                        e @ tap_core::Error::InvalidReceivedRAV {
+                            expected_rav: _,
+                            received_rav: _,
+                        }
+                        | e @ tap_core::Error::SignatureError(_)
+                        | e @ tap_core::Error::InvalidRecoveredSigner { address: _ },
+                    ) => {
+                        Self::store_failed_rav(self, &expected_rav, &response.data, &e.to_string())
+                            .await?;
+                        anyhow::bail!("Invalid RAV, sender could be malicious: {:?}.", e);
+                    }
+
+                    // All relevant errors should be handled above. If we get here, we forgot to handle
+                    // an error case.
+                    Err(e) => {
+                        anyhow::bail!("Error while verifying and storing RAV: {:?}", e);
+                    }
+                }
+                Ok(response.data)
+            }
+            // Any kind of error even NoValidReceiptsForRAVRequest, since it means there arent either any invalid ones
+            (Err(error), ..) =>
+            {
+                match error {
+                    tap_core::Error::NoValidReceiptsForRAVRequest => Err(anyhow!(
+                        "Error {} \n It looks like there are no valid receipts for the RAV request.\
+                        This may happen if your `rav_request_trigger_value` is too low \
+                        and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
+                        You can fix this by increasing the `rav_request_trigger_value`.",
+                        tap_core::Error::NoValidReceiptsForRAVRequest
+                    )),
+                    _ => Err(error.into()),
+                }
             }
         }
-        Ok(response.data)
     }
 
     pub async fn mark_rav_last(&self) -> Result<()> {
