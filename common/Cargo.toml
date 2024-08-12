@@ -32,7 +32,7 @@ axum = { version = "0.7.5", default_features = true }
 axum-extra = { version = "0.9.3", features = ["typed-header"] }
 thiserror = "1.0.49"
 async-trait = "0.1.74"
-build-info = "0.0.34"
+build-info = "0.0.38"
 autometrics = { version = "1.0.1", features = ["prometheus-exporter"] }
 tracing = "0.1.40"
 tower_governor = "0.3.2"

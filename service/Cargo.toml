@@ -42,10 +42,10 @@ graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3
 thegraph-graphql-http = { version = "0.2.0", features = [
     "http-client-reqwest",
 ] }
-build-info = "0.0.34"
+build-info = "0.0.38"
 
 [dev-dependencies]
 hex-literal = "0.4.1"
 
 [build-dependencies]
-build-info-build = "0.0.34"
+build-info-build = "0.0.38"
