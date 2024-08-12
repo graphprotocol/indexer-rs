@@ -579,19 +579,16 @@ impl SenderAllocationState {
                 Ok(response.data)
             }
             // Any kind of error even NoValidReceiptsForRAVRequest, since it means there arent either any invalid ones
-            (Err(error), ..) =>
-            {
-                match error {
-                    tap_core::Error::NoValidReceiptsForRAVRequest => Err(anyhow!(
-                        "Error {} \n It looks like there are no valid receipts for the RAV request.\
+            (Err(error), ..) => match error {
+                tap_core::Error::NoValidReceiptsForRAVRequest => Err(anyhow!(
+                    "Error {} \n It looks like there are no valid receipts for the RAV request.\
                         This may happen if your `rav_request_trigger_value` is too low \
                         and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
                         You can fix this by increasing the `rav_request_trigger_value`.",
-                        tap_core::Error::NoValidReceiptsForRAVRequest
-                    )),
-                    _ => Err(error.into()),
-                }
-            }
+                    tap_core::Error::NoValidReceiptsForRAVRequest
+                )),
+                _ => Err(error.into()),
+            },
         }
     }
 
