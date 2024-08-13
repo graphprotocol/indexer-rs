@@ -86,6 +86,9 @@ pub struct SenderAllocationState {
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
 
+    failed_ravs_count: u32,
+    failed_rav_backoff: Instant,
+
     http_client: jsonrpsee::http_client::HttpClient,
 }
 
@@ -234,8 +237,15 @@ impl Actor for SenderAllocation {
             SenderAllocationMessage::TriggerRAVRequest(reply) => {
                 if state.unaggregated_fees.value > 0 {
                     // auto backoff retry, on error ignore
-                    if let Err(err) = state.request_rav().await {
-                        error!(error = %err, "Error while requesting rav.");
+                    if Instant::now() > state.failed_rav_backoff {
+                        if let Err(err) = state.request_rav().await {
+                            error!(error = %err, "Error while requesting rav.");
+                        }
+                    } else {
+                        error!(
+                            "Can't trigger rav request until {:?} (backoff)",
+                            state.failed_rav_backoff
+                        );
                     }
                 }
                 if !reply.is_closed() {
@@ -310,6 +320,8 @@ impl SenderAllocationState {
             sender_account_ref: sender_account_ref.clone(),
             unaggregated_fees: UnaggregatedReceipts::default(),
             invalid_receipts_fees: UnaggregatedReceipts::default(),
+            failed_rav_backoff: Instant::now(),
+            failed_ravs_count: 0,
             latest_rav,
             http_client,
         })
@@ -415,40 +427,32 @@ impl SenderAllocationState {
     }
 
     async fn request_rav(&mut self) -> Result<()> {
-        let mut retries = 0;
-        const MAX_RETRIES: u32 = 3;
-        while retries < MAX_RETRIES {
-            match self.rav_requester_single().await {
-                Ok(rav) => {
-                    self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
-                    self.latest_rav = Some(rav);
-                    RAVS_CREATED
-                        .with_label_values(&[
-                            &self.sender.to_string(),
-                            &self.allocation_id.to_string(),
-                        ])
-                        .inc();
-
-                    return Ok(());
-                }
-                Err(e) => {
-                    error!(
-                        "Error while requesting RAV for sender {} and allocation {}: {}",
-                        self.sender, self.allocation_id, e
-                    );
-                    RAVS_FAILED
-                        .with_label_values(&[
-                            &self.sender.to_string(),
-                            &self.allocation_id.to_string(),
-                        ])
-                        .inc();
-                    // backoff = 100ms * 2 ^ retries
-                    tokio::time::sleep(Duration::from_millis(100) * 2u32.pow(retries)).await;
-                    retries += 1;
-                }
+        match self.rav_requester_single().await {
+            Ok(rav) => {
+                self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
+                self.latest_rav = Some(rav);
+                RAVS_CREATED
+                    .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+                    .inc();
+                self.failed_ravs_count = 0;
+                Ok(())
+            }
+            Err(e) => {
+                error!(
+                    "Error while requesting RAV for sender {} and allocation {}: {}",
+                    self.sender, self.allocation_id, e
+                );
+                RAVS_FAILED
+                    .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+                    .inc();
+                // backoff = max(100ms * 2 ^ retries, 60s)
+                self.failed_rav_backoff = Instant::now()
+                    + (Duration::from_millis(100) * 2u32.pow(self.failed_ravs_count))
+                        .max(Duration::from_secs(60));
+                self.failed_ravs_count += 1;
+                Err(e)
             }
         }
-        Err(anyhow!("Could not finish rav request"))
     }
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
