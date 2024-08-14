@@ -2989,7 +2989,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "tap_core",
+ "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=6a0da38)",
  "test-log",
  "thegraph-core",
  "thegraph-graphql-http",
@@ -3049,7 +3049,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tap_aggregator",
- "tap_core",
+ "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=6a0da38)",
  "tempfile",
  "thegraph-core",
  "thiserror",
@@ -5783,9 +5783,23 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.24.1",
- "tap_core",
+ "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=eb8447e)",
  "tokio",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "tap_core"
+version = "1.0.0"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=6a0da38#6a0da3886a4629ac9867c41720c7e2c320f12387"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "async-trait",
+ "rand 0.8.5",
+ "serde",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -6662,7 +6676,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

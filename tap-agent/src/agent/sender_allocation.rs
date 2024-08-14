@@ -457,6 +457,7 @@ impl SenderAllocationState {
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
+
     async fn rav_requester_single(&mut self) -> Result<SignedRAV> {
         tracing::trace!("rav_requester_single()");
         let RAVRequest {
@@ -476,7 +477,7 @@ impl SenderAllocationState {
             valid_receipts.is_empty(),
             invalid_receipts.is_empty(),
         ) {
-            // No valid receipts, but there are invalid
+            // All receipts are invalid
             (Err(tap_core::Error::NoValidReceiptsForRAVRequest), true, false) => {
                 warn!(
                     "Found {} invalid receipts for allocation {} and sender {}.",
@@ -486,6 +487,7 @@ impl SenderAllocationState {
                 );
                 self.store_invalid_receipts(invalid_receipts.as_slice())
                     .await?;
+                // We expect receipts to be already sorted by timestamp since we are using safe_truncate_receipts
                 let min_timestamp = invalid_receipts
                     .first()
                     .expect("There should be atleast one receipt")
@@ -508,13 +510,7 @@ impl SenderAllocationState {
                 )
                 .execute(&self.pgpool)
                 .await?;
-                Err(anyhow!(
-                    "Error {} \n It looks like there are no valid receipts for the RAV request.\
-                    This may happen if your `rav_request_trigger_value` is too low \
-                    and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
-                    You can fix this by increasing the `rav_request_trigger_value`.",
-                    tap_core::Error::NoValidReceiptsForRAVRequest
-                ))
+                Err(tap_core::Error::AllInvalidReceiptsForRAVRequest.into())
             }
             // When it receives both valid and invalid receipts or just valid
             (Ok(expected_rav), ..) => {
@@ -594,6 +590,12 @@ impl SenderAllocationState {
                 }
                 Ok(response.data)
             }
+            (Err(_), true, true) => Err(anyhow!(
+                "It looks like there are no valid receipts for the RAV request.\
+                This may happen if your `rav_request_trigger_value` is too low \
+                and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
+                You can fix this by increasing the `rav_request_trigger_value`."
+            )),
             (Err(e), ..) => Err(e.into()),
         }
     }
@@ -1537,6 +1539,6 @@ pub mod tests {
         .expect("Should not fail to fetch from scalar_tap_receipts");
 
         // Invalid receipts should be found inside the table
-        assert!(all_receipts.is_empty());
+        assert!(!all_receipts.is_empty());
     }
 }
