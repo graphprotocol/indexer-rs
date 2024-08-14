@@ -853,8 +853,11 @@ pub mod tests {
                     Self::UpdateInvalidReceiptFees(r0, r1),
                 ) => l0 == r0 && l1 == r1,
                 (Self::NewAllocationId(l0), Self::NewAllocationId(r0)) => l0 == r0,
-                (a, b) => match (core::mem::discriminant(self), core::mem::discriminant(other)) {
-                    (a, b) if a != b => { false },
+                (a, b) => match (
+                    core::mem::discriminant(self),
+                    core::mem::discriminant(other),
+                ) {
+                    (a, b) if a != b => false,
                     _ => unimplemented!("PartialEq not implementated for {a:?} and {b:?}"),
                 },
             }

@@ -539,7 +539,7 @@ impl SenderAllocationState {
                 RAV_RESPONSE_TIME
                     .with_label_values(&[&self.sender.to_string()])
                     .observe(rav_response_time.as_secs_f64());
-                 // we only save invalid receipts when we are about to store our rav
+                // we only save invalid receipts when we are about to store our rav
                 //
                 // store them before we call remove_obsolete_receipts()
                 if !invalid_receipts.is_empty() {
