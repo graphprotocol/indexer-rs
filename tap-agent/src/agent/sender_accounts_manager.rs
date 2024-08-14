@@ -477,7 +477,7 @@ async fn handle_notification(
     escrow_accounts: &Eventual<EscrowAccounts>,
     prefix: Option<&str>,
 ) -> Result<()> {
-    tracing::debug!(
+    tracing::trace!(
         notification = ?new_receipt_notification,
         "New receipt notification detected!"
     );
