@@ -488,16 +488,16 @@ impl SenderAllocationState {
                 self.store_invalid_receipts(invalid_receipts.as_slice())
                     .await?;
                 // Obtain min/max timestamps to define query
-                let mut min_timestamp = u64::MAX;
-                let mut max_timestamp = 0u64;
-                for receipt in invalid_receipts {
-                    let current_timestamp = receipt.signed_receipt().message.timestamp_ns;
-                    if current_timestamp > max_timestamp {
-                        max_timestamp = current_timestamp;
-                    } else if current_timestamp < min_timestamp {
-                        min_timestamp = current_timestamp;
-                    }
-                }
+                let min_timestamp = invalid_receipts
+                    .iter()
+                    .map(|receipt| receipt.signed_receipt().message.timestamp_ns)
+                    .min()
+                    .expect("invalid receitps should not be empty");
+                let max_timestamp = invalid_receipts
+                    .iter()
+                    .map(|receipt| receipt.signed_receipt().message.timestamp_ns)
+                    .max()
+                    .expect("invalid receitps should not be empty");
                 sqlx::query!(
                     r#"
                         DELETE FROM scalar_tap_receipts
@@ -1537,6 +1537,6 @@ pub mod tests {
         .expect("Should not fail to fetch from scalar_tap_receipts");
 
         // Invalid receipts should be found inside the table
-        assert!(!all_receipts.is_empty());
+        assert!(all_receipts.is_empty());
     }
 }
