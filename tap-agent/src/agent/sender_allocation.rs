@@ -487,19 +487,17 @@ impl SenderAllocationState {
                 );
                 self.store_invalid_receipts(invalid_receipts.as_slice())
                     .await?;
-                // We expect receipts to be already sorted by timestamp since we are using safe_truncate_receipts
-                let min_timestamp = invalid_receipts
-                    .first()
-                    .expect("There should be atleast one receipt")
-                    .signed_receipt()
-                    .message
-                    .timestamp_ns;
-                let max_timestamp = invalid_receipts
-                    .last()
-                    .expect("There should be atleast one receipt")
-                    .signed_receipt()
-                    .message
-                    .timestamp_ns;
+                // Obtain min/max timestamps to define query
+                let mut min_timestamp = u64::MAX;
+                let mut max_timestamp = 0u64;
+                for receipt in invalid_receipts {
+                    let current_timestamp = receipt.signed_receipt().message.timestamp_ns;
+                    if current_timestamp > max_timestamp {
+                        max_timestamp = current_timestamp;
+                    } else if current_timestamp < min_timestamp {
+                        min_timestamp = current_timestamp;
+                    }
+                }
                 sqlx::query!(
                     r#"
                         DELETE FROM scalar_tap_receipts
