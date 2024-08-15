@@ -498,13 +498,18 @@ impl SenderAllocationState {
                     .map(|receipt| receipt.signed_receipt().message.timestamp_ns)
                     .max()
                     .expect("invalid receitps should not be empty");
+                let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
                 sqlx::query!(
                     r#"
                         DELETE FROM scalar_tap_receipts
-                        WHERE timestamp_ns BETWEEN $1 AND $2;
+                        WHERE timestamp_ns BETWEEN $1 AND $2
+                        AND allocation_id = $3
+                        AND signer_address IN (SELECT unnest($4::text[]));
                     "#,
                     BigDecimal::from(min_timestamp),
-                    BigDecimal::from(max_timestamp)
+                    BigDecimal::from(max_timestamp),
+                    self.allocation_id.encode_hex(),
+                    &signers,
                 )
                 .execute(&self.pgpool)
                 .await?;
