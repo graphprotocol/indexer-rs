@@ -70,7 +70,7 @@ lazy_static! {
 }
 
 #[derive(Error, Debug)]
-pub enum RavRequesterSingleErrors {
+pub enum RavError {
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
 
@@ -461,7 +461,7 @@ impl SenderAllocationState {
                     "Error while requesting RAV for sender {} and allocation {}: {}",
                     self.sender, self.allocation_id, e
                 );
-                if let RavRequesterSingleErrors::AllReceiptsInvalid = e {
+                if let RavError::AllReceiptsInvalid = e {
                     self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
                 }
                 RAVS_FAILED
@@ -480,7 +480,7 @@ impl SenderAllocationState {
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
 
-    async fn rav_requester_single(&mut self) -> Result<SignedRAV, RavRequesterSingleErrors> {
+    async fn rav_requester_single(&mut self) -> Result<SignedRAV, RavError> {
         tracing::trace!("rav_requester_single()");
         let RAVRequest {
             valid_receipts,
@@ -535,7 +535,7 @@ impl SenderAllocationState {
                 )
                 .execute(&self.pgpool)
                 .await?;
-                Err(RavRequesterSingleErrors::AllReceiptsInvalid)
+                Err(RavError::AllReceiptsInvalid)
             }
             // When it receives both valid and invalid receipts or just valid
             (Ok(expected_rav), ..) => {
