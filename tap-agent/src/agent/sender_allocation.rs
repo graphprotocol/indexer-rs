@@ -1465,7 +1465,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_all_invalid_receipts(pgpool: PgPool) {
+    async fn test_rav_request_when_all_receipts_invalid(pgpool: PgPool) {
         // Start a TAP aggregator server.
         let (_handle, aggregator_endpoint) = run_server(
             0,
@@ -1493,25 +1493,13 @@ pub mod tests {
                     ),
             )
             .await;
-
-        let invalid_receipts_at_start = sqlx::query!(
-            r#"
-                SELECT * FROM scalar_tap_receipts_invalid;
-            "#,
-        )
-        .fetch_all(&pgpool)
-        .await
-        .expect("Should not fail to fetch from scalar_tap_receipts_invalid");
-
-        //No receipts should be found at this point
-        assert!(invalid_receipts_at_start.is_empty());
-
-        // Add receipts to the database.
+        // Add invalid receipts to the database. ( receipts are older than rav )
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_nanos() as u64
             - 10000;
+
         for i in 0..10 {
             let receipt = create_received_receipt(
                 &ALLOCATION_ID_0,
@@ -1524,18 +1512,6 @@ pub mod tests {
                 .await
                 .unwrap();
         }
-        // Verify scalar_tap_receipts have receipts in it
-        let all_receipts = sqlx::query!(
-            r#"
-                SELECT * FROM scalar_tap_receipts;
-            "#,
-        )
-        .fetch_all(&pgpool)
-        .await
-        .expect("Should not fail to fetch from scalar_tap_receipts");
-
-        // Invalid receipts should be found inside the table
-        assert_eq!(all_receipts.len(), 10);
 
         let sender_allocation = create_sender_allocation(
             pgpool.clone(),
@@ -1546,11 +1522,12 @@ pub mod tests {
         .await;
         // Trigger a RAV request manually and wait for updated fees.
         // this should fail because there's no receipt with valid timestamp
-        let (_total_unaggregated_fees, _rav) = call!(
+        let (total_unaggregated_fees, _rav) = call!(
             sender_allocation,
             SenderAllocationMessage::TriggerRAVRequest
         )
         .unwrap();
+        assert_eq!(total_unaggregated_fees.value, 0);
 
         let invalid_receipts = sqlx::query!(
             r#"
@@ -1562,7 +1539,7 @@ pub mod tests {
         .expect("Should not fail to fetch from scalar_tap_receipts_invalid");
 
         // Invalid receipts should be found inside the table
-        assert!(!invalid_receipts.is_empty());
+        assert_eq!(invalid_receipts.len(), 10);
 
         // make sure scalar_tap_receipts gets emptied
         let all_receipts = sqlx::query!(
