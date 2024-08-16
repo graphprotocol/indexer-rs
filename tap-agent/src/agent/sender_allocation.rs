@@ -40,6 +40,7 @@ use crate::{
     tap::signers_trimmed,
     tap::{context::checks::AllocationId, escrow_adapter::EscrowAdapter},
 };
+use thiserror::Error;
 
 lazy_static! {
     static ref CLOSED_SENDER_ALLOCATIONS: CounterVec = register_counter_vec!(
@@ -66,6 +67,21 @@ lazy_static! {
         &["sender"]
     )
     .unwrap();
+}
+
+#[derive(Error, Debug)]
+pub enum RavRequesterSingleErrors {
+    #[error(transparent)]
+    SqlxError(#[from] sqlx::Error),
+
+    #[error(transparent)]
+    TapCoreError(#[from] tap_core::Error),
+
+    #[error(transparent)]
+    ClientError(#[from] jsonrpsee::core::ClientError),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 type TapManager = tap_core::manager::Manager<TapAgentContext>;
@@ -458,7 +474,7 @@ impl SenderAllocationState {
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
 
-    async fn rav_requester_single(&mut self) -> Result<SignedRAV> {
+    async fn rav_requester_single(&mut self) -> Result<SignedRAV, RavRequesterSingleErrors> {
         tracing::trace!("rav_requester_single()");
         let RAVRequest {
             valid_receipts,
@@ -567,7 +583,9 @@ impl SenderAllocationState {
 
                     // Adapter errors are local software errors. Shouldn't be a problem with the sender.
                     Err(tap_core::Error::AdapterError { source_error: e }) => {
-                        anyhow::bail!("TAP Adapter error while storing RAV: {:?}", e)
+                        return Err(
+                            anyhow::anyhow!("TAP Adapter error while storing RAV: {:?}", e).into(),
+                        )
                     }
 
                     // The 3 errors below signal an invalid RAV, which should be about problems with the
@@ -582,13 +600,21 @@ impl SenderAllocationState {
                     ) => {
                         Self::store_failed_rav(self, &expected_rav, &response.data, &e.to_string())
                             .await?;
-                        anyhow::bail!("Invalid RAV, sender could be malicious: {:?}.", e);
+                        return Err(anyhow::anyhow!(
+                            "Invalid RAV, sender could be malicious: {:?}.",
+                            e
+                        )
+                        .into());
                     }
 
                     // All relevant errors should be handled above. If we get here, we forgot to handle
                     // an error case.
                     Err(e) => {
-                        anyhow::bail!("Error while verifying and storing RAV: {:?}", e);
+                        return Err(anyhow::anyhow!(
+                            "Error while verifying and storing RAV: {:?}",
+                            e
+                        )
+                        .into());
                     }
                 }
                 Ok(response.data)
@@ -598,7 +624,8 @@ impl SenderAllocationState {
                 This may happen if your `rav_request_trigger_value` is too low \
                 and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
                 You can fix this by increasing the `rav_request_trigger_value`."
-            )),
+            )
+            .into()),
             (Err(e), ..) => Err(e.into()),
         }
     }
