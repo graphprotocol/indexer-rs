@@ -72,13 +72,16 @@ lazy_static! {
 #[derive(Error, Debug)]
 pub enum RavRequesterSingleErrors {
     #[error(transparent)]
-    SqlxError(#[from] sqlx::Error),
+    Sqlx(#[from] sqlx::Error),
 
     #[error(transparent)]
-    TapCoreError(#[from] tap_core::Error),
+    TapCore(#[from] tap_core::Error),
 
     #[error(transparent)]
-    ClientError(#[from] jsonrpsee::core::ClientError),
+    JsonRpsee(#[from] jsonrpsee::core::ClientError),
+
+    #[error("All receipts are invalid")]
+    AllReceiptsInvalid,
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
@@ -458,6 +461,9 @@ impl SenderAllocationState {
                     "Error while requesting RAV for sender {} and allocation {}: {}",
                     self.sender, self.allocation_id, e
                 );
+                if let RavRequesterSingleErrors::AllReceiptsInvalid = e {
+                    self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
+                }
                 RAVS_FAILED
                     .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
                     .inc();
@@ -466,7 +472,7 @@ impl SenderAllocationState {
                     + (Duration::from_millis(100) * 2u32.pow(self.failed_ravs_count))
                         .max(Duration::from_secs(60));
                 self.failed_ravs_count += 1;
-                Err(e)
+                Err(e.into())
             }
         }
     }
@@ -529,7 +535,7 @@ impl SenderAllocationState {
                 )
                 .execute(&self.pgpool)
                 .await?;
-                Err(tap_core::Error::AllInvalidReceiptsForRAVRequest.into())
+                Err(RavRequesterSingleErrors::AllReceiptsInvalid)
             }
             // When it receives both valid and invalid receipts or just valid
             (Ok(expected_rav), ..) => {
