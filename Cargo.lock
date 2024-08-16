@@ -2989,7 +2989,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=6a0da38)",
+ "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9e1915b)",
  "test-log",
  "thegraph-core",
  "thegraph-graphql-http",
@@ -3049,7 +3049,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tap_aggregator",
- "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=6a0da38)",
+ "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9e1915b)",
  "tempfile",
  "thegraph-core",
  "thiserror",
@@ -5791,7 +5791,7 @@ dependencies = [
 [[package]]
 name = "tap_core"
 version = "1.0.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=6a0da38#6a0da3886a4629ac9867c41720c7e2c320f12387"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9e1915b#9e1915b177a02908650835d3c771e3ddf6b0c25c"
 dependencies = [
  "alloy",
  "anyhow",
