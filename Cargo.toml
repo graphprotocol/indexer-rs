@@ -38,7 +38,7 @@ sqlx = { version = "0.7.2", features = [
 tracing = { version = "0.1.40", default-features = false }
 bigdecimal = "0.4.3"
 build-info = "0.0.38"
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "b5f2135", default-features = false }
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "9e1915b", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
     "json",
     "env-filter",

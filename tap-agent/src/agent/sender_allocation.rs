@@ -40,6 +40,7 @@ use crate::{
     tap::signers_trimmed,
     tap::{context::checks::AllocationId, escrow_adapter::EscrowAdapter},
 };
+use thiserror::Error;
 
 lazy_static! {
     static ref CLOSED_SENDER_ALLOCATIONS: CounterVec = register_counter_vec!(
@@ -66,6 +67,24 @@ lazy_static! {
         &["sender"]
     )
     .unwrap();
+}
+
+#[derive(Error, Debug)]
+pub enum RavError {
+    #[error(transparent)]
+    Sqlx(#[from] sqlx::Error),
+
+    #[error(transparent)]
+    TapCore(#[from] tap_core::Error),
+
+    #[error(transparent)]
+    JsonRpsee(#[from] jsonrpsee::core::ClientError),
+
+    #[error("All receipts are invalid")]
+    AllReceiptsInvalid,
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 type TapManager = tap_core::manager::Manager<TapAgentContext>;
@@ -442,6 +461,9 @@ impl SenderAllocationState {
                     "Error while requesting RAV for sender {} and allocation {}: {}",
                     self.sender, self.allocation_id, e
                 );
+                if let RavError::AllReceiptsInvalid = e {
+                    self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
+                }
                 RAVS_FAILED
                     .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
                     .inc();
@@ -450,14 +472,15 @@ impl SenderAllocationState {
                     + (Duration::from_millis(100) * 2u32.pow(self.failed_ravs_count))
                         .max(Duration::from_secs(60));
                 self.failed_ravs_count += 1;
-                Err(e)
+                Err(e.into())
             }
         }
     }
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
-    async fn rav_requester_single(&mut self) -> Result<SignedRAV> {
+
+    async fn rav_requester_single(&mut self) -> Result<SignedRAV, RavError> {
         tracing::trace!("rav_requester_single()");
         let RAVRequest {
             valid_receipts,
@@ -470,92 +493,147 @@ impl SenderAllocationState {
                 self.config.tap.rav_request_timestamp_buffer_ms * 1_000_000,
                 Some(self.config.tap.rav_request_receipt_limit),
             )
-            .await
-            .map_err(|e| match e {
-                tap_core::Error::NoValidReceiptsForRAVRequest => anyhow!(
-                    "It looks like there are no valid receipts for the RAV request.\
-                 This may happen if your `rav_request_trigger_value` is too low \
-                 and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
-                 You can fix this by increasing the `rav_request_trigger_value`."
-                ),
-                _ => e.into(),
-            })?;
-        let valid_receipts: Vec<_> = valid_receipts
-            .into_iter()
-            .map(|r| r.signed_receipt().clone())
-            .collect();
-        let rav_response_time_start = Instant::now();
-        let response: JsonRpcResponse<EIP712SignedMessage<ReceiptAggregateVoucher>> = self
-            .http_client
-            .request(
-                "aggregate_receipts",
-                rpc_params!(
-                    "0.0", // TODO: Set the version in a smarter place.
-                    valid_receipts,
-                    previous_rav
-                ),
-            )
             .await?;
-
-        let rav_response_time = rav_response_time_start.elapsed();
-        RAV_RESPONSE_TIME
-            .with_label_values(&[&self.sender.to_string()])
-            .observe(rav_response_time.as_secs_f64());
-
-        // we only save invalid receipts when we are about to store our rav
-        //
-        // store them before we call remove_obsolete_receipts()
-        if !invalid_receipts.is_empty() {
-            warn!(
-                "Found {} invalid receipts for allocation {} and sender {}.",
-                invalid_receipts.len(),
-                self.allocation_id,
-                self.sender
-            );
-
-            // Save invalid receipts to the database for logs.
-            // TODO: consider doing that in a spawned task?
-            self.store_invalid_receipts(invalid_receipts.as_slice())
+        match (
+            expected_rav,
+            valid_receipts.is_empty(),
+            invalid_receipts.is_empty(),
+        ) {
+            // All receipts are invalid
+            (Err(tap_core::Error::NoValidReceiptsForRAVRequest), true, false) => {
+                warn!(
+                    "Found {} invalid receipts for allocation {} and sender {}.",
+                    invalid_receipts.len(),
+                    self.allocation_id,
+                    self.sender
+                );
+                self.store_invalid_receipts(invalid_receipts.as_slice())
+                    .await?;
+                // Obtain min/max timestamps to define query
+                let min_timestamp = invalid_receipts
+                    .iter()
+                    .map(|receipt| receipt.signed_receipt().message.timestamp_ns)
+                    .min()
+                    .expect("invalid receipts should not be empty");
+                let max_timestamp = invalid_receipts
+                    .iter()
+                    .map(|receipt| receipt.signed_receipt().message.timestamp_ns)
+                    .max()
+                    .expect("invalid receipts should not be empty");
+                let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
+                sqlx::query!(
+                    r#"
+                        DELETE FROM scalar_tap_receipts
+                        WHERE timestamp_ns BETWEEN $1 AND $2
+                        AND allocation_id = $3
+                        AND signer_address IN (SELECT unnest($4::text[]));
+                    "#,
+                    BigDecimal::from(min_timestamp),
+                    BigDecimal::from(max_timestamp),
+                    self.allocation_id.encode_hex(),
+                    &signers,
+                )
+                .execute(&self.pgpool)
                 .await?;
-        }
-
-        if let Some(warnings) = response.warnings {
-            warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
-        }
-
-        match self
-            .tap_manager
-            .verify_and_store_rav(expected_rav.clone(), response.data.clone())
-            .await
-        {
-            Ok(_) => {}
-
-            // Adapter errors are local software errors. Shouldn't be a problem with the sender.
-            Err(tap_core::Error::AdapterError { source_error: e }) => {
-                anyhow::bail!("TAP Adapter error while storing RAV: {:?}", e)
+                Err(RavError::AllReceiptsInvalid)
             }
+            // When it receives both valid and invalid receipts or just valid
+            (Ok(expected_rav), ..) => {
+                let valid_receipts: Vec<_> = valid_receipts
+                    .into_iter()
+                    .map(|r| r.signed_receipt().clone())
+                    .collect();
+                let rav_response_time_start = Instant::now();
+                let response: JsonRpcResponse<EIP712SignedMessage<ReceiptAggregateVoucher>> = self
+                    .http_client
+                    .request(
+                        "aggregate_receipts",
+                        rpc_params!(
+                            "0.0", // TODO: Set the version in a smarter place.
+                            valid_receipts,
+                            previous_rav
+                        ),
+                    )
+                    .await?;
 
-            // The 3 errors below signal an invalid RAV, which should be about problems with the
-            // sender. The sender could be malicious.
-            Err(
-                e @ tap_core::Error::InvalidReceivedRAV {
-                    expected_rav: _,
-                    received_rav: _,
+                let rav_response_time = rav_response_time_start.elapsed();
+                RAV_RESPONSE_TIME
+                    .with_label_values(&[&self.sender.to_string()])
+                    .observe(rav_response_time.as_secs_f64());
+                // we only save invalid receipts when we are about to store our rav
+                //
+                // store them before we call remove_obsolete_receipts()
+                if !invalid_receipts.is_empty() {
+                    warn!(
+                        "Found {} invalid receipts for allocation {} and sender {}.",
+                        invalid_receipts.len(),
+                        self.allocation_id,
+                        self.sender
+                    );
+
+                    // Save invalid receipts to the database for logs.
+                    // TODO: consider doing that in a spawned task?
+                    self.store_invalid_receipts(invalid_receipts.as_slice())
+                        .await?;
                 }
-                | e @ tap_core::Error::SignatureError(_)
-                | e @ tap_core::Error::InvalidRecoveredSigner { address: _ },
-            ) => {
-                Self::store_failed_rav(self, &expected_rav, &response.data, &e.to_string()).await?;
-                anyhow::bail!("Invalid RAV, sender could be malicious: {:?}.", e);
-            }
 
-            // All relevant errors should be handled above. If we get here, we forgot to handle
-            // an error case.
-            Err(e) => {
-                anyhow::bail!("Error while verifying and storing RAV: {:?}", e);
+                if let Some(warnings) = response.warnings {
+                    warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
+                }
+                match self
+                    .tap_manager
+                    .verify_and_store_rav(expected_rav.clone(), response.data.clone())
+                    .await
+                {
+                    Ok(_) => {}
+
+                    // Adapter errors are local software errors. Shouldn't be a problem with the sender.
+                    Err(tap_core::Error::AdapterError { source_error: e }) => {
+                        return Err(
+                            anyhow::anyhow!("TAP Adapter error while storing RAV: {:?}", e).into(),
+                        )
+                    }
+
+                    // The 3 errors below signal an invalid RAV, which should be about problems with the
+                    // sender. The sender could be malicious.
+                    Err(
+                        e @ tap_core::Error::InvalidReceivedRAV {
+                            expected_rav: _,
+                            received_rav: _,
+                        }
+                        | e @ tap_core::Error::SignatureError(_)
+                        | e @ tap_core::Error::InvalidRecoveredSigner { address: _ },
+                    ) => {
+                        Self::store_failed_rav(self, &expected_rav, &response.data, &e.to_string())
+                            .await?;
+                        return Err(anyhow::anyhow!(
+                            "Invalid RAV, sender could be malicious: {:?}.",
+                            e
+                        )
+                        .into());
+                    }
+
+                    // All relevant errors should be handled above. If we get here, we forgot to handle
+                    // an error case.
+                    Err(e) => {
+                        return Err(anyhow::anyhow!(
+                            "Error while verifying and storing RAV: {:?}",
+                            e
+                        )
+                        .into());
+                    }
+                }
+                Ok(response.data)
             }
+            (Err(_), true, true) => Err(anyhow!(
+                "It looks like there are no valid receipts for the RAV request.\
+                This may happen if your `rav_request_trigger_value` is too low \
+                and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
+                You can fix this by increasing the `rav_request_trigger_value`."
+            )
+            .into()),
+            (Err(e), ..) => Err(e.into()),
         }
-        Ok(response.data)
     }
 
     pub async fn mark_rav_last(&self) -> Result<()> {
@@ -728,6 +806,7 @@ pub mod tests {
     use std::{
         collections::HashMap,
         sync::{Arc, Mutex},
+        time::{SystemTime, UNIX_EPOCH},
     };
     use tap_aggregator::{jsonrpsee_helpers::JsonRpcResponse, server::run_server};
     use tap_core::receipt::{
@@ -1383,5 +1462,96 @@ pub mod tests {
 
         // Check that the unaggregated fees return the same value
         assert_eq!(total_unaggregated_fees.value, 45u128);
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_rav_request_when_all_receipts_invalid(pgpool: PgPool) {
+        // Start a TAP aggregator server.
+        let (_handle, aggregator_endpoint) = run_server(
+            0,
+            SIGNER.0.clone(),
+            vec![SIGNER.1].into_iter().collect(),
+            TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+            100 * 1024,
+            100 * 1024,
+            1,
+        )
+        .await
+        .unwrap();
+
+        // Start a mock graphql server using wiremock
+        let mock_server = MockServer::start().await;
+
+        // Mock result for TAP redeem txs for (allocation, sender) pair.
+        mock_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("transactions"))
+                    .respond_with(
+                        ResponseTemplate::new(200)
+                            .set_body_json(json!({ "data": { "transactions": []}})),
+                    ),
+            )
+            .await;
+        // Add invalid receipts to the database. ( receipts are older than rav )
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_nanos() as u64
+            - 10000;
+
+        for i in 0..10 {
+            let receipt = create_received_receipt(
+                &ALLOCATION_ID_0,
+                &SIGNER.0,
+                i,
+                timestamp,
+                1622018441284756158,
+            );
+            store_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
+
+        let sender_allocation = create_sender_allocation(
+            pgpool.clone(),
+            "http://".to_owned() + &aggregator_endpoint.to_string(),
+            &mock_server.uri(),
+            None,
+        )
+        .await;
+        // Trigger a RAV request manually and wait for updated fees.
+        // this should fail because there's no receipt with valid timestamp
+        let (total_unaggregated_fees, _rav) = call!(
+            sender_allocation,
+            SenderAllocationMessage::TriggerRAVRequest
+        )
+        .unwrap();
+        assert_eq!(total_unaggregated_fees.value, 0);
+
+        let invalid_receipts = sqlx::query!(
+            r#"
+                SELECT * FROM scalar_tap_receipts_invalid;
+            "#,
+        )
+        .fetch_all(&pgpool)
+        .await
+        .expect("Should not fail to fetch from scalar_tap_receipts_invalid");
+
+        // Invalid receipts should be found inside the table
+        assert_eq!(invalid_receipts.len(), 10);
+
+        // make sure scalar_tap_receipts gets emptied
+        let all_receipts = sqlx::query!(
+            r#"
+                SELECT * FROM scalar_tap_receipts;
+            "#,
+        )
+        .fetch_all(&pgpool)
+        .await
+        .expect("Should not fail to fetch from scalar_tap_receipts");
+
+        // Invalid receipts should be found inside the table
+        assert!(all_receipts.is_empty());
     }
 }

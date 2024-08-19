@@ -2989,7 +2989,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "tap_core",
+ "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9e1915b)",
  "test-log",
  "thegraph-core",
  "thegraph-graphql-http",
@@ -3049,7 +3049,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tap_aggregator",
- "tap_core",
+ "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9e1915b)",
  "tempfile",
  "thegraph-core",
  "thiserror",
@@ -5768,7 +5768,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "tap_aggregator"
 version = "0.3.1"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=b5f2135#b5f21359c660d5a68e433e8003fad9f5c9014a17"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=eb8447e#eb8447ed4566ced6846c03b510b25b915f985186"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5783,7 +5783,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.24.1",
- "tap_core",
+ "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=eb8447e)",
  "tokio",
  "tracing-subscriber",
 ]
@@ -5791,7 +5791,21 @@ dependencies = [
 [[package]]
 name = "tap_core"
 version = "1.0.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=b5f2135#b5f21359c660d5a68e433e8003fad9f5c9014a17"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9e1915b#9e1915b177a02908650835d3c771e3ddf6b0c25c"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "async-trait",
+ "rand 0.8.5",
+ "serde",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "tap_core"
+version = "1.0.0"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=eb8447e#eb8447ed4566ced6846c03b510b25b915f985186"
 dependencies = [
  "alloy",
  "anyhow",
@@ -6662,7 +6676,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
