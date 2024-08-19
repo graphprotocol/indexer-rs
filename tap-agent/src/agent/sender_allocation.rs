@@ -810,7 +810,7 @@ pub mod tests {
     };
     use tap_aggregator::{jsonrpsee_helpers::JsonRpcResponse, server::run_server};
     use tap_core::receipt::{
-        checks::{Check, CheckList},
+        checks::{Check, CheckError, CheckList, CheckResult},
         state::Checking,
         ReceiptWithState,
     };
@@ -1386,8 +1386,8 @@ pub mod tests {
 
         #[async_trait::async_trait]
         impl Check for FailingCheck {
-            async fn check(&self, _receipt: &ReceiptWithState<Checking>) -> anyhow::Result<()> {
-                Err(anyhow::anyhow!("Failing check"))
+            async fn check(&self, _receipt: &ReceiptWithState<Checking>) -> CheckResult {
+                Err(CheckError::Failed(anyhow::anyhow!("Failing check")))
             }
         }
 
@@ -1406,7 +1406,13 @@ pub mod tests {
         // make sure to fail them
         let failing_receipts = checking_receipts
             .into_iter()
-            .map(|receipt| async { receipt.finalize_receipt_checks(&checks).await.unwrap_err() })
+            .map(|receipt| async {
+                receipt
+                    .finalize_receipt_checks(&checks)
+                    .await
+                    .unwrap()
+                    .unwrap_err()
+            })
             .collect::<Vec<_>>();
         let failing_receipts: Vec<_> = join_all(failing_receipts).await;
 
