@@ -25,7 +25,7 @@ reqwest = { version = "0.12", features = [
 ], default-features = false }
 serde = { version = "1.0.206", default-features = false }
 serde_json = "1.0.124"
-sqlx = { version = "0.7.2", features = [
+sqlx = { version = "0.8.0", features = [
     "bigdecimal",
     "chrono",
     "json",
