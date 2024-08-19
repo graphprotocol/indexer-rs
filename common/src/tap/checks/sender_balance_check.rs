@@ -7,7 +7,7 @@ use alloy::primitives::U256;
 use anyhow::anyhow;
 use eventuals::Eventual;
 use tap_core::receipt::{
-    checks::{Check, CheckResult},
+    checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
 };
@@ -38,11 +38,14 @@ impl Check for SenderBalanceCheck {
             .recover_signer(&self.domain_separator)
             .inspect_err(|e| {
                 error!("Failed to recover receipt signer: {}", e);
-            })?;
+            })
+            .map_err(|e| CheckError::Failed(e.into()))?;
 
         // We bail if the receipt signer does not have a corresponding sender in the escrow
         // accounts.
-        let receipt_sender = escrow_accounts_snapshot.get_sender_for_signer(&receipt_signer)?;
+        let receipt_sender = escrow_accounts_snapshot
+            .get_sender_for_signer(&receipt_signer)
+            .map_err(|e| CheckError::Failed(e.into()))?;
 
         // Check that the sender has a non-zero balance -- more advanced accounting is done in
         // `tap-agent`.
@@ -50,10 +53,10 @@ impl Check for SenderBalanceCheck {
             .get_balance_for_sender(&receipt_sender)
             .map_or(false, |balance| balance > U256::ZERO)
         {
-            return Err(anyhow!(
+            return Err(CheckError::Failed(anyhow!(
                 "Receipt sender `{}` does not have a sufficient balance",
                 receipt_signer,
-            ));
+            )));
         }
         Ok(())
     }

@@ -8,7 +8,7 @@ use anyhow::anyhow;
 use eventuals::{Eventual, EventualExt};
 use indexer_common::subgraph_client::{Query, SubgraphClient};
 use tap_core::receipt::{
-    checks::{Check, CheckResult},
+    checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
 };
@@ -52,17 +52,20 @@ impl Check for AllocationId {
         // ID. So the receipts that are received here should already have been filtered by
         // allocation ID.
         if allocation_id != self.allocation_id {
-            return Err(anyhow!("Receipt allocation_id different from expected: allocation_id: {}, expected_allocation_id: {}", allocation_id, self.allocation_id));
+            return Err(CheckError::Failed(anyhow!("Receipt allocation_id different from expected: allocation_id: {}, expected_allocation_id: {}", allocation_id, self.allocation_id)));
         };
 
         // Check that the allocation ID is not redeemed yet for this consumer
         match self.tap_allocation_redeemed.value().await {
             Ok(false) => Ok(()),
-            Ok(true) => Err(anyhow!("Allocation {} already redeemed", allocation_id)),
-            Err(e) => Err(anyhow!(
+            Ok(true) => Err(CheckError::Failed(anyhow!(
+                "Allocation {} already redeemed",
+                allocation_id
+            ))),
+            Err(e) => Err(CheckError::Retryable(anyhow!(
                 "Could not get allocation escrow redemption status from eventual: {:?}",
                 e
-            )),
+            ))),
         }
     }
 }

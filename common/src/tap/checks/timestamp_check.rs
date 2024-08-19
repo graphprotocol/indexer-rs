@@ -8,7 +8,7 @@ pub struct TimestampCheck {
 }
 
 use tap_core::receipt::{
-    checks::{Check, CheckResult},
+    checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
 };
@@ -24,7 +24,9 @@ impl TimestampCheck {
 #[async_trait::async_trait]
 impl Check for TimestampCheck {
     async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult {
-        let timestamp_now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
+        let timestamp_now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_err(|e| CheckError::Failed(e.into()))?;
         let min_timestamp = timestamp_now - self.timestamp_error_tolerance;
         let max_timestamp = timestamp_now + self.timestamp_error_tolerance;
 
@@ -33,10 +35,10 @@ impl Check for TimestampCheck {
         if receipt_timestamp < max_timestamp && receipt_timestamp > min_timestamp {
             Ok(())
         } else {
-            Err(anyhow!(
+            Err(CheckError::Failed(anyhow!(
                 "Receipt timestamp `{}` is outside of current system time +/- timestamp_error_tolerance",
                 receipt_timestamp.as_secs()
-            ))
+            )))
         }
     }
 }

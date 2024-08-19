@@ -8,7 +8,7 @@ use anyhow::anyhow;
 use eventuals::Eventual;
 
 use tap_core::receipt::{
-    checks::{Check, CheckResult},
+    checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
 };
@@ -36,10 +36,10 @@ impl Check for AllocationEligible {
             .map(|allocations| allocations.contains_key(&allocation_id))
             .unwrap_or(false)
         {
-            return Err(anyhow!(
+            return Err(CheckError::Failed(anyhow!(
                 "Receipt allocation ID `{}` is not eligible for this indexer",
                 allocation_id
-            ));
+            )));
         }
         Ok(())
     }

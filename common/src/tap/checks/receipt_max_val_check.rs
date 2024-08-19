@@ -7,7 +7,7 @@ pub struct ReceiptMaxValueCheck {
 }
 
 use tap_core::receipt::{
-    checks::{Check, CheckResult},
+    checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
 };
@@ -26,10 +26,10 @@ impl Check for ReceiptMaxValueCheck {
         if receipt_value < self.receipt_max_value {
             Ok(())
         } else {
-            Err(anyhow!(
+            Err(CheckError::Failed(anyhow!(
                 "Receipt value `{}` is higher than the limit set by the user",
                 receipt_value
-            ))
+            )))
         }
     }
 }

@@ -9,7 +9,7 @@ use std::{
 use anyhow::anyhow;
 use tap_core::{
     receipt::{
-        checks::{Check, CheckResult},
+        checks::{Check, CheckError, CheckResult},
         state::Checking,
         ReceiptWithState,
     },
@@ -33,18 +33,18 @@ impl Check for Value {
             receipts value checking is enabled.",
         );
         let query_appraisals_read = query_appraisals.read().unwrap();
-        let appraised_value =
-            query_appraisals_read
-                .get(&query_id)
-                .ok_or(AdapterError::ValidationError {
-                    error: "No appraised value found for query".to_string(),
-                })?;
+        let appraised_value = query_appraisals_read
+            .get(&query_id)
+            .ok_or(AdapterError::ValidationError {
+                error: "No appraised value found for query".to_string(),
+            })
+            .map_err(|e| CheckError::Failed(e.into()))?;
         if value != *appraised_value {
-            return Err(anyhow!(
+            return Err(CheckError::Failed(anyhow!(
                 "Value different from appraised_value. value: {}, appraised_value: {}",
                 value,
                 *appraised_value
-            ));
+            )));
         }
         Ok(())
     }

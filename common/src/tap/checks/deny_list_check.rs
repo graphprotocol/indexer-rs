@@ -9,6 +9,7 @@ use sqlx::PgPool;
 use std::collections::HashSet;
 use std::sync::RwLock;
 use std::{str::FromStr, sync::Arc};
+use tap_core::receipt::checks::CheckError;
 use tap_core::receipt::{
     checks::{Check, CheckResult},
     state::Checking,
@@ -153,12 +154,16 @@ impl Check for DenyListCheck {
         let receipt_signer = receipt
             .signed_receipt()
             .recover_signer(&self.domain_separator)
-            .inspect_err(|e| {
+            .map_err(|e| {
                 error!("Failed to recover receipt signer: {}", e);
-            })?;
+                anyhow::anyhow!(e)
+            })
+            .map_err(CheckError::Failed)?;
         let escrow_accounts_snapshot = self.escrow_accounts.value_immediate().unwrap_or_default();
 
-        let receipt_sender = escrow_accounts_snapshot.get_sender_for_signer(&receipt_signer)?;
+        let receipt_sender = escrow_accounts_snapshot
+            .get_sender_for_signer(&receipt_signer)
+            .map_err(|e| CheckError::Failed(e.into()))?;
 
         // Check that the sender is not denylisted
         if self
@@ -167,10 +172,10 @@ impl Check for DenyListCheck {
             .unwrap()
             .contains(&receipt_sender)
         {
-            return Err(anyhow::anyhow!(
+            return Err(CheckError::Failed(anyhow::anyhow!(
                 "Received a receipt from a denylisted sender: {}",
                 receipt_sender
-            ));
+            )));
         }
 
         Ok(())
