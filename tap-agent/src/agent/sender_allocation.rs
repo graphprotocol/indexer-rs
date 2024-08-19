@@ -27,7 +27,7 @@ use tap_core::{
     signed_message::EIP712SignedMessage,
 };
 use thegraph_core::Address;
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use crate::{agent::sender_account::ReceiptFees, lazy_static};
 
@@ -680,14 +680,19 @@ impl SenderAllocationState {
             let receipt = received_receipt.signed_receipt();
             let allocation_id = receipt.message.allocation_id;
             let encoded_signature = receipt.signature.as_bytes().to_vec();
-
+            let receipt_error = received_receipt.clone().error().to_string();
             let receipt_signer = receipt
                 .recover_signer(&self.domain_separator)
                 .map_err(|e| {
                     error!("Failed to recover receipt signer: {}", e);
                     anyhow!(e)
                 })?;
-
+            debug!(
+                "Receipt for allocation {} and signer {} failed reason: {}",
+                allocation_id.encode_hex(),
+                receipt_signer.encode_hex(),
+                receipt_error
+            );
             sqlx::query!(
                 r#"
                     INSERT INTO scalar_tap_receipts_invalid (
