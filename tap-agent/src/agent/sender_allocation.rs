@@ -514,12 +514,12 @@ impl SenderAllocationState {
                     .iter()
                     .map(|receipt| receipt.signed_receipt().message.timestamp_ns)
                     .min()
-                    .expect("invalid receitps should not be empty");
+                    .expect("invalid receipts should not be empty");
                 let max_timestamp = invalid_receipts
                     .iter()
                     .map(|receipt| receipt.signed_receipt().message.timestamp_ns)
                     .max()
-                    .expect("invalid receitps should not be empty");
+                    .expect("invalid receipts should not be empty");
                 let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
                 sqlx::query!(
                     r#"
