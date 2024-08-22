@@ -81,8 +81,6 @@ where
     ServiceNotReady,
     #[error("No attestation signer found for allocation `{0}`")]
     NoSignerForAllocation(Address),
-    #[error("No attestation signer found for manifest `{0}`")]
-    NoSignerForManifest(DeploymentId),
     #[error("Invalid request body: {0}")]
     InvalidRequest(anyhow::Error),
     #[error("Error while processing the request: {0}")]
@@ -114,9 +112,7 @@ where
 
             Unauthorized => StatusCode::UNAUTHORIZED,
 
-            NoSignerForAllocation(_) | NoSignerForManifest(_) | FailedToSignAttestation => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            NoSignerForAllocation(_) | FailedToSignAttestation => StatusCode::INTERNAL_SERVER_ERROR,
 
             ReceiptError(_)
             | InvalidRequest(_)

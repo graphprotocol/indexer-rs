@@ -14,7 +14,7 @@ use reqwest::StatusCode;
 use thegraph_core::DeploymentId;
 use tracing::trace;
 
-use crate::{indexer_service::http::IndexerServiceResponse, prelude::AttestationSigner};
+use crate::indexer_service::http::IndexerServiceResponse;
 
 use super::{
     indexer_service::{IndexerServiceError, IndexerServiceState},
@@ -44,9 +44,7 @@ where
     let request =
         serde_json::from_slice(&body).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
 
-    let mut attestation_signer: Option<AttestationSigner> = None;
-
-    if let Some(receipt) = receipt.into_signed_receipt() {
+    let attestation_signer = if let Some(receipt) = receipt.into_signed_receipt() {
         let allocation_id = receipt.message.allocation_id;
 
         // Verify the receipt and store it in the database
@@ -63,12 +61,12 @@ where
             .value_immediate()
             .ok_or_else(|| IndexerServiceError::ServiceNotReady)?;
 
-        attestation_signer = Some(
+        Some(
             signers
                 .get(&allocation_id)
                 .cloned()
                 .ok_or_else(|| (IndexerServiceError::NoSignerForAllocation(allocation_id)))?,
-        );
+        )
     } else {
         match headers
             .get("authorization")
@@ -83,7 +81,8 @@ where
                 }
             }
         }
-    }
+        None
+    };
 
     let (request, response) = state
         .service_impl
@@ -92,8 +91,6 @@ where
         .map_err(IndexerServiceError::ProcessingError)?;
 
     let attestation = match (response.is_attestable(), attestation_signer) {
-        (false, _) => None,
-        (true, None) => return Err(IndexerServiceError::NoSignerForManifest(manifest_id)),
         (true, Some(signer)) => {
             let req = serde_json::to_string(&request)
                 .map_err(|_| IndexerServiceError::FailedToSignAttestation)?;
@@ -102,6 +99,7 @@ where
                 .map_err(|_| IndexerServiceError::FailedToSignAttestation)?;
             Some(signer.create_attestation(&req, res))
         }
+        _ => None,
     };
 
     let response = response.finalize(attestation);
