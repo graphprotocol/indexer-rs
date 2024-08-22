@@ -29,6 +29,7 @@ lazy_static! {
         Address::from_str("0xbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc").unwrap();
     pub static ref SENDER: (PrivateKeySigner, Address) = wallet(0);
     pub static ref SENDER_2: (PrivateKeySigner, Address) = wallet(1);
+    pub static ref SENDER_3: (PrivateKeySigner, Address) = wallet(4);
     pub static ref SIGNER: (PrivateKeySigner, Address) = wallet(2);
     pub static ref INDEXER: (PrivateKeySigner, Address) = wallet(3);
     pub static ref TAP_EIP712_DOMAIN_SEPARATOR: Eip712Domain = eip712_domain! {
