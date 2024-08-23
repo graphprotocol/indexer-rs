@@ -53,7 +53,12 @@ pub trait IndexerServiceResponse {
 
     fn is_attestable(&self) -> bool;
     fn as_str(&self) -> Result<&str, Self::Error>;
-    fn finalize(self, attestation: Option<Attestation>) -> Self::Data;
+    fn finalize(self, attestation: AttestationOutput) -> Self::Data;
+}
+
+pub enum AttestationOutput {
+    Attestation(Option<Attestation>),
+    Attestable,
 }
 
 #[async_trait]

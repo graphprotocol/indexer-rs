@@ -7,12 +7,14 @@ use std::time::Duration;
 use super::{config::Config, error::SubgraphServiceError, routes};
 use anyhow::anyhow;
 use axum::{async_trait, routing::post, Json, Router};
-use indexer_common::indexer_service::http::{IndexerServiceImpl, IndexerServiceResponse};
+use indexer_common::indexer_service::http::{
+    AttestationOutput, IndexerServiceImpl, IndexerServiceResponse,
+};
 use indexer_config::Config as MainConfig;
 use reqwest::Url;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use thegraph_core::{Attestation, DeploymentId};
+use thegraph_core::DeploymentId;
 
 use crate::{cli::Cli, database};
 
@@ -46,10 +48,14 @@ impl IndexerServiceResponse for SubgraphServiceResponse {
         Ok(self.inner.as_str())
     }
 
-    fn finalize(self, attestation: Option<Attestation>) -> Self::Data {
+    fn finalize(self, attestation: AttestationOutput) -> Self::Data {
+        let (attestation_key, attestation_value) = match attestation {
+            AttestationOutput::Attestation(attestation) => ("attestation", json!(attestation)),
+            AttestationOutput::Attestable => ("attestable", json!(self.is_attestable())),
+        };
         Json(json!({
             "graphQLResponse": self.inner,
-            "attestation": attestation
+            attestation_key: attestation_value,
         }))
     }
 }

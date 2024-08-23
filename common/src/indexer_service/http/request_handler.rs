@@ -17,7 +17,7 @@ use tracing::trace;
 use crate::indexer_service::http::IndexerServiceResponse;
 
 use super::{
-    indexer_service::{IndexerServiceError, IndexerServiceState},
+    indexer_service::{AttestationOutput, IndexerServiceError, IndexerServiceState},
     tap_receipt_header::TapReceipt,
     IndexerServiceImpl,
 };
@@ -90,16 +90,20 @@ where
         .await
         .map_err(IndexerServiceError::ProcessingError)?;
 
-    let attestation = match (response.is_attestable(), attestation_signer) {
-        (true, Some(signer)) => {
+    let attestation = match attestation_signer {
+        Some(signer) => {
             let req = serde_json::to_string(&request)
                 .map_err(|_| IndexerServiceError::FailedToSignAttestation)?;
             let res = response
                 .as_str()
                 .map_err(|_| IndexerServiceError::FailedToSignAttestation)?;
-            Some(signer.create_attestation(&req, res))
+            AttestationOutput::Attestation(
+                response
+                    .is_attestable()
+                    .then(|| signer.create_attestation(&req, res)),
+            )
         }
-        _ => None,
+        None => AttestationOutput::Attestable,
     };
 
     let response = response.finalize(attestation);
