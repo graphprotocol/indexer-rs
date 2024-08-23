@@ -253,16 +253,7 @@ impl State {
             "Denying sender."
         );
 
-        sqlx::query!(
-            r#"
-                    INSERT INTO scalar_tap_denylist (sender_address)
-                    VALUES ($1) ON CONFLICT DO NOTHING
-                "#,
-            self.sender.encode_hex(),
-        )
-        .execute(&self.pgpool)
-        .await
-        .expect("Should not fail to insert into denylist");
+        SenderAccount::deny_sender(&self.pgpool, self.sender).await;
         self.denied = true;
         SENDER_DENIED
             .with_label_values(&[&self.sender.to_string()])
@@ -807,6 +798,21 @@ impl Actor for SenderAccount {
             _ => {}
         }
         Ok(())
+    }
+}
+
+impl SenderAccount {
+    pub async fn deny_sender(pool: &sqlx::PgPool, sender: Address) {
+        sqlx::query!(
+            r#"
+                    INSERT INTO scalar_tap_denylist (sender_address)
+                    VALUES ($1) ON CONFLICT DO NOTHING
+                "#,
+            sender.encode_hex(),
+        )
+        .execute(pool)
+        .await
+        .expect("Should not fail to insert into denylist");
     }
 }
 

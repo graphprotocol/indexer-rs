@@ -148,8 +148,8 @@ impl Actor for SenderAccountsManager {
         for (sender_id, allocation_ids) in sender_allocation {
             state.sender_ids.insert(sender_id);
             state
-                .create_sender_account(myself.get_cell(), sender_id, allocation_ids)
-                .await?;
+                .create_or_deny_sender(myself.get_cell(), sender_id, allocation_ids)
+                .await;
         }
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
@@ -191,16 +191,9 @@ impl Actor for SenderAccountsManager {
             SenderAccountsManagerMessage::UpdateSenderAccounts(target_senders) => {
                 // Create new sender accounts
                 for sender in target_senders.difference(&state.sender_ids) {
-                    if let Err(e) = state
-                        .create_sender_account(myself.get_cell(), *sender, HashSet::new())
-                        .await
-                    {
-                        error!(
-                            sender_address = %sender,
-                            error = %e,
-                            "There was an error while creating a sender account."
-                        );
-                    }
+                    state
+                        .create_or_deny_sender(myself.get_cell(), *sender, HashSet::new())
+                        .await;
                 }
 
                 // Remove sender accounts
@@ -263,16 +256,9 @@ impl Actor for SenderAccountsManager {
                     .remove(&sender_id)
                     .unwrap_or(HashSet::new());
 
-                if let Err(e) = state
-                    .create_sender_account(myself.get_cell(), sender_id, allocations)
-                    .await
-                {
-                    error!(
-                        error = %e,
-                        sender_address = %sender_id,
-                        "There was an error while re-creating sender account."
-                    );
-                }
+                state
+                    .create_or_deny_sender(myself.get_cell(), sender_id, allocations)
+                    .await;
             }
             _ => {}
         }
@@ -291,13 +277,46 @@ impl State {
         sender_allocation_id
     }
 
+    async fn create_or_deny_sender(
+        &self,
+        supervisor: ActorCell,
+        sender_id: Address,
+        allocation_ids: HashSet<Address>,
+    ) {
+        if let Err(e) = self
+            .create_sender_account(supervisor, sender_id, allocation_ids)
+            .await
+        {
+            error!(
+                "There was an error while starting the sender {}, denying it. Error: {:?}",
+                sender_id, e
+            );
+            SenderAccount::deny_sender(&self.pgpool, sender_id).await;
+        }
+    }
+
     async fn create_sender_account(
         &self,
         supervisor: ActorCell,
         sender_id: Address,
         allocation_ids: HashSet<Address>,
     ) -> anyhow::Result<()> {
-        let args = self.new_sender_account_args(&sender_id, allocation_ids)?;
+        let Ok(args) = self.new_sender_account_args(&sender_id, allocation_ids) else {
+            warn!(
+                "Sender {} is not on your [tap.sender_aggregator_endpoints] list. \
+                        \
+                        This means that you don't recognize this sender and don't want to \
+                        provide queries for it.
+                        \
+                        If you do recognize and want to serve queries for it, \
+                        add a new entry to the config [tap.sender_aggregator_endpoints]",
+                sender_id
+            );
+            bail!(
+                "No sender_aggregator_endpoints found for sender {}",
+                sender_id
+            );
+        };
         SenderAccount::spawn_linked(
             Some(self.format_sender_account(&sender_id)),
             SenderAccount,
@@ -428,12 +447,10 @@ impl State {
             sender_aggregator_endpoint: self
                 .sender_aggregator_endpoints
                 .get(sender_id)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "No sender_aggregator_endpoint found for sender {}",
-                        sender_id
-                    )
-                })?
+                .ok_or(anyhow!(
+                    "No sender_aggregator_endpoints found for sender {}",
+                    sender_id
+                ))?
                 .clone(),
             allocation_ids,
             prefix: self.prefix.clone(),
@@ -567,8 +584,9 @@ mod tests {
     use crate::config;
     use crate::tap::test_utils::{
         create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
-        ALLOCATION_ID_1, INDEXER, SENDER, SENDER_2, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+        ALLOCATION_ID_1, INDEXER, SENDER, SENDER_2, SENDER_3, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };
+    use alloy::hex::ToHexExt;
     use alloy::primitives::Address;
     use eventuals::{Eventual, EventualExt};
     use indexer_common::allocations::Allocation;
@@ -778,6 +796,60 @@ mod tests {
         let actor_ref =
             ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER_2.1));
         assert!(actor_ref.is_some());
+
+        supervisor.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_deny_sender_account_on_failure(pgpool: PgPool) {
+        struct DummyActor;
+        #[async_trait::async_trait]
+        impl Actor for DummyActor {
+            type Msg = ();
+            type State = ();
+            type Arguments = ();
+
+            async fn pre_start(
+                &self,
+                _: ActorRef<Self::Msg>,
+                _: Self::Arguments,
+            ) -> Result<Self::State, ActorProcessingErr> {
+                Ok(())
+            }
+        }
+
+        let (_prefix, state) = create_state(pgpool.clone());
+        let (supervisor, handle) = DummyActor::spawn(None, DummyActor, ()).await.unwrap();
+        // we wait to check if the sender is created
+
+        let sender_id = SENDER_3.1;
+
+        state
+            .create_or_deny_sender(supervisor.get_cell(), sender_id, HashSet::new())
+            .await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // TODO check if sender is denied
+
+        let denied = sqlx::query!(
+            r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM scalar_tap_denylist
+                    WHERE sender_address = $1
+                ) as denied
+            "#,
+            sender_id.encode_hex(),
+        )
+        .fetch_one(&pgpool)
+        .await
+        .unwrap()
+        .denied
+        .expect("Deny status cannot be null");
+
+        assert!(denied, "Sender was not denied after failing.");
 
         supervisor.stop_and_wait(None, None).await.unwrap();
         handle.await.unwrap();
