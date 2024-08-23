@@ -24,20 +24,20 @@ tracing.workspace = true
 prometheus.workspace = true
 axum.workspace = true
 tap_core.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 lazy_static.workspace = true
 thegraph-core.workspace = true
 clap.workspace = true
 tracing-subscriber.workspace = true
 bigdecimal = { workspace = true, features = ["serde"] }
 ruint = { version = "1.12.3", features = [
-    "num-traits",
+  "num-traits",
 ], default-features = false }
 futures-util = { version = "0.3.28", default-features = false }
 jsonrpsee = { version = "0.24.0", features = ["http-client", "tracing"] }
 tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "eb8447e" }
 ractor = { version = "0.9", features = [
-    "async-trait",
+  "async-trait",
 ], default-features = false }
 
 [dev-dependencies]

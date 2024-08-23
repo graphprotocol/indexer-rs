@@ -8,7 +8,7 @@ alloy.workspace = true
 serde.workspace = true
 thegraph-core.workspace = true
 tracing.workspace = true
-bigdecimal = { workspace = true }
+bigdecimal = { workspace = true, features = ["serde"] }
 bip39 = "2.0.0"
 figment = { version = "0.10.19", features = ["env", "toml"] }
 serde_with = { version = "3.8.1", default-features = false }
