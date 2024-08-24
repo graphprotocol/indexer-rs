@@ -53,7 +53,12 @@ pub trait IndexerServiceResponse {
 
     fn is_attestable(&self) -> bool;
     fn as_str(&self) -> Result<&str, Self::Error>;
-    fn finalize(self, attestation: Option<Attestation>) -> Self::Data;
+    fn finalize(self, attestation: AttestationOutput) -> Self::Data;
+}
+
+pub enum AttestationOutput {
+    Attestation(Option<Attestation>),
+    Attestable,
 }
 
 #[async_trait]
@@ -81,8 +86,6 @@ where
     ServiceNotReady,
     #[error("No attestation signer found for allocation `{0}`")]
     NoSignerForAllocation(Address),
-    #[error("No attestation signer found for manifest `{0}`")]
-    NoSignerForManifest(DeploymentId),
     #[error("Invalid request body: {0}")]
     InvalidRequest(anyhow::Error),
     #[error("Error while processing the request: {0}")]
@@ -114,9 +117,7 @@ where
 
             Unauthorized => StatusCode::UNAUTHORIZED,
 
-            NoSignerForAllocation(_) | NoSignerForManifest(_) | FailedToSignAttestation => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            NoSignerForAllocation(_) | FailedToSignAttestation => StatusCode::INTERNAL_SERVER_ERROR,
 
             ReceiptError(_)
             | InvalidRequest(_)

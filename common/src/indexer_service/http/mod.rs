@@ -13,6 +13,6 @@ pub use config::{
     ServerConfig, SubgraphConfig, TapConfig,
 };
 pub use indexer_service::{
-    IndexerService, IndexerServiceImpl, IndexerServiceOptions, IndexerServiceRelease,
-    IndexerServiceResponse,
+    AttestationOutput, IndexerService, IndexerServiceImpl, IndexerServiceOptions,
+    IndexerServiceRelease, IndexerServiceResponse,
 };
