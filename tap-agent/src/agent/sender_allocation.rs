@@ -1450,7 +1450,7 @@ pub mod tests {
         // Add receipts to the database.
         for i in 0..10 {
             let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, u64::max_value(), i.into());
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, u64::MAX, i.into());
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
