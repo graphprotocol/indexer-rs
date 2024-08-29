@@ -1,4 +1,4 @@
-// Copyright 2023-, Semiotic AI, Inc.
+// Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{net::SocketAddr, panic};

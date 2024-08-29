@@ -1,4 +1,4 @@
-// Copyright 2023-, GraphOps and Semiotic Labs.
+// Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 use super::monitor::{monitor_deployment_status, DeploymentStatus};
