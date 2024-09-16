@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM dips_agreements WHERE id=$1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "signature",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
+        "name": "signed_payload",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "protocol",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "service",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "payee",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 6,
+        "name": "payer",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "cancelled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "signed_cancellation_payload",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "05cd59d0d9e64a7c6f7d4560a97e6b79fd38523fbcef88b2dd169720b4e9188e"
+}
