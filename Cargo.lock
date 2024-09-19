@@ -702,6 +702,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37bf3594c4c988a53154954629820791dde498571819ae4ca50ca811e060cc95"
 
 [[package]]
+name = "anymap3"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9316150bf847270bd54e404c3fb1c5d3c6af118b3f0c3b42097da5ceafbe7c27"
+
+[[package]]
 name = "ark-ff"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3149,7 +3155,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=ff856d9)",
+ "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=3fe6bc2)",
  "test-log",
  "thegraph-core",
  "thegraph-graphql-http",
@@ -3241,7 +3247,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tap_aggregator",
- "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=ff856d9)",
+ "tap_core 1.0.0 (git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=3fe6bc2)",
  "tempfile",
  "thegraph-core",
  "thiserror",
@@ -6168,6 +6174,21 @@ dependencies = [
 [[package]]
 name = "tap_core"
 version = "1.0.0"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=3fe6bc2#3fe6bc27c10161e5a1c011c088281d3da227df53"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "anymap3",
+ "async-trait",
+ "rand 0.8.5",
+ "serde",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "tap_core"
+version = "1.0.0"
 source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=eb8447e#eb8447ed4566ced6846c03b510b25b915f985186"
 dependencies = [
  "alloy",
@@ -6179,20 +6200,6 @@ dependencies = [
  "serde",
  "strum 0.24.1",
  "strum_macros 0.24.3",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "tap_core"
-version = "1.0.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=ff856d9#ff856d966112af4c4d554a81154797fae4b335d9"
-dependencies = [
- "alloy",
- "anyhow",
- "async-trait",
- "rand 0.8.5",
- "serde",
  "thiserror",
  "tokio",
 ]
