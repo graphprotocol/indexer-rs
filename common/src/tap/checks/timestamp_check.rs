@@ -23,7 +23,11 @@ impl TimestampCheck {
 
 #[async_trait::async_trait]
 impl Check for TimestampCheck {
-    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult {
+    async fn check(
+        &self,
+        _: &tap_core::receipt::Context,
+        receipt: &ReceiptWithState<Checking>,
+    ) -> CheckResult {
         let timestamp_now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_err(|e| CheckError::Failed(e.into()))?;
@@ -54,7 +58,7 @@ mod tests {
     use super::*;
     use crate::tap::Eip712Domain;
     use tap_core::{
-        receipt::{checks::Check, state::Checking, Receipt, ReceiptWithState},
+        receipt::{checks::Check, state::Checking, Context, Receipt, ReceiptWithState},
         signed_message::EIP712SignedMessage,
         tap_eip712_domain,
     };
@@ -98,7 +102,10 @@ mod tests {
         let timestamp_ns = timestamp as u64;
         let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns);
         let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
-        assert!(timestamp_check.check(&signed_receipt).await.is_ok());
+        assert!(timestamp_check
+            .check(&Context::new(), &signed_receipt)
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -111,7 +118,10 @@ mod tests {
         let timestamp_ns = timestamp as u64;
         let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns);
         let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
-        assert!(timestamp_check.check(&signed_receipt).await.is_err());
+        assert!(timestamp_check
+            .check(&Context::new(), &signed_receipt)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -124,6 +134,9 @@ mod tests {
         let timestamp_ns = timestamp as u64;
         let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns);
         let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
-        assert!(timestamp_check.check(&signed_receipt).await.is_err());
+        assert!(timestamp_check
+            .check(&Context::new(), &signed_receipt)
+            .await
+            .is_err());
     }
 }

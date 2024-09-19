@@ -13,6 +13,7 @@ use axum_extra::TypedHeader;
 use lazy_static::lazy_static;
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use reqwest::StatusCode;
+use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
 use tracing::trace;
 
@@ -126,16 +127,13 @@ where
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_default();
-    let _ = state
-        .value_check_sender
-        .tx_query
-        .send(AgoraQuery {
-            signature,
-            deployment_id: manifest_id,
-            query: query_body.query.clone(),
-            variables,
-        })
-        .await;
+    let mut ctx = Context::new();
+    ctx.insert(AgoraQuery {
+        signature,
+        deployment_id: manifest_id,
+        query: query_body.query.clone(),
+        variables,
+    });
 
     // recover the signer address
     // get escrow accounts from eventual
@@ -168,7 +166,7 @@ where
     // Verify the receipt and store it in the database
     state
         .tap_manager
-        .verify_and_store_receipt(receipt)
+        .verify_and_store_receipt(&ctx, receipt)
         .await
         .inspect_err(|_| {
             FAILED_RECEIPT

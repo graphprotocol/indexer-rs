@@ -18,60 +18,39 @@ use tokio::{
 };
 use ttl_cache::TtlCache;
 
-use tap_core::{
-    receipt::{
-        checks::{Check, CheckError, CheckResult},
-        state::Checking,
-        ReceiptWithState,
-    },
-    signed_message::{SignatureBytes, SignatureBytesExt},
+use tap_core::receipt::{
+    checks::{Check, CheckError, CheckResult},
+    state::Checking,
+    Context, ReceiptWithState,
 };
 
 pub struct MinimumValue {
     cost_model_cache: Arc<Mutex<HashMap<DeploymentId, CostModelCache>>>,
-    query_ids: Arc<Mutex<HashMap<SignatureBytes, AgoraQuery>>>,
     model_handle: JoinHandle<()>,
-    query_handle: JoinHandle<()>,
 }
 
 #[derive(Clone)]
 pub struct ValueCheckSender {
     pub tx_cost_model: Sender<CostModelSource>,
-    pub tx_query: Sender<AgoraQuery>,
 }
 
 pub struct ValueCheckReceiver {
     rx_cost_model: Receiver<CostModelSource>,
-    rx_query: Receiver<AgoraQuery>,
 }
 
 pub fn create_value_check(size: usize) -> (ValueCheckSender, ValueCheckReceiver) {
     let (tx_cost_model, rx_cost_model) = tokio::sync::mpsc::channel(size);
-    let (tx_query, rx_query) = tokio::sync::mpsc::channel(size);
 
     (
-        ValueCheckSender {
-            tx_query,
-            tx_cost_model,
-        },
-        ValueCheckReceiver {
-            rx_cost_model,
-            rx_query,
-        },
+        ValueCheckSender { tx_cost_model },
+        ValueCheckReceiver { rx_cost_model },
     )
 }
 
 impl MinimumValue {
-    pub fn new(
-        ValueCheckReceiver {
-            mut rx_query,
-            mut rx_cost_model,
-        }: ValueCheckReceiver,
-    ) -> Self {
+    pub fn new(ValueCheckReceiver { mut rx_cost_model }: ValueCheckReceiver) -> Self {
         let cost_model_cache = Arc::new(Mutex::new(HashMap::<DeploymentId, CostModelCache>::new()));
-        let query_ids = Arc::new(Mutex::new(HashMap::new()));
         let cache = cost_model_cache.clone();
-        let query_ids_clone = query_ids.clone();
         let model_handle = tokio::spawn(async move {
             loop {
                 let model = rx_cost_model.recv().await;
@@ -105,27 +84,9 @@ impl MinimumValue {
             }
         });
 
-        // we use two different handles because in case one channel breaks we still have the other
-        let query_handle = tokio::spawn(async move {
-            loop {
-                let query = rx_query.recv().await;
-                match query {
-                    Some(query) => {
-                        query_ids_clone
-                            .lock()
-                            .unwrap()
-                            .insert(query.signature.get_signature_bytes(), query);
-                    }
-                    None => break,
-                }
-            }
-        });
-
         Self {
             cost_model_cache,
             model_handle,
-            query_ids,
-            query_handle,
         }
     }
 }
@@ -133,28 +94,18 @@ impl MinimumValue {
 impl Drop for MinimumValue {
     fn drop(&mut self) {
         self.model_handle.abort();
-        self.query_handle.abort();
     }
 }
 
 impl MinimumValue {
-    fn get_agora_query(&self, query_id: &SignatureBytes) -> Option<AgoraQuery> {
-        self.query_ids.lock().unwrap().remove(query_id)
-    }
-
-    fn get_expected_value(&self, query_id: &SignatureBytes) -> anyhow::Result<u128> {
-        // get query from key
-        let agora_query = self
-            .get_agora_query(query_id)
-            .ok_or(anyhow!("No query found"))?;
-
+    fn get_expected_value(&self, agora_query: &AgoraQuery) -> anyhow::Result<u128> {
         // get agora model for the allocation_id
         let mut cache = self.cost_model_cache.lock().unwrap();
         // on average, we'll have zero or one model
         let models = cache.get_mut(&agora_query.deployment_id);
 
         let expected_value = models
-            .map(|cache| cache.cost(&agora_query))
+            .map(|cache| cache.cost(agora_query))
             .unwrap_or_default();
 
         Ok(expected_value)
@@ -163,11 +114,14 @@ impl MinimumValue {
 
 #[async_trait::async_trait]
 impl Check for MinimumValue {
-    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult {
-        // get key
-        let key = &receipt.signed_receipt().signature.get_signature_bytes();
+    async fn check(&self, ctx: &Context, receipt: &ReceiptWithState<Checking>) -> CheckResult {
+        let agora_query = ctx
+            .get()
+            .ok_or(CheckError::Failed(anyhow!("Could not find agora query")))?;
 
-        let expected_value = self.get_expected_value(key).map_err(CheckError::Failed)?;
+        let expected_value = self
+            .get_expected_value(agora_query)
+            .map_err(CheckError::Failed)?;
 
         // get value
         let value = receipt.signed_receipt().message.value;
