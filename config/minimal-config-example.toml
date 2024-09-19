@@ -51,15 +51,6 @@ receipts_verifier_address = "0x2222222222222222222222222222222222222222"
 ########################################
 # Specific configurations to tap-agent #
 ########################################
-[tap]
-# This is the amount of fees you are willing to risk at any given time. For ex.
-# if the sender stops supplying RAVs for long enough and the fees exceed this
-# amount, the indexer-service will stop accepting queries from the sender
-# until the fees are aggregated.
-# NOTE: Use strings for decimal values to prevent rounding errors
-# e.g:
-# max_amount_willing_to_lose_grt = "0.1"
-max_amount_willing_to_lose_grt = 20
 
 [tap.sender_aggregator_endpoints]
 # Key-Value of all senders and their aggregator endpoints

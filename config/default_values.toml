@@ -17,6 +17,9 @@ url_prefix = "/"
 [service.tap]
 max_receipt_value_grt = "0.001" # We use strings to prevent rounding errors
 
+[tap]
+max_amount_willing_to_lose_grt = 20
+
 [tap.rav_request]
 trigger_value_divisor = 10
 timestamp_buffer_secs = 60
