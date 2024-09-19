@@ -66,6 +66,12 @@ lazy_static! {
         &["sender"]
     )
     .unwrap();
+    static ref RAV_REQUEST_TRIGGER_VALUE: GaugeVec = register_gauge_vec!(
+        "tap_rav_request_trigger_value",
+        "RAV request trigger value divisor",
+        &["sender"]
+    )
+    .unwrap();
 }
 
 type RavMap = HashMap<Address, u128>;
@@ -466,6 +472,10 @@ impl Actor for SenderAccount {
         MAX_FEE_PER_SENDER
             .with_label_values(&[&sender_id.to_string()])
             .set(config.tap.max_unnaggregated_fees_per_sender as f64);
+
+        RAV_REQUEST_TRIGGER_VALUE
+            .with_label_values(&[&sender_id.to_string()])
+            .set(config.tap.rav_request_trigger_value as f64);
 
         let state = State {
             sender_fee_tracker: SenderFeeTracker::default(),
