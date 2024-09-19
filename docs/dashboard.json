@@ -231,7 +231,7 @@
             "uid": "b70befc5-0872-448c-b502-9875d467edaf"
           },
           "editorMode": "code",
-          "expr": "tap_max_fee_per_sender_grt_total * 10^-18/tap_rav_request_trigger_value",
+          "expr": "tap_rav_request_trigger_value * 10^-18",
           "hide": false,
           "legendFormat": "Rav Trigger {{sender}}",
           "range": true,
