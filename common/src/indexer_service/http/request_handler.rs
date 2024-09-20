@@ -39,8 +39,8 @@ lazy_static! {
     ).unwrap();
 
     pub static ref FAILED_RECEIPT: CounterVec = register_counter_vec!(
-        "indexer_query_handler_failed_total",
-        "Failed queries to handler",
+        "indexer_receipt_failed_total",
+        "Failed receipt checks",
         &["deployment", "allocation", "sender"]
     ).unwrap();
 
