@@ -554,7 +554,16 @@ impl SenderAllocationState {
                             previous_rav
                         ),
                     )
-                    .await?;
+                    .await
+                    .inspect_err(|err| {
+                        if let jsonrpsee::core::ClientError::RequestTimeout = &err {
+                            warn!(
+                                "Rav request is timing out, maybe request_timeout_secs is too \
+                                low in your config file, try adding more secs to the value. \
+                                If the problem persists after doing so please open an issue"
+                            );
+                        }
+                    })?;
 
                 let rav_response_time = rav_response_time_start.elapsed();
                 RAV_RESPONSE_TIME
