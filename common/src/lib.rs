@@ -6,7 +6,6 @@ pub mod allocations;
 pub mod attestations;
 pub mod escrow_accounts;
 pub mod graphql;
-pub mod indexer_errors;
 pub mod indexer_service;
 pub mod subgraph_client;
 pub mod tap;
@@ -22,7 +21,6 @@ pub mod prelude {
         dispute_manager::dispute_manager, signer::AttestationSigner, signers::attestation_signers,
     };
     pub use super::escrow_accounts::escrow_accounts;
-    pub use super::indexer_errors;
     pub use super::subgraph_client::{DeploymentDetails, Query, QueryVariables, SubgraphClient};
     pub use super::tap::IndexerTapContext;
 }
