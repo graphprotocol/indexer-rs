@@ -2,13 +2,41 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloy::primitives::Address;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    time::{Duration, Instant},
+};
 use tracing::error;
+
+#[derive(Debug, Clone, Default)]
+struct ExpiringSum {
+    entries: VecDeque<(Instant, u128)>,
+    sum: u128,
+}
+
+impl ExpiringSum {
+    fn get_sum(&mut self, duration: &Duration) -> u128 {
+        let now = Instant::now();
+        while let Some(&(timestamp, value)) = self.entries.front() {
+            if now.duration_since(timestamp) >= *duration {
+                self.entries.pop_front();
+                self.sum -= value;
+            } else {
+                break;
+            }
+        }
+        self.sum
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct SenderFeeTracker {
     id_to_fee: HashMap<Address, u128>,
     total_fee: u128,
+
+    buffer_fee: HashMap<Address, ExpiringSum>,
+
+    buffer_duration: Duration,
     // there are some allocations that we don't want it to be
     // heaviest allocation, because they are already marked for finalization,
     // and thus requesting RAVs on their own in their `post_stop` routine.
@@ -16,6 +44,24 @@ pub struct SenderFeeTracker {
 }
 
 impl SenderFeeTracker {
+    pub fn new(buffer_duration: Duration) -> Self {
+        Self {
+            buffer_duration,
+            ..Default::default()
+        }
+    }
+    pub fn add(&mut self, id: Address, value: u128) {
+        if self.buffer_duration > Duration::ZERO {
+            let now = Instant::now();
+            let expiring_sum = self.buffer_fee.entry(id).or_default();
+            expiring_sum.entries.push_back((now, value));
+            expiring_sum.sum += value;
+        }
+        self.total_fee += value;
+        let entry = self.id_to_fee.entry(id).or_default();
+        *entry += value;
+    }
+
     pub fn update(&mut self, id: Address, fee: u128) {
         if fee > 0 {
             // insert or update, if update remove old fee from total
@@ -44,20 +90,31 @@ impl SenderFeeTracker {
         self.blocked_addresses.remove(&address);
     }
 
-    pub fn get_heaviest_allocation_id(&self) -> Option<Address> {
+    pub fn get_heaviest_allocation_id(&mut self) -> Option<Address> {
         // just loop over and get the biggest fee
         self.id_to_fee
             .iter()
             .filter(|(addr, _)| !self.blocked_addresses.contains(*addr))
+            // map to the value minus fees in buffer
+            .map(|(addr, fee)| {
+                (
+                    addr,
+                    fee - self
+                        .buffer_fee
+                        .get_mut(addr)
+                        .map(|expiring| expiring.get_sum(&self.buffer_duration))
+                        .unwrap_or_default(),
+                )
+            })
             .fold(None, |acc: Option<(&Address, u128)>, (addr, fee)| {
                 if let Some((_, max_fee)) = acc {
-                    if *fee > max_fee {
-                        Some((addr, *fee))
+                    if fee > max_fee {
+                        Some((addr, fee))
                     } else {
                         acc
                     }
                 } else {
-                    Some((addr, *fee))
+                    Some((addr, fee))
                 }
             })
             .map(|(&id, _)| id)
@@ -69,6 +126,16 @@ impl SenderFeeTracker {
 
     pub fn get_total_fee(&self) -> u128 {
         self.total_fee
+    }
+
+    pub fn get_total_fee_outsite_buffer(&mut self) -> u128 {
+        self.total_fee - self.get_buffer_fee()
+    }
+
+    pub fn get_buffer_fee(&mut self) -> u128 {
+        self.buffer_fee.values_mut().fold(0u128, |acc, expiring| {
+            acc + expiring.get_sum(&self.buffer_duration)
+        })
     }
 }
 

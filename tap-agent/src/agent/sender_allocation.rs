@@ -161,7 +161,7 @@ impl Actor for SenderAllocation {
 
         sender_account_ref.cast(SenderAccountMessage::UpdateReceiptFees(
             allocation_id,
-            ReceiptFees::NewValue(state.unaggregated_fees.clone()),
+            ReceiptFees::UpdateValue(state.unaggregated_fees.clone()),
         ))?;
 
         // update rav tracker for sender account
@@ -225,9 +225,10 @@ impl Actor for SenderAllocation {
         );
         let unaggregated_fees = &mut state.unaggregated_fees;
         match message {
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification {
-                id, value: fees, ..
-            }) => {
+            SenderAllocationMessage::NewReceipt(notification) => {
+                let NewReceiptNotification {
+                    id, value: fees, ..
+                } = notification;
                 if id > unaggregated_fees.last_id {
                     unaggregated_fees.last_id = id;
                     unaggregated_fees.value = unaggregated_fees
@@ -248,7 +249,7 @@ impl Actor for SenderAllocation {
                         .sender_account_ref
                         .cast(SenderAccountMessage::UpdateReceiptFees(
                             state.allocation_id,
-                            ReceiptFees::NewValue(unaggregated_fees.clone()),
+                            ReceiptFees::NewReceipt(notification),
                         ))?;
                 }
             }
@@ -974,7 +975,7 @@ pub mod tests {
         // Should emit a message to the sender account with the unaggregated fees.
         let expected_message = SenderAccountMessage::UpdateReceiptFees(
             *ALLOCATION_ID_0,
-            ReceiptFees::NewValue(UnaggregatedReceipts {
+            ReceiptFees::UpdateValue(UnaggregatedReceipts {
                 last_id: 10,
                 value: 55u128,
             }),
@@ -1073,7 +1074,7 @@ pub mod tests {
         // should emit update aggregate fees message to sender account
         let expected_message = SenderAccountMessage::UpdateReceiptFees(
             *ALLOCATION_ID_0,
-            ReceiptFees::NewValue(UnaggregatedReceipts {
+            ReceiptFees::UpdateValue(UnaggregatedReceipts {
                 last_id: 1,
                 value: 20,
             }),
@@ -1191,7 +1192,7 @@ pub mod tests {
             last_message_emitted.lock().unwrap().last(),
             Some(&SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewValue(UnaggregatedReceipts::default())
+                ReceiptFees::UpdateValue(UnaggregatedReceipts::default())
             ))
         );
     }

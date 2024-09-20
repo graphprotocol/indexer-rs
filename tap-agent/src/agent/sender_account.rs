@@ -23,6 +23,7 @@ use tap_core::rav::SignedRAV;
 use thegraph_core::Address;
 use tracing::{error, Level};
 
+use super::sender_accounts_manager::NewReceiptNotification;
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::agent::sender_fee_tracker::SenderFeeTracker;
@@ -79,7 +80,8 @@ type Balance = U256;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum ReceiptFees {
-    NewValue(UnaggregatedReceipts),
+    NewReceipt(NewReceiptNotification),
+    UpdateValue(UnaggregatedReceipts),
     Retry,
 }
 
@@ -478,7 +480,9 @@ impl Actor for SenderAccount {
             .set(config.tap.rav_request_trigger_value as f64);
 
         let state = State {
-            sender_fee_tracker: SenderFeeTracker::default(),
+            sender_fee_tracker: SenderFeeTracker::new(Duration::from_millis(
+                config.tap.rav_request_timestamp_buffer_ms,
+            )),
             rav_tracker: SenderFeeTracker::default(),
             invalid_receipts_tracker: SenderFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
@@ -564,14 +568,30 @@ impl Actor for SenderAccount {
                     scheduled_rav_request.abort();
                 }
 
-                if let ReceiptFees::NewValue(unaggregated_fees) = receipt_fees {
-                    state
-                        .sender_fee_tracker
-                        .update(allocation_id, unaggregated_fees.value);
+                match receipt_fees {
+                    ReceiptFees::NewReceipt(receipt) => {
+                        state.sender_fee_tracker.add(allocation_id, receipt.value);
 
-                    UNAGGREGATED_FEES
-                        .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
-                        .set(unaggregated_fees.value as f64);
+                        UNAGGREGATED_FEES
+                            .with_label_values(&[
+                                &state.sender.to_string(),
+                                &allocation_id.to_string(),
+                            ])
+                            .add(receipt.value as f64);
+                    }
+                    ReceiptFees::UpdateValue(unaggregated_fees) => {
+                        state
+                            .sender_fee_tracker
+                            .update(allocation_id, unaggregated_fees.value);
+
+                        UNAGGREGATED_FEES
+                            .with_label_values(&[
+                                &state.sender.to_string(),
+                                &allocation_id.to_string(),
+                            ])
+                            .set(unaggregated_fees.value as f64);
+                    }
+                    ReceiptFees::Retry => {}
                 }
 
                 // Eagerly deny the sender (if needed), before the RAV request. To be sure not to
@@ -582,7 +602,8 @@ impl Actor for SenderAccount {
                     state.add_to_denylist().await;
                 }
 
-                if state.sender_fee_tracker.get_total_fee()
+                // TODO if the total_fee_outside_the_buffer
+                if state.sender_fee_tracker.get_total_fee_outsite_buffer()
                     >= state.config.tap.rav_request_trigger_value
                 {
                     tracing::debug!(
@@ -769,7 +790,7 @@ impl Actor for SenderAccount {
                 // update the receipt fees by reseting to 0
                 myself.cast(SenderAccountMessage::UpdateReceiptFees(
                     allocation_id,
-                    ReceiptFees::NewValue(UnaggregatedReceipts::default()),
+                    ReceiptFees::UpdateValue(UnaggregatedReceipts::default()),
                 ))?;
 
                 // rav tracker is not updated because it's still not redeemed
@@ -1191,7 +1212,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewValue(UnaggregatedReceipts {
+                ReceiptFees::UpdateValue(UnaggregatedReceipts {
                     value: TRIGGER_VALUE - 1,
                     last_id: 10,
                 }),
@@ -1230,7 +1251,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewValue(UnaggregatedReceipts {
+                ReceiptFees::UpdateValue(UnaggregatedReceipts {
                     value: TRIGGER_VALUE,
                     last_id: 10,
                 }),
@@ -1342,7 +1363,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewValue(UnaggregatedReceipts {
+                ReceiptFees::UpdateValue(UnaggregatedReceipts {
                     value: TRIGGER_VALUE,
                     last_id: 11,
                 }),
@@ -1388,7 +1409,7 @@ pub mod tests {
                 sender_account
                     .cast(SenderAccountMessage::UpdateReceiptFees(
                         *ALLOCATION_ID_0,
-                        ReceiptFees::NewValue(UnaggregatedReceipts {
+                        ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
                         }),
@@ -1529,7 +1550,7 @@ pub mod tests {
                 sender_account
                     .cast(SenderAccountMessage::UpdateReceiptFees(
                         *ALLOCATION_ID_0,
-                        ReceiptFees::NewValue(UnaggregatedReceipts {
+                        ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
                         }),
@@ -1730,7 +1751,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewValue(UnaggregatedReceipts {
+                ReceiptFees::UpdateValue(UnaggregatedReceipts {
                     value: TRIGGER_VALUE,
                     last_id: 11,
                 }),
