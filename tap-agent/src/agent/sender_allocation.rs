@@ -555,15 +555,13 @@ impl SenderAllocationState {
                         ),
                     )
                     .await
-                    .inspect_err(|err| match &err {
-                        jsonrpsee::core::ClientError::RequestTimeout => {
+                    .inspect_err(|err| {
+                        if let jsonrpsee::core::ClientError::RequestTimeout = &err {
                             warn!(
                                 "Rav request is timing out, maybe request_timeout_secs is too \
-                                    low in your config file, try adding more secs to the value"
+                                low in your config file, try adding more secs to the value. \
+                                If the problem persists after doing so please open an issue"
                             );
-                        }
-                        _ => {
-                            warn!("An error occured {:?}", err);
                         }
                     })?;
 
