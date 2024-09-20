@@ -104,7 +104,7 @@
             "uid": "b70befc5-0872-448c-b502-9875d467edaf"
           },
           "editorMode": "code",
-          "expr": "sum by (sender) (tap_pending_rav_grt_total) * 10^-18",
+          "expr": "sum by (sender) (tap_pending_rav_grt_total + tap_unaggregated_fees_grt_total) * 10^-18",
           "legendFormat": "Pending Fees {{sender}}",
           "range": true,
           "refId": "A"
