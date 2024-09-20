@@ -37,5 +37,6 @@ CREATE TABLE IF NOT EXISTS scalar_tap_receipts_invalid (
     allocation_id CHAR(40) NOT NULL,
     timestamp_ns NUMERIC(20) NOT NULL,
     nonce NUMERIC(20) NOT NULL,
-    value NUMERIC(39) NOT NULL
+    value NUMERIC(39) NOT NULL,
+    error_log TEXT NOT NULL DEFAULT ''
 );
