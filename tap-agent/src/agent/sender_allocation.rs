@@ -27,7 +27,7 @@ use tap_core::{
     signed_message::EIP712SignedMessage,
 };
 use thegraph_core::Address;
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 
 use crate::{agent::sender_account::ReceiptFees, lazy_static};
 
@@ -687,12 +687,6 @@ impl SenderAllocationState {
                     error!("Failed to recover receipt signer: {}", e);
                     anyhow!(e)
                 })?;
-            debug!(
-                "Receipt for allocation {} and signer {} failed reason: {}",
-                allocation_id.encode_hex(),
-                receipt_signer.encode_hex(),
-                receipt_error
-            );
             sqlx::query!(
                 r#"
                     INSERT INTO scalar_tap_receipts_invalid (
@@ -701,9 +695,10 @@ impl SenderAllocationState {
                         allocation_id,
                         timestamp_ns,
                         nonce,
-                        value
+                        value,
+                        error_log
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
                 "#,
                 receipt_signer.encode_hex(),
                 encoded_signature,
@@ -711,6 +706,7 @@ impl SenderAllocationState {
                 BigDecimal::from(receipt.message.timestamp_ns),
                 BigDecimal::from(receipt.message.nonce),
                 BigDecimal::from(BigInt::from(receipt.message.value)),
+                receipt_error
             )
             .execute(&self.pgpool)
             .await
