@@ -23,7 +23,6 @@ use tap_core::rav::SignedRAV;
 use thegraph_core::Address;
 use tracing::{error, Level};
 
-use super::sender_accounts_manager::NewReceiptNotification;
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::agent::sender_fee_tracker::SenderFeeTracker;
@@ -80,7 +79,7 @@ type Balance = U256;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum ReceiptFees {
-    NewReceipt(NewReceiptNotification),
+    NewReceipt(u128),
     UpdateValue(UnaggregatedReceipts),
     Retry,
 }
@@ -569,15 +568,15 @@ impl Actor for SenderAccount {
                 }
 
                 match receipt_fees {
-                    ReceiptFees::NewReceipt(receipt) => {
-                        state.sender_fee_tracker.add(allocation_id, receipt.value);
+                    ReceiptFees::NewReceipt(value) => {
+                        state.sender_fee_tracker.add(allocation_id, value);
 
                         UNAGGREGATED_FEES
                             .with_label_values(&[
                                 &state.sender.to_string(),
                                 &allocation_id.to_string(),
                             ])
-                            .add(receipt.value as f64);
+                            .add(value as f64);
                     }
                     ReceiptFees::UpdateValue(unaggregated_fees) => {
                         state

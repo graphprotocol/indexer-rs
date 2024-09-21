@@ -249,7 +249,7 @@ impl Actor for SenderAllocation {
                         .sender_account_ref
                         .cast(SenderAccountMessage::UpdateReceiptFees(
                             state.allocation_id,
-                            ReceiptFees::NewReceipt(notification),
+                            ReceiptFees::NewReceipt(fees),
                         ))?;
                 }
             }
@@ -1074,10 +1074,7 @@ pub mod tests {
         // should emit update aggregate fees message to sender account
         let expected_message = SenderAccountMessage::UpdateReceiptFees(
             *ALLOCATION_ID_0,
-            ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                last_id: 1,
-                value: 20,
-            }),
+            ReceiptFees::NewReceipt(20u128),
         );
         let last_message_emitted = last_message_emitted.lock().unwrap();
         assert_eq!(last_message_emitted.len(), 2);
