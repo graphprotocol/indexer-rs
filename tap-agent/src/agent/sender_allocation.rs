@@ -685,7 +685,32 @@ impl SenderAllocationState {
         &mut self,
         receipts: &[ReceiptWithState<Failed>],
     ) -> Result<()> {
-        for received_receipt in receipts.iter() {
+        let mut query_str = String::from(
+            "INSERT INTO scalar_tap_receipts_invalid (
+                        signer_address,
+                        signature,
+                        allocation_id,
+                        timestamp_ns,
+                        nonce,
+                        value
+                    )
+                    VALUES ");
+        for i in 0..receipts.len() {
+            query_str = query_str +"("
+                +"$"+&(i*6+1).to_string()+", "
+                +"$"+&(i*6+2).to_string()+", "
+                +"$"+&(i*6+3).to_string()+", "
+                +"$"+&(i*6+4).to_string()+", "
+                +"$"+&(i*6+5).to_string()+", "
+                +"$"+&(i*6+6).to_string()
+                +")";
+            if i!=receipts.len()-1 {
+                query_str = query_str +" , "
+            }
+        }
+        query_str = query_str+";";
+        let mut query = sqlx::query(&query_str);
+        for received_receipt in receipts.iter(){
             let receipt = received_receipt.signed_receipt();
             let allocation_id = receipt.message.allocation_id;
             let encoded_signature = receipt.signature.as_bytes().to_vec();
@@ -696,31 +721,20 @@ impl SenderAllocationState {
                     error!("Failed to recover receipt signer: {}", e);
                     anyhow!(e)
                 })?;
-            sqlx::query!(
-                r#"
-                    INSERT INTO scalar_tap_receipts_invalid (
-                        signer_address,
-                        signature,
-                        allocation_id,
-                        timestamp_ns,
-                        nonce,
-                        value,
-                        error_log
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                "#,
-                receipt_signer.encode_hex(),
-                encoded_signature,
+            debug!(
+                "Receipt for allocation {} and signer {} failed reason: {}",
                 allocation_id.encode_hex(),
-                BigDecimal::from(receipt.message.timestamp_ns),
-                BigDecimal::from(receipt.message.nonce),
-                BigDecimal::from(BigInt::from(receipt.message.value)),
+                receipt_signer.encode_hex(),
                 receipt_error
-            )
-            .execute(&self.pgpool)
-            .await
-            .map_err(|e| anyhow!("Failed to store invalid receipt: {:?}", e))?;
-        }
+            );
+            query = query.bind(receipt_signer.encode_hex());
+            query = query.bind(encoded_signature);
+            query = query.bind(allocation_id.encode_hex());
+            query = query.bind(BigDecimal::from(receipt.message.timestamp_ns));
+            query = query.bind(BigDecimal::from(receipt.message.nonce));
+            query = query.bind(BigDecimal::from(BigInt::from(receipt.message.value)));
+        } 
+        query.execute(&self.pgpool).await?;
         let fees = receipts
             .iter()
             .map(|receipt| receipt.signed_receipt().message.value)
