@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO scalar_tap_receipts_invalid (\n                signer_address,\n                signature,\n                allocation_id,\n                timestamp_ns,\n                nonce,\n                value\n            ) SELECT * FROM UNNEST(\n                $1::CHAR(40)[],\n                $2::BYTEA[],\n                $3::CHAR(40)[],\n                $4::NUMERIC(20)[],\n                $5::NUMERIC(20)[],\n                $6::NUMERIC(40)[]\n            )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "BpcharArray",
+        "ByteaArray",
+        "BpcharArray",
+        "NumericArray",
+        "NumericArray",
+        "NumericArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0d4e055d87b4496202041f3c28618688afa91dc0b8eeb8e551b271fc73c1157e"
+}

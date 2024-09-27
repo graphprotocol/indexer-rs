@@ -37,18 +37,12 @@
         "ordinal": 6,
         "name": "value",
         "type_info": "Numeric"
-      },
-      {
-        "ordinal": 7,
-        "name": "error_log",
-        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": []
     },
     "nullable": [
-      false,
       false,
       false,
       false,

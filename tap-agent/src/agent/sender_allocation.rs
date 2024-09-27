@@ -693,7 +693,7 @@ impl SenderAllocationState {
         let mut nounces = Vec::with_capacity(reciepts_len);
         let mut values = Vec::with_capacity(reciepts_len);
 
-        for received_receipt in receipts.iter(){
+        for received_receipt in receipts.iter() {
             let receipt = received_receipt.signed_receipt();
             let allocation_id = receipt.message.allocation_id;
             let encoded_signature = receipt.signature.as_bytes().to_vec();
@@ -704,12 +704,6 @@ impl SenderAllocationState {
                     error!("Failed to recover receipt signer: {}", e);
                     anyhow!(e)
                 })?;
-            debug!(
-                "Receipt for allocation {} and signer {} failed reason: {}",
-                allocation_id.encode_hex(),
-                receipt_signer.encode_hex(),
-                receipt_error
-            );
             reciepts_signers.push(receipt_signer.encode_hex());
             encoded_signatures.push(encoded_signature);
             allocation_ids.push(allocation_id.encode_hex());
@@ -733,13 +727,14 @@ impl SenderAllocationState {
                 $5::NUMERIC(20)[],
                 $6::NUMERIC(40)[]
             )"#,
-            &signers,
-            &signatures,
+            &reciepts_signers,
+            &encoded_signatures,
             &allocation_ids,
             &timestamps,
-            &nonces,
+            &nounces,
             &values,
-        ).execute(&self.pgpool)
+        )
+        .execute(&self.pgpool)
         .await
         .map_err(|e| {
             error!("Failed to store receipt: {}", e);
