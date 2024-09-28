@@ -27,7 +27,7 @@ use tap_core::{
     signed_message::EIP712SignedMessage,
 };
 use thegraph_core::Address;
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use crate::{agent::sender_account::ReceiptFees, lazy_static};
 
@@ -692,6 +692,7 @@ impl SenderAllocationState {
         let mut timestamps = Vec::with_capacity(reciepts_len);
         let mut nounces = Vec::with_capacity(reciepts_len);
         let mut values = Vec::with_capacity(reciepts_len);
+        let mut error_logs = Vec::with_capacity(reciepts_len);
 
         for received_receipt in receipts.iter() {
             let receipt = received_receipt.signed_receipt();
@@ -704,12 +705,19 @@ impl SenderAllocationState {
                     error!("Failed to recover receipt signer: {}", e);
                     anyhow!(e)
                 })?;
+            debug!(
+                "Receipt for allocation {} and signer {} failed reason: {}",
+                allocation_id.encode_hex(),
+                receipt_signer.encode_hex(),
+                receipt_error
+            );
             reciepts_signers.push(receipt_signer.encode_hex());
             encoded_signatures.push(encoded_signature);
             allocation_ids.push(allocation_id.encode_hex());
             timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
             nounces.push(BigDecimal::from(receipt.message.nonce));
             values.push(BigDecimal::from(BigInt::from(receipt.message.value)));
+            error_logs.push(receipt_error);
         }
         sqlx::query!(
             r#"INSERT INTO scalar_tap_receipts_invalid (
@@ -718,14 +726,16 @@ impl SenderAllocationState {
                 allocation_id,
                 timestamp_ns,
                 nonce,
-                value
+                value,
+                error_log
             ) SELECT * FROM UNNEST(
                 $1::CHAR(40)[],
                 $2::BYTEA[],
                 $3::CHAR(40)[],
                 $4::NUMERIC(20)[],
                 $5::NUMERIC(20)[],
-                $6::NUMERIC(40)[]
+                $6::NUMERIC(40)[],
+                $7::TEXT[]
             )"#,
             &reciepts_signers,
             &encoded_signatures,
@@ -733,6 +743,7 @@ impl SenderAllocationState {
             &timestamps,
             &nounces,
             &values,
+            &error_logs
         )
         .execute(&self.pgpool)
         .await
