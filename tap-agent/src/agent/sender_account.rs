@@ -199,8 +199,13 @@ impl State {
     async fn rav_requester_single(&mut self) -> Result<()> {
         let Some(allocation_id) = self.sender_fee_tracker.get_heaviest_allocation_id() else {
             anyhow::bail!(
-                "Error while getting the heaviest allocation because \
-                no unblocked allocation has enough unaggregated fees tracked"
+                "Error while getting the heaviest allocation, \
+                this is due one of the following reasons: \n
+                1. allocations have too much fees under their buffer\n
+                2. allocations are blocked to be redeemed due to ongoing last rav. \n
+                If you keep seeing this message try to increase your `amount_willing_to_lose` \
+                and restart your `tap-agent`\n
+                If this doesn't work, open an issue on our Github."
             );
         };
         let sender_allocation_id = self.format_sender_allocation(&allocation_id);
