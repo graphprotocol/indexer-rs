@@ -601,7 +601,6 @@ impl Actor for SenderAccount {
                     state.add_to_denylist().await;
                 }
 
-                // TODO if the total_fee_outside_the_buffer
                 if state.sender_fee_tracker.get_total_fee_outsite_buffer()
                     >= state.config.tap.rav_request_trigger_value
                 {
@@ -904,6 +903,7 @@ pub mod tests {
     const DUMMY_URL: &str = "http://localhost:1234";
     const TRIGGER_VALUE: u128 = 500;
     const ESCROW_VALUE: u128 = 1000;
+    const BUFFER_MS: u64 = 100;
 
     async fn create_sender_account(
         pgpool: PgPool,
@@ -924,7 +924,7 @@ pub mod tests {
             },
             tap: config::Tap {
                 rav_request_trigger_value,
-                rav_request_timestamp_buffer_ms: 1,
+                rav_request_timestamp_buffer_ms: BUFFER_MS,
                 rav_request_timeout_secs: 5,
                 max_unnaggregated_fees_per_sender,
                 ..Default::default()
@@ -1211,14 +1211,11 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                    value: TRIGGER_VALUE - 1,
-                    last_id: 10,
-                }),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE - 1),
             ))
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
 
         assert_eq!(
             triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
@@ -1250,10 +1247,24 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                    value: TRIGGER_VALUE,
-                    last_id: 10,
-                }),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE),
+            ))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        assert_eq!(
+            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+
+        // wait for it to be outside buffer
+        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
+
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                ReceiptFees::Retry,
             ))
             .unwrap();
 
@@ -1362,10 +1373,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                    value: TRIGGER_VALUE,
-                    last_id: 11,
-                }),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE),
             ))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1750,10 +1758,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                    value: TRIGGER_VALUE,
-                    last_id: 11,
-                }),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE),
             ))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
