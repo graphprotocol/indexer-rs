@@ -9,7 +9,6 @@ use std::{
 use alloy::dyn_abi::Eip712Domain;
 use alloy::sol_types::eip712_domain;
 use anyhow;
-use autometrics::prometheus_exporter;
 use axum::extract::MatchedPath;
 use axum::extract::Request as ExtractRequest;
 use axum::http::{Method, Request};
@@ -22,6 +21,7 @@ use axum::{
 use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
 use eventuals::Eventual;
+use prometheus::TextEncoder;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
@@ -32,6 +32,7 @@ use tokio::net::TcpListener;
 use tokio::signal;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::TraceLayer};
+use tracing::error;
 use tracing::{info, info_span};
 
 use crate::escrow_accounts::EscrowAccounts;
@@ -465,7 +466,21 @@ impl IndexerService {
         tokio::spawn(async move {
             let router = Router::new().route(
                 "/metrics",
-                get(|| async { prometheus_exporter::encode_http_response() }),
+                get(|| async {
+                    let metric_families = prometheus::gather();
+                    let encoder = TextEncoder::new();
+
+                    match encoder.encode_to_string(&metric_families) {
+                        Ok(s) => (StatusCode::OK, s),
+                        Err(e) => {
+                            error!("Error encoding metrics: {}", e);
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                format!("Error encoding metrics: {}", e),
+                            )
+                        }
+                    }
+                }),
             );
 
             serve(
