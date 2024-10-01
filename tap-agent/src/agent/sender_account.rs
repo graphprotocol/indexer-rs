@@ -606,7 +606,7 @@ impl Actor for SenderAccount {
                     state.add_to_denylist().await;
                 }
 
-                if state.sender_fee_tracker.get_total_fee_outsite_buffer()
+                if state.sender_fee_tracker.get_total_fee_outside_buffer()
                     >= state.config.tap.rav_request_trigger_value
                 {
                     tracing::debug!(
