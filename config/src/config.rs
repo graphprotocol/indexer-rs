@@ -94,6 +94,28 @@ impl Config {
             ),
             _ => {}
         }
+        let grt_wei = self.tap.max_amount_willing_to_lose_grt.get_value();
+        let decimal = BigDecimal::from_u128(grt_wei).unwrap();
+        let divisor = &self.tap.rav_request.trigger_value_divisor;
+        let trigger_value = (decimal / divisor)
+            .to_u128()
+            .expect("Could not represent the trigger value in u128");
+        let minimum_recommended_for_max_willing_to_lose_grt = 0.1;
+        if trigger_value
+            < minimum_recommended_for_max_willing_to_lose_grt
+                .to_u128()
+                .unwrap()
+        {
+            warn!(
+                "Trigger value is too low,currently below 0.1 GRT. \
+                Please modify `max_amount_willing_to_lose_grt` or `trigger_value_divisor`.
+                To have a higher trigger value, ideally above 1 GRT \
+                Anything lower can cause issues with the heaviest \
+                allocation not returning any receipts.
+                `Trigger value`  is defined by \
+                (max_amount_willing_to_lose_grt / trigger_value_divisor) "
+            )
+        }
 
         let ten: BigDecimal = 10.into();
         let usual_grt_price = BigDecimal::from_str("0.0001").unwrap() * ten;
