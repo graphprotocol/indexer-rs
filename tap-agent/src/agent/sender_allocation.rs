@@ -748,7 +748,7 @@ impl SenderAllocationState {
         .execute(&self.pgpool)
         .await
         .map_err(|e| {
-            error!("Failed to store receipt: {}", e);
+            error!("Failed to store invalid receipt: {}", e);
             anyhow!(e)
         })?;
 
