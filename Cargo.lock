@@ -5187,6 +5187,7 @@ dependencies = [
  "indexer-common",
  "indexer-config",
  "lazy_static",
+ "prometheus",
  "reqwest",
  "serde",
  "serde_json",

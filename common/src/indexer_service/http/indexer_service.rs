@@ -6,9 +6,9 @@ use std::{
     time::Duration,
 };
 
+use alloy::dyn_abi::Eip712Domain;
 use alloy::sol_types::eip712_domain;
 use anyhow;
-use autometrics::prometheus_exporter;
 use axum::extract::MatchedPath;
 use axum::extract::Request as ExtractRequest;
 use axum::http::{Method, Request};
@@ -21,6 +21,7 @@ use axum::{
 use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
 use eventuals::Eventual;
+use prometheus::TextEncoder;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
@@ -31,13 +32,14 @@ use tokio::net::TcpListener;
 use tokio::signal;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::TraceLayer};
+use tracing::error;
 use tracing::{info, info_span};
 
+use crate::escrow_accounts::EscrowAccounts;
+use crate::escrow_accounts::EscrowAccountsError;
 use crate::{
     address::public_key,
-    indexer_service::http::{
-        metrics::IndexerServiceMetrics, static_subgraph::static_subgraph_request_handler,
-    },
+    indexer_service::http::static_subgraph::static_subgraph_request_handler,
     prelude::{
         attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
         AttestationSigner, DeploymentDetails, SubgraphClient,
@@ -98,6 +100,12 @@ where
     FailedToSignAttestation,
     #[error("Failed to query subgraph: {0}")]
     FailedToQueryStaticSubgraph(anyhow::Error),
+
+    #[error("Could not decode signer: {0}")]
+    CouldNotDecodeSigner(tap_core::Error),
+
+    #[error("There was an error while accessing escrow account: {0}")]
+    EscrowAccount(EscrowAccountsError),
 }
 
 impl<E> IntoResponse for IndexerServiceError<E>
@@ -122,6 +130,8 @@ where
             ReceiptError(_)
             | InvalidRequest(_)
             | InvalidFreeQueryAuthToken
+            | CouldNotDecodeSigner(_)
+            | EscrowAccount(_)
             | ProcessingError(_) => StatusCode::BAD_REQUEST,
 
             FailedToQueryStaticSubgraph(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -166,7 +176,6 @@ where
     pub config: IndexerServiceConfig,
     pub release: IndexerServiceRelease,
     pub url_namespace: &'static str,
-    pub metrics_prefix: &'static str,
     pub extra_routes: Router<Arc<IndexerServiceState<I>>>,
 }
 
@@ -178,7 +187,10 @@ where
     pub attestation_signers: Eventual<HashMap<Address, AttestationSigner>>,
     pub tap_manager: Manager<IndexerTapContext>,
     pub service_impl: Arc<I>,
-    pub metrics: IndexerServiceMetrics,
+
+    // tap
+    pub escrow_accounts: Eventual<EscrowAccounts>,
+    pub domain_separator: Eip712Domain,
 }
 
 pub struct IndexerService {}
@@ -188,8 +200,6 @@ impl IndexerService {
     where
         I: IndexerServiceImpl + Sync + Send + 'static,
     {
-        let metrics = IndexerServiceMetrics::new(options.metrics_prefix);
-
         let http_client = reqwest::Client::builder()
             .tcp_nodelay(true)
             .timeout(Duration::from_secs(30))
@@ -299,21 +309,26 @@ impl IndexerService {
         let checks = IndexerTapContext::get_checks(
             database,
             allocations,
-            escrow_accounts,
+            escrow_accounts.clone(),
             domain_separator.clone(),
             timestamp_error_tolerance,
             receipt_max_value,
         )
         .await;
 
-        let tap_manager = Manager::new(domain_separator, indexer_context, CheckList::new(checks));
+        let tap_manager = Manager::new(
+            domain_separator.clone(),
+            indexer_context,
+            CheckList::new(checks),
+        );
 
         let state = Arc::new(IndexerServiceState {
             config: options.config.clone(),
             attestation_signers,
             tap_manager,
             service_impl: Arc::new(options.service_impl),
-            metrics,
+            escrow_accounts,
+            domain_separator,
         });
 
         // Rate limits by allowing bursts of 10 requests and requiring 100ms of
@@ -451,7 +466,21 @@ impl IndexerService {
         tokio::spawn(async move {
             let router = Router::new().route(
                 "/metrics",
-                get(|| async { prometheus_exporter::encode_http_response() }),
+                get(|| async {
+                    let metric_families = prometheus::gather();
+                    let encoder = TextEncoder::new();
+
+                    match encoder.encode_to_string(&metric_families) {
+                        Ok(s) => (StatusCode::OK, s),
+                        Err(e) => {
+                            error!("Error encoding metrics: {}", e);
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                format!("Error encoding metrics: {}", e),
+                            )
+                        }
+                    }
+                }),
             );
 
             serve(

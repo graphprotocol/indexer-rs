@@ -177,7 +177,6 @@ pub async fn run() -> anyhow::Result<()> {
         release,
         config: config.0.clone(),
         url_namespace: "subgraphs",
-        metrics_prefix: "subgraph",
         service_impl: SubgraphService::new(state.clone()),
         extra_routes: Router::new()
             .route("/cost", post(routes::cost::cost))

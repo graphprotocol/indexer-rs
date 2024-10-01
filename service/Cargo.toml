@@ -10,6 +10,7 @@ license = "Apache-2.0"
 indexer-common = { path = "../common" }
 indexer-config = { path = "../config" }
 anyhow = { workspace = true }
+prometheus = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing.workspace = true
