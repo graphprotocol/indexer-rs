@@ -150,7 +150,7 @@ pub struct IndexerConfig {
 pub struct DatabaseConfig {
     pub postgres_url: Url,
     pub postgres_host: String,
-    pub postgres_port: String,
+    pub postgres_port: i32,
     pub postgres_user: String,
     pub postgres_password: String,
     pub postgress_db: String,

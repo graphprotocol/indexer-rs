@@ -33,7 +33,7 @@ impl From<MainConfig> for Config {
                 Some(value.database.postgres_url.into()),
                 Some(value.database.postgres_host),
                 Some(value.database.postgres_password),
-                Some(value.database.postgres_port),
+                Some(value.database.postgres_port.to_string()),
                 Some(value.database.postgres_user),
                 Some(value.database.postgress_db),
             ),
