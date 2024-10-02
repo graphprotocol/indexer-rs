@@ -5,10 +5,41 @@ use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 use thegraph_core::{Address, DeploymentId};
+use tracing::warn;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DatabaseConfig {
     pub postgres_url: String,
+}
+impl DatabaseConfig {
+    pub fn format_db_config(
+        ps_url: Option<String>,
+        ps_host: Option<String>,
+        ps_pwd: Option<String>,
+        ps_port: Option<String>,
+        ps_user: Option<String>,
+        ps_db: Option<String>,
+    ) -> Self {
+        let db_config = (ps_url, ps_host, ps_pwd, ps_port, ps_user, ps_db);
+        match db_config {
+            (Some(url), ..) if !url.is_empty() => DatabaseConfig { postgres_url: url },
+            (None, Some(host), Some(pwd), Some(port), Some(user), Some(dbname)) => {
+                let postgres_url =
+                    format!("postgres://{}:{}@{}:{}/{}", user, pwd, host, port, dbname);
+                DatabaseConfig { postgres_url }
+            }
+            _ => {
+                warn!(
+                    "Some configuration values are missing for database values, please make sure you either \
+                    pass `postgres_url` or pass all the variables to connect to the database
+                ");
+                // This will eventually fail to connect
+                DatabaseConfig {
+                    postgres_url: String::new(),
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

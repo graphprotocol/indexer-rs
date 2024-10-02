@@ -149,6 +149,11 @@ pub struct IndexerConfig {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DatabaseConfig {
     pub postgres_url: Url,
+    pub postgres_host: String,
+    pub postgres_port: String,
+    pub postgres_user: String,
+    pub postgres_password: String,
+    pub postgress_db: String,
 }
 
 #[derive(Debug, Deserialize)]
