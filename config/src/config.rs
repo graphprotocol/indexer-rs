@@ -107,12 +107,11 @@ impl Config {
                 .unwrap()
         {
             warn!(
-                "Trigger value is too low,currently below 0.1 GRT. \
-                Please modify `max_amount_willing_to_lose_grt` or `trigger_value_divisor`.
-                To have a higher trigger value, ideally above 1 GRT \
-                Anything lower can cause issues with the heaviest \
-                allocation not returning any receipts.
-                `Trigger value`  is defined by \
+                "Trigger value is too low, currently below 0.1 GRT. \
+                Please modify `max_amount_willing_to_lose_grt` or `trigger_value_divisor`. \
+                It is best to have a higher trigger value, ideally above 1 GRT. \
+                Anything lower and the system may constantly deny the sender. \
+                `Trigger value`  is defined by: \
                 (max_amount_willing_to_lose_grt / trigger_value_divisor) "
             )
         }
