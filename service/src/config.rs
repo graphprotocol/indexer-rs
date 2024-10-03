@@ -29,14 +29,9 @@ impl From<MainConfig> for Config {
                 url_prefix: value.service.url_prefix,
                 free_query_auth_token: value.service.free_query_auth_token,
             },
-            database: DatabaseConfig::format_db_config(
-                Some(value.database.postgres_url.into()),
-                Some(value.database.postgres_host),
-                Some(value.database.postgres_password),
-                Some(value.database.postgres_port.to_string()),
-                Some(value.database.postgres_user),
-                Some(value.database.postgress_db),
-            ),
+            database: DatabaseConfig {
+                postgres_url: value.database.get_formated_postgres_url().to_string(),
+            },
             graph_node: Some(GraphNodeConfig {
                 status_url: value.graph_node.status_url.into(),
                 query_base_url: value.graph_node.query_url.into(),

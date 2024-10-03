@@ -147,13 +147,40 @@ pub struct IndexerConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-pub struct DatabaseConfig {
-    pub postgres_url: Url,
-    pub postgres_host: String,
-    pub postgres_port: i32,
-    pub postgres_user: String,
-    pub postgres_password: String,
-    pub postgress_db: String,
+#[serde(untagged)]
+pub enum DatabaseConfig {
+    PostgresUrl {
+        postgres_url: Url,
+    },
+    PostgresVars {
+        host: String,
+        port: Option<u16>,
+        user: String,
+        password: Option<String>,
+        database: String,
+    },
+}
+impl DatabaseConfig {
+    pub fn get_formated_postgres_url(&self) -> Url {
+        match self {
+            DatabaseConfig::PostgresUrl { postgres_url } => postgres_url.clone(),
+            DatabaseConfig::PostgresVars {
+                host,
+                port,
+                user,
+                password,
+                database,
+            } => {
+                let postgres_url_str = format!("postgres://{}@{}/{}", user, host, database);
+                let mut postgres_url = Url::parse(&postgres_url_str).unwrap();
+                postgres_url
+                    .set_password(password.as_deref())
+                    .expect("url is wrong");
+                postgres_url.set_port(*port).expect("url is wrong");
+                postgres_url
+            }
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -291,6 +318,8 @@ mod tests {
 
     use crate::{Config, ConfigPrefix};
 
+    use super::DatabaseConfig;
+
     #[test]
     fn test_minimal_config() {
         Config::parse(
@@ -401,6 +430,34 @@ mod tests {
         assert_eq!(
             config.subgraphs.network.config.query_url.as_str(),
             test_value
+        );
+    }
+    #[test]
+    fn test_url_format() {
+        let data = DatabaseConfig::PostgresVars {
+            host: String::from("postgres"),
+            port: Some(1234),
+            user: String::from("postgres"),
+            password: Some(String::from("postgres")),
+            database: String::from("postgres"),
+        };
+        let formated_data = data.get_formated_postgres_url();
+        assert_eq!(
+            formated_data.as_str(),
+            "postgres://postgres:postgres@postgres:1234/postgres"
+        );
+
+        let data = DatabaseConfig::PostgresVars {
+            host: String::from("postgres"),
+            port: None,
+            user: String::from("postgres"),
+            password: None,
+            database: String::from("postgres"),
+        };
+        let formated_data = data.get_formated_postgres_url();
+        assert_eq!(
+            formated_data.as_str(),
+            "postgres://postgres@postgres/postgres"
         );
     }
 }
