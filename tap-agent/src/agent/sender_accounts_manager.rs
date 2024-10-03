@@ -34,7 +34,7 @@ lazy_static! {
     .unwrap();
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq, Eq)]
 pub struct NewReceiptNotification {
     pub id: u64,
     pub allocation_id: Address,

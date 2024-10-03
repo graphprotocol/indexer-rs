@@ -5,6 +5,7 @@ use std::ops::Deref;
 
 use axum_extra::headers::{self, Header, HeaderName, HeaderValue};
 use lazy_static::lazy_static;
+use prometheus::{register_counter, Counter};
 use tap_core::receipt::SignedReceipt;
 
 #[derive(Debug, PartialEq)]
@@ -26,6 +27,8 @@ impl Deref for TapReceipt {
 
 lazy_static! {
     static ref TAP_RECEIPT: HeaderName = HeaderName::from_static("tap-receipt");
+    pub static ref TAP_RECEIPT_INVALID: Counter =
+        register_counter!("indexer_tap_invalid_total", "Invalid tap receipt decode",).unwrap();
 }
 
 impl Header for TapReceipt {
@@ -37,16 +40,19 @@ impl Header for TapReceipt {
     where
         I: Iterator<Item = &'i HeaderValue>,
     {
-        let value = values.next();
-        let raw_receipt = value
-            .map(|value| value.to_str())
-            .transpose()
-            .map_err(|_| headers::Error::invalid())?;
-        let parsed_receipt = raw_receipt
-            .map(serde_json::from_str)
-            .transpose()
-            .map_err(|_| headers::Error::invalid())?;
-        Ok(TapReceipt(parsed_receipt))
+        let mut execute = || {
+            let value = values.next();
+            let raw_receipt = value
+                .map(|value| value.to_str())
+                .transpose()
+                .map_err(|_| headers::Error::invalid())?;
+            let parsed_receipt = raw_receipt
+                .map(serde_json::from_str)
+                .transpose()
+                .map_err(|_| headers::Error::invalid())?;
+            Ok(TapReceipt(parsed_receipt))
+        };
+        execute().inspect_err(|_| TAP_RECEIPT_INVALID.inc())
     }
 
     fn encode<E>(&self, _values: &mut E)
