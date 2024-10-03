@@ -161,9 +161,9 @@ pub enum DatabaseConfig {
     },
 }
 impl DatabaseConfig {
-    pub fn get_formated_postgres_url(&self) -> Url {
+    pub fn get_formated_postgres_url(self) -> Url {
         match self {
-            DatabaseConfig::PostgresUrl { postgres_url } => postgres_url.clone(),
+            DatabaseConfig::PostgresUrl { postgres_url } => postgres_url,
             DatabaseConfig::PostgresVars {
                 host,
                 port,
@@ -172,11 +172,14 @@ impl DatabaseConfig {
                 database,
             } => {
                 let postgres_url_str = format!("postgres://{}@{}/{}", user, host, database);
-                let mut postgres_url = Url::parse(&postgres_url_str).unwrap();
+                let mut postgres_url =
+                    Url::parse(&postgres_url_str).expect("Failed to parse database_url");
                 postgres_url
                     .set_password(password.as_deref())
-                    .expect("url is wrong");
-                postgres_url.set_port(*port).expect("url is wrong");
+                    .expect("Failed to set password for database");
+                postgres_url
+                    .set_port(port)
+                    .expect("Failed to set port for database");
                 postgres_url
             }
         }

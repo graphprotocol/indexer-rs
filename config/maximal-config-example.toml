@@ -35,11 +35,11 @@ port = 7300
 postgres_url = "postgres://postgres@postgres:5432/postgres"
 # You can also use the following fields to specify the connection details separately.
 # either use `postgres_url` or the following fields.
-postgres_host = "postgres-host"
-postgres_port = 5432
-postgres_user = "user"
-postgres_password = "pwd"
-postgress_db = "postgres"
+host = "postgres-host"
+port = 5432
+user = "user"
+password = "pwd"
+database = "postgres"
 
 [graph_node]
 # URL to your graph-node's query endpoint
