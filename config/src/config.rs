@@ -13,8 +13,10 @@ use tracing::warn;
 
 use alloy::primitives::Address;
 use bip39::Mnemonic;
+use regex::Regex;
 use serde::Deserialize;
 use serde_with::serde_as;
+use std::env;
 use thegraph_core::DeploymentId;
 use url::Url;
 
@@ -71,15 +73,35 @@ impl Config {
     pub fn parse(prefix: ConfigPrefix, filename: &PathBuf) -> Result<Self, String> {
         let config_defaults = include_str!("../default_values.toml");
 
+        let mut config_content = std::fs::read_to_string(filename)
+            .map_err(|e| format!("Failed to read config file: {}", e))?;
+
+        config_content = Self::substitute_env_vars(config_content)?;
+
         let config: ConfigWrapper = Figment::new()
             .merge(Toml::string(config_defaults))
-            .merge(Toml::file(filename))
+            .merge(Toml::string(&config_content))
             .merge(Env::prefixed(prefix.get_prefix()).split("__"))
             .extract()
             .map_err(|e| e.to_string())?;
-        config.0.validate()?;
 
+        config.0.validate()?;
         Ok(config.0)
+    }
+
+    fn substitute_env_vars(content: String) -> Result<String, String> {
+        let re = Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}").map_err(|e| e.to_string())?;
+
+        let result = re.replace_all(&content, |caps: &regex::Captures| {
+            let var_name = &caps[1];
+            // only substitues the value if the env variable is found else the same is kept
+            match env::var(var_name) {
+                Ok(value) => value,
+                Err(_) => format!("${{{}}}", var_name),
+            }
+        });
+
+        Ok(result.into_owned())
     }
 
     // custom validation of the values
