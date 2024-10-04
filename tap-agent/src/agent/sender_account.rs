@@ -533,18 +533,7 @@ impl Actor for SenderAccount {
             message = ?message,
             "New SenderAccount message"
         );
-        // If state is denied and receivied new message, sender was removed manually from DB
-        if state.denied {
-            tracing::warn!(
-                "
-                No new messages should have been receieved, sender has been denied before. \
-                You SHOULD NOT remove a denied sender manually from the database. \
-                If you do so you are exposing yourself to potentially LOOSING ALL of your query
-                fee MONEY.
-                "
-            );
-            state.add_to_denylist().await;
-        }
+
         match message {
             SenderAccountMessage::UpdateRav(rav) => {
                 state
@@ -586,6 +575,19 @@ impl Actor for SenderAccount {
 
                 match receipt_fees {
                     ReceiptFees::NewReceipt(value) => {
+                        // If state is denied and receivied new receipt, sender was removed manually from DB
+                        if state.denied {
+                            tracing::warn!(
+                                "
+                                No new receipts should have been received, sender has been denied before. \
+                                You SHOULD NOT remove a denied sender manually from the database. \
+                                If you do so you are exposing yourself to potentially LOOSING ALL of your query
+                                fee MONEY.
+                                "
+                            );
+                            SenderAccount::deny_sender(&state.pgpool, state.sender).await;
+                        }
+
                         state.sender_fee_tracker.add(allocation_id, value);
 
                         UNAGGREGATED_FEES
