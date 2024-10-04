@@ -25,8 +25,8 @@ tracing-subscriber = { workspace = true, features = ["fmt"] }
 clap = { workspace = true, features = ["derive"] }
 build-info.workspace = true
 lazy_static.workspace = true
-async-graphql = { version = "7.0.3", default-features = false }
-async-graphql-axum = "7.0.3"
+async-graphql = { version = "7.0.11", default-features = false }
+async-graphql-axum = "7.0.11"
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0" }
 
 [dev-dependencies]
