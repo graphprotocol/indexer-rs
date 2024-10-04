@@ -23,10 +23,8 @@
       ],
       matchPackageNames: [
         'futures',
-      ],
-      matchPackagePrefixes: [
-        'futures-',
-        'futures_',
+        'futures-{/,}**',
+        'futures_{/,}**',
       ],
     },
     {
@@ -37,10 +35,8 @@
       ],
       matchPackageNames: [
         'serde',
-      ],
-      matchPackagePrefixes: [
-        'serde-',
-        'serde_',
+        'serde-{/,}**',
+        'serde_{/,}**',
       ],
     },
     {
@@ -49,9 +45,9 @@
       matchManagers: [
         'cargo',
       ],
-      matchSourceUrlPrefixes: [
-        'https://github.com/hyperium/tonic',
-        'https://github.com/tokio-rs/prost',
+      matchSourceUrls: [
+        'https://github.com/hyperium/tonic{/,}**',
+        'https://github.com/tokio-rs/prost{/,}**',
       ],
     },
     {
@@ -60,12 +56,12 @@
       matchManagers: [
         'cargo',
       ],
-      matchSourceUrlPrefixes: [
-        'https://github.com/tokio-rs/tracing',
+      matchSourceUrls: [
+        'https://github.com/tokio-rs/tracing{/,}**',
       ],
-      matchPackagePrefixes: [
-        'tracing-',
-        'tracing_',
+      matchPackageNames: [
+        'tracing-{/,}**',
+        'tracing_{/,}**',
       ],
     },
     {
@@ -74,8 +70,8 @@
       matchManagers: [
         'cargo',
       ],
-      matchSourceUrlPrefixes: [
-        'https://github.com/alloy-rs/core',
+      matchSourceUrls: [
+        'https://github.com/alloy-rs/core{/,}**',
       ],
     },
     {
@@ -86,9 +82,7 @@
       ],
       matchPackageNames: [
         'async-graphql',
-      ],
-      matchPackagePrefixes: [
-        'async-graphql-',
+        'async-graphql-{/,}**',
       ],
     },
     {
@@ -99,9 +93,7 @@
       ],
       matchPackageNames: [
         'build-info',
-      ],
-      matchPackagePrefixes: [
-        'build-info-',
+        'build-info-{/,}**',
       ],
     },
   ],
