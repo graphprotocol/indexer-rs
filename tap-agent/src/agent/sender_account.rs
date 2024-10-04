@@ -21,7 +21,7 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use tap_core::rav::SignedRAV;
 use thegraph_core::Address;
-use tracing::{error, warn, Level};
+use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
 use crate::agent::sender_allocation::SenderAllocationMessage;
@@ -297,40 +297,6 @@ impl State {
             .with_label_values(&[&self.sender.to_string()])
             .set(0);
     }
-    async fn check_denylist_state(&mut self) {
-        let denied_db = sqlx::query!(
-            r#"
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM scalar_tap_denylist
-                    WHERE sender_address = $1
-                ) as denied
-            "#,
-            self.sender.encode_hex(),
-        )
-        .fetch_one(&self.pgpool)
-        .await
-        .unwrap()
-        .denied
-        .expect("Deny status cannot be null");
-        let denied_condition_met = self.deny_condition_reached();
-        match (self.denied, denied_condition_met, denied_db) {
-            // if self is denied and the denying condition has been met but its not in the db
-            // it probably means it was removed by indexer manually which is dangerous
-            (true, true, false) => {
-                warn!(
-                    "You SHOULD NOT remove a denied sender manually from the database. \
-                    If you do so you are exposing yourself to potentially LOOSING ALL of your query
-                    fee MONEY.
-                    "
-                );
-                self.add_to_denylist().await;
-            }
-            // Not denied , denying condition met and not in DB, first time denying it, ok!
-            (false, true, false) => self.add_to_denylist().await,
-            _ => (),
-        }
-    }
 }
 
 #[async_trait::async_trait]
@@ -567,6 +533,18 @@ impl Actor for SenderAccount {
             message = ?message,
             "New SenderAccount message"
         );
+        // If state is denied and receivied new message, sender was removed manually from DB
+        if state.denied {
+            tracing::warn!(
+                "
+                No new messages should have been receieved, sender has been denied before. \
+                You SHOULD NOT remove a denied sender manually from the database. \
+                If you do so you are exposing yourself to potentially LOOSING ALL of your query
+                fee MONEY.
+                "
+            );
+            state.add_to_denylist().await;
+        }
         match message {
             SenderAccountMessage::UpdateRav(rav) => {
                 state
@@ -580,7 +558,10 @@ impl Actor for SenderAccount {
                     ])
                     .set(rav.message.valueAggregate as f64);
 
-                state.check_denylist_state().await;
+                let should_deny = !state.denied && state.deny_condition_reached();
+                if should_deny {
+                    state.add_to_denylist().await;
+                }
             }
             SenderAccountMessage::UpdateInvalidReceiptFees(allocation_id, unaggregated_fees) => {
                 INVALID_RECEIPT_FEES
@@ -592,7 +573,10 @@ impl Actor for SenderAccount {
                     .update(allocation_id, unaggregated_fees.value);
 
                 // invalid receipts can't go down
-                state.check_denylist_state().await;
+                let should_deny = !state.denied && state.deny_condition_reached();
+                if should_deny {
+                    state.add_to_denylist().await;
+                }
             }
             SenderAccountMessage::UpdateReceiptFees(allocation_id, receipt_fees) => {
                 // If we're here because of a new receipt, abort any scheduled UpdateReceiptFees
@@ -629,7 +613,10 @@ impl Actor for SenderAccount {
                 // Eagerly deny the sender (if needed), before the RAV request. To be sure not to
                 // delay the denial because of the RAV request, which could take some time.
 
-                state.check_denylist_state().await;
+                let should_deny = !state.denied && state.deny_condition_reached();
+                if should_deny {
+                    state.add_to_denylist().await;
+                }
 
                 if state.sender_fee_tracker.get_total_fee_outside_buffer()
                     >= state.config.tap.rav_request_trigger_value
@@ -752,7 +739,7 @@ impl Actor for SenderAccount {
                 // now that balance and rav tracker is updated, check
                 match (state.denied, state.deny_condition_reached()) {
                     (true, false) => state.remove_from_denylist().await,
-                    (false, true) => state.check_denylist_state().await,
+                    (false, true) => state.add_to_denylist().await,
                     (_, _) => {}
                 }
             }
