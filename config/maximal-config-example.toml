@@ -33,6 +33,13 @@ port = 7300
 # that is used by the `indexer-agent`. It is expected that `indexer-agent` will create
 # the necessary tables.
 postgres_url = "postgres://postgres@postgres:5432/postgres"
+# You can also use the following fields to specify the connection details separately.
+# either use `postgres_url` or the following fields.
+# host = "postgres-host"
+# port = 5432
+# user = "user"
+# password = "pwd"
+# database = "postgres"
 
 [graph_node]
 # URL to your graph-node's query endpoint

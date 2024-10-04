@@ -168,8 +168,44 @@ pub struct IndexerConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-pub struct DatabaseConfig {
-    pub postgres_url: Url,
+#[serde(untagged)]
+#[serde(deny_unknown_fields)]
+pub enum DatabaseConfig {
+    PostgresUrl {
+        postgres_url: Url,
+    },
+    PostgresVars {
+        host: String,
+        port: Option<u16>,
+        user: String,
+        password: Option<String>,
+        database: String,
+    },
+}
+impl DatabaseConfig {
+    pub fn get_formated_postgres_url(self) -> Url {
+        match self {
+            DatabaseConfig::PostgresUrl { postgres_url } => postgres_url,
+            DatabaseConfig::PostgresVars {
+                host,
+                port,
+                user,
+                password,
+                database,
+            } => {
+                let postgres_url_str = format!("postgres://{}@{}/{}", user, host, database);
+                let mut postgres_url =
+                    Url::parse(&postgres_url_str).expect("Failed to parse database_url");
+                postgres_url
+                    .set_password(password.as_deref())
+                    .expect("Failed to set password for database");
+                postgres_url
+                    .set_port(port)
+                    .expect("Failed to set port for database");
+                postgres_url
+            }
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -307,6 +343,8 @@ mod tests {
 
     use crate::{Config, ConfigPrefix};
 
+    use super::DatabaseConfig;
+
     #[test]
     fn test_minimal_config() {
         Config::parse(
@@ -417,6 +455,91 @@ mod tests {
         assert_eq!(
             config.subgraphs.network.config.query_url.as_str(),
             test_value
+        );
+    }
+    #[test]
+    fn test_url_format() {
+        let data = DatabaseConfig::PostgresVars {
+            host: String::from("postgres"),
+            port: Some(1234),
+            user: String::from("postgres"),
+            password: Some(String::from("postgres")),
+            database: String::from("postgres"),
+        };
+        let formated_data = data.get_formated_postgres_url();
+        assert_eq!(
+            formated_data.as_str(),
+            "postgres://postgres:postgres@postgres:1234/postgres"
+        );
+
+        let data = DatabaseConfig::PostgresVars {
+            host: String::from("postgres"),
+            port: None,
+            user: String::from("postgres"),
+            password: None,
+            database: String::from("postgres"),
+        };
+        let formated_data = data.get_formated_postgres_url();
+        assert_eq!(
+            formated_data.as_str(),
+            "postgres://postgres@postgres/postgres"
+        );
+    }
+
+    // Test that we can fill in mandatory config fields missing from the config file with
+    // environment variables
+    #[sealed_test(files = ["minimal-config-example.toml"])]
+    fn test_change_db_config_with_individual_vars() {
+        let mut minimal_config: toml::Value = toml::from_str(
+            fs::read_to_string("minimal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        // Remove the database.postgres_url field from minimal config
+        minimal_config
+            .get_mut("database")
+            .unwrap()
+            .as_table_mut()
+            .unwrap()
+            .remove("postgres_url");
+
+        let database_table = minimal_config
+            .get_mut("database")
+            .unwrap()
+            .as_table_mut()
+            .unwrap();
+        database_table.insert(
+            "host".to_string(),
+            toml::Value::String("postgres".to_string()),
+        );
+        database_table.insert(
+            "user".to_string(),
+            toml::Value::String("postgres".to_string()),
+        );
+        database_table.insert(
+            "database".to_string(),
+            toml::Value::String("postgres".to_string()),
+        );
+
+        // Save the modified minimal config to a named temporary file using tempfile
+        let temp_minimal_config_path = tempfile::NamedTempFile::new().unwrap();
+        fs::write(
+            temp_minimal_config_path.path(),
+            toml::to_string(&minimal_config).unwrap(),
+        )
+        .unwrap();
+
+        // Parse the config with new datbase vars
+        let config = Config::parse(
+            ConfigPrefix::Service,
+            &PathBuf::from(temp_minimal_config_path.path()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.database.get_formated_postgres_url().as_str(),
+            "postgres://postgres@postgres/postgres"
         );
     }
 }
