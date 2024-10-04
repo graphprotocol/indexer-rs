@@ -10,6 +10,7 @@ use thegraph_core::{Address, DeploymentId};
 pub struct DatabaseConfig {
     pub postgres_url: String,
 }
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SubgraphConfig {
     #[serde(default)]
