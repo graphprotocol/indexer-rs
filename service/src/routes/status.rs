@@ -44,12 +44,13 @@ impl IntoRequestParameters for WrappedGraphQLRequest {
                     value.clone().into_json().unwrap(),
                 )
             })),
-            extensions: Map::from_iter(self.0.extensions.into_iter().map(|(name, value)| {
-                (
-                    name.as_str().to_string(),
-                    value.clone().into_json().unwrap(),
-                )
-            })),
+            extensions: Map::from_iter(
+                self.0
+                    .extensions
+                    .0
+                    .into_iter()
+                    .map(|(name, value)| (name, value.into_json().unwrap())),
+            ),
         }
     }
 }
