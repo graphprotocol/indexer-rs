@@ -100,7 +100,6 @@ impl Config {
                 Err(_) => format!("${{{}}}", var_name),
             }
         });
-
         Ok(result.into_owned())
     }
 
@@ -301,9 +300,8 @@ pub struct RavRequestConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::PathBuf};
-
     use sealed_test::prelude::*;
+    use std::{env, fs, path::PathBuf};
     use tracing_test::traced_test;
 
     use crate::{Config, ConfigPrefix};
@@ -419,5 +417,46 @@ mod tests {
             config.subgraphs.network.config.query_url.as_str(),
             test_value
         );
+    }
+
+    // Test to check substitute_env_vars function is substituting env variables
+    // indexers can use ${ENV_VAR_NAME} to point to the required env variable
+    #[test]
+    fn test_substitute_env_vars() {
+        // Set up environment variables
+        env::set_var("TEST_VAR1", "hello");
+        env::set_var("TEST_VAR2", "world");
+        // TEST_VAR3 not setup and should not be replaced by the function
+
+        let input = r#"
+            [section1]
+            key1 = "${TEST_VAR1}"
+            key2 = "${TEST_VAR2}"
+            key3 = "${TEST_VAR3}"
+            key4 = "prefix_${TEST_VAR1}_${TEST_VAR2}_suffix"
+            key5 = "a_key_without_substitution"
+        "#
+        .to_string();
+
+        let expected_output = r#"
+            [section1]
+            key1 = "hello"
+            key2 = "world"
+            key3 = "${TEST_VAR3}"
+            key4 = "prefix_hello_world_suffix"
+            key5 = "a_key_without_substitution"
+        "#
+        .to_string();
+
+        let result = Config::substitute_env_vars(input).expect("Failed to substitute env vars ");
+
+        assert_eq!(
+            result, expected_output,
+            "Environment variable substitution failed"
+        );
+
+        // Clean up environment variables
+        env::remove_var("TEST_VAR1");
+        env::remove_var("TEST_VAR2");
     }
 }
