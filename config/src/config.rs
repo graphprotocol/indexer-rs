@@ -76,7 +76,7 @@ impl Config {
         let mut config_content = std::fs::read_to_string(filename)
             .map_err(|e| format!("Failed to read config file: {}", e))?;
 
-        config_content = Self::substitute_env_vars(config_content)?;
+        config_content = Self::substitute_env_vars(config_content);
 
         let config: ConfigWrapper = Figment::new()
             .merge(Toml::string(config_defaults))
@@ -89,8 +89,10 @@ impl Config {
         Ok(config.0)
     }
 
-    fn substitute_env_vars(content: String) -> Result<String, String> {
-        let re = Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}").map_err(|e| e.to_string())?;
+    fn substitute_env_vars(content: String) -> String {
+        let re = Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+            .map_err(|e| e.to_string())
+            .expect("error substituting values");
 
         let result = re.replace_all(&content, |caps: &regex::Captures| {
             let var_name = &caps[1];
@@ -100,7 +102,7 @@ impl Config {
                 Err(_) => format!("${{{}}}", var_name),
             }
         });
-        Ok(result.into_owned())
+        result.into_owned()
     }
 
     // custom validation of the values
@@ -424,31 +426,33 @@ mod tests {
     #[test]
     fn test_substitute_env_vars() {
         // Set up environment variables
-        env::set_var("TEST_VAR1", "hello");
-        env::set_var("TEST_VAR2", "world");
-        // TEST_VAR3 not setup and should not be replaced by the function
+        env::set_var("TEST_VAR1", "changed_value_1");
 
         let input = r#"
             [section1]
             key1 = "${TEST_VAR1}"
-            key2 = "${TEST_VAR2}"
-            key3 = "${TEST_VAR3}"
-            key4 = "prefix_${TEST_VAR1}_${TEST_VAR2}_suffix"
+            key2 = "${TEST_VAR-default}"
+            key3 = "{{TEST_VAR3}}"
+            
+            [section2]
+            key4 = "prefix_${TEST_VAR1}_${TEST_VAR-default}_suffix"
             key5 = "a_key_without_substitution"
         "#
         .to_string();
 
         let expected_output = r#"
             [section1]
-            key1 = "hello"
-            key2 = "world"
-            key3 = "${TEST_VAR3}"
-            key4 = "prefix_hello_world_suffix"
+            key1 = "changed_value_1"
+            key2 = "${TEST_VAR-default}"
+            key3 = "{{TEST_VAR3}}"
+            
+            [section2]
+            key4 = "prefix_changed_value_1_${TEST_VAR-default}_suffix"
             key5 = "a_key_without_substitution"
         "#
         .to_string();
 
-        let result = Config::substitute_env_vars(input).expect("Failed to substitute env vars ");
+        let result = Config::substitute_env_vars(input);
 
         assert_eq!(
             result, expected_output,
@@ -457,6 +461,5 @@ mod tests {
 
         // Clean up environment variables
         env::remove_var("TEST_VAR1");
-        env::remove_var("TEST_VAR2");
     }
 }
