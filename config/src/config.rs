@@ -90,10 +90,7 @@ impl Config {
     }
 
     fn substitute_env_vars(content: String) -> String {
-        let re = Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}")
-            .map_err(|e| e.to_string())
-            .expect("error substituting values");
-
+        let re = Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}").expect("error substituting values");
         let result = re.replace_all(&content, |caps: &regex::Captures| {
             let var_name = &caps[1];
             // only substitues the value if the env variable is found else the same is kept
