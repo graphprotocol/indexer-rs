@@ -26,7 +26,7 @@ pub async fn connect(url: &str) -> PgPool {
 /// These can have "global" as the deployment ID.
 #[derive(Debug, Clone)]
 struct DbCostModel {
-    pub deployment: String,
+    pub deployment: Option<String>,
     pub model: Option<String>,
     pub variables: Option<Value>,
 }
@@ -46,7 +46,12 @@ impl TryFrom<DbCostModel> for CostModel {
 
     fn try_from(db_model: DbCostModel) -> Result<Self, Self::Error> {
         Ok(Self {
-            deployment: DeploymentId::from_str(&db_model.deployment)?,
+            deployment: DeploymentId::from_str(&db_model.deployment.ok_or(
+                ParseDeploymentIdError::InvalidIpfsHashLength {
+                    value: String::new(),
+                    length: 0,
+                },
+            )?)?,
             model: db_model.model,
             variables: db_model.variables,
         })
@@ -57,7 +62,7 @@ impl From<CostModel> for DbCostModel {
     fn from(model: CostModel) -> Self {
         let deployment = model.deployment;
         DbCostModel {
-            deployment: format!("{deployment:#x}"),
+            deployment: Some(format!("{deployment:#x}")),
             model: model.model,
             variables: model.variables,
         }
@@ -210,28 +215,11 @@ mod test {
 
     use super::*;
 
-    async fn setup_cost_models_table(pool: &PgPool) {
-        sqlx::query!(
-            r#"
-            CREATE TABLE "CostModels"(
-                id INT,
-                deployment VARCHAR NOT NULL,
-                model TEXT,
-                variables JSONB,
-                PRIMARY KEY( deployment )
-            );
-            "#,
-        )
-        .execute(pool)
-        .await
-        .expect("Create test instance in db");
-    }
-
     async fn add_cost_models(pool: &PgPool, models: Vec<DbCostModel>) {
         for model in models {
             sqlx::query!(
                 r#"
-                INSERT INTO "CostModels" (deployment, model)
+                INSERT INTO "CostModelsHistory" (deployment, model)
                 VALUES ($1, $2);
                 "#,
                 model.deployment,
@@ -249,7 +237,7 @@ mod test {
 
     fn global_cost_model() -> DbCostModel {
         DbCostModel {
-            deployment: "global".to_string(),
+            deployment: Some("global".to_string()),
             model: Some("default => 0.00001;".to_string()),
             variables: None,
         }
@@ -281,7 +269,7 @@ mod test {
         ]
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../migrations")]
     async fn success_cost_models(pool: PgPool) {
         let test_models = test_data();
         let test_deployments = test_models
@@ -289,7 +277,6 @@ mod test {
             .map(|model| model.deployment)
             .collect::<HashSet<_>>();
 
-        setup_cost_models_table(&pool).await;
         add_cost_models(&pool, to_db_models(test_models.clone())).await;
 
         // First test: query without deployment filter
@@ -344,7 +331,7 @@ mod test {
         }
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../migrations")]
     async fn global_fallback_cost_models(pool: PgPool) {
         let test_models = test_data();
         let test_deployments = test_models
@@ -353,7 +340,6 @@ mod test {
             .collect::<HashSet<_>>();
         let global_model = global_cost_model();
 
-        setup_cost_models_table(&pool).await;
         add_cost_models(&pool, to_db_models(test_models.clone())).await;
         add_cost_models(&pool, vec![global_model.clone()]).await;
 
@@ -436,9 +422,8 @@ mod test {
         assert_eq!(missing_model.model, global_model.model);
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../migrations")]
     async fn success_cost_model(pool: PgPool) {
-        setup_cost_models_table(&pool).await;
         add_cost_models(&pool, to_db_models(test_data())).await;
 
         let deployment_id_from_bytes = DeploymentId::from_str(
@@ -459,12 +444,11 @@ mod test {
         assert_eq!(model.model, Some("default => 0.00025;".to_string()));
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../migrations")]
     async fn global_fallback_cost_model(pool: PgPool) {
         let test_models = test_data();
         let global_model = global_cost_model();
 
-        setup_cost_models_table(&pool).await;
         add_cost_models(&pool, to_db_models(test_models.clone())).await;
         add_cost_models(&pool, vec![global_model.clone()]).await;
 
