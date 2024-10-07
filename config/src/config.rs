@@ -91,22 +91,33 @@ impl Config {
     fn substitute_env_vars(content: String) -> Result<String, String> {
         let reg = Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}").map_err(|e| e.to_string())?;
         let mut missing_vars = Vec::new();
-        
-        let result = reg.replace_all(&content, |caps: &regex::Captures| {
-            let var_name = &caps[1];
-            match env::var(var_name) {
-                Ok(value) => value,
-                Err(_) => {
-                    missing_vars.push(var_name.to_string());
-                    format!("${{{}}}", var_name) //keeping the same value there, will returned in error
-                }
+        let mut result = String::new();
+
+        for line in content.lines() {
+            if !line.trim_start().starts_with('#') {
+                let processed_line = reg.replace_all(line, |caps: &regex::Captures| {
+                    let var_name = &caps[1];
+                    match env::var(var_name) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            missing_vars.push(var_name.to_string());
+                            format!("${{{}}}", var_name)
+                        }
+                    }
+                });
+                result.push_str(&processed_line);
+                result.push('\n');
             }
-        });
-        // returning error if corrosponding env variables are not found
-        if !missing_vars.is_empty() {
-            return Err(format!("Missing environment variables: {}", missing_vars.join(", ")));
         }
-        Ok(result.into_owned())
+
+        if !missing_vars.is_empty() {
+            return Err(format!(
+                "Missing environment variables: {}",
+                missing_vars.join(", ")
+            ));
+        }
+
+        Ok(result.trim_end().to_string())
     }
 
     // custom validation of the values
@@ -393,7 +404,7 @@ mod tests {
         .unwrap_err();
 
         let test_value = "http://localhost:8000/testvalue";
-        std::env::set_var("INDEXER_SERVICE_SUBGRAPHS__NETWORK__QUERY_URL", test_value);
+        env::set_var("INDEXER_SERVICE_SUBGRAPHS__NETWORK__QUERY_URL", test_value);
 
         let config = Config::parse(
             ConfigPrefix::Service,
@@ -428,7 +439,7 @@ mod tests {
     // Test to check substitute_env_vars function is substituting env variables
     // indexers can use ${ENV_VAR_NAME} to point to the required env variable
     #[test]
-    fn test_substitute_env_vars() {
+    fn test_substitution_using_regex() {
         // Set up environment variables
         env::set_var("TEST_VAR1", "changed_value_1");
 
@@ -459,11 +470,62 @@ mod tests {
         let result = Config::substitute_env_vars(input).expect("error substiting env variables");
 
         assert_eq!(
-            result, expected_output,
+            result.trim(),
+            expected_output.trim(),
             "Environment variable substitution failed"
         );
 
         // Clean up environment variables
         env::remove_var("TEST_VAR1");
+    }
+    #[sealed_test(files = ["minimal-config-example.toml"])]
+    fn test_parse_with_env_substitution_and_overrides() {
+        let mut minimal_config: toml::Value = toml::from_str(
+            fs::read_to_string("minimal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        // Change the subgraphs query_url to an env variable
+        minimal_config
+            .get_mut("subgraphs")
+            .unwrap()
+            .get_mut("network")
+            .unwrap()
+            .as_table_mut()
+            .unwrap()
+            .insert(
+                String::from("query_url"),
+                toml::Value::String("${QUERY_URL}".to_string()),
+            );
+
+        // Save the modified minimal config to a named temporary file using tempfile
+        let temp_minimal_config_path = tempfile::NamedTempFile::new().unwrap();
+        fs::write(
+            temp_minimal_config_path.path(),
+            toml::to_string(&minimal_config).unwrap(),
+        )
+        .unwrap();
+
+        // This should fail because the QUERY_URL env variable is not setup
+        Config::parse(
+            ConfigPrefix::Service,
+            &PathBuf::from(temp_minimal_config_path.path()),
+        )
+        .unwrap_err();
+
+        let test_value = "http://localhost:8000/testvalue";
+        env::set_var("QUERY_URL", test_value);
+
+        let config = Config::parse(
+            ConfigPrefix::Service,
+            &PathBuf::from(temp_minimal_config_path.path()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.subgraphs.network.config.query_url.as_str(),
+            test_value
+        );
     }
 }
