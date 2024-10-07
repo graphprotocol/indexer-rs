@@ -4,6 +4,7 @@
 use clap::Parser;
 use indexer_config::{Config as IndexerConfig, ConfigPrefix};
 use reqwest::Url;
+use tracing::level_filters::LevelFilter;
 use std::path::PathBuf;
 use std::{collections::HashMap, str::FromStr};
 use tracing::error;
@@ -165,7 +166,7 @@ pub struct Tap {
 
 /// Sets up tracing, allows log level to be set from the environment variables
 fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
-    let filter = EnvFilter::from_default_env();
+    let filter = EnvFilter::builder().with_default_directive(LevelFilter::INFO.into()).from_env_lossy();
     let subscriber_builder: tracing_subscriber::fmt::SubscriberBuilder<
         tracing_subscriber::fmt::format::DefaultFields,
         tracing_subscriber::fmt::format::Format,
