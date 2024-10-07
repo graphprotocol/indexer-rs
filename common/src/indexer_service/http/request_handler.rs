@@ -80,7 +80,13 @@ where
 {
     trace!("Handling request for deployment `{manifest_id}`");
 
-    let request =
+    #[derive(Debug, serde::Deserialize, serde::Serialize)]
+    pub struct QueryBody {
+        pub query: String,
+        pub variables: Option<Box<RawValue>>,
+    }
+
+    let request: QueryBody =
         serde_json::from_slice(&body).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
 
     let Some(receipt) = receipt.into_signed_receipt() else {
@@ -113,15 +119,7 @@ where
 
     let allocation_id = receipt.message.allocation_id;
 
-    #[derive(Debug, serde::Deserialize)]
-    pub struct QueryBody {
-        pub query: String,
-        pub variables: Option<Box<RawValue>>,
-    }
-
-    let query_body: QueryBody =
-        serde_json::from_slice(&body).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
-    let variables = query_body
+    let variables = request
         .variables
         .as_ref()
         .map(ToString::to_string)
@@ -129,7 +127,7 @@ where
     let mut ctx = Context::new();
     ctx.insert(AgoraQuery {
         deployment_id: manifest_id,
-        query: query_body.query.clone(),
+        query: request.query.clone(),
         variables,
     });
 
