@@ -1,10 +1,11 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::signers::Signature;
 use anyhow::anyhow;
 use bigdecimal::ToPrimitive;
 use cost_model::CostModel;
+use sqlx::{postgres::PgListener, PgPool};
+use tracing::error;
 use std::{
     cmp::min,
     collections::HashMap,
@@ -89,6 +90,67 @@ impl MinimumValue {
             model_handle,
         }
     }
+
+    async fn cost_models_watcher(
+        pgpool: PgPool,
+        mut pglistener: PgListener,
+        denylist: Arc<Mutex<HashMap<DeploymentId, CostModelCache>>>,
+        cancel_token: tokio_util::sync::CancellationToken,
+    ) {
+        #[derive(serde::Deserialize)]
+        struct DenylistNotification {
+            tg_op: String,
+            deployment: DeploymentId,
+        }
+
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+
+                pg_notification = pglistener.recv() => {
+                    let pg_notification = pg_notification.expect(
+                    "should be able to receive Postgres Notify events on the channel \
+                    'scalar_tap_deny_notification'",
+                    );
+
+                    let denylist_notification: DenylistNotification =
+                        serde_json::from_str(pg_notification.payload()).expect(
+                            "should be able to deserialize the Postgres Notify event payload as a \
+                            DenylistNotification",
+                        );
+
+                    match denylist_notification.tg_op.as_str() {
+                        "INSERT" => {
+                            denylist
+                                .write()
+                                .unwrap()
+                                .insert(denylist_notification.sender_address);
+                        }
+                        "DELETE" => {
+                            denylist
+                                .write()
+                                .unwrap()
+                                .remove(&denylist_notification.sender_address);
+                        }
+                        // UPDATE and TRUNCATE are not expected to happen. Reload the entire denylist.
+                        _ => {
+                            error!(
+                                "Received an unexpected denylist table notification: {}. Reloading entire \
+                                denylist.",
+                                denylist_notification.tg_op
+                            );
+
+                            Self::sender_denylist_reload(pgpool.clone(), denylist.clone())
+                                .await
+                                .expect("should be able to reload the sender denylist")
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl Drop for MinimumValue {
@@ -155,7 +217,6 @@ fn compile_cost_model(src: CostModelSource) -> anyhow::Result<CostModel> {
 }
 
 pub struct AgoraQuery {
-    pub signature: Signature,
     pub deployment_id: DeploymentId,
     pub query: String,
     pub variables: String,

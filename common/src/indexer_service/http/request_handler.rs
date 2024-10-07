@@ -112,7 +112,6 @@ where
     };
 
     let allocation_id = receipt.message.allocation_id;
-    let signature = receipt.signature;
 
     #[derive(Debug, serde::Deserialize)]
     pub struct QueryBody {
@@ -129,7 +128,6 @@ where
         .unwrap_or_default();
     let mut ctx = Context::new();
     ctx.insert(AgoraQuery {
-        signature,
         deployment_id: manifest_id,
         query: query_body.query.clone(),
         variables,
