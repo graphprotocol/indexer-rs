@@ -176,7 +176,7 @@ impl Check for MinimumValue {
             Ok(())
         } else {
             return Err(CheckError::Failed(anyhow!(
-                "Query receipt does not have the minimum value. Expected value: {}. Minimum value: {}.",
+                "Query receipt does not have the minimum value. Expected value: {}. Received value: {}.",
                 expected_value, value,
             )));
         }
