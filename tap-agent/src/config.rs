@@ -4,6 +4,7 @@
 use clap::Parser;
 use indexer_config::{Config as IndexerConfig, ConfigPrefix};
 use reqwest::Url;
+use tracing::error;
 use std::path::PathBuf;
 use std::{collections::HashMap, str::FromStr};
 
@@ -17,7 +18,7 @@ pub struct Cli {
     /// Path to the configuration file.
     /// See https://github.com/graphprotocol/indexer-rs/tree/main/tap-agent for examples.
     #[arg(long, value_name = "FILE", verbatim_doc_comment)]
-    pub config: PathBuf,
+    pub config: Option<PathBuf>,
 }
 
 impl From<IndexerConfig> for Config {
@@ -182,7 +183,15 @@ impl Config {
     pub fn from_cli() -> Result<Self> {
         let cli = Cli::parse();
         let indexer_config =
-            IndexerConfig::parse(ConfigPrefix::Tap, &cli.config).map_err(|e| anyhow::anyhow!(e))?;
+        IndexerConfig::parse(ConfigPrefix::Tap, cli.config.as_ref()).map_err(|e| {
+            error!(
+                "Invalid configuration file `{}`: {}, if a value is missing you can also use \
+                --config to fill the rest of the values",
+                cli.config.unwrap_or_default().display(),
+                e
+            );
+            anyhow::anyhow!(e)
+        })?;
         let config: Config = indexer_config.into();
 
         // Enables tracing under RUST_LOG variable

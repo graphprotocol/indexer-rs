@@ -70,17 +70,19 @@ impl ConfigPrefix {
 }
 
 impl Config {
-    pub fn parse(prefix: ConfigPrefix, filename: &PathBuf) -> Result<Self, String> {
+    pub fn parse(prefix: ConfigPrefix, filename: Option<&PathBuf>) -> Result<Self, String> {
         let config_defaults = include_str!("../default_values.toml");
 
-        let mut config_content = std::fs::read_to_string(filename)
+        let mut figment_config = Figment::new().merge(Toml::string(config_defaults));
+
+        if let Some(path) = filename {
+            let mut config_content = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read config file: {}", e))?;
+            config_content = Self::substitute_env_vars(config_content)?;
+            figment_config = figment_config.merge(Toml::string(&config_content));
+        }
 
-        config_content = Self::substitute_env_vars(config_content)?;
-
-        let config: ConfigWrapper = Figment::new()
-            .merge(Toml::string(config_defaults))
-            .merge(Toml::string(&config_content))
+        let config: ConfigWrapper = figment_config
             .merge(Env::prefixed(prefix.get_prefix()).split("__"))
             .extract()
             .map_err(|e| e.to_string())?;
@@ -386,7 +388,7 @@ mod tests {
     fn test_minimal_config() {
         Config::parse(
             ConfigPrefix::Service,
-            &PathBuf::from("minimal-config-example.toml"),
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
     }
@@ -396,7 +398,7 @@ mod tests {
         // Generate full config by deserializing the minimal config and let the code fill in the defaults.
         let max_config = Config::parse(
             ConfigPrefix::Service,
-            &PathBuf::from("minimal-config-example.toml"),
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
         let max_config_file: Config = toml::from_str(
@@ -418,7 +420,7 @@ mod tests {
 
         Config::parse(
             ConfigPrefix::Service,
-            &PathBuf::from("minimal-config-example.toml"),
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
 
@@ -458,7 +460,7 @@ mod tests {
         // This should fail because the subgraphs.network.query_url field is missing
         Config::parse(
             ConfigPrefix::Service,
-            &PathBuf::from(temp_minimal_config_path.path()),
+            Some(PathBuf::from(temp_minimal_config_path.path())).as_ref(),
         )
         .unwrap_err();
 
@@ -467,7 +469,7 @@ mod tests {
 
         let config = Config::parse(
             ConfigPrefix::Service,
-            &PathBuf::from(temp_minimal_config_path.path()),
+            Some(PathBuf::from(temp_minimal_config_path.path())).as_ref(),
         )
         .unwrap();
 
@@ -485,7 +487,7 @@ mod tests {
 
         let config = Config::parse(
             ConfigPrefix::Service,
-            &PathBuf::from("minimal-config-example.toml"),
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
 
@@ -569,7 +571,7 @@ mod tests {
         // This should fail because the QUERY_URL env variable is not setup
         Config::parse(
             ConfigPrefix::Service,
-            &PathBuf::from(temp_minimal_config_path.path()),
+            Some(PathBuf::from(temp_minimal_config_path.path())).as_ref(),
         )
         .unwrap_err();
 
@@ -578,7 +580,7 @@ mod tests {
 
         let config = Config::parse(
             ConfigPrefix::Service,
-            &PathBuf::from(temp_minimal_config_path.path()),
+            Some(PathBuf::from(temp_minimal_config_path.path())).as_ref(),
         )
         .unwrap();
 
@@ -663,7 +665,7 @@ mod tests {
         // Parse the config with new datbase vars
         let config = Config::parse(
             ConfigPrefix::Service,
-            &PathBuf::from(temp_minimal_config_path.path()),
+            Some(PathBuf::from(temp_minimal_config_path.path())).as_ref(),
         )
         .unwrap();
 
