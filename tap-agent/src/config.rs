@@ -1,17 +1,15 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use anyhow::Result;
 use clap::Parser;
 use indexer_config::{Config as IndexerConfig, ConfigPrefix};
 use reqwest::Url;
-use tracing::level_filters::LevelFilter;
 use std::path::PathBuf;
 use std::{collections::HashMap, str::FromStr};
-use tracing::error;
-
-use anyhow::Result;
 use thegraph_core::{Address, DeploymentId};
 use tracing::subscriber::{set_global_default, SetGlobalDefaultError};
+use tracing::{error, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 #[derive(Parser)]
@@ -166,7 +164,9 @@ pub struct Tap {
 
 /// Sets up tracing, allows log level to be set from the environment variables
 fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
-    let filter = EnvFilter::builder().with_default_directive(LevelFilter::INFO.into()).from_env_lossy();
+    let filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
     let subscriber_builder: tracing_subscriber::fmt::SubscriberBuilder<
         tracing_subscriber::fmt::format::DefaultFields,
         tracing_subscriber::fmt::format::Format,
