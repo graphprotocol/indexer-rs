@@ -76,7 +76,7 @@ impl Config {
         let mut config_content = std::fs::read_to_string(filename)
             .map_err(|e| format!("Failed to read config file: {}", e))?;
 
-        config_content = Self::substitute_env_vars(config_content);
+        config_content = Self::substitute_env_vars(config_content)?;
 
         let config: ConfigWrapper = Figment::new()
             .merge(Toml::string(config_defaults))
@@ -84,22 +84,29 @@ impl Config {
             .merge(Env::prefixed(prefix.get_prefix()).split("__"))
             .extract()
             .map_err(|e| e.to_string())?;
-
         config.0.validate()?;
         Ok(config.0)
     }
 
-    fn substitute_env_vars(content: String) -> String {
-        let re = Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}").expect("error substituting values");
-        let result = re.replace_all(&content, |caps: &regex::Captures| {
+    fn substitute_env_vars(content: String) -> Result<String, String> {
+        let reg = Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}").map_err(|e| e.to_string())?;
+        let mut missing_vars = Vec::new();
+        
+        let result = reg.replace_all(&content, |caps: &regex::Captures| {
             let var_name = &caps[1];
-            // only substitues the value if the env variable is found else the same is kept
             match env::var(var_name) {
                 Ok(value) => value,
-                Err(_) => format!("${{{}}}", var_name),
+                Err(_) => {
+                    missing_vars.push(var_name.to_string());
+                    format!("${{{}}}", var_name) //keeping the same value there, will returned in error
+                }
             }
         });
-        result.into_owned()
+        // returning error if corrosponding env variables are not found
+        if !missing_vars.is_empty() {
+            return Err(format!("Missing environment variables: {}", missing_vars.join(", ")));
+        }
+        Ok(result.into_owned())
     }
 
     // custom validation of the values
@@ -404,7 +411,7 @@ mod tests {
     #[sealed_test(files = ["minimal-config-example.toml"])]
     fn test_override_with_env() {
         let test_value = "http://localhost:8000/testvalue";
-        std::env::set_var("INDEXER_SERVICE_SUBGRAPHS__NETWORK__QUERY_URL", test_value);
+        env::set_var("INDEXER_SERVICE_SUBGRAPHS__NETWORK__QUERY_URL", test_value);
 
         let config = Config::parse(
             ConfigPrefix::Service,
@@ -449,7 +456,7 @@ mod tests {
         "#
         .to_string();
 
-        let result = Config::substitute_env_vars(input);
+        let result = Config::substitute_env_vars(input).expect("error substiting env variables");
 
         assert_eq!(
             result, expected_output,
