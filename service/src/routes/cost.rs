@@ -7,7 +7,6 @@ use std::sync::Arc;
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::extract::State;
-use indexer_common::tap::CostModelSource;
 use lazy_static::lazy_static;
 use prometheus::{
     register_counter, register_counter_vec, register_histogram, register_histogram_vec, Counter,
@@ -65,16 +64,6 @@ pub struct GraphQlCostModel {
     pub deployment: String,
     pub model: Option<String>,
     pub variables: Option<Value>,
-}
-
-impl From<CostModel> for CostModelSource {
-    fn from(value: CostModel) -> Self {
-        Self {
-            deployment_id: value.deployment,
-            model: value.model.unwrap_or_default(),
-            variables: value.variables.unwrap_or_default().to_string(),
-        }
-    }
 }
 
 impl From<CostModel> for GraphQlCostModel {
@@ -138,11 +127,8 @@ impl Query {
         ctx: &Context<'_>,
         deployment_ids: Vec<DeploymentId>,
     ) -> Result<Vec<GraphQlCostModel>, anyhow::Error> {
-        let state = &ctx.data_unchecked::<Arc<SubgraphServiceState>>();
-
-        let pool = &state.database;
+        let pool = &ctx.data_unchecked::<Arc<SubgraphServiceState>>().database;
         let cost_models = database::cost_models(pool, &deployment_ids).await?;
-
         Ok(cost_models.into_iter().map(|m| m.into()).collect())
     }
 
@@ -152,9 +138,9 @@ impl Query {
         deployment_id: DeploymentId,
     ) -> Result<Option<GraphQlCostModel>, anyhow::Error> {
         let pool = &ctx.data_unchecked::<Arc<SubgraphServiceState>>().database;
-        let model = database::cost_model(pool, &deployment_id).await?;
-
-        Ok(model.map(GraphQlCostModel::from))
+        database::cost_model(pool, &deployment_id)
+            .await
+            .map(|model_opt| model_opt.map(GraphQlCostModel::from))
     }
 }
 
