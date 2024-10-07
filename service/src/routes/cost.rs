@@ -7,12 +7,12 @@ use std::sync::Arc;
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::extract::State;
+use indexer_common::tap::CostModelSource;
 use lazy_static::lazy_static;
 use prometheus::{
     register_counter, register_counter_vec, register_histogram, register_histogram_vec, Counter,
     CounterVec, Histogram, HistogramVec,
 };
-use indexer_common::tap::CostModelSource;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thegraph_core::DeploymentId;
@@ -140,17 +140,8 @@ impl Query {
     ) -> Result<Vec<GraphQlCostModel>, anyhow::Error> {
         let state = &ctx.data_unchecked::<Arc<SubgraphServiceState>>();
 
-        let cost_model_sender = &state.value_check_sender;
-
         let pool = &state.database;
         let cost_models = database::cost_models(pool, &deployment_ids).await?;
-
-        for model in &cost_models {
-            let _ = cost_model_sender
-                .tx_cost_model
-                .send(CostModelSource::from(model.clone()))
-                .await;
-        }
 
         Ok(cost_models.into_iter().map(|m| m.into()).collect())
     }
@@ -160,18 +151,8 @@ impl Query {
         ctx: &Context<'_>,
         deployment_id: DeploymentId,
     ) -> Result<Option<GraphQlCostModel>, anyhow::Error> {
-
-        let state = &ctx.data_unchecked::<Arc<SubgraphServiceState>>();
-        let cost_model_sender = &state.value_check_sender;
         let pool = &ctx.data_unchecked::<Arc<SubgraphServiceState>>().database;
         let model = database::cost_model(pool, &deployment_id).await?;
-
-        if let Some(model) = &model {
-            let _ = cost_model_sender
-                .tx_cost_model
-                .send(CostModelSource::from(model.clone()))
-                .await;
-        }
 
         Ok(model.map(GraphQlCostModel::from))
     }
