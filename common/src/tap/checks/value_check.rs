@@ -12,7 +12,6 @@ use std::{
     time::Duration,
 };
 use thegraph_core::DeploymentId;
-use tokio::task::JoinHandle;
 use tracing::error;
 use ttl_cache::TtlCache;
 
@@ -24,7 +23,15 @@ use tap_core::receipt::{
 
 pub struct MinimumValue {
     cost_model_cache: Arc<Mutex<HashMap<DeploymentId, CostModelCache>>>,
-    model_handle: JoinHandle<()>,
+    watcher_cancel_token: tokio_util::sync::CancellationToken,
+}
+
+impl Drop for MinimumValue {
+    fn drop(&mut self) {
+        // Clean shutdown for the sender_denylist_watcher
+        // Though since it's not a critical task, we don't wait for it to finish (join).
+        self.watcher_cancel_token.cancel();
+    }
 }
 
 impl MinimumValue {
@@ -37,19 +44,17 @@ impl MinimumValue {
                 'cost_models_update_notify'",
         );
 
-        // TODO start watcher
-        let cancel_token = tokio_util::sync::CancellationToken::new();
-
-        let model_handle = tokio::spawn(Self::cost_models_watcher(
+        let watcher_cancel_token = tokio_util::sync::CancellationToken::new();
+        tokio::spawn(Self::cost_models_watcher(
             pgpool.clone(),
             pglistener,
             cost_model_cache.clone(),
-            cancel_token.clone(),
+            watcher_cancel_token.clone(),
         ));
 
         Self {
             cost_model_cache,
-            model_handle,
+            watcher_cancel_token,
         }
     }
 
@@ -125,12 +130,6 @@ impl MinimumValue {
                 }
             }
         }
-    }
-}
-
-impl Drop for MinimumValue {
-    fn drop(&mut self) {
-        self.model_handle.abort();
     }
 }
 
