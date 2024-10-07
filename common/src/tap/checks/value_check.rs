@@ -5,7 +5,6 @@ use anyhow::anyhow;
 use bigdecimal::ToPrimitive;
 use cost_model::CostModel;
 use sqlx::{postgres::PgListener, PgPool};
-use tracing::error;
 use std::{
     cmp::min,
     collections::HashMap,
@@ -13,10 +12,8 @@ use std::{
     time::Duration,
 };
 use thegraph_core::DeploymentId;
-use tokio::{
-    sync::mpsc::{Receiver, Sender},
-    task::JoinHandle,
-};
+use tokio::task::JoinHandle;
+use tracing::error;
 use ttl_cache::TtlCache;
 
 use tap_core::receipt::{
@@ -30,60 +27,25 @@ pub struct MinimumValue {
     model_handle: JoinHandle<()>,
 }
 
-#[derive(Clone)]
-pub struct ValueCheckSender {
-    pub tx_cost_model: Sender<CostModelSource>,
-}
-
-pub struct ValueCheckReceiver {
-    rx_cost_model: Receiver<CostModelSource>,
-}
-
-pub fn create_value_check(size: usize) -> (ValueCheckSender, ValueCheckReceiver) {
-    let (tx_cost_model, rx_cost_model) = tokio::sync::mpsc::channel(size);
-
-    (
-        ValueCheckSender { tx_cost_model },
-        ValueCheckReceiver { rx_cost_model },
-    )
-}
-
 impl MinimumValue {
-    pub fn new(ValueCheckReceiver { mut rx_cost_model }: ValueCheckReceiver) -> Self {
+    pub async fn new(pgpool: PgPool) -> Self {
         let cost_model_cache = Arc::new(Mutex::new(HashMap::<DeploymentId, CostModelCache>::new()));
-        let cache = cost_model_cache.clone();
-        let model_handle = tokio::spawn(async move {
-            loop {
-                let model = rx_cost_model.recv().await;
-                match model {
-                    Some(value) => {
-                        let deployment_id = value.deployment_id;
 
-                        if let Some(query) = cache.lock().unwrap().get_mut(&deployment_id) {
-                            let _ = query.insert_model(value).inspect_err(|err| {
-                                tracing::error!(
-                                    "Error while compiling cost model for deployment id {}. Error: {}",
-                                    deployment_id, err
-                                )
-                            });
-                        } else {
-                            match CostModelCache::new(value) {
-                                Ok(value) => {
-                                    cache.lock().unwrap().insert(deployment_id, value);
-                                }
-                                Err(err) => {
-                                    tracing::error!(
-                                        "Error while compiling cost model for deployment id {}. Error: {}",
-                                        deployment_id, err
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    None => break,
-                }
-            }
-        });
+        let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
+        pglistener.listen("cost_models_update_notify").await.expect(
+            "should be able to subscribe to Postgres Notify events on the channel \
+                'cost_models_update_notify'",
+        );
+
+        // TODO start watcher
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+
+        let model_handle = tokio::spawn(Self::cost_models_watcher(
+            pgpool.clone(),
+            pglistener,
+            cost_model_cache.clone(),
+            cancel_token.clone(),
+        ));
 
         Self {
             cost_model_cache,
@@ -92,17 +54,11 @@ impl MinimumValue {
     }
 
     async fn cost_models_watcher(
-        pgpool: PgPool,
+        _pgpool: PgPool,
         mut pglistener: PgListener,
-        denylist: Arc<Mutex<HashMap<DeploymentId, CostModelCache>>>,
+        cost_model_cache: Arc<Mutex<HashMap<DeploymentId, CostModelCache>>>,
         cancel_token: tokio_util::sync::CancellationToken,
     ) {
-        #[derive(serde::Deserialize)]
-        struct DenylistNotification {
-            tg_op: String,
-            deployment: DeploymentId,
-        }
-
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => {
@@ -112,39 +68,58 @@ impl MinimumValue {
                 pg_notification = pglistener.recv() => {
                     let pg_notification = pg_notification.expect(
                     "should be able to receive Postgres Notify events on the channel \
-                    'scalar_tap_deny_notification'",
+                    'cost_models_update_notify'",
                     );
 
-                    let denylist_notification: DenylistNotification =
+                    let cost_model_notification: CostModelNotification =
                         serde_json::from_str(pg_notification.payload()).expect(
                             "should be able to deserialize the Postgres Notify event payload as a \
-                            DenylistNotification",
+                            CostModelNotification",
                         );
 
-                    match denylist_notification.tg_op.as_str() {
+                    let deployment_id = cost_model_notification.deployment;
+
+                    match cost_model_notification.tg_op.as_str() {
                         "INSERT" => {
-                            denylist
-                                .write()
-                                .unwrap()
-                                .insert(denylist_notification.sender_address);
+                            let cost_model_source: CostModelSource = cost_model_notification.into();
+                            let mut cost_model_cache = cost_model_cache
+                                .lock()
+                                .unwrap();
+
+                            match cost_model_cache.get_mut(&deployment_id) {
+                                Some(cache) => {
+                                    let _ = cache.insert_model(cost_model_source);
+                                },
+                                None => {
+                                     if let Ok(cache) = CostModelCache::new(cost_model_source).inspect_err(|err| {
+                                        tracing::error!(
+                                            "Error while compiling cost model for deployment id {}. Error: {}",
+                                            deployment_id, err
+                                        )
+                                    }) {
+                                        cost_model_cache.insert(deployment_id, cache);
+                                    }
+                                },
+                            }
                         }
                         "DELETE" => {
-                            denylist
-                                .write()
+                            cost_model_cache
+                                .lock()
                                 .unwrap()
-                                .remove(&denylist_notification.sender_address);
+                                .remove(&cost_model_notification.deployment);
                         }
-                        // UPDATE and TRUNCATE are not expected to happen. Reload the entire denylist.
+                        // UPDATE and TRUNCATE are not expected to happen. Reload the entire cost
+                        // model cache.
                         _ => {
                             error!(
-                                "Received an unexpected denylist table notification: {}. Reloading entire \
-                                denylist.",
-                                denylist_notification.tg_op
+                                "Received an unexpected cost model table notification: {}. Reloading entire \
+                                cost model.",
+                                cost_model_notification.tg_op
                             );
 
-                            Self::sender_denylist_reload(pgpool.clone(), denylist.clone())
-                                .await
-                                .expect("should be able to reload the sender denylist")
+                            // Self::sender_denylist_reload(pgpool.clone(), denylist.clone())
+                            //     .await
+                            //     .expect("should be able to reload cost models")
                         }
                     }
                 }
@@ -227,6 +202,24 @@ pub struct CostModelSource {
     pub deployment_id: DeploymentId,
     pub model: String,
     pub variables: String,
+}
+
+#[derive(serde::Deserialize)]
+struct CostModelNotification {
+    tg_op: String,
+    deployment: DeploymentId,
+    model: String,
+    variables: String,
+}
+
+impl From<CostModelNotification> for CostModelSource {
+    fn from(value: CostModelNotification) -> Self {
+        CostModelSource {
+            deployment_id: value.deployment,
+            model: value.model,
+            variables: value.variables,
+        }
+    }
 }
 
 pub struct CostModelCache {

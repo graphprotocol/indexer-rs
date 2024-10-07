@@ -36,7 +36,6 @@ use tracing::{info, info_span};
 
 use crate::escrow_accounts::EscrowAccounts;
 use crate::escrow_accounts::EscrowAccountsError;
-use crate::tap::{ValueCheckReceiver, ValueCheckSender};
 use crate::{
     address::public_key,
     indexer_service::http::static_subgraph::static_subgraph_request_handler,
@@ -178,8 +177,6 @@ where
     pub release: IndexerServiceRelease,
     pub url_namespace: &'static str,
     pub extra_routes: Router<Arc<IndexerServiceState<I>>>,
-    pub value_check_receiver: ValueCheckReceiver,
-    pub value_check_sender: ValueCheckSender,
 }
 
 pub struct IndexerServiceState<I>
@@ -194,7 +191,6 @@ where
     // tap
     pub escrow_accounts: Eventual<EscrowAccounts>,
     pub domain_separator: Eip712Domain,
-    pub value_check_sender: ValueCheckSender,
 }
 
 pub struct IndexerService {}
@@ -324,7 +320,6 @@ impl IndexerService {
             domain_separator.clone(),
             timestamp_error_tolerance,
             receipt_max_value,
-            options.value_check_receiver,
         )
         .await;
 
@@ -341,7 +336,6 @@ impl IndexerService {
             service_impl: Arc::new(options.service_impl),
             escrow_accounts,
             domain_separator,
-            value_check_sender: options.value_check_sender,
         });
 
         // Rate limits by allowing bursts of 10 requests and requiring 100ms of

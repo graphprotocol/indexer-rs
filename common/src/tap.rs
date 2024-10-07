@@ -25,9 +25,7 @@ use tracing::error;
 mod checks;
 mod receipt_store;
 
-pub use checks::value_check::{
-    create_value_check, AgoraQuery, CostModelSource, ValueCheckReceiver, ValueCheckSender,
-};
+pub use checks::value_check::{AgoraQuery, CostModelSource};
 
 #[derive(Clone)]
 pub struct IndexerTapContext {
@@ -50,7 +48,6 @@ impl IndexerTapContext {
         domain_separator: Eip712Domain,
         timestamp_error_tolerance: Duration,
         receipt_max_value: u128,
-        value_check_receiver: ValueCheckReceiver,
     ) -> Vec<ReceiptCheck> {
         vec![
             Arc::new(AllocationEligible::new(indexer_allocations)),
@@ -59,9 +56,9 @@ impl IndexerTapContext {
                 domain_separator.clone(),
             )),
             Arc::new(TimestampCheck::new(timestamp_error_tolerance)),
-            Arc::new(DenyListCheck::new(pgpool, escrow_accounts, domain_separator).await),
+            Arc::new(DenyListCheck::new(pgpool.clone(), escrow_accounts, domain_separator).await),
             Arc::new(ReceiptMaxValueCheck::new(receipt_max_value)),
-            Arc::new(MinimumValue::new(value_check_receiver)),
+            Arc::new(MinimumValue::new(pgpool).await),
         ]
     }
 
