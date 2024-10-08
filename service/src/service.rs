@@ -1,6 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
@@ -17,6 +18,7 @@ use indexer_common::indexer_service::http::{
     AttestationOutput, IndexerServiceImpl, IndexerServiceResponse,
 };
 use indexer_config::Config as MainConfig;
+use indexer_dips::alloy_core::primitives::Address;
 use reqwest::Url;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -195,7 +197,16 @@ pub async fn run() -> anyhow::Result<()> {
 
     let schema = Schema::build(
         routes::dips::AgreementQuery {},
-        routes::dips::AgreementMutation {},
+        routes::dips::AgreementMutation {
+            expected_payee: Address::from_str(&config.0.dips.expected_payee).unwrap(),
+            allowed_payers: config
+                .0
+                .dips
+                .allowed_payers
+                .iter()
+                .map(|a| Address::from_str(a).unwrap())
+                .collect(),
+        },
         EmptySubscription,
     )
     .data(agreement_store)

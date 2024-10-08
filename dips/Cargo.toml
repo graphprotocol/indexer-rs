@@ -1,0 +1,14 @@
+[package]
+name = "indexer-dips"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy-core = "0.8.5"
+alloy-primitives = { version = "0.8.5", default-features = true, features = ["rlp"]}
+alloy-sol-types = "0.8.5"
+alloy-signer = "0.4.2"
+alloy-rlp = "0.3.8"
+
+[dev-dependencies]
+alloy-signer-local = "0.4.2"
