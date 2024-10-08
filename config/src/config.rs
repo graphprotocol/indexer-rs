@@ -61,10 +61,10 @@ pub enum ConfigPrefix {
 }
 
 impl ConfigPrefix {
-    fn get_prefix(&self) -> &'static str {
+    fn get_prefixes(&self) -> Vec<&'static str> {
         match self {
-            Self::Tap => "TAP_AGENT_",
-            Self::Service => "INDEXER_SERVICE_",
+            Self::Tap => vec!["TAP_AGENT_", "INDEXER_"],
+            Self::Service => vec!["INDEXER_SERVICE_", "INDEXER_"],
         }
     }
 }
@@ -81,11 +81,11 @@ impl Config {
             config_content = Self::substitute_env_vars(config_content)?;
             figment_config = figment_config.merge(Toml::string(&config_content));
         }
+        for prefix_str in prefix.get_prefixes() {
+            figment_config = figment_config.merge(Env::prefixed(prefix_str).split("__"));
+        }
 
-        let config: ConfigWrapper = figment_config
-            .merge(Env::prefixed(prefix.get_prefix()).split("__"))
-            .extract()
-            .map_err(|e| e.to_string())?;
+        let config: ConfigWrapper = figment_config.extract().map_err(|e| e.to_string())?;
         config.0.validate()?;
         Ok(config.0)
     }
