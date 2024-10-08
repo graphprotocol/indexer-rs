@@ -33,6 +33,13 @@ port = 7300
 # that is used by the `indexer-agent`. It is expected that `indexer-agent` will create
 # the necessary tables.
 postgres_url = "postgres://postgres@postgres:5432/postgres"
+# You can also use the following fields to specify the connection details separately.
+# either use `postgres_url` or the following fields.
+# host = "postgres-host"
+# port = 5432
+# user = "user"
+# password = "pwd"
+# database = "postgres"
 
 [graph_node]
 # URL to your graph-node's query endpoint
@@ -59,6 +66,7 @@ syncing_interval_secs = 60
 recently_closed_allocation_buffer_secs = 3600
 
 [subgraphs.escrow]
+# NOTE: It is heavily recomended to use both `query_url` and `deployment_id`,
 # Query URL for the Escrow subgraph.
 query_url = "http://example.com/network-subgraph"
 # Optional, Auth token will used a "bearer auth"
@@ -66,7 +74,6 @@ query_url = "http://example.com/network-subgraph"
 
 # Optional, deployment to look for in the local `graph-node`, if locally indexed.
 # Locally indexing the subgraph is recommended.
-# NOTE: Use `query_url` or `deployment_id` only
 deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Refreshing interval for the Escrow contracts information from the Escrow subgraph.
 syncing_interval_secs = 60

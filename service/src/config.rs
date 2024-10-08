@@ -30,7 +30,7 @@ impl From<MainConfig> for Config {
                 free_query_auth_token: value.service.free_query_auth_token,
             },
             database: DatabaseConfig {
-                postgres_url: value.database.postgres_url.into(),
+                postgres_url: value.database.get_formated_postgres_url().to_string(),
             },
             graph_node: Some(GraphNodeConfig {
                 status_url: value.graph_node.status_url.into(),
