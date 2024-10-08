@@ -42,6 +42,13 @@ pub struct IndexerServiceConfig {
     pub escrow_subgraph: SubgraphConfig,
     pub graph_network: GraphNetworkConfig,
     pub tap: TapConfig,
+    pub dips: IndexerDipsConfig,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct IndexerDipsConfig {
+    pub expected_payee: String,
+    pub allowed_payers: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

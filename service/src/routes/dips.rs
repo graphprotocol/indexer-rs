@@ -5,6 +5,11 @@ use std::{str::FromStr, sync::Arc};
 
 use anyhow::bail;
 use async_graphql::{Context, FieldResult, Object, SimpleObject};
+use base64::{engine::general_purpose::STANDARD, Engine};
+use indexer_dips::{
+    alloy_core::primitives::Address, alloy_rlp::Decodable, SignedIndexingAgreementVoucher,
+    SubgraphIndexingVoucherMetadata,
+};
 
 use crate::database::dips::AgreementStore;
 
@@ -25,11 +30,22 @@ impl FromStr for NetworkProtocol {
     }
 }
 
-#[derive(SimpleObject, Debug, Clone)]
+#[derive(SimpleObject, Debug, Clone, PartialEq)]
 pub struct Agreement {
     signature: String,
     data: String,
     protocol_network: String,
+}
+
+impl TryInto<SignedIndexingAgreementVoucher> for Agreement {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<SignedIndexingAgreementVoucher, Self::Error> {
+        let rlp_bytes = STANDARD.decode(self.data)?;
+        let signed_voucher = SignedIndexingAgreementVoucher::decode(&mut rlp_bytes.as_ref())?;
+
+        Ok(signed_voucher)
+    }
 }
 
 #[derive(SimpleObject, Debug, Clone)]
@@ -80,30 +96,29 @@ impl AgreementQuery {
 }
 
 #[derive(Debug)]
-pub struct AgreementMutation {}
+pub struct AgreementMutation {
+    pub expected_payee: Address,
+    pub allowed_payers: Vec<Address>,
+}
 
 #[Object]
 impl AgreementMutation {
     pub async fn create_agreement<'a>(
         &self,
         ctx: &'a Context<'_>,
-        signature: String,
+        // data should be the signed voucher, eip712 signed, rlp and base64 encoded.
         data: String,
-        protocol_network: String,
     ) -> FieldResult<Agreement> {
         let store: &Arc<dyn AgreementStore> = ctx.data()?;
 
-        store
-            .create_agreement(
-                signature.clone(),
-                Agreement {
-                    signature,
-                    data,
-                    protocol_network,
-                },
-            )
-            .await
-            .map_err(async_graphql::Error::from)
+        validate_and_create_agreement(
+            store.clone(),
+            &self.expected_payee,
+            &self.allowed_payers,
+            data,
+        )
+        .await
+        .map_err(async_graphql::Error::from)
     }
 
     pub async fn cancel_agreement<'a>(
@@ -117,5 +132,96 @@ impl AgreementMutation {
             .cancel_agreement(signature)
             .await
             .map_err(async_graphql::Error::from)
+    }
+}
+
+async fn validate_and_create_agreement(
+    store: Arc<dyn AgreementStore>,
+    expected_payee: &Address,
+    allowed_payers: impl AsRef<[Address]>,
+    agreement: String,
+) -> anyhow::Result<Agreement> {
+    let rlp_bs = STANDARD.decode(agreement.clone())?;
+    let voucher = SignedIndexingAgreementVoucher::decode(&mut rlp_bs.as_ref())?;
+    let metadata = SubgraphIndexingVoucherMetadata::decode(&mut voucher.voucher.metadata.as_ref())?;
+
+    if !voucher.is_valid(expected_payee, allowed_payers) {
+        bail!("voucher is not valid")
+    }
+
+    let agreement = Agreement {
+        signature: voucher.signature.to_string(),
+        data: agreement,
+        protocol_network: metadata.protocolNetwork.to_string(),
+    };
+
+    store
+        .create_agreement(voucher.signature.to_string(), agreement)
+        .await
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use alloy_signer_local::PrivateKeySigner;
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use indexer_dips::{
+        alloy_core::primitives::{Address, FixedBytes, U256},
+        alloy_rlp::{self},
+        alloy_signer::SignerSync,
+        alloy_sol_types::SolStruct,
+        IndexingAgreementVoucher, SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
+    };
+
+    use crate::database::dips::InMemoryAgreementStore;
+
+    #[tokio::test]
+    async fn test_validate_and_create_agreement() -> anyhow::Result<()> {
+        let payee = PrivateKeySigner::random();
+        let payee_addr = payee.address();
+        let payer = PrivateKeySigner::random();
+        let payer_addr = payer.address();
+
+        let metadata = SubgraphIndexingVoucherMetadata {
+            pricePerBlock: U256::from(10000_u64),
+            protocolNetwork: FixedBytes::left_padding_from("arbitrum-one".as_bytes()),
+            chainId: FixedBytes::left_padding_from("mainnet".as_bytes()),
+        };
+
+        let voucher = IndexingAgreementVoucher {
+            payer: payer_addr,
+            payee: payee_addr,
+            service: Address(FixedBytes::ZERO),
+            maxInitialAmount: U256::from(10000_u64),
+            maxOngoingAmountPerEpoch: U256::from(10000_u64),
+            deadline: 1000,
+            maxEpochsPerCollection: 1000,
+            minEpochsPerCollection: 1000,
+            durationEpochs: 1000,
+            metadata: alloy_rlp::encode(metadata).into(),
+        };
+
+        let voucher = SignedIndexingAgreementVoucher {
+            voucher: voucher.clone(),
+            signature: payer
+                .sign_message_sync(voucher.eip712_hash_struct().as_slice())
+                .unwrap()
+                .as_bytes()
+                .into(),
+        };
+        let rlp_voucher = alloy_rlp::encode(voucher.clone());
+        let b64 = STANDARD.encode(rlp_voucher);
+
+        let store = Arc::new(InMemoryAgreementStore::default());
+
+        let actual =
+            super::validate_and_create_agreement(store, &payee_addr, vec![payer_addr], b64)
+                .await
+                .unwrap();
+
+        let actual_voucher = actual.try_into().unwrap();
+        assert_eq!(voucher, actual_voucher);
+        Ok(())
     }
 }

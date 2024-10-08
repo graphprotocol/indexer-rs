@@ -18,6 +18,7 @@ pub trait AgreementStore: Sync + Send {
     async fn cancel_agreement(&self, signature: String) -> anyhow::Result<String>;
 }
 
+#[derive(Default)]
 pub struct InMemoryAgreementStore {
     pub data: tokio::sync::RwLock<HashMap<String, Agreement>>,
 }
