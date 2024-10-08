@@ -3,3 +3,4 @@ target/
 .gitignore
 .github/
 .vscode/
+.env
