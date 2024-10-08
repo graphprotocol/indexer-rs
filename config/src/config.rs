@@ -77,7 +77,7 @@ impl Config {
 
         if let Some(path) = filename {
             let mut config_content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read config file: {}", e))?;
+                .map_err(|e| format!("Failed to read config file: {}", e))?;
             config_content = Self::substitute_env_vars(config_content)?;
             figment_config = figment_config.merge(Toml::string(&config_content));
         }

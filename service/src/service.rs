@@ -129,8 +129,8 @@ pub async fn run() -> anyhow::Result<()> {
     // Load the json-rpc service configuration, which is a combination of the
     // general configuration options for any indexer service and specific
     // options added for JSON-RPC
-    let config =
-        MainConfig::parse(indexer_config::ConfigPrefix::Service, cli.config.as_ref()).map_err(|e| {
+    let config = MainConfig::parse(indexer_config::ConfigPrefix::Service, cli.config.as_ref())
+        .map_err(|e| {
             error!(
                 "Invalid configuration file `{}`: {}, if a value is missing you can also use \
                 --config to fill the rest of the values",
