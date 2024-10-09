@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.1.0...indexer-service-rs-v1.1.1) (2024-10-09)
+
+
+### Bug Fixes
+
+* use INFO as default level for logs ([#353](https://github.com/graphprotocol/indexer-rs/issues/353)) ([20b959d](https://github.com/graphprotocol/indexer-rs/commit/20b959d4d2095a0d9b545b8c25be7259ac387f12))
+
 ## [1.1.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.0.0...indexer-service-rs-v1.1.0) (2024-10-09)
 
 
