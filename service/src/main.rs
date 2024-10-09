@@ -3,7 +3,7 @@
 
 use std::process::ExitCode;
 
-use service::service::run;
+use indexer_service_rs::service::run;
 
 #[tokio::main]
 async fn main() -> ExitCode {

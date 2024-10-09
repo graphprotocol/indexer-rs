@@ -6,7 +6,7 @@ COPY . .
 # Force SQLx to use the offline mode to statically check the database queries against
 # the prepared files in the `.sqlx` directory.
 ENV SQLX_OFFLINE=true
-RUN cargo build --release --bin service
+RUN cargo build --release --bin indexer-service-rs
 
 ########################################################################################
 
@@ -15,6 +15,6 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=build /root/target/release/service /usr/local/bin/service
+COPY --from=build /root/target/release/indexer-service-rs /usr/local/bin/indexer-service-rs
 
-ENTRYPOINT [ "/usr/local/bin/service" ]
+ENTRYPOINT [ "/usr/local/bin/indexer-service-rs" ]

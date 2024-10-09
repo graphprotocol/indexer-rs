@@ -3023,6 +3023,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer-service-rs"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "async-graphql",
+ "async-graphql-axum",
+ "axum 0.7.5",
+ "build-info",
+ "build-info-build",
+ "clap",
+ "graphql",
+ "hex-literal",
+ "indexer-common",
+ "indexer-config",
+ "lazy_static",
+ "prometheus",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thegraph-core",
+ "thegraph-graphql-http",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "indexer-tap-agent"
 version = "1.0.0"
 dependencies = [
@@ -5167,35 +5196,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.74",
-]
-
-[[package]]
-name = "service"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "async-graphql",
- "async-graphql-axum",
- "axum 0.7.5",
- "build-info",
- "build-info-build",
- "clap",
- "graphql",
- "hex-literal",
- "indexer-common",
- "indexer-config",
- "lazy_static",
- "prometheus",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "thegraph-core",
- "thegraph-graphql-http",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
