@@ -1,15 +1,13 @@
-query EscrowAccountQuery($indexer: ID!, $thawEndTimestamp: BigInt) {
+query EscrowAccountQuery($indexer: ID!, $thawEndTimestamp: BigInt!) {
     escrowAccounts(where: { receiver_: { id: $indexer } }) {
         balance
         totalAmountThawing
         sender {
             id
-            signers(
-                where: {
-                    thawEndTimestamp: $thawEndTimestamp
-                    isAuthorized: true
-                }
-            ) {
+            signers(where: {
+                thawEndTimestamp_lte: $thawEndTimestamp
+                isAuthorized: true
+            }) {
                 id
             }
         }

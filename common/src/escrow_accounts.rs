@@ -8,7 +8,7 @@ use std::{
 };
 
 use alloy::primitives::U256;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use eventuals::{timer, Eventual, EventualExt};
 use graphql_client::GraphQLQuery;
 use thegraph_core::Address;
@@ -89,7 +89,7 @@ impl EscrowAccounts {
     }
 }
 
-type BigInt = U256;
+type BigInt = String;
 
 #[derive(GraphQLQuery)]
 #[graphql(
@@ -108,62 +108,9 @@ pub fn escrow_accounts(
 ) -> Eventual<EscrowAccounts> {
     timer(interval).map_with_retry(
         move |_| async move {
-            // thawEndTimestamp == 0 means that the signer is not thawing. This also means
-            // that we don't wait for the thawing period to end before stopping serving
-            // queries for this signer.
-            // isAuthorized == true means that the signer is still authorized to sign
-            // payments in the name of the sender.
-            let response = escrow_subgraph
-                .query::<EscrowAccountQuery, _>(escrow_account_query::Variables {
-                    indexer: format!("{:x?}", indexer_address),
-                    thaw_end_timestamp: if reject_thawing_signers {
-                        Some(U256::ZERO)
-                    } else {
-                        None
-                    },
-                })
+            get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers)
                 .await
-                .map_err(|e| e.to_string())?;
-
-            let response = response.map_err(|e| e.to_string())?;
-
-            let senders_balances: HashMap<Address, U256> = response
-                .escrow_accounts
-                .iter()
-                .map(|account| {
-                    let balance = U256::checked_sub(account.balance, account.total_amount_thawing)
-                        .unwrap_or_else(|| {
-                            warn!(
-                                "Balance minus total amount thawing underflowed for account {}. \
-                                 Setting balance to 0, no queries will be served for this sender.",
-                                account.sender.id
-                            );
-                            U256::from(0)
-                        });
-
-                    Ok((Address::from_str(&account.sender.id)?, balance))
-                })
-                .collect::<Result<HashMap<_, _>, anyhow::Error>>()
-                .map_err(|e| e.to_string())?;
-
-            let senders_to_signers = response
-                .escrow_accounts
-                .into_iter()
-                .map(|account| {
-                    let sender = Address::from_str(&account.sender.id)?;
-                    let signers = account
-                        .sender
-                        .signers
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|signer| Address::from_str(&signer.id))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    Ok((sender, signers))
-                })
-                .collect::<Result<HashMap<_, _>, anyhow::Error>>()
-                .map_err(|e| e.to_string())?;
-
-            Ok(EscrowAccounts::new(senders_balances, senders_to_signers))
+                .map_err(|e| e.to_string())
         },
         move |err: String| {
             error!(
@@ -174,6 +121,69 @@ pub fn escrow_accounts(
             sleep(interval.div_f32(2.0))
         },
     )
+}
+
+async fn get_escrow_accounts(
+    escrow_subgraph: &'static SubgraphClient,
+    indexer_address: Address,
+    reject_thawing_signers: bool,
+) -> Result<EscrowAccounts> {
+    // thawEndTimestamp == 0 means that the signer is not thawing. This also means
+    // that we don't wait for the thawing period to end before stopping serving
+    // queries for this signer.
+    // isAuthorized == true means that the signer is still authorized to sign
+    // payments in the name of the sender.
+    let response = escrow_subgraph
+        .query::<EscrowAccountQuery, _>(escrow_account_query::Variables {
+            indexer: format!("{:x?}", indexer_address),
+            thaw_end_timestamp: if reject_thawing_signers {
+                U256::ZERO.to_string()
+            } else {
+                U256::MAX.to_string()
+            },
+        })
+        .await?;
+
+    let response = response?;
+
+    let senders_balances: HashMap<Address, U256> = response
+        .escrow_accounts
+        .iter()
+        .map(|account| {
+            let balance = U256::checked_sub(
+                U256::from_str(&account.balance)?,
+                U256::from_str(&account.total_amount_thawing)?,
+            )
+            .unwrap_or_else(|| {
+                warn!(
+                    "Balance minus total amount thawing underflowed for account {}. \
+                                 Setting balance to 0, no queries will be served for this sender.",
+                    account.sender.id
+                );
+                U256::from(0)
+            });
+
+            Ok((Address::from_str(&account.sender.id)?, balance))
+        })
+        .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
+
+    let senders_to_signers = response
+        .escrow_accounts
+        .into_iter()
+        .map(|account| {
+            let sender = Address::from_str(&account.sender.id)?;
+            let signers = account
+                .sender
+                .signers
+                .ok_or(anyhow!("Could not find any signers for sender {sender}"))?
+                .iter()
+                .map(|signer| Address::from_str(&signer.id))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok((sender, signers))
+        })
+        .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
+
+    Ok(EscrowAccounts::new(senders_balances, senders_to_signers))
 }
 
 #[cfg(test)]
