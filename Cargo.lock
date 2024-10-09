@@ -3065,7 +3065,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-config"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "bigdecimal",
@@ -3088,7 +3088,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-service-rs"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -3117,7 +3117,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-tap-agent"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "alloy",
  "anyhow",
