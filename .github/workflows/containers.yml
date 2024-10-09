@@ -2,8 +2,6 @@ name: Build and upload Docker image
 
 on:
   push:
-    tags:
-      - "*.*.*"
     branches:
       - main
   pull_request:
@@ -14,9 +12,22 @@ env:
   REGISTRY: ghcr.io/${{ github.repository_owner }}
 
 jobs:
+  release-please:
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    outputs:
+      indexer-service-rs: ${{ steps.release-please.outputs.service--tag_name }}
+      indexer-tap-agent: ${{ steps.release-please.outputs.tap-agent--tag_name }}
+    steps:
+      - name: Release please
+        id: release-please
+        uses: googleapis/release-please-action@v4
+
   builds-linux:
     runs-on: ubuntu-latest
-
+    needs: release-please
     strategy:
       matrix:
         target: [indexer-service-rs, indexer-tap-agent]
@@ -27,7 +38,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
-
+      - name: Extract version from tag
+        id: extract_version
+        run: |
+          TAG_NAME="${{ needs.release-please.outputs[matrix.target] }}"
+          # Extract the version part from tags with prefix "${{ matrix.target }}-" using a regex pattern
+          if [[ "$TAG_NAME" =~ ^${{ matrix.target }}-(.*)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          else
+            VERSION=""
+          fi
+          echo $VERSION
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81 # v5
@@ -40,10 +62,10 @@ jobs:
             type=schedule
             type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}.{{minor}}.{{patch}}
-            type=semver,pattern={{major}}
+            type=semver,pattern={{version}},value=${{steps.extract_version.outputs.version}}
+            type=semver,pattern={{major}}.{{minor}},value=${{steps.extract_version.outputs.version}}
+            type=semver,pattern={{major}}.{{minor}}.{{patch}},value=${{steps.extract_version.outputs.version}}
+            type=semver,pattern={{major}},value=${{steps.extract_version.outputs.version}}
             type=sha
 
       - name: Log in to the Container registry
