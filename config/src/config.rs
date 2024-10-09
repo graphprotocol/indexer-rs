@@ -22,6 +22,8 @@ use url::Url;
 
 use crate::NonZeroGRT;
 
+const SHARED_PREFIX: &str = "INDEXER_";
+
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct Config {
@@ -61,10 +63,10 @@ pub enum ConfigPrefix {
 }
 
 impl ConfigPrefix {
-    fn get_prefixes(&self) -> Vec<&'static str> {
+    fn get_prefix(&self) -> &'static str {
         match self {
-            Self::Tap => vec!["TAP_AGENT_", "INDEXER_"],
-            Self::Service => vec!["INDEXER_SERVICE_", "INDEXER_"],
+            Self::Tap => "TAP_AGENT_",
+            Self::Service => "INDEXER_SERVICE_",
         }
     }
 }
@@ -81,11 +83,12 @@ impl Config {
             config_content = Self::substitute_env_vars(config_content)?;
             figment_config = figment_config.merge(Toml::string(&config_content));
         }
-        for prefix_str in prefix.get_prefixes() {
-            figment_config = figment_config.merge(Env::prefixed(prefix_str).split("__"));
-        }
+        let config: ConfigWrapper = figment_config
+            .merge(Env::prefixed(prefix.get_prefix()).split("__"))
+            .merge(Env::prefixed(SHARED_PREFIX).split("__"))
+            .extract()
+            .map_err(|e| e.to_string())?;
 
-        let config: ConfigWrapper = figment_config.extract().map_err(|e| e.to_string())?;
         config.0.validate()?;
         Ok(config.0)
     }
@@ -672,6 +675,49 @@ mod tests {
         assert_eq!(
             config.database.get_formated_postgres_url().as_str(),
             "postgres://postgres@postgres/postgres"
+        );
+    }
+
+    // Test that we can fill in mandatory config fields missing from the config file with
+    // environment variables
+    #[sealed_test(files = ["minimal-config-example.toml"])]
+    fn test_fill_in_missing_with_shared_env() {
+        let mut minimal_config: toml::Value = toml::from_str(
+            fs::read_to_string("minimal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        // Remove the database.postgres_url field from minimal config
+        minimal_config
+            .get_mut("database")
+            .unwrap()
+            .as_table_mut()
+            .unwrap()
+            .remove("postgres_url");
+
+        // Save the modified minimal config to a named temporary file using tempfile
+        let temp_minimal_config_path = tempfile::NamedTempFile::new().unwrap();
+        fs::write(
+            temp_minimal_config_path.path(),
+            toml::to_string(&minimal_config).unwrap(),
+        )
+        .unwrap();
+
+        // No need to parse since from another test we know parsing at this point it will fail
+
+        let test_value = "postgres://postgres@postgres:5432/postgres";
+        env::set_var("INDEXER_DATABASE__POSTGRES_URL", test_value);
+
+        let config = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from(temp_minimal_config_path.path())).as_ref(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.database.get_formated_postgres_url().as_str(),
+            test_value
         );
     }
 }
