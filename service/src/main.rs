@@ -10,6 +10,15 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    init_tracing();
+    if let Err(e) = run().await {
+        tracing::error!("Indexer service error: {e}");
+        return ExitCode::from(1);
+    }
+    ExitCode::SUCCESS
+}
+
+fn init_tracing() {
     // Tracing setup
     let filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
@@ -23,10 +32,4 @@ async fn main() -> ExitCode {
         "Could not set up global default subscriber for logger, check \
         environmental variable `RUST_LOG`",
     );
-
-    if let Err(e) = run().await {
-        tracing::error!("Indexer service error: {e}");
-        return ExitCode::from(1);
-    }
-    ExitCode::SUCCESS
 }
