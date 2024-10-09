@@ -33,4 +33,4 @@ graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3
 hex-literal = "0.4.1"
 
 [build-dependencies]
-build-info-build = { version = "0.0.38", default-features = false }
+build-info-build = { version = "0.0.39", default-features = false }
