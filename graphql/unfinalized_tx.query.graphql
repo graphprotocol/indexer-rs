@@ -1,0 +1,14 @@
+query UnfinalizedTransactions(
+    $unfinalizedRavsAllocationIds: [ID!]!
+    $sender: ID!
+) {
+    transactions(
+        where: {
+            type: "redeem"
+            allocationID_in: $unfinalizedRavsAllocationIds
+            sender_: { id: $sender }
+        }
+    ) {
+        allocationID
+    }
+}

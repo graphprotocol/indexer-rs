@@ -47,3 +47,4 @@ thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "85ee00
     "subgraph-client",
 ] }
 thegraph-graphql-http = "0.2.0"
+graphql_client = { version = "0.14.0", features = ["reqwest-rustls"] }
