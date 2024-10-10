@@ -78,7 +78,6 @@ impl From<MainConfig> for Config {
                 receipt_max_value: value.service.tap.max_receipt_value_grt.get_value(),
             },
             dips: IndexerDipsConfig {
-                expected_payee: value.dips.expected_payee,
                 allowed_payers: value.dips.allowed_payers,
             },
         })

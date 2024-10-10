@@ -6,8 +6,9 @@ use std::{str::FromStr, sync::Arc};
 use anyhow::bail;
 use async_graphql::{Context, FieldResult, Object, SimpleObject};
 use base64::{engine::general_purpose::STANDARD, Engine};
+use indexer_dips::alloy::dyn_abi::Eip712Domain;
 use indexer_dips::{
-    alloy_core::primitives::Address, alloy_rlp::Decodable, SignedIndexingAgreementVoucher,
+    alloy::core::primitives::Address, alloy_rlp::Decodable, SignedIndexingAgreementVoucher,
     SubgraphIndexingVoucherMetadata,
 };
 
@@ -99,6 +100,7 @@ impl AgreementQuery {
 pub struct AgreementMutation {
     pub expected_payee: Address,
     pub allowed_payers: Vec<Address>,
+    pub domain: Eip712Domain,
 }
 
 #[Object]
@@ -113,6 +115,7 @@ impl AgreementMutation {
 
         validate_and_create_agreement(
             store.clone(),
+            &self.domain,
             &self.expected_payee,
             &self.allowed_payers,
             data,
@@ -137,6 +140,7 @@ impl AgreementMutation {
 
 async fn validate_and_create_agreement(
     store: Arc<dyn AgreementStore>,
+    domain: &Eip712Domain,
     expected_payee: &Address,
     allowed_payers: impl AsRef<[Address]>,
     agreement: String,
@@ -145,9 +149,7 @@ async fn validate_and_create_agreement(
     let voucher = SignedIndexingAgreementVoucher::decode(&mut rlp_bs.as_ref())?;
     let metadata = SubgraphIndexingVoucherMetadata::decode(&mut voucher.voucher.metadata.as_ref())?;
 
-    if !voucher.is_valid(expected_payee, allowed_payers) {
-        bail!("voucher is not valid")
-    }
+    voucher.validate(domain, expected_payee, allowed_payers)?;
 
     let agreement = Agreement {
         signature: voucher.signature.to_string(),
@@ -164,15 +166,14 @@ async fn validate_and_create_agreement(
 mod test {
     use std::sync::Arc;
 
-    use alloy_signer_local::PrivateKeySigner;
+    use alloy::signers::local::PrivateKeySigner;
     use base64::{engine::general_purpose::STANDARD, Engine};
     use indexer_dips::{
-        alloy_core::primitives::{Address, FixedBytes, U256},
+        alloy::core::primitives::{Address, FixedBytes, U256},
         alloy_rlp::{self},
-        alloy_signer::SignerSync,
-        alloy_sol_types::SolStruct,
-        IndexingAgreementVoucher, SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
+        IndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
     };
+    use thegraph_core::attestation::eip712_domain;
 
     use crate::database::dips::InMemoryAgreementStore;
 
@@ -201,24 +202,23 @@ mod test {
             durationEpochs: 1000,
             metadata: alloy_rlp::encode(metadata).into(),
         };
+        let domain = eip712_domain(0, Address::ZERO);
 
-        let voucher = SignedIndexingAgreementVoucher {
-            voucher: voucher.clone(),
-            signature: payer
-                .sign_message_sync(voucher.eip712_hash_struct().as_slice())
-                .unwrap()
-                .as_bytes()
-                .into(),
-        };
+        let voucher = voucher.sign(&domain, payer)?;
         let rlp_voucher = alloy_rlp::encode(voucher.clone());
         let b64 = STANDARD.encode(rlp_voucher);
 
         let store = Arc::new(InMemoryAgreementStore::default());
 
-        let actual =
-            super::validate_and_create_agreement(store, &payee_addr, vec![payer_addr], b64)
-                .await
-                .unwrap();
+        let actual = super::validate_and_create_agreement(
+            store,
+            &domain,
+            &payee_addr,
+            vec![payer_addr],
+            b64,
+        )
+        .await
+        .unwrap();
 
         let actual_voucher = actual.try_into().unwrap();
         assert_eq!(voucher, actual_voucher);
