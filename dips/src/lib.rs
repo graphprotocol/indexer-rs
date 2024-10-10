@@ -3,14 +3,12 @@
 
 use std::str::FromStr;
 
-pub use alloy_core;
+pub use alloy;
 pub use alloy_rlp;
-pub use alloy_signer;
-pub use alloy_sol_types;
 
-use alloy_core::primitives::Address;
-use alloy_rlp::{RlpDecodable, RlpEncodable};
-use alloy_signer::Signature;
+use alloy::core::primitives::Address;
+use alloy::rlp::{RlpDecodable, RlpEncodable};
+use alloy::signers::Signature;
 use alloy_sol_types::{sol, SolStruct};
 
 sol! {
@@ -84,10 +82,10 @@ impl SignedIndexingAgreementVoucher {
 
 #[cfg(test)]
 mod test {
-    use alloy_core::primitives::{Address, FixedBytes, U256};
-    use alloy_signer::SignerSync;
-    use alloy_signer_local::PrivateKeySigner;
-    use alloy_sol_types::SolStruct;
+    use alloy::primitives::{Address, FixedBytes, U256};
+    use alloy::signers::local::PrivateKeySigner;
+    use alloy::signers::SignerSync;
+    use alloy::sol_types::SolStruct;
 
     use crate::{
         IndexingAgreementVoucher, SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,

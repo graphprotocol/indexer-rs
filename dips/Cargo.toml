@@ -4,11 +4,23 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alloy-core = "0.8.5"
-alloy-primitives = { version = "0.8.5", default-features = true, features = ["rlp"]}
-alloy-sol-types = "0.8.5"
-alloy-signer = "0.4.2"
-alloy-rlp = "0.3.8"
+alloy.workspace = true 
+# alloy = { version = "0.4.0", features = [
+#     "kzg",
+#     "signer-mnemonic",
+#     "dyn-abi",
+#     "sol-types",
+#     "signer-local",
+#     "eip712",
+# ], default-features = false }
+# alloy-core = "=0.8.6"
+# alloy-primitives = { version = "0.7", default-features = true, features = ["rlp"]}
+alloy-sol-types = "=0.8.7"
+# alloy-signer = { version = "0.4", features = ["eip712"] }
+alloy-rlp = "0.3.8" 
 
-[dev-dependencies]
-alloy-signer-local = "0.4.2"
+# alloy-signer = "0.4.2"
+# alloy-rlp = "0.3.8"
+
+# [dev-dependencies]
+# alloy-signer-local = "=0.4.0"

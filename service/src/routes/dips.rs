@@ -7,7 +7,7 @@ use anyhow::bail;
 use async_graphql::{Context, FieldResult, Object, SimpleObject};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use indexer_dips::{
-    alloy_core::primitives::Address, alloy_rlp::Decodable, SignedIndexingAgreementVoucher,
+    alloy::core::primitives::Address, alloy_rlp::Decodable, SignedIndexingAgreementVoucher,
     SubgraphIndexingVoucherMetadata,
 };
 
@@ -164,13 +164,13 @@ async fn validate_and_create_agreement(
 mod test {
     use std::sync::Arc;
 
-    use alloy_signer_local::PrivateKeySigner;
+    use alloy::signers::local::PrivateKeySigner;
     use base64::{engine::general_purpose::STANDARD, Engine};
     use indexer_dips::{
-        alloy_core::primitives::{Address, FixedBytes, U256},
+        alloy::core::primitives::{Address, FixedBytes, U256},
+        alloy::signers::SignerSync,
+        alloy::sol_types::SolStruct,
         alloy_rlp::{self},
-        alloy_signer::SignerSync,
-        alloy_sol_types::SolStruct,
         IndexingAgreementVoucher, SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
     };
 

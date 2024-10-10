@@ -47,7 +47,6 @@ pub struct IndexerServiceConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IndexerDipsConfig {
-    pub expected_payee: String,
     pub allowed_payers: Vec<String>,
 }
 

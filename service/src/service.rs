@@ -18,7 +18,7 @@ use indexer_common::indexer_service::http::{
     AttestationOutput, IndexerServiceImpl, IndexerServiceResponse,
 };
 use indexer_config::Config as MainConfig;
-use indexer_dips::alloy_core::primitives::Address;
+use indexer_dips::alloy::core::primitives::Address;
 use reqwest::Url;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -198,7 +198,7 @@ pub async fn run() -> anyhow::Result<()> {
     let schema = Schema::build(
         routes::dips::AgreementQuery {},
         routes::dips::AgreementMutation {
-            expected_payee: Address::from_str(&config.0.dips.expected_payee).unwrap(),
+            expected_payee: config.0.indexer.indexer_address,
             allowed_payers: config
                 .0
                 .dips
