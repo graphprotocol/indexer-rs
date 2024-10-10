@@ -25,10 +25,12 @@ graphql_client.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["fs", "tokio-macros"] }
+cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
 regex = "1.7.1"
 axum-extra = { version = "0.9.3", features = [
     "typed-header",
 ], default-features = false }
+ttl_cache = "0.5.1"
 autometrics = { version = "1.0.1", features = ["prometheus-exporter"] }
 tower_governor = "0.3.2"
 tower-http = { version = "0.5.2", features = [
