@@ -354,8 +354,7 @@ pub struct TapConfig {
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DipsConfig {
-    pub expected_payee: String,
-    pub allowed_payers: Vec<String>,
+    pub allowed_payers: Vec<Address>,
 }
 
 impl TapConfig {

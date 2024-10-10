@@ -3,15 +3,14 @@
 
 use std::str::FromStr;
 
-pub use alloy_core;
+pub use alloy;
 pub use alloy_rlp;
-pub use alloy_signer;
-pub use alloy_sol_types;
 
-use alloy_core::primitives::Address;
-use alloy_rlp::{RlpDecodable, RlpEncodable};
-use alloy_signer::Signature;
-use alloy_sol_types::{sol, SolStruct};
+use alloy::core::primitives::Address;
+use alloy::rlp::{RlpDecodable, RlpEncodable};
+use alloy::signers::{Signature, SignerSync};
+use alloy_sol_types::{sol, Eip712Domain, SolStruct};
+use thiserror::Error;
 
 sol! {
     // EIP712 encoded bytes, ABI - ethers
@@ -52,45 +51,72 @@ sol! {
     }
 }
 
-impl SignedIndexingAgreementVoucher {
-    // TODO: Validate all values, maybe return a useful error on failure.
-    pub fn is_valid(
+#[derive(Error, Debug, PartialEq)]
+pub enum AgreementVoucherValidationError {
+    #[error("signature is not valid, error: {0}")]
+    InvalidSignature(String),
+    #[error("payer {0} not authorised")]
+    PayerNotAuthorised(Address),
+    #[error("voucher payee {actual} does not match the expected address {expected}")]
+    UnexpectedPayee { expected: Address, actual: Address },
+}
+
+impl IndexingAgreementVoucher {
+    pub fn sign<S: SignerSync>(
         &self,
-        expected_payee: &Address,
-        allowed_payers: impl AsRef<[Address]>,
-    ) -> bool {
-        let sig = match Signature::from_str(&self.signature.to_string()) {
-            Ok(s) => s,
-            Err(_) => return false,
+        domain: &Eip712Domain,
+        signer: S,
+    ) -> anyhow::Result<SignedIndexingAgreementVoucher> {
+        let voucher = SignedIndexingAgreementVoucher {
+            voucher: self.clone(),
+            signature: signer.sign_typed_data_sync(self, domain)?.as_bytes().into(),
         };
 
+        Ok(voucher)
+    }
+}
+
+impl SignedIndexingAgreementVoucher {
+    // TODO: Validate all values
+    pub fn validate(
+        &self,
+        domain: &Eip712Domain,
+        expected_payee: &Address,
+        allowed_payers: impl AsRef<[Address]>,
+    ) -> Result<(), AgreementVoucherValidationError> {
+        let sig = Signature::from_str(&self.signature.to_string())
+            .map_err(|err| AgreementVoucherValidationError::InvalidSignature(err.to_string()))?;
+
         let payer = sig
-            .recover_address_from_msg(self.voucher.eip712_hash_struct())
-            .unwrap();
+            .recover_address_from_prehash(&self.voucher.eip712_signing_hash(domain))
+            .map_err(|err| AgreementVoucherValidationError::InvalidSignature(err.to_string()))?;
 
         if allowed_payers.as_ref().is_empty()
             || !allowed_payers.as_ref().iter().any(|addr| addr.eq(&payer))
         {
-            return false;
+            return Err(AgreementVoucherValidationError::PayerNotAuthorised(payer));
         }
 
         if !self.voucher.payee.eq(expected_payee) {
-            return false;
+            return Err(AgreementVoucherValidationError::UnexpectedPayee {
+                expected: *expected_payee,
+                actual: self.voucher.payee,
+            });
         }
 
-        true
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use alloy_core::primitives::{Address, FixedBytes, U256};
-    use alloy_signer::SignerSync;
-    use alloy_signer_local::PrivateKeySigner;
-    use alloy_sol_types::SolStruct;
+    use alloy::primitives::{Address, FixedBytes, U256};
+    use alloy::signers::local::PrivateKeySigner;
+    use alloy::sol_types::SolStruct;
+    use thegraph_core::attestation::eip712_domain;
 
     use crate::{
-        IndexingAgreementVoucher, SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
+        AgreementVoucherValidationError, IndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
     };
 
     #[test]
@@ -119,17 +145,15 @@ mod test {
             metadata: metadata.eip712_hash_struct().to_owned().into(),
         };
 
-        let signed = SignedIndexingAgreementVoucher {
-            voucher: voucher.clone(),
-            signature: payer
-                .sign_message_sync(voucher.eip712_hash_struct().as_slice())
-                .unwrap()
-                .as_bytes()
-                .into(),
-        };
-
-        assert!(signed.is_valid(&payee_addr, vec![]));
-        assert!(signed.is_valid(&payee_addr, vec![payer_addr]));
+        let domain = eip712_domain(0, Address::ZERO);
+        let signed = voucher.sign(&domain, payer).unwrap();
+        assert_eq!(
+            signed.validate(&domain, &payee_addr, vec![]).unwrap_err(),
+            AgreementVoucherValidationError::PayerNotAuthorised(voucher.payer)
+        );
+        assert!(signed
+            .validate(&domain, &payee_addr, vec![payer_addr])
+            .is_ok());
     }
 
     #[test]
@@ -157,17 +181,16 @@ mod test {
             durationEpochs: 1000,
             metadata: metadata.eip712_hash_struct().to_owned().into(),
         };
+        let domain = eip712_domain(0, Address::ZERO);
 
-        let mut signed = SignedIndexingAgreementVoucher {
-            voucher: voucher.clone(),
-            signature: payer
-                .sign_message_sync(voucher.eip712_hash_struct().as_slice())
-                .unwrap()
-                .as_bytes()
-                .into(),
-        };
+        let mut signed = voucher.sign(&domain, payer).unwrap();
         signed.voucher.service = Address::repeat_byte(9);
 
-        assert!(signed.is_valid(&payee_addr, vec![payer_addr]));
+        assert!(matches!(
+            signed
+                .validate(&domain, &payee_addr, vec![payer_addr])
+                .unwrap_err(),
+            AgreementVoucherValidationError::PayerNotAuthorised(_)
+        ));
     }
 }

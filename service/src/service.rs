@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
@@ -18,10 +17,10 @@ use indexer_common::indexer_service::http::{
     AttestationOutput, IndexerServiceImpl, IndexerServiceResponse,
 };
 use indexer_config::Config as MainConfig;
-use indexer_dips::alloy_core::primitives::Address;
 use reqwest::Url;
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use thegraph_core::attestation::eip712_domain;
 use thegraph_core::DeploymentId;
 use tokio::sync::RwLock;
 
@@ -198,14 +197,12 @@ pub async fn run() -> anyhow::Result<()> {
     let schema = Schema::build(
         routes::dips::AgreementQuery {},
         routes::dips::AgreementMutation {
-            expected_payee: Address::from_str(&config.0.dips.expected_payee).unwrap(),
-            allowed_payers: config
-                .0
-                .dips
-                .allowed_payers
-                .iter()
-                .map(|a| Address::from_str(a).unwrap())
-                .collect(),
+            expected_payee: config.0.indexer.indexer_address,
+            allowed_payers: config.0.dips.allowed_payers.clone(),
+            domain: eip712_domain(
+                config.0.tap.chain_id,
+                config.0.tap.receipts_verifier_address,
+            ),
         },
         EmptySubscription,
     )
