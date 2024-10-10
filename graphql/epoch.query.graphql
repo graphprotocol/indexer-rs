@@ -1,0 +1,5 @@
+query CurrentEpoch {
+    graphNetwork(id: 1) {
+        currentEpoch
+    }
+}

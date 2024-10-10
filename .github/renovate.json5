@@ -13,6 +13,7 @@
   rebaseWhen: 'behind-base-branch',
   lockFileMaintenance: {
     enabled: true,
+    automerge: true,
   },
   packageRules: [
     {
@@ -95,6 +96,11 @@
         'build-info',
         'build-info-{/,}**',
       ],
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true
     },
   ],
   customManagers: [

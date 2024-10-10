@@ -4,41 +4,32 @@
 use std::time::Duration;
 
 use eventuals::{timer, Eventual, EventualExt};
-use serde::Deserialize;
+use graphql_client::GraphQLQuery;
 use thegraph_core::Address;
 use tokio::time::sleep;
 use tracing::warn;
 
-use crate::subgraph_client::{Query, SubgraphClient};
+use crate::subgraph_client::SubgraphClient;
+
+type Bytes = Address;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "../graphql/network.schema.graphql",
+    query_path = "../graphql/dispute.query.graphql",
+    response_derives = "Debug",
+    variables_derives = "Clone"
+)]
+struct DisputeManager;
 
 pub fn dispute_manager(
     network_subgraph: &'static SubgraphClient,
     interval: Duration,
 ) -> Eventual<Address> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct DisputeManagerResponse {
-        graph_network: Option<GraphNetwork>,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct GraphNetwork {
-        dispute_manager: Address,
-    }
-
     timer(interval).map_with_retry(
         move |_| async move {
             let response = network_subgraph
-                .query::<DisputeManagerResponse>(Query::new(
-                    r#"
-                        query network {
-                            graphNetwork(id: 1) {
-                                disputeManager
-                            }
-                        }
-                    "#,
-                ))
+                .query::<DisputeManager, _>(dispute_manager::Variables {})
                 .await
                 .map_err(|e| e.to_string())?;
 
@@ -49,7 +40,7 @@ pub fn dispute_manager(
             })
         },
         move |err: String| {
-            warn!("Failed to query dispute manager for network: {}", err,);
+            warn!("Failed to query dispute manager: {}", err);
 
             // Sleep for a bit before we retry
             sleep(interval.div_f32(2.0))
