@@ -69,6 +69,8 @@ impl MinimumValue {
         let cache = self.cost_model_cache.read().unwrap();
         let models = cache.get(&agora_query.deployment_id);
 
+        // TODO check global cost model
+
         let expected_value = models
             .map(|cache| {
                 let cache = cache.read().unwrap();
@@ -193,6 +195,9 @@ impl MinimumValue {
         pgpool: &PgPool,
         cost_model_cache: CostModelMap,
     ) -> anyhow::Result<()> {
+        // TODO make sure to load last cost model
+        // plus all models that were created 60 secoonds from now
+        //
         let models = sqlx::query!(
             r#"
             SELECT deployment, model, variables
