@@ -12,6 +12,7 @@ use indexer_common::indexer_service::http::{
 };
 use indexer_config::Config as MainConfig;
 use reqwest::Url;
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use thegraph_core::DeploymentId;
@@ -82,15 +83,14 @@ impl SubgraphService {
 #[async_trait]
 impl IndexerServiceImpl for SubgraphService {
     type Error = SubgraphServiceError;
-    type Request = serde_json::Value;
     type Response = SubgraphServiceResponse;
     type State = SubgraphServiceState;
 
-    async fn process_request(
+    async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
         &self,
         deployment: DeploymentId,
-        request: Self::Request,
-    ) -> Result<(Self::Request, Self::Response), Self::Error> {
+        request: Request,
+    ) -> Result<(Request, Self::Response), Self::Error> {
         let deployment_url = Url::parse(&self.state.graph_node_query_base_url)
             .expect("Invalid `graph_node.query_url` in config")
             .join(&format!("subgraphs/id/{deployment}"))
