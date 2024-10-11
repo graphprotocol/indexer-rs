@@ -25,7 +25,7 @@ use tracing::error;
 mod checks;
 mod receipt_store;
 
-pub use checks::value_check::{AgoraQuery, CostModelSource};
+pub use checks::value_check::AgoraQuery;
 
 #[derive(Clone)]
 pub struct IndexerTapContext {
