@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::sync::{Arc, RwLock};
-
 use async_trait::async_trait;
-use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use tap_core::manager::adapters::EscrowHandler as EscrowAdapterTrait;
 use thegraph_core::Address;
+use tokio::sync::watch::Receiver;
 
 use super::context::AdapterError;
 
@@ -21,13 +20,13 @@ use super::context::AdapterError;
 /// receipt checks only when we need to send a RAV request.
 #[derive(Clone)]
 pub struct EscrowAdapter {
-    escrow_accounts: Eventual<EscrowAccounts>,
+    escrow_accounts: Receiver<EscrowAccounts>,
     sender_id: Address,
     sender_pending_fees: Arc<RwLock<u128>>,
 }
 
 impl EscrowAdapter {
-    pub fn new(escrow_accounts: Eventual<EscrowAccounts>, sender_id: Address) -> Self {
+    pub fn new(escrow_accounts: Receiver<EscrowAccounts>, sender_id: Address) -> Self {
         Self {
             escrow_accounts,
             sender_pending_fees: Arc::new(RwLock::new(0)),
@@ -41,7 +40,8 @@ impl EscrowAdapterTrait for EscrowAdapter {
     type AdapterError = AdapterError;
 
     async fn get_available_escrow(&self, signer: Address) -> Result<u128, AdapterError> {
-        let escrow_accounts = self.escrow_accounts.value().await?;
+        // change not returing error "?"
+        let escrow_accounts = self.escrow_accounts.borrow().clone();
 
         let sender = escrow_accounts.get_sender_for_signer(&signer)?;
 
@@ -57,7 +57,8 @@ impl EscrowAdapterTrait for EscrowAdapter {
     }
 
     async fn subtract_escrow(&self, signer: Address, value: u128) -> Result<(), AdapterError> {
-        let escrow_accounts = self.escrow_accounts.value().await?;
+        //change not returing error "?"
+        let escrow_accounts = self.escrow_accounts.borrow().clone();
 
         let current_available_escrow = self.get_available_escrow(signer).await?;
 
@@ -76,13 +77,8 @@ impl EscrowAdapterTrait for EscrowAdapter {
     }
 
     async fn verify_signer(&self, signer: Address) -> Result<bool, Self::AdapterError> {
-        let escrow_account =
-            self.escrow_accounts
-                .value()
-                .await
-                .map_err(|_| AdapterError::ValidationError {
-                    error: "Could not load escrow_accounts eventual".into(),
-                })?;
+        // change removed error .map_err(|_| AdapterError::ValidationError {error: "Could not load escrow_accounts eventual".into(),})? and await;
+        let escrow_account =self.escrow_accounts.borrow().clone();
         let sender = escrow_account.get_sender_for_signer(&signer).map_err(|_| {
             AdapterError::ValidationError {
                 error: format!("Could not find the sender for the signer {}", signer),
@@ -97,6 +93,7 @@ mod test {
     use std::{collections::HashMap, vec};
 
     use alloy::primitives::U256;
+    use tokio::sync::watch;
 
     use crate::tap::test_utils::{SENDER, SIGNER};
 
@@ -104,12 +101,12 @@ mod test {
 
     impl super::EscrowAdapter {
         pub fn mock() -> Self {
-            let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+            let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
                 HashMap::from([(SENDER.1, U256::from(1000))]),
                 HashMap::from([(SENDER.1, vec![SIGNER.1])]),
             ));
             Self {
-                escrow_accounts,
+                escrow_accounts:escrow_accounts_rx,
                 sender_pending_fees: Arc::new(RwLock::new(0)),
                 sender_id: Address::ZERO,
             }
@@ -118,7 +115,7 @@ mod test {
 
     #[tokio::test]
     async fn test_subtract_escrow() {
-        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+        let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -126,7 +123,7 @@ mod test {
         let sender_pending_fees = Arc::new(RwLock::new(500));
 
         let adapter = EscrowAdapter {
-            escrow_accounts,
+            escrow_accounts:escrow_accounts_rx,
             sender_pending_fees,
             sender_id: Address::ZERO,
         };
@@ -143,7 +140,7 @@ mod test {
 
     #[tokio::test]
     async fn test_subtract_escrow_overflow() {
-        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+        let (_, escrow_accounts_rx)  = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -151,7 +148,7 @@ mod test {
         let sender_pending_fees = Arc::new(RwLock::new(500));
 
         let adapter = EscrowAdapter {
-            escrow_accounts,
+            escrow_accounts:escrow_accounts_rx,
             sender_pending_fees,
             sender_id: Address::ZERO,
         };
