@@ -7,6 +7,7 @@ use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
 use graphql_client::GraphQLQuery;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
+use tokio::sync::watch::Receiver;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::time::Duration;
@@ -114,8 +115,8 @@ pub struct SenderAccountArgs {
     pub config: &'static config::Config,
     pub pgpool: PgPool,
     pub sender_id: Address,
-    pub escrow_accounts: Eventual<EscrowAccounts>,
-    pub indexer_allocations: Eventual<HashSet<Address>>,
+    pub escrow_accounts: Receiver<EscrowAccounts>,
+    pub indexer_allocations: Receiver<HashSet<Address>>,
     pub escrow_subgraph: &'static SubgraphClient,
     pub domain_separator: Eip712Domain,
     pub sender_aggregator_endpoint: String,
@@ -142,7 +143,7 @@ pub struct State {
     retry_interval: Duration,
 
     //Eventuals
-    escrow_accounts: Eventual<EscrowAccounts>,
+    escrow_accounts: Receiver<EscrowAccounts>,
 
     escrow_subgraph: &'static SubgraphClient,
     escrow_adapter: EscrowAdapter,
@@ -345,6 +346,7 @@ impl Actor for SenderAccount {
                             });
                     }
                 });
+            
 
         let myself_clone = myself.clone();
         let pgpool_clone = pgpool.clone();
@@ -439,11 +441,10 @@ impl Actor for SenderAccount {
         .await?
         .denied
         .expect("Deny status cannot be null");
-
+        // change - removed error check .expect("should be able to get escrow accounts")
         let sender_balance = escrow_accounts
-            .value()
-            .await
-            .expect("should be able to get escrow accounts")
+            .borrow()
+            .clone()
             .get_balance_for_sender(&sender_id)
             .unwrap_or_default();
 
@@ -861,6 +862,7 @@ pub mod tests {
     use ractor::{call, Actor, ActorProcessingErr, ActorRef, ActorStatus};
     use serde_json::json;
     use sqlx::PgPool;
+    use tokio::sync::watch::{self, Sender};
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU32;
     use std::sync::{Arc, Mutex};
@@ -910,7 +912,7 @@ pub mod tests {
         ActorRef<SenderAccountMessage>,
         tokio::task::JoinHandle<()>,
         String,
-        EventualWriter<EscrowAccounts>,
+        Sender<EscrowAccounts>,
     ) {
         let config = Box::leak(Box::new(config::Config {
             config: None,
@@ -932,9 +934,8 @@ pub mod tests {
             None,
             DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
         )));
-        let (mut writer, escrow_accounts_eventual) = Eventual::new();
-
-        writer.write(EscrowAccounts::new(
+        let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
+        escrow_accounts_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -948,8 +949,8 @@ pub mod tests {
             config,
             pgpool,
             sender_id: SENDER.1,
-            escrow_accounts: escrow_accounts_eventual,
-            indexer_allocations: Eventual::from_value(initial_allocation),
+            escrow_accounts: escrow_accounts_rx,
+            indexer_allocations: watch::channel(initial_allocation).1,
             escrow_subgraph,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             sender_aggregator_endpoint: DUMMY_URL.to_string(),
@@ -962,7 +963,7 @@ pub mod tests {
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(10)).await;
-        (sender, handle, prefix, writer)
+        (sender, handle, prefix, escrow_accounts_tx)
     }
 
     #[sqlx::test(migrations = "../migrations")]
