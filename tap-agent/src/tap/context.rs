@@ -4,6 +4,7 @@ use alloy::primitives::Address;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use sqlx::PgPool;
+use tokio::sync::watch::Receiver;
 
 use super::escrow_adapter::EscrowAdapter;
 
@@ -20,7 +21,7 @@ pub struct TapAgentContext {
     pgpool: PgPool,
     allocation_id: Address,
     sender: Address,
-    escrow_accounts: Eventual<EscrowAccounts>,
+    escrow_accounts: Receiver<EscrowAccounts>,
     escrow_adapter: EscrowAdapter,
 }
 
@@ -29,7 +30,7 @@ impl TapAgentContext {
         pgpool: PgPool,
         allocation_id: Address,
         sender: Address,
-        escrow_accounts: Eventual<EscrowAccounts>,
+        escrow_accounts: Receiver<EscrowAccounts>,
         escrow_adapter: EscrowAdapter,
     ) -> Self {
         Self {

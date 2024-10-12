@@ -3,23 +3,22 @@
 
 use alloy::{dyn_abi::Eip712Domain, primitives::U256};
 use anyhow::anyhow;
-use eventuals::Eventual;
-use indexer_common::escrow_accounts::EscrowAccounts;
+use indexer_common::escrow_accounts:: EscrowAccounts;
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
 };
+use tokio::sync::watch::Receiver;
 
-use crate::tap::context::error::AdapterError;
 
 pub struct Signature {
     domain_separator: Eip712Domain,
-    escrow_accounts: Eventual<EscrowAccounts>,
+    escrow_accounts: Receiver<EscrowAccounts>,
 }
 
 impl Signature {
-    pub fn new(domain_separator: Eip712Domain, escrow_accounts: Eventual<EscrowAccounts>) -> Self {
+    pub fn new(domain_separator: Eip712Domain, escrow_accounts: Receiver<EscrowAccounts>) -> Self {
         Self {
             domain_separator,
             escrow_accounts,
@@ -34,14 +33,11 @@ impl Check for Signature {
             .signed_receipt()
             .recover_signer(&self.domain_separator)
             .map_err(|e| CheckError::Failed(e.into()))?;
+        //  change removed error .map_err(|e| CheckError::Retryable(e.into()))?
         let escrow_accounts = self
             .escrow_accounts
-            .value()
-            .await
-            .map_err(|e| AdapterError::ValidationError {
-                error: format!("Could not get escrow accounts from eventual: {:?}", e),
-            })
-            .map_err(|e| CheckError::Retryable(e.into()))?;
+            .borrow()
+            .clone();
 
         let sender = escrow_accounts
             .get_sender_for_signer(&signer)

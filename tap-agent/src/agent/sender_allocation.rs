@@ -9,7 +9,6 @@ use std::{
 use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt};
 use anyhow::{anyhow, ensure, Result};
 use bigdecimal::num_bigint::BigInt;
-use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
@@ -354,7 +353,7 @@ impl SenderAllocationState {
         tracing::trace!("calculate_unaggregated_fee()");
         self.tap_manager.remove_obsolete_receipts().await?;
 
-        let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
+        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
 
         // TODO: Get `rav.timestamp_ns` from the TAP Manager's RAV storage adapter instead?
         let res = sqlx::query!(
@@ -834,7 +833,6 @@ pub mod tests {
             },
         },
     };
-    use eventuals::Eventual;
     use futures::future::join_all;
     use indexer_common::{
         escrow_accounts::EscrowAccounts,
