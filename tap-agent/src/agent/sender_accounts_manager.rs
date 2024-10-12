@@ -589,7 +589,6 @@ mod tests {
     };
     use alloy::hex::ToHexExt;
     use alloy::primitives::Address;
-    use eventuals::{ EventualExt};
     use indexer_common::allocations::Allocation;
     use indexer_common::escrow_accounts::EscrowAccounts;
     use indexer_common::prelude::{DeploymentDetails, SubgraphClient};

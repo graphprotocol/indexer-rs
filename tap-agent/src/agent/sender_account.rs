@@ -7,10 +7,10 @@ use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
 use graphql_client::GraphQLQuery;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
-use tokio::sync::watch::Receiver;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::time::Duration;
+use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 
 use alloy::dyn_abi::Eip712Domain;
@@ -131,8 +131,8 @@ pub struct State {
     rav_tracker: SenderFeeTracker,
     invalid_receipts_tracker: SenderFeeTracker,
     allocation_ids: HashSet<Address>,
-    _indexer_allocations_handle: PipeHandle,
-    _escrow_account_monitor: PipeHandle,
+    _indexer_allocations_handle: JoinHandle<()>,
+    _escrow_account_monitor: JoinHandle<()>,
     scheduled_rav_request: Option<JoinHandle<Result<(), MessagingErr<SenderAccountMessage>>>>,
 
     sender: Address,
@@ -332,40 +332,39 @@ impl Actor for SenderAccount {
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
-        let _indexer_allocations_handle =
-            indexer_allocations
-                .clone()
-                .pipe_async(move |allocation_ids| {
-                    let myself = myself_clone.clone();
-                    async move {
-                        // Update the allocation_ids
-                        myself
-                            .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
-                            .unwrap_or_else(|e| {
-                                error!("Error while updating allocation_ids: {:?}", e);
-                            });
-                    }
-                });
-            
+        let _indexer_allocations_handle = {
+            let indexer_allocations = indexer_allocations.borrow().clone();
+            tokio::spawn(async move {
+                let myself = myself_clone.clone();
+                async move {
+                    myself
+                        .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
+                        .unwrap_or_else(|e| {
+                            error!("Error while updating allocation_ids: {:?}", e);
+                        });
+                };
+            })
+        };
 
         let myself_clone = myself.clone();
         let pgpool_clone = pgpool.clone();
-        let _escrow_account_monitor = escrow_accounts.clone().pipe_async(move |escrow_account| {
-            let myself = myself_clone.clone();
-            let pgpool = pgpool_clone.clone();
-            // get balance or default value for sender
-            // this balance already takes into account thawing
-            let balance = escrow_account
-                .get_balance_for_sender(&sender_id)
-                .unwrap_or_default();
+        let _escrow_account_monitor = {
+            let escrow_account = escrow_accounts.borrow().clone();
+            tokio::spawn(async move {
+                let myself = myself_clone.clone();
+                let pgpool = pgpool_clone.clone();
+                // get balance or default value for sender
+                // this balance already takes into account thawing
+                let balance = escrow_account
+                    .get_balance_for_sender(&sender_id)
+                    .unwrap_or_default();
 
-            async move {
                 let last_non_final_ravs = sqlx::query!(
                     r#"
-                            SELECT allocation_id, value_aggregate
-                            FROM scalar_tap_ravs
-                            WHERE sender_address = $1 AND last AND NOT final;
-                        "#,
+                                SELECT allocation_id, value_aggregate
+                                FROM scalar_tap_ravs
+                                WHERE sender_address = $1 AND last AND NOT final;
+                            "#,
                     sender_id.encode_hex(),
                 )
                 .fetch_all(&pgpool)
@@ -421,8 +420,8 @@ impl Actor for SenderAccount {
                             sender_id, e
                         );
                     });
-            }
-        });
+            })
+        };
 
         let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone(), sender_id);
 
@@ -855,18 +854,17 @@ pub mod tests {
     };
     use alloy::hex::ToHexExt;
     use alloy::primitives::{Address, U256};
-    use eventuals::{Eventual, EventualWriter};
     use indexer_common::escrow_accounts::EscrowAccounts;
     use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
     use ractor::concurrency::JoinHandle;
     use ractor::{call, Actor, ActorProcessingErr, ActorRef, ActorStatus};
     use serde_json::json;
     use sqlx::PgPool;
-    use tokio::sync::watch::{self, Sender};
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU32;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use tokio::sync::watch::{self, Sender};
     use wiremock::matchers::{body_string_contains, method};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -1631,7 +1629,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, handle, _, mut escrow_writer) = create_sender_account(
+        let (sender_account, handle, _, escrow_tx) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
             TRIGGER_VALUE,
@@ -1659,7 +1657,7 @@ pub mod tests {
             )
             .await;
         // escrow_account updated
-        escrow_writer.write(EscrowAccounts::new(
+        escrow_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -1684,7 +1682,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, handle, _, mut escrow_writer) = create_sender_account(
+        let (sender_account, handle, _, escrow_tx) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
             TRIGGER_VALUE,
@@ -1697,7 +1695,7 @@ pub mod tests {
         assert!(!deny, "should start unblocked");
 
         // update the escrow to a lower value
-        escrow_writer.write(EscrowAccounts::new(
+        escrow_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE / 2))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -1708,7 +1706,7 @@ pub mod tests {
         assert!(deny, "should block the sender");
 
         // simulate deposit
-        escrow_writer.write(EscrowAccounts::new(
+        escrow_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
