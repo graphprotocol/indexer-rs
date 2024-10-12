@@ -9,11 +9,10 @@ use std::{
 
 use alloy::primitives::U256;
 use anyhow::{anyhow, Result};
-use eventuals::{timer, Eventual, EventualExt};
 use graphql_client::GraphQLQuery;
 use thegraph_core::Address;
 use thiserror::Error;
-use tokio::time::sleep;
+use tokio::{sync::watch::{self, Receiver}, time::{self, sleep}};
 use tracing::{error, warn};
 
 use crate::prelude::SubgraphClient;
@@ -105,22 +104,33 @@ pub fn escrow_accounts(
     indexer_address: Address,
     interval: Duration,
     reject_thawing_signers: bool,
-) -> Eventual<EscrowAccounts> {
-    timer(interval).map_with_retry(
-        move |_| async move {
-            get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers)
-                .await
-                .map_err(|e| e.to_string())
-        },
-        move |err: String| {
-            error!(
-                "Failed to fetch escrow accounts for indexer {:?}: {}",
-                indexer_address, err
-            );
+) -> Receiver<EscrowAccounts> {
+    let (tx, rx) = watch::channel(EscrowAccounts::default());
+    tokio::spawn(async move{
+        let mut time_interval = time::interval(interval);
 
-            sleep(interval.div_f32(2.0))
-        },
-    )
+        loop {
+            time_interval.tick().await;
+        let result = get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers)
+            .await
+            .map_err(|e| e.to_string());
+        match result{
+            Ok(escrow_accounts)=>{
+                if tx.send(escrow_accounts).is_err(){
+                    break; // something wrong 
+                }
+            },
+            Err(err)=>{
+                error!(
+                    "Failed to fetch escrow accounts for indexer {:?}: {}",
+                    indexer_address, err
+                );
+                sleep(interval.div_f32(2.0)).await;
+            }
+        }
+    }
+    });
+    rx
 }
 
 async fn get_escrow_accounts(
@@ -236,15 +246,15 @@ mod tests {
             );
         mock_server.register(mock).await;
 
-        let accounts = escrow_accounts(
+        let accounts_rx = escrow_accounts(
             escrow_subgraph,
             *test_vectors::INDEXER_ADDRESS,
             Duration::from_secs(60),
             true,
         );
-
+        tokio::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(
-            accounts.value().await.unwrap(),
+            accounts_rx.borrow().clone(),
             EscrowAccounts::new(
                 test_vectors::ESCROW_ACCOUNTS_BALANCES.to_owned(),
                 test_vectors::ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),

@@ -20,7 +20,6 @@ use axum::{
 };
 use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
-use eventuals::Eventual;
 use prometheus::TextEncoder;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
@@ -30,6 +29,7 @@ use thegraph_core::{Address, Attestation, DeploymentId};
 use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tokio::sync::watch::Receiver;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::TraceLayer};
 use tracing::error;
@@ -184,12 +184,12 @@ where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
     pub config: IndexerServiceConfig,
-    pub attestation_signers: Eventual<HashMap<Address, AttestationSigner>>,
+    pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
     pub tap_manager: Manager<IndexerTapContext>,
     pub service_impl: Arc<I>,
 
     // tap
-    pub escrow_accounts: Eventual<EscrowAccounts>,
+    pub escrow_accounts: Receiver<EscrowAccounts>,
     pub domain_separator: Eip712Domain,
 }
 

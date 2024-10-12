@@ -16,7 +16,7 @@ use reqwest::StatusCode;
 use thegraph_core::DeploymentId;
 use tracing::trace;
 
-use crate::indexer_service::http::IndexerServiceResponse;
+use crate::{escrow_accounts::EscrowAccounts, indexer_service::http::IndexerServiceResponse};
 
 use super::{
     indexer_service::{AttestationOutput, IndexerServiceError, IndexerServiceState},
@@ -120,11 +120,15 @@ where
     let signer = receipt
         .recover_signer(&state.domain_separator)
         .map_err(IndexerServiceError::CouldNotDecodeSigner)?;
-
+    // EscrowAccounts::default()
     let escrow_accounts = state
         .escrow_accounts
-        .value_immediate()
-        .ok_or(IndexerServiceError::ServiceNotReady)?;
+        .borrow()
+        .clone();
+    //change simulating the old
+    if escrow_accounts.eq(&EscrowAccounts::default()){
+        return Err(IndexerServiceError::ServiceNotReady);
+    }
 
     let sender = escrow_accounts
         .get_sender_for_signer(&signer)
@@ -157,9 +161,12 @@ where
     // Check if we have an attestation signer for the allocation the receipt was created for
     let signers = state
         .attestation_signers
-        .value_immediate()
-        .ok_or_else(|| IndexerServiceError::ServiceNotReady)?;
-
+        .borrow()
+        .clone();
+    //change to simulate ok_or_else(|| IndexerServiceError::ServiceNotReady)?;
+    if signers.is_empty() {
+        return Err(IndexerServiceError::ServiceNotReady);
+    }
     let signer = signers
         .get(&allocation_id)
         .cloned()
