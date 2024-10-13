@@ -65,7 +65,7 @@ pub struct SenderAccountsManagerArgs {
 
 pub struct State {
     sender_ids: HashSet<Address>,
-    new_receipts_watcher_pipe: Option<tokio::task::JoinHandle<()>>,
+    new_receipts_watcher_handle: Option<tokio::task::JoinHandle<()>>,
     _eligible_allocations_senders_pipe: tokio::task::JoinHandle<()>,
 
     config: &'static config::Config,
@@ -138,7 +138,7 @@ impl Actor for SenderAccountsManager {
             config,
             domain_separator,
             sender_ids: HashSet::new(),
-            new_receipts_watcher_pipe: None,
+            new_receipts_watcher_handle: None,
             _eligible_allocations_senders_pipe,
             pgpool,
             indexer_allocations: indexer_allocations_rx,
@@ -163,7 +163,7 @@ impl Actor for SenderAccountsManager {
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         // after starting all senders
-        state.new_receipts_watcher_pipe = Some(tokio::spawn(new_receipts_watcher(
+        state.new_receipts_watcher_handle = Some(tokio::spawn(new_receipts_watcher(
             pglistener,
             escrow_accounts,
             prefix,
@@ -179,7 +179,7 @@ impl Actor for SenderAccountsManager {
     ) -> std::result::Result<(), ActorProcessingErr> {
         // Abort the notification watcher on drop. Otherwise it may panic because the PgPool could
         // get dropped before. (Observed in tests)
-        if let Some(handle) = &state.new_receipts_watcher_pipe {
+        if let Some(handle) = &state.new_receipts_watcher_handle {
             handle.abort();
         }
         Ok(())
@@ -692,7 +692,7 @@ mod tests {
                 config,
                 domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
                 sender_ids: HashSet::new(),
-                new_receipts_watcher_pipe: None,
+                new_receipts_watcher_handle: None,
                 //chnage remove while if not required
                 _eligible_allocations_senders_pipe: tokio::spawn(async {}),
                 pgpool,
@@ -895,7 +895,7 @@ mod tests {
         ));
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
-        let new_receipts_watcher_pipe = tokio::spawn(new_receipts_watcher(
+        let new_receipts_watcher_handle = tokio::spawn(new_receipts_watcher(
             pglistener,
             escrow_accounts_rx,
             Some(prefix.clone()),
@@ -918,7 +918,7 @@ mod tests {
             assert_eq!((i + 1) as u64, receipt.id);
         }
 
-        new_receipts_watcher_pipe.abort();
+        new_receipts_watcher_handle.abort();
     }
 
     #[tokio::test]

@@ -905,7 +905,7 @@ pub mod tests {
 
     async fn create_sender_account(
         pgpool: PgPool,
-        initial_allocation: HashSet<Address>, // Add the initial allocation here
+        initial_allocation: HashSet<Address>,
         rav_request_trigger_value: u128,
         max_unnaggregated_fees_per_sender: u128,
         escrow_subgraph_endpoint: &str,
@@ -935,26 +935,27 @@ pub mod tests {
             None,
             DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
         )));
+        let initial_escrow_accounts = EscrowAccounts::new(
+            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        );
+
+        //initializing the channel with the initial escrow accounts
         let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
 
-        escrow_accounts_tx
-            .send(EscrowAccounts::new(
-                HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
-                HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-            ))
-            .unwrap();
-
+        escrow_accounts_tx.send(initial_escrow_accounts).unwrap();
         let prefix = format!(
             "test-{}",
             PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         );
-
+        let (allocations_tx, allocations_rx) = watch::channel(HashSet::new());
+        allocations_tx.send(initial_allocation).unwrap();
         let args = SenderAccountArgs {
             config,
             pgpool,
             sender_id: SENDER.1,
             escrow_accounts: escrow_accounts_rx,
-            indexer_allocations: watch::channel(initial_allocation.clone()).1,
+            indexer_allocations: allocations_rx,
             escrow_subgraph,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             sender_aggregator_endpoint: DUMMY_URL.to_string(),
@@ -962,20 +963,10 @@ pub mod tests {
             prefix: Some(prefix.clone()),
             retry_interval: Duration::from_millis(10),
         };
-
         let (sender, handle) = SenderAccount::spawn(Some(prefix.clone()), SenderAccount, args)
             .await
             .unwrap();
-
-        // change added to manage error in the test_remove_sender_account
-        sender
-            .cast(SenderAccountMessage::UpdateAllocationIds(
-                initial_allocation,
-            )) // Send the initial allocation IDs
-            .unwrap();
-
-        tokio::time::sleep(Duration::from_millis(10)).await;
-
+        tokio::time::sleep(Duration::from_millis(50)).await;
         (sender, handle, prefix, escrow_accounts_tx)
     }
 
@@ -1596,7 +1587,7 @@ pub mod tests {
         update_receipt_fees!(half_escrow + 2);
         let deny = get_deny_status(&sender_account).await;
         assert!(deny);
-        // trigger rav request
+        // trigger rav requests
         // set the unnagregated fees to zero and the rav to the amount
         *next_rav_value.lock().unwrap() = trigger_rav_request;
         update_receipt_fees!(trigger_rav_request);
