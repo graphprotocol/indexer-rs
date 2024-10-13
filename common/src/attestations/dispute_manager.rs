@@ -1,8 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
 use graphql_client::GraphQLQuery;
+use std::time::Duration;
 use thegraph_core::Address;
 use tokio::sync::watch::{self, Receiver};
 use tokio::time::{self, sleep};
@@ -34,16 +34,17 @@ pub fn dispute_manager(
 
             let result = async {
                 let response = network_subgraph
-                .query::<DisputeManager, _>(dispute_manager::Variables {})
-                .await
-                .map_err(|e| e.to_string())?;
+                    .query::<DisputeManager, _>(dispute_manager::Variables {})
+                    .await
+                    .map_err(|e| e.to_string())?;
 
                 response.map_err(|e| e.to_string()).and_then(|data| {
                     data.graph_network
                         .map(|network| network.dispute_manager)
                         .ok_or_else(|| "Network 1 not found in network subgraph".to_string())
                 })
-            }.await;
+            }
+            .await;
 
             match result {
                 Ok(address) => {
@@ -116,10 +117,7 @@ mod test {
 
         let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(60));
         sleep(Duration::from_millis(50)).await;
-        let result = dispute_manager.borrow().clone();
-        assert_eq!(
-            result,
-            *DISPUTE_MANAGER_ADDRESS
-        );
+        let result = *dispute_manager.borrow();
+        assert_eq!(result, *DISPUTE_MANAGER_ADDRESS);
     }
 }

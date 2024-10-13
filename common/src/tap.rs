@@ -10,13 +10,13 @@ use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
 use alloy::dyn_abi::Eip712Domain;
 use receipt_store::{DatabaseReceipt, InnerContext};
 use sqlx::PgPool;
-use tokio::sync::watch::Receiver;
 use std::fmt::Debug;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use tap_core::receipt::checks::ReceiptCheck;
 use thegraph_core::Address;
 use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::watch::Receiver;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 

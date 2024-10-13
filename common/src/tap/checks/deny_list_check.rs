@@ -5,7 +5,6 @@ use crate::escrow_accounts::EscrowAccounts;
 use alloy::dyn_abi::Eip712Domain;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
-use tokio::sync::watch::Receiver;
 use std::collections::HashSet;
 use std::sync::RwLock;
 use std::{str::FromStr, sync::Arc};
@@ -16,6 +15,7 @@ use tap_core::receipt::{
     ReceiptWithState,
 };
 use thegraph_core::Address;
+use tokio::sync::watch::Receiver;
 use tracing::error;
 
 pub struct DenyListCheck {
@@ -210,7 +210,7 @@ mod tests {
             test_vectors::ESCROW_ACCOUNTS_BALANCES.to_owned(),
             test_vectors::ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
         ));
-    
+
         // You can now pass the receiver to the DenyListCheck struct
         DenyListCheck::new(
             pgpool,

@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 use alloy::primitives::Address;
-use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use sqlx::PgPool;
 use tokio::sync::watch::Receiver;

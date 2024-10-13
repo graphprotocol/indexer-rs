@@ -844,7 +844,6 @@ pub mod tests {
     use ruint::aliases::U256;
     use serde_json::json;
     use sqlx::PgPool;
-    use tokio::sync::watch;
     use std::{
         collections::HashMap,
         sync::{Arc, Mutex},
@@ -856,6 +855,7 @@ pub mod tests {
         state::Checking,
         ReceiptWithState,
     };
+    use tokio::sync::watch;
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockServer, Respond, ResponseTemplate,
@@ -938,7 +938,7 @@ pub mod tests {
             DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
         )));
 
-        let (_,escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
+        let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));

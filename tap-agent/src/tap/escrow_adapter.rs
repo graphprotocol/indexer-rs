@@ -1,9 +1,9 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 use indexer_common::escrow_accounts::EscrowAccounts;
+use std::sync::{Arc, RwLock};
 use tap_core::manager::adapters::EscrowHandler as EscrowAdapterTrait;
 use thegraph_core::Address;
 use tokio::sync::watch::Receiver;
@@ -78,7 +78,7 @@ impl EscrowAdapterTrait for EscrowAdapter {
 
     async fn verify_signer(&self, signer: Address) -> Result<bool, Self::AdapterError> {
         // change removed error .map_err(|_| AdapterError::ValidationError {error: "Could not load escrow_accounts eventual".into(),})? and await;
-        let escrow_account =self.escrow_accounts.borrow().clone();
+        let escrow_account = self.escrow_accounts.borrow().clone();
         let sender = escrow_account.get_sender_for_signer(&signer).map_err(|_| {
             AdapterError::ValidationError {
                 error: format!("Could not find the sender for the signer {}", signer),
@@ -106,7 +106,7 @@ mod test {
                 HashMap::from([(SENDER.1, vec![SIGNER.1])]),
             ));
             Self {
-                escrow_accounts:escrow_accounts_rx,
+                escrow_accounts: escrow_accounts_rx,
                 sender_pending_fees: Arc::new(RwLock::new(0)),
                 sender_id: Address::ZERO,
             }
@@ -123,7 +123,7 @@ mod test {
         let sender_pending_fees = Arc::new(RwLock::new(500));
 
         let adapter = EscrowAdapter {
-            escrow_accounts:escrow_accounts_rx,
+            escrow_accounts: escrow_accounts_rx,
             sender_pending_fees,
             sender_id: Address::ZERO,
         };
@@ -140,7 +140,7 @@ mod test {
 
     #[tokio::test]
     async fn test_subtract_escrow_overflow() {
-        let (_, escrow_accounts_rx)  = watch::channel(EscrowAccounts::new(
+        let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -148,7 +148,7 @@ mod test {
         let sender_pending_fees = Arc::new(RwLock::new(500));
 
         let adapter = EscrowAdapter {
-            escrow_accounts:escrow_accounts_rx,
+            escrow_accounts: escrow_accounts_rx,
             sender_pending_fees,
             sender_id: Address::ZERO,
         };

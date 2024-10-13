@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use thegraph_core::{Address, ChainId};
-use tokio::sync::{watch::Receiver, watch, Mutex};
+use tokio::sync::{watch, watch::Receiver, Mutex};
 use tracing::warn;
 
 use crate::prelude::{Allocation, AttestationSigner};
@@ -31,14 +31,14 @@ pub fn attestation_signers(
             }
 
             let allocations = indexer_allocations.borrow().clone();
-            let dispute_manager = dispute_manager.borrow().clone();
+            let dispute_manager = *dispute_manager.borrow();
             let indexer_mnemonic = indexer_mnemonic.clone();
 
             let mut signers = attestation_signers_map.lock().await;
-            
+
             // Remove signers for allocations that are no longer active or recently closed
             signers.retain(|id, _| allocations.contains_key(id));
-            
+
             // Create signers for new allocations
             for (id, allocation) in allocations.iter() {
                 if !signers.contains_key(id) {
@@ -46,7 +46,7 @@ pub fn attestation_signers(
                         &indexer_mnemonic,
                         allocation,
                         chain_id,
-                        dispute_manager
+                        dispute_manager,
                     );
                     if let Err(e) = signer {
                         warn!(
@@ -61,7 +61,7 @@ pub fn attestation_signers(
             }
 
             // sending updated signers map
-            let _ = tx.send(signers.clone());
+            tx.send(signers.clone()).unwrap();
         }
     });
 

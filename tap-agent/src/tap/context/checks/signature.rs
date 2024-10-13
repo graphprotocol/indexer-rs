@@ -3,14 +3,13 @@
 
 use alloy::{dyn_abi::Eip712Domain, primitives::U256};
 use anyhow::anyhow;
-use indexer_common::escrow_accounts:: EscrowAccounts;
+use indexer_common::escrow_accounts::EscrowAccounts;
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
 };
 use tokio::sync::watch::Receiver;
-
 
 pub struct Signature {
     domain_separator: Eip712Domain,
@@ -34,10 +33,7 @@ impl Check for Signature {
             .recover_signer(&self.domain_separator)
             .map_err(|e| CheckError::Failed(e.into()))?;
         //  change removed error .map_err(|e| CheckError::Retryable(e.into()))?
-        let escrow_accounts = self
-            .escrow_accounts
-            .borrow()
-            .clone();
+        let escrow_accounts = self.escrow_accounts.borrow().clone();
 
         let sender = escrow_accounts
             .get_sender_for_signer(&signer)

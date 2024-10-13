@@ -205,8 +205,8 @@ mod test {
     use indexer_common::escrow_accounts::EscrowAccounts;
     use lazy_static::lazy_static;
     use sqlx::PgPool;
-    use tokio::sync::watch::{self, Receiver};
     use std::collections::HashMap;
+    use tokio::sync::watch::{self, Receiver};
 
     lazy_static! {
         pub static ref SENDER_IRRELEVANT: (PrivateKeySigner, Address) = wallet(1);
@@ -218,7 +218,7 @@ mod test {
     /// The point here it to test the deserialization of large numbers.
     #[sqlx::test(migrations = "../migrations")]
     async fn insert_and_retrieve_single_receipt(pgpool: PgPool) {
-        let (_,escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
+        let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -435,7 +435,7 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn retrieve_receipts_with_limit(pgpool: PgPool) {
-        let (_,escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
+        let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -503,7 +503,7 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn retrieve_receipts_in_timestamp_range(pgpool: PgPool) {
-        let (_,escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
+        let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -631,7 +631,7 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn remove_receipts_in_timestamp_range(pgpool: PgPool) {
-        let (_,escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
+        let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));

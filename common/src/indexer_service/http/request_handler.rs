@@ -121,12 +121,9 @@ where
         .recover_signer(&state.domain_separator)
         .map_err(IndexerServiceError::CouldNotDecodeSigner)?;
     // EscrowAccounts::default()
-    let escrow_accounts = state
-        .escrow_accounts
-        .borrow()
-        .clone();
+    let escrow_accounts = state.escrow_accounts.borrow().clone();
     //change simulating the old
-    if escrow_accounts.eq(&EscrowAccounts::default()){
+    if escrow_accounts.eq(&EscrowAccounts::default()) {
         return Err(IndexerServiceError::ServiceNotReady);
     }
 
@@ -159,10 +156,7 @@ where
         .map_err(IndexerServiceError::ReceiptError)?;
 
     // Check if we have an attestation signer for the allocation the receipt was created for
-    let signers = state
-        .attestation_signers
-        .borrow()
-        .clone();
+    let signers = state.attestation_signers.borrow().clone();
     //change to simulate ok_or_else(|| IndexerServiceError::ServiceNotReady)?;
     if signers.is_empty() {
         return Err(IndexerServiceError::ServiceNotReady);

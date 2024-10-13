@@ -6,7 +6,6 @@ use alloy::primitives::U256;
 use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
 use graphql_client::GraphQLQuery;
-use indexer_common::escrow_accounts;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -16,7 +15,6 @@ use tokio::task::JoinHandle;
 
 use alloy::dyn_abi::Eip712Domain;
 use anyhow::Result;
-use eventuals::{Eventual, EventualExt, PipeHandle};
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use ractor::{call, Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use sqlx::PgPool;
@@ -341,20 +339,20 @@ impl Actor for SenderAccount {
                     let allocation_ids = indexer_allocations.borrow().clone();
                     // Update the allocation_ids
                     myself
-                    .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
-                    .unwrap_or_else(|e| {
-                        error!("Error while updating allocation_ids: {:?}", e);
-                    });
+                        .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
+                        .unwrap_or_else(|e| {
+                            error!("Error while updating allocation_ids: {:?}", e);
+                        });
                 }
             }
         });
 
         let myself_clone = myself.clone();
         let pgpool_clone = pgpool.clone();
-        let _escrow_account_monitor= {
+        let _escrow_account_monitor = {
             let mut escrow_accounts = escrow_accounts.clone();
-            tokio::spawn(async move{
-                while escrow_accounts.changed().await.is_ok(){
+            tokio::spawn(async move {
+                while escrow_accounts.changed().await.is_ok() {
                     let escrow_account = escrow_accounts.borrow().clone();
                     let myself = myself_clone.clone();
                     let pgpool = pgpool_clone.clone();
@@ -374,7 +372,7 @@ impl Actor for SenderAccount {
                     .fetch_all(&pgpool)
                     .await
                     .expect("Should not fail to fetch from scalar_tap_ravs");
-        
+
                     // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
                     let redeemed_ravs_allocation_ids = match escrow_subgraph
                         .query::<UnfinalizedTransactions, _>(unfinalized_transactions::Variables {
@@ -397,7 +395,7 @@ impl Actor for SenderAccount {
                         // if we have any problems, we don't want to filter out
                         _ => vec![],
                     };
-        
+
                     // filter the ravs marked as last that were not redeemed yet
                     let non_redeemed_ravs = last_non_final_ravs
                         .into_iter()
@@ -411,7 +409,7 @@ impl Actor for SenderAccount {
                             !redeemed_ravs_allocation_ids.contains(&format!("{:x?}", allocation))
                         })
                         .collect::<HashMap<_, _>>();
-        
+
                     // Update the allocation_ids
                     myself
                         .cast(SenderAccountMessage::UpdateBalanceAndLastRavs(
@@ -427,7 +425,6 @@ impl Actor for SenderAccount {
                 }
             })
         };
-
 
         let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone(), sender_id);
 
@@ -908,7 +905,7 @@ pub mod tests {
 
     async fn create_sender_account(
         pgpool: PgPool,
-        initial_allocation: HashSet<Address>,
+        initial_allocation: HashSet<Address>, // Add the initial allocation here
         rav_request_trigger_value: u128,
         max_unnaggregated_fees_per_sender: u128,
         escrow_subgraph_endpoint: &str,
@@ -939,10 +936,13 @@ pub mod tests {
             DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
         )));
         let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
-        escrow_accounts_tx.send(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
-            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ));
+
+        escrow_accounts_tx
+            .send(EscrowAccounts::new(
+                HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
+                HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+            ))
+            .unwrap();
 
         let prefix = format!(
             "test-{}",
@@ -954,7 +954,7 @@ pub mod tests {
             pgpool,
             sender_id: SENDER.1,
             escrow_accounts: escrow_accounts_rx,
-            indexer_allocations: watch::channel(initial_allocation).1,
+            indexer_allocations: watch::channel(initial_allocation.clone()).1,
             escrow_subgraph,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             sender_aggregator_endpoint: DUMMY_URL.to_string(),
@@ -966,7 +966,16 @@ pub mod tests {
         let (sender, handle) = SenderAccount::spawn(Some(prefix.clone()), SenderAccount, args)
             .await
             .unwrap();
+
+        // change added to manage error in the test_remove_sender_account
+        sender
+            .cast(SenderAccountMessage::UpdateAllocationIds(
+                initial_allocation,
+            )) // Send the initial allocation IDs
+            .unwrap();
+
         tokio::time::sleep(Duration::from_millis(10)).await;
+
         (sender, handle, prefix, escrow_accounts_tx)
     }
 
@@ -1663,10 +1672,12 @@ pub mod tests {
             )
             .await;
         // escrow_account updated
-        escrow_tx.send(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(1))]),
-            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ));
+        escrow_tx
+            .send(EscrowAccounts::new(
+                HashMap::from([(SENDER.1, U256::from(1))]),
+                HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+            ))
+            .unwrap();
 
         // wait the actor react to the messages
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1701,10 +1712,12 @@ pub mod tests {
         assert!(!deny, "should start unblocked");
 
         // update the escrow to a lower value
-        escrow_tx.send(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE / 2))]),
-            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ));
+        escrow_tx
+            .send(EscrowAccounts::new(
+                HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE / 2))]),
+                HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+            ))
+            .unwrap();
 
         tokio::time::sleep(Duration::from_millis(20)).await;
 
@@ -1712,10 +1725,12 @@ pub mod tests {
         assert!(deny, "should block the sender");
 
         // simulate deposit
-        escrow_tx.send(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
-            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ));
+        escrow_tx
+            .send(EscrowAccounts::new(
+                HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
+                HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+            ))
+            .unwrap();
 
         tokio::time::sleep(Duration::from_millis(10)).await;
 

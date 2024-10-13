@@ -121,7 +121,7 @@ pub fn escrow_accounts(
             match result {
                 Ok(escrow_accounts) => {
                     if tx.send(escrow_accounts).is_err() {
-                        break; // something wrong
+                        break; // something wrong with channel
                     }
                 }
                 Err(err) => {

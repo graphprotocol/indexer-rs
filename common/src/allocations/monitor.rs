@@ -12,7 +12,10 @@ use crate::prelude::SubgraphClient;
 use alloy::primitives::{TxHash, B256, U256};
 use graphql_client::GraphQLQuery;
 use thegraph_core::{Address, DeploymentId};
-use tokio::{sync::watch::{self, Receiver}, time::{self, sleep}};
+use tokio::{
+    sync::watch::{self, Receiver},
+    time::{self, sleep},
+};
 use tracing::warn;
 
 type BigInt = U256;
@@ -62,9 +65,9 @@ pub fn indexer_allocations(
     recently_closed_allocation_buffer: Duration,
 ) -> Receiver<HashMap<Address, Allocation>> {
     let (tx, rx) = watch::channel(HashMap::new());
-    tokio::spawn( async move{
+    tokio::spawn(async move {
         let mut time_interval = time::interval(interval);
-         // Refresh indexer allocations every now and then
+        // Refresh indexer allocations every now and then
         loop {
             time_interval.tick().await;
             let result = async {
@@ -75,20 +78,21 @@ pub fn indexer_allocations(
                 )
                 .await
                 .map_err(|e| e.to_string())
-            }.await;
-            match result{
-                Ok(res)=>{
-                    if tx.send(res).is_err(){
+            }
+            .await;
+            match result {
+                Ok(res) => {
+                    if tx.send(res).is_err() {
                         //stopping[something gone wrong with channel]
                         break;
                     }
-                },
-                Err(err)=>{
+                }
+                Err(err) => {
                     warn!(
                         "Failed to fetch active or recently closed allocations for indexer {:?}: {}",
                         indexer_address, err
                     );
-        
+
                     // Sleep for a bit before we retry
                     sleep(interval.div_f32(2.0)).await;
                 }
