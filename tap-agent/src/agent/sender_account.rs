@@ -6,6 +6,7 @@ use alloy::primitives::U256;
 use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
 use graphql_client::GraphQLQuery;
+use indexer_common::escrow_accounts;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -332,96 +333,101 @@ impl Actor for SenderAccount {
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
-        let _indexer_allocations_handle = {
-            let indexer_allocations = indexer_allocations.borrow().clone();
-            tokio::spawn(async move {
-                let myself = myself_clone.clone();
-                async move {
+        let _indexer_allocations_handle = tokio::spawn({
+            let myself = myself_clone.clone();
+            let mut indexer_allocations = indexer_allocations.clone();
+            async move {
+                while indexer_allocations.changed().await.is_ok() {
+                    let allocation_ids = indexer_allocations.borrow().clone();
+                    // Update the allocation_ids
                     myself
-                        .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
-                        .unwrap_or_else(|e| {
-                            error!("Error while updating allocation_ids: {:?}", e);
-                        });
-                };
-            })
-        };
+                    .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
+                    .unwrap_or_else(|e| {
+                        error!("Error while updating allocation_ids: {:?}", e);
+                    });
+                }
+            }
+        });
 
         let myself_clone = myself.clone();
         let pgpool_clone = pgpool.clone();
-        let _escrow_account_monitor = {
-            let escrow_account = escrow_accounts.borrow().clone();
-            tokio::spawn(async move {
-                let myself = myself_clone.clone();
-                let pgpool = pgpool_clone.clone();
-                // get balance or default value for sender
-                // this balance already takes into account thawing
-                let balance = escrow_account
-                    .get_balance_for_sender(&sender_id)
-                    .unwrap_or_default();
-
-                let last_non_final_ravs = sqlx::query!(
-                    r#"
+        let _escrow_account_monitor= {
+            let mut escrow_accounts = escrow_accounts.clone();
+            tokio::spawn(async move{
+                while escrow_accounts.changed().await.is_ok(){
+                    let escrow_account = escrow_accounts.borrow().clone();
+                    let myself = myself_clone.clone();
+                    let pgpool = pgpool_clone.clone();
+                    // get balance or default value for sender
+                    // this balance already takes into account thawing
+                    let balance = escrow_account
+                        .get_balance_for_sender(&sender_id)
+                        .unwrap_or_default();
+                    let last_non_final_ravs = sqlx::query!(
+                        r#"
                                 SELECT allocation_id, value_aggregate
                                 FROM scalar_tap_ravs
                                 WHERE sender_address = $1 AND last AND NOT final;
                             "#,
-                    sender_id.encode_hex(),
-                )
-                .fetch_all(&pgpool)
-                .await
-                .expect("Should not fail to fetch from scalar_tap_ravs");
-
-                // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
-                let redeemed_ravs_allocation_ids = match escrow_subgraph
-                    .query::<UnfinalizedTransactions, _>(unfinalized_transactions::Variables {
-                        unfinalized_ravs_allocation_ids: last_non_final_ravs
-                            .iter()
-                            .map(|rav| rav.allocation_id.to_string())
-                            .collect::<Vec<_>>(),
-                        sender: format!("{:x?}", sender_id),
-                    })
+                        sender_id.encode_hex(),
+                    )
+                    .fetch_all(&pgpool)
                     .await
-                {
-                    Ok(Ok(response)) => response
-                        .transactions
-                        .into_iter()
-                        .map(|tx| {
-                            tx.allocation_id
-                                .expect("all redeem tx must have allocation_id")
+                    .expect("Should not fail to fetch from scalar_tap_ravs");
+        
+                    // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
+                    let redeemed_ravs_allocation_ids = match escrow_subgraph
+                        .query::<UnfinalizedTransactions, _>(unfinalized_transactions::Variables {
+                            unfinalized_ravs_allocation_ids: last_non_final_ravs
+                                .iter()
+                                .map(|rav| rav.allocation_id.to_string())
+                                .collect::<Vec<_>>(),
+                            sender: format!("{:x?}", sender_id),
                         })
-                        .collect::<Vec<_>>(),
-                    // if we have any problems, we don't want to filter out
-                    _ => vec![],
-                };
-
-                // filter the ravs marked as last that were not redeemed yet
-                let non_redeemed_ravs = last_non_final_ravs
-                    .into_iter()
-                    .filter_map(|rav| {
-                        Some((
-                            Address::from_str(&rav.allocation_id).ok()?,
-                            rav.value_aggregate.to_bigint().and_then(|v| v.to_u128())?,
+                        .await
+                    {
+                        Ok(Ok(response)) => response
+                            .transactions
+                            .into_iter()
+                            .map(|tx| {
+                                tx.allocation_id
+                                    .expect("all redeem tx must have allocation_id")
+                            })
+                            .collect::<Vec<_>>(),
+                        // if we have any problems, we don't want to filter out
+                        _ => vec![],
+                    };
+        
+                    // filter the ravs marked as last that were not redeemed yet
+                    let non_redeemed_ravs = last_non_final_ravs
+                        .into_iter()
+                        .filter_map(|rav| {
+                            Some((
+                                Address::from_str(&rav.allocation_id).ok()?,
+                                rav.value_aggregate.to_bigint().and_then(|v| v.to_u128())?,
+                            ))
+                        })
+                        .filter(|(allocation, _value)| {
+                            !redeemed_ravs_allocation_ids.contains(&format!("{:x?}", allocation))
+                        })
+                        .collect::<HashMap<_, _>>();
+        
+                    // Update the allocation_ids
+                    myself
+                        .cast(SenderAccountMessage::UpdateBalanceAndLastRavs(
+                            balance,
+                            non_redeemed_ravs,
                         ))
-                    })
-                    .filter(|(allocation, _value)| {
-                        !redeemed_ravs_allocation_ids.contains(&format!("{:x?}", allocation))
-                    })
-                    .collect::<HashMap<_, _>>();
-
-                // Update the allocation_ids
-                myself
-                    .cast(SenderAccountMessage::UpdateBalanceAndLastRavs(
-                        balance,
-                        non_redeemed_ravs,
-                    ))
-                    .unwrap_or_else(|e| {
-                        error!(
-                            "Error while updating balance for sender {}: {:?}",
-                            sender_id, e
-                        );
-                    });
+                        .unwrap_or_else(|e| {
+                            error!(
+                                "Error while updating balance for sender {}: {:?}",
+                                sender_id, e
+                            );
+                        });
+                }
             })
         };
+
 
         let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone(), sender_id);
 

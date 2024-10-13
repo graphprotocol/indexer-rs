@@ -65,8 +65,8 @@ pub struct SenderAccountsManagerArgs {
 
 pub struct State {
     sender_ids: HashSet<Address>,
-    new_receipts_watcher_handle: Option<tokio::task::JoinHandle<()>>,
-    _eligible_allocations_senders_handle: tokio::task::JoinHandle<()>,
+    new_receipts_watcher_pipe: Option<tokio::task::JoinHandle<()>>,
+    _eligible_allocations_senders_pipe: tokio::task::JoinHandle<()>,
 
     config: &'static config::Config,
     domain_separator: Eip712Domain,
@@ -114,26 +114,28 @@ impl Actor for SenderAccountsManager {
             );
         let clone = myself.clone();
 
-        let _eligible_allocations_senders_handle = {
-            let myself = clone.clone();
-            let escrow_accounts = escrow_accounts.borrow().clone();
-            
-            tokio::spawn(async move {
-                myself
-                    .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
-                        escrow_accounts.get_senders(),
-                    ))
-                    .unwrap_or_else(|e| {
-                        error!("Error while updating sender_accounts: {:?}", e);
-                    });
+        let _eligible_allocations_senders_pipe = {
+            let mut escrow_accounts = escrow_accounts.clone();
+            tokio::spawn(async move{
+                while escrow_accounts.changed().await.is_ok(){
+                    let myself = clone.clone();
+                    myself
+                        .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
+                            escrow_accounts.borrow().clone().get_senders(),
+                        ))
+                        .unwrap_or_else(|e| {
+                            error!("Error while updating sender_accounts: {:?}", e);
+                        });
+                }
             })
+            
         };
         let mut state = State {
             config,
             domain_separator,
             sender_ids: HashSet::new(),
-            new_receipts_watcher_handle: None,
-            _eligible_allocations_senders_handle,
+            new_receipts_watcher_pipe: None,
+            _eligible_allocations_senders_pipe,
             pgpool,
             indexer_allocations:indexer_allocations_rx,
             escrow_accounts: escrow_accounts.clone(),
@@ -157,7 +159,7 @@ impl Actor for SenderAccountsManager {
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         // after starting all senders
-        state.new_receipts_watcher_handle = Some(tokio::spawn(new_receipts_watcher(
+        state.new_receipts_watcher_pipe = Some(tokio::spawn(new_receipts_watcher(
             pglistener,
             escrow_accounts,
             prefix,
@@ -173,7 +175,7 @@ impl Actor for SenderAccountsManager {
     ) -> std::result::Result<(), ActorProcessingErr> {
         // Abort the notification watcher on drop. Otherwise it may panic because the PgPool could
         // get dropped before. (Observed in tests)
-        if let Some(handle) = &state.new_receipts_watcher_handle {
+        if let Some(handle) = &state.new_receipts_watcher_pipe {
             handle.abort();
         }
         Ok(())
@@ -691,8 +693,13 @@ mod tests {
                 config,
                 domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
                 sender_ids: HashSet::new(),
-                new_receipts_watcher_handle: None,
-                _eligible_allocations_senders_handle: tokio::spawn(async{}),
+                new_receipts_watcher_pipe: None,
+                //chnage remove while if not required
+                _eligible_allocations_senders_pipe: tokio::spawn(async{
+                    while true {
+
+                    }
+                }),
                 pgpool,
                 indexer_allocations: watch::channel(HashSet::new()).1,
                 escrow_accounts: watch::channel(escrow_accounts).1,
@@ -893,7 +900,7 @@ mod tests {
         ));
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
-        let new_receipts_watcher_handle = tokio::spawn(new_receipts_watcher(
+        let new_receipts_watcher_pipe = tokio::spawn(new_receipts_watcher(
             pglistener,
             escrow_accounts_rx,
             Some(prefix.clone()),
@@ -916,7 +923,7 @@ mod tests {
             assert_eq!((i + 1) as u64, receipt.id);
         }
 
-        new_receipts_watcher_handle.abort();
+        new_receipts_watcher_pipe.abort();
     }
 
     #[tokio::test]
