@@ -81,7 +81,7 @@ impl ReceiptRead for TapAgentContext {
         timestamp_range_ns: R,
         receipts_limit: Option<u64>,
     ) -> Result<Vec<ReceiptWithState<Checking>>, Self::AdapterError> {
-        let signers = signers_trimmed(&self.escrow_accounts, self.sender)
+        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
             .await
             .map_err(|e| AdapterError::ReceiptRead {
                 error: format!("{:?}.", e),
@@ -168,7 +168,7 @@ impl ReceiptDelete for TapAgentContext {
         &self,
         timestamp_ns: R,
     ) -> Result<(), Self::AdapterError> {
-        let signers = signers_trimmed(&self.escrow_accounts, self.sender)
+        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
             .await
             .map_err(|e| AdapterError::ReceiptDelete {
                 error: format!("{:?}.", e),
@@ -202,10 +202,10 @@ mod test {
     };
     use alloy::{primitives::U256, signers::local::PrivateKeySigner};
     use anyhow::Result;
-    use eventuals::Eventual;
     use indexer_common::escrow_accounts::EscrowAccounts;
     use lazy_static::lazy_static;
     use sqlx::PgPool;
+    use tokio::sync::watch::{self, Receiver};
     use std::collections::HashMap;
 
     lazy_static! {
@@ -218,7 +218,7 @@ mod test {
     /// The point here it to test the deserialization of large numbers.
     #[sqlx::test(migrations = "../migrations")]
     async fn insert_and_retrieve_single_receipt(pgpool: PgPool) {
-        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+        let (_,escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -227,7 +227,7 @@ mod test {
             pgpool,
             *ALLOCATION_ID_0,
             SENDER.1,
-            escrow_accounts.clone(),
+            escrow_accounts_rx.clone(),
             EscrowAdapter::mock(),
         );
 
@@ -256,11 +256,12 @@ mod test {
     /// retrieve_receipts_in_timestamp_range.
     async fn retrieve_range_and_check<R: RangeBounds<u64> + Send>(
         storage_adapter: &TapAgentContext,
-        escrow_accounts: &Eventual<EscrowAccounts>,
+        escrow_accounts: Receiver<EscrowAccounts>,
         received_receipt_vec: &[ReceiptWithState<Checking>],
         range: R,
     ) -> Result<()> {
-        let escrow_accounts_snapshot = escrow_accounts.value().await.unwrap();
+        // change removed await and unwrap
+        let escrow_accounts_snapshot = escrow_accounts.borrow().clone();
 
         // Filtering the received receipts by timestamp range
         let received_receipt_vec: Vec<ReceiptWithState<Checking>> = received_receipt_vec
@@ -306,11 +307,12 @@ mod test {
 
     async fn remove_range_and_check<R: RangeBounds<u64> + Send>(
         storage_adapter: &TapAgentContext,
-        escrow_accounts: &Eventual<EscrowAccounts>,
+        escrow_accounts: Receiver<EscrowAccounts>,
         received_receipt_vec: &[ReceiptWithState<Checking>],
         range: R,
     ) -> Result<()> {
-        let escrow_accounts_snapshot = escrow_accounts.value().await.unwrap();
+        // change removed await and unwrap
+        let escrow_accounts_snapshot = escrow_accounts.borrow().clone();
 
         // Storing the receipts
         let mut received_receipt_id_vec = Vec::new();
@@ -433,7 +435,7 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn retrieve_receipts_with_limit(pgpool: PgPool) {
-        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+        let (_,escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -442,7 +444,7 @@ mod test {
             pgpool.clone(),
             *ALLOCATION_ID_0,
             SENDER.1,
-            escrow_accounts.clone(),
+            escrow_accounts_rx.clone(),
             EscrowAdapter::mock(),
         );
 
@@ -501,7 +503,7 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn retrieve_receipts_in_timestamp_range(pgpool: PgPool) {
-        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+        let (_,escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -510,7 +512,7 @@ mod test {
             pgpool.clone(),
             *ALLOCATION_ID_0,
             SENDER.1,
-            escrow_accounts.clone(),
+            escrow_accounts_rx.clone(),
             EscrowAdapter::mock(),
         );
 
@@ -559,7 +561,7 @@ mod test {
                 {
                     $(
                         assert!(
-                        retrieve_range_and_check(&storage_adapter, &escrow_accounts, &received_receipt_vec, $arg)
+                        retrieve_range_and_check(&storage_adapter, escrow_accounts_rx.clone(), &received_receipt_vec, $arg)
                             .await
                             .is_ok());
                     )+
@@ -629,7 +631,7 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn remove_receipts_in_timestamp_range(pgpool: PgPool) {
-        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
+        let (_,escrow_accounts_rx) = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ));
@@ -638,7 +640,7 @@ mod test {
             pgpool,
             *ALLOCATION_ID_0,
             SENDER.1,
-            escrow_accounts.clone(),
+            escrow_accounts_rx.clone(),
             EscrowAdapter::mock(),
         );
 
@@ -675,7 +677,7 @@ mod test {
                 {
                     $(
                         assert!(
-                            remove_range_and_check(&storage_adapter, &escrow_accounts, &received_receipt_vec, $arg)
+                            remove_range_and_check(&storage_adapter, escrow_accounts_rx.clone(), &received_receipt_vec, $arg)
                             .await.is_ok()
                         );
                     ) +
