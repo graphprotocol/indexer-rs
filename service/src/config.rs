@@ -4,8 +4,8 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use indexer_common::indexer_service::http::{
-    DatabaseConfig, GraphNetworkConfig, GraphNodeConfig, IndexerConfig, IndexerServiceConfig,
-    ServerConfig, SubgraphConfig, TapConfig,
+    DatabaseConfig, GraphNetworkConfig, GraphNodeConfig, IndexerConfig, IndexerDipsConfig,
+    IndexerServiceConfig, ServerConfig, SubgraphConfig, TapConfig,
 };
 use indexer_config::Config as MainConfig;
 use serde::{Deserialize, Serialize};
@@ -76,6 +76,9 @@ impl From<MainConfig> for Config {
                 receipts_verifier_address: value.blockchain.receipts_verifier_address,
                 timestamp_error_tolerance: value.tap.rav_request.timestamp_buffer_secs.as_secs(),
                 receipt_max_value: value.service.tap.max_receipt_value_grt.get_value(),
+            },
+            dips: IndexerDipsConfig {
+                allowed_payers: value.dips.allowed_payers,
             },
         })
     }

@@ -1,12 +1,18 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
 use std::time::Duration;
+use std::{collections::HashMap, sync::Arc};
 
 use super::{config::Config, error::SubgraphServiceError, routes};
 use anyhow::anyhow;
-use axum::{async_trait, routing::post, Json, Router};
+use async_graphql::{EmptySubscription, Schema};
+use async_graphql_axum::GraphQL;
+use axum::{
+    async_trait,
+    routing::{post, post_service},
+    Json, Router,
+};
 use indexer_common::indexer_service::http::{
     AttestationOutput, IndexerServiceImpl, IndexerServiceResponse,
 };
@@ -14,9 +20,18 @@ use indexer_config::Config as MainConfig;
 use reqwest::Url;
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use thegraph_core::attestation::eip712_domain;
 use thegraph_core::DeploymentId;
+use tokio::sync::RwLock;
 
-use crate::{cli::Cli, database};
+use crate::{
+    cli::Cli,
+    database::{
+        self,
+        dips::{AgreementStore, InMemoryAgreementStore},
+    },
+    routes::dips::Price,
+};
 
 use clap::Parser;
 use indexer_common::indexer_service::http::{
@@ -174,6 +189,27 @@ pub async fn run() -> anyhow::Result<()> {
             .clone(),
     });
 
+    let agreement_store: Arc<dyn AgreementStore> = Arc::new(InMemoryAgreementStore {
+        data: RwLock::new(HashMap::new()),
+    });
+    let prices: Vec<Price> = vec![];
+
+    let schema = Schema::build(
+        routes::dips::AgreementQuery {},
+        routes::dips::AgreementMutation {
+            expected_payee: config.0.indexer.indexer_address,
+            allowed_payers: config.0.dips.allowed_payers.clone(),
+            domain: eip712_domain(
+                config.0.tap.chain_id,
+                config.0.tap.receipts_verifier_address,
+            ),
+        },
+        EmptySubscription,
+    )
+    .data(agreement_store)
+    .data(prices)
+    .finish();
+
     IndexerService::run(IndexerServiceOptions {
         release,
         config: config.0.clone(),
@@ -182,6 +218,7 @@ pub async fn run() -> anyhow::Result<()> {
         extra_routes: Router::new()
             .route("/cost", post(routes::cost::cost))
             .route("/status", post(routes::status))
+            .route("/dips", post_service(GraphQL::new(schema)))
             .with_state(state),
     })
     .await
