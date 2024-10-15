@@ -217,8 +217,23 @@ impl State {
             );
         };
         // we call and wait for the response so we don't process anymore update
-        let Ok((fees, rav)) = call!(allocation, SenderAllocationMessage::TriggerRAVRequest) else {
+        let Ok(rav_result) = call!(allocation, SenderAllocationMessage::TriggerRAVRequest) else {
             anyhow::bail!("Error while sending and waiting message for actor {allocation_id}");
+        };
+        let (fees, rav) = match rav_result {
+            Ok(ok_value) => {
+                self.rav_tracker.ok_rav_request(allocation_id);
+                ok_value
+            }
+            Err(err) => {
+                self.rav_tracker.failed_rav_backoff(allocation_id);
+                anyhow::bail!(
+                    "Error while requesting RAV for sender {} and allocation {}: {}",
+                    self.sender,
+                    allocation_id,
+                    err
+                );
+            }
         };
 
         let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);

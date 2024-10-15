@@ -105,9 +105,6 @@ pub struct SenderAllocationState {
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
 
-    failed_ravs_count: u32,
-    failed_rav_backoff: Instant,
-
     http_client: jsonrpsee::http_client::HttpClient,
 }
 
@@ -127,7 +124,7 @@ pub struct SenderAllocationArgs {
 #[derive(Debug)]
 pub enum SenderAllocationMessage {
     NewReceipt(NewReceiptNotification),
-    TriggerRAVRequest(RpcReplyPort<(UnaggregatedReceipts, Option<SignedRAV>)>),
+    TriggerRAVRequest(RpcReplyPort<anyhow::Result<(UnaggregatedReceipts, Option<SignedRAV>)>>),
     #[cfg(test)]
     GetUnaggregatedReceipts(RpcReplyPort<UnaggregatedReceipts>),
 }
@@ -255,13 +252,17 @@ impl Actor for SenderAllocation {
             }
             // we use a blocking call here to ensure that only one RAV request is running at a time.
             SenderAllocationMessage::TriggerRAVRequest(reply) => {
-                if state.unaggregated_fees.value > 0 {
-                    if let Err(err) = state.request_rav().await {
-                        error!(error = %err, "Error while requesting rav.");
-                    }
-                }
+                let rav_result = if state.unaggregated_fees.value > 0 {
+                    state
+                        .request_rav()
+                        .await
+                        .map(|_| (state.unaggregated_fees.clone(), state.latest_rav.clone()))
+                } else {
+                    Err(anyhow!("Unaggregated fee equals zero"))
+                };
+
                 if !reply.is_closed() {
-                    let _ = reply.send((state.unaggregated_fees.clone(), state.latest_rav.clone()));
+                    let _ = reply.send(rav_result);
                 }
             }
             #[cfg(test)]
@@ -332,8 +333,6 @@ impl SenderAllocationState {
             sender_account_ref: sender_account_ref.clone(),
             unaggregated_fees: UnaggregatedReceipts::default(),
             invalid_receipts_fees: UnaggregatedReceipts::default(),
-            failed_rav_backoff: Instant::now(),
-            failed_ravs_count: 0,
             latest_rav,
             http_client,
         })
@@ -446,14 +445,9 @@ impl SenderAllocationState {
                 RAVS_CREATED
                     .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
                     .inc();
-                self.failed_ravs_count = 0;
                 Ok(())
             }
             Err(e) => {
-                error!(
-                    "Error while requesting RAV for sender {} and allocation {}: {}",
-                    self.sender, self.allocation_id, e
-                );
                 if let RavError::AllReceiptsInvalid = e {
                     self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
                 }
