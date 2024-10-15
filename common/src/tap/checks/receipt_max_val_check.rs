@@ -6,9 +6,10 @@ pub struct ReceiptMaxValueCheck {
     receipt_max_value: u128,
 }
 
+#[allow(unused_imports)]
 use tap_core::{
     receipt::{
-        checks::{Check, CheckError, CheckList, CheckResult},
+        checks::{Check, CheckError, CheckResult},
         state::Checking,
         ReceiptWithState,
     },
@@ -41,8 +42,6 @@ mod tests {
     use std::str::FromStr;
     use std::time::Duration;
     use std::time::SystemTime;
-
-    use alloy::dyn_abi::Eip712Domain;
     use alloy::primitives::Address;
     use alloy::signers::local::coins_bip39::English;
     use alloy::signers::local::MnemonicBuilder;

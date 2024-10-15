@@ -480,7 +480,6 @@ impl SenderAllocationState {
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
-
     async fn rav_requester_single(&mut self) -> Result<SignedRAV, RavError> {
         tracing::trace!("rav_requester_single()");
         let RAVRequest {

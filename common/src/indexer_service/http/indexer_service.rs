@@ -1,10 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::HashMap, error::Error, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc,
-    time::Duration,
-};
 use alloy::dyn_abi::Eip712Domain;
 use anyhow;
 use axum::extract::MatchedPath;
@@ -23,6 +19,10 @@ use prometheus::TextEncoder;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
+use std::{
+    collections::HashMap, error::Error, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc,
+    time::Duration,
+};
 use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
 use thegraph_core::{Address, Attestation, DeploymentId};
 use thiserror::Error;

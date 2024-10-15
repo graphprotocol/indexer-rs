@@ -6,7 +6,7 @@ use std::{collections::HashMap, str::FromStr};
 use alloy::{
     dyn_abi::Eip712Domain,
     primitives::U256,
-    signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner}
+    signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
 };
 use lazy_static::lazy_static;
 use tap_core::{

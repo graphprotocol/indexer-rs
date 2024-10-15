@@ -7,10 +7,10 @@ pub struct TimestampCheck {
     timestamp_error_tolerance: Duration,
 }
 
+#[allow(unused_imports)]
 use tap_core::{
-    manager::Manager,
     receipt::{
-        checks::{Check, CheckError, CheckList, CheckResult},
+        checks::{Check, CheckError, CheckResult},
         state::Checking,
         ReceiptWithState,
     },
@@ -51,9 +51,8 @@ mod tests {
     use std::str::FromStr;
 
     use alloy::{
-        dyn_abi::Eip712Domain,
         primitives::Address,
-        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner}
+        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     };
 
     use super::*;

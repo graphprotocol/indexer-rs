@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::{dyn_abi::Eip712Domain};
+use alloy::dyn_abi::Eip712Domain;
 use lazy_static::lazy_static;
 use tap_core::tap_eip712_domain;
 
