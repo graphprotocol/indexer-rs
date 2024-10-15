@@ -13,7 +13,7 @@ use lazy_static::lazy_static;
 use tap_core::{
     receipt::{Receipt, SignedReceipt},
     signed_message::EIP712SignedMessage,
-    tap_eip712_domain
+    tap_eip712_domain,
 };
 use thegraph_core::{Address, DeploymentId};
 

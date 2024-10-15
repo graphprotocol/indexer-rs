@@ -295,7 +295,7 @@ impl IndexerService {
 
         let domain_separator = tap_eip712_domain(
             options.config.tap.chain_id,
-            options.config.tap.receipts_verifier_address
+            options.config.tap.receipts_verifier_address,
         );
         let indexer_context =
             IndexerTapContext::new(database.clone(), domain_separator.clone()).await;

@@ -15,7 +15,6 @@ use tap_core::{
     tap_eip712_domain,
 };
 
-
 impl ReceiptMaxValueCheck {
     pub fn new(receipt_max_value: u128) -> Self {
         Self { receipt_max_value }
@@ -65,10 +64,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let eip712_domain_separator: Eip712Domain = tap_eip712_domain(
-            1,
-            Address:: from([0x11u8; 20]),
-        );
+        let eip712_domain_separator: Eip712Domain =
+            tap_eip712_domain(1, Address::from([0x11u8; 20]));
 
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
