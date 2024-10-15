@@ -13,6 +13,7 @@ use lazy_static::lazy_static;
 use tap_core::{
     receipt::{Receipt, SignedReceipt},
     signed_message::EIP712SignedMessage,
+    tap_eip712_domain
 };
 use thegraph_core::{Address, DeploymentId};
 
@@ -252,12 +253,10 @@ lazy_static! {
         (wallet, address)
     };
 
-    pub static ref TAP_EIP712_DOMAIN: Eip712Domain = eip712_domain! {
-        name: "TAP",
-        version: "1",
-        chain_id: 1,
-        verifying_contract: Address::from([0x11u8; 20]),
-    };
+    pub static ref TAP_EIP712_DOMAIN: Eip712Domain = tap_eip712_domain(
+        1,
+        Address::from([0x11u8; 20])
+    );
 }
 
 /// Function to generate a signed receipt using the TAP_SIGNER wallet.
