@@ -40,6 +40,21 @@ pub struct SenderFeeTracker {
     // heaviest allocation, because they are already marked for finalization,
     // and thus requesting RAVs on their own in their `post_stop` routine.
     blocked_addresses: HashSet<Address>,
+    failed_ravs: HashMap<Address, FailedRavInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FailedRavInfo {
+    failed_ravs_count: u32,
+    failed_rav_backoff: Instant,
+}
+impl Default for FailedRavInfo {
+    fn default() -> Self {
+        Self {
+            failed_ravs_count: 0,
+            failed_rav_backoff: Instant::now(),
+        }
+    }
 }
 
 impl SenderFeeTracker {
@@ -100,9 +115,16 @@ impl SenderFeeTracker {
 
     pub fn get_heaviest_allocation_id(&mut self) -> Option<Address> {
         // just loop over and get the biggest fee
+        let now = Instant::now();
         self.id_to_fee
             .iter()
             .filter(|(addr, _)| !self.blocked_addresses.contains(*addr))
+            .filter(|(addr, _)| {
+                self.failed_ravs
+                    .get(*addr)
+                    .map(|failed_rav| now > failed_rav.failed_rav_backoff)
+                    .unwrap_or(true)
+            })
             // map to the value minus fees in buffer
             .map(|(addr, fee)| {
                 (
@@ -147,6 +169,17 @@ impl SenderFeeTracker {
             .fold(0u128, |acc, expiring| {
                 acc + expiring.get_sum(&self.buffer_window_duration)
             })
+    }
+    pub fn failed_rav_backoff(&mut self, allocation_id: Address) {
+        // backoff = max(100ms * 2 ^ retries, 60s)
+        let failed_rav = self.failed_ravs.entry(allocation_id).or_default();
+        failed_rav.failed_rav_backoff = Instant::now()
+            + (Duration::from_millis(100) * 2u32.pow(failed_rav.failed_ravs_count))
+                .max(Duration::from_secs(60));
+        failed_rav.failed_ravs_count += 1;
+    }
+    pub fn ok_rav_request(&mut self, allocation_id: Address) {
+        self.failed_ravs.remove(&allocation_id);
     }
 }
 

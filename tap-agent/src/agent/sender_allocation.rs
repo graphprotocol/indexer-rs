@@ -256,16 +256,8 @@ impl Actor for SenderAllocation {
             // we use a blocking call here to ensure that only one RAV request is running at a time.
             SenderAllocationMessage::TriggerRAVRequest(reply) => {
                 if state.unaggregated_fees.value > 0 {
-                    // auto backoff retry, on error ignore
-                    if Instant::now() > state.failed_rav_backoff {
-                        if let Err(err) = state.request_rav().await {
-                            error!(error = %err, "Error while requesting rav.");
-                        }
-                    } else {
-                        error!(
-                            "Can't trigger rav request until {:?} (backoff)",
-                            state.failed_rav_backoff
-                        );
+                    if let Err(err) = state.request_rav().await {
+                        error!(error = %err, "Error while requesting rav.");
                     }
                 }
                 if !reply.is_closed() {
@@ -468,11 +460,6 @@ impl SenderAllocationState {
                 RAVS_FAILED
                     .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
                     .inc();
-                // backoff = max(100ms * 2 ^ retries, 60s)
-                self.failed_rav_backoff = Instant::now()
-                    + (Duration::from_millis(100) * 2u32.pow(self.failed_ravs_count))
-                        .max(Duration::from_secs(60));
-                self.failed_ravs_count += 1;
                 Err(e.into())
             }
         }
