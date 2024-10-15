@@ -13,7 +13,7 @@ jobs:
     container:
       image: rust:1.80-bookworm
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
       - run: |
           rustup component add rustfmt
           cargo fmt --all -- --check
@@ -38,7 +38,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
       - name: Cache dependencies
         uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 #v2.7.3
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -66,7 +66,7 @@ jobs:
       DATABASE_URL: postgres://postgres@postgres:5432
       SQLX_OFFLINE: true
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
       - name: Cache dependencies
         uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 #v2.7.3
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -107,7 +107,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
       - name: Cache dependencies
         uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 #v2.7.3
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -157,7 +157,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
       - name: Cache dependencies
         uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 #v2.7.3
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
