@@ -5,8 +5,7 @@ use std::str::FromStr;
 
 use alloy::{
     primitives::hex::ToHexExt,
-    signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
-    sol_types::eip712_domain,
+    signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner}
 };
 use bigdecimal::num_bigint::BigInt;
 

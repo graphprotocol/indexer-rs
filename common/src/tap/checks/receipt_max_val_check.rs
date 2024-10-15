@@ -47,7 +47,6 @@ mod tests {
     use alloy::signers::local::coins_bip39::English;
     use alloy::signers::local::MnemonicBuilder;
     use alloy::signers::local::PrivateKeySigner;
-    use alloy::sol_types::eip712_domain;
 
     use super::*;
     use tap_core::{

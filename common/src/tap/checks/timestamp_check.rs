@@ -53,8 +53,7 @@ mod tests {
     use alloy::{
         dyn_abi::Eip712Domain,
         primitives::Address,
-        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
-        sol_types::eip712_domain,
+        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner}
     };
 
     use super::*;

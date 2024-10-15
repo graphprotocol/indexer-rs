@@ -5,9 +5,7 @@ use std::{
     collections::HashMap, error::Error, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc,
     time::Duration,
 };
-
 use alloy::dyn_abi::Eip712Domain;
-use alloy::sol_types::eip712_domain;
 use anyhow;
 use axum::extract::MatchedPath;
 use axum::extract::Request as ExtractRequest;
