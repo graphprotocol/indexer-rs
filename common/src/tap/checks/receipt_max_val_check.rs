@@ -6,14 +6,10 @@ pub struct ReceiptMaxValueCheck {
     receipt_max_value: u128,
 }
 
-#[allow(unused_imports)]
-use tap_core::{
-    receipt::{
-        checks::{Check, CheckError, CheckResult},
-        state::Checking,
-        ReceiptWithState,
-    },
-    tap_eip712_domain,
+use tap_core::receipt::{
+    checks::{Check, CheckError, CheckResult},
+    state::Checking,
+    ReceiptWithState,
 };
 
 impl ReceiptMaxValueCheck {
@@ -39,18 +35,19 @@ impl Check for ReceiptMaxValueCheck {
 }
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-    use std::time::Duration;
-    use std::time::SystemTime;
     use alloy::primitives::Address;
     use alloy::signers::local::coins_bip39::English;
     use alloy::signers::local::MnemonicBuilder;
     use alloy::signers::local::PrivateKeySigner;
+    use std::str::FromStr;
+    use std::time::Duration;
+    use std::time::SystemTime;
 
     use super::*;
     use tap_core::{
         receipt::{checks::Check, state::Checking, Receipt, ReceiptWithState},
         signed_message::EIP712SignedMessage,
+        tap_eip712_domain,
     };
 
     fn create_signed_receipt_with_custom_value(value: u128) -> ReceiptWithState<Checking> {

@@ -7,14 +7,10 @@ pub struct TimestampCheck {
     timestamp_error_tolerance: Duration,
 }
 
-#[allow(unused_imports)]
-use tap_core::{
-    receipt::{
-        checks::{Check, CheckError, CheckResult},
-        state::Checking,
-        ReceiptWithState,
-    },
-    tap_eip712_domain,
+use tap_core::receipt::{
+    checks::{Check, CheckError, CheckResult},
+    state::Checking,
+    ReceiptWithState,
 };
 
 impl TimestampCheck {
