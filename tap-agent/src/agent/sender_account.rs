@@ -216,8 +216,23 @@ impl State {
             );
         };
         // we call and wait for the response so we don't process anymore update
-        let Ok((fees, rav)) = call!(allocation, SenderAllocationMessage::TriggerRAVRequest) else {
+        let Ok(rav_result) = call!(allocation, SenderAllocationMessage::TriggerRAVRequest) else {
             anyhow::bail!("Error while sending and waiting message for actor {allocation_id}");
+        };
+        let (fees, rav) = match rav_result {
+            Ok(ok_value) => {
+                self.rav_tracker.ok_rav_request(allocation_id);
+                ok_value
+            }
+            Err(err) => {
+                self.rav_tracker.failed_rav_backoff(allocation_id);
+                anyhow::bail!(
+                    "Error while requesting RAV for sender {} and allocation {}: {}",
+                    self.sender,
+                    allocation_id,
+                    err
+                );
+            }
         };
 
         let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
@@ -1058,7 +1073,6 @@ pub mod tests {
         next_unaggregated_fees_value: Arc<Mutex<u128>>,
         receipts: Arc<Mutex<Vec<NewReceiptNotification>>>,
     }
-
     impl MockSenderAllocation {
         pub fn new_with_triggered_rav_request() -> (Self, Arc<AtomicU32>, Arc<Mutex<u128>>) {
             let triggered_rav_request = Arc::new(AtomicU32::new(0));
@@ -1145,13 +1159,13 @@ pub mod tests {
                         4,
                         *self.next_rav_value.lock().unwrap(),
                     );
-                    reply.send((
+                    reply.send(Ok((
                         UnaggregatedReceipts {
                             value: *self.next_unaggregated_fees_value.lock().unwrap(),
                             last_id: 0,
                         },
                         Some(signed_rav),
-                    ))?;
+                    )))?;
                 }
                 SenderAllocationMessage::NewReceipt(receipt) => {
                     self.receipts.lock().unwrap().push(receipt);
