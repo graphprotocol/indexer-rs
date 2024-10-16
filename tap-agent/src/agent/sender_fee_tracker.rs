@@ -48,6 +48,7 @@ pub struct FailedRavInfo {
     failed_ravs_count: u32,
     failed_rav_backoff_time: Instant,
 }
+
 impl Default for FailedRavInfo {
     fn default() -> Self {
         Self {
