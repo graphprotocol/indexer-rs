@@ -27,11 +27,29 @@ impl ExpiringSum {
         }
         self.sum
     }
+
+    fn get_count(&mut self, duration: &Duration) -> usize {
+        let now = Instant::now();
+        while let Some(&(timestamp, _)) = self.entries.front() {
+            if now.duration_since(timestamp) >= *duration {
+                self.entries.pop_front();
+            } else {
+                break;
+            }
+        }
+        self.entries.len()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FeeCounter {
+    fee: u128,
+    count: usize,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct SenderFeeTracker {
-    id_to_fee: HashMap<Address, u128>,
+    id_to_fee: HashMap<Address, FeeCounter>,
     total_fee: u128,
 
     fees_requesting: u128,
@@ -82,7 +100,8 @@ impl SenderFeeTracker {
         }
         self.total_fee += value;
         let entry = self.id_to_fee.entry(id).or_default();
-        *entry += value;
+        entry.fee += value;
+        entry.count += 1;
     }
 
     /// Updates and overwrite the fee counter into the specific
@@ -92,8 +111,8 @@ impl SenderFeeTracker {
     pub fn update(&mut self, id: Address, fee: u128) {
         if fee > 0 {
             // insert or update, if update remove old fee from total
-            if let Some(old_fee) = self.id_to_fee.insert(id, fee) {
-                self.total_fee -= old_fee;
+            if let Some(old_fee) = self.id_to_fee.insert(id, FeeCounter { fee, count: 0 }) {
+                self.total_fee -= old_fee.fee;
             }
             self.total_fee = self.total_fee.checked_add(fee).unwrap_or_else(|| {
                 // This should never happen, but if it does, we want to know about it.
@@ -105,7 +124,7 @@ impl SenderFeeTracker {
                 u128::MAX
             });
         } else if let Some(old_fee) = self.id_to_fee.remove(&id) {
-            self.total_fee -= old_fee;
+            self.total_fee -= old_fee.fee;
         }
     }
 
@@ -134,11 +153,12 @@ impl SenderFeeTracker {
             .map(|(addr, fee)| {
                 (
                     addr,
-                    fee - self
-                        .buffer_window_fee
-                        .get_mut(addr)
-                        .map(|expiring| expiring.get_sum(&self.buffer_window_duration))
-                        .unwrap_or_default(),
+                    fee.fee
+                        - self
+                            .buffer_window_fee
+                            .get_mut(addr)
+                            .map(|expiring| expiring.get_sum(&self.buffer_window_duration))
+                            .unwrap_or_default(),
                 )
             })
             .filter(|(_, fee)| *fee > 0)
@@ -166,6 +186,25 @@ impl SenderFeeTracker {
 
     pub fn get_total_fee_outside_buffer(&mut self) -> u128 {
         self.get_total_fee() - self.get_buffer_fee().min(self.total_fee)
+    }
+
+    pub fn get_total_counter_outside_buffer_for_allocation(
+        &mut self,
+        allocation_id: &Address,
+    ) -> usize {
+        let Some(allocation_counter) = self
+            .id_to_fee
+            .get(allocation_id)
+            .map(|fee_counter| fee_counter.count)
+        else {
+            return 0;
+        };
+        let counter_in_buffer = self
+            .buffer_window_fee
+            .get_mut(allocation_id)
+            .map(|window| window.get_count(&self.buffer_window_duration))
+            .unwrap_or(0);
+        allocation_counter - counter_in_buffer
     }
 
     pub fn get_buffer_fee(&mut self) -> u128 {
