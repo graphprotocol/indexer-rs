@@ -1162,6 +1162,7 @@ pub mod tests {
             sender_allocation,
             SenderAllocationMessage::TriggerRAVRequest
         )
+        .unwrap()
         .unwrap();
 
         // Check that the unaggregated fees are correct.
@@ -1481,6 +1482,7 @@ pub mod tests {
             sender_allocation,
             SenderAllocationMessage::TriggerRAVRequest
         )
+        .unwrap()
         .unwrap();
 
         // expect the actor to keep running
@@ -1552,6 +1554,7 @@ pub mod tests {
             sender_allocation,
             SenderAllocationMessage::TriggerRAVRequest
         )
+        .unwrap()
         .unwrap();
         assert_eq!(total_unaggregated_fees.value, 0);
 

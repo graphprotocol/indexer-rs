@@ -1184,13 +1184,13 @@ pub mod tests {
                         4,
                         *self.next_rav_value.lock().unwrap(),
                     );
-                    reply.send((
+                    reply.send(Ok((
                         UnaggregatedReceipts {
                             value: *self.next_unaggregated_fees_value.lock().unwrap(),
                             last_id: 0,
                         },
                         Some(signed_rav),
-                    ))?;
+                    )))?;
                 }
                 SenderAllocationMessage::NewReceipt(receipt) => {
                     self.receipts.lock().unwrap().push(receipt);
