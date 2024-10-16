@@ -23,6 +23,7 @@ use thegraph_core::Address;
 use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
+use super::sender_fee_tracker::{BufferedReceiptFee, DurationInfo};
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::agent::sender_fee_tracker::SenderFeeTracker;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
@@ -92,7 +93,7 @@ pub enum SenderAccountMessage {
     UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
     UpdateRav(SignedRAV),
     #[cfg(test)]
-    GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
+    GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker<BufferedReceiptFee, DurationInfo>>),
     #[cfg(test)]
     GetDeny(ractor::RpcReplyPort<bool>),
     #[cfg(test)]
@@ -126,9 +127,9 @@ pub struct SenderAccountArgs {
 }
 pub struct State {
     prefix: Option<String>,
-    sender_fee_tracker: SenderFeeTracker,
-    rav_tracker: SenderFeeTracker,
-    invalid_receipts_tracker: SenderFeeTracker,
+    sender_fee_tracker: SenderFeeTracker<BufferedReceiptFee, DurationInfo>,
+    rav_tracker: SenderFeeTracker<u128>,
+    invalid_receipts_tracker: SenderFeeTracker<u128>,
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: PipeHandle,
     _escrow_account_monitor: PipeHandle,
@@ -463,6 +464,7 @@ impl Actor for SenderAccount {
             sender_fee_tracker: SenderFeeTracker::new(Duration::from_millis(
                 config.tap.rav_request_timestamp_buffer_ms,
             )),
+            // sender_fee_tracker: SenderFeeTracker::new(),
             rav_tracker: SenderFeeTracker::default(),
             invalid_receipts_tracker: SenderFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
