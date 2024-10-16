@@ -176,7 +176,7 @@ impl SenderFeeTracker {
         let failed_rav = self.failed_ravs.entry(allocation_id).or_default();
         failed_rav.failed_rav_backoff_time = Instant::now()
             + (Duration::from_millis(100) * 2u32.pow(failed_rav.failed_ravs_count))
-                .max(Duration::from_secs(60));
+                .min(Duration::from_secs(60));
         failed_rav.failed_ravs_count += 1;
     }
     pub fn ok_rav_request(&mut self, allocation_id: Address) {
@@ -327,7 +327,7 @@ mod tests {
     fn test_filtered_backed_off_allocations() {
         let allocation_id_0 = address!("abababababababababababababababababababab");
         let allocation_id_1 = address!("bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc");
-        const BUFFER_WINDOW: Duration = Duration::from_secs(61);
+        const BACK_SLEEP_DURATION: Duration = Duration::from_millis(201);
 
         let mut tracker = SenderFeeTracker::default();
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
@@ -348,7 +348,7 @@ mod tests {
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee(), 30);
 
-        sleep(BUFFER_WINDOW);
+        sleep(BACK_SLEEP_DURATION);
 
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee(), 30);
