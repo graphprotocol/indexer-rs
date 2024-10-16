@@ -46,13 +46,13 @@ pub struct SenderFeeTracker {
 #[derive(Debug, Clone)]
 pub struct FailedRavInfo {
     failed_ravs_count: u32,
-    failed_rav_backoff: Instant,
+    failed_rav_backoff_time: Instant,
 }
 impl Default for FailedRavInfo {
     fn default() -> Self {
         Self {
             failed_ravs_count: 0,
-            failed_rav_backoff: Instant::now(),
+            failed_rav_backoff_time: Instant::now(),
         }
     }
 }
@@ -122,7 +122,7 @@ impl SenderFeeTracker {
             .filter(|(addr, _)| {
                 self.failed_ravs
                     .get(*addr)
-                    .map(|failed_rav| now > failed_rav.failed_rav_backoff)
+                    .map(|failed_rav| now > failed_rav.failed_rav_backoff_time)
                     .unwrap_or(true)
             })
             // map to the value minus fees in buffer
@@ -173,7 +173,7 @@ impl SenderFeeTracker {
     pub fn failed_rav_backoff(&mut self, allocation_id: Address) {
         // backoff = max(100ms * 2 ^ retries, 60s)
         let failed_rav = self.failed_ravs.entry(allocation_id).or_default();
-        failed_rav.failed_rav_backoff = Instant::now()
+        failed_rav.failed_rav_backoff_time = Instant::now()
             + (Duration::from_millis(100) * 2u32.pow(failed_rav.failed_ravs_count))
                 .max(Duration::from_secs(60));
         failed_rav.failed_ravs_count += 1;
@@ -320,5 +320,36 @@ mod tests {
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee_outside_buffer(), 0);
         assert_eq!(tracker.get_total_fee(), 0);
+    }
+
+    #[test]
+    fn test_filtered_backed_off_allocations() {
+        let allocation_id_0 = address!("abababababababababababababababababababab");
+        let allocation_id_1 = address!("bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc");
+        const BUFFER_WINDOW: Duration = Duration::from_secs(61);
+
+        let mut tracker = SenderFeeTracker::default();
+        assert_eq!(tracker.get_heaviest_allocation_id(), None);
+        assert_eq!(tracker.get_total_fee(), 0);
+
+        tracker.update(allocation_id_0, 10);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
+        assert_eq!(tracker.get_total_fee(), 10);
+
+        tracker.update(allocation_id_1, 20);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
+        assert_eq!(tracker.get_total_fee(), 30);
+
+        // Simulate failed rav and backoff
+        tracker.failed_rav_backoff(allocation_id_1);
+
+        // Heaviest should be the first since its not blocked nor failed
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
+        assert_eq!(tracker.get_total_fee(), 30);
+
+        sleep(BUFFER_WINDOW);
+
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
+        assert_eq!(tracker.get_total_fee(), 30);
     }
 }
