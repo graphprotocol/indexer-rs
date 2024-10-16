@@ -1,0 +1,54 @@
+[indexer]
+indexer_address = "${INDEXER_SERVICE_INDEXER_ADDRESS}"
+operator_mnemonic = "${INDEXER_SERVICE_MNEMONIC}"
+
+[database]
+host = "${INDEXER_SERVICE_POSTGRES_HOST}"
+user = "${INDEXER_SERVICE_POSTGRES_USERNAME}"
+password = "${INDEXER_SERVICE_POSTGRES_PASSWORD}"
+database = "${INDEXER_SERVICE_POSTGRES_DATABASE}"
+
+[graph_node]
+# URL to your graph-node's query endpoint
+query_url = "${INDEXER_SERVICE_GRAPH_NODE_QUERY_ENDPOINT}"
+# URL to your graph-node's status endpoint
+status_url = "${INDEXER_SERVICE_GRAPH_NODE_STATUS_ENDPOINT}"
+
+[subgraphs.network]
+# Query URL for the Graph Network subgraph.
+query_url = "${INDEXER_SERVICE_NETWORK_SUBGRAPH_ENDPOINT}"
+deployment_id = "${INDEXER_SERVICE_NETWORK_SUBGRAPH_DEPLOYMENT}"
+
+# [subgraphs.escrow]
+# INDEXER_SUBGRAPHS__ESCROW__QUERY_URL
+# query_url = ""
+# INDEXER_SUBGRAPHS__ESCROW__DEPLOYMENT_ID
+# deployment_id = ""
+
+[blockchain]
+chain_id = 42161
+# Contract address of TAP's receipt aggregate voucher (RAV) verifier.
+receipts_verifier_address = "0x33f9E93266ce0E108fc85DdE2f71dab555A0F05a"
+
+##############################################
+# Specific configurations to indexer-service #
+##############################################
+[service]
+# Host and port to serve the indexer-service query endpoint. This one should have a
+# public ingress.
+host_and_port = "0.0.0.0:${INDEXER_SERVICE_PORT}"
+# Serve the network subgraph on `common.server.host_and_port`/network
+# INDEXER_SERVICE__SERVE_NETWORK_SUBGRAPH
+# serve_network_subgraph = false
+# Serve the escrow subgraph on `common.server.host_and_port`/escrow
+# INDEXER_SERVICE__SERVE_ESCROW_SUBGRAPH
+# serve_escrow_subgraph = false
+
+free_query_auth_token = "${INDEXER_SERVICE_FREE_QUERY_AUTH_TOKEN}"
+
+########################################
+# Specific configurations to tap-agent #
+########################################
+[tap.sender_aggregator_endpoints]
+# Key-Value of all senders and their aggregator endpoints
+0xDDE4cfFd3D9052A9cb618fC05a1Cd02be1f2F467 = "https://tap-aggregator.network.thegraph.com"
