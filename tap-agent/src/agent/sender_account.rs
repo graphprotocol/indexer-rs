@@ -26,6 +26,7 @@ use tap_core::rav::SignedRAV;
 use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
+use super::sender_fee_tracker::{BufferedReceiptFee, DurationInfo};
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::agent::sender_fee_tracker::SenderFeeTracker;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
@@ -96,7 +97,7 @@ pub enum SenderAccountMessage {
     UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
     UpdateRav(SignedRAV),
     #[cfg(test)]
-    GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
+    GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker<BufferedReceiptFee, DurationInfo>>),
     #[cfg(test)]
     GetDeny(ractor::RpcReplyPort<bool>),
     #[cfg(test)]
@@ -130,9 +131,9 @@ pub struct SenderAccountArgs {
 }
 pub struct State {
     prefix: Option<String>,
-    sender_fee_tracker: SenderFeeTracker,
-    rav_tracker: SenderFeeTracker,
-    invalid_receipts_tracker: SenderFeeTracker,
+    sender_fee_tracker: SenderFeeTracker<BufferedReceiptFee, DurationInfo>,
+    rav_tracker: SenderFeeTracker<u128>,
+    invalid_receipts_tracker: SenderFeeTracker<u128>,
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: PipeHandle,
     _escrow_account_monitor: PipeHandle,
@@ -469,6 +470,7 @@ impl Actor for SenderAccount {
             sender_fee_tracker: SenderFeeTracker::new(Duration::from_millis(
                 config.tap.rav_request_timestamp_buffer_ms,
             )),
+            // sender_fee_tracker: SenderFeeTracker::new(),
             rav_tracker: SenderFeeTracker::default(),
             invalid_receipts_tracker: SenderFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
@@ -582,7 +584,7 @@ impl Actor for SenderAccount {
                         state.sender_fee_tracker.finish_rav_request(allocation_id);
                         match rav_result {
                             Ok((fees, rav)) => {
-                                state.rav_tracker.ok_rav_request(allocation_id);
+                                state.sender_fee_tracker.ok_rav_request(allocation_id);
 
                                 let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
                                 // update rav tracker
@@ -608,7 +610,7 @@ impl Actor for SenderAccount {
                                     .set(fees.value as f64);
                             }
                             Err(err) => {
-                                state.rav_tracker.failed_rav_backoff(allocation_id);
+                                state.sender_fee_tracker.failed_rav_backoff(allocation_id);
                                 error!(
                                     "Error while requesting RAV for sender {} and allocation {}: {}",
                                     state.sender,
