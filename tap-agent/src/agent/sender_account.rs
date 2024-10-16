@@ -1099,18 +1099,20 @@ pub mod tests {
     }
 
     impl MockSenderAllocation {
-        pub fn new_with_triggered_rav_request() -> (Self, Arc<AtomicU32>, Arc<Mutex<u128>>) {
+        pub fn new_with_triggered_rav_request(
+        ) -> (Self, Result<(Arc<AtomicU32>, Arc<Mutex<u128>>), ()>) {
             let triggered_rav_request = Arc::new(AtomicU32::new(0));
             let unaggregated_fees = Arc::new(Mutex::new(0));
+            let mock_rav_request_response =
+                (triggered_rav_request.clone(), unaggregated_fees.clone());
             (
                 Self {
-                    triggered_rav_request: triggered_rav_request.clone(),
+                    triggered_rav_request: triggered_rav_request,
                     receipts: Arc::new(Mutex::new(Vec::new())),
                     next_rav_value: Arc::new(Mutex::new(0)),
-                    next_unaggregated_fees_value: unaggregated_fees.clone(),
+                    next_unaggregated_fees_value: unaggregated_fees,
                 },
-                triggered_rav_request,
-                unaggregated_fees,
+                Ok(mock_rav_request_response),
             )
         }
 
@@ -1211,8 +1213,9 @@ pub mod tests {
         ActorRef<SenderAllocationMessage>,
         JoinHandle<()>,
     ) {
-        let (mock_sender_allocation, triggered_rav_request, next_unaggregated_fees) =
+        let (mock_sender_allocation, rav_request_result) =
             MockSenderAllocation::new_with_triggered_rav_request();
+        let (triggered_rav_request, next_unaggregated_fees) = rav_request_result.unwrap();
 
         let name = format!("{}:{}:{}", prefix, sender, allocation);
         let (sender_account, join_handle) =
