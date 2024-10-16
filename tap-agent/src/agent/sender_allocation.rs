@@ -1476,12 +1476,14 @@ pub mod tests {
         let sender_allocation =
             create_sender_allocation(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None).await;
 
-        let response = call!(
+        let rav_response = call!(
             sender_allocation,
             SenderAllocationMessage::TriggerRAVRequest
-        );
+        )
+        .unwrap();
         // If it is an error then rav request failed
-        assert!(response.is_err());
+        assert!(rav_response.is_err());
+
         // expect the actor to keep running
         assert_eq!(sender_allocation.get_status(), ActorStatus::Running);
 
@@ -1548,13 +1550,13 @@ pub mod tests {
         .await;
         // Trigger a RAV request manually and wait for updated fees.
         // this should fail because there's no receipt with valid timestamp
-        let (total_unaggregated_fees, _rav) = call!(
+        let rav_response = call!(
             sender_allocation,
             SenderAllocationMessage::TriggerRAVRequest
         )
-        .unwrap()
         .unwrap();
-        assert_eq!(total_unaggregated_fees.value, 0);
+        // If it is an error then rav request failed
+        assert!(rav_response.is_err());
 
         let invalid_receipts = sqlx::query!(
             r#"
