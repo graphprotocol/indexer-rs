@@ -151,7 +151,7 @@ pub struct State {
     domain_separator: Eip712Domain,
     config: &'static config::Config,
     pgpool: PgPool,
-    http_client: jsonrpsee::http_client::HttpClient,
+    sender_aggregator: jsonrpsee::http_client::HttpClient,
 }
 
 impl State {
@@ -175,7 +175,7 @@ impl State {
             escrow_adapter: self.escrow_adapter.clone(),
             domain_separator: self.domain_separator.clone(),
             sender_account_ref: sender_account_ref.clone(),
-            http_client: self.http_client.clone(),
+            sender_aggregator: self.sender_aggregator.clone(),
         };
 
         SenderAllocation::spawn_linked(
@@ -446,7 +446,7 @@ impl Actor for SenderAccount {
             .with_label_values(&[&sender_id.to_string()])
             .set(config.tap.rav_request_trigger_value as f64);
 
-        let http_client = HttpClientBuilder::default()
+        let sender_aggregator = HttpClientBuilder::default()
             .request_timeout(Duration::from_secs(config.tap.rav_request_timeout_secs))
             .build(&sender_aggregator_endpoint)?;
 
@@ -464,7 +464,7 @@ impl Actor for SenderAccount {
             escrow_subgraph,
             escrow_adapter,
             domain_separator,
-            http_client,
+            sender_aggregator,
             config,
             pgpool,
             sender: sender_id,

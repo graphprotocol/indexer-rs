@@ -105,7 +105,7 @@ pub struct SenderAllocationState {
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
 
-    http_client: jsonrpsee::http_client::HttpClient,
+    sender_aggregator: jsonrpsee::http_client::HttpClient,
 }
 
 pub struct SenderAllocationArgs {
@@ -118,7 +118,7 @@ pub struct SenderAllocationArgs {
     pub escrow_adapter: EscrowAdapter,
     pub domain_separator: Eip712Domain,
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
-    pub http_client: jsonrpsee::http_client::HttpClient,
+    pub sender_aggregator: jsonrpsee::http_client::HttpClient,
 }
 
 #[derive(Debug)]
@@ -291,7 +291,7 @@ impl SenderAllocationState {
             escrow_adapter,
             domain_separator,
             sender_account_ref,
-            http_client,
+            sender_aggregator,
         }: SenderAllocationArgs,
     ) -> anyhow::Result<Self> {
         let required_checks: Vec<Arc<dyn Check + Send + Sync>> = vec![
@@ -332,7 +332,7 @@ impl SenderAllocationState {
             unaggregated_fees: UnaggregatedReceipts::default(),
             invalid_receipts_fees: UnaggregatedReceipts::default(),
             latest_rav,
-            http_client,
+            sender_aggregator,
         })
     }
 
@@ -510,7 +510,7 @@ impl SenderAllocationState {
                     .collect();
                 let rav_response_time_start = Instant::now();
                 let response: JsonRpcResponse<EIP712SignedMessage<ReceiptAggregateVoucher>> = self
-                    .http_client
+                    .sender_aggregator
                     .request(
                         "aggregate_receipts",
                         rpc_params!(
@@ -915,7 +915,7 @@ pub mod tests {
             None => create_mock_sender_account().await.1,
         };
 
-        let http_client = HttpClientBuilder::default()
+        let sender_aggregator = HttpClientBuilder::default()
             .build(&sender_aggregator_endpoint)
             .unwrap();
         SenderAllocationArgs {
@@ -928,7 +928,7 @@ pub mod tests {
             escrow_adapter,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             sender_account_ref,
-            http_client,
+            sender_aggregator,
         }
     }
 
