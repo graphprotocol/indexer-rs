@@ -24,11 +24,11 @@ struct DisputeManager;
 pub fn dispute_manager(
     network_subgraph: &'static SubgraphClient,
     interval: Duration,
-) -> Receiver<Address> {
-    let (tx, rx) = watch::channel(Address::default());
+) -> Receiver<Option<Address>> {
+    let (tx, rx) = watch::channel(None);
     tokio::spawn(async move {
         let mut time_interval = time::interval(interval);
-
+        time_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
         loop {
             time_interval.tick().await;
 
@@ -48,7 +48,7 @@ pub fn dispute_manager(
 
             match result {
                 Ok(address) => {
-                    if tx.send(address).is_err() {
+                    if tx.send(Some(address)).is_err() {
                         // stopping
                         break;
                     }
@@ -118,6 +118,6 @@ mod test {
         let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(60));
         sleep(Duration::from_millis(50)).await;
         let result = *dispute_manager.borrow();
-        assert_eq!(result, *DISPUTE_MANAGER_ADDRESS);
+        assert_eq!(result.unwrap(), *DISPUTE_MANAGER_ADDRESS);
     }
 }

@@ -1,41 +1,58 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use eventuals::{Eventual, EventualExt};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thegraph_core::{Address, ChainId};
-use tokio::sync::{watch, watch::Receiver, Mutex};
+use tokio::sync::watch;
+use tokio::{
+    select,
+    sync::{watch::Receiver, Mutex},
+};
 use tracing::warn;
 
 use crate::prelude::{Allocation, AttestationSigner};
 
 /// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
 pub fn attestation_signers(
-    mut indexer_allocations: Receiver<HashMap<Address, Allocation>>,
+    indexer_allocations: Eventual<HashMap<Address, Allocation>>,
     indexer_mnemonic: String,
     chain_id: ChainId,
-    mut dispute_manager: Receiver<Address>,
-) -> Receiver<HashMap<Address, AttestationSigner>> {
+    mut dispute_manager_rx: Receiver<Option<Address>>,
+) -> Eventual<HashMap<Address, AttestationSigner>> {
     let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
         Box::leak(Box::new(Mutex::new(HashMap::new())));
+
     let indexer_mnemonic = Arc::new(indexer_mnemonic);
 
-    let (tx, rx) = watch::channel(HashMap::new());
+    // Whenever the indexer's active or recently closed allocations change, make sure
+    // we have attestation signers for all of them
+    let (mut signers_writer, signers_reader) =
+        Eventual::<HashMap<Address, AttestationSigner>>::new();
 
     tokio::spawn(async move {
+        //listening to the allocation eventual and converting them to reciever
+        //using pipe for updation
+        //for temporary pupose only
+        let (allocations_tx, mut allocations_rx) =
+            watch::channel(indexer_allocations.value().await.unwrap());
+        let _p1 = indexer_allocations.pipe(move |allocatons| {
+            let _ = allocations_tx.send(allocatons);
+        });
         loop {
-            tokio::select! {
-                Ok(_) = indexer_allocations.changed() => {},
-                Ok(_) = dispute_manager.changed() => {},
-                else => break,
+            select! {
+                Ok(_)= allocations_rx.changed() =>{},
+                Ok(_)= dispute_manager_rx.changed() =>{},
             }
-
-            let allocations = indexer_allocations.borrow().clone();
-            let dispute_manager = *dispute_manager.borrow();
-            let indexer_mnemonic = indexer_mnemonic.clone();
-
             let mut signers = attestation_signers_map.lock().await;
 
+            let allocations = allocations_rx.borrow().clone();
+            let dispute_manager = *dispute_manager_rx.borrow();
+            if dispute_manager.is_none() {
+                continue;
+            }
+            let dispute_manager = dispute_manager.unwrap();
             // Remove signers for allocations that are no longer active or recently closed
             signers.retain(|id, _| allocations.contains_key(id));
 
@@ -60,18 +77,15 @@ pub fn attestation_signers(
                 }
             }
 
-            // sending updated signers map
-            tx.send(signers.clone()).unwrap();
+            signers_writer.write(signers.clone());
         }
     });
 
-    rx
+    signers_reader
 }
 
 #[cfg(test)]
 mod tests {
-    use tokio::time::sleep;
-
     use crate::test_vectors::{
         DISPUTE_MANAGER_ADDRESS, INDEXER_ALLOCATIONS, INDEXER_OPERATOR_MNEMONIC,
     };
@@ -80,29 +94,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_attestation_signers_update_with_allocations() {
-        let (allocations_tx, allocations_rx) = watch::channel(HashMap::new());
-        let (dispute_manager_tx, dispute_manager_rx) = watch::channel(Address::default());
+        let (mut allocations_writer, allocations) = Eventual::<HashMap<Address, Allocation>>::new();
+        let (dispute_manager_writer, dispute_manager) = watch::channel(None);
 
-        dispute_manager_tx.send(*DISPUTE_MANAGER_ADDRESS).unwrap();
+        dispute_manager_writer
+            .send(Some(*DISPUTE_MANAGER_ADDRESS))
+            .unwrap();
 
-        let signers_rx = attestation_signers(
-            allocations_rx,
+        let signers = attestation_signers(
+            allocations,
             (*INDEXER_OPERATOR_MNEMONIC).to_string(),
             1,
-            dispute_manager_rx,
+            dispute_manager,
         );
+        let mut signers = signers.subscribe();
 
         // Test that an empty set of allocations leads to an empty set of signers
-        allocations_tx.send(HashMap::new()).unwrap();
-        //change wait if required
-        sleep(std::time::Duration::from_millis(50)).await; // waiting for propegation
-        let latest_signers = signers_rx.borrow().clone();
+        allocations_writer.write(HashMap::new());
+        let latest_signers = signers.next().await.unwrap();
         assert_eq!(latest_signers, HashMap::new());
 
         // Test that writing our set of test allocations results in corresponding signers for all of them
-        allocations_tx.send((*INDEXER_ALLOCATIONS).clone()).unwrap();
-        sleep(std::time::Duration::from_millis(50)).await; // waiting for propegation
-        let latest_signers = signers_rx.borrow().clone();
+        allocations_writer.write((*INDEXER_ALLOCATIONS).clone());
+        let latest_signers = signers.next().await.unwrap();
         assert_eq!(latest_signers.len(), INDEXER_ALLOCATIONS.len());
         for signer_allocation_id in latest_signers.keys() {
             assert!(INDEXER_ALLOCATIONS

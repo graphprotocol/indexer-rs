@@ -3,6 +3,7 @@
 
 use crate::escrow_accounts::EscrowAccounts;
 use alloy::dyn_abi::Eip712Domain;
+use eventuals::Eventual;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
 use std::collections::HashSet;
@@ -15,11 +16,10 @@ use tap_core::receipt::{
     ReceiptWithState,
 };
 use thegraph_core::Address;
-use tokio::sync::watch::Receiver;
 use tracing::error;
 
 pub struct DenyListCheck {
-    escrow_accounts: Receiver<EscrowAccounts>,
+    escrow_accounts: Eventual<EscrowAccounts>,
     domain_separator: Eip712Domain,
     sender_denylist: Arc<RwLock<HashSet<Address>>>,
     _sender_denylist_watcher_handle: Arc<tokio::task::JoinHandle<()>>,
@@ -29,7 +29,7 @@ pub struct DenyListCheck {
 impl DenyListCheck {
     pub async fn new(
         pgpool: PgPool,
-        escrow_accounts: Receiver<EscrowAccounts>,
+        escrow_accounts: Eventual<EscrowAccounts>,
         domain_separator: Eip712Domain,
     ) -> Self {
         // Listen to pg_notify events. We start it before updating the sender_denylist so that we
@@ -159,7 +159,7 @@ impl Check for DenyListCheck {
                 anyhow::anyhow!(e)
             })
             .map_err(CheckError::Failed)?;
-        let escrow_accounts_snapshot = self.escrow_accounts.borrow().clone();
+        let escrow_accounts_snapshot = self.escrow_accounts.value_immediate().unwrap_or_default();
 
         let receipt_sender = escrow_accounts_snapshot
             .get_sender_for_signer(&receipt_signer)
@@ -196,7 +196,6 @@ mod tests {
 
     use alloy::hex::ToHexExt;
     use tap_core::receipt::ReceiptWithState;
-    use tokio::sync::watch;
 
     use crate::test_vectors::{self, create_signed_receipt, TAP_SENDER};
 
@@ -206,15 +205,14 @@ mod tests {
 
     async fn new_deny_list_check(pgpool: PgPool) -> DenyListCheck {
         // Mock escrow accounts
-        let (_, escrow_rx) = watch::channel(EscrowAccounts::new(
+        let escrow_accounts = Eventual::from_value(EscrowAccounts::new(
             test_vectors::ESCROW_ACCOUNTS_BALANCES.to_owned(),
             test_vectors::ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
         ));
 
-        // You can now pass the receiver to the DenyListCheck struct
         DenyListCheck::new(
             pgpool,
-            escrow_rx, // pass the watch::Receiver instead of Eventual
+            escrow_accounts,
             test_vectors::TAP_EIP712_DOMAIN.to_owned(),
         )
         .await

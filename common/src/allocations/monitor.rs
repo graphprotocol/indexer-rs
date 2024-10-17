@@ -10,12 +10,10 @@ use std::{
 use super::Allocation;
 use crate::prelude::SubgraphClient;
 use alloy::primitives::{TxHash, B256, U256};
+use eventuals::{timer, Eventual, EventualExt};
 use graphql_client::GraphQLQuery;
 use thegraph_core::{Address, DeploymentId};
-use tokio::{
-    sync::watch::{self, Receiver},
-    time::{self, sleep},
-};
+use tokio::time::sleep;
 use tracing::warn;
 
 type BigInt = U256;
@@ -63,43 +61,30 @@ pub fn indexer_allocations(
     indexer_address: Address,
     interval: Duration,
     recently_closed_allocation_buffer: Duration,
-) -> Receiver<HashMap<Address, Allocation>> {
-    let (tx, rx) = watch::channel(HashMap::new());
-    tokio::spawn(async move {
-        let mut time_interval = time::interval(interval);
-        // Refresh indexer allocations every now and then
-        loop {
-            time_interval.tick().await;
-            let result = async {
-                get_allocations(
-                    network_subgraph,
-                    indexer_address,
-                    recently_closed_allocation_buffer,
-                )
-                .await
-                .map_err(|e| e.to_string())
-            }
-            .await;
-            match result {
-                Ok(res) => {
-                    if tx.send(res).is_err() {
-                        //stopping[something gone wrong with channel]
-                        break;
-                    }
-                }
-                Err(err) => {
-                    warn!(
-                        "Failed to fetch active or recently closed allocations for indexer {:?}: {}",
-                        indexer_address, err
-                    );
+) -> Eventual<HashMap<Address, Allocation>> {
+    // Refresh indexer allocations every now and then
+    timer(interval).map_with_retry(
+        move |_| async move {
+            get_allocations(
+                network_subgraph,
+                indexer_address,
+                recently_closed_allocation_buffer,
+            )
+            .await
+            .map_err(|e| e.to_string())
+        },
+        // Need to use string errors here because eventuals `map_with_retry` retries
+        // errors that can be cloned
+        move |err: String| {
+            warn!(
+                "Failed to fetch active or recently closed allocations for indexer {:?}: {}",
+                indexer_address, err
+            );
 
-                    // Sleep for a bit before we retry
-                    sleep(interval.div_f32(2.0)).await;
-                }
-            }
-        }
-    });
-    rx
+            // Sleep for a bit before we retry
+            sleep(interval.div_f32(2.0))
+        },
+    )
 }
 
 pub async fn get_allocations(
