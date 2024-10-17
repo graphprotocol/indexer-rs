@@ -34,6 +34,9 @@ pub struct SenderFeeTracker {
     id_to_fee: HashMap<Address, u128>,
     total_fee: u128,
 
+    fees_requesting: u128,
+    ids_requesting: HashSet<Address>,
+
     buffer_window_fee: HashMap<Address, ExpiringSum>,
     buffer_window_duration: Duration,
     // there are some allocations that we don't want it to be
@@ -120,6 +123,7 @@ impl SenderFeeTracker {
         self.id_to_fee
             .iter()
             .filter(|(addr, _)| !self.blocked_addresses.contains(*addr))
+            .filter(|(addr, _)| !self.ids_requesting.contains(*addr))
             .filter(|(addr, _)| {
                 self.failed_ravs
                     .get(*addr)
@@ -171,6 +175,20 @@ impl SenderFeeTracker {
                 acc + expiring.get_sum(&self.buffer_window_duration)
             })
     }
+
+    pub fn start_rav_request(&mut self, allocation_id: Address) {
+        let current_fee = self.id_to_fee.entry(allocation_id).or_default();
+        self.ids_requesting.insert(allocation_id);
+        self.fees_requesting += *current_fee;
+    }
+
+    /// Should be called before `update`
+    pub fn finish_rav_request(&mut self, allocation_id: Address) {
+        let current_fee = self.id_to_fee.entry(allocation_id).or_default();
+        self.fees_requesting -= *current_fee;
+        self.ids_requesting.remove(&allocation_id);
+    }
+
     pub fn failed_rav_backoff(&mut self, allocation_id: Address) {
         // backoff = max(100ms * 2 ^ retries, 60s)
         let failed_rav = self.failed_ravs.entry(allocation_id).or_default();

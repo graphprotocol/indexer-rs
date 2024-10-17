@@ -217,13 +217,17 @@ impl State {
                 "Error while getting allocation actor {allocation_id} with most unaggregated fees"
             );
         };
+
         allocation
             .cast(SenderAllocationMessage::TriggerRAVRequest)
             .map_err(|e| {
                 anyhow::anyhow!(
                     "Error while sending and waiting message for actor {allocation_id}. Error: {e}"
                 )
-            })
+            })?;
+        self.sender_fee_tracker.start_rav_request(allocation_id);
+
+        Ok(())
     }
 
     fn deny_condition_reached(&self) -> bool {
@@ -569,6 +573,7 @@ impl Actor for SenderAccount {
                             .add(value as f64);
                     }
                     ReceiptFees::RavRequestResponse(rav_result) => {
+                        state.sender_fee_tracker.finish_rav_request(allocation_id);
                         match rav_result {
                             Ok((fees, rav)) => {
                                 state.rav_tracker.ok_rav_request(allocation_id);
