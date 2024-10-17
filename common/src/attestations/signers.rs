@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use eventuals::{Eventual, EventualExt};
+use eventuals::{Eventual, EventualExt, EventualWriter};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thegraph_core::{Address, ChainId};
@@ -24,8 +24,6 @@ pub fn attestation_signers(
     let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
         Box::leak(Box::new(Mutex::new(HashMap::new())));
 
-    let indexer_mnemonic = Arc::new(indexer_mnemonic);
-
     // Whenever the indexer's active or recently closed allocations change, make sure
     // we have attestation signers for all of them
     let (mut signers_writer, signers_reader) =
@@ -40,48 +38,73 @@ pub fn attestation_signers(
         let _p1 = indexer_allocations.pipe(move |allocatons| {
             let _ = allocations_tx.send(allocatons);
         });
+
         loop {
             select! {
-                Ok(_)= allocations_rx.changed() =>{},
-                Ok(_)= dispute_manager_rx.changed() =>{},
-            }
-            let mut signers = attestation_signers_map.lock().await;
-
-            let allocations = allocations_rx.borrow().clone();
-            let dispute_manager = *dispute_manager_rx.borrow();
-            if dispute_manager.is_none() {
-                continue;
-            }
-            let dispute_manager = dispute_manager.unwrap();
-            // Remove signers for allocations that are no longer active or recently closed
-            signers.retain(|id, _| allocations.contains_key(id));
-
-            // Create signers for new allocations
-            for (id, allocation) in allocations.iter() {
-                if !signers.contains_key(id) {
-                    let signer = AttestationSigner::new(
-                        &indexer_mnemonic,
-                        allocation,
+                Ok(_)= allocations_rx.changed() =>{
+                    signers_writer = modify_sigers(
+                        Arc::new(indexer_mnemonic.clone()),
                         chain_id,
-                        dispute_manager,
-                    );
-                    if let Err(e) = signer {
-                        warn!(
-                            "Failed to establish signer for allocation {}, deployment {}, createdAtEpoch {}: {}",
-                            allocation.id, allocation.subgraph_deployment.id,
-                            allocation.created_at_epoch, e
-                        );
-                    } else {
-                        signers.insert(*id, signer.unwrap());
-                    }
+                        attestation_signers_map,
+                        allocations_rx.clone(),
+                        dispute_manager_rx.clone(),
+                        signers_writer).await;
+                },
+                Ok(_)= dispute_manager_rx.changed() =>{
+                    signers_writer = modify_sigers(Arc::new(indexer_mnemonic.clone()),
+                    chain_id,
+                    attestation_signers_map,
+                    allocations_rx.clone(),
+                    dispute_manager_rx.clone(),
+                    signers_writer).await;
+                },
+                else=>{
+                    //something is wrong
+                    break;
                 }
             }
-
-            signers_writer.write(signers.clone());
         }
     });
 
     signers_reader
+}
+async fn modify_sigers(
+    indexer_mnemonic: Arc<String>,
+    chain_id: ChainId,
+    attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>>,
+    allocations_rx: Receiver<HashMap<Address, Allocation>>,
+    dispute_manager_rx: Receiver<Option<Address>>,
+    mut signers_writer: EventualWriter<HashMap<Address, AttestationSigner>>,
+) -> EventualWriter<HashMap<Address, AttestationSigner>> {
+    let mut signers = attestation_signers_map.lock().await;
+    let allocations = allocations_rx.borrow().clone();
+    let dispute_manager = *dispute_manager_rx.borrow();
+    if dispute_manager.is_none() {
+        return signers_writer;
+    }
+    let dispute_manager = dispute_manager.unwrap();
+    // Remove signers for allocations that are no longer active or recently closed
+    signers.retain(|id, _| allocations.contains_key(id));
+
+    // Create signers for new allocations
+    for (id, allocation) in allocations.iter() {
+        if !signers.contains_key(id) {
+            let signer =
+                AttestationSigner::new(&indexer_mnemonic, allocation, chain_id, dispute_manager);
+            if let Err(e) = signer {
+                warn!(
+                    "Failed to establish signer for allocation {}, deployment {}, createdAtEpoch {}: {}",
+                    allocation.id, allocation.subgraph_deployment.id,
+                    allocation.created_at_epoch, e
+                );
+            } else {
+                signers.insert(*id, signer.unwrap());
+            }
+        }
+    }
+
+    signers_writer.write(signers.clone());
+    signers_writer
 }
 
 #[cfg(test)]
