@@ -25,7 +25,6 @@ mod receipt_store;
 
 pub struct IndexerTapContext {
     domain_separator: Arc<Eip712Domain>,
-
     receipt_producer: Sender<DatabaseReceipt>,
     cancelation_token: CancellationToken,
 }
