@@ -1570,17 +1570,20 @@ pub mod tests {
             Some(sender_account),
         )
         .await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         // Trigger a RAV request manually and wait for updated fees.
         // this should fail because there's no receipt with valid timestamp
         sender_allocation
             .cast(SenderAllocationMessage::TriggerRAVRequest)
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         // If it is an error then rav request failed
         {
             let mut last_message = last_message_emitted.lock().unwrap();
+            println!("{:?}", *last_message);
             match last_message.pop() {
                 Some(SenderAccountMessage::UpdateReceiptFees(
                     _,
