@@ -217,9 +217,13 @@ impl State {
                 "Error while getting allocation actor {allocation_id} with most unaggregated fees"
             );
         };
-        let _ = allocation.cast(SenderAllocationMessage::TriggerRAVRequest);
-
-        Ok(())
+        allocation
+            .cast(SenderAllocationMessage::TriggerRAVRequest)
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Error while sending and waiting message for actor {allocation_id}. Error: {e}"
+                )
+            })
     }
 
     fn deny_condition_reached(&self) -> bool {
