@@ -346,18 +346,8 @@ impl SenderAllocationState {
 
         let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
 
-        // TODO: Get `rav.timestamp_ns` from the TAP Manager's RAV storage adapter instead?
         let res = sqlx::query!(
             r#"
-            WITH rav AS (
-                SELECT
-                    timestamp_ns
-                FROM
-                    scalar_tap_ravs
-                WHERE
-                    allocation_id = $1
-                    AND sender_address = $2
-            )
             SELECT
                 MAX(id),
                 SUM(value)
@@ -365,22 +355,17 @@ impl SenderAllocationState {
                 scalar_tap_receipts
             WHERE
                 allocation_id = $1
-                AND signer_address IN (SELECT unnest($3::text[]))
-                AND CASE WHEN (
-                    SELECT
-                        timestamp_ns :: NUMERIC
-                    FROM
-                        rav
-                ) IS NOT NULL THEN timestamp_ns > (
-                    SELECT
-                        timestamp_ns :: NUMERIC
-                    FROM
-                        rav
-                ) ELSE TRUE END
+                AND signer_address IN (SELECT unnest($2::text[]))
+                AND timestamp_ns > $3
             "#,
             self.allocation_id.encode_hex(),
-            self.sender.encode_hex(),
-            &signers
+            &signers,
+            BigDecimal::from(
+                self.latest_rav
+                    .as_ref()
+                    .map(|rav| rav.message.timestampNs)
+                    .unwrap_or_default()
+            ),
         )
         .fetch_one(&self.pgpool)
         .await?;
