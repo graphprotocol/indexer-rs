@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use alloy::primitives::Address;
 use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt};
 use anyhow::{anyhow, ensure, Result};
 use bigdecimal::num_bigint::BigInt;
@@ -26,7 +27,6 @@ use tap_core::{
     },
     signed_message::EIP712SignedMessage,
 };
-use thegraph_core::Address;
 use tracing::{debug, error, warn};
 
 use crate::{agent::sender_account::ReceiptFees, lazy_static};

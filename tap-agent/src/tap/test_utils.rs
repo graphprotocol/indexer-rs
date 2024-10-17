@@ -13,6 +13,7 @@ use bigdecimal::num_bigint::BigInt;
 use sqlx::types::BigDecimal;
 
 use alloy::dyn_abi::Eip712Domain;
+use alloy::primitives::Address;
 use lazy_static::lazy_static;
 use sqlx::PgPool;
 use tap_core::{
@@ -20,7 +21,6 @@ use tap_core::{
     receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
     signed_message::EIP712SignedMessage,
 };
-use thegraph_core::Address;
 
 lazy_static! {
     pub static ref ALLOCATION_ID_0: Address =

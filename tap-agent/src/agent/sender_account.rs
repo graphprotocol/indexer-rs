@@ -13,13 +13,13 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 
 use alloy::dyn_abi::Eip712Domain;
+use alloy::primitives::Address;
 use anyhow::Result;
 use eventuals::{Eventual, EventualExt, PipeHandle};
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use ractor::{call, Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use sqlx::PgPool;
 use tap_core::rav::SignedRAV;
-use thegraph_core::Address;
 use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};

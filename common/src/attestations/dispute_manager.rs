@@ -3,9 +3,9 @@
 
 use std::time::Duration;
 
+use alloy::primitives::Address;
 use eventuals::{timer, Eventual, EventualExt};
 use graphql_client::GraphQLQuery;
-use thegraph_core::Address;
 use tokio::time::sleep;
 use tracing::warn;
 

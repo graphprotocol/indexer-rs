@@ -3,6 +3,7 @@
 
 use crate::escrow_accounts::EscrowAccounts;
 use alloy::dyn_abi::Eip712Domain;
+use alloy::primitives::Address;
 use eventuals::Eventual;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
@@ -15,7 +16,6 @@ use tap_core::receipt::{
     state::Checking,
     ReceiptWithState,
 };
-use thegraph_core::Address;
 use tracing::error;
 
 pub struct DenyListCheck {

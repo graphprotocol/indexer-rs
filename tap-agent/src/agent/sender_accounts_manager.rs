@@ -8,6 +8,7 @@ use std::{collections::HashMap, str::FromStr};
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::lazy_static;
 use alloy::dyn_abi::Eip712Domain;
+use alloy::primitives::Address;
 use anyhow::Result;
 use anyhow::{anyhow, bail};
 use eventuals::{Eventual, EventualExt, PipeHandle};
@@ -16,7 +17,6 @@ use indexer_common::prelude::{Allocation, SubgraphClient};
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
-use thegraph_core::Address;
 use tokio::select;
 use tracing::{error, warn};
 

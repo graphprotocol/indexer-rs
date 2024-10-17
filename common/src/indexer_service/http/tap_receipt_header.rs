@@ -67,9 +67,9 @@ impl Header for TapReceipt {
 mod test {
     use std::str::FromStr;
 
+    use alloy::primitives::Address;
     use axum::http::HeaderValue;
     use axum_extra::headers::Header;
-    use thegraph_core::Address;
 
     use crate::test_vectors::create_signed_receipt;
 
