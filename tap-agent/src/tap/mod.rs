@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloy::hex::ToHexExt;
+use alloy::primitives::Address;
 use anyhow::anyhow;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
-use thegraph_core::Address;
 
 pub mod context;
 pub mod escrow_adapter;
