@@ -251,6 +251,7 @@ impl Actor for SenderAllocation {
                 }
             }
             SenderAllocationMessage::TriggerRAVRequest => {
+                println!("Triggering RAV request!");
                 let rav_result = if state.unaggregated_fees.value > 0 {
                     state
                         .request_rav()
@@ -260,12 +261,15 @@ impl Actor for SenderAllocation {
                     Err(anyhow!("Unaggregated fee equals zero"))
                 };
 
+                println!("Returning the result!");
                 state
                     .sender_account_ref
                     .cast(SenderAccountMessage::UpdateReceiptFees(
                         state.allocation_id,
                         ReceiptFees::RavRequestResponse(rav_result),
                     ))?;
+                println!("Finished");
+
             }
             #[cfg(test)]
             SenderAllocationMessage::GetUnaggregatedReceipts(reply) => {
