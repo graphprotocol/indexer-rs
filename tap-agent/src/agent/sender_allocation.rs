@@ -251,7 +251,6 @@ impl Actor for SenderAllocation {
                 }
             }
             SenderAllocationMessage::TriggerRAVRequest => {
-                println!("Triggering RAV request!");
                 let rav_result = if state.unaggregated_fees.value > 0 {
                     state
                         .request_rav()
@@ -261,15 +260,12 @@ impl Actor for SenderAllocation {
                     Err(anyhow!("Unaggregated fee equals zero"))
                 };
 
-                println!("Returning the result!");
                 state
                     .sender_account_ref
                     .cast(SenderAccountMessage::UpdateReceiptFees(
                         state.allocation_id,
                         ReceiptFees::RavRequestResponse(rav_result),
                     ))?;
-                println!("Finished");
-
             }
             #[cfg(test)]
             SenderAllocationMessage::GetUnaggregatedReceipts(reply) => {
@@ -816,7 +812,7 @@ pub mod tests {
     use sqlx::PgPool;
     use std::{
         collections::HashMap,
-        sync::{Arc, Mutex},
+        sync::Arc,
         time::{SystemTime, UNIX_EPOCH},
     };
     use tap_aggregator::{jsonrpsee_helpers::JsonRpcResponse, server::run_server};
@@ -825,6 +821,7 @@ pub mod tests {
         state::Checking,
         ReceiptWithState,
     };
+    use tokio::sync::mpsc;
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockServer, Respond, ResponseTemplate,
@@ -833,7 +830,7 @@ pub mod tests {
     const DUMMY_URL: &str = "http://localhost:1234";
 
     pub struct MockSenderAccount {
-        pub last_message_emitted: Arc<Mutex<Vec<SenderAccountMessage>>>,
+        pub last_message_emitted: tokio::sync::mpsc::Sender<SenderAccountMessage>,
     }
 
     #[async_trait::async_trait]
@@ -856,17 +853,17 @@ pub mod tests {
             message: Self::Msg,
             _state: &mut Self::State,
         ) -> std::result::Result<(), ActorProcessingErr> {
-            self.last_message_emitted.lock().unwrap().push(message);
+            self.last_message_emitted.send(message).await.unwrap();
             Ok(())
         }
     }
 
     async fn create_mock_sender_account() -> (
-        Arc<Mutex<Vec<SenderAccountMessage>>>,
+        mpsc::Receiver<SenderAccountMessage>,
         ActorRef<SenderAccountMessage>,
         JoinHandle<()>,
     ) {
-        let last_message_emitted = Arc::new(Mutex::new(vec![]));
+        let (last_message_emitted, rx) = mpsc::channel(64);
 
         let (sender_account, join_handle) = MockSenderAccount::spawn(
             None,
@@ -877,7 +874,7 @@ pub mod tests {
         )
         .await
         .unwrap();
-        (last_message_emitted, sender_account, join_handle)
+        (rx, sender_account, join_handle)
     }
 
     async fn create_sender_allocation_args(
@@ -959,7 +956,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn should_update_unaggregated_fees_on_start(pgpool: PgPool) {
-        let (last_message_emitted, sender_account, _join_handle) =
+        let (mut last_message_emitted, sender_account, _join_handle) =
             create_mock_sender_account().await;
         // Add receipts to the database.
         for i in 1..=10 {
@@ -992,9 +989,8 @@ pub mod tests {
                 value: 55u128,
             }),
         );
-        let last_message_emitted = last_message_emitted.lock().unwrap();
-        assert_eq!(last_message_emitted.len(), 1);
-        assert_eq!(last_message_emitted.last(), Some(&expected_message));
+        let last_message_emitted = last_message_emitted.recv().await.unwrap();
+        assert_eq!(last_message_emitted, expected_message);
 
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 55u128);
@@ -1002,7 +998,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn should_return_invalid_receipts_on_startup(pgpool: PgPool) {
-        let (last_message_emitted, sender_account, _join_handle) =
+        let (mut message_receiver, sender_account, _join_handle) =
             create_mock_sender_account().await;
         // Add receipts to the database.
         for i in 1..=10 {
@@ -1035,9 +1031,16 @@ pub mod tests {
                 value: 55u128,
             },
         );
-        let last_message_emitted = last_message_emitted.lock().unwrap();
-        assert_eq!(last_message_emitted.len(), 2);
-        assert_eq!(last_message_emitted.first(), Some(&expected_message));
+        let update_invalid_msg = message_receiver.recv().await.unwrap();
+        assert_eq!(update_invalid_msg, expected_message);
+        let last_message_emitted = message_receiver.recv().await.unwrap();
+        assert_eq!(
+            last_message_emitted,
+            SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                ReceiptFees::UpdateValue(UnaggregatedReceipts::default())
+            )
+        );
 
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 0u128);
@@ -1045,7 +1048,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_receive_new_receipt(pgpool: PgPool) {
-        let (last_message_emitted, sender_account, _join_handle) =
+        let (mut message_receiver, sender_account, _join_handle) =
             create_mock_sender_account().await;
 
         let sender_allocation = create_sender_allocation(
@@ -1088,9 +1091,19 @@ pub mod tests {
             *ALLOCATION_ID_0,
             ReceiptFees::NewReceipt(20u128),
         );
-        let last_message_emitted = last_message_emitted.lock().unwrap();
-        assert_eq!(last_message_emitted.len(), 2);
-        assert_eq!(last_message_emitted.last(), Some(&expected_message));
+        let startup_load_msg = message_receiver.recv().await.unwrap();
+        assert_eq!(
+            startup_load_msg,
+            SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                ReceiptFees::UpdateValue(UnaggregatedReceipts {
+                    value: 0,
+                    last_id: 0
+                })
+            )
+        );
+        let last_message_emitted = message_receiver.recv().await.unwrap();
+        assert_eq!(last_message_emitted, expected_message);
     }
 
     #[sqlx::test(migrations = "../migrations")]
@@ -1136,7 +1149,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        let (last_message_emitted, sender_account, _join_handle) =
+        let (mut message_receiver, sender_account, _join_handle) =
             create_mock_sender_account().await;
 
         // Create a sender_allocation.
@@ -1164,23 +1177,32 @@ pub mod tests {
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 0u128);
 
-        {
-            let mut last_message_emitted = last_message_emitted.lock().unwrap();
-            assert!(matches!(
-                last_message_emitted.pop().unwrap(),
-                SenderAccountMessage::UpdateReceiptFees(..)
-            ));
-
-            // Check if the sender received invalid receipt fees
-            let expected_message = SenderAccountMessage::UpdateInvalidReceiptFees(
+        let startup_msg = message_receiver.recv().await.unwrap();
+        assert_eq!(
+            startup_msg,
+            SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                UnaggregatedReceipts {
-                    last_id: 0,
-                    value: 45u128,
-                },
-            );
-            assert_eq!(last_message_emitted.pop(), Some(expected_message));
-        }
+                ReceiptFees::UpdateValue(UnaggregatedReceipts {
+                    value: 90,
+                    last_id: 20
+                })
+            )
+        );
+
+        // Check if the sender received invalid receipt fees
+        let expected_message = SenderAccountMessage::UpdateInvalidReceiptFees(
+            *ALLOCATION_ID_0,
+            UnaggregatedReceipts {
+                last_id: 0,
+                value: 45u128,
+            },
+        );
+        assert_eq!(message_receiver.recv().await.unwrap(), expected_message);
+
+        assert!(matches!(
+            message_receiver.recv().await.unwrap(),
+            SenderAccountMessage::UpdateReceiptFees(_, ReceiptFees::RavRequestResponse(_))
+        ));
 
         // Stop the TAP aggregator server.
         handle.stop().unwrap();
@@ -1189,7 +1211,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_close_allocation_no_pending_fees(pgpool: PgPool) {
-        let (last_message_emitted, sender_account, _join_handle) =
+        let (mut message_receiver, sender_account, _join_handle) =
             create_mock_sender_account().await;
 
         // create allocation
@@ -1209,11 +1231,11 @@ pub mod tests {
 
         // check if message is sent to sender account
         assert_eq!(
-            last_message_emitted.lock().unwrap().last(),
-            Some(&SenderAccountMessage::UpdateReceiptFees(
+            message_receiver.recv().await.unwrap(),
+            SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
                 ReceiptFees::UpdateValue(UnaggregatedReceipts::default())
-            ))
+            )
         );
     }
 
@@ -1473,7 +1495,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        let (last_message_emitted, sender_account, _join_handle) =
+        let (mut message_receiver, sender_account, _join_handle) =
             create_mock_sender_account().await;
 
         // Create a sender_allocation.
@@ -1494,17 +1516,27 @@ pub mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 
         // If it is an error then rav request failed
-        {
-            let mut last_message = last_message_emitted.lock().unwrap();
-            match last_message.pop() {
-                Some(SenderAccountMessage::UpdateReceiptFees(
-                    _,
-                    ReceiptFees::RavRequestResponse(rav_response),
-                )) => {
-                    assert!(rav_response.is_err());
-                }
-                v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
+
+        let startup_msg = message_receiver.recv().await.unwrap();
+        assert_eq!(
+            startup_msg,
+            SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                ReceiptFees::UpdateValue(UnaggregatedReceipts {
+                    value: 45,
+                    last_id: 10
+                })
+            )
+        );
+        let rav_response_message = message_receiver.recv().await.unwrap();
+        match rav_response_message {
+            SenderAccountMessage::UpdateReceiptFees(
+                _,
+                ReceiptFees::RavRequestResponse(rav_response),
+            ) => {
+                assert!(rav_response.is_err());
             }
+            v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
         }
 
         // expect the actor to keep running
@@ -1550,21 +1582,19 @@ pub mod tests {
             .expect("Time went backwards")
             .as_nanos() as u64
             - 10000;
+        const RECEIPT_VALUE: u128 = 1622018441284756158;
+        const TOTAL_RECEIPTS: u64 = 10;
+        const TOTAL_SUM: u128 = RECEIPT_VALUE * TOTAL_RECEIPTS as u128;
 
-        for i in 0..10 {
-            let receipt = create_received_receipt(
-                &ALLOCATION_ID_0,
-                &SIGNER.0,
-                i,
-                timestamp,
-                1622018441284756158,
-            );
+        for i in 0..TOTAL_RECEIPTS {
+            let receipt =
+                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, timestamp, RECEIPT_VALUE);
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
         }
 
-        let (last_message_emitted, sender_account, _join_handle) =
+        let (mut message_receiver, sender_account, _join_handle) =
             create_mock_sender_account().await;
 
         let sender_allocation = create_sender_allocation(
@@ -1585,18 +1615,41 @@ pub mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         // If it is an error then rav request failed
-        {
-            let mut last_message = last_message_emitted.lock().unwrap();
-            println!("{:?}", *last_message);
-            match last_message.pop() {
-                Some(SenderAccountMessage::UpdateReceiptFees(
-                    _,
-                    ReceiptFees::RavRequestResponse(rav_response),
-                )) => {
-                    assert!(rav_response.is_err());
+
+        let startup_msg = message_receiver.recv().await.unwrap();
+        assert_eq!(
+            startup_msg,
+            SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                ReceiptFees::UpdateValue(UnaggregatedReceipts {
+                    value: 16220184412847561580,
+                    last_id: 10
+                })
+            )
+        );
+
+        let invalid_receipts = message_receiver.recv().await.unwrap();
+
+        assert_eq!(
+            invalid_receipts,
+            SenderAccountMessage::UpdateInvalidReceiptFees(
+                *ALLOCATION_ID_0,
+                UnaggregatedReceipts {
+                    value: TOTAL_SUM,
+                    last_id: 0
                 }
-                v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
+            )
+        );
+
+        let rav_response_message = message_receiver.recv().await.unwrap();
+        match rav_response_message {
+            SenderAccountMessage::UpdateReceiptFees(
+                _,
+                ReceiptFees::RavRequestResponse(rav_response),
+            ) => {
+                assert!(rav_response.is_err());
             }
+            v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
         }
 
         let invalid_receipts = sqlx::query!(
