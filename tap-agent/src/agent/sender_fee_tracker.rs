@@ -34,6 +34,9 @@ pub struct SenderFeeTracker {
     id_to_fee: HashMap<Address, u128>,
     total_fee: u128,
 
+    fees_requesting: u128,
+    ids_requesting: HashSet<Address>,
+
     buffer_window_fee: HashMap<Address, ExpiringSum>,
     buffer_window_duration: Duration,
     // there are some allocations that we don't want it to be
@@ -120,6 +123,7 @@ impl SenderFeeTracker {
         self.id_to_fee
             .iter()
             .filter(|(addr, _)| !self.blocked_addresses.contains(*addr))
+            .filter(|(addr, _)| !self.ids_requesting.contains(*addr))
             .filter(|(addr, _)| {
                 self.failed_ravs
                     .get(*addr)
@@ -157,11 +161,11 @@ impl SenderFeeTracker {
     }
 
     pub fn get_total_fee(&self) -> u128 {
-        self.total_fee
+        self.total_fee - self.fees_requesting
     }
 
     pub fn get_total_fee_outside_buffer(&mut self) -> u128 {
-        self.total_fee - self.get_buffer_fee().min(self.total_fee)
+        self.get_total_fee() - self.get_buffer_fee().min(self.total_fee)
     }
 
     pub fn get_buffer_fee(&mut self) -> u128 {
@@ -171,6 +175,20 @@ impl SenderFeeTracker {
                 acc + expiring.get_sum(&self.buffer_window_duration)
             })
     }
+
+    pub fn start_rav_request(&mut self, allocation_id: Address) {
+        let current_fee = self.id_to_fee.entry(allocation_id).or_default();
+        self.ids_requesting.insert(allocation_id);
+        self.fees_requesting += *current_fee;
+    }
+
+    /// Should be called before `update`
+    pub fn finish_rav_request(&mut self, allocation_id: Address) {
+        let current_fee = self.id_to_fee.entry(allocation_id).or_default();
+        self.fees_requesting -= *current_fee;
+        self.ids_requesting.remove(&allocation_id);
+    }
+
     pub fn failed_rav_backoff(&mut self, allocation_id: Address) {
         // backoff = max(100ms * 2 ^ retries, 60s)
         let failed_rav = self.failed_ravs.entry(allocation_id).or_default();
@@ -352,5 +370,36 @@ mod tests {
 
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee(), 30);
+    }
+
+    #[test]
+    fn test_ongoing_rav_requests() {
+        let allocation_id_0 = address!("abababababababababababababababababababab");
+        let allocation_id_1 = address!("bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc");
+        let allocation_id_2 = address!("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd");
+
+        let mut tracker = SenderFeeTracker::default();
+        assert_eq!(tracker.get_heaviest_allocation_id(), None);
+        assert_eq!(tracker.get_total_fee_outside_buffer(), 0);
+        assert_eq!(tracker.get_total_fee(), 0);
+
+        tracker.add(allocation_id_0, 10);
+        tracker.add(allocation_id_1, 20);
+        tracker.add(allocation_id_2, 30);
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
+        assert_eq!(tracker.get_total_fee(), 60);
+        assert_eq!(tracker.get_total_fee_outside_buffer(), 60);
+
+        tracker.start_rav_request(allocation_id_2);
+
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
+        assert_eq!(tracker.get_total_fee(), 30);
+        assert_eq!(tracker.get_total_fee_outside_buffer(), 30);
+
+        tracker.finish_rav_request(allocation_id_2);
+
+        assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
+        assert_eq!(tracker.get_total_fee(), 60);
+        assert_eq!(tracker.get_total_fee_outside_buffer(), 60);
     }
 }
