@@ -3,8 +3,10 @@
 
 use alloy::hex::ToHexExt;
 use alloy::primitives::U256;
+
 use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
+
 use graphql_client::GraphQLQuery;
 use jsonrpsee::http_client::HttpClientBuilder;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
@@ -197,25 +199,30 @@ impl State {
         sender_allocation_id
     }
 
-    async fn rav_requester_single(&mut self) -> Result<()> {
-        let Some(allocation_id) = self.sender_fee_tracker.get_heaviest_allocation_id() else {
-            anyhow::bail!(
-                "Error while getting the heaviest allocation, \
-                this is due one of the following reasons: \n
-                1. allocations have too much fees under their buffer\n
-                2. allocations are blocked to be redeemed due to ongoing last rav. \n
-                If you keep seeing this message try to increase your `amount_willing_to_lose` \
-                and restart your `tap-agent`\n
-                If this doesn't work, open an issue on our Github."
-            );
-        };
+    async fn rav_request_for_heaviest_allocation(&mut self) -> Result<()> {
+        let allocation_id = self
+            .sender_fee_tracker
+            .get_heaviest_allocation_id()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Error while getting the heaviest allocation, \
+            this is due one of the following reasons: \n
+            1. allocations have too much fees under their buffer\n
+            2. allocations are blocked to be redeemed due to ongoing last rav. \n
+            If you keep seeing this message try to increase your `amount_willing_to_lose` \
+            and restart your `tap-agent`\n
+            If this doesn't work, open an issue on our Github."
+                )
+            })?;
+        self.rav_request_for_allocation(allocation_id).await
+    }
+
+    async fn rav_request_for_allocation(&mut self, allocation_id: Address) -> Result<()> {
         let sender_allocation_id = self.format_sender_allocation(&allocation_id);
         let allocation = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id);
 
         let Some(allocation) = allocation else {
-            anyhow::bail!(
-                "Error while getting allocation actor {allocation_id} with most unaggregated fees"
-            );
+            anyhow::bail!("Error while getting allocation actor {allocation_id}");
         };
 
         allocation
@@ -630,22 +637,47 @@ impl Actor for SenderAccount {
                 if should_deny {
                     state.add_to_denylist().await;
                 }
+                let total_counter_for_allocation = state
+                    .sender_fee_tracker
+                    .get_total_counter_outside_buffer_for_allocation(&allocation_id)
+                    as u64;
+                let counter_greater_receipt_limit =
+                    total_counter_for_allocation >= state.config.tap.rav_request_receipt_limit;
+                let total_fee_outside_buffer =
+                    state.sender_fee_tracker.get_total_fee_outside_buffer();
+                let total_fee_greater_trigger_value =
+                    total_fee_outside_buffer >= state.config.tap.rav_request_trigger_value;
 
-                if state.sender_fee_tracker.get_total_fee_outside_buffer()
-                    >= state.config.tap.rav_request_trigger_value
-                {
-                    tracing::debug!(
-                        total_fee = state.sender_fee_tracker.get_total_fee(),
-                        trigger_value = state.config.tap.rav_request_trigger_value,
-                        "Total fee greater than the trigger value. Triggering RAV request"
-                    );
-                    // In case we fail, we want our actor to keep running
-                    if let Err(err) = state.rav_requester_single().await {
-                        tracing::error!(
-                            error = %err,
-                            "There was an error while requesting a RAV."
+                let rav_result = match (
+                    counter_greater_receipt_limit,
+                    total_fee_greater_trigger_value,
+                ) {
+                    (true, _) => {
+                        tracing::debug!(
+                            total_counter_for_allocation,
+                            rav_request_receipt_limit = state.config.tap.rav_request_receipt_limit,
+                            %allocation_id,
+                            "Total counter greater than the receipt limit per rav. Triggering RAV request"
                         );
+
+                        state.rav_request_for_allocation(allocation_id).await
                     }
+                    (_, true) => {
+                        tracing::debug!(
+                            total_fee_outside_buffer,
+                            trigger_value = state.config.tap.rav_request_trigger_value,
+                            "Total fee greater than the trigger value. Triggering RAV request"
+                        );
+                        state.rav_request_for_heaviest_allocation().await
+                    }
+                    _ => Ok(()),
+                };
+                // In case we fail, we want our actor to keep running
+                if let Err(err) = rav_result {
+                    tracing::error!(
+                        error = %err,
+                        "There was an error while requesting a RAV."
+                    );
                 }
 
                 match (state.denied, state.deny_condition_reached()) {
