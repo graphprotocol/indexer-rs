@@ -231,7 +231,7 @@ impl Actor for SenderAllocation {
                     // our world assumption is wrong
                     warn!(
                         last_id = %id,
-                        "Received an receipt notification that was already calculated."
+                        "Received a receipt notification that was already calculated."
                     );
                     return Ok(());
                 }
