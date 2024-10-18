@@ -27,10 +27,9 @@ use tap_core::rav::SignedRAV;
 use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
-use super::sender_fee_tracker::{BufferedReceiptFee, DurationInfo};
 use crate::agent::sender_allocation::SenderAllocationMessage;
-use crate::agent::sender_fee_tracker::SenderFeeTracker;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
+use crate::tracker::{SenderFeeTracker, SimpleFeeTracker};
 use crate::{
     config::{self},
     tap::escrow_adapter::EscrowAdapter,
@@ -98,7 +97,7 @@ pub enum SenderAccountMessage {
     UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
     UpdateRav(SignedRAV),
     #[cfg(test)]
-    GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker<BufferedReceiptFee, DurationInfo>>),
+    GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
     #[cfg(test)]
     GetDeny(ractor::RpcReplyPort<bool>),
     #[cfg(test)]
@@ -132,9 +131,9 @@ pub struct SenderAccountArgs {
 }
 pub struct State {
     prefix: Option<String>,
-    sender_fee_tracker: SenderFeeTracker<BufferedReceiptFee, DurationInfo>,
-    rav_tracker: SenderFeeTracker<u128>,
-    invalid_receipts_tracker: SenderFeeTracker<u128>,
+    sender_fee_tracker: SenderFeeTracker,
+    rav_tracker: SimpleFeeTracker,
+    invalid_receipts_tracker: SimpleFeeTracker,
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: JoinHandle<()>,
     _escrow_account_monitor: PipeHandle,
@@ -237,6 +236,53 @@ impl State {
         self.sender_fee_tracker.start_rav_request(allocation_id);
 
         Ok(())
+    }
+
+    fn finalize_rav_request(
+        &mut self,
+        allocation_id: Address,
+        rav_result: anyhow::Result<(UnaggregatedReceipts, Option<SignedRAV>)>,
+    ) {
+        self.sender_fee_tracker.finish_rav_request(allocation_id);
+        match rav_result {
+            Ok((fees, rav)) => {
+                self.sender_fee_tracker.ok_rav_request(allocation_id);
+
+                let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
+                self.update_rav(allocation_id, rav_value);
+
+                // update sender fee tracker
+                self.update_sender_fee(allocation_id, fees);
+            }
+            Err(err) => {
+                // TODO we should update the total value too
+                self.sender_fee_tracker.failed_rav_backoff(allocation_id);
+                error!(
+                    "Error while requesting RAV for sender {} and allocation {}: {}",
+                    self.sender, allocation_id, err
+                );
+            }
+        };
+    }
+
+    fn update_rav(&mut self, allocation_id: Address, rav_value: u128) {
+        self.rav_tracker.update(allocation_id, rav_value);
+        PENDING_RAV
+            .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
+            .set(rav_value as f64);
+    }
+
+    fn update_sender_fee(
+        &mut self,
+        allocation_id: Address,
+        unaggregated_fees: UnaggregatedReceipts,
+    ) {
+        self.sender_fee_tracker
+            .update(allocation_id, unaggregated_fees);
+
+        UNAGGREGATED_FEES
+            .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
+            .set(unaggregated_fees.value as f64);
     }
 
     fn deny_condition_reached(&self) -> bool {
@@ -472,9 +518,8 @@ impl Actor for SenderAccount {
             sender_fee_tracker: SenderFeeTracker::new(Duration::from_millis(
                 config.tap.rav_request_timestamp_buffer_ms,
             )),
-            // sender_fee_tracker: SenderFeeTracker::new(),
-            rav_tracker: SenderFeeTracker::default(),
-            invalid_receipts_tracker: SenderFeeTracker::default(),
+            rav_tracker: SimpleFeeTracker::default(),
+            invalid_receipts_tracker: SimpleFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
             _indexer_allocations_handle,
             _escrow_account_monitor,
@@ -522,16 +567,7 @@ impl Actor for SenderAccount {
 
         match message {
             SenderAccountMessage::UpdateRav(rav) => {
-                state
-                    .rav_tracker
-                    .update(rav.message.allocationId, rav.message.valueAggregate, 0);
-
-                PENDING_RAV
-                    .with_label_values(&[
-                        &state.sender.to_string(),
-                        &rav.message.allocationId.to_string(),
-                    ])
-                    .set(rav.message.valueAggregate as f64);
+                state.update_rav(rav.message.allocationId, rav.message.valueAggregate);
 
                 let should_deny = !state.denied && state.deny_condition_reached();
                 if should_deny {
@@ -545,7 +581,7 @@ impl Actor for SenderAccount {
 
                 state
                     .invalid_receipts_tracker
-                    .update(allocation_id, unaggregated_fees.value, 0);
+                    .update(allocation_id, unaggregated_fees.value);
 
                 // invalid receipts can't go down
                 let should_deny = !state.denied && state.deny_condition_reached();
@@ -573,8 +609,9 @@ impl Actor for SenderAccount {
                             );
                             SenderAccount::deny_sender(&state.pgpool, state.sender).await;
                         }
-                        state.sender_fee_tracker.add(allocation_id, value);
 
+                        // add new value
+                        state.sender_fee_tracker.add(allocation_id, value);
                         UNAGGREGATED_FEES
                             .with_label_values(&[
                                 &state.sender.to_string(),
@@ -583,58 +620,10 @@ impl Actor for SenderAccount {
                             .add(value as f64);
                     }
                     ReceiptFees::RavRequestResponse(rav_result) => {
-                        state.sender_fee_tracker.finish_rav_request(allocation_id);
-                        match rav_result {
-                            Ok((fees, rav)) => {
-                                state.sender_fee_tracker.ok_rav_request(allocation_id);
-
-                                let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
-                                // update rav tracker
-                                state.rav_tracker.update(allocation_id, rav_value, 0);
-                                PENDING_RAV
-                                    .with_label_values(&[
-                                        &state.sender.to_string(),
-                                        &allocation_id.to_string(),
-                                    ])
-                                    .set(rav_value as f64);
-
-                                // update sender fee tracker
-                                state.sender_fee_tracker.update(
-                                    allocation_id,
-                                    fees.value,
-                                    fees.counter,
-                                );
-                                UNAGGREGATED_FEES
-                                    .with_label_values(&[
-                                        &state.sender.to_string(),
-                                        &allocation_id.to_string(),
-                                    ])
-                                    .set(fees.value as f64);
-                            }
-                            Err(err) => {
-                                state.sender_fee_tracker.failed_rav_backoff(allocation_id);
-                                error!(
-                                    "Error while requesting RAV for sender {} and allocation {}: {}",
-                                    state.sender,
-                                    allocation_id,
-                                    err
-                                );
-                            }
-                        };
+                        state.finalize_rav_request(allocation_id, rav_result);
                     }
                     ReceiptFees::UpdateValue(unaggregated_fees) => {
-                        state.sender_fee_tracker.update(
-                            allocation_id,
-                            unaggregated_fees.value,
-                            unaggregated_fees.counter,
-                        );
-
-                        UNAGGREGATED_FEES
-                            .with_label_values(&[
-                                &state.sender.to_string(),
-                                &allocation_id.to_string(),
-                            ])
-                            .set(unaggregated_fees.value as f64);
+                        state.update_sender_fee(allocation_id, unaggregated_fees);
                     }
                     ReceiptFees::Retry => {}
                 }
@@ -648,12 +637,11 @@ impl Actor for SenderAccount {
                 }
                 let total_counter_for_allocation = state
                     .sender_fee_tracker
-                    .get_total_counter_outside_buffer_for_allocation(&allocation_id);
+                    .get_count_outside_buffer_for_allocation(&allocation_id);
+                let can_trigger_rav = state.sender_fee_tracker.can_trigger_rav(allocation_id);
                 let counter_greater_receipt_limit = total_counter_for_allocation
                     >= state.config.tap.rav_request_receipt_limit
-                    && !state
-                        .sender_fee_tracker
-                        .check_allocation_has_rav_request_running(allocation_id);
+                    && can_trigger_rav;
                 let total_fee_outside_buffer =
                     state.sender_fee_tracker.get_total_fee_outside_buffer();
                 let total_fee_greater_trigger_value =
@@ -777,7 +765,7 @@ impl Actor for SenderAccount {
                 for allocation_id in tracked_allocation_ids.difference(&active_allocation_ids) {
                     // if it's being tracked and we didn't receive any update from the non_final_last_ravs
                     // remove from the tracker
-                    state.rav_tracker.update(*allocation_id, 0, 0);
+                    state.rav_tracker.remove(*allocation_id);
 
                     let _ = PENDING_RAV.remove_label_values(&[
                         &state.sender.to_string(),
@@ -786,10 +774,7 @@ impl Actor for SenderAccount {
                 }
 
                 for (allocation_id, value) in non_final_last_ravs {
-                    state.rav_tracker.update(allocation_id, value, 0);
-                    PENDING_RAV
-                        .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
-                        .set(value as f64);
+                    state.update_rav(allocation_id, value);
                 }
                 // now that balance and rav tracker is updated, check
                 match (state.denied, state.deny_condition_reached()) {
@@ -853,15 +838,8 @@ impl Actor for SenderAccount {
                     return Ok(());
                 };
 
-                // clean up hashset
-                state
-                    .sender_fee_tracker
-                    .unblock_allocation_id(allocation_id);
-                // update the receipt fees by reseting to 0
-                myself.cast(SenderAccountMessage::UpdateReceiptFees(
-                    allocation_id,
-                    ReceiptFees::UpdateValue(UnaggregatedReceipts::default()),
-                ))?;
+                // remove from sender_fee_tracker
+                state.sender_fee_tracker.remove(allocation_id);
 
                 // rav tracker is not updated because it's still not redeemed
             }
