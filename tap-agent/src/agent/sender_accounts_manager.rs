@@ -8,6 +8,7 @@ use std::{collections::HashMap, str::FromStr};
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::lazy_static;
 use alloy::dyn_abi::Eip712Domain;
+use alloy::primitives::Address;
 use anyhow::Result;
 use anyhow::{anyhow, bail};
 use eventuals::{Eventual, EventualExt, PipeHandle};
@@ -16,7 +17,6 @@ use indexer_common::prelude::{Allocation, SubgraphClient};
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
-use thegraph_core::Address;
 use tokio::select;
 use tracing::{error, warn};
 
@@ -598,8 +598,8 @@ mod tests {
     use sqlx::postgres::PgListener;
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
-    use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use tokio::sync::mpsc;
 
     const DUMMY_URL: &str = "http://localhost:1234";
 
@@ -931,12 +931,12 @@ mod tests {
             PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         );
 
-        let last_message_emitted = Arc::new(Mutex::new(vec![]));
+        let (last_message_emitted, mut rx) = mpsc::channel(64);
 
         let (sender_account, join_handle) = MockSenderAccount::spawn(
             Some(format!("{}:{}", prefix.clone(), SENDER.1,)),
             MockSenderAccount {
-                last_message_emitted: last_message_emitted.clone(),
+                last_message_emitted,
             },
             (),
         )
@@ -958,8 +958,8 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(10)).await;
 
         assert_eq!(
-            last_message_emitted.lock().unwrap().last().unwrap(),
-            &SenderAccountMessage::NewAllocationId(*ALLOCATION_ID_0)
+            rx.recv().await.unwrap(),
+            SenderAccountMessage::NewAllocationId(*ALLOCATION_ID_0)
         );
         sender_account.stop_and_wait(None, None).await.unwrap();
         join_handle.await.unwrap();

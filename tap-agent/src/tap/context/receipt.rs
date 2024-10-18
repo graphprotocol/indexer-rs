@@ -8,13 +8,13 @@ use std::{
 };
 
 use alloy::hex::ToHexExt;
+use alloy::primitives::Address;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use sqlx::{postgres::types::PgRange, types::BigDecimal};
 use tap_core::{
     manager::adapters::{safe_truncate_receipts, ReceiptDelete, ReceiptRead},
     receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
 };
-use thegraph_core::Address;
 
 use crate::tap::signers_trimmed;
 

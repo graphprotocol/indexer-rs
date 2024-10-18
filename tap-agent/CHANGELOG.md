@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.1.1...indexer-tap-agent-v1.2.0) (2024-10-17)
+
+
+### Features
+
+* Move backoff to to the tracker to remove errors ([#377](https://github.com/graphprotocol/indexer-rs/issues/377)) ([1bde9b4](https://github.com/graphprotocol/indexer-rs/commit/1bde9b4e660ecd175bff427fac06e04f3985a8f8))
+
+
+### Performance Improvements
+
+* trigger rav request concurrently ([#381](https://github.com/graphprotocol/indexer-rs/issues/381)) ([bb7b7c6](https://github.com/graphprotocol/indexer-rs/commit/bb7b7c678cdc20bab805c3eacfd4aedf99a868b5))
+* use latest_rav to recalculate fees ([#379](https://github.com/graphprotocol/indexer-rs/issues/379)) ([7a45c26](https://github.com/graphprotocol/indexer-rs/commit/7a45c260c4d4961171bb67db938d446cbe5d891c))
+
 ## [1.1.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.1.0...indexer-tap-agent-v1.1.1) (2024-10-09)
 
 

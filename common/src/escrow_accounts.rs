@@ -7,11 +7,10 @@ use std::{
     time::Duration,
 };
 
-use alloy::primitives::U256;
+use alloy::primitives::{Address, U256};
 use anyhow::{anyhow, Result};
 use eventuals::{timer, Eventual, EventualExt};
 use graphql_client::GraphQLQuery;
-use thegraph_core::Address;
 use thiserror::Error;
 use tokio::time::sleep;
 use tracing::{error, warn};

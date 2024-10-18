@@ -3,11 +3,11 @@
 
 use std::sync::{Arc, RwLock};
 
+use alloy::primitives::Address;
 use async_trait::async_trait;
 use eventuals::Eventual;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use tap_core::manager::adapters::EscrowHandler as EscrowAdapterTrait;
-use thegraph_core::Address;
 
 use super::context::AdapterError;
 
