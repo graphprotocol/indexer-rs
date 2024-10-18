@@ -403,7 +403,7 @@ impl SenderAllocationState {
             counter: res
                 .count
                 .unwrap_or(0)
-                .to_usize()
+                .to_u64()
                 .expect("default value exists, this shouldn't be empty"),
         })
     }
@@ -446,7 +446,7 @@ impl SenderAllocationState {
             counter: res
                 .count
                 .unwrap_or(0)
-                .to_usize()
+                .to_u64()
                 .expect("default value exists, this shouldn't be empty"),
         })
     }

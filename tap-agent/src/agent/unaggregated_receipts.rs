@@ -8,5 +8,5 @@ pub struct UnaggregatedReceipts {
     /// This is used to make sure we don't process the same receipt twice. Relies on the fact that
     /// the receipts IDs are SERIAL in the database.
     pub last_id: u64,
-    pub counter: usize,
+    pub counter: u64,
 }

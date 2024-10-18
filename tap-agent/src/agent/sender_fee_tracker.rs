@@ -20,9 +20,9 @@ impl ExpiringSum {
         self.sum
     }
 
-    fn get_count(&mut self, duration: &Duration) -> usize {
+    fn get_count(&mut self, duration: &Duration) -> u64 {
         self.cleanup(duration);
-        self.entries.len()
+        self.entries.len() as u64
     }
 
     fn cleanup(&mut self, duration: &Duration) {
@@ -41,7 +41,7 @@ impl ExpiringSum {
 #[derive(Debug, Clone, Default)]
 pub struct FeeCounter {
     fee: u128,
-    count: usize,
+    count: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -106,7 +106,7 @@ impl SenderFeeTracker {
     /// value provided.
     ///
     /// IMPORTANT: This function does not affect the buffer window fee
-    pub fn update(&mut self, id: Address, fee: u128, counter: usize) {
+    pub fn update(&mut self, id: Address, fee: u128, counter: u64) {
         if fee > 0 {
             // insert or update, if update remove old fee from total
             if let Some(old_fee) = self.id_to_fee.insert(
@@ -195,7 +195,7 @@ impl SenderFeeTracker {
     pub fn get_total_counter_outside_buffer_for_allocation(
         &mut self,
         allocation_id: &Address,
-    ) -> usize {
+    ) -> u64 {
         let Some(allocation_counter) = self
             .id_to_fee
             .get(allocation_id)
