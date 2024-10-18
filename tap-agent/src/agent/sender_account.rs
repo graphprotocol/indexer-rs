@@ -1378,7 +1378,7 @@ pub mod tests {
             ))
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
 
         assert_eq!(
             triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
@@ -1400,27 +1400,39 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
-            1,
+            2,
         )
         .await;
 
         let (triggered_rav_request, _, allocation, allocation_handle) =
-            create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
+            create_mock_sender_allocation(
+                prefix,
+                SENDER.1,
+                *ALLOCATION_ID_0,
+                sender_account.clone(),
+            )
+            .await;
 
         // create a fake sender allocation
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewReceipt(TRIGGER_VALUE - 1),
+                ReceiptFees::NewReceipt(1),
             ))
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
 
         assert_eq!(
             triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
             0
         );
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                ReceiptFees::NewReceipt(1),
+            ))
+            .unwrap();
 
         // wait for it to be outside buffer
         tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
