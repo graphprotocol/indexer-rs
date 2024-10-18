@@ -25,14 +25,14 @@ pub fn attestation_signers(
         Box::leak(Box::new(Mutex::new(HashMap::new())));
 
     // Whenever the indexer's active or recently closed allocations change, make sure
-    // we have attestation signers for all of them
+    // we have attestation signers for all of them.
     let (mut signers_writer, signers_reader) =
         Eventual::<HashMap<Address, AttestationSigner>>::new();
 
     tokio::spawn(async move {
-        //listening to the allocation eventual and converting them to reciever
-        //using pipe for updation
-        //for temporary pupose only
+        // Listening to the allocation eventual and converting them to reciever.
+        // Using pipe for updation.
+        // For temporary pupose only.
         let (allocations_tx, mut allocations_rx) =
             watch::channel(indexer_allocations.value().await.unwrap());
         let _p1 = indexer_allocations.pipe(move |allocatons| {
@@ -42,25 +42,25 @@ pub fn attestation_signers(
         loop {
             select! {
                 Ok(_)= allocations_rx.changed() =>{
-                    signers_writer = modify_sigers(
+                    modify_sigers(
                         Arc::new(indexer_mnemonic.clone()),
                         chain_id,
                         attestation_signers_map,
                         allocations_rx.clone(),
                         dispute_manager_rx.clone(),
-                        signers_writer).await;
+                        &mut signers_writer).await;
                 },
                 Ok(_)= dispute_manager_rx.changed() =>{
-                    signers_writer = modify_sigers(Arc::new(indexer_mnemonic.clone()),
+                    modify_sigers(Arc::new(indexer_mnemonic.clone()),
                     chain_id,
                     attestation_signers_map,
                     allocations_rx.clone(),
                     dispute_manager_rx.clone(),
-                    signers_writer).await;
+                    &mut signers_writer).await;
                 },
                 else=>{
-                    //something is wrong
-                    break;
+                    // Something is wrong.
+                    panic!("dispute_manager_rx or allocations_rx was dropped");
                 }
             }
         }
@@ -74,15 +74,13 @@ async fn modify_sigers(
     attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>>,
     allocations_rx: Receiver<HashMap<Address, Allocation>>,
     dispute_manager_rx: Receiver<Option<Address>>,
-    mut signers_writer: EventualWriter<HashMap<Address, AttestationSigner>>,
-) -> EventualWriter<HashMap<Address, AttestationSigner>> {
+    signers_writer: &mut EventualWriter<HashMap<Address, AttestationSigner>>,
+) {
     let mut signers = attestation_signers_map.lock().await;
     let allocations = allocations_rx.borrow().clone();
-    let dispute_manager = *dispute_manager_rx.borrow();
-    if dispute_manager.is_none() {
-        return signers_writer;
-    }
-    let dispute_manager = dispute_manager.unwrap();
+    let Some(dispute_manager) = *dispute_manager_rx.borrow() else {
+        return;
+    };
     // Remove signers for allocations that are no longer active or recently closed
     signers.retain(|id, _| allocations.contains_key(id));
 
@@ -104,7 +102,6 @@ async fn modify_sigers(
     }
 
     signers_writer.write(signers.clone());
-    signers_writer
 }
 
 #[cfg(test)]

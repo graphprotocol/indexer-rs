@@ -1,6 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use anyhow::Error;
 use graphql_client::GraphQLQuery;
 use std::time::Duration;
 use thegraph_core::Address;
@@ -35,14 +36,11 @@ pub fn dispute_manager(
             let result = async {
                 let response = network_subgraph
                     .query::<DisputeManager, _>(dispute_manager::Variables {})
-                    .await
-                    .map_err(|e| e.to_string())?;
-
-                response.map_err(|e| e.to_string()).and_then(|data| {
-                    data.graph_network
-                        .map(|network| network.dispute_manager)
-                        .ok_or_else(|| "Network 1 not found in network subgraph".to_string())
-                })
+                    .await?;
+                response?
+                    .graph_network
+                    .map(|network| network.dispute_manager)
+                    .ok_or_else(|| Error::msg("Network 1 not found in network subgraph"))
             }
             .await;
 
