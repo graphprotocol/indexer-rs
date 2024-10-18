@@ -47,10 +47,8 @@ mod tests {
     use std::str::FromStr;
 
     use alloy::{
-        dyn_abi::Eip712Domain,
         primitives::Address,
         signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
-        sol_types::eip712_domain,
     };
 
     use super::*;
@@ -69,12 +67,8 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        let eip712_domain_separator: Eip712Domain = eip712_domain! {
-            name: "TAP",
-            version: "1",
-            chain_id: 1,
-            verifying_contract: Address:: from([0x11u8; 20]),
-        };
+        let eip712_domain_separator: Eip712Domain =
+            tap_eip712_domain(1, Address::from([0x11u8; 20]));
         let value: u128 = 1234;
         let nonce: u64 = 10;
         let receipt = EIP712SignedMessage::new(

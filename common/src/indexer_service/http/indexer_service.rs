@@ -1,13 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::HashMap, error::Error, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc,
-    time::Duration,
-};
-
 use alloy::dyn_abi::Eip712Domain;
-use alloy::sol_types::eip712_domain;
 use anyhow;
 use axum::extract::MatchedPath;
 use axum::extract::Request as ExtractRequest;
@@ -25,7 +19,11 @@ use prometheus::TextEncoder;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
-use tap_core::{manager::Manager, receipt::checks::CheckList};
+use std::{
+    collections::HashMap, error::Error, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc,
+    time::Duration,
+};
+use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
 use thegraph_core::{Address, Attestation, DeploymentId};
 use thiserror::Error;
 use tokio::net::TcpListener;
@@ -293,12 +291,10 @@ impl IndexerService {
             .connect(&options.config.database.postgres_url)
             .await?;
 
-        let domain_separator = eip712_domain! {
-            name: "TAP",
-            version: "1",
-            chain_id: options.config.tap.chain_id,
-            verifying_contract: options.config.tap.receipts_verifier_address,
-        };
+        let domain_separator = tap_eip712_domain(
+            options.config.tap.chain_id,
+            options.config.tap.receipts_verifier_address,
+        );
         let indexer_context =
             IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
         let timestamp_error_tolerance =
