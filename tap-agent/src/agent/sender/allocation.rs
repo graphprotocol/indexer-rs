@@ -6,8 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::primitives::Address;
-use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt};
+use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt, primitives::Address};
 use anyhow::{anyhow, ensure, Result};
 use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
@@ -27,20 +26,28 @@ use tap_core::{
     },
     signed_message::EIP712SignedMessage,
 };
+use thiserror::Error;
 use tracing::{debug, error, warn};
 
-use crate::{agent::sender_account::ReceiptFees, lazy_static};
-
-use crate::agent::sender_account::SenderAccountMessage;
-use crate::agent::sender_accounts_manager::NewReceiptNotification;
-use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::{
+    agent::{
+        sender::{
+            account::{ReceiptFees, SenderAccountMessage},
+            accounts_manager::NewReceiptNotification,
+        },
+        UnaggregatedReceipts,
+    },
     config::{self},
-    tap::context::{checks::Signature, TapAgentContext},
-    tap::signers_trimmed,
-    tap::{context::checks::AllocationId, escrow_adapter::EscrowAdapter},
+    lazy_static,
+    tap::{
+        context::{
+            checks::{AllocationId, Signature},
+            TapAgentContext,
+        },
+        escrow_adapter::EscrowAdapter,
+        signers_trimmed,
+    },
 };
-use thiserror::Error;
 
 lazy_static! {
     static ref CLOSED_SENDER_ALLOCATIONS: CounterVec = register_counter_vec!(
@@ -783,9 +790,9 @@ pub mod tests {
     };
     use crate::{
         agent::{
-            sender_account::{ReceiptFees, SenderAccountMessage},
-            sender_accounts_manager::NewReceiptNotification,
-            unaggregated_receipts::UnaggregatedReceipts,
+            sender::account::{ReceiptFees, SenderAccountMessage},
+            sender::accounts_manager::NewReceiptNotification,
+            UnaggregatedReceipts,
         },
         config,
         tap::{

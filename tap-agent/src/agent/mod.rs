@@ -1,28 +1,31 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod sender;
+
 use std::time::Duration;
 
 use indexer_common::prelude::{
     escrow_accounts, indexer_allocations, DeploymentDetails, SubgraphClient,
 };
-use ractor::concurrency::JoinHandle;
-use ractor::{Actor, ActorRef};
+use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 
-use crate::agent::sender_accounts_manager::{
-    SenderAccountsManagerArgs, SenderAccountsManagerMessage,
+use crate::{
+    config::{Config, EscrowSubgraph, Ethereum, IndexerInfrastructure, NetworkSubgraph, Tap},
+    database, CONFIG, EIP_712_DOMAIN,
 };
-use crate::config::{
-    Config, EscrowSubgraph, Ethereum, IndexerInfrastructure, NetworkSubgraph, Tap,
+use sender::accounts_manager::{
+    SenderAccountsManager, SenderAccountsManagerArgs, SenderAccountsManagerMessage,
 };
-use crate::{database, CONFIG, EIP_712_DOMAIN};
-use sender_accounts_manager::SenderAccountsManager;
 
-pub mod sender_account;
-pub mod sender_accounts_manager;
-pub mod sender_allocation;
-pub mod sender_fee_tracker;
-pub mod unaggregated_receipts;
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
+pub struct UnaggregatedReceipts {
+    pub value: u128,
+    /// The ID of the last receipt value added to the unaggregated fees value.
+    /// This is used to make sure we don't process the same receipt twice. Relies on the fact that
+    /// the receipts IDs are SERIAL in the database.
+    pub last_id: u64,
+}
 
 pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
     let Config {

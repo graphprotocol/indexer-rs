@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 
-use crate::agent::sender_allocation::SenderAllocationMessage;
+use super::allocation::SenderAllocationMessage;
 use crate::lazy_static;
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::Address;
@@ -22,7 +22,7 @@ use tracing::{error, warn};
 
 use prometheus::{register_counter_vec, CounterVec};
 
-use super::sender_account::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
+use super::account::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
 use crate::config;
 
 lazy_static! {
@@ -577,28 +577,36 @@ mod tests {
         new_receipts_watcher, SenderAccountsManager, SenderAccountsManagerArgs,
         SenderAccountsManagerMessage, State,
     };
-    use crate::agent::sender_account::tests::{MockSenderAllocation, PREFIX_ID};
-    use crate::agent::sender_account::SenderAccountMessage;
-    use crate::agent::sender_accounts_manager::{handle_notification, NewReceiptNotification};
-    use crate::agent::sender_allocation::tests::MockSenderAccount;
-    use crate::config;
-    use crate::tap::test_utils::{
-        create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
-        ALLOCATION_ID_1, INDEXER, SENDER, SENDER_2, SENDER_3, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+    use crate::{
+        agent::sender::{
+            account::{
+                tests::{MockSenderAllocation, PREFIX_ID},
+                SenderAccountMessage,
+            },
+            accounts_manager::{handle_notification, NewReceiptNotification},
+            allocation::tests::MockSenderAccount,
+        },
+        config,
+        tap::test_utils::{
+            create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
+            ALLOCATION_ID_1, INDEXER, SENDER, SENDER_2, SENDER_3, SIGNER,
+            TAP_EIP712_DOMAIN_SEPARATOR,
+        },
     };
-    use alloy::hex::ToHexExt;
-    use alloy::primitives::Address;
+    use alloy::{hex::ToHexExt, primitives::Address};
     use eventuals::{Eventual, EventualExt};
-    use indexer_common::allocations::Allocation;
-    use indexer_common::escrow_accounts::EscrowAccounts;
-    use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
-    use ractor::concurrency::JoinHandle;
-    use ractor::{Actor, ActorProcessingErr, ActorRef};
+    use indexer_common::{
+        allocations::Allocation,
+        escrow_accounts::EscrowAccounts,
+        prelude::{DeploymentDetails, SubgraphClient},
+    };
+    use ractor::{concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef};
     use ruint::aliases::U256;
-    use sqlx::postgres::PgListener;
-    use sqlx::PgPool;
-    use std::collections::{HashMap, HashSet};
-    use std::time::Duration;
+    use sqlx::{postgres::PgListener, PgPool};
+    use std::{
+        collections::{HashMap, HashSet},
+        time::Duration,
+    };
     use tokio::sync::mpsc;
 
     const DUMMY_URL: &str = "http://localhost:1234";
