@@ -21,3 +21,4 @@ pub mod config;
 pub mod database;
 pub mod metrics;
 pub mod tap;
+pub mod tracker;

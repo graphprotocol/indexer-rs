@@ -199,7 +199,12 @@ impl Actor for SenderAllocation {
         }
 
         while let Err(err) = state.mark_rav_last().await {
-            error!(error = %err, %state.allocation_id, %state.sender,  "Error while marking allocation last. Retrying in 30 seconds...");
+            error!(
+                error = %err,
+                %state.allocation_id,
+                %state.sender,
+                "Error while marking allocation last. Retrying in 30 seconds..."
+            );
             tokio::time::sleep(Duration::from_secs(30)).await;
         }
 

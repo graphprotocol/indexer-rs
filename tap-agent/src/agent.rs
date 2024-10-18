@@ -21,7 +21,6 @@ use sender_accounts_manager::SenderAccountsManager;
 pub mod sender_account;
 pub mod sender_accounts_manager;
 pub mod sender_allocation;
-pub mod sender_fee_tracker;
 pub mod unaggregated_receipts;
 
 pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {

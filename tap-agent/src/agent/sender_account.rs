@@ -23,10 +23,9 @@ use thegraph_core::Address;
 use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
-use super::sender_fee_tracker::{BufferedReceiptFee, DurationInfo};
 use crate::agent::sender_allocation::SenderAllocationMessage;
-use crate::agent::sender_fee_tracker::SenderFeeTracker;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
+use crate::tracker::{DurationInfo, SenderFeeStats, SimpleFeeTracker};
 use crate::{
     config::{self},
     tap::escrow_adapter::EscrowAdapter,
@@ -84,6 +83,8 @@ pub enum ReceiptFees {
     Retry,
 }
 
+type SenderFeeTracker = SimpleFeeTracker<SenderFeeStats, DurationInfo>;
+
 #[derive(Debug)]
 pub enum SenderAccountMessage {
     UpdateBalanceAndLastRavs(Balance, RavMap),
@@ -93,7 +94,7 @@ pub enum SenderAccountMessage {
     UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
     UpdateRav(SignedRAV),
     #[cfg(test)]
-    GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker<BufferedReceiptFee, DurationInfo>>),
+    GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
     #[cfg(test)]
     GetDeny(ractor::RpcReplyPort<bool>),
     #[cfg(test)]
@@ -127,9 +128,9 @@ pub struct SenderAccountArgs {
 }
 pub struct State {
     prefix: Option<String>,
-    sender_fee_tracker: SenderFeeTracker<BufferedReceiptFee, DurationInfo>,
-    rav_tracker: SenderFeeTracker<u128>,
-    invalid_receipts_tracker: SenderFeeTracker<u128>,
+    sender_fee_tracker: SenderFeeTracker,
+    rav_tracker: SimpleFeeTracker<u128>,
+    invalid_receipts_tracker: SimpleFeeTracker<u128>,
     allocation_ids: HashSet<Address>,
     _indexer_allocations_handle: PipeHandle,
     _escrow_account_monitor: PipeHandle,
@@ -461,12 +462,12 @@ impl Actor for SenderAccount {
             .set(config.tap.rav_request_trigger_value as f64);
 
         let state = State {
-            sender_fee_tracker: SenderFeeTracker::new(Duration::from_millis(
+            sender_fee_tracker: SimpleFeeTracker::new(Duration::from_millis(
                 config.tap.rav_request_timestamp_buffer_ms,
             )),
             // sender_fee_tracker: SenderFeeTracker::new(),
-            rav_tracker: SenderFeeTracker::default(),
-            invalid_receipts_tracker: SenderFeeTracker::default(),
+            rav_tracker: SimpleFeeTracker::default(),
+            invalid_receipts_tracker: SimpleFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
             _indexer_allocations_handle,
             _escrow_account_monitor,
