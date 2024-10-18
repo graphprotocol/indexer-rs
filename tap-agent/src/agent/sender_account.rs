@@ -644,8 +644,7 @@ impl Actor for SenderAccount {
                 }
                 let total_counter_for_allocation = state
                     .sender_fee_tracker
-                    .get_total_counter_outside_buffer_for_allocation(&allocation_id)
-                    as u64;
+                    .get_total_counter_outside_buffer_for_allocation(&allocation_id);
                 let counter_greater_receipt_limit = total_counter_for_allocation
                     >= state.config.tap.rav_request_receipt_limit
                     && !state
