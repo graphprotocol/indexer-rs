@@ -237,6 +237,10 @@ impl SenderFeeTracker {
     pub fn ok_rav_request(&mut self, allocation_id: Address) {
         self.failed_ravs.remove(&allocation_id);
     }
+
+    pub fn check_allocation_has_rav_request_running(&self, allocation_id: Address) -> bool {
+        self.ids_requesting.contains(&allocation_id)
+    }
 }
 
 #[cfg(test)]
