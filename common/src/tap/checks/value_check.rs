@@ -4,7 +4,10 @@
 use anyhow::anyhow;
 use bigdecimal::ToPrimitive;
 use cost_model::CostModel;
-use sqlx::{postgres::PgListener, PgPool};
+use sqlx::{
+    postgres::{PgListener, PgNotification},
+    PgPool,
+};
 use std::{
     cmp::min,
     collections::{hash_map::Entry, HashMap, VecDeque},
@@ -13,8 +16,12 @@ use std::{
     time::Duration,
 };
 use thegraph_core::{DeploymentId, ParseDeploymentIdError};
-use tokio::{sync::mpsc::channel, task::JoinHandle, time::sleep};
-use tracing::error;
+use tokio::{
+    sync::mpsc::{channel, Sender},
+    task::JoinHandle,
+    time::sleep,
+};
+use tracing::{debug, error};
 
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
@@ -29,12 +36,159 @@ type CostModelMap = Arc<RwLock<HashMap<DeploymentId, RwLock<CostModelCache>>>>;
 
 pub struct MinimumValue {
     cost_model_cache: CostModelMap,
+    global_model_cache: Arc<RwLock<CostModelCache>>,
     watcher_cancel_token: tokio_util::sync::CancellationToken,
+}
+
+struct CostModelWatcher {
+    pgpool: PgPool,
+    tx: Sender<DeploymentId>,
+
+    cost_model_cache: CostModelMap,
+    global_model_cache: Arc<RwLock<CostModelCache>>,
+
+    handles: Arc<Mutex<HashMap<DeploymentId, VecDeque<JoinHandle<()>>>>>,
+}
+
+impl CostModelWatcher {
+    async fn cost_models_watcher(
+        pgpool: PgPool,
+        mut pglistener: PgListener,
+        cost_model_cache: CostModelMap,
+        global_model_cache: Arc<RwLock<CostModelCache>>,
+        cancel_token: tokio_util::sync::CancellationToken,
+    ) {
+        let handles: Arc<Mutex<HashMap<DeploymentId, VecDeque<JoinHandle<()>>>>> =
+            Default::default();
+        let (tx, mut rx) = channel::<DeploymentId>(64);
+        let cost_model_watcher = CostModelWatcher {
+            pgpool,
+            tx,
+            handles,
+            global_model_cache,
+            cost_model_cache,
+        };
+
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+                Some(deployment_id) = rx.recv() => {
+                    cost_model_watcher.cancel_cache_expire(deployment_id).await;
+                }
+                pg_notification = pglistener.recv() => {
+                    let pg_notification = pg_notification.expect(
+                    "should be able to receive Postgres Notify events on the channel \
+                    'cost_models_update_notify'",
+                    );
+                    cost_model_watcher.new_notification(
+                        pg_notification,
+                    ).await;
+
+                }
+            }
+        }
+    }
+
+    async fn new_notification(&self, pg_notification: PgNotification) {
+        let cost_model_notification: CostModelNotification =
+            serde_json::from_str(pg_notification.payload()).expect(
+                "should be able to deserialize the Postgres Notify event payload as a \
+                            CostModelNotification",
+            );
+
+        let deployment_id = match cost_model_notification.deployment.as_str() {
+            "global" => {
+                debug!("Received an update for 'global' cost model");
+                return;
+            }
+            deployment_id => DeploymentId::from_str(deployment_id).unwrap(),
+        };
+
+        match cost_model_notification.tg_op.as_str() {
+            "INSERT" => {
+                let cost_model_source: CostModelSource =
+                    cost_model_notification.try_into().unwrap();
+                {
+                    let mut cost_model_write = self.cost_model_cache.write().unwrap();
+                    let cache = cost_model_write.entry(deployment_id).or_default();
+                    let _ = cache.get_mut().unwrap().insert_model(cost_model_source);
+                }
+                let _tx = self.tx.clone();
+
+                // expire after 60 seconds
+                self.handles
+                    .lock()
+                    .unwrap()
+                    .entry(deployment_id)
+                    .or_default()
+                    .push_back(tokio::spawn(async move {
+                        // 1 minute after, we expire the older cache
+                        sleep(Duration::from_secs(60)).await;
+                        let _ = _tx.send(deployment_id).await;
+                    }));
+            }
+            "DELETE" => {
+                if let Entry::Occupied(mut entry) =
+                    self.cost_model_cache.write().unwrap().entry(deployment_id)
+                {
+                    let should_remove = {
+                        let mut cost_model = entry.get_mut().write().unwrap();
+                        cost_model.expire();
+                        cost_model.is_empty()
+                    };
+                    if should_remove {
+                        entry.remove();
+                    }
+                }
+            }
+            // UPDATE and TRUNCATE are not expected to happen. Reload the entire cost
+            // model cache.
+            _ => {
+                error!(
+                    "Received an unexpected cost model table notification: {}. Reloading entire \
+                                cost model.",
+                    cost_model_notification.tg_op
+                );
+
+                {
+                    // clear all pending expire
+                    let mut handles = self.handles.lock().unwrap();
+                    for maps in handles.values() {
+                        for handle in maps {
+                            handle.abort();
+                        }
+                    }
+                    handles.clear();
+                }
+
+                MinimumValue::value_check_reload(&self.pgpool, self.cost_model_cache.clone())
+                    .await
+                    .expect("should be able to reload cost models")
+            }
+        }
+    }
+
+    async fn cancel_cache_expire(&self, deployment_id: DeploymentId) {
+        let mut cost_model_write = self.cost_model_cache.write().unwrap();
+        if let Some(cache) = cost_model_write.get_mut(&deployment_id) {
+            cache.get_mut().unwrap().expire();
+        }
+
+        if let Entry::Occupied(mut entry) = self.handles.lock().unwrap().entry(deployment_id) {
+            let vec = entry.get_mut();
+            vec.pop_front();
+            if vec.is_empty() {
+                entry.remove();
+            }
+        }
+    }
 }
 
 impl Drop for MinimumValue {
     fn drop(&mut self) {
-        // Clean shutdown for the sender_denylist_watcher
+        // Clean shutdown for the minimum value check
         // Though since it's not a critical task, we don't wait for it to finish (join).
         self.watcher_cancel_token.cancel();
     }
@@ -43,6 +197,9 @@ impl Drop for MinimumValue {
 impl MinimumValue {
     pub async fn new(pgpool: PgPool) -> Self {
         let cost_model_cache: CostModelMap = Default::default();
+        Self::value_check_reload(&pgpool, cost_model_cache.clone())
+            .await
+            .expect("should be able to reload cost models");
 
         let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
         pglistener.listen("cost_models_update_notify").await.expect(
@@ -50,15 +207,19 @@ impl MinimumValue {
                 'cost_models_update_notify'",
         );
 
+        let global_model_cache: Arc<RwLock<CostModelCache>> = Default::default();
+
         let watcher_cancel_token = tokio_util::sync::CancellationToken::new();
-        tokio::spawn(Self::cost_models_watcher(
+        tokio::spawn(CostModelWatcher::cost_models_watcher(
             pgpool.clone(),
             pglistener,
             cost_model_cache.clone(),
+            global_model_cache.clone(),
             watcher_cancel_token.clone(),
         ));
 
         Self {
+            global_model_cache,
             cost_model_cache,
             watcher_cancel_token,
         }
@@ -79,116 +240,6 @@ impl MinimumValue {
             .unwrap_or(MINIMAL_VALUE);
 
         Ok(expected_value)
-    }
-
-    async fn cost_models_watcher(
-        pgpool: PgPool,
-        mut pglistener: PgListener,
-        cost_model_cache: CostModelMap,
-        cancel_token: tokio_util::sync::CancellationToken,
-    ) {
-        let handles: Arc<Mutex<HashMap<DeploymentId, VecDeque<JoinHandle<()>>>>> =
-            Default::default();
-        let (tx, mut rx) = channel::<DeploymentId>(64);
-
-        loop {
-            tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    break;
-                }
-                Some(deployment_id) = rx.recv() => {
-                    let mut cost_model_write = cost_model_cache.write().unwrap();
-                    if let Some(cache) = cost_model_write.get_mut(&deployment_id) {
-                        cache.get_mut().unwrap().expire();
-                    }
-
-                    if let Entry::Occupied(mut entry) = handles.lock().unwrap().entry(deployment_id) {
-                        let vec = entry.get_mut();
-                        vec.pop_front();
-                        if vec.is_empty() {
-                            entry.remove();
-                        }
-                    }
-
-                }
-                pg_notification = pglistener.recv() => {
-                    let pg_notification = pg_notification.expect(
-                    "should be able to receive Postgres Notify events on the channel \
-                    'cost_models_update_notify'",
-                    );
-
-                    let cost_model_notification: CostModelNotification =
-                        serde_json::from_str(pg_notification.payload()).expect(
-                            "should be able to deserialize the Postgres Notify event payload as a \
-                            CostModelNotification",
-                        );
-
-                    let deployment_id = cost_model_notification.deployment;
-
-                    match cost_model_notification.tg_op.as_str() {
-                        "INSERT" => {
-                            let cost_model_source: CostModelSource = cost_model_notification.into();
-                            {
-                                let mut cost_model_write = cost_model_cache
-                                    .write()
-                                    .unwrap();
-                                let cache = cost_model_write.entry(deployment_id).or_default();
-                                let _ = cache.get_mut().unwrap().insert_model(cost_model_source);
-                            }
-                            let _tx = tx.clone();
-
-                            // expire after 60 seconds
-                            handles.lock()
-                                .unwrap()
-                                .entry(deployment_id)
-                                .or_default()
-                                .push_back(tokio::spawn(async move {
-                                // 1 minute after, we expire the older cache
-                                sleep(Duration::from_secs(60)).await;
-                                let _ = _tx.send(deployment_id).await;
-                            }));
-                        }
-                        "DELETE" => {
-                            if let Entry::Occupied(mut entry) = cost_model_cache
-                                        .write().unwrap().entry(cost_model_notification.deployment) {
-                                let should_remove = {
-                                    let mut cost_model = entry.get_mut().write().unwrap();
-                                    cost_model.expire();
-                                    cost_model.is_empty()
-                                };
-                                if should_remove {
-                                    entry.remove();
-                                }
-                            }
-                        }
-                        // UPDATE and TRUNCATE are not expected to happen. Reload the entire cost
-                        // model cache.
-                        _ => {
-                            error!(
-                                "Received an unexpected cost model table notification: {}. Reloading entire \
-                                cost model.",
-                                cost_model_notification.tg_op
-                            );
-
-                            {
-                                // clear all pending expire
-                                let mut handles = handles.lock().unwrap();
-                                for maps in handles.values() {
-                                    for handle in maps {
-                                        handle.abort();
-                                    }
-                                }
-                                handles.clear();
-                            }
-
-                            Self::value_check_reload(&pgpool, cost_model_cache.clone())
-                                .await
-                                .expect("should be able to reload cost models")
-                        }
-                    }
-                }
-            }
-        }
     }
 
     async fn value_check_reload(
@@ -214,8 +265,7 @@ impl MinimumValue {
                 let deployment_id = DeploymentId::from_str(&record.deployment.unwrap())?;
                 let mut model = CostModelCache::default();
                 let _ = model.insert_model(CostModelSource {
-                    deployment_id,
-                    model: record.model.unwrap(),
+                    model: record.model.unwrap_or_default(),
                     variables: record.variables.unwrap_or_default(),
                 });
 
@@ -263,11 +313,11 @@ impl Check for MinimumValue {
     }
 }
 
-fn compile_cost_model(src: CostModelSource) -> anyhow::Result<CostModel> {
-    if src.model.len() > (1 << 16) {
+fn compile_cost_model(model: String, variables: String) -> anyhow::Result<CostModel> {
+    if model.len() > (1 << 16) {
         return Err(anyhow!("CostModelTooLarge"));
     }
-    let model = CostModel::compile(&src.model, &src.variables.to_string())?;
+    let model = CostModel::compile(&model, &variables)?;
     Ok(model)
 }
 
@@ -279,7 +329,6 @@ pub struct AgoraQuery {
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 struct CostModelSource {
-    pub deployment_id: DeploymentId,
     pub model: String,
     pub variables: serde_json::Value,
 }
@@ -287,17 +336,16 @@ struct CostModelSource {
 #[derive(serde::Deserialize)]
 struct CostModelNotification {
     tg_op: String,
-    deployment: DeploymentId,
-    model: String,
-    variables: serde_json::Value,
+    deployment: String,
+    model: Option<String>,
+    variables: Option<serde_json::Value>,
 }
 
 impl From<CostModelNotification> for CostModelSource {
     fn from(value: CostModelNotification) -> Self {
         CostModelSource {
-            deployment_id: value.deployment,
-            model: value.model,
-            variables: value.variables,
+            model: value.model.unwrap_or_default(),
+            variables: value.variables.unwrap_or_default(),
         }
     }
 }
@@ -309,7 +357,7 @@ struct CostModelCache {
 
 impl CostModelCache {
     fn insert_model(&mut self, source: CostModelSource) -> anyhow::Result<()> {
-        let model = compile_cost_model(source.clone())?;
+        let model = compile_cost_model(source.model, source.variables.to_string())?;
         self.models.push_back(model);
         Ok(())
     }
@@ -346,11 +394,29 @@ impl CostModelCache {
 mod tests {
     use sqlx::PgPool;
 
-    #[sqlx::test(migrations = "../migrations")]
-    async fn initialize_check(_pg_pool: PgPool) {}
+    use crate::cost_model::test::{add_cost_models, to_db_models};
+
+    use super::MinimumValue;
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn should_initialize_check_with_caches(_pg_pool: PgPool) {}
+    async fn initialize_check(pgpool: PgPool) {
+        let check = MinimumValue::new(pgpool).await;
+        assert_eq!(check.cost_model_cache.read().unwrap().len(), 0);
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn should_initialize_check_with_caches(pgpool: PgPool) {
+        // insert 2 cost models for different deployment_id
+        let test_models = crate::cost_model::test::test_data();
+
+        add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
+
+        let check = MinimumValue::new(pgpool).await;
+        assert_eq!(
+            check.cost_model_cache.read().unwrap().len(),
+            test_models.len()
+        );
+    }
 
     #[sqlx::test(migrations = "../migrations")]
     async fn should_add_model_to_cache_on_insert(_pg_pool: PgPool) {}

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::extract::State;
+use indexer_common::cost_model::{self, CostModel};
 use lazy_static::lazy_static;
 use prometheus::{
     register_counter, register_counter_vec, register_histogram, register_histogram_vec, Counter,
@@ -16,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thegraph_core::DeploymentId;
 
-use crate::database::{self, CostModel};
 use crate::service::SubgraphServiceState;
 
 lazy_static! {
@@ -128,7 +128,7 @@ impl Query {
         deployment_ids: Vec<DeploymentId>,
     ) -> Result<Vec<GraphQlCostModel>, anyhow::Error> {
         let pool = &ctx.data_unchecked::<Arc<SubgraphServiceState>>().database;
-        let cost_models = database::cost_models(pool, &deployment_ids).await?;
+        let cost_models = cost_model::cost_models(pool, &deployment_ids).await?;
         Ok(cost_models.into_iter().map(|m| m.into()).collect())
     }
 
@@ -138,7 +138,7 @@ impl Query {
         deployment_id: DeploymentId,
     ) -> Result<Option<GraphQlCostModel>, anyhow::Error> {
         let pool = &ctx.data_unchecked::<Arc<SubgraphServiceState>>().database;
-        database::cost_model(pool, &deployment_id)
+        cost_model::cost_model(pool, &deployment_id)
             .await
             .map(|model_opt| model_opt.map(GraphQlCostModel::from))
     }
