@@ -1,15 +1,14 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
-
-use alloy::primitives::Address;
-use eventuals::{timer, Eventual, EventualExt};
-use graphql_client::GraphQLQuery;
-use tokio::time::sleep;
-use tracing::warn;
-
 use crate::subgraph_client::SubgraphClient;
+use alloy::primitives::Address;
+use anyhow::Error;
+use graphql_client::GraphQLQuery;
+use std::time::Duration;
+use tokio::sync::watch::{self, Receiver};
+use tokio::time::{self, sleep};
+use tracing::warn;
 
 type Bytes = Address;
 
@@ -25,27 +24,41 @@ struct DisputeManager;
 pub fn dispute_manager(
     network_subgraph: &'static SubgraphClient,
     interval: Duration,
-) -> Eventual<Address> {
-    timer(interval).map_with_retry(
-        move |_| async move {
-            let response = network_subgraph
-                .query::<DisputeManager, _>(dispute_manager::Variables {})
-                .await
-                .map_err(|e| e.to_string())?;
+) -> Receiver<Option<Address>> {
+    let (tx, rx) = watch::channel(None);
+    tokio::spawn(async move {
+        let mut time_interval = time::interval(interval);
+        time_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+        loop {
+            time_interval.tick().await;
 
-            response.map_err(|e| e.to_string()).and_then(|data| {
-                data.graph_network
+            let result = async {
+                let response = network_subgraph
+                    .query::<DisputeManager, _>(dispute_manager::Variables {})
+                    .await?;
+                response?
+                    .graph_network
                     .map(|network| network.dispute_manager)
-                    .ok_or_else(|| "Network 1 not found in network subgraph".to_string())
-            })
-        },
-        move |err: String| {
-            warn!("Failed to query dispute manager: {}", err);
+                    .ok_or_else(|| Error::msg("Network 1 not found in network subgraph"))
+            }
+            .await;
 
-            // Sleep for a bit before we retry
-            sleep(interval.div_f32(2.0))
-        },
-    )
+            match result {
+                Ok(address) => {
+                    if tx.send(Some(address)).is_err() {
+                        // stopping
+                        break;
+                    }
+                }
+                Err(err) => {
+                    warn!("Failed to query dispute manager for network: {}", err);
+                    // Sleep for a bit before we retry
+                    sleep(interval.div_f32(2.0)).await;
+                }
+            }
+        }
+    });
+    rx
 }
 
 #[cfg(test)]
@@ -100,10 +113,8 @@ mod test {
         let (network_subgraph, _mock_server) = setup_mock_network_subgraph().await;
 
         let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(60));
-
-        assert_eq!(
-            dispute_manager.value().await.unwrap(),
-            *DISPUTE_MANAGER_ADDRESS
-        );
+        sleep(Duration::from_millis(50)).await;
+        let result = *dispute_manager.borrow();
+        assert_eq!(result.unwrap(), *DISPUTE_MANAGER_ADDRESS);
     }
 }
