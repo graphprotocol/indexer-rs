@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    i64,
     sync::Arc,
     time::{Duration, Instant},
 };
