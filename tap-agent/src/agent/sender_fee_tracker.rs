@@ -106,10 +106,16 @@ impl SenderFeeTracker {
     /// value provided.
     ///
     /// IMPORTANT: This function does not affect the buffer window fee
-    pub fn update(&mut self, id: Address, fee: u128) {
+    pub fn update(&mut self, id: Address, fee: u128, counter: usize) {
         if fee > 0 {
             // insert or update, if update remove old fee from total
-            if let Some(old_fee) = self.id_to_fee.insert(id, FeeCounter { fee, count: 0 }) {
+            if let Some(old_fee) = self.id_to_fee.insert(
+                id,
+                FeeCounter {
+                    fee,
+                    count: counter,
+                },
+            ) {
                 self.total_fee -= old_fee.fee;
             }
             self.total_fee = self.total_fee.checked_add(fee).unwrap_or_else(|| {
@@ -259,7 +265,7 @@ mod tests {
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee(), 0);
 
-        tracker.update(allocation_id_0, 10);
+        tracker.update(allocation_id_0, 10, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee(), 10);
 
@@ -270,7 +276,7 @@ mod tests {
         tracker.unblock_allocation_id(allocation_id_0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
 
-        tracker.update(allocation_id_2, 20);
+        tracker.update(allocation_id_2, 20, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
         assert_eq!(tracker.get_total_fee(), 30);
 
@@ -281,27 +287,27 @@ mod tests {
         tracker.unblock_allocation_id(allocation_id_2);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
 
-        tracker.update(allocation_id_1, 30);
+        tracker.update(allocation_id_1, 30, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee(), 60);
 
-        tracker.update(allocation_id_2, 10);
+        tracker.update(allocation_id_2, 10, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee(), 50);
 
-        tracker.update(allocation_id_2, 40);
+        tracker.update(allocation_id_2, 40, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
         assert_eq!(tracker.get_total_fee(), 80);
 
-        tracker.update(allocation_id_1, 0);
+        tracker.update(allocation_id_1, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
         assert_eq!(tracker.get_total_fee(), 50);
 
-        tracker.update(allocation_id_2, 0);
+        tracker.update(allocation_id_2, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee(), 10);
 
-        tracker.update(allocation_id_0, 0);
+        tracker.update(allocation_id_0, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee(), 0);
     }
@@ -356,7 +362,7 @@ mod tests {
         assert_eq!(tracker.get_total_fee(), 60);
 
         tracker.add(allocation_id_2, 20);
-        tracker.update(allocation_id_2, 0);
+        tracker.update(allocation_id_2, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee_outside_buffer(), 20);
         assert_eq!(tracker.get_total_fee(), 40);
@@ -364,19 +370,19 @@ mod tests {
         sleep(BUFFER_WINDOW);
 
         tracker.add(allocation_id_2, 100);
-        tracker.update(allocation_id_2, 0);
+        tracker.update(allocation_id_2, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee_outside_buffer(), 0);
         assert_eq!(tracker.get_total_fee(), 40);
 
         sleep(BUFFER_WINDOW);
 
-        tracker.update(allocation_id_1, 0);
+        tracker.update(allocation_id_1, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee_outside_buffer(), 10);
         assert_eq!(tracker.get_total_fee(), 10);
 
-        tracker.update(allocation_id_0, 0);
+        tracker.update(allocation_id_0, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee_outside_buffer(), 0);
         assert_eq!(tracker.get_total_fee(), 0);
@@ -392,11 +398,11 @@ mod tests {
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee(), 0);
 
-        tracker.update(allocation_id_0, 10);
+        tracker.update(allocation_id_0, 10, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee(), 10);
 
-        tracker.update(allocation_id_1, 20);
+        tracker.update(allocation_id_1, 20, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee(), 30);
 

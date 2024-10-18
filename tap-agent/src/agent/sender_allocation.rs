@@ -249,6 +249,7 @@ impl Actor for SenderAllocation {
                         );
                             u128::MAX
                         });
+                unaggregated_fees.counter += 1;
                 // it's fine to crash the actor, could not send a message to its parent
                 state
                     .sender_account_ref
@@ -364,7 +365,8 @@ impl SenderAllocationState {
             r#"
             SELECT
                 MAX(id),
-                SUM(value)
+                SUM(value),
+                COUNT(*)
             FROM
                 scalar_tap_receipts
             WHERE
@@ -398,6 +400,7 @@ impl SenderAllocationState {
                 .unwrap_or(BigDecimal::from(0))
                 .to_string()
                 .parse::<u128>()?,
+            counter: res.count.unwrap_or(0).to_string().parse::<usize>()?,
         })
     }
 
@@ -410,7 +413,8 @@ impl SenderAllocationState {
             r#"
             SELECT
                 MAX(id),
-                SUM(value)
+                SUM(value),
+                COUNT(*)
             FROM
                 scalar_tap_receipts_invalid
             WHERE
@@ -435,6 +439,7 @@ impl SenderAllocationState {
                 .unwrap_or(BigDecimal::from(0))
                 .to_string()
                 .parse::<u128>()?,
+            counter: res.count.unwrap_or(0).to_string().parse::<usize>()?,
         })
     }
 
@@ -1005,6 +1010,7 @@ pub mod tests {
             ReceiptFees::UpdateValue(UnaggregatedReceipts {
                 last_id: 10,
                 value: 55u128,
+                counter: 10,
             }),
         );
         let last_message_emitted = last_message_emitted.recv().await.unwrap();
@@ -1047,6 +1053,7 @@ pub mod tests {
             UnaggregatedReceipts {
                 last_id: 10,
                 value: 55u128,
+                counter: 10,
             },
         );
         let update_invalid_msg = message_receiver.recv().await.unwrap();
@@ -1116,7 +1123,8 @@ pub mod tests {
                 *ALLOCATION_ID_0,
                 ReceiptFees::UpdateValue(UnaggregatedReceipts {
                     value: 0,
-                    last_id: 0
+                    last_id: 0,
+                    counter: 0,
                 })
             )
         );
@@ -1202,7 +1210,8 @@ pub mod tests {
                 *ALLOCATION_ID_0,
                 ReceiptFees::UpdateValue(UnaggregatedReceipts {
                     value: 90,
-                    last_id: 20
+                    last_id: 20,
+                    counter: 20,
                 })
             )
         );
@@ -1213,6 +1222,7 @@ pub mod tests {
             UnaggregatedReceipts {
                 last_id: 0,
                 value: 45u128,
+                counter: 0,
             },
         );
         assert_eq!(message_receiver.recv().await.unwrap(), expected_message);
@@ -1542,7 +1552,8 @@ pub mod tests {
                 *ALLOCATION_ID_0,
                 ReceiptFees::UpdateValue(UnaggregatedReceipts {
                     value: 45,
-                    last_id: 10
+                    last_id: 10,
+                    counter: 10,
                 })
             )
         );
@@ -1641,7 +1652,8 @@ pub mod tests {
                 *ALLOCATION_ID_0,
                 ReceiptFees::UpdateValue(UnaggregatedReceipts {
                     value: 16220184412847561580,
-                    last_id: 10
+                    last_id: 10,
+                    counter: 10,
                 })
             )
         );
@@ -1654,7 +1666,8 @@ pub mod tests {
                 *ALLOCATION_ID_0,
                 UnaggregatedReceipts {
                     value: TOTAL_SUM,
-                    last_id: 0
+                    last_id: 0,
+                    counter: 0,
                 }
             )
         );

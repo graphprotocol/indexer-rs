@@ -520,7 +520,7 @@ impl Actor for SenderAccount {
             SenderAccountMessage::UpdateRav(rav) => {
                 state
                     .rav_tracker
-                    .update(rav.message.allocationId, rav.message.valueAggregate);
+                    .update(rav.message.allocationId, rav.message.valueAggregate, 0);
 
                 PENDING_RAV
                     .with_label_values(&[
@@ -541,7 +541,7 @@ impl Actor for SenderAccount {
 
                 state
                     .invalid_receipts_tracker
-                    .update(allocation_id, unaggregated_fees.value);
+                    .update(allocation_id, unaggregated_fees.value, 0);
 
                 // invalid receipts can't go down
                 let should_deny = !state.denied && state.deny_condition_reached();
@@ -586,7 +586,7 @@ impl Actor for SenderAccount {
 
                                 let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
                                 // update rav tracker
-                                state.rav_tracker.update(allocation_id, rav_value);
+                                state.rav_tracker.update(allocation_id, rav_value, 0);
                                 PENDING_RAV
                                     .with_label_values(&[
                                         &state.sender.to_string(),
@@ -595,7 +595,11 @@ impl Actor for SenderAccount {
                                     .set(rav_value as f64);
 
                                 // update sender fee tracker
-                                state.sender_fee_tracker.update(allocation_id, fees.value);
+                                state.sender_fee_tracker.update(
+                                    allocation_id,
+                                    fees.value,
+                                    fees.counter,
+                                );
                                 UNAGGREGATED_FEES
                                     .with_label_values(&[
                                         &state.sender.to_string(),
@@ -615,9 +619,11 @@ impl Actor for SenderAccount {
                         };
                     }
                     ReceiptFees::UpdateValue(unaggregated_fees) => {
-                        state
-                            .sender_fee_tracker
-                            .update(allocation_id, unaggregated_fees.value);
+                        state.sender_fee_tracker.update(
+                            allocation_id,
+                            unaggregated_fees.value,
+                            unaggregated_fees.counter,
+                        );
 
                         UNAGGREGATED_FEES
                             .with_label_values(&[
@@ -768,7 +774,7 @@ impl Actor for SenderAccount {
                 for allocation_id in tracked_allocation_ids.difference(&active_allocation_ids) {
                     // if it's being tracked and we didn't receive any update from the non_final_last_ravs
                     // remove from the tracker
-                    state.rav_tracker.update(*allocation_id, 0);
+                    state.rav_tracker.update(*allocation_id, 0, 0);
 
                     let _ = PENDING_RAV.remove_label_values(&[
                         &state.sender.to_string(),
@@ -777,7 +783,7 @@ impl Actor for SenderAccount {
                 }
 
                 for (allocation_id, value) in non_final_last_ravs {
-                    state.rav_tracker.update(allocation_id, value);
+                    state.rav_tracker.update(allocation_id, value, 0);
                     PENDING_RAV
                         .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
                         .set(value as f64);
@@ -1250,6 +1256,7 @@ pub mod tests {
                                 UnaggregatedReceipts {
                                     value: *self.next_unaggregated_fees_value.lock().unwrap(),
                                     last_id: 0,
+                                    counter: 0,
                                 },
                                 Some(signed_rav),
                             ))),
@@ -1608,6 +1615,7 @@ pub mod tests {
                         ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
+                            counter: 0,
                         }),
                     ))
                     .unwrap();
@@ -1624,6 +1632,7 @@ pub mod tests {
                         UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
+                            counter: 0,
                         },
                     ))
                     .unwrap();
@@ -1751,6 +1760,7 @@ pub mod tests {
                         ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
+                            counter: 0,
                         }),
                     ))
                     .unwrap();
