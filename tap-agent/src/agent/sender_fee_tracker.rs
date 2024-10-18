@@ -99,6 +99,7 @@ impl SenderFeeTracker {
             expiring_sum.sum += value;
         }
         self.total_fee += value;
+
         let entry = self.id_to_fee.entry(id).or_default();
         entry.fee += value;
         entry.count += 1;

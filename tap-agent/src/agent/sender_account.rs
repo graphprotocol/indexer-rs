@@ -569,7 +569,6 @@ impl Actor for SenderAccount {
                             );
                             SenderAccount::deny_sender(&state.pgpool, state.sender).await;
                         }
-
                         state.sender_fee_tracker.add(allocation_id, value);
 
                         UNAGGREGATED_FEES
@@ -647,7 +646,6 @@ impl Actor for SenderAccount {
                     state.sender_fee_tracker.get_total_fee_outside_buffer();
                 let total_fee_greater_trigger_value =
                     total_fee_outside_buffer >= state.config.tap.rav_request_trigger_value;
-
                 let rav_result = match (
                     counter_greater_receipt_limit,
                     total_fee_greater_trigger_value,
@@ -980,6 +978,7 @@ pub mod tests {
     const TRIGGER_VALUE: u128 = 500;
     const ESCROW_VALUE: u128 = 1000;
     const BUFFER_MS: u64 = 100;
+    const RECEIPT_LIMIT: u64 = 10000;
 
     async fn create_sender_account(
         pgpool: PgPool,
@@ -987,6 +986,7 @@ pub mod tests {
         rav_request_trigger_value: u128,
         max_unnaggregated_fees_per_sender: u128,
         escrow_subgraph_endpoint: &str,
+        rav_request_receipt_limit: u64,
     ) -> (
         ActorRef<SenderAccountMessage>,
         tokio::task::JoinHandle<()>,
@@ -1003,6 +1003,7 @@ pub mod tests {
                 rav_request_timestamp_buffer_ms: BUFFER_MS,
                 rav_request_timeout_secs: 5,
                 max_unnaggregated_fees_per_sender,
+                rav_request_receipt_limit,
                 ..Default::default()
             },
             ..Default::default()
@@ -1054,6 +1055,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1094,6 +1096,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1294,6 +1297,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1336,6 +1340,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1388,6 +1393,60 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
+    async fn test_counter_greater_limit_trigger_rav(pgpool: PgPool) {
+        let (sender_account, handle, prefix, _) = create_sender_account(
+            pgpool,
+            HashSet::new(),
+            TRIGGER_VALUE,
+            TRIGGER_VALUE,
+            DUMMY_URL,
+            1,
+        )
+        .await;
+
+        let (triggered_rav_request, _, allocation, allocation_handle) =
+            create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
+
+        // create a fake sender allocation
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                ReceiptFees::NewReceipt(TRIGGER_VALUE - 1),
+            ))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        assert_eq!(
+            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+
+        // wait for it to be outside buffer
+        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
+
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                ReceiptFees::Retry,
+            ))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        assert_eq!(
+            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+
+        allocation.stop_and_wait(None, None).await.unwrap();
+        allocation_handle.await.unwrap();
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_remove_sender_account(pgpool: PgPool) {
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
@@ -1395,6 +1454,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1446,6 +1506,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1464,6 +1525,7 @@ pub mod tests {
             TRIGGER_VALUE,
             max_unaggregated_fees_per_sender,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1519,6 +1581,7 @@ pub mod tests {
             u128::MAX,
             max_unaggregated_fees_per_sender,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1614,6 +1677,7 @@ pub mod tests {
             TRIGGER_VALUE,
             u128::MAX,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1647,6 +1711,7 @@ pub mod tests {
             trigger_rav_request,
             u128::MAX,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1752,6 +1817,7 @@ pub mod tests {
             TRIGGER_VALUE,
             u128::MAX,
             &mock_server.uri(),
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1805,6 +1871,7 @@ pub mod tests {
             TRIGGER_VALUE,
             u128::MAX,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1848,6 +1915,7 @@ pub mod tests {
             TRIGGER_VALUE,
             max_unaggregated_fees_per_sender,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
