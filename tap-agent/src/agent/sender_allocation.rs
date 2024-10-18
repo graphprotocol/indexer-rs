@@ -9,7 +9,7 @@ use std::{
 use alloy::primitives::Address;
 use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt};
 use anyhow::{anyhow, ensure, Result};
-use bigdecimal::num_bigint::BigInt;
+use bigdecimal::{num_bigint::BigInt, ToPrimitive};
 use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, rpc_params};
@@ -400,7 +400,11 @@ impl SenderAllocationState {
                 .unwrap_or(BigDecimal::from(0))
                 .to_string()
                 .parse::<u128>()?,
-            counter: res.count.unwrap_or(0).to_string().parse::<usize>()?,
+            counter: res
+                .count
+                .unwrap_or(0)
+                .to_usize()
+                .expect("default value exists, this shouldn't be empty"),
         })
     }
 
@@ -439,7 +443,11 @@ impl SenderAllocationState {
                 .unwrap_or(BigDecimal::from(0))
                 .to_string()
                 .parse::<u128>()?,
-            counter: res.count.unwrap_or(0).to_string().parse::<usize>()?,
+            counter: res
+                .count
+                .unwrap_or(0)
+                .to_usize()
+                .expect("default value exists, this shouldn't be empty"),
         })
     }
 
