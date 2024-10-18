@@ -66,15 +66,14 @@ pub enum AttestationOutput {
 #[async_trait]
 pub trait IndexerServiceImpl {
     type Error: std::error::Error;
-    type Request: DeserializeOwned + Send + Debug + Serialize;
     type Response: IndexerServiceResponse + Sized;
     type State: Send + Sync;
 
-    async fn process_request(
+    async fn process_request<Request: DeserializeOwned + Send + Debug + Serialize>(
         &self,
         manifest_id: DeploymentId,
-        request: Self::Request,
-    ) -> Result<(Self::Request, Self::Response), Self::Error>;
+        request: Request,
+    ) -> Result<(Request, Self::Response), Self::Error>;
 }
 
 #[derive(Debug, Error)]
