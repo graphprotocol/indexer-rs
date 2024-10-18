@@ -8,20 +8,15 @@ CREATE TABLE IF NOT EXISTS "CostModelsHistory"
     "updatedAt" TIMESTAMP WITH TIME ZONE
 );
 
-CREATE VIEW "CostModels" AS SELECT id,
-       deployment,
-       model,
-       variables,
-       "createdAt",
-       "updatedAt"
-      FROM "CostModelsHistory" t1
-      JOIN
-      (
-          SELECT MAX(id)
-          FROM "CostModelsHistory"
-          GROUP BY deployment
-      ) t2
-        ON t1.id = t2.MAX;
+CREATE VIEW "CostModels" AS
+SELECT DISTINCT ON (deployment, model, variables)
+    deployment,
+    model,
+    variables,
+    "createdAt",
+    "updatedAt"
+FROM "CostModelsHistory"
+ORDER BY deployment, model, variables, id DESC;
 
 CREATE FUNCTION cost_models_update_notify()
 RETURNS trigger AS
