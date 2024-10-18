@@ -1365,7 +1365,7 @@ pub mod tests {
         }
 
         // calculate unaggregated fee
-        let total_unaggregated_fees = state.calculate_unaggregated_fee().await.unwrap();
+        let total_unaggregated_fees = state.initialize_unaggregated_receipts().await.unwrap();
 
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 45u128);
@@ -1420,7 +1420,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        let total_unaggregated_fees = state.calculate_unaggregated_fee().await.unwrap();
+        let total_unaggregated_fees = state.initialize_unaggregated_receipts().await.unwrap();
 
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 35u128);
