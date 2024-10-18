@@ -1,15 +1,14 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::subgraph_client::SubgraphClient;
+use alloy::primitives::Address;
 use anyhow::Error;
 use graphql_client::GraphQLQuery;
 use std::time::Duration;
-use thegraph_core::Address;
 use tokio::sync::watch::{self, Receiver};
 use tokio::time::{self, sleep};
 use tracing::warn;
-
-use crate::subgraph_client::SubgraphClient;
 
 type Bytes = Address;
 
