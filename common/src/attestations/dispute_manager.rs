@@ -7,8 +7,6 @@ use std::time::Duration;
 use thegraph_core::Address;
 use tokio::sync::watch::{self, Receiver};
 use tokio::time::{self, sleep};
-use alloy::primitives::Address;
-use eventuals::{timer, Eventual, EventualExt};
 use tracing::warn;
 
 use crate::subgraph_client::SubgraphClient;
