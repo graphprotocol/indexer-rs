@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    i64,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -154,7 +155,7 @@ impl Actor for SenderAllocation {
         }
 
         // update unaggregated_fees
-        state.unaggregated_fees = state.calculate_unaggregated_fee().await?;
+        state.unaggregated_fees = state.initialize_unaggregated_receipts().await?;
 
         sender_account_ref.cast(SenderAccountMessage::UpdateReceiptFees(
             allocation_id,
@@ -226,9 +227,17 @@ impl Actor for SenderAllocation {
                 let NewReceiptNotification {
                     id, value: fees, ..
                 } = notification;
-                if id > unaggregated_fees.last_id {
-                    unaggregated_fees.last_id = id;
-                    unaggregated_fees.value = unaggregated_fees
+                if id <= unaggregated_fees.last_id {
+                    // our world assumption is wrong
+                    warn!(
+                        last_id = %id,
+                        "Received an receipt notification that was already calculated."
+                    );
+                    return Ok(());
+                }
+                unaggregated_fees.last_id = id;
+                unaggregated_fees.value =
+                    unaggregated_fees
                         .value
                         .checked_add(fees)
                         .unwrap_or_else(|| {
@@ -241,14 +250,13 @@ impl Actor for SenderAllocation {
                         );
                             u128::MAX
                         });
-                    // it's fine to crash the actor, could not send a message to its parent
-                    state
-                        .sender_account_ref
-                        .cast(SenderAccountMessage::UpdateReceiptFees(
-                            state.allocation_id,
-                            ReceiptFees::NewReceipt(fees),
-                        ))?;
-                }
+                // it's fine to crash the actor, could not send a message to its parent
+                state
+                    .sender_account_ref
+                    .cast(SenderAccountMessage::UpdateReceiptFees(
+                        state.allocation_id,
+                        ReceiptFees::NewReceipt(fees),
+                    ))?;
             }
             SenderAllocationMessage::TriggerRAVRequest => {
                 let rav_result = if state.unaggregated_fees.value > 0 {
@@ -336,9 +344,18 @@ impl SenderAllocationState {
         })
     }
 
+    async fn initialize_unaggregated_receipts(&self) -> Result<UnaggregatedReceipts> {
+        self.calculate_fee_until_last_id(i64::MAX).await
+    }
+
+    async fn calculate_unaggregated_fee(&self) -> Result<UnaggregatedReceipts> {
+        self.calculate_fee_until_last_id(self.unaggregated_fees.last_id as i64)
+            .await
+    }
+
     /// Delete obsolete receipts in the DB w.r.t. the last RAV in DB, then update the tap manager
     /// with the latest unaggregated fees from the database.
-    async fn calculate_unaggregated_fee(&self) -> Result<UnaggregatedReceipts> {
+    async fn calculate_fee_until_last_id(&self, last_id: i64) -> Result<UnaggregatedReceipts> {
         tracing::trace!("calculate_unaggregated_fee()");
         self.tap_manager.remove_obsolete_receipts().await?;
 
@@ -353,10 +370,12 @@ impl SenderAllocationState {
                 scalar_tap_receipts
             WHERE
                 allocation_id = $1
-                AND signer_address IN (SELECT unnest($2::text[]))
-                AND timestamp_ns > $3
+                AND id <= $2
+                AND signer_address IN (SELECT unnest($3::text[]))
+                AND timestamp_ns > $4
             "#,
             self.allocation_id.encode_hex(),
+            last_id,
             &signers,
             BigDecimal::from(
                 self.latest_rav
@@ -599,7 +618,7 @@ impl SenderAllocationState {
                 }
                 Ok(response.data)
             }
-            (Err(_), true, true) => Err(anyhow!(
+            (Err(tap_core::Error::NoValidReceiptsForRAVRequest), true, true) => Err(anyhow!(
                 "It looks like there are no valid receipts for the RAV request.\
                 This may happen if your `rav_request_trigger_value` is too low \
                 and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
