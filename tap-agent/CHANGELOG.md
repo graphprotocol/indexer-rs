@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.2.0...indexer-tap-agent-v1.2.1) (2024-10-18)
+
+
+### Bug Fixes
+
+* calculate unaggregate receipts up to last_id ([#385](https://github.com/graphprotocol/indexer-rs/issues/385)) ([76873f9](https://github.com/graphprotocol/indexer-rs/commit/76873f95f35fe636759f47763cec27ddc6f23f31))
+
 ## [1.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.1.1...indexer-tap-agent-v1.2.0) (2024-10-17)
 
 
