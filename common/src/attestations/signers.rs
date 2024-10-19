@@ -1,14 +1,16 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use eventuals::{Eventual, EventualExt, EventualWriter};
+use eventuals::{Eventual, EventualExt};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thegraph_core::{Address, ChainId};
-use tokio::sync::watch;
 use tokio::{
     select,
-    sync::{watch::Receiver, Mutex},
+    sync::{
+        watch::{self, Receiver, Sender},
+        Mutex,
+    },
 };
 use tracing::warn;
 
@@ -20,14 +22,13 @@ pub fn attestation_signers(
     indexer_mnemonic: String,
     chain_id: ChainId,
     mut dispute_manager_rx: Receiver<Option<Address>>,
-) -> Eventual<HashMap<Address, AttestationSigner>> {
+) -> Receiver<HashMap<Address, AttestationSigner>> {
     let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
         Box::leak(Box::new(Mutex::new(HashMap::new())));
 
     // Whenever the indexer's active or recently closed allocations change, make sure
     // we have attestation signers for all of them.
-    let (mut signers_writer, signers_reader) =
-        Eventual::<HashMap<Address, AttestationSigner>>::new();
+    let (signers_tx, signers_rx) = watch::channel(HashMap::new());
 
     tokio::spawn(async move {
         // Listening to the allocation eventual and converting them to reciever.
@@ -48,7 +49,7 @@ pub fn attestation_signers(
                         attestation_signers_map,
                         allocations_rx.clone(),
                         dispute_manager_rx.clone(),
-                        &mut signers_writer).await;
+                        signers_tx.clone()).await;
                 },
                 Ok(_)= dispute_manager_rx.changed() =>{
                     modify_sigers(Arc::new(indexer_mnemonic.clone()),
@@ -56,7 +57,7 @@ pub fn attestation_signers(
                     attestation_signers_map,
                     allocations_rx.clone(),
                     dispute_manager_rx.clone(),
-                    &mut signers_writer).await;
+                    signers_tx.clone()).await;
                 },
                 else=>{
                     // Something is wrong.
@@ -66,7 +67,7 @@ pub fn attestation_signers(
         }
     });
 
-    signers_reader
+    signers_rx
 }
 async fn modify_sigers(
     indexer_mnemonic: Arc<String>,
@@ -74,7 +75,7 @@ async fn modify_sigers(
     attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>>,
     allocations_rx: Receiver<HashMap<Address, Allocation>>,
     dispute_manager_rx: Receiver<Option<Address>>,
-    signers_writer: &mut EventualWriter<HashMap<Address, AttestationSigner>>,
+    signers_tx: Sender<HashMap<Address, AttestationSigner>>,
 ) {
     let mut signers = attestation_signers_map.lock().await;
     let allocations = allocations_rx.borrow().clone();
@@ -101,7 +102,7 @@ async fn modify_sigers(
         }
     }
 
-    signers_writer.write(signers.clone());
+    signers_tx.send(signers.clone()).unwrap();
 }
 
 #[cfg(test)]
@@ -121,22 +122,23 @@ mod tests {
             .send(Some(*DISPUTE_MANAGER_ADDRESS))
             .unwrap();
 
-        let signers = attestation_signers(
+        let mut signers = attestation_signers(
             allocations,
             (*INDEXER_OPERATOR_MNEMONIC).to_string(),
             1,
             dispute_manager,
         );
-        let mut signers = signers.subscribe();
 
         // Test that an empty set of allocations leads to an empty set of signers
         allocations_writer.write(HashMap::new());
-        let latest_signers = signers.next().await.unwrap();
+        signers.changed().await.unwrap();
+        let latest_signers = signers.borrow().clone();
         assert_eq!(latest_signers, HashMap::new());
 
         // Test that writing our set of test allocations results in corresponding signers for all of them
         allocations_writer.write((*INDEXER_ALLOCATIONS).clone());
-        let latest_signers = signers.next().await.unwrap();
+        signers.changed().await.unwrap();
+        let latest_signers = signers.borrow().clone();
         assert_eq!(latest_signers.len(), INDEXER_ALLOCATIONS.len());
         for signer_allocation_id in latest_signers.keys() {
             assert!(INDEXER_ALLOCATIONS

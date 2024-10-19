@@ -30,6 +30,7 @@ use thegraph_core::{Address, Attestation, DeploymentId};
 use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tokio::sync::watch::Receiver;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::TraceLayer};
 use tracing::error;
@@ -184,7 +185,7 @@ where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
     pub config: IndexerServiceConfig,
-    pub attestation_signers: Eventual<HashMap<Address, AttestationSigner>>,
+    pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
     pub tap_manager: Manager<IndexerTapContext>,
     pub service_impl: Arc<I>,
 
