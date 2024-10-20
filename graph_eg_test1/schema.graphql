@@ -1,0 +1,48 @@
+type Approval @entity(immutable: true) {
+  id: Bytes!
+  owner: Bytes! # address
+  spender: Bytes! # address
+  amount: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type DelegateChanged @entity(immutable: true) {
+  id: Bytes!
+  delegator: Bytes! # address
+  fromDelegate: Bytes! # address
+  toDelegate: Bytes! # address
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type DelegateVotesChanged @entity(immutable: true) {
+  id: Bytes!
+  delegate: Bytes! # address
+  previousBalance: BigInt! # uint256
+  newBalance: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type MinterChanged @entity(immutable: true) {
+  id: Bytes!
+  minter: Bytes! # address
+  newMinter: Bytes! # address
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type Transfer @entity(immutable: true) {
+  id: Bytes!
+  from: Bytes! # address
+  to: Bytes! # address
+  amount: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
