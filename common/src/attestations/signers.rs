@@ -8,7 +8,7 @@ use thegraph_core::{Address, ChainId};
 use tokio::{
     select,
     sync::{
-        watch::{self, Receiver, Sender},
+        watch::{self, Receiver},
         Mutex,
     },
 };
@@ -39,31 +39,40 @@ pub fn attestation_signers(
         let _p1 = indexer_allocations.pipe(move |allocatons| {
             let _ = allocations_tx.send(allocatons);
         });
-
+        modify_sigers(
+            Arc::new(indexer_mnemonic.clone()),
+            chain_id,
+            attestation_signers_map,
+            allocations_rx.clone(),
+            dispute_manager_rx.clone(),
+        )
+        .await;
         loop {
-            select! {
-                Ok(_)= allocations_rx.changed() =>{
+            let updated_signers = select! {
+                Ok(())= allocations_rx.changed() =>{
                     modify_sigers(
                         Arc::new(indexer_mnemonic.clone()),
                         chain_id,
                         attestation_signers_map,
                         allocations_rx.clone(),
                         dispute_manager_rx.clone(),
-                        signers_tx.clone()).await;
+                    ).await
                 },
-                Ok(_)= dispute_manager_rx.changed() =>{
-                    modify_sigers(Arc::new(indexer_mnemonic.clone()),
-                    chain_id,
-                    attestation_signers_map,
-                    allocations_rx.clone(),
-                    dispute_manager_rx.clone(),
-                    signers_tx.clone()).await;
+                Ok(())= dispute_manager_rx.changed() =>{
+                    modify_sigers(
+                        Arc::new(indexer_mnemonic.clone()),
+                        chain_id,
+                        attestation_signers_map,
+                        allocations_rx.clone(),
+                        dispute_manager_rx.clone()
+                    ).await
                 },
                 else=>{
                     // Something is wrong.
                     panic!("dispute_manager_rx or allocations_rx was dropped");
                 }
-            }
+            };
+            signers_tx.send(updated_signers).unwrap();
         }
     });
 
@@ -75,12 +84,11 @@ async fn modify_sigers(
     attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>>,
     allocations_rx: Receiver<HashMap<Address, Allocation>>,
     dispute_manager_rx: Receiver<Option<Address>>,
-    signers_tx: Sender<HashMap<Address, AttestationSigner>>,
-) {
+) -> HashMap<thegraph_core::Address, AttestationSigner> {
     let mut signers = attestation_signers_map.lock().await;
     let allocations = allocations_rx.borrow().clone();
     let Some(dispute_manager) = *dispute_manager_rx.borrow() else {
-        return;
+        return signers.clone();
     };
     // Remove signers for allocations that are no longer active or recently closed
     signers.retain(|id, _| allocations.contains_key(id));
@@ -102,7 +110,7 @@ async fn modify_sigers(
         }
     }
 
-    signers_tx.send(signers.clone()).unwrap();
+    signers.clone()
 }
 
 #[cfg(test)]
