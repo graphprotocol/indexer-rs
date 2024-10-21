@@ -79,6 +79,7 @@ impl From<MainConfig> for Config {
             },
             dips: IndexerDipsConfig {
                 allowed_payers: value.dips.allowed_payers,
+                cancel_voucher_time_tolerance: value.dips.cancellation_time_tolerance,
             },
         })
     }

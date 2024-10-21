@@ -355,6 +355,7 @@ pub struct TapConfig {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DipsConfig {
     pub allowed_payers: Vec<Address>,
+    pub cancellation_time_tolerance: Option<Duration>,
 }
 
 impl TapConfig {

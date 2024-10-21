@@ -203,6 +203,11 @@ pub async fn run() -> anyhow::Result<()> {
                 config.0.tap.chain_id,
                 config.0.tap.receipts_verifier_address,
             ),
+            cancel_voucher_time_tolerance: config
+                .0
+                .dips
+                .cancel_voucher_time_tolerance
+                .unwrap_or(Duration::from_secs(5)),
         },
         EmptySubscription,
     )

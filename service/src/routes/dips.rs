@@ -1,12 +1,14 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::time::Duration;
 use std::{str::FromStr, sync::Arc};
 
 use anyhow::bail;
 use async_graphql::{Context, FieldResult, Object, SimpleObject};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use indexer_dips::alloy::dyn_abi::Eip712Domain;
+use indexer_dips::SignedCancellationRequest;
 use indexer_dips::{
     alloy::core::primitives::Address, alloy_rlp::Decodable, SignedIndexingAgreementVoucher,
     SubgraphIndexingVoucherMetadata,
@@ -101,6 +103,7 @@ pub struct AgreementMutation {
     pub expected_payee: Address,
     pub allowed_payers: Vec<Address>,
     pub domain: Eip712Domain,
+    pub cancel_voucher_time_tolerance: Duration,
 }
 
 #[Object]
@@ -127,12 +130,23 @@ impl AgreementMutation {
     pub async fn cancel_agreement<'a>(
         &self,
         ctx: &'a Context<'_>,
-        signature: String,
+        id: String,
+        // data should be the signed voucher, eip712 signed, rlp and base64 encoded.
+        data: String,
     ) -> FieldResult<String> {
         let store: &Arc<dyn AgreementStore> = ctx.data()?;
 
+        validate_and_cancel_agreement(
+            store.clone(),
+            &self.domain,
+            data.clone(),
+            self.cancel_voucher_time_tolerance,
+        )
+        .await
+        .map_err(async_graphql::Error::from)?;
+
         store
-            .cancel_agreement(signature)
+            .cancel_agreement(id)
             .await
             .map_err(async_graphql::Error::from)
     }
@@ -162,6 +176,29 @@ async fn validate_and_create_agreement(
         .await
 }
 
+async fn validate_and_cancel_agreement(
+    store: Arc<dyn AgreementStore>,
+    domain: &Eip712Domain,
+    agreement: String,
+    time_tolerance: Duration,
+) -> anyhow::Result<Agreement> {
+    let rlp_bs = STANDARD.decode(agreement.clone())?;
+    let voucher = SignedCancellationRequest::decode(&mut rlp_bs.as_ref())?;
+    let metadata = SubgraphIndexingVoucherMetadata::decode(&mut voucher.request.metadata.as_ref())?;
+
+    voucher.validate(domain, time_tolerance)?;
+
+    let agreement = Agreement {
+        signature: voucher.signature.to_string(),
+        data: agreement,
+        protocol_network: metadata.protocolNetwork.to_string(),
+    };
+
+    store
+        .create_agreement(voucher.signature.to_string(), agreement)
+        .await
+}
+
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
@@ -179,6 +216,7 @@ mod test {
 
     #[tokio::test]
     async fn test_validate_and_create_agreement() -> anyhow::Result<()> {
+        let deployment_id = "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f".to_string();
         let payee = PrivateKeySigner::random();
         let payee_addr = payee.address();
         let payer = PrivateKeySigner::random();
@@ -201,6 +239,7 @@ mod test {
             minEpochsPerCollection: 1000,
             durationEpochs: 1000,
             metadata: alloy_rlp::encode(metadata).into(),
+            deployment_ipfs_hash: deployment_id,
         };
         let domain = eip712_domain(0, Address::ZERO);
 
