@@ -44,6 +44,7 @@ mod tests {
     use std::time::SystemTime;
 
     use super::*;
+    use crate::tap::Eip712Domain;
     use tap_core::{
         receipt::{checks::Check, state::Checking, Receipt, ReceiptWithState},
         signed_message::EIP712SignedMessage,

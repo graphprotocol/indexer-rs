@@ -52,9 +52,11 @@ mod tests {
     };
 
     use super::*;
+    use crate::tap::Eip712Domain;
     use tap_core::{
         receipt::{checks::Check, state::Checking, Receipt, ReceiptWithState},
         signed_message::EIP712SignedMessage,
+        tap_eip712_domain,
     };
 
     fn create_signed_receipt_with_custom_timestamp(
