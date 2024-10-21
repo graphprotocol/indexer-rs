@@ -23,7 +23,7 @@ use tap_core::{
     receipt::{
         checks::{Check, CheckList},
         state::Failed,
-        ReceiptWithState,
+        Context, ReceiptWithState,
     },
     signed_message::EIP712SignedMessage,
 };
@@ -486,6 +486,7 @@ impl SenderAllocationState {
         } = self
             .tap_manager
             .create_rav_request(
+                &Context::new(),
                 self.config.tap.rav_request_timestamp_buffer_ms * 1_000_000,
                 Some(self.config.tap.rav_request_receipt_limit),
             )
@@ -850,7 +851,7 @@ pub mod tests {
     use tap_core::receipt::{
         checks::{Check, CheckError, CheckList, CheckResult},
         state::Checking,
-        ReceiptWithState,
+        Context, ReceiptWithState,
     };
     use tokio::sync::mpsc;
     use wiremock::{
@@ -1466,7 +1467,11 @@ pub mod tests {
 
         #[async_trait::async_trait]
         impl Check for FailingCheck {
-            async fn check(&self, _receipt: &ReceiptWithState<Checking>) -> CheckResult {
+            async fn check(
+                &self,
+                _: &tap_core::receipt::Context,
+                _receipt: &ReceiptWithState<Checking>,
+            ) -> CheckResult {
                 Err(CheckError::Failed(anyhow::anyhow!("Failing check")))
             }
         }
@@ -1488,7 +1493,7 @@ pub mod tests {
             .into_iter()
             .map(|receipt| async {
                 receipt
-                    .finalize_receipt_checks(&checks)
+                    .finalize_receipt_checks(&Context::new(), &checks)
                     .await
                     .unwrap()
                     .unwrap_err()

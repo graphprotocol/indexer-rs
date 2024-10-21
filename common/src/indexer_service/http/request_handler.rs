@@ -13,10 +13,13 @@ use axum_extra::TypedHeader;
 use lazy_static::lazy_static;
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use reqwest::StatusCode;
+use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
 use tracing::trace;
 
-use crate::indexer_service::http::IndexerServiceResponse;
+use serde_json::value::RawValue;
+
+use crate::{indexer_service::http::IndexerServiceResponse, tap::AgoraQuery};
 
 use super::{
     indexer_service::{AttestationOutput, IndexerServiceError, IndexerServiceState},
@@ -77,7 +80,13 @@ where
 {
     trace!("Handling request for deployment `{manifest_id}`");
 
-    let request =
+    #[derive(Debug, serde::Deserialize, serde::Serialize)]
+    pub struct QueryBody {
+        pub query: String,
+        pub variables: Option<Box<RawValue>>,
+    }
+
+    let request: QueryBody =
         serde_json::from_slice(&body).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
 
     let Some(receipt) = receipt.into_signed_receipt() else {
@@ -110,6 +119,18 @@ where
 
     let allocation_id = receipt.message.allocation_id;
 
+    let variables = request
+        .variables
+        .as_ref()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    let mut ctx = Context::new();
+    ctx.insert(AgoraQuery {
+        deployment_id: manifest_id,
+        query: request.query.clone(),
+        variables,
+    });
+
     // recover the signer address
     // get escrow accounts from eventual
     // return sender from signer
@@ -141,7 +162,7 @@ where
     // Verify the receipt and store it in the database
     state
         .tap_manager
-        .verify_and_store_receipt(receipt)
+        .verify_and_store_receipt(&ctx, receipt)
         .await
         .inspect_err(|_| {
             FAILED_RECEIPT
