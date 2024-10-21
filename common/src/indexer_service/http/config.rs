@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use thegraph_core::{Address, DeploymentId};
@@ -42,6 +42,13 @@ pub struct IndexerServiceConfig {
     pub escrow_subgraph: SubgraphConfig,
     pub graph_network: GraphNetworkConfig,
     pub tap: TapConfig,
+    pub dips: IndexerDipsConfig,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct IndexerDipsConfig {
+    pub allowed_payers: Vec<Address>,
+    pub cancel_voucher_time_tolerance: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

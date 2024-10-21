@@ -35,6 +35,7 @@ pub struct Config {
     pub blockchain: BlockchainConfig,
     pub service: ServiceConfig,
     pub tap: TapConfig,
+    pub dips: DipsConfig,
 }
 
 // Newtype wrapping Config to be able use serde_ignored with Figment
@@ -348,6 +349,13 @@ pub struct TapConfig {
     pub rav_request: RavRequestConfig,
 
     pub sender_aggregator_endpoints: HashMap<Address, Url>,
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct DipsConfig {
+    pub allowed_payers: Vec<Address>,
+    pub cancellation_time_tolerance: Option<Duration>,
 }
 
 impl TapConfig {

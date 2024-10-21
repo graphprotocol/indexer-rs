@@ -1,0 +1,19 @@
+[package]
+name = "indexer-dips"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy.workspace = true 
+thiserror.workspace = true
+anyhow.workspace = true
+alloy-sol-types = "=0.8.7"
+# alloy-signer = { version = "0.4", features = ["eip712"] }
+alloy-rlp = "0.3.8" 
+thegraph-core.workspace = true
+
+# alloy-signer = "0.4.2"
+# alloy-rlp = "0.3.8"
+
+# [dev-dependencies]
+# alloy-signer-local = "=0.4.0"
