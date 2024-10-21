@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.2.1...indexer-tap-agent-v1.3.0) (2024-10-21)
+
+
+### Features
+
+* add counter trigger for rav request ([#384](https://github.com/graphprotocol/indexer-rs/issues/384)) ([06644c5](https://github.com/graphprotocol/indexer-rs/commit/06644c5ad934db816725fb5e95bed9ab3c98d536))
+
 ## [1.2.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.2.0...indexer-tap-agent-v1.2.1) (2024-10-18)
 
 
