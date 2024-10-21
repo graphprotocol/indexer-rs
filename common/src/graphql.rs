@@ -7,8 +7,7 @@ use regex::Regex;
 
 /// There is no convenient function for filtering GraphQL executable documents
 /// For sake of simplicity, use regex to filter graphql query string
-/// Return original string if the query is okay, otherwise error out with
-/// unsupported fields
+/// Return original string if the query is okay, otherwise error out with  unsupported fields
 pub fn filter_supported_fields(
     query: &str,
     supported_root_fields: &HashSet<&str>,

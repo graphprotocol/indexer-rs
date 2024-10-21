@@ -35,21 +35,20 @@ impl Check for ReceiptMaxValueCheck {
 }
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-    use std::time::Duration;
-    use std::time::SystemTime;
-
-    use alloy::dyn_abi::Eip712Domain;
     use alloy::primitives::Address;
     use alloy::signers::local::coins_bip39::English;
     use alloy::signers::local::MnemonicBuilder;
     use alloy::signers::local::PrivateKeySigner;
-    use alloy::sol_types::eip712_domain;
+    use std::str::FromStr;
+    use std::time::Duration;
+    use std::time::SystemTime;
 
     use super::*;
+    use crate::tap::Eip712Domain;
     use tap_core::{
         receipt::{checks::Check, state::Checking, Receipt, ReceiptWithState},
         signed_message::EIP712SignedMessage,
+        tap_eip712_domain,
     };
 
     fn create_signed_receipt_with_custom_value(value: u128) -> ReceiptWithState<Checking> {
@@ -60,12 +59,9 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        let eip712_domain_separator: Eip712Domain = eip712_domain! {
-            name: "TAP",
-            version: "1",
-            chain_id: 1,
-            verifying_contract: Address:: from([0x11u8; 20]),
-        };
+
+        let eip712_domain_separator: Eip712Domain =
+            tap_eip712_domain(1, Address::from([0x11u8; 20]));
 
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
