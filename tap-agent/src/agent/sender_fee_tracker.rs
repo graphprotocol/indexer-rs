@@ -16,6 +16,16 @@ struct ExpiringSum {
 
 impl ExpiringSum {
     fn get_sum(&mut self, duration: &Duration) -> u128 {
+        self.cleanup(duration);
+        self.sum
+    }
+
+    fn get_count(&mut self, duration: &Duration) -> u64 {
+        self.cleanup(duration);
+        self.entries.len() as u64
+    }
+
+    fn cleanup(&mut self, duration: &Duration) {
         let now = Instant::now();
         while let Some(&(timestamp, value)) = self.entries.front() {
             if now.duration_since(timestamp) >= *duration {
@@ -25,13 +35,18 @@ impl ExpiringSum {
                 break;
             }
         }
-        self.sum
     }
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct FeeCounter {
+    fee: u128,
+    count: u64,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct SenderFeeTracker {
-    id_to_fee: HashMap<Address, u128>,
+    id_to_fee: HashMap<Address, FeeCounter>,
     total_fee: u128,
 
     fees_requesting: u128,
@@ -81,19 +96,27 @@ impl SenderFeeTracker {
             expiring_sum.sum += value;
         }
         self.total_fee += value;
+
         let entry = self.id_to_fee.entry(id).or_default();
-        *entry += value;
+        entry.fee += value;
+        entry.count += 1;
     }
 
     /// Updates and overwrite the fee counter into the specific
     /// value provided.
     ///
     /// IMPORTANT: This function does not affect the buffer window fee
-    pub fn update(&mut self, id: Address, fee: u128) {
+    pub fn update(&mut self, id: Address, fee: u128, counter: u64) {
         if fee > 0 {
             // insert or update, if update remove old fee from total
-            if let Some(old_fee) = self.id_to_fee.insert(id, fee) {
-                self.total_fee -= old_fee;
+            if let Some(old_fee) = self.id_to_fee.insert(
+                id,
+                FeeCounter {
+                    fee,
+                    count: counter,
+                },
+            ) {
+                self.total_fee -= old_fee.fee;
             }
             self.total_fee = self.total_fee.checked_add(fee).unwrap_or_else(|| {
                 // This should never happen, but if it does, we want to know about it.
@@ -105,7 +128,7 @@ impl SenderFeeTracker {
                 u128::MAX
             });
         } else if let Some(old_fee) = self.id_to_fee.remove(&id) {
-            self.total_fee -= old_fee;
+            self.total_fee -= old_fee.fee;
         }
     }
 
@@ -134,11 +157,12 @@ impl SenderFeeTracker {
             .map(|(addr, fee)| {
                 (
                     addr,
-                    fee - self
-                        .buffer_window_fee
-                        .get_mut(addr)
-                        .map(|expiring| expiring.get_sum(&self.buffer_window_duration))
-                        .unwrap_or_default(),
+                    fee.fee
+                        - self
+                            .buffer_window_fee
+                            .get_mut(addr)
+                            .map(|expiring| expiring.get_sum(&self.buffer_window_duration))
+                            .unwrap_or_default(),
                 )
             })
             .filter(|(_, fee)| *fee > 0)
@@ -168,6 +192,25 @@ impl SenderFeeTracker {
         self.get_total_fee() - self.get_buffer_fee().min(self.total_fee)
     }
 
+    pub fn get_total_counter_outside_buffer_for_allocation(
+        &mut self,
+        allocation_id: &Address,
+    ) -> u64 {
+        let Some(allocation_counter) = self
+            .id_to_fee
+            .get(allocation_id)
+            .map(|fee_counter| fee_counter.count)
+        else {
+            return 0;
+        };
+        let counter_in_buffer = self
+            .buffer_window_fee
+            .get_mut(allocation_id)
+            .map(|window| window.get_count(&self.buffer_window_duration))
+            .unwrap_or(0);
+        allocation_counter - counter_in_buffer
+    }
+
     pub fn get_buffer_fee(&mut self) -> u128 {
         self.buffer_window_fee
             .values_mut()
@@ -179,13 +222,13 @@ impl SenderFeeTracker {
     pub fn start_rav_request(&mut self, allocation_id: Address) {
         let current_fee = self.id_to_fee.entry(allocation_id).or_default();
         self.ids_requesting.insert(allocation_id);
-        self.fees_requesting += *current_fee;
+        self.fees_requesting += current_fee.fee;
     }
 
     /// Should be called before `update`
     pub fn finish_rav_request(&mut self, allocation_id: Address) {
         let current_fee = self.id_to_fee.entry(allocation_id).or_default();
-        self.fees_requesting -= *current_fee;
+        self.fees_requesting -= current_fee.fee;
         self.ids_requesting.remove(&allocation_id);
     }
 
@@ -199,6 +242,10 @@ impl SenderFeeTracker {
     }
     pub fn ok_rav_request(&mut self, allocation_id: Address) {
         self.failed_ravs.remove(&allocation_id);
+    }
+
+    pub fn check_allocation_has_rav_request_running(&self, allocation_id: Address) -> bool {
+        self.ids_requesting.contains(&allocation_id)
     }
 }
 
@@ -218,7 +265,7 @@ mod tests {
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee(), 0);
 
-        tracker.update(allocation_id_0, 10);
+        tracker.update(allocation_id_0, 10, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee(), 10);
 
@@ -229,7 +276,7 @@ mod tests {
         tracker.unblock_allocation_id(allocation_id_0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
 
-        tracker.update(allocation_id_2, 20);
+        tracker.update(allocation_id_2, 20, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
         assert_eq!(tracker.get_total_fee(), 30);
 
@@ -240,27 +287,27 @@ mod tests {
         tracker.unblock_allocation_id(allocation_id_2);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
 
-        tracker.update(allocation_id_1, 30);
+        tracker.update(allocation_id_1, 30, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee(), 60);
 
-        tracker.update(allocation_id_2, 10);
+        tracker.update(allocation_id_2, 10, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee(), 50);
 
-        tracker.update(allocation_id_2, 40);
+        tracker.update(allocation_id_2, 40, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
         assert_eq!(tracker.get_total_fee(), 80);
 
-        tracker.update(allocation_id_1, 0);
+        tracker.update(allocation_id_1, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
         assert_eq!(tracker.get_total_fee(), 50);
 
-        tracker.update(allocation_id_2, 0);
+        tracker.update(allocation_id_2, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee(), 10);
 
-        tracker.update(allocation_id_0, 0);
+        tracker.update(allocation_id_0, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee(), 0);
     }
@@ -315,7 +362,7 @@ mod tests {
         assert_eq!(tracker.get_total_fee(), 60);
 
         tracker.add(allocation_id_2, 20);
-        tracker.update(allocation_id_2, 0);
+        tracker.update(allocation_id_2, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee_outside_buffer(), 20);
         assert_eq!(tracker.get_total_fee(), 40);
@@ -323,19 +370,19 @@ mod tests {
         sleep(BUFFER_WINDOW);
 
         tracker.add(allocation_id_2, 100);
-        tracker.update(allocation_id_2, 0);
+        tracker.update(allocation_id_2, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee_outside_buffer(), 0);
         assert_eq!(tracker.get_total_fee(), 40);
 
         sleep(BUFFER_WINDOW);
 
-        tracker.update(allocation_id_1, 0);
+        tracker.update(allocation_id_1, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee_outside_buffer(), 10);
         assert_eq!(tracker.get_total_fee(), 10);
 
-        tracker.update(allocation_id_0, 0);
+        tracker.update(allocation_id_0, 0, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee_outside_buffer(), 0);
         assert_eq!(tracker.get_total_fee(), 0);
@@ -351,11 +398,11 @@ mod tests {
         assert_eq!(tracker.get_heaviest_allocation_id(), None);
         assert_eq!(tracker.get_total_fee(), 0);
 
-        tracker.update(allocation_id_0, 10);
+        tracker.update(allocation_id_0, 10, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_0));
         assert_eq!(tracker.get_total_fee(), 10);
 
-        tracker.update(allocation_id_1, 20);
+        tracker.update(allocation_id_1, 20, 0);
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
         assert_eq!(tracker.get_total_fee(), 30);
 
@@ -401,5 +448,85 @@ mod tests {
         assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_2));
         assert_eq!(tracker.get_total_fee(), 60);
         assert_eq!(tracker.get_total_fee_outside_buffer(), 60);
+    }
+
+    #[test]
+    fn check_counter_and_fee_outside_buffer_unordered() {
+        let allocation_id_0 = address!("abababababababababababababababababababab");
+        let allocation_id_2 = address!("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd");
+
+        const BUFFER_WINDOW: Duration = Duration::from_millis(20);
+        let mut tracker = SenderFeeTracker::new(BUFFER_WINDOW);
+        assert_eq!(tracker.get_total_fee_outside_buffer(), 0);
+        assert_eq!(
+            tracker.get_total_counter_outside_buffer_for_allocation(&allocation_id_0),
+            0
+        );
+
+        tracker.add(allocation_id_0, 10);
+        assert_eq!(tracker.get_total_fee_outside_buffer(), 0);
+        assert_eq!(
+            tracker.get_total_counter_outside_buffer_for_allocation(&allocation_id_0),
+            0
+        );
+
+        sleep(BUFFER_WINDOW);
+
+        assert_eq!(tracker.get_total_fee_outside_buffer(), 10);
+        assert_eq!(
+            tracker.get_total_counter_outside_buffer_for_allocation(&allocation_id_0),
+            1
+        );
+
+        tracker.add(allocation_id_2, 20);
+        assert_eq!(
+            tracker.get_total_counter_outside_buffer_for_allocation(&allocation_id_2),
+            0
+        );
+        assert_eq!(tracker.get_total_fee_outside_buffer(), 10);
+
+        sleep(BUFFER_WINDOW);
+
+        tracker.block_allocation_id(allocation_id_2);
+        assert_eq!(
+            tracker.get_total_counter_outside_buffer_for_allocation(&allocation_id_2),
+            1
+        );
+        assert_eq!(tracker.get_total_fee_outside_buffer(), 30);
+    }
+
+    #[test]
+    fn check_get_count_updates_sum() {
+        let allocation_id_0 = address!("abababababababababababababababababababab");
+
+        const BUFFER_WINDOW: Duration = Duration::from_millis(20);
+        let mut tracker = SenderFeeTracker::new(BUFFER_WINDOW);
+
+        tracker.add(allocation_id_0, 10);
+        let expiring_sum = tracker
+            .buffer_window_fee
+            .get_mut(&allocation_id_0)
+            .expect("there should be something here");
+        assert_eq!(expiring_sum.get_sum(&BUFFER_WINDOW), 10);
+        assert_eq!(expiring_sum.get_count(&BUFFER_WINDOW), 1);
+
+        sleep(BUFFER_WINDOW);
+
+        assert_eq!(expiring_sum.get_sum(&BUFFER_WINDOW), 0);
+        assert_eq!(expiring_sum.get_count(&BUFFER_WINDOW), 0);
+
+        tracker.add(allocation_id_0, 10);
+        let expiring_sum = tracker
+            .buffer_window_fee
+            .get_mut(&allocation_id_0)
+            .expect("there should be something here");
+
+        assert_eq!(expiring_sum.get_count(&BUFFER_WINDOW), 1);
+        assert_eq!(expiring_sum.get_sum(&BUFFER_WINDOW), 10);
+
+        sleep(BUFFER_WINDOW);
+
+        assert_eq!(expiring_sum.get_count(&BUFFER_WINDOW), 0);
+        assert_eq!(expiring_sum.get_sum(&BUFFER_WINDOW), 0);
     }
 }
