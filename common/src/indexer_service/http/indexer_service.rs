@@ -251,7 +251,8 @@ impl IndexerService {
             options.config.indexer.operator_mnemonic.clone(),
             options.config.graph_network.chain_id,
             dispute_manager,
-        );
+        )
+        .await;
 
         let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(SubgraphClient::new(
             http_client,

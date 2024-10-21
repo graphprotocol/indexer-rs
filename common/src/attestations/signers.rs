@@ -17,7 +17,7 @@ use tracing::warn;
 use crate::prelude::{Allocation, AttestationSigner};
 
 /// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
-pub fn attestation_signers(
+pub async fn attestation_signers(
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
     indexer_mnemonic: String,
     chain_id: ChainId,
@@ -135,7 +135,8 @@ mod tests {
             (*INDEXER_OPERATOR_MNEMONIC).to_string(),
             1,
             dispute_manager,
-        );
+        )
+        .await;
 
         // Test that an empty set of allocations leads to an empty set of signers
         allocations_writer.write(HashMap::new());
