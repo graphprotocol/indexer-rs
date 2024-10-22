@@ -155,12 +155,9 @@ where
         .map_err(IndexerServiceError::ReceiptError)?;
 
     // Check if we have an attestation signer for the allocation the receipt was created for
-    let signers = state
+    let signer = state
         .attestation_signers
-        .value_immediate()
-        .ok_or_else(|| IndexerServiceError::ServiceNotReady)?;
-
-    let signer = signers
+        .borrow()
         .get(&allocation_id)
         .cloned()
         .ok_or_else(|| (IndexerServiceError::NoSignerForAllocation(allocation_id)))?;

@@ -44,12 +44,9 @@ pub fn dispute_manager(
             .await;
 
             match result {
-                Ok(address) => {
-                    if tx.send(Some(address)).is_err() {
-                        // stopping
-                        break;
-                    }
-                }
+                Ok(address) => tx
+                    .send(Some(address))
+                    .expect("Failed to update dispute_manager channel"),
                 Err(err) => {
                     warn!("Failed to query dispute manager for network: {}", err);
                     // Sleep for a bit before we retry

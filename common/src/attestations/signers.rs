@@ -1,72 +1,88 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use eventuals::{Eventual, EventualExt, EventualWriter};
+use eventuals::{Eventual, EventualExt};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thegraph_core::{Address, ChainId};
-use tokio::sync::watch;
 use tokio::{
     select,
-    sync::{watch::Receiver, Mutex},
+    sync::{
+        watch::{self, Receiver},
+        Mutex,
+    },
 };
 use tracing::warn;
 
 use crate::prelude::{Allocation, AttestationSigner};
 
 /// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
-pub fn attestation_signers(
+pub async fn attestation_signers(
     indexer_allocations: Eventual<HashMap<Address, Allocation>>,
     indexer_mnemonic: String,
     chain_id: ChainId,
     mut dispute_manager_rx: Receiver<Option<Address>>,
-) -> Eventual<HashMap<Address, AttestationSigner>> {
+) -> Receiver<HashMap<Address, AttestationSigner>> {
     let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
         Box::leak(Box::new(Mutex::new(HashMap::new())));
 
+    // Actively listening to indexer_allocations to update allocations channel
+    // Temporary fix until the indexer_allocations is migrated to tokio watch
+    let (allocations_tx, mut allocations_rx) =
+        watch::channel(indexer_allocations.value_immediate().unwrap_or_default());
+    indexer_allocations
+        .pipe(move |allocatons| {
+            allocations_tx
+                .send(allocatons)
+                .expect("Failed to update allocations channel");
+        })
+        .forever();
+
+    let starter_signers_map = modify_sigers(
+        Arc::new(indexer_mnemonic.clone()),
+        chain_id,
+        attestation_signers_map,
+        allocations_rx.clone(),
+        dispute_manager_rx.clone(),
+    )
+    .await;
+
     // Whenever the indexer's active or recently closed allocations change, make sure
     // we have attestation signers for all of them.
-    let (mut signers_writer, signers_reader) =
-        Eventual::<HashMap<Address, AttestationSigner>>::new();
-
+    let (signers_tx, signers_rx) = watch::channel(starter_signers_map);
     tokio::spawn(async move {
-        // Listening to the allocation eventual and converting them to reciever.
-        // Using pipe for updation.
-        // For temporary pupose only.
-        let (allocations_tx, mut allocations_rx) =
-            watch::channel(indexer_allocations.value().await.unwrap());
-        let _p1 = indexer_allocations.pipe(move |allocatons| {
-            let _ = allocations_tx.send(allocatons);
-        });
-
         loop {
-            select! {
-                Ok(_)= allocations_rx.changed() =>{
+            let updated_signers = select! {
+                Ok(())= allocations_rx.changed() =>{
                     modify_sigers(
                         Arc::new(indexer_mnemonic.clone()),
                         chain_id,
                         attestation_signers_map,
                         allocations_rx.clone(),
                         dispute_manager_rx.clone(),
-                        &mut signers_writer).await;
+                    ).await
                 },
-                Ok(_)= dispute_manager_rx.changed() =>{
-                    modify_sigers(Arc::new(indexer_mnemonic.clone()),
-                    chain_id,
-                    attestation_signers_map,
-                    allocations_rx.clone(),
-                    dispute_manager_rx.clone(),
-                    &mut signers_writer).await;
+                Ok(())= dispute_manager_rx.changed() =>{
+                    modify_sigers(
+                        Arc::new(indexer_mnemonic.clone()),
+                        chain_id,
+                        attestation_signers_map,
+                        allocations_rx.clone(),
+                        dispute_manager_rx.clone()
+                    ).await
                 },
                 else=>{
                     // Something is wrong.
                     panic!("dispute_manager_rx or allocations_rx was dropped");
                 }
-            }
+            };
+            signers_tx
+                .send(updated_signers)
+                .expect("Failed to update signers channel");
         }
     });
 
-    signers_reader
+    signers_rx
 }
 async fn modify_sigers(
     indexer_mnemonic: Arc<String>,
@@ -74,12 +90,11 @@ async fn modify_sigers(
     attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>>,
     allocations_rx: Receiver<HashMap<Address, Allocation>>,
     dispute_manager_rx: Receiver<Option<Address>>,
-    signers_writer: &mut EventualWriter<HashMap<Address, AttestationSigner>>,
-) {
+) -> HashMap<thegraph_core::Address, AttestationSigner> {
     let mut signers = attestation_signers_map.lock().await;
     let allocations = allocations_rx.borrow().clone();
     let Some(dispute_manager) = *dispute_manager_rx.borrow() else {
-        return;
+        return signers.clone();
     };
     // Remove signers for allocations that are no longer active or recently closed
     signers.retain(|id, _| allocations.contains_key(id));
@@ -101,7 +116,7 @@ async fn modify_sigers(
         }
     }
 
-    signers_writer.write(signers.clone());
+    signers.clone()
 }
 
 #[cfg(test)]
@@ -115,29 +130,30 @@ mod tests {
     #[tokio::test]
     async fn test_attestation_signers_update_with_allocations() {
         let (mut allocations_writer, allocations) = Eventual::<HashMap<Address, Allocation>>::new();
-        let (dispute_manager_writer, dispute_manager) = watch::channel(None);
-
-        dispute_manager_writer
+        let (dispute_manager_tx, dispute_manager_rx) = watch::channel(None);
+        dispute_manager_tx
             .send(Some(*DISPUTE_MANAGER_ADDRESS))
             .unwrap();
-
-        let signers = attestation_signers(
+        let mut signers = attestation_signers(
             allocations,
             (*INDEXER_OPERATOR_MNEMONIC).to_string(),
             1,
-            dispute_manager,
-        );
-        let mut signers = signers.subscribe();
+            dispute_manager_rx,
+        )
+        .await;
 
         // Test that an empty set of allocations leads to an empty set of signers
         allocations_writer.write(HashMap::new());
-        let latest_signers = signers.next().await.unwrap();
+        signers.changed().await.unwrap();
+        let latest_signers = signers.borrow().clone();
         assert_eq!(latest_signers, HashMap::new());
 
         // Test that writing our set of test allocations results in corresponding signers for all of them
         allocations_writer.write((*INDEXER_ALLOCATIONS).clone());
-        let latest_signers = signers.next().await.unwrap();
+        signers.changed().await.unwrap();
+        let latest_signers = signers.borrow().clone();
         assert_eq!(latest_signers.len(), INDEXER_ALLOCATIONS.len());
+
         for signer_allocation_id in latest_signers.keys() {
             assert!(INDEXER_ALLOCATIONS
                 .keys()
