@@ -25,28 +25,27 @@ pub async fn attestation_signers(
 ) -> Receiver<HashMap<Address, AttestationSigner>> {
     let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
         Box::leak(Box::new(Mutex::new(HashMap::new())));
+    let (allocations_tx, mut allocations_rx) =
+        watch::channel(indexer_allocations.value_immediate().unwrap_or_default());
+    let starter_signers_map = modify_sigers(
+        Arc::new(indexer_mnemonic.clone()),
+        chain_id,
+        attestation_signers_map,
+        allocations_rx.clone(),
+        dispute_manager_rx.clone(),
+    )
+    .await;
 
     // Whenever the indexer's active or recently closed allocations change, make sure
     // we have attestation signers for all of them.
-    let (signers_tx, signers_rx) = watch::channel(HashMap::new());
+    let (signers_tx, signers_rx) = watch::channel(starter_signers_map);
 
     tokio::spawn(async move {
-        // Listening to the allocation eventual and converting them to reciever.
-        // Using pipe for updation.
-        // For temporary pupose only.
-        let (allocations_tx, mut allocations_rx) =
-            watch::channel(indexer_allocations.value().await.unwrap());
+        // Actively listening to indexer_allocations to update allocations channel
+        // Temporary fix until the indexer_allocations is migrated to tokio watch
         let _p1 = indexer_allocations.pipe(move |allocatons| {
-            let _ = allocations_tx.send(allocatons);
+            allocations_tx.send(allocatons).unwrap();
         });
-        modify_sigers(
-            Arc::new(indexer_mnemonic.clone()),
-            chain_id,
-            attestation_signers_map,
-            allocations_rx.clone(),
-            dispute_manager_rx.clone(),
-        )
-        .await;
         loop {
             let updated_signers = select! {
                 Ok(())= allocations_rx.changed() =>{
@@ -124,26 +123,22 @@ mod tests {
     #[tokio::test]
     async fn test_attestation_signers_update_with_allocations() {
         let (mut allocations_writer, allocations) = Eventual::<HashMap<Address, Allocation>>::new();
-        let (dispute_manager_writer, dispute_manager) = watch::channel(None);
-
-        dispute_manager_writer
+        let (dispute_manager_tx, dispute_manager_rx) = watch::channel(None);
+        dispute_manager_tx
             .send(Some(*DISPUTE_MANAGER_ADDRESS))
             .unwrap();
-
         let mut signers = attestation_signers(
             allocations,
             (*INDEXER_OPERATOR_MNEMONIC).to_string(),
             1,
-            dispute_manager,
+            dispute_manager_rx,
         )
         .await;
-
         // Test that an empty set of allocations leads to an empty set of signers
         allocations_writer.write(HashMap::new());
         signers.changed().await.unwrap();
         let latest_signers = signers.borrow().clone();
         assert_eq!(latest_signers, HashMap::new());
-
         // Test that writing our set of test allocations results in corresponding signers for all of them
         allocations_writer.write((*INDEXER_ALLOCATIONS).clone());
         signers.changed().await.unwrap();
