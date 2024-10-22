@@ -155,12 +155,9 @@ where
         .map_err(IndexerServiceError::ReceiptError)?;
 
     // Check if we have an attestation signer for the allocation the receipt was created for
-    // Removing check for empty value since channel was created with an empty HashMap
-    //IndexerServiceError::ServiceNotReady
-
-    let signers = state.attestation_signers.borrow().clone();
-
-    let signer = signers
+    let signer = state
+        .attestation_signers
+        .borrow()
         .get(&allocation_id)
         .cloned()
         .ok_or_else(|| (IndexerServiceError::NoSignerForAllocation(allocation_id)))?;
