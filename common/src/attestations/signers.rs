@@ -116,13 +116,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_attestation_signers_update_with_allocations() {
-        let (allocations_tx, allcoations_rx) = watch::channel(HashMap::new());
+        let (allocations_tx, allocations_rx) = watch::channel(HashMap::new());
         let (dispute_manager_tx, dispute_manager_rx) = watch::channel(None);
         dispute_manager_tx
             .send(Some(*DISPUTE_MANAGER_ADDRESS))
             .unwrap();
         let mut signers = attestation_signers(
-            allcoations_rx,
+            allocations_rx,
             (*INDEXER_OPERATOR_MNEMONIC).to_string(),
             1,
             dispute_manager_rx,

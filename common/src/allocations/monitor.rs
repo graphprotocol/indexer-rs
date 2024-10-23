@@ -76,8 +76,7 @@ pub fn indexer_allocations(
                 indexer_address,
                 recently_closed_allocation_buffer,
             )
-            .await
-            .map_err(|e| e.to_string());
+            .await;
             match result {
                 Ok(allocations) => {
                     tx.send(allocations)
