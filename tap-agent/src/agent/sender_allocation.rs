@@ -229,7 +229,10 @@ impl Actor for SenderAllocation {
         match message {
             SenderAllocationMessage::NewReceipt(notification) => {
                 let NewReceiptNotification {
-                    id, value: fees, ..
+                    id,
+                    value: fees,
+                    timestamp_ns,
+                    ..
                 } = notification;
                 if id <= unaggregated_fees.last_id {
                     // our world assumption is wrong
@@ -260,7 +263,7 @@ impl Actor for SenderAllocation {
                     .sender_account_ref
                     .cast(SenderAccountMessage::UpdateReceiptFees(
                         state.allocation_id,
-                        ReceiptFees::NewReceipt(fees),
+                        ReceiptFees::NewReceipt(fees, timestamp_ns),
                     ))?;
             }
             SenderAllocationMessage::TriggerRAVRequest => {
@@ -1109,6 +1112,11 @@ pub mod tests {
         )
         .unwrap();
 
+        let timestamp_ns = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
         cast!(
             sender_allocation,
             SenderAllocationMessage::NewReceipt(NewReceiptNotification {
@@ -1116,7 +1124,7 @@ pub mod tests {
                 value: 20,
                 allocation_id: *ALLOCATION_ID_0,
                 signer_address: SIGNER.1,
-                timestamp_ns: 0,
+                timestamp_ns,
             })
         )
         .unwrap();
@@ -1126,7 +1134,7 @@ pub mod tests {
         // should emit update aggregate fees message to sender account
         let expected_message = SenderAccountMessage::UpdateReceiptFees(
             *ALLOCATION_ID_0,
-            ReceiptFees::NewReceipt(20u128),
+            ReceiptFees::NewReceipt(20u128, timestamp_ns),
         );
         let startup_load_msg = message_receiver.recv().await.unwrap();
         assert_eq!(

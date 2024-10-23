@@ -81,7 +81,7 @@ type Balance = U256;
 
 #[derive(Debug)]
 pub enum ReceiptFees {
-    NewReceipt(u128),
+    NewReceipt(u128, u64),
     UpdateValue(UnaggregatedReceipts),
     RavRequestResponse(anyhow::Result<(UnaggregatedReceipts, Option<SignedRAV>)>),
     Retry,
@@ -594,7 +594,7 @@ impl Actor for SenderAccount {
                 }
 
                 match receipt_fees {
-                    ReceiptFees::NewReceipt(value) => {
+                    ReceiptFees::NewReceipt(value, timestamp_ns) => {
                         // If state is denied and received new receipt, sender was removed manually from DB
                         if state.denied {
                             tracing::warn!(
@@ -609,7 +609,9 @@ impl Actor for SenderAccount {
                         }
 
                         // add new value
-                        state.sender_fee_tracker.add(allocation_id, value);
+                        state
+                            .sender_fee_tracker
+                            .add(allocation_id, value, timestamp_ns);
                         UNAGGREGATED_FEES
                             .with_label_values(&[
                                 &state.sender.to_string(),
@@ -640,8 +642,7 @@ impl Actor for SenderAccount {
                 let counter_greater_receipt_limit = total_counter_for_allocation
                     >= state.config.tap.rav_request_receipt_limit
                     && can_trigger_rav;
-                let total_fee_outside_buffer =
-                    state.sender_fee_tracker.get_total_fee_outside_buffer();
+                let total_fee_outside_buffer = state.sender_fee_tracker.get_ravable_total_fee();
                 let total_fee_greater_trigger_value =
                     total_fee_outside_buffer >= state.config.tap.rav_request_trigger_value;
                 let rav_result = match (
@@ -917,7 +918,7 @@ pub mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU32;
     use std::sync::{Arc, Mutex};
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use wiremock::matchers::{body_string_contains, method};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -931,7 +932,9 @@ pub mod tests {
                 (Self::UpdateReceiptFees(l0, l1), Self::UpdateReceiptFees(r0, r1)) => {
                     l0 == r0
                         && match (l1, r1) {
-                            (ReceiptFees::NewReceipt(l), ReceiptFees::NewReceipt(r)) => r == l,
+                            (ReceiptFees::NewReceipt(l1, l2), ReceiptFees::NewReceipt(r1, r2)) => {
+                                r1 == l1 && r2 == l2
+                            }
                             (ReceiptFees::UpdateValue(l), ReceiptFees::UpdateValue(r)) => r == l,
                             (
                                 ReceiptFees::RavRequestResponse(l),
@@ -1278,6 +1281,13 @@ pub mod tests {
         )
     }
 
+    fn get_current_timestamp_u64_ns() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64
+    }
+
     #[sqlx::test(migrations = "../migrations")]
     async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
         let (sender_account, handle, prefix, _) = create_sender_account(
@@ -1303,7 +1313,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewReceipt(TRIGGER_VALUE - 1),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE - 1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
 
@@ -1346,7 +1356,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewReceipt(TRIGGER_VALUE),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
 
@@ -1406,7 +1416,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewReceipt(1),
+                ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
 
@@ -1419,7 +1429,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewReceipt(1),
+                ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
 
@@ -1547,7 +1557,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewReceipt(TRIGGER_VALUE),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1941,7 +1951,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewReceipt(TRIGGER_VALUE),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
