@@ -648,8 +648,8 @@ impl Actor for SenderAccount {
                     state.add_to_denylist().await;
                 }
 
-                let has_limit_available = state.adaptive_limiter.has_limit();
-                if has_limit_available {
+                let has_available_slots_for_requests = state.adaptive_limiter.has_limit();
+                if has_available_slots_for_requests {
                     let total_counter_for_allocation = state
                         .sender_fee_tracker
                         .get_count_outside_buffer_for_allocation(&allocation_id);
