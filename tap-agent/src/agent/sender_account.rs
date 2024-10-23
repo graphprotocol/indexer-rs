@@ -27,6 +27,7 @@ use tap_core::rav::SignedRAV;
 use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
+use crate::adaptative_concurrency::AdaptiveLimiter;
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::tracker::{SenderFeeTracker, SimpleFeeTracker};
@@ -76,6 +77,8 @@ lazy_static! {
     )
     .unwrap();
 }
+
+const INITIAL_RAV_REQUEST_CONCURRENT: usize = 1;
 
 type RavMap = HashMap<Address, u128>;
 type Balance = U256;
@@ -145,6 +148,9 @@ pub struct State {
     denied: bool,
     sender_balance: U256,
     retry_interval: Duration,
+
+    // concurrent rav request
+    adaptive_limiter: AdaptiveLimiter,
 
     //Eventuals
     escrow_accounts: Eventual<EscrowAccounts>,
@@ -233,6 +239,7 @@ impl State {
                     "Error while sending and waiting message for actor {allocation_id}. Error: {e}"
                 )
             })?;
+        self.adaptive_limiter.acquire();
         self.sender_fee_tracker.start_rav_request(allocation_id);
 
         Ok(())
@@ -247,6 +254,7 @@ impl State {
         match rav_result {
             Ok((fees, rav)) => {
                 self.sender_fee_tracker.ok_rav_request(allocation_id);
+                self.adaptive_limiter.on_success();
 
                 let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
                 self.update_rav(allocation_id, rav_value);
@@ -257,6 +265,7 @@ impl State {
             Err(err) => {
                 // TODO we should update the total value too
                 self.sender_fee_tracker.failed_rav_backoff(allocation_id);
+                self.adaptive_limiter.on_failure();
                 error!(
                     "Error while requesting RAV for sender {} and allocation {}: {}",
                     self.sender, allocation_id, err
@@ -536,6 +545,7 @@ impl Actor for SenderAccount {
             sender_balance,
             retry_interval,
             scheduled_rav_request: None,
+            adaptive_limiter: AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50),
         };
 
         for allocation_id in &allocation_ids {
@@ -637,46 +647,50 @@ impl Actor for SenderAccount {
                 if should_deny {
                     state.add_to_denylist().await;
                 }
-                let total_counter_for_allocation = state
-                    .sender_fee_tracker
-                    .get_count_outside_buffer_for_allocation(&allocation_id);
-                let can_trigger_rav = state.sender_fee_tracker.can_trigger_rav(allocation_id);
-                let counter_greater_receipt_limit = total_counter_for_allocation
-                    >= state.config.tap.rav_request_receipt_limit
-                    && can_trigger_rav;
-                let total_fee_outside_buffer = state.sender_fee_tracker.get_ravable_total_fee();
-                let total_fee_greater_trigger_value =
-                    total_fee_outside_buffer >= state.config.tap.rav_request_trigger_value;
-                let rav_result = match (
-                    counter_greater_receipt_limit,
-                    total_fee_greater_trigger_value,
-                ) {
-                    (true, _) => {
-                        tracing::debug!(
-                            total_counter_for_allocation,
-                            rav_request_receipt_limit = state.config.tap.rav_request_receipt_limit,
-                            %allocation_id,
-                            "Total counter greater than the receipt limit per rav. Triggering RAV request"
-                        );
 
-                        state.rav_request_for_allocation(allocation_id).await
-                    }
-                    (_, true) => {
-                        tracing::debug!(
-                            total_fee_outside_buffer,
-                            trigger_value = state.config.tap.rav_request_trigger_value,
-                            "Total fee greater than the trigger value. Triggering RAV request"
+                let has_available_slots_for_requests = state.adaptive_limiter.has_limit();
+                if has_available_slots_for_requests {
+                    let total_counter_for_allocation = state
+                        .sender_fee_tracker
+                        .get_count_outside_buffer_for_allocation(&allocation_id);
+                    let can_trigger_rav = state.sender_fee_tracker.can_trigger_rav(allocation_id);
+                    let counter_greater_receipt_limit = total_counter_for_allocation
+                        >= state.config.tap.rav_request_receipt_limit
+                        && can_trigger_rav;
+                    let total_fee_outside_buffer = state.sender_fee_tracker.get_ravable_total_fee();
+                    let total_fee_greater_trigger_value =
+                        total_fee_outside_buffer >= state.config.tap.rav_request_trigger_value;
+                    let rav_result = match (
+                        counter_greater_receipt_limit,
+                        total_fee_greater_trigger_value,
+                    ) {
+                        (true, _) => {
+                            tracing::debug!(
+                                total_counter_for_allocation,
+                                rav_request_receipt_limit = state.config.tap.rav_request_receipt_limit,
+                                %allocation_id,
+                                "Total counter greater than the receipt limit per rav. Triggering RAV request"
+                            );
+
+                            state.rav_request_for_allocation(allocation_id).await
+                        }
+                        (_, true) => {
+                            tracing::debug!(
+                                total_fee_outside_buffer,
+                                trigger_value = state.config.tap.rav_request_trigger_value,
+                                "Total fee greater than the trigger value. Triggering RAV request"
+                            );
+                            state.rav_request_for_heaviest_allocation().await
+                        }
+                        _ => Ok(()),
+                    };
+                    // In case we fail, we want our actor to keep running
+                    if let Err(err) = rav_result {
+                        tracing::error!(
+                            error = %err,
+                            "There was an error while requesting a RAV."
                         );
-                        state.rav_request_for_heaviest_allocation().await
                     }
-                    _ => Ok(()),
-                };
-                // In case we fail, we want our actor to keep running
-                if let Err(err) = rav_result {
-                    tracing::error!(
-                        error = %err,
-                        "There was an error while requesting a RAV."
-                    );
                 }
 
                 match (state.denied, state.deny_condition_reached()) {
