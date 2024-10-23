@@ -657,41 +657,33 @@ impl Actor for SenderAccount {
 
                 let has_available_slots_for_requests = state.adaptive_limiter.has_limit();
                 if has_available_slots_for_requests {
-                    let rav_result = if !state.backoff_info.in_backoff() {
-                        let total_fee_outside_buffer =
-                            state.sender_fee_tracker.get_ravable_total_fee();
-                        let total_fee_greater_trigger_value =
-                            total_fee_outside_buffer >= state.config.tap.rav_request_trigger_value;
+                    let total_fee_outside_buffer = state.sender_fee_tracker.get_ravable_total_fee();
+                    let total_counter_for_allocation = state
+                        .sender_fee_tracker
+                        .get_count_outside_buffer_for_allocation(&allocation_id);
+                    let can_trigger_rav = state.sender_fee_tracker.can_trigger_rav(allocation_id);
+                    let counter_greater_receipt_limit = total_counter_for_allocation
+                        >= state.config.tap.rav_request_receipt_limit
+                        && can_trigger_rav;
+                    let rav_result = if !state.backoff_info.in_backoff()
+                        && total_fee_outside_buffer >= state.config.tap.rav_request_trigger_value
+                    {
                         tracing::debug!(
                             total_fee_outside_buffer,
                             trigger_value = state.config.tap.rav_request_trigger_value,
                             "Total fee greater than the trigger value. Triggering RAV request"
                         );
-                        if total_fee_greater_trigger_value {
-                            state.rav_request_for_heaviest_allocation().await
-                        } else {
-                            Ok(())
-                        }
-                    } else {
-                        let total_counter_for_allocation = state
-                            .sender_fee_tracker
-                            .get_count_outside_buffer_for_allocation(&allocation_id);
-                        let can_trigger_rav =
-                            state.sender_fee_tracker.can_trigger_rav(allocation_id);
-                        let counter_greater_receipt_limit = total_counter_for_allocation
-                            >= state.config.tap.rav_request_receipt_limit
-                            && can_trigger_rav;
+                        state.rav_request_for_heaviest_allocation().await
+                    } else if counter_greater_receipt_limit {
                         tracing::debug!(
                             total_counter_for_allocation,
                             rav_request_receipt_limit = state.config.tap.rav_request_receipt_limit,
                             %allocation_id,
                             "Total counter greater than the receipt limit per rav. Triggering RAV request"
                         );
-                        if counter_greater_receipt_limit {
-                            state.rav_request_for_allocation(allocation_id).await
-                        } else {
-                            Ok(())
-                        }
+                        state.rav_request_for_allocation(allocation_id).await
+                    } else {
+                        Ok(())
                     };
                     // In case we fail, we want our actor to keep running
                     if let Err(err) = rav_result {
