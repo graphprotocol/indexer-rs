@@ -3,10 +3,10 @@
 
 use std::{
     collections::VecDeque,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
+use crate::{agent::unaggregated_receipts::UnaggregatedReceipts, backoff::BackoffInfo};
 
 use super::{AllocationStats, DefaultFromExtra, DurationInfo};
 
@@ -84,31 +84,6 @@ impl BufferInfo {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct BackoffInfo {
-    failed_ravs_count: u32,
-    failed_rav_backoff_time: Instant,
-}
-
-impl BackoffInfo {
-    pub fn ok(&mut self) {
-        self.failed_ravs_count = 0;
-    }
-
-    pub fn fail(&mut self) {
-        // backoff = max(100ms * 2 ^ retries, 60s)
-        self.failed_rav_backoff_time = Instant::now()
-            + (Duration::from_millis(100) * 2u32.pow(self.failed_ravs_count))
-                .min(Duration::from_secs(60));
-        self.failed_ravs_count += 1;
-    }
-
-    pub fn in_backoff(&self) -> bool {
-        let now = Instant::now();
-        now < self.failed_rav_backoff_time
-    }
-}
-
 impl DefaultFromExtra<DurationInfo> for SenderFeeStats {
     fn default_from_extra(extra: &DurationInfo) -> Self {
         SenderFeeStats {
@@ -117,15 +92,6 @@ impl DefaultFromExtra<DurationInfo> for SenderFeeStats {
                 ..Default::default()
             },
             ..Default::default()
-        }
-    }
-}
-
-impl Default for BackoffInfo {
-    fn default() -> Self {
-        Self {
-            failed_ravs_count: 0,
-            failed_rav_backoff_time: Instant::now(),
         }
     }
 }

@@ -17,6 +17,7 @@ lazy_static! {
 
 pub mod adaptative_concurrency;
 pub mod agent;
+pub mod backoff;
 pub mod config;
 pub mod database;
 pub mod metrics;
