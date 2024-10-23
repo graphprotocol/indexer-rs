@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.2.1...indexer-tap-agent-v1.3.0) (2024-10-23)
+
+
+### Features
+
+* add counter trigger for rav request ([#384](https://github.com/graphprotocol/indexer-rs/issues/384)) ([06644c5](https://github.com/graphprotocol/indexer-rs/commit/06644c5ad934db816725fb5e95bed9ab3c98d536))
+
+
+### Bug Fixes
+
+* add backoff if could not find heaviest allocation ([#397](https://github.com/graphprotocol/indexer-rs/issues/397)) ([f9b64f3](https://github.com/graphprotocol/indexer-rs/commit/f9b64f39f5d57fd520d83cf4ded1f20d29a349db))
+* limit the max concurrent rav requests ([#396](https://github.com/graphprotocol/indexer-rs/issues/396)) ([b4c876d](https://github.com/graphprotocol/indexer-rs/commit/b4c876d42432119b70b7c445155444ea1a9e3ba0))
+
 ## [1.2.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.2.0...indexer-tap-agent-v1.2.1) (2024-10-18)
 
 
