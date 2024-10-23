@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use eventuals::{Eventual, EventualExt};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thegraph_core::{Address, ChainId};
@@ -18,7 +17,7 @@ use crate::prelude::{Allocation, AttestationSigner};
 
 /// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
 pub async fn attestation_signers(
-    indexer_allocations: Eventual<HashMap<Address, Allocation>>,
+    mut indexer_allocations_rx: Receiver<HashMap<Address, Allocation>>,
     indexer_mnemonic: String,
     chain_id: ChainId,
     mut dispute_manager_rx: Receiver<Option<Address>>,
@@ -26,23 +25,11 @@ pub async fn attestation_signers(
     let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
         Box::leak(Box::new(Mutex::new(HashMap::new())));
 
-    // Actively listening to indexer_allocations to update allocations channel
-    // Temporary fix until the indexer_allocations is migrated to tokio watch
-    let (allocations_tx, mut allocations_rx) =
-        watch::channel(indexer_allocations.value_immediate().unwrap_or_default());
-    indexer_allocations
-        .pipe(move |allocatons| {
-            allocations_tx
-                .send(allocatons)
-                .expect("Failed to update allocations channel");
-        })
-        .forever();
-
     let starter_signers_map = modify_sigers(
         Arc::new(indexer_mnemonic.clone()),
         chain_id,
         attestation_signers_map,
-        allocations_rx.clone(),
+        indexer_allocations_rx.clone(),
         dispute_manager_rx.clone(),
     )
     .await;
@@ -53,12 +40,12 @@ pub async fn attestation_signers(
     tokio::spawn(async move {
         loop {
             let updated_signers = select! {
-                Ok(())= allocations_rx.changed() =>{
+                Ok(())= indexer_allocations_rx.changed() =>{
                     modify_sigers(
                         Arc::new(indexer_mnemonic.clone()),
                         chain_id,
                         attestation_signers_map,
-                        allocations_rx.clone(),
+                        indexer_allocations_rx.clone(),
                         dispute_manager_rx.clone(),
                     ).await
                 },
@@ -67,7 +54,7 @@ pub async fn attestation_signers(
                         Arc::new(indexer_mnemonic.clone()),
                         chain_id,
                         attestation_signers_map,
-                        allocations_rx.clone(),
+                        indexer_allocations_rx.clone(),
                         dispute_manager_rx.clone()
                     ).await
                 },
@@ -129,13 +116,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_attestation_signers_update_with_allocations() {
-        let (mut allocations_writer, allocations) = Eventual::<HashMap<Address, Allocation>>::new();
+        let (allocations_tx, allocations_rx) = watch::channel(HashMap::new());
         let (dispute_manager_tx, dispute_manager_rx) = watch::channel(None);
         dispute_manager_tx
             .send(Some(*DISPUTE_MANAGER_ADDRESS))
             .unwrap();
         let mut signers = attestation_signers(
-            allocations,
+            allocations_rx,
             (*INDEXER_OPERATOR_MNEMONIC).to_string(),
             1,
             dispute_manager_rx,
@@ -143,13 +130,13 @@ mod tests {
         .await;
 
         // Test that an empty set of allocations leads to an empty set of signers
-        allocations_writer.write(HashMap::new());
+        allocations_tx.send(HashMap::new()).unwrap();
         signers.changed().await.unwrap();
         let latest_signers = signers.borrow().clone();
         assert_eq!(latest_signers, HashMap::new());
 
         // Test that writing our set of test allocations results in corresponding signers for all of them
-        allocations_writer.write((*INDEXER_ALLOCATIONS).clone());
+        allocations_tx.send((*INDEXER_ALLOCATIONS).clone()).unwrap();
         signers.changed().await.unwrap();
         let latest_signers = signers.borrow().clone();
         assert_eq!(latest_signers.len(), INDEXER_ALLOCATIONS.len());

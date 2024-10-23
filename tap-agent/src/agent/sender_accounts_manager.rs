@@ -18,6 +18,7 @@ use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
 use tokio::select;
+use tokio::sync::watch::{self, Receiver};
 use tracing::{error, warn};
 
 use prometheus::{register_counter_vec, CounterVec};
@@ -55,7 +56,7 @@ pub struct SenderAccountsManagerArgs {
     pub domain_separator: Eip712Domain,
 
     pub pgpool: PgPool,
-    pub indexer_allocations: Eventual<HashMap<Address, Allocation>>,
+    pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     pub escrow_accounts: Eventual<EscrowAccounts>,
     pub escrow_subgraph: &'static SubgraphClient,
     pub sender_aggregator_endpoints: HashMap<Address, String>,
@@ -71,7 +72,7 @@ pub struct State {
     config: &'static config::Config,
     domain_separator: Eip712Domain,
     pgpool: PgPool,
-    indexer_allocations: Eventual<HashSet<Address>>,
+    indexer_allocations: Receiver<HashSet<Address>>,
     escrow_accounts: Eventual<EscrowAccounts>,
     escrow_subgraph: &'static SubgraphClient,
     sender_aggregator_endpoints: HashMap<Address, String>,
@@ -98,8 +99,20 @@ impl Actor for SenderAccountsManager {
             prefix,
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
-        let indexer_allocations = indexer_allocations.map(|allocations| async move {
-            allocations.keys().cloned().collect::<HashSet<Address>>()
+        let (allocations_tx, allocations_rx) = watch::channel(HashSet::<Address>::new());
+        tokio::spawn(async move {
+            let mut indexer_allocations = indexer_allocations.clone();
+            while indexer_allocations.changed().await.is_ok() {
+                allocations_tx
+                    .send(
+                        indexer_allocations
+                            .borrow()
+                            .keys()
+                            .cloned()
+                            .collect::<HashSet<Address>>(),
+                    )
+                    .expect("Failed to update indexer_allocations_set channel");
+            }
         });
         let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
         pglistener
@@ -132,7 +145,7 @@ impl Actor for SenderAccountsManager {
             new_receipts_watcher_handle: None,
             _eligible_allocations_senders_pipe,
             pgpool,
-            indexer_allocations,
+            indexer_allocations: allocations_rx,
             escrow_accounts: escrow_accounts.clone(),
             escrow_subgraph,
             sender_aggregator_endpoints,
@@ -587,9 +600,7 @@ mod tests {
         ALLOCATION_ID_1, INDEXER, SENDER, SENDER_2, SENDER_3, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };
     use alloy::hex::ToHexExt;
-    use alloy::primitives::Address;
     use eventuals::{Eventual, EventualExt};
-    use indexer_common::allocations::Allocation;
     use indexer_common::escrow_accounts::EscrowAccounts;
     use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
     use ractor::concurrency::JoinHandle;
@@ -599,7 +610,7 @@ mod tests {
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
     use std::time::Duration;
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, watch};
 
     const DUMMY_URL: &str = "http://localhost:1234";
 
@@ -634,9 +645,7 @@ mod tests {
     ) {
         let config = get_config();
 
-        let (mut indexer_allocations_writer, indexer_allocations_eventual) =
-            Eventual::<HashMap<Address, Allocation>>::new();
-        indexer_allocations_writer.write(HashMap::new());
+        let (_allocations_tx, allocations_rx) = watch::channel(HashMap::new());
         let escrow_subgraph = get_subgraph_client();
 
         let (mut escrow_accounts_writer, escrow_accounts_eventual) =
@@ -651,7 +660,7 @@ mod tests {
             config,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             pgpool,
-            indexer_allocations: indexer_allocations_eventual,
+            indexer_allocations: allocations_rx,
             escrow_accounts: escrow_accounts_eventual,
             escrow_subgraph,
             sender_aggregator_endpoints: HashMap::from([
@@ -694,7 +703,7 @@ mod tests {
                 _eligible_allocations_senders_pipe: Eventual::from_value(())
                     .pipe_async(|_| async {}),
                 pgpool,
-                indexer_allocations: Eventual::from_value(HashSet::new()),
+                indexer_allocations: watch::channel(HashSet::new()).1,
                 escrow_accounts: Eventual::from_value(escrow_accounts),
                 escrow_subgraph: get_subgraph_client(),
                 sender_aggregator_endpoints: HashMap::from([
