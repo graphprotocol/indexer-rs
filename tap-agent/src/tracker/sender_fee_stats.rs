@@ -1,8 +1,10 @@
+// Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{
     collections::VecDeque,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-// use tracing::error;
 
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 
@@ -127,20 +129,6 @@ impl Default for BackoffInfo {
         }
     }
 }
-
-// impl SenderFeeStats {
-//     pub(super) fn add_fee(&mut self, fee: u128) {
-//         self.total_fee = self.total_fee.checked_add(fee).unwrap_or_else(|| {
-//             // This should never happen, but if it does, we want to know about it.
-//             error!(
-//                 "Overflow when adding receipt value {} to total fee {}. \
-//                     Setting total fee to u128::MAX.",
-//                 self.total_fee, fee
-//             );
-//             u128::MAX
-//         });
-//     }
-// }
 
 impl AllocationStats<UnaggregatedReceipts> for SenderFeeStats {
     fn update(&mut self, v: UnaggregatedReceipts) {

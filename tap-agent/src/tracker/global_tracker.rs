@@ -1,3 +1,6 @@
+// Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::ops::{AddAssign, SubAssign};
 
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
