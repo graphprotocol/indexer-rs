@@ -15,6 +15,7 @@ lazy_static! {
     );
 }
 
+pub mod adaptative_concurrency;
 pub mod agent;
 pub mod config;
 pub mod database;
