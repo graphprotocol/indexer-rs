@@ -30,6 +30,7 @@ use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
 use crate::adaptative_concurrency::AdaptiveLimiter;
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
+use crate::backoff::BackoffInfo;
 use crate::tracker::{SenderFeeTracker, SimpleFeeTracker};
 use crate::{
     config::{self},
@@ -161,6 +162,9 @@ pub struct State {
     config: &'static config::Config,
     pgpool: PgPool,
     sender_aggregator: jsonrpsee::http_client::HttpClient,
+
+    // Backoff info
+    backoff_info: BackoffInfo,
 }
 
 impl State {
@@ -546,6 +550,7 @@ impl Actor for SenderAccount {
             retry_interval,
             scheduled_rav_request: None,
             adaptive_limiter: AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50),
+            backoff_info: BackoffInfo::default(),
         };
 
         for allocation_id in &allocation_ids {
@@ -664,17 +669,16 @@ impl Actor for SenderAccount {
                         counter_greater_receipt_limit,
                         total_fee_greater_trigger_value,
                     ) {
-                        (true, _) => {
+                        (true, _) if !state.backoff_info.in_backoff() => {
                             tracing::debug!(
                                 total_counter_for_allocation,
                                 rav_request_receipt_limit = state.config.tap.rav_request_receipt_limit,
                                 %allocation_id,
                                 "Total counter greater than the receipt limit per rav. Triggering RAV request"
                             );
-
                             state.rav_request_for_allocation(allocation_id).await
                         }
-                        (_, true) => {
+                        (_, true) if !state.backoff_info.in_backoff() => {
                             tracing::debug!(
                                 total_fee_outside_buffer,
                                 trigger_value = state.config.tap.rav_request_trigger_value,
