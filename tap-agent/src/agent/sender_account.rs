@@ -13,6 +13,7 @@ use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeV
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::time::Duration;
+use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 
 use alloy::dyn_abi::Eip712Domain;
@@ -119,7 +120,7 @@ pub struct SenderAccountArgs {
     pub pgpool: PgPool,
     pub sender_id: Address,
     pub escrow_accounts: Eventual<EscrowAccounts>,
-    pub indexer_allocations: Eventual<HashSet<Address>>,
+    pub indexer_allocations: Receiver<HashSet<Address>>,
     pub escrow_subgraph: &'static SubgraphClient,
     pub domain_separator: Eip712Domain,
     pub sender_aggregator_endpoint: String,
@@ -134,7 +135,7 @@ pub struct State {
     rav_tracker: SenderFeeTracker,
     invalid_receipts_tracker: SenderFeeTracker,
     allocation_ids: HashSet<Address>,
-    _indexer_allocations_handle: PipeHandle,
+    _indexer_allocations_handle: JoinHandle<()>,
     _escrow_account_monitor: PipeHandle,
     scheduled_rav_request: Option<JoinHandle<Result<(), MessagingErr<SenderAccountMessage>>>>,
 
@@ -333,20 +334,21 @@ impl Actor for SenderAccount {
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
-        let _indexer_allocations_handle =
-            indexer_allocations
-                .clone()
-                .pipe_async(move |allocation_ids| {
-                    let myself = myself_clone.clone();
-                    async move {
-                        // Update the allocation_ids
-                        myself
-                            .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
-                            .unwrap_or_else(|e| {
-                                error!("Error while updating allocation_ids: {:?}", e);
-                            });
-                    }
-                });
+        let _indexer_allocations_handle = tokio::spawn(async move {
+            let mut indexer_allocations = indexer_allocations.clone();
+            loop {
+                let allocation_ids = indexer_allocations.borrow().clone();
+                // Update the allocation_ids
+                myself_clone
+                    .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
+                    .unwrap_or_else(|e| {
+                        error!("Error while updating allocation_ids: {:?}", e);
+                    });
+                if indexer_allocations.changed().await.is_err() {
+                    break;
+                }
+            }
+        });
 
         let myself_clone = myself.clone();
         let pgpool_clone = pgpool.clone();
@@ -938,6 +940,7 @@ pub mod tests {
     use std::sync::atomic::AtomicU32;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use tokio::sync::watch;
     use wiremock::matchers::{body_string_contains, method};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -1039,7 +1042,7 @@ pub mod tests {
             pgpool,
             sender_id: SENDER.1,
             escrow_accounts: escrow_accounts_eventual,
-            indexer_allocations: Eventual::from_value(initial_allocation),
+            indexer_allocations: watch::channel(initial_allocation).1,
             escrow_subgraph,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             sender_aggregator_endpoint: DUMMY_URL.to_string(),
