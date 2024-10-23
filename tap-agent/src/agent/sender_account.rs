@@ -842,6 +842,12 @@ impl Actor for SenderAccount {
                 // remove from sender_fee_tracker
                 state.sender_fee_tracker.remove(allocation_id);
 
+                // check for deny conditions
+                let _ = myself.cast(SenderAccountMessage::UpdateReceiptFees(
+                    allocation_id,
+                    ReceiptFees::Retry,
+                ));
+
                 // rav tracker is not updated because it's still not redeemed
             }
             SupervisionEvent::ActorPanicked(cell, error) => {
