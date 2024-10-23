@@ -1,6 +1,6 @@
 use std::{
     collections::VecDeque,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 // use tracing::error;
 
@@ -22,11 +22,11 @@ pub struct SenderFeeStats {
     pub(super) buffer_info: BufferInfo,
 
     // Backoff info
-    pub(super) failed_info: FailedRavInfo,
+    pub(super) backoff_info: BackoffInfo,
 }
 
 impl SenderFeeStats {
-    pub(crate) fn get_count_outside_buffer(&mut self) -> u64 {
+    pub(super) fn ravable_count(&mut self) -> u64 {
         let allocation_counter = self.count;
         let counter_in_buffer = self.buffer_info.get_count();
         allocation_counter - counter_in_buffer
@@ -35,15 +35,20 @@ impl SenderFeeStats {
 
 #[derive(Debug, Clone, Default)]
 pub struct BufferInfo {
-    pub entries: VecDeque<(Instant, u128)>,
+    pub entries: VecDeque<(SystemTime, u128)>,
     pub fee_in_buffer: u128,
     pub duration: Duration,
 }
 
 impl BufferInfo {
-    pub(super) fn new_entry(&mut self, value: u128) {
-        let now = Instant::now();
-        self.entries.push_back((now, value));
+    pub(super) fn new_entry(&mut self, value: u128, timestamp_ns: u64) {
+        let duration_since_epoch = Duration::from_nanos(timestamp_ns);
+        // Create a SystemTime from the UNIX_EPOCH plus the duration
+        let system_time = UNIX_EPOCH + duration_since_epoch;
+        let system_time = system_time
+            .checked_add(self.duration)
+            .expect("Should be within bounds");
+        self.entries.push_back((system_time, value));
         self.fee_in_buffer += value;
     }
 
@@ -57,26 +62,33 @@ impl BufferInfo {
         self.entries.len() as u64
     }
 
-    fn cleanup(&mut self) {
-        let now = Instant::now();
+    // O(Receipts expired)
+    fn cleanup(&mut self) -> (u128, u64) {
+        let now = SystemTime::now();
+
+        let mut total_value_expired = 0;
+        let mut total_count_expired = 0;
         while let Some(&(timestamp, value)) = self.entries.front() {
-            if now.duration_since(timestamp) >= self.duration {
+            if now >= timestamp {
                 self.entries.pop_front();
-                self.fee_in_buffer -= value;
+                total_value_expired += value;
+                total_count_expired += 1;
             } else {
                 break;
             }
         }
+        self.fee_in_buffer -= total_value_expired;
+        (total_value_expired, total_count_expired)
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct FailedRavInfo {
+pub struct BackoffInfo {
     failed_ravs_count: u32,
     failed_rav_backoff_time: Instant,
 }
 
-impl FailedRavInfo {
+impl BackoffInfo {
     pub fn ok(&mut self) {
         self.failed_ravs_count = 0;
     }
@@ -107,7 +119,7 @@ impl DefaultFromExtra<DurationInfo> for SenderFeeStats {
     }
 }
 
-impl Default for FailedRavInfo {
+impl Default for BackoffInfo {
     fn default() -> Self {
         Self {
             failed_ravs_count: 0,
@@ -137,7 +149,7 @@ impl AllocationStats<UnaggregatedReceipts> for SenderFeeStats {
     }
 
     fn is_allowed_to_trigger_rav_request(&self) -> bool {
-        !self.failed_info.in_backoff() && !self.blocked && !self.requesting
+        !self.backoff_info.in_backoff() && !self.blocked && !self.requesting
     }
 
     fn get_stats(&self) -> UnaggregatedReceipts {

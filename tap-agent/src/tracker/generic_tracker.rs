@@ -119,7 +119,7 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
     /// It's important to notice that `value` cannot be less than
     /// zero, so the only way to make this counter lower is by using
     /// `update` function
-    pub fn add(&mut self, id: Address, value: u128) {
+    pub fn add(&mut self, id: Address, value: u128, timestamp_ns: u64) {
         let contains_buffer = self.contains_buffer();
         let entry = self
             .id_to_fee
@@ -134,7 +134,7 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
         entry.count += 1;
 
         if contains_buffer {
-            entry.buffer_info.new_entry(value);
+            entry.buffer_info.new_entry(value, timestamp_ns);
         }
     }
 
@@ -142,7 +142,7 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
         self.extra_data.buffer_duration > Duration::ZERO
     }
 
-    pub fn get_total_fee_outside_buffer(&mut self) -> u128 {
+    pub fn get_ravable_total_fee(&mut self) -> u128 {
         self.get_total_fee() - self.get_buffered_fee().min(self.global.total_fee)
     }
 
@@ -152,13 +152,10 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
             .fold(0u128, |acc, expiring| acc + expiring.buffer_info.get_sum())
     }
 
-    pub fn get_count_outside_buffer_for_allocation(
-        &mut self,
-        allocation_id: &Address,
-    ) -> u64 {
+    pub fn get_count_outside_buffer_for_allocation(&mut self, allocation_id: &Address) -> u64 {
         self.id_to_fee
             .get_mut(allocation_id)
-            .map(|alloc| alloc.get_count_outside_buffer())
+            .map(|alloc| alloc.ravable_count())
             .unwrap_or_default()
     }
 
@@ -186,7 +183,7 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
             .id_to_fee
             .entry(allocation_id)
             .or_insert(SenderFeeStats::default_from_extra(&self.extra_data));
-        entry.failed_info.ok();
+        entry.backoff_info.ok();
     }
 
     pub fn failed_rav_backoff(&mut self, allocation_id: Address) {
@@ -194,7 +191,7 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
             .id_to_fee
             .entry(allocation_id)
             .or_insert(SenderFeeStats::default_from_extra(&self.extra_data));
-        entry.failed_info.fail();
+        entry.backoff_info.fail();
     }
 }
 
