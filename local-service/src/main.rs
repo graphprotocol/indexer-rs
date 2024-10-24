@@ -1,14 +1,13 @@
-use tokio::net::TcpListener;
+use std::process::ExitCode;
 
-const HOST_PORT: &str = "0.0.0.0:8000";
+use local_service::bootstrap::start_server;
 
 #[tokio::main]
-async fn main() {
-    let listener = TcpListener::bind(HOST_PORT)
-        .await
-        .expect("Failed to bind to host and port");
-
-    axum::serve(listener, axum::Router::new())
-        .await
-        .expect("Failed to start server");
+async fn main() -> ExitCode {
+    tracing_subscriber::fmt::init();
+    if let Err(e) = start_server().await {
+        tracing::error!("Local Service error: {e}");
+        return ExitCode::from(1);
+    }
+    ExitCode::SUCCESS
 }
