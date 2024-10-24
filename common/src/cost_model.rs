@@ -12,7 +12,7 @@ use thegraph_core::{DeploymentId, ParseDeploymentIdError};
 /// These can have "global" as the deployment ID.
 #[derive(Debug, Clone)]
 pub(crate) struct DbCostModel {
-    pub deployment: Option<String>,
+    pub deployment: String,
     pub model: Option<String>,
     pub variables: Option<Value>,
 }
@@ -32,7 +32,7 @@ impl TryFrom<DbCostModel> for CostModel {
 
     fn try_from(db_model: DbCostModel) -> Result<Self, Self::Error> {
         Ok(Self {
-            deployment: DeploymentId::from_str(&db_model.deployment.unwrap())?,
+            deployment: DeploymentId::from_str(&db_model.deployment)?,
             model: db_model.model,
             variables: db_model.variables,
         })
@@ -43,7 +43,7 @@ impl From<CostModel> for DbCostModel {
     fn from(model: CostModel) -> Self {
         let deployment = model.deployment;
         DbCostModel {
-            deployment: Some(format!("{deployment:#x}")),
+            deployment: format!("{deployment:#x}"),
             model: model.model,
             variables: model.variables,
         }
@@ -164,7 +164,7 @@ pub async fn cost_model(
 }
 
 /// Query global cost model
-async fn global_cost_model(pool: &PgPool) -> Result<Option<DbCostModel>, anyhow::Error> {
+pub(crate) async fn global_cost_model(pool: &PgPool) -> Result<Option<DbCostModel>, anyhow::Error> {
     sqlx::query_as!(
         DbCostModel,
         r#"
@@ -200,7 +200,7 @@ pub(crate) mod test {
         for model in models {
             sqlx::query!(
                 r#"
-                INSERT INTO "CostModelsHistory" (deployment, model)
+                INSERT INTO "CostModels" (deployment, model)
                 VALUES ($1, $2);
                 "#,
                 model.deployment,
@@ -216,9 +216,9 @@ pub(crate) mod test {
         models.into_iter().map(DbCostModel::from).collect()
     }
 
-    fn global_cost_model() -> DbCostModel {
+    pub fn global_cost_model() -> DbCostModel {
         DbCostModel {
-            deployment: Some("global".to_string()),
+            deployment: "global".to_string(),
             model: Some("default => 0.00001;".to_string()),
             variables: None,
         }
