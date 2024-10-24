@@ -1,0 +1,23 @@
+[package]
+name = "local-service"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "local-service"
+path = "src/main.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+alloy = { workspace = true, features = ["k256"] }
+anyhow.workspace = true
+axum = { version = "0.7.5", features = ["macros"] }
+dotenvy = "0.15.7"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+indexer-tap-agent = { path = "../tap-agent" }
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
