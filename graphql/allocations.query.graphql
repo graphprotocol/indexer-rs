@@ -1,3 +1,35 @@
+# AllocationsQuery
+#
+# This query retrieves allocations for a specified indexer in The Graph's Indexer TAP system.
+#
+# Input Variables:
+# - $indexer (ID!): The unique identifier of the Indexer whose allocations are being queried.
+# - $closedAtThreshold (Int!): The threshold timestamp used to filter closed allocations.
+# - $block (Block_height): The block height at which to query allocations (optional).
+# - $first (Int!): The maximum number of allocations to return (used for pagination).
+# - $last (ID!): The ID of the last allocation from a previous query (used for pagination).
+#
+# Query Logic:
+# - Fetches block metadata (number, hash, timestamp) using the provided `$block` height.
+# - Retrieves allocations filtered by:
+#   - Allocations with `id > $last` (for pagination).
+#   - Allocations where the indexer has the provided `$indexer` ID.
+#   - Allocations that are either `Active`, or `Closed` but closed after `$closedAtThreshold`.
+# - Results are sorted by `id` in ascending order and limited to `$first` number of entries.
+#
+# Fragment: AllocationFragment
+# - Returns detailed information about each allocation, including:
+#   - Allocation ID.
+#   - Indexer ID.
+#   - Number of allocated tokens.
+#   - Block and epoch when the allocation was created.
+#   - Epoch when the allocation was closed.
+#   - Subgraph deployment ID and denial status.
+#
+# Example Use Case:
+# This query helps Indexers monitor their allocations, filter out inactive or irrelevant allocations,
+# and retrieve allocation data for specific block heights or timeframes.
+
 query AllocationsQuery(
     $indexer: ID!, 
     $closedAtThreshold: Int!, 
