@@ -1,6 +1,6 @@
 [package]
 name = "indexer-service-rs"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 license = "Apache-2.0"
 
@@ -33,4 +33,4 @@ graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3
 hex-literal = "0.4.1"
 
 [build-dependencies]
-build-info-build = { version = "0.0.38", default-features = false }
+build-info-build = { version = "0.0.39", default-features = false }

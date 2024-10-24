@@ -3,30 +3,35 @@
 
 use alloy::hex::ToHexExt;
 use alloy::primitives::U256;
+
 use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
+
+use graphql_client::GraphQLQuery;
+use jsonrpsee::http_client::HttpClientBuilder;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::time::Duration;
+use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
 
 use alloy::dyn_abi::Eip712Domain;
+use alloy::primitives::Address;
 use anyhow::Result;
 use eventuals::{Eventual, EventualExt, PipeHandle};
-use indexer_common::subgraph_client::Query;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
-use ractor::{call, Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
-use serde::Deserialize;
+use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use sqlx::PgPool;
 use tap_core::rav::SignedRAV;
-use thegraph_core::Address;
 use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
+use crate::adaptative_concurrency::AdaptiveLimiter;
 use crate::agent::sender_allocation::SenderAllocationMessage;
-use crate::agent::sender_fee_tracker::SenderFeeTracker;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
+use crate::backoff::BackoffInfo;
+use crate::tracker::{SenderFeeTracker, SimpleFeeTracker};
 use crate::{
     config::{self},
     tap::escrow_adapter::EscrowAdapter,
@@ -74,13 +79,16 @@ lazy_static! {
     .unwrap();
 }
 
+const INITIAL_RAV_REQUEST_CONCURRENT: usize = 1;
+
 type RavMap = HashMap<Address, u128>;
 type Balance = U256;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub enum ReceiptFees {
-    NewReceipt(u128),
+    NewReceipt(u128, u64),
     UpdateValue(UnaggregatedReceipts),
+    RavRequestResponse(anyhow::Result<(UnaggregatedReceipts, Option<SignedRAV>)>),
     Retry,
 }
 
@@ -116,7 +124,7 @@ pub struct SenderAccountArgs {
     pub pgpool: PgPool,
     pub sender_id: Address,
     pub escrow_accounts: Eventual<EscrowAccounts>,
-    pub indexer_allocations: Eventual<HashSet<Address>>,
+    pub indexer_allocations: Receiver<HashSet<Address>>,
     pub escrow_subgraph: &'static SubgraphClient,
     pub domain_separator: Eip712Domain,
     pub sender_aggregator_endpoint: String,
@@ -128,10 +136,10 @@ pub struct SenderAccountArgs {
 pub struct State {
     prefix: Option<String>,
     sender_fee_tracker: SenderFeeTracker,
-    rav_tracker: SenderFeeTracker,
-    invalid_receipts_tracker: SenderFeeTracker,
+    rav_tracker: SimpleFeeTracker,
+    invalid_receipts_tracker: SimpleFeeTracker,
     allocation_ids: HashSet<Address>,
-    _indexer_allocations_handle: PipeHandle,
+    _indexer_allocations_handle: JoinHandle<()>,
     _escrow_account_monitor: PipeHandle,
     scheduled_rav_request: Option<JoinHandle<Result<(), MessagingErr<SenderAccountMessage>>>>,
 
@@ -142,6 +150,9 @@ pub struct State {
     sender_balance: U256,
     retry_interval: Duration,
 
+    // concurrent rav request
+    adaptive_limiter: AdaptiveLimiter,
+
     //Eventuals
     escrow_accounts: Eventual<EscrowAccounts>,
 
@@ -150,7 +161,10 @@ pub struct State {
     domain_separator: Eip712Domain,
     config: &'static config::Config,
     pgpool: PgPool,
-    sender_aggregator_endpoint: String,
+    sender_aggregator: jsonrpsee::http_client::HttpClient,
+
+    // Backoff info
+    backoff_info: BackoffInfo,
 }
 
 impl State {
@@ -173,8 +187,8 @@ impl State {
             escrow_subgraph: self.escrow_subgraph,
             escrow_adapter: self.escrow_adapter.clone(),
             domain_separator: self.domain_separator.clone(),
-            sender_aggregator_endpoint: self.sender_aggregator_endpoint.clone(),
             sender_account_ref: sender_account_ref.clone(),
+            sender_aggregator: self.sender_aggregator.clone(),
         };
 
         SenderAllocation::spawn_linked(
@@ -196,44 +210,94 @@ impl State {
         sender_allocation_id
     }
 
-    async fn rav_requester_single(&mut self) -> Result<()> {
-        let Some(allocation_id) = self.sender_fee_tracker.get_heaviest_allocation_id() else {
-            anyhow::bail!(
-                "Error while getting the heaviest allocation, \
-                this is due one of the following reasons: \n
-                1. allocations have too much fees under their buffer\n
-                2. allocations are blocked to be redeemed due to ongoing last rav. \n
-                If you keep seeing this message try to increase your `amount_willing_to_lose` \
-                and restart your `tap-agent`\n
-                If this doesn't work, open an issue on our Github."
-            );
-        };
+    async fn rav_request_for_heaviest_allocation(&mut self) -> Result<()> {
+        let allocation_id = self
+            .sender_fee_tracker
+            .get_heaviest_allocation_id()
+            .ok_or_else(|| {
+                self.backoff_info.fail();
+                anyhow::anyhow!(
+                    "Error while getting the heaviest allocation, \
+            this is due one of the following reasons: \n
+            1. allocations have too much fees under their buffer\n
+            2. allocations are blocked to be redeemed due to ongoing last rav. \n
+            If you keep seeing this message try to increase your `amount_willing_to_lose` \
+            and restart your `tap-agent`\n
+            If this doesn't work, open an issue on our Github."
+                )
+            })?;
+        self.backoff_info.ok();
+        self.rav_request_for_allocation(allocation_id).await
+    }
+
+    async fn rav_request_for_allocation(&mut self, allocation_id: Address) -> Result<()> {
         let sender_allocation_id = self.format_sender_allocation(&allocation_id);
         let allocation = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id);
 
         let Some(allocation) = allocation else {
-            anyhow::bail!(
-                "Error while getting allocation actor {allocation_id} with most unaggregated fees"
-            );
-        };
-        // we call and wait for the response so we don't process anymore update
-        let Ok((fees, rav)) = call!(allocation, SenderAllocationMessage::TriggerRAVRequest) else {
-            anyhow::bail!("Error while sending and waiting message for actor {allocation_id}");
+            anyhow::bail!("Error while getting allocation actor {allocation_id}");
         };
 
-        let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
-        // update rav tracker
+        allocation
+            .cast(SenderAllocationMessage::TriggerRAVRequest)
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Error while sending and waiting message for actor {allocation_id}. Error: {e}"
+                )
+            })?;
+        self.adaptive_limiter.acquire();
+        self.sender_fee_tracker.start_rav_request(allocation_id);
+
+        Ok(())
+    }
+
+    fn finalize_rav_request(
+        &mut self,
+        allocation_id: Address,
+        rav_result: anyhow::Result<(UnaggregatedReceipts, Option<SignedRAV>)>,
+    ) {
+        self.sender_fee_tracker.finish_rav_request(allocation_id);
+        match rav_result {
+            Ok((fees, rav)) => {
+                self.sender_fee_tracker.ok_rav_request(allocation_id);
+                self.adaptive_limiter.on_success();
+
+                let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
+                self.update_rav(allocation_id, rav_value);
+
+                // update sender fee tracker
+                self.update_sender_fee(allocation_id, fees);
+            }
+            Err(err) => {
+                // TODO we should update the total value too
+                self.sender_fee_tracker.failed_rav_backoff(allocation_id);
+                self.adaptive_limiter.on_failure();
+                error!(
+                    "Error while requesting RAV for sender {} and allocation {}: {}",
+                    self.sender, allocation_id, err
+                );
+            }
+        };
+    }
+
+    fn update_rav(&mut self, allocation_id: Address, rav_value: u128) {
         self.rav_tracker.update(allocation_id, rav_value);
         PENDING_RAV
             .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
             .set(rav_value as f64);
+    }
 
-        // update sender fee tracker
-        self.sender_fee_tracker.update(allocation_id, fees.value);
+    fn update_sender_fee(
+        &mut self,
+        allocation_id: Address,
+        unaggregated_fees: UnaggregatedReceipts,
+    ) {
+        self.sender_fee_tracker
+            .update(allocation_id, unaggregated_fees);
+
         UNAGGREGATED_FEES
             .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
-            .set(fees.value as f64);
-        Ok(())
+            .set(unaggregated_fees.value as f64);
     }
 
     fn deny_condition_reached(&self) -> bool {
@@ -299,6 +363,15 @@ impl State {
     }
 }
 
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "../graphql/tap.schema.graphql",
+    query_path = "../graphql/unfinalized_tx.query.graphql",
+    response_derives = "Debug",
+    variables_derives = "Clone"
+)]
+struct UnfinalizedTransactions;
+
 #[async_trait::async_trait]
 impl Actor for SenderAccount {
     type Msg = SenderAccountMessage;
@@ -323,20 +396,21 @@ impl Actor for SenderAccount {
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
-        let _indexer_allocations_handle =
-            indexer_allocations
-                .clone()
-                .pipe_async(move |allocation_ids| {
-                    let myself = myself_clone.clone();
-                    async move {
-                        // Update the allocation_ids
-                        myself
-                            .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
-                            .unwrap_or_else(|e| {
-                                error!("Error while updating allocation_ids: {:?}", e);
-                            });
-                    }
-                });
+        let _indexer_allocations_handle = tokio::spawn(async move {
+            let mut indexer_allocations = indexer_allocations.clone();
+            loop {
+                let allocation_ids = indexer_allocations.borrow().clone();
+                // Update the allocation_ids
+                myself_clone
+                    .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
+                    .unwrap_or_else(|e| {
+                        error!("Error while updating allocation_ids: {:?}", e);
+                    });
+                if indexer_allocations.changed().await.is_err() {
+                    break;
+                }
+            }
+        });
 
         let myself_clone = myself.clone();
         let pgpool_clone = pgpool.clone();
@@ -348,17 +422,6 @@ impl Actor for SenderAccount {
             let balance = escrow_account
                 .get_balance_for_sender(&sender_id)
                 .unwrap_or_default();
-
-            #[derive(Deserialize)]
-            struct Transaction {
-                #[serde(rename = "allocationID")]
-                allocation_id: String,
-            }
-
-            #[derive(Deserialize)]
-            struct Response {
-                transactions: Vec<Transaction>,
-            }
 
             async move {
                 let last_non_final_ravs = sqlx::query!(
@@ -373,45 +436,24 @@ impl Actor for SenderAccount {
                 .await
                 .expect("Should not fail to fetch from scalar_tap_ravs");
 
-                let query = r#"
-                    query transactions(
-                        $unfinalizedRavsAllocationIds: [String!]!
-                        $sender: String!
-                    ) {
-                        transactions(
-                            where: {
-                                type: "redeem"
-                                allocationID_in: $unfinalizedRavsAllocationIds
-                                sender_: { id: $sender }
-                            }
-                        ) {
-                            allocationID
-                        }
-                    }
-                "#;
-
                 // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
                 let redeemed_ravs_allocation_ids = match escrow_subgraph
-                    .query::<Response>(Query::new_with_variables(
-                        query,
-                        [
-                            (
-                                "unfinalizedRavsAllocationIds",
-                                last_non_final_ravs
-                                    .iter()
-                                    .map(|rav| rav.allocation_id.to_string())
-                                    .collect::<Vec<_>>()
-                                    .into(),
-                            ),
-                            ("sender", format!("{:x?}", sender_id).into()),
-                        ],
-                    ))
+                    .query::<UnfinalizedTransactions, _>(unfinalized_transactions::Variables {
+                        unfinalized_ravs_allocation_ids: last_non_final_ravs
+                            .iter()
+                            .map(|rav| rav.allocation_id.to_string())
+                            .collect::<Vec<_>>(),
+                        sender: format!("{:x?}", sender_id),
+                    })
                     .await
                 {
                     Ok(Ok(response)) => response
                         .transactions
                         .into_iter()
-                        .map(|tx| tx.allocation_id)
+                        .map(|tx| {
+                            tx.allocation_id
+                                .expect("all redeem tx must have allocation_id")
+                        })
                         .collect::<Vec<_>>(),
                     // if we have any problems, we don't want to filter out
                     _ => vec![],
@@ -483,12 +525,16 @@ impl Actor for SenderAccount {
             .with_label_values(&[&sender_id.to_string()])
             .set(config.tap.rav_request_trigger_value as f64);
 
+        let sender_aggregator = HttpClientBuilder::default()
+            .request_timeout(Duration::from_secs(config.tap.rav_request_timeout_secs))
+            .build(&sender_aggregator_endpoint)?;
+
         let state = State {
             sender_fee_tracker: SenderFeeTracker::new(Duration::from_millis(
                 config.tap.rav_request_timestamp_buffer_ms,
             )),
-            rav_tracker: SenderFeeTracker::default(),
-            invalid_receipts_tracker: SenderFeeTracker::default(),
+            rav_tracker: SimpleFeeTracker::default(),
+            invalid_receipts_tracker: SimpleFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
             _indexer_allocations_handle,
             _escrow_account_monitor,
@@ -497,7 +543,7 @@ impl Actor for SenderAccount {
             escrow_subgraph,
             escrow_adapter,
             domain_separator,
-            sender_aggregator_endpoint,
+            sender_aggregator,
             config,
             pgpool,
             sender: sender_id,
@@ -505,6 +551,8 @@ impl Actor for SenderAccount {
             sender_balance,
             retry_interval,
             scheduled_rav_request: None,
+            adaptive_limiter: AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50),
+            backoff_info: BackoffInfo::default(),
         };
 
         for allocation_id in &allocation_ids {
@@ -536,16 +584,7 @@ impl Actor for SenderAccount {
 
         match message {
             SenderAccountMessage::UpdateRav(rav) => {
-                state
-                    .rav_tracker
-                    .update(rav.message.allocationId, rav.message.valueAggregate);
-
-                PENDING_RAV
-                    .with_label_values(&[
-                        &state.sender.to_string(),
-                        &rav.message.allocationId.to_string(),
-                    ])
-                    .set(rav.message.valueAggregate as f64);
+                state.update_rav(rav.message.allocationId, rav.message.valueAggregate);
 
                 let should_deny = !state.denied && state.deny_condition_reached();
                 if should_deny {
@@ -574,7 +613,7 @@ impl Actor for SenderAccount {
                 }
 
                 match receipt_fees {
-                    ReceiptFees::NewReceipt(value) => {
+                    ReceiptFees::NewReceipt(value, timestamp_ns) => {
                         // If state is denied and received new receipt, sender was removed manually from DB
                         if state.denied {
                             tracing::warn!(
@@ -588,8 +627,10 @@ impl Actor for SenderAccount {
                             SenderAccount::deny_sender(&state.pgpool, state.sender).await;
                         }
 
-                        state.sender_fee_tracker.add(allocation_id, value);
-
+                        // add new value
+                        state
+                            .sender_fee_tracker
+                            .add(allocation_id, value, timestamp_ns);
                         UNAGGREGATED_FEES
                             .with_label_values(&[
                                 &state.sender.to_string(),
@@ -597,17 +638,11 @@ impl Actor for SenderAccount {
                             ])
                             .add(value as f64);
                     }
+                    ReceiptFees::RavRequestResponse(rav_result) => {
+                        state.finalize_rav_request(allocation_id, rav_result);
+                    }
                     ReceiptFees::UpdateValue(unaggregated_fees) => {
-                        state
-                            .sender_fee_tracker
-                            .update(allocation_id, unaggregated_fees.value);
-
-                        UNAGGREGATED_FEES
-                            .with_label_values(&[
-                                &state.sender.to_string(),
-                                &allocation_id.to_string(),
-                            ])
-                            .set(unaggregated_fees.value as f64);
+                        state.update_sender_fee(allocation_id, unaggregated_fees);
                     }
                     ReceiptFees::Retry => {}
                 }
@@ -620,16 +655,38 @@ impl Actor for SenderAccount {
                     state.add_to_denylist().await;
                 }
 
-                if state.sender_fee_tracker.get_total_fee_outside_buffer()
-                    >= state.config.tap.rav_request_trigger_value
-                {
-                    tracing::debug!(
-                        total_fee = state.sender_fee_tracker.get_total_fee(),
-                        trigger_value = state.config.tap.rav_request_trigger_value,
-                        "Total fee greater than the trigger value. Triggering RAV request"
-                    );
+                let has_available_slots_for_requests = state.adaptive_limiter.has_limit();
+                if has_available_slots_for_requests {
+                    let total_fee_outside_buffer = state.sender_fee_tracker.get_ravable_total_fee();
+                    let total_counter_for_allocation = state
+                        .sender_fee_tracker
+                        .get_count_outside_buffer_for_allocation(&allocation_id);
+                    let can_trigger_rav = state.sender_fee_tracker.can_trigger_rav(allocation_id);
+                    let counter_greater_receipt_limit = total_counter_for_allocation
+                        >= state.config.tap.rav_request_receipt_limit
+                        && can_trigger_rav;
+                    let rav_result = if !state.backoff_info.in_backoff()
+                        && total_fee_outside_buffer >= state.config.tap.rav_request_trigger_value
+                    {
+                        tracing::debug!(
+                            total_fee_outside_buffer,
+                            trigger_value = state.config.tap.rav_request_trigger_value,
+                            "Total fee greater than the trigger value. Triggering RAV request"
+                        );
+                        state.rav_request_for_heaviest_allocation().await
+                    } else if counter_greater_receipt_limit {
+                        tracing::debug!(
+                            total_counter_for_allocation,
+                            rav_request_receipt_limit = state.config.tap.rav_request_receipt_limit,
+                            %allocation_id,
+                            "Total counter greater than the receipt limit per rav. Triggering RAV request"
+                        );
+                        state.rav_request_for_allocation(allocation_id).await
+                    } else {
+                        Ok(())
+                    };
                     // In case we fail, we want our actor to keep running
-                    if let Err(err) = state.rav_requester_single().await {
+                    if let Err(err) = rav_result {
                         tracing::error!(
                             error = %err,
                             "There was an error while requesting a RAV."
@@ -724,7 +781,7 @@ impl Actor for SenderAccount {
                 for allocation_id in tracked_allocation_ids.difference(&active_allocation_ids) {
                     // if it's being tracked and we didn't receive any update from the non_final_last_ravs
                     // remove from the tracker
-                    state.rav_tracker.update(*allocation_id, 0);
+                    state.rav_tracker.remove(*allocation_id);
 
                     let _ = PENDING_RAV.remove_label_values(&[
                         &state.sender.to_string(),
@@ -733,10 +790,7 @@ impl Actor for SenderAccount {
                 }
 
                 for (allocation_id, value) in non_final_last_ravs {
-                    state.rav_tracker.update(allocation_id, value);
-                    PENDING_RAV
-                        .with_label_values(&[&state.sender.to_string(), &allocation_id.to_string()])
-                        .set(value as f64);
+                    state.update_rav(allocation_id, value);
                 }
                 // now that balance and rav tracker is updated, check
                 match (state.denied, state.deny_condition_reached()) {
@@ -800,15 +854,14 @@ impl Actor for SenderAccount {
                     return Ok(());
                 };
 
-                // clean up hashset
-                state
-                    .sender_fee_tracker
-                    .unblock_allocation_id(allocation_id);
-                // update the receipt fees by reseting to 0
-                myself.cast(SenderAccountMessage::UpdateReceiptFees(
+                // remove from sender_fee_tracker
+                state.sender_fee_tracker.remove(allocation_id);
+
+                // check for deny conditions
+                let _ = myself.cast(SenderAccountMessage::UpdateReceiptFees(
                     allocation_id,
-                    ReceiptFees::UpdateValue(UnaggregatedReceipts::default()),
-                ))?;
+                    ReceiptFees::Retry,
+                ));
 
                 // rav tracker is not updated because it's still not redeemed
             }
@@ -888,7 +941,8 @@ pub mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU32;
     use std::sync::{Arc, Mutex};
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use tokio::sync::watch;
     use wiremock::matchers::{body_string_contains, method};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -900,7 +954,23 @@ pub mod tests {
             match (self, other) {
                 (Self::UpdateAllocationIds(l0), Self::UpdateAllocationIds(r0)) => l0 == r0,
                 (Self::UpdateReceiptFees(l0, l1), Self::UpdateReceiptFees(r0, r1)) => {
-                    l0 == r0 && l1 == r1
+                    l0 == r0
+                        && match (l1, r1) {
+                            (ReceiptFees::NewReceipt(l1, l2), ReceiptFees::NewReceipt(r1, r2)) => {
+                                r1 == l1 && r2 == l2
+                            }
+                            (ReceiptFees::UpdateValue(l), ReceiptFees::UpdateValue(r)) => r == l,
+                            (
+                                ReceiptFees::RavRequestResponse(l),
+                                ReceiptFees::RavRequestResponse(r),
+                            ) => match (l, r) {
+                                (Ok(l), Ok(r)) => l == r,
+                                (Err(l), Err(r)) => l.to_string() == r.to_string(),
+                                _ => false,
+                            },
+                            (ReceiptFees::Retry, ReceiptFees::Retry) => true,
+                            _ => false,
+                        }
                 }
                 (
                     Self::UpdateInvalidReceiptFees(l0, l1),
@@ -923,6 +993,7 @@ pub mod tests {
     const TRIGGER_VALUE: u128 = 500;
     const ESCROW_VALUE: u128 = 1000;
     const BUFFER_MS: u64 = 100;
+    const RECEIPT_LIMIT: u64 = 10000;
 
     async fn create_sender_account(
         pgpool: PgPool,
@@ -930,6 +1001,7 @@ pub mod tests {
         rav_request_trigger_value: u128,
         max_unnaggregated_fees_per_sender: u128,
         escrow_subgraph_endpoint: &str,
+        rav_request_receipt_limit: u64,
     ) -> (
         ActorRef<SenderAccountMessage>,
         tokio::task::JoinHandle<()>,
@@ -946,6 +1018,7 @@ pub mod tests {
                 rav_request_timestamp_buffer_ms: BUFFER_MS,
                 rav_request_timeout_secs: 5,
                 max_unnaggregated_fees_per_sender,
+                rav_request_receipt_limit,
                 ..Default::default()
             },
             ..Default::default()
@@ -973,7 +1046,7 @@ pub mod tests {
             pgpool,
             sender_id: SENDER.1,
             escrow_accounts: escrow_accounts_eventual,
-            indexer_allocations: Eventual::from_value(initial_allocation),
+            indexer_allocations: watch::channel(initial_allocation).1,
             escrow_subgraph,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             sender_aggregator_endpoint: DUMMY_URL.to_string(),
@@ -997,6 +1070,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1037,6 +1111,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1081,14 +1156,18 @@ pub mod tests {
         next_rav_value: Arc<Mutex<u128>>,
         next_unaggregated_fees_value: Arc<Mutex<u128>>,
         receipts: Arc<Mutex<Vec<NewReceiptNotification>>>,
-    }
 
+        sender_actor: Option<ActorRef<SenderAccountMessage>>,
+    }
     impl MockSenderAllocation {
-        pub fn new_with_triggered_rav_request() -> (Self, Arc<AtomicU32>, Arc<Mutex<u128>>) {
+        pub fn new_with_triggered_rav_request(
+            sender_actor: ActorRef<SenderAccountMessage>,
+        ) -> (Self, Arc<AtomicU32>, Arc<Mutex<u128>>) {
             let triggered_rav_request = Arc::new(AtomicU32::new(0));
             let unaggregated_fees = Arc::new(Mutex::new(0));
             (
                 Self {
+                    sender_actor: Some(sender_actor),
                     triggered_rav_request: triggered_rav_request.clone(),
                     receipts: Arc::new(Mutex::new(Vec::new())),
                     next_rav_value: Arc::new(Mutex::new(0)),
@@ -1099,10 +1178,13 @@ pub mod tests {
             )
         }
 
-        pub fn new_with_next_unaggregated_fees_value() -> (Self, Arc<Mutex<u128>>) {
+        pub fn new_with_next_unaggregated_fees_value(
+            sender_actor: ActorRef<SenderAccountMessage>,
+        ) -> (Self, Arc<Mutex<u128>>) {
             let unaggregated_fees = Arc::new(Mutex::new(0));
             (
                 Self {
+                    sender_actor: Some(sender_actor),
                     triggered_rav_request: Arc::new(AtomicU32::new(0)),
                     receipts: Arc::new(Mutex::new(Vec::new())),
                     next_rav_value: Arc::new(Mutex::new(0)),
@@ -1112,10 +1194,13 @@ pub mod tests {
             )
         }
 
-        pub fn new_with_next_rav_value() -> (Self, Arc<Mutex<u128>>) {
+        pub fn new_with_next_rav_value(
+            sender_actor: ActorRef<SenderAccountMessage>,
+        ) -> (Self, Arc<Mutex<u128>>) {
             let next_rav_value = Arc::new(Mutex::new(0));
             (
                 Self {
+                    sender_actor: Some(sender_actor),
                     triggered_rav_request: Arc::new(AtomicU32::new(0)),
                     receipts: Arc::new(Mutex::new(Vec::new())),
                     next_rav_value: next_rav_value.clone(),
@@ -1129,6 +1214,7 @@ pub mod tests {
             let receipts = Arc::new(Mutex::new(Vec::new()));
             (
                 Self {
+                    sender_actor: None,
                     triggered_rav_request: Arc::new(AtomicU32::new(0)),
                     receipts: receipts.clone(),
                     next_rav_value: Arc::new(Mutex::new(0)),
@@ -1160,7 +1246,7 @@ pub mod tests {
             _state: &mut Self::State,
         ) -> Result<(), ActorProcessingErr> {
             match message {
-                SenderAllocationMessage::TriggerRAVRequest(reply) => {
+                SenderAllocationMessage::TriggerRAVRequest => {
                     self.triggered_rav_request
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let signed_rav = create_rav(
@@ -1169,13 +1255,19 @@ pub mod tests {
                         4,
                         *self.next_rav_value.lock().unwrap(),
                     );
-                    reply.send((
-                        UnaggregatedReceipts {
-                            value: *self.next_unaggregated_fees_value.lock().unwrap(),
-                            last_id: 0,
-                        },
-                        Some(signed_rav),
-                    ))?;
+                    if let Some(sender_account) = self.sender_actor.as_ref() {
+                        sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
+                            *ALLOCATION_ID_0,
+                            ReceiptFees::RavRequestResponse(Ok((
+                                UnaggregatedReceipts {
+                                    value: *self.next_unaggregated_fees_value.lock().unwrap(),
+                                    last_id: 0,
+                                    counter: 0,
+                                },
+                                Some(signed_rav),
+                            ))),
+                        ))?;
+                    }
                 }
                 SenderAllocationMessage::NewReceipt(receipt) => {
                     self.receipts.lock().unwrap().push(receipt);
@@ -1190,6 +1282,7 @@ pub mod tests {
         prefix: String,
         sender: Address,
         allocation: Address,
+        sender_actor: ActorRef<SenderAccountMessage>,
     ) -> (
         Arc<AtomicU32>,
         Arc<Mutex<u128>>,
@@ -1197,7 +1290,7 @@ pub mod tests {
         JoinHandle<()>,
     ) {
         let (mock_sender_allocation, triggered_rav_request, next_unaggregated_fees) =
-            MockSenderAllocation::new_with_triggered_rav_request();
+            MockSenderAllocation::new_with_triggered_rav_request(sender_actor);
 
         let name = format!("{}:{}:{}", prefix, sender, allocation);
         let (sender_account, join_handle) =
@@ -1212,6 +1305,13 @@ pub mod tests {
         )
     }
 
+    fn get_current_timestamp_u64_ns() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64
+    }
+
     #[sqlx::test(migrations = "../migrations")]
     async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
         let (sender_account, handle, prefix, _) = create_sender_account(
@@ -1220,17 +1320,24 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
         let (triggered_rav_request, _, allocation, allocation_handle) =
-            create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
+            create_mock_sender_allocation(
+                prefix,
+                SENDER.1,
+                *ALLOCATION_ID_0,
+                sender_account.clone(),
+            )
+            .await;
 
         // create a fake sender allocation
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewReceipt(TRIGGER_VALUE - 1),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE - 1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
 
@@ -1256,17 +1363,24 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
         let (triggered_rav_request, _, allocation, allocation_handle) =
-            create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
+            create_mock_sender_allocation(
+                prefix,
+                SENDER.1,
+                *ALLOCATION_ID_0,
+                sender_account.clone(),
+            )
+            .await;
 
         // create a fake sender allocation
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewReceipt(TRIGGER_VALUE),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
 
@@ -1276,6 +1390,72 @@ pub mod tests {
             triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
             0
         );
+
+        // wait for it to be outside buffer
+        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
+
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                ReceiptFees::Retry,
+            ))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
+
+        assert_eq!(
+            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+
+        allocation.stop_and_wait(None, None).await.unwrap();
+        allocation_handle.await.unwrap();
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_counter_greater_limit_trigger_rav(pgpool: PgPool) {
+        let (sender_account, handle, prefix, _) = create_sender_account(
+            pgpool,
+            HashSet::new(),
+            TRIGGER_VALUE,
+            TRIGGER_VALUE,
+            DUMMY_URL,
+            2,
+        )
+        .await;
+
+        let (triggered_rav_request, _, allocation, allocation_handle) =
+            create_mock_sender_allocation(
+                prefix,
+                SENDER.1,
+                *ALLOCATION_ID_0,
+                sender_account.clone(),
+            )
+            .await;
+
+        // create a fake sender allocation
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
+            ))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
+
+        assert_eq!(
+            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        sender_account
+            .cast(SenderAccountMessage::UpdateReceiptFees(
+                *ALLOCATION_ID_0,
+                ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
+            ))
+            .unwrap();
 
         // wait for it to be outside buffer
         tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
@@ -1309,6 +1489,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1360,6 +1541,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1378,11 +1560,18 @@ pub mod tests {
             TRIGGER_VALUE,
             max_unaggregated_fees_per_sender,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
         let (triggered_rav_request, next_value, allocation, allocation_handle) =
-            create_mock_sender_allocation(prefix, SENDER.1, *ALLOCATION_ID_0).await;
+            create_mock_sender_allocation(
+                prefix,
+                SENDER.1,
+                *ALLOCATION_ID_0,
+                sender_account.clone(),
+            )
+            .await;
 
         assert_eq!(
             triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
@@ -1392,7 +1581,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewReceipt(TRIGGER_VALUE),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1427,6 +1616,7 @@ pub mod tests {
             u128::MAX,
             max_unaggregated_fees_per_sender,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1438,6 +1628,7 @@ pub mod tests {
                         ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
+                            counter: 0,
                         }),
                     ))
                     .unwrap();
@@ -1454,6 +1645,7 @@ pub mod tests {
                         UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
+                            counter: 0,
                         },
                     ))
                     .unwrap();
@@ -1522,6 +1714,7 @@ pub mod tests {
             TRIGGER_VALUE,
             u128::MAX,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1555,11 +1748,12 @@ pub mod tests {
             trigger_rav_request,
             u128::MAX,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
         let (mock_sender_allocation, next_rav_value) =
-            MockSenderAllocation::new_with_next_rav_value();
+            MockSenderAllocation::new_with_next_rav_value(sender_account.clone());
 
         let name = format!("{}:{}:{}", prefix, SENDER.1, *ALLOCATION_ID_0);
         let (allocation, allocation_handle) =
@@ -1579,6 +1773,7 @@ pub mod tests {
                         ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
+                            counter: 0,
                         }),
                     ))
                     .unwrap();
@@ -1660,6 +1855,7 @@ pub mod tests {
             TRIGGER_VALUE,
             u128::MAX,
             &mock_server.uri(),
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1713,6 +1909,7 @@ pub mod tests {
             TRIGGER_VALUE,
             u128::MAX,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
@@ -1756,11 +1953,12 @@ pub mod tests {
             TRIGGER_VALUE,
             max_unaggregated_fees_per_sender,
             DUMMY_URL,
+            RECEIPT_LIMIT,
         )
         .await;
 
         let (mock_sender_allocation, next_unaggregated_fees) =
-            MockSenderAllocation::new_with_next_unaggregated_fees_value();
+            MockSenderAllocation::new_with_next_unaggregated_fees_value(sender_account.clone());
 
         let name = format!("{}:{}:{}", prefix, SENDER.1, *ALLOCATION_ID_0);
         let (allocation, allocation_handle) = MockSenderAllocation::spawn_linked(
@@ -1777,7 +1975,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
-                ReceiptFees::NewReceipt(TRIGGER_VALUE),
+                ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;

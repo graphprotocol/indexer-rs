@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.1.0...indexer-config-v1.2.0) (2024-10-09)
+
+
+### Features
+
+* shared env prefix for service and tap ([#356](https://github.com/graphprotocol/indexer-rs/issues/356)) ([5ff0550](https://github.com/graphprotocol/indexer-rs/commit/5ff05500d86d04a4cbe53fe3c724404585e7647a))
+
 ## [1.1.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.0.0...indexer-config-v1.1.0) (2024-10-09)
 
 

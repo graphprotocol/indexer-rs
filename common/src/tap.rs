@@ -8,6 +8,7 @@ use crate::tap::checks::sender_balance_check::SenderBalanceCheck;
 use crate::tap::checks::timestamp_check::TimestampCheck;
 use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
 use alloy::dyn_abi::Eip712Domain;
+use alloy::primitives::Address;
 use eventuals::Eventual;
 use receipt_store::{DatabaseReceipt, InnerContext};
 use sqlx::PgPool;
@@ -15,8 +16,8 @@ use std::fmt::Debug;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use tap_core::receipt::checks::ReceiptCheck;
-use thegraph_core::Address;
 use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::watch::Receiver;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
@@ -25,7 +26,6 @@ mod receipt_store;
 
 pub struct IndexerTapContext {
     domain_separator: Arc<Eip712Domain>,
-
     receipt_producer: Sender<DatabaseReceipt>,
     cancelation_token: CancellationToken,
 }
@@ -39,7 +39,7 @@ pub enum AdapterError {
 impl IndexerTapContext {
     pub async fn get_checks(
         pgpool: PgPool,
-        indexer_allocations: Eventual<HashMap<Address, Allocation>>,
+        indexer_allocations: Receiver<HashMap<Address, Allocation>>,
         escrow_accounts: Eventual<EscrowAccounts>,
         domain_separator: Eip712Domain,
         timestamp_error_tolerance: Duration,

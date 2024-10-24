@@ -1,0 +1,37 @@
+# EscrowAccountQuery
+# 
+# This query is used to retrieve escrow account information related to The Graph's Indexer
+# TAP (Token Allocation Program) payment system.
+#
+# Input Variables:
+# - $indexer (ID!): The unique ID of the Indexer whose escrow accounts are being queried.
+# - $thawEndTimestamp (BigInt!): A timestamp used to filter signers whose thaw period has ended or is about to end.
+#
+# Query Logic:
+# - Fetches escrow accounts where the `receiver` is the provided $indexer.
+# - Returns the following information for each escrow account:
+#   - `balance`: The current balance of the escrow account.
+#   - `totalAmountThawing`: The total amount currently thawing in the escrow.
+# - Retrieves the sender of the funds and filters the sender's `signers` based on the following:
+#   - `thawEndTimestamp_lte`: Only includes signers whose thaw end timestamp is less than or equal to the provided $thawEndTimestamp.
+#   - `isAuthorized: true`: Only includes signers that are authorized.
+#
+# Example Use Case:
+# This query helps Indexers track escrow payments, including which funds are in the process of
+# thawing and which signers are eligible to authorize transactions based on thaw end timestamps.
+
+query EscrowAccountQuery($indexer: ID!, $thawEndTimestamp: BigInt!) {
+    escrowAccounts(where: { receiver_: { id: $indexer } }) {
+        balance
+        totalAmountThawing
+        sender {
+            id
+            signers(where: {
+                thawEndTimestamp_lte: $thawEndTimestamp
+                isAuthorized: true
+            }) {
+                id
+            }
+        }
+    }
+}

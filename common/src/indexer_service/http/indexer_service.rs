@@ -1,13 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::HashMap, error::Error, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc,
-    time::Duration,
-};
-
 use alloy::dyn_abi::Eip712Domain;
-use alloy::sol_types::eip712_domain;
 use anyhow;
 use axum::extract::MatchedPath;
 use axum::extract::Request as ExtractRequest;
@@ -25,11 +19,16 @@ use prometheus::TextEncoder;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::postgres::PgPoolOptions;
-use tap_core::{manager::Manager, receipt::checks::CheckList};
+use std::{
+    collections::HashMap, error::Error, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc,
+    time::Duration,
+};
+use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
 use thegraph_core::{Address, Attestation, DeploymentId};
 use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tokio::sync::watch::Receiver;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::TraceLayer};
 use tracing::error;
@@ -184,7 +183,7 @@ where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
     pub config: IndexerServiceConfig,
-    pub attestation_signers: Eventual<HashMap<Address, AttestationSigner>>,
+    pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
     pub tap_manager: Manager<IndexerTapContext>,
     pub service_impl: Arc<I>,
 
@@ -250,7 +249,8 @@ impl IndexerService {
             options.config.indexer.operator_mnemonic.clone(),
             options.config.graph_network.chain_id,
             dispute_manager,
-        );
+        )
+        .await;
 
         let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(SubgraphClient::new(
             http_client,
@@ -293,12 +293,10 @@ impl IndexerService {
             .connect(&options.config.database.postgres_url)
             .await?;
 
-        let domain_separator = eip712_domain! {
-            name: "TAP",
-            version: "1",
-            chain_id: options.config.tap.chain_id,
-            verifying_contract: options.config.tap.receipts_verifier_address,
-        };
+        let domain_separator = tap_eip712_domain(
+            options.config.tap.chain_id,
+            options.config.tap.receipts_verifier_address,
+        );
         let indexer_context =
             IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
         let timestamp_error_tolerance =

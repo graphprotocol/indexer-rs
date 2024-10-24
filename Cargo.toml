@@ -37,13 +37,15 @@ sqlx = { version = "0.8.2", features = [
 ], default-features = false }
 tracing = { version = "0.1.40", default-features = false }
 bigdecimal = "0.4.3"
-build-info = "0.0.38"
+build-info = "0.0.39"
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "ff856d9", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
     "json",
     "env-filter",
+    "ansi",
 ], default-features = false }
 thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "85ee00b", features = [
     "subgraph-client",
 ] }
 thegraph-graphql-http = "0.2.0"
+graphql_client = { version = "0.14.0", features = ["reqwest-rustls"] }
