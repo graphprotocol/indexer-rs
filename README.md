@@ -46,74 +46,237 @@ These steps should ensure a smooth transition to the latest version of `indexer-
 
 [Contributions guide](/contributing.md)
 
-### Supported request and response format examples
+## Supported request and response format examples
 
+```bash
+curl http://localhost:7600/
 ```
-✗ curl http://localhost:7300/
-Ready to roll!
+```
+Service is up and running
+```
 
-✗ curl http://localhost:7300/health
-{"healthy":true}
+```bash
+curl http://localhost:7600/version
+```
+```json
+{ "version":"0.1.0", "dependencies": {..} }
+```
 
-✗ curl http://localhost:7300/version
-{"version":"0.1.0","dependencies":{}}
-
-✗ curl http://localhost:7300/operator/info
-{"publicKey":"0xacb05407d78129b5717bb51712d3e23a78a10929"}
+```bash
+curl http://localhost:7600/info
+```
+```json
+{ "publicKey": "0xacb05407d78129b5717bb51712d3e23a78a10929" }
+```
 
 # Subgraph queries
-# Checks for receipts and authorization
-✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: Bearer token-for-graph-node-query-endpoint' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB
-"{\"data\":{\"_meta\":{\"block\":{\"number\":9425787}}}}"
-
+## Checks for receipts and authorization
+```bash
+curl -X POST \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer token-for-graph-node-query-endpoint' \
+  --data '{"query": "{_meta{block{number}}}"}' \
+  http://localhost:7600/subgraphs/id/QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB
+```
+```json
+{
+    "attestable": true,
+    "graphQLResponse": "{\"data\":{\"_meta\":{\"block\":{\"number\":10666745}}}}"
+}
+```
 # Takes hex representation for subgraphs deployment id aside from IPFS hash representation
-✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: Bearer token-for-graph-node-query-endpoint' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/0xb655ca6f49e73728a102219726ff678d61d8fb792874792e9f0d9887dc616600
-"{\"data\":{\"_meta\":{\"block\":{\"number\":9425787}}}}"
+```bash
+curl -X POST \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer token-for-graph-node-query-endpoint' \
+  --data '{"query": "{_meta{block{number}}}"}' \
+  http://localhost:7600/subgraphs/id/0xb655ca6f49e73728a102219726ff678d61d8fb792874792e9f0d9887dc616600
+```
+```json
+{
+    "attestable": true,
+    "graphQLResponse": "{\"data\":{\"_meta\":{\"block\":{\"number\":10666745}}}}"
+}
+```
 
 # Free query auth token check failed
-✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: blah' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/subgraphs/id/0xb655ca6f49e73728a102219726ff678d61d8fb792874792e9f0d9887dc616600
-"Invalid Tap-Receipt header provided"%
-
-# Subgraph health check
+```bash
+curl -X POST \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: blah' \
+  --data '{"query": "{_meta{block{number}}}"}' \
+  http://localhost:7600/subgraphs/id/0xb655ca6f49e73728a102219726ff678d61d8fb792874792e9f0d9887dc616600
+```
+```json
+{
+  "message":"No valid receipt or free query auth token provided"
+}
+```
+<!-- # Subgraph health check
 ✗ curl http://localhost:7300/subgraphs/health/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
 "Subgraph deployment is up to date"%
 ## Unfound subgraph
 ✗ curl http://localhost:7300/subgraphs/health/QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB
-"Invalid indexing status"%
+"Invalid indexing status"% -->
 
 # Network queries
-# Checks for auth and configuration to serve-network-subgraph
-✗ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: token-for-network-subgraph' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/network
-"Not enabled or authorized query"
+## Checks for auth and configuration to serve-network-subgraph
+
+```bash
+curl -X POST \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: token-for-network-subgraph' \
+  --data '{"query": "{_meta{block{number}}}"}' \
+  http://localhost:7600/network
+```
+```json
+{ 
+  "message":"No valid receipt or free query auth token provided" 
+}
+```
 
 # Indexing status resolver - Route supported root field queries to graph node status endpoint
-✗ curl -X POST -H 'Content-Type: application/json' --data '{"query": "{blockHashFromNumber(network:\"goerli\", blockNumber: 9069120)}"}' http://localhost:7300/status
-{"data":{"blockHashFromNumber":"e1e5472636db73ba5496aee098dc21310683c95eb30fc46f9ba6c36d8b28d58e"}}%
-
-# Indexing status resolver -
-✗ curl -X POST -H 'Content-Type: application/json' --data '{"query": "{indexingStatuses {subgraph health} }"}' http://localhost:7300/status
-{"data":{"indexingStatuses":[{"subgraph":"QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj","health":"healthy"},{"subgraph":"QmWVtsWk8Pqn3zY3czDjyoVreshRLmoz9jko3mQ4uvxQDj","health":"healthy"},{"subgraph":"QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB","health":"healthy"}]}}
-
-# Indexing status resolver - Filter out the unsupported queries
-✗ curl -X POST -H 'Content-Type: application/json' --data '{"query": "{_meta{block{number}}}"}' http://localhost:7300/status
-{"errors":[{"locations":[{"line":1,"column":2}],"message":"Type `Query` has no field `_meta`"}]}%
-
-######## Cost server - read-only graphql query
-curl -X GET -H 'Content-Type: application/json' --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\") { deployment model variables }} "}' http://localhost:7300/cost
-
-curl -X GET -H 'Content-Type: application/json' --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\") { deployment model variables }} "}' http://localhost:7300/cost
-{"data":{"costModel":{"deployment":"0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea","model":"default => 0.00025;","variables":null}}}%
-
-curl -X GET -H 'Content-Type: application/json' --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vas\") { deployment model variables }} "}' http://localhost:7300/cost
-{"data":{"costModel":null}}%
-
-curl -X GET -H 'Content-Type: application/json' --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\") { deployment odel variables }} "}' http://localhost:7300/cost
-{"errors":[{"message":"Cannot query field \"odel\" on type \"CostModel\". Did you mean \"model\"?","locations":[{"line":1,"column":88}]}]}%
-
-curl -X GET -H 'Content-Type: application/json' --data '{"query": "{ costModels(deployments: [\"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\"]) { deployment model variables }} "}' http://localhost:7300/cost
-{"data":{"costModels":[{"deployment":"0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea","model":"default => 0.00025;","variables":null}]}}%
-
+```bash
+curl -X POST \
+  -H 'Content-Type: application/json' \
+  --data '{"query": "{blockHashFromNumber(network:\"mainnet\", blockNumber: 21033)}"}' \
+  http://localhost:7600/status
 ```
+```json
+{
+  "data": {
+    "blockHashFromNumber": "0x6d8daae97a562b1fff22162515452acdd817c3d3c5cde1497b7d9eb6666a957e"
+  }
+}
+```
+
+## Indexing status resolver -
+```bash
+curl -X POST \
+  -H 'Content-Type: application/json' \
+  --data '{"query": "{indexingStatuses {subgraph health}}"}' \
+  http://localhost:7600/status
+```
+```json
+{
+  "data": {
+    "indexingStatuses": [
+      {
+        "subgraph": "QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj",
+        "health": "healthy"
+      },
+      {
+        "subgraph": "QmWVtsWk8Pqn3zY3czDjyoVreshRLmoz9jko3mQ4uvxQDj",
+        "health": "healthy"
+      },
+      {
+        "subgraph": "QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB",
+        "health": "healthy"
+      }
+    ]
+  }
+}
+```
+
+## Indexing status resolver - Filter out the unsupported queries
+```bash
+curl -X POST \
+  -H 'Content-Type: application/json' \
+  --data '{"query": "{_meta{block{number}}}"}' \
+  http://localhost:7600/status
+```
+```json
+{
+  "errors": [
+    {
+      "locations": [
+        {
+          "line": 1,
+          "column": 2
+        }
+      ],
+      "message": "Type `Query` has no field `_meta`"
+    }
+  ]
+}
+```
+
+## Cost server - read-only graphql query
+```bash
+curl -X GET \
+  -H 'Content-Type: application/json' \
+  --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\") { deployment model variables }} "}' \
+  http://localhost:7300/cost
+```
+```json
+{
+  "data": {
+    "costModel": {
+      "deployment": "0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea",
+      "model": "default => 0.00025;",
+      "variables": null
+    }
+  }
+}
+```
+
+```bash
+curl -X GET \
+  -H 'Content-Type: application/json' \
+  --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vas\") { deployment model variables }} "}' \
+  http://localhost:7300/cost
+```
+```json
+{
+  "data": {
+    "costModel": null
+  }
+}
+```
+
+```bash
+curl -X GET \
+  -H 'Content-Type: application/json' \
+  --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\") { deployment odel variables }} "}' \
+  http://localhost:7300/cost
+```
+```json
+{
+  "errors": [
+    {
+      "message": "Cannot query field \"odel\" on type \"CostModel\". Did you mean \"model\"?",
+      "locations": [
+        {
+          "line": 1,
+          "column": 88
+        }
+      ]
+    }
+  ]
+}
+```
+
+```bash
+curl -X GET \
+  -H 'Content-Type: application/json' \
+  --data '{"query": "{ costModels(deployments: [\"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\"]) { deployment model variables }} "}' \
+  http://localhost:7300/cost
+```
+```json
+{
+  "data": {
+    "costModels": [
+      {
+        "deployment": "0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea",
+        "model": "default => 0.00025;",
+        "variables": null
+      }
+    ]
+  }
+}
+```
+
+
 
 ## Dependency choices
 
