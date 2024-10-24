@@ -26,6 +26,7 @@ lazy_static::lazy_static! {
             "entityChangesInBlock",
             "blockData",
             "cachedEthereumCalls",
+            "blockHashFromNumber",
             "subgraphFeatures",
             "apiVersions",
         ].into_iter().collect();
