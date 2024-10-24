@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloy::primitives::U256;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use thegraph_core::{Address, DeploymentId};
 
 pub mod monitor;
@@ -33,7 +33,7 @@ pub enum AllocationStatus {
     Claimed,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct SubgraphDeployment {
     pub id: DeploymentId,
     #[serde(rename = "deniedAt")]

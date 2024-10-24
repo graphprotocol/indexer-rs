@@ -96,7 +96,7 @@ version = "0.1.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4932d790c723181807738cf1ac68198ab581cd699545b155601332541ee47bd"
 dependencies = [
- "alloy-primitives 0.8.9",
+ "alloy-primitives 0.8.10",
  "num_enum",
  "strum 0.26.3",
 ]
@@ -276,9 +276,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-primitives"
-version = "0.8.9"
+version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c71738eb20c42c5fb149571e76536a0f309d142f3957c28791662b96baf77a3d"
+checksum = "8edae627382349b56cd6a7a2106f4fd69b243a9233e560c55c2e03cabb7e1d3c"
 dependencies = [
  "bytes",
  "cfg-if",
@@ -1429,7 +1429,7 @@ dependencies = [
  "ident_case",
  "proc-macro2",
  "quote",
- "syn 2.0.79",
+ "syn 2.0.85",
 ]
 
 [[package]]
@@ -3728,12 +3728,16 @@ checksum = "78b3ae25bc7c8c38cec158d1f2757ee79e9b3740fbc7ccf0e59e4b08d793fa89"
 name = "local-service"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "anyhow",
  "axum 0.7.7",
  "dotenvy",
+ "indexer-common",
  "serde",
  "serde_json",
+ "thegraph-core",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
 ]
