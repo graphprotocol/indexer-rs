@@ -11,11 +11,13 @@ path = "src/main.rs"
 path = "src/lib.rs"
 
 [dependencies]
+alloy = { workspace = true, features = ["k256"] }
 anyhow.workspace = true
 axum = { version = "0.7.5", features = ["macros"] }
 dotenvy = "0.15.7"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+indexer-tap-agent = { path = "../tap-agent" }
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true

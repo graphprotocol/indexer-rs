@@ -10,7 +10,7 @@ use indexer_common::escrow_accounts::EscrowAccounts;
 pub mod context;
 pub mod escrow_adapter;
 
-#[cfg(test)]
+// #[cfg(test)]
 pub mod test_utils;
 
 pub async fn signers_trimmed(
