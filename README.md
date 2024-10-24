@@ -202,59 +202,6 @@ curl -X POST \
 ```
 
 ## Cost server - read-only graphql query
-```bash
-curl -X GET \
-  -H 'Content-Type: application/json' \
-  --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\") { deployment model variables }} "}' \
-  http://localhost:7300/cost
-```
-```json
-{
-  "data": {
-    "costModel": {
-      "deployment": "0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea",
-      "model": "default => 0.00025;",
-      "variables": null
-    }
-  }
-}
-```
-
-```bash
-curl -X GET \
-  -H 'Content-Type: application/json' \
-  --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vas\") { deployment model variables }} "}' \
-  http://localhost:7300/cost
-```
-```json
-{
-  "data": {
-    "costModel": null
-  }
-}
-```
-
-```bash
-curl -X GET \
-  -H 'Content-Type: application/json' \
-  --data '{"query": "{ costModel(deployment: \"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\") { deployment odel variables }} "}' \
-  http://localhost:7300/cost
-```
-```json
-{
-  "errors": [
-    {
-      "message": "Cannot query field \"odel\" on type \"CostModel\". Did you mean \"model\"?",
-      "locations": [
-        {
-          "line": 1,
-          "column": 88
-        }
-      ]
-    }
-  ]
-}
-```
 
 ```bash
 curl -X GET \
