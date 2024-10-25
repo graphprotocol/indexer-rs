@@ -16,8 +16,6 @@ use tap_core::receipt::{
 use tokio::time::sleep;
 use tracing::error;
 
-use crate::config;
-
 pub struct AllocationId {
     tap_allocation_redeemed: Eventual<bool>,
     allocation_id: Address,
@@ -25,17 +23,18 @@ pub struct AllocationId {
 
 impl AllocationId {
     pub fn new(
+        indexer_address: Address,
+        escrow_polling_interval: Duration,
         sender_id: Address,
         allocation_id: Address,
         escrow_subgraph: &'static SubgraphClient,
-        config: &'static config::Config,
     ) -> Self {
         let tap_allocation_redeemed = tap_allocation_redeemed_eventual(
             allocation_id,
             sender_id,
-            config.ethereum.indexer_address,
+            indexer_address,
             escrow_subgraph,
-            config.escrow_subgraph.escrow_syncing_interval_ms,
+            escrow_polling_interval,
         );
 
         Self {
@@ -76,9 +75,9 @@ fn tap_allocation_redeemed_eventual(
     sender_address: Address,
     indexer_address: Address,
     escrow_subgraph: &'static SubgraphClient,
-    escrow_subgraph_polling_interval_ms: u64,
+    escrow_polling_interval: Duration,
 ) -> Eventual<bool> {
-    eventuals::timer(Duration::from_millis(escrow_subgraph_polling_interval_ms)).map_with_retry(
+    eventuals::timer(escrow_polling_interval).map_with_retry(
         move |_| async move {
             query_escrow_check_transactions(
                 allocation_id,
@@ -94,7 +93,7 @@ fn tap_allocation_redeemed_eventual(
                 "Failed to check the escrow redeem status for allocation {} and sender {}: {}",
                 allocation_id, sender_address, error
             );
-            sleep(Duration::from_millis(escrow_subgraph_polling_interval_ms).div_f32(2.))
+            sleep(escrow_polling_interval.div_f32(2.))
         },
     )
 }

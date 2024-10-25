@@ -4,5 +4,6 @@
 mod config;
 mod grt;
 
+pub use bip39::Mnemonic;
 pub use config::*;
 pub use grt::*;

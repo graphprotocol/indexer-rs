@@ -69,7 +69,7 @@ impl From<MainConfig> for Config {
                 recently_closed_allocation_buffer_seconds: 0,
             },
             graph_network: GraphNetworkConfig {
-                chain_id: value.blockchain.chain_id.clone() as u64,
+                chain_id: value.blockchain.chain_id as u64,
             },
             tap: TapConfig {
                 chain_id: value.blockchain.chain_id as u64,

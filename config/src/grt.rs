@@ -4,10 +4,18 @@
 use bigdecimal::{BigDecimal, ToPrimitive};
 use serde::{de::Error, Deserialize};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct NonZeroGRT(u128);
 
 impl NonZeroGRT {
+    pub fn new(value: u128) -> Result<Self, String> {
+        if value == 0 {
+            Err("GRT value cannot be represented as a u128 GRT wei value".into())
+        } else {
+            Ok(NonZeroGRT(value))
+        }
+    }
+
     pub fn get_value(&self) -> u128 {
         self.0
     }

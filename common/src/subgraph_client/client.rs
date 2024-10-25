@@ -89,11 +89,22 @@ impl DeploymentDetails {
         graph_node_base_url: &str,
         deployment: DeploymentId,
     ) -> Result<Self, anyhow::Error> {
+        Self::for_graph_node_url(
+            Url::parse(graph_node_status_url)?,
+            Url::parse(graph_node_base_url)?,
+            deployment,
+        )
+    }
+
+    pub fn for_graph_node_url(
+        graph_node_status_url: Url,
+        graph_node_base_url: Url,
+        deployment: DeploymentId,
+    ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             deployment: Some(deployment),
-            status_url: Some(Url::parse(graph_node_status_url)?),
-            query_url: Url::parse(graph_node_base_url)?
-                .join(&format!("subgraphs/id/{deployment}"))?,
+            status_url: Some(graph_node_status_url),
+            query_url: graph_node_base_url.join(&format!("subgraphs/id/{deployment}"))?,
             query_auth_token: None,
         })
     }
@@ -111,12 +122,19 @@ impl DeploymentDetails {
         query_url: &str,
         query_auth_token: Option<String>,
     ) -> Result<Self, anyhow::Error> {
-        Ok(Self {
+        Ok(Self::for_query_url_with_token_url(
+            Url::parse(query_url)?,
+            query_auth_token,
+        ))
+    }
+
+    pub fn for_query_url_with_token_url(query_url: Url, query_auth_token: Option<String>) -> Self {
+        Self {
             deployment: None,
             status_url: None,
-            query_url: Url::parse(query_url)?,
+            query_url,
             query_auth_token,
-        })
+        }
     }
 }
 
