@@ -18,8 +18,8 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     outputs:
-      indexer-service-rs: ${{ steps.release-please.outputs.service--tag_name }}
-      indexer-tap-agent: ${{ steps.release-please.outputs.tap-agent--tag_name }}
+      indexer-service-rs: ${{ steps.release-please.outputs.['crates/service--tag_name'] }}
+      indexer-tap-agent: ${{ steps.release-please.outputs.['crates/tap-agent--tag_name'] }}
     steps:
       - name: Release please
         id: release-please
