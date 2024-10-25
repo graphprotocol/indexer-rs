@@ -112,12 +112,24 @@ curl -X POST \
   "message":"No valid receipt or free query auth token provided"
 }
 ```
-<!-- # Subgraph health check
-✗ curl http://localhost:7300/subgraphs/health/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
-"Subgraph deployment is up to date"%
+## Subgraph health check
+```bash
+curl http://localhost:7600/subgraphs/health/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
+```
+```json
+{
+    "health": "healthy"
+}
+```
 ## Unfound subgraph
-✗ curl http://localhost:7300/subgraphs/health/QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB
-"Invalid indexing status"% -->
+```bash
+curl http://localhost:7600/subgraphs/health/QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB
+```
+```json
+{
+    "error": "Deployment not found"
+}
+```
 
 # Network queries
 ## Checks for auth and configuration to serve-network-subgraph
