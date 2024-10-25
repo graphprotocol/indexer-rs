@@ -106,12 +106,12 @@ pub async fn health(
 
     match response_json {
         Ok(res) => {
-            if res.data.indexingStatuses.len() == 0 {
+            if res.data.indexingStatuses.is_empty() {
                 return Err(CheckHealthError::DeploymentNotFound);
             };
             let health_status = res.data.indexingStatuses[0].health.as_str();
             Ok(Json(json!({ "health": health_status })))
         }
-        Err(_) => return Err(CheckHealthError::QueryForwardingError),
+        Err(_) => Err(CheckHealthError::QueryForwardingError),
     }
 }
