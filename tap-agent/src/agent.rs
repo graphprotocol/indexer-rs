@@ -1,19 +1,19 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
-
 use indexer_common::prelude::{
     escrow_accounts, indexer_allocations, DeploymentDetails, SubgraphClient,
 };
+use indexer_config::{
+    Config, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
+    SubgraphConfig, SubgraphsConfig, TapConfig,
+};
 use ractor::concurrency::JoinHandle;
 use ractor::{Actor, ActorRef};
+use sender_account::SenderAccountConfig;
 
 use crate::agent::sender_accounts_manager::{
     SenderAccountsManagerArgs, SenderAccountsManagerMessage,
-};
-use crate::config::{
-    Config, EscrowSubgraph, Ethereum, IndexerInfrastructure, NetworkSubgraph, Tap,
 };
 use crate::{database, CONFIG, EIP_712_DOMAIN};
 use sender_accounts_manager::SenderAccountsManager;
@@ -25,95 +25,105 @@ pub mod unaggregated_receipts;
 
 pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
     let Config {
-        ethereum: Ethereum { indexer_address },
-        indexer_infrastructure:
-            IndexerInfrastructure {
-                graph_node_query_endpoint,
-                graph_node_status_endpoint,
-                ..
+        indexer: IndexerConfig {
+            indexer_address, ..
+        },
+        graph_node:
+            GraphNodeConfig {
+                status_url: graph_node_status_endpoint,
+                query_url: graph_node_query_endpoint,
             },
-        postgres,
-        network_subgraph:
-            NetworkSubgraph {
-                network_subgraph_deployment,
-                network_subgraph_endpoint,
-                network_subgraph_auth_token,
-                allocation_syncing_interval_ms,
-                recently_closed_allocation_buffer_seconds,
-            },
-        escrow_subgraph:
-            EscrowSubgraph {
-                escrow_subgraph_deployment,
-                escrow_subgraph_endpoint,
-                escrow_subgraph_auth_token,
-                escrow_syncing_interval_ms,
+        database,
+        subgraphs:
+            SubgraphsConfig {
+                network:
+                    NetworkSubgraphConfig {
+                        config:
+                            SubgraphConfig {
+                                query_url: network_query_url,
+                                query_auth_token: network_query_auth_token,
+                                deployment_id: network_deployment_id,
+                                syncing_interval_secs: network_sync_interval,
+                            },
+                        recently_closed_allocation_buffer_secs: recently_closed_allocation_buffer,
+                    },
+                escrow:
+                    EscrowSubgraphConfig {
+                        config:
+                            SubgraphConfig {
+                                query_url: escrow_query_url,
+                                query_auth_token: escrow_query_auth_token,
+                                deployment_id: escrow_deployment_id,
+                                syncing_interval_secs: escrow_sync_interval,
+                            },
+                    },
             },
         tap:
-            Tap {
+            TapConfig {
                 // TODO: replace with a proper implementation once the gateway registry contract is ready
                 sender_aggregator_endpoints,
                 ..
             },
         ..
     } = &*CONFIG;
-    let pgpool = database::connect(postgres).await;
+    let pgpool = database::connect(database.clone()).await;
 
     let http_client = reqwest::Client::new();
 
     let network_subgraph = Box::leak(Box::new(SubgraphClient::new(
         http_client.clone(),
-        network_subgraph_deployment
+        network_deployment_id
             .map(|deployment| {
-                DeploymentDetails::for_graph_node(
-                    graph_node_status_endpoint,
-                    graph_node_query_endpoint,
+                DeploymentDetails::for_graph_node_url(
+                    graph_node_status_endpoint.clone(),
+                    graph_node_query_endpoint.clone(),
                     deployment,
                 )
             })
             .transpose()
             .expect("Failed to parse graph node query endpoint and network subgraph deployment"),
-        DeploymentDetails::for_query_url_with_token(
-            network_subgraph_endpoint,
-            network_subgraph_auth_token.clone(),
-        )
-        .expect("Failed to parse network subgraph endpoint"),
+        DeploymentDetails::for_query_url_with_token_url(
+            network_query_url.clone(),
+            network_query_auth_token.clone(),
+        ),
     )));
 
     let indexer_allocations = indexer_allocations(
         network_subgraph,
         *indexer_address,
-        Duration::from_millis(*allocation_syncing_interval_ms),
-        Duration::from_secs(*recently_closed_allocation_buffer_seconds),
+        *network_sync_interval,
+        *recently_closed_allocation_buffer,
     );
 
     let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
         http_client.clone(),
-        escrow_subgraph_deployment
+        escrow_deployment_id
             .map(|deployment| {
-                DeploymentDetails::for_graph_node(
-                    graph_node_status_endpoint,
-                    graph_node_query_endpoint,
+                DeploymentDetails::for_graph_node_url(
+                    graph_node_status_endpoint.clone(),
+                    graph_node_query_endpoint.clone(),
                     deployment,
                 )
             })
             .transpose()
             .expect("Failed to parse graph node query endpoint and escrow subgraph deployment"),
-        DeploymentDetails::for_query_url_with_token(
-            escrow_subgraph_endpoint,
-            escrow_subgraph_auth_token.clone(),
-        )
-        .expect("Failed to parse escrow subgraph endpoint"),
+        DeploymentDetails::for_query_url_with_token_url(
+            escrow_query_url.clone(),
+            escrow_query_auth_token.clone(),
+        ),
     )));
 
     let escrow_accounts = escrow_accounts(
         escrow_subgraph,
         *indexer_address,
-        Duration::from_millis(*escrow_syncing_interval_ms),
+        *escrow_sync_interval,
         false,
     );
 
+    let config = Box::leak(Box::new(SenderAccountConfig::from_config(&CONFIG)));
+
     let args = SenderAccountsManagerArgs {
-        config: &CONFIG,
+        config,
         domain_separator: EIP_712_DOMAIN.clone(),
         pgpool,
         indexer_allocations,
