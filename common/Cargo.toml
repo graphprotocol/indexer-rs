@@ -4,6 +4,7 @@ version = "1.1.0"
 edition = "2021"
 
 [dependencies]
+indexer-config = { path = "../config" }
 thiserror.workspace = true
 async-trait.workspace = true
 alloy.workspace = true

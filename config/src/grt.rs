@@ -4,7 +4,7 @@
 use bigdecimal::{BigDecimal, ToPrimitive};
 use serde::{de::Error, Deserialize};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct NonZeroGRT(u128);
 
 impl NonZeroGRT {
