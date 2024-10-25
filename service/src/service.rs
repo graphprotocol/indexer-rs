@@ -140,8 +140,6 @@ pub async fn run() -> anyhow::Result<()> {
             anyhow!(e)
         })?;
 
-    let config: Config = config.into();
-
     // Parse basic configurations
     build_info::build_info!(fn build_info);
     let release = IndexerServiceRelease::from(build_info());
@@ -151,14 +149,8 @@ pub async fn run() -> anyhow::Result<()> {
     // that is involved in serving requests
     let state = Arc::new(SubgraphServiceState {
         config: config.clone(),
-        database: database::connect(
-            &config
-                .database
-                .clone()
-                .get_formated_postgres_url()
-                .to_string(),
-        )
-        .await,
+        database: database::connect(config.database.clone().get_formated_postgres_url().as_ref())
+            .await,
         cost_schema: routes::cost::build_schema().await,
         graph_node_client: reqwest::ClientBuilder::new()
             .tcp_nodelay(true)

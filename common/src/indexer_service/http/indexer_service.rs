@@ -215,13 +215,7 @@ impl IndexerService {
                 query_auth_token: options.config.service.free_query_auth_token.clone(),
             }),
             DeploymentDetails::for_query_url_with_token(
-                &options
-                    .config
-                    .subgraphs
-                    .network
-                    .config
-                    .query_url
-                    .to_string(),
+                options.config.subgraphs.network.config.query_url.as_ref(),
                 options
                     .config
                     .subgraphs
@@ -271,13 +265,13 @@ impl IndexerService {
         let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(SubgraphClient::new(
             http_client,
             Some(DeploymentDetails {
-                deployment: options.config.subgraphs.escrow.config.deployment_id.clone(),
+                deployment: options.config.subgraphs.escrow.config.deployment_id,
                 status_url: Some(options.config.graph_node.status_url.clone()),
                 query_url: options.config.graph_node.query_url.clone(),
                 query_auth_token: options.config.service.free_query_auth_token.clone(),
             }),
             DeploymentDetails::for_query_url_with_token(
-                &options.config.subgraphs.escrow.config.query_url.to_string(),
+                options.config.subgraphs.escrow.config.query_url.as_ref(),
                 options
                     .config
                     .subgraphs
@@ -314,12 +308,12 @@ impl IndexerService {
             .max_connections(50)
             .acquire_timeout(Duration::from_secs(30))
             .connect(
-                &options
+                options
                     .config
                     .database
                     .clone()
                     .get_formated_postgres_url()
-                    .to_string(),
+                    .as_ref(),
             )
             .await?;
 
