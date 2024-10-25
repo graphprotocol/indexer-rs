@@ -7,6 +7,7 @@ use axum::body::Bytes;
 use eventuals::Eventual;
 use graphql_client::GraphQLQuery;
 use reqwest::{header, Url};
+use serde::Serialize;
 use serde_json::{Map, Value};
 use thegraph_core::DeploymentId;
 use thegraph_graphql_http::{
@@ -15,7 +16,7 @@ use thegraph_graphql_http::{
 };
 use tracing::warn;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct Query {
     pub query: Document,
     pub variables: Map<String, Value>,

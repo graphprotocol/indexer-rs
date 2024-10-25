@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod config;
+mod health;
 mod indexer_service;
 mod request_handler;
 mod static_subgraph;

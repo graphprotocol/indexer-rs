@@ -36,6 +36,7 @@ use tracing::{info, info_span};
 
 use crate::escrow_accounts::EscrowAccounts;
 use crate::escrow_accounts::EscrowAccountsError;
+use crate::indexer_service::http::health::health;
 use crate::{
     address::public_key,
     indexer_service::http::static_subgraph::static_subgraph_request_handler,
@@ -351,6 +352,11 @@ impl IndexerService {
             .route("/version", get(Json(options.release)))
             .route("/info", get(operator_address))
             .layer(misc_rate_limiter);
+
+        // Check subgraph Health
+        misc_routes = misc_routes
+            .route("/subgraph/health/:deployment_id", get(health))
+            .route_layer(Extension(options.config.graph_node));
 
         // Rate limits by allowing bursts of 50 requests and requiring 20ms of
         // time between consecutive requests after that, effectively rate
