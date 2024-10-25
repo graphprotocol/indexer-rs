@@ -485,7 +485,7 @@ impl IndexerService {
                 .with_state(state),
         );
 
-        Self::serve_metrics(options.config.server.metrics_host_and_port);
+        Self::serve_metrics(options.config.metrics.get_socket_addr());
 
         info!(
             address = %options.config.service.host_and_port,

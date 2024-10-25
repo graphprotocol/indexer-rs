@@ -270,6 +270,12 @@ pub struct MetricsConfig {
     pub port: u16,
 }
 
+impl MetricsConfig {
+    pub fn get_socket_addr(&self) -> SocketAddr {
+        SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), self.port))
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct SubgraphsConfig {
