@@ -129,15 +129,6 @@ impl AllocationConfig {
             escrow_polling_interval: config.escrow_polling_interval,
         }
     }
-
-    pub fn from_config(config: &indexer_config::Config) -> Self {
-        Self {
-            timestamp_buffer_ns: config.tap.rav_request.timestamp_buffer_secs.as_nanos() as u64,
-            rav_request_receipt_limit: config.tap.rav_request.max_receipts_per_request,
-            indexer_address: config.indexer.indexer_address,
-            escrow_polling_interval: config.subgraphs.escrow.config.syncing_interval_secs,
-        }
-    }
 }
 
 pub struct SenderAllocationArgs {

@@ -35,7 +35,7 @@ fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
     }
 }
 
-pub fn from_cli() -> Result<IndexerConfig> {
+pub fn get_config() -> Result<IndexerConfig> {
     let cli = Cli::parse();
     let config = IndexerConfig::parse(ConfigPrefix::Tap, cli.config.as_ref()).map_err(|e| {
         error!(
