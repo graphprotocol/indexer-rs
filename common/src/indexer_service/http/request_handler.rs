@@ -90,7 +90,7 @@ where
         {
             None => return Err(IndexerServiceError::Unauthorized),
             Some(ref token) => {
-                if Some(token) != state.config.server.free_query_auth_token.as_ref() {
+                if Some(token) != state.config.service.free_query_auth_token.as_ref() {
                     return Err(IndexerServiceError::InvalidFreeQueryAuthToken);
                 }
             }

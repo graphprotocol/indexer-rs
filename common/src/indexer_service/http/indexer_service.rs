@@ -208,19 +208,12 @@ impl IndexerService {
 
         let network_subgraph: &'static SubgraphClient = Box::leak(Box::new(SubgraphClient::new(
             http_client.clone(),
-            options
-                .config
-                .graph_node
-                .as_ref()
-                .zip(options.config.subgraphs.network.config.deployment_id)
-                .map(|(graph_node, deployment)| {
-                    DeploymentDetails::for_graph_node(
-                        &graph_node.status_url,
-                        &graph_node.query_base_url,
-                        deployment,
-                    )
-                })
-                .transpose()?,
+            Some(DeploymentDetails {
+                deployment: options.config.subgraphs.network.config.deployment_id,
+                status_url: Some(options.config.graph_node.status_url.clone()),
+                query_url: options.config.graph_node.query_url.clone(),
+                query_auth_token: options.config.service.free_query_auth_token.clone(),
+            }),
             DeploymentDetails::for_query_url_with_token(
                 &options
                     .config
@@ -270,26 +263,19 @@ impl IndexerService {
         let attestation_signers = attestation_signers(
             allocations.clone(),
             options.config.indexer.operator_mnemonic.to_string(),
-            options.config.blockchain.chain_id as u64,
+            options.config.blockchain.chain_id.clone() as u64,
             dispute_manager,
         )
         .await;
 
         let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(SubgraphClient::new(
             http_client,
-            options
-                .config
-                .graph_node
-                .as_ref()
-                .zip(options.config.subgraphs.escrow.config.deployment_id)
-                .map(|(graph_node, deployment)| {
-                    DeploymentDetails::for_graph_node(
-                        &graph_node.status_url,
-                        &graph_node.query_base_url,
-                        deployment,
-                    )
-                })
-                .transpose()?,
+            Some(DeploymentDetails {
+                deployment: options.config.subgraphs.escrow.config.deployment_id.clone(),
+                status_url: Some(options.config.graph_node.status_url.clone()),
+                query_url: options.config.graph_node.query_url.clone(),
+                query_auth_token: options.config.service.free_query_auth_token.clone(),
+            }),
             DeploymentDetails::for_query_url_with_token(
                 &options.config.subgraphs.escrow.config.query_url.to_string(),
                 options
@@ -331,13 +317,14 @@ impl IndexerService {
                 &options
                     .config
                     .database
+                    .clone()
                     .get_formated_postgres_url()
                     .to_string(),
             )
             .await?;
 
         let domain_separator = tap_eip712_domain(
-            options.config.blockchain.chain_id as u64,
+            options.config.blockchain.chain_id.clone() as u64,
             options.config.blockchain.receipts_verifier_address,
         );
         let indexer_context =
