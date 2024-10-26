@@ -251,7 +251,7 @@ impl IndexerService {
         let attestation_signers = attestation_signers(
             allocations.clone(),
             options.config.indexer.operator_mnemonic.clone(),
-            options.config.blockchain.chain_id.clone() as u64,
+            options.config.blockchain.chain_id as u64,
             dispute_manager,
         )
         .await;
@@ -304,7 +304,7 @@ impl IndexerService {
             .await?;
 
         let domain_separator = tap_eip712_domain(
-            options.config.blockchain.chain_id.clone() as u64,
+            options.config.blockchain.chain_id as u64,
             options.config.blockchain.receipts_verifier_address,
         );
         let indexer_context =
