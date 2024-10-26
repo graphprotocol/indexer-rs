@@ -69,7 +69,7 @@ pub struct SenderAccountsManagerArgs {
 pub struct State {
     sender_ids: HashSet<Address>,
     new_receipts_watcher_handle: Option<tokio::task::JoinHandle<()>>,
-    _eligible_allocations_senders_pipe: JoinHandle<()>,
+    _eligible_allocations_senders_handle: JoinHandle<()>,
 
     config: &'static SenderAccountConfig,
     domain_separator: Eip712Domain,
@@ -126,7 +126,7 @@ impl Actor for SenderAccountsManager {
             );
         let myself_clone = myself.clone();
         let mut accounts_clone = escrow_accounts.clone();
-        let _eligible_allocations_senders_pipe = tokio::spawn(async move {
+        let _eligible_allocations_senders_handle = tokio::spawn(async move {
             while accounts_clone.changed().await.is_ok() {
                 myself_clone
                     .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
@@ -143,7 +143,7 @@ impl Actor for SenderAccountsManager {
             domain_separator,
             sender_ids: HashSet::new(),
             new_receipts_watcher_handle: None,
-            _eligible_allocations_senders_pipe,
+            _eligible_allocations_senders_handle,
             pgpool,
             indexer_allocations: allocations_rx,
             escrow_accounts: escrow_accounts.clone(),
@@ -639,7 +639,6 @@ mod tests {
         let escrow_subgraph = get_subgraph_client();
 
         let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
-        //change escrow_accounts_tx.write(EscrowAccounts::default());
 
         let prefix = format!(
             "test-{}",
@@ -689,7 +688,7 @@ mod tests {
                 domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
                 sender_ids: HashSet::new(),
                 new_receipts_watcher_handle: None,
-                _eligible_allocations_senders_pipe: tokio::spawn(async move {}),
+                _eligible_allocations_senders_handle: tokio::spawn(async move {}),
                 pgpool,
                 indexer_allocations: watch::channel(HashSet::new()).1,
                 escrow_accounts: watch::channel(escrow_accounts).1,

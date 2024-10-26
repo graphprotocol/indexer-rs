@@ -56,7 +56,13 @@ pub async fn request_handler<I>(
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
-    _request_handler(manifest_id, typed_header, state, headers, body).await
+    _request_handler(manifest_id, typed_header, state, headers, body)
+        .await
+        .inspect_err(|_| {
+            HANDLER_FAILURE
+                .with_label_values(&[&manifest_id.to_string()])
+                .inc()
+        })
 }
 
 async fn _request_handler<I>(
@@ -105,7 +111,7 @@ where
     let allocation_id = receipt.message.allocation_id;
 
     // recover the signer address
-    // get escrow accounts from reciever
+    // get escrow accounts from channel
     // return sender from signer
     //
     // TODO: We are currently doing this process twice.
