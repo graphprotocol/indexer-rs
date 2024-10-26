@@ -56,13 +56,7 @@ pub async fn request_handler<I>(
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
-    _request_handler(manifest_id, typed_header, state, headers, body)
-        .await
-        .inspect_err(|_| {
-            HANDLER_FAILURE
-                .with_label_values(&[&manifest_id.to_string()])
-                .inc()
-        })
+    _request_handler(manifest_id, typed_header, state, headers, body, ).await
 }
 
 async fn _request_handler<I>(
@@ -111,7 +105,7 @@ where
     let allocation_id = receipt.message.allocation_id;
 
     // recover the signer address
-    // get escrow accounts from eventual
+    // get escrow accounts from reciever
     // return sender from signer
     //
     // TODO: We are currently doing this process twice.
@@ -120,13 +114,9 @@ where
     let signer = receipt
         .recover_signer(&state.domain_separator)
         .map_err(IndexerServiceError::CouldNotDecodeSigner)?;
-
-    let escrow_accounts = state
-        .escrow_accounts
-        .value_immediate()
-        .ok_or(IndexerServiceError::ServiceNotReady)?;
-
+    let escrow_accounts = state.escrow_accounts.clone();
     let sender = escrow_accounts
+        .borrow()
         .get_sender_for_signer(&signer)
         .map_err(IndexerServiceError::EscrowAccount)?;
 

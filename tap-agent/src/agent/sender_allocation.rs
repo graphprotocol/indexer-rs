@@ -10,7 +10,6 @@ use alloy::primitives::Address;
 use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt};
 use anyhow::{anyhow, ensure, Result};
 use bigdecimal::{num_bigint::BigInt, ToPrimitive};
-use eventuals::Eventual;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, rpc_params};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
@@ -27,6 +26,7 @@ use tap_core::{
     },
     signed_message::EIP712SignedMessage,
 };
+use tokio::sync::watch::Receiver;
 use tracing::{debug, error, warn};
 
 use crate::{agent::sender_account::ReceiptFees, lazy_static};
@@ -101,7 +101,7 @@ pub struct SenderAllocationState {
     allocation_id: Address,
     sender: Address,
     config: &'static config::Config,
-    escrow_accounts: Eventual<EscrowAccounts>,
+    escrow_accounts: Receiver<EscrowAccounts>,
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
 
@@ -113,7 +113,7 @@ pub struct SenderAllocationArgs {
     pub pgpool: PgPool,
     pub allocation_id: Address,
     pub sender: Address,
-    pub escrow_accounts: Eventual<EscrowAccounts>,
+    pub escrow_accounts: Receiver<EscrowAccounts>,
     pub escrow_subgraph: &'static SubgraphClient,
     pub escrow_adapter: EscrowAdapter,
     pub domain_separator: Eip712Domain,
@@ -367,7 +367,7 @@ impl SenderAllocationState {
         tracing::trace!("calculate_unaggregated_fee()");
         self.tap_manager.remove_obsolete_receipts().await?;
 
-        let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
+        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
 
         let res = sqlx::query!(
             r#"
@@ -418,7 +418,7 @@ impl SenderAllocationState {
 
     async fn calculate_invalid_receipts_fee(&self) -> Result<UnaggregatedReceipts> {
         tracing::trace!("calculate_invalid_receipts_fee()");
-        let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
+        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
 
         // TODO: Get `rav.timestamp_ns` from the TAP Manager's RAV storage adapter instead?
         let res = sqlx::query!(
@@ -523,7 +523,7 @@ impl SenderAllocationState {
                     .map(|receipt| receipt.signed_receipt().message.timestamp_ns)
                     .max()
                     .expect("invalid receipts should not be empty");
-                let signers = signers_trimmed(&self.escrow_accounts, self.sender).await?;
+                let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
                 sqlx::query!(
                     r#"
                         DELETE FROM scalar_tap_receipts
@@ -835,7 +835,6 @@ pub mod tests {
             },
         },
     };
-    use eventuals::Eventual;
     use futures::future::join_all;
     use indexer_common::{
         escrow_accounts::EscrowAccounts,
@@ -859,7 +858,7 @@ pub mod tests {
         state::Checking,
         ReceiptWithState,
     };
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, watch};
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockServer, Respond, ResponseTemplate,
@@ -942,12 +941,12 @@ pub mod tests {
             DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
         )));
 
-        let escrow_accounts_eventual = Eventual::from_value(EscrowAccounts::new(
+        let escrow_accounts_rx = watch::channel(Some(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ));
+        ))).1;
 
-        let escrow_adapter = EscrowAdapter::new(escrow_accounts_eventual.clone(), SENDER.1);
+        let escrow_adapter = EscrowAdapter::new(escrow_accounts_rx.clone(), SENDER.1);
 
         let sender_account_ref = match sender_account {
             Some(sender) => sender,
@@ -962,7 +961,7 @@ pub mod tests {
             pgpool: pgpool.clone(),
             allocation_id: *ALLOCATION_ID_0,
             sender: SENDER.1,
-            escrow_accounts: escrow_accounts_eventual,
+            escrow_accounts: escrow_accounts_rx,
             escrow_subgraph,
             escrow_adapter,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),

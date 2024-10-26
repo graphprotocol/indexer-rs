@@ -9,7 +9,6 @@ use crate::tap::checks::timestamp_check::TimestampCheck;
 use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::Address;
-use eventuals::Eventual;
 use receipt_store::{DatabaseReceipt, InnerContext};
 use sqlx::PgPool;
 use std::fmt::Debug;
@@ -40,7 +39,7 @@ impl IndexerTapContext {
     pub async fn get_checks(
         pgpool: PgPool,
         indexer_allocations: Receiver<HashMap<Address, Allocation>>,
-        escrow_accounts: Eventual<EscrowAccounts>,
+        escrow_accounts: Receiver<EscrowAccounts>,
         domain_separator: Eip712Domain,
         timestamp_error_tolerance: Duration,
         receipt_max_value: u128,

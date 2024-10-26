@@ -109,7 +109,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         escrow_subgraph,
         *indexer_address,
         Duration::from_millis(*escrow_syncing_interval_ms),
-        false,
+        false
     );
 
     let args = SenderAccountsManagerArgs {
