@@ -250,7 +250,7 @@ impl IndexerService {
         // allocation
         let attestation_signers = attestation_signers(
             allocations.clone(),
-            options.config.indexer.operator_mnemonic.to_string(),
+            options.config.indexer.operator_mnemonic.clone(),
             options.config.blockchain.chain_id.clone() as u64,
             dispute_manager,
         )
@@ -352,7 +352,7 @@ impl IndexerService {
         };
 
         let operator_address = Json(
-            serde_json::json!({ "publicKey": public_key(&options.config.indexer.operator_mnemonic.to_string())?}),
+            serde_json::json!({ "publicKey": public_key(options.config.indexer.operator_mnemonic)?}),
         );
 
         let mut misc_routes = Router::new()

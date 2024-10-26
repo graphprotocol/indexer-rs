@@ -8,6 +8,7 @@ use alloy::{
     primitives::U256,
     signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
 };
+use bip39::Mnemonic;
 use lazy_static::lazy_static;
 use tap_core::{
     receipt::{Receipt, SignedReceipt},
@@ -77,9 +78,9 @@ lazy_static! {
     pub static ref NETWORK_SUBGRAPH_DEPLOYMENT: DeploymentId = DeploymentId::from_str("QmU7zqJyHSyUP3yFii8sBtHT8FaJn2WmUnRvwjAUTjwMBP").unwrap();
     pub static ref ESCROW_SUBGRAPH_DEPLOYMENT: DeploymentId = DeploymentId::from_str("Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss").unwrap();
 
-    pub static ref INDEXER_OPERATOR_MNEMONIC: String = String::from(
+    pub static ref INDEXER_MNEMONIC: Mnemonic = Mnemonic::from_str(
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-    );
+    ).unwrap();
 
     pub static ref INDEXER_ADDRESS: Address =
         Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap();
