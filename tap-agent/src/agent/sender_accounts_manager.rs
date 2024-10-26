@@ -15,6 +15,7 @@ use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::prelude::{Allocation, SubgraphClient};
 use ractor::concurrency::JoinHandle;
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
+use reqwest::Url;
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
 use tokio::select;
@@ -23,8 +24,9 @@ use tracing::{error, warn};
 
 use prometheus::{register_counter_vec, CounterVec};
 
-use super::sender_account::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
-use crate::config;
+use super::sender_account::{
+    SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
+};
 
 lazy_static! {
     static ref RECEIPTS_CREATED: CounterVec = register_counter_vec!(
@@ -52,14 +54,14 @@ pub enum SenderAccountsManagerMessage {
 }
 
 pub struct SenderAccountsManagerArgs {
-    pub config: &'static config::Config,
+    pub config: &'static SenderAccountConfig,
     pub domain_separator: Eip712Domain,
 
     pub pgpool: PgPool,
     pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     pub escrow_accounts: Receiver<EscrowAccounts>,
     pub escrow_subgraph: &'static SubgraphClient,
-    pub sender_aggregator_endpoints: HashMap<Address, String>,
+    pub sender_aggregator_endpoints: HashMap<Address, Url>,
 
     pub prefix: Option<String>,
 }
@@ -69,13 +71,13 @@ pub struct State {
     new_receipts_watcher_handle: Option<tokio::task::JoinHandle<()>>,
     _eligible_allocations_senders_pipe: JoinHandle<()>,
 
-    config: &'static config::Config,
+    config: &'static SenderAccountConfig,
     domain_separator: Eip712Domain,
     pgpool: PgPool,
     indexer_allocations: Receiver<HashSet<Address>>,
     escrow_accounts: Receiver<EscrowAccounts>,
     escrow_subgraph: &'static SubgraphClient,
-    sender_aggregator_endpoints: HashMap<Address, String>,
+    sender_aggregator_endpoints: HashMap<Address, Url>,
     prefix: Option<String>,
 }
 
@@ -585,10 +587,9 @@ mod tests {
         SenderAccountsManagerMessage, State,
     };
     use crate::agent::sender_account::tests::{MockSenderAllocation, PREFIX_ID};
-    use crate::agent::sender_account::SenderAccountMessage;
+    use crate::agent::sender_account::{SenderAccountConfig, SenderAccountMessage};
     use crate::agent::sender_accounts_manager::{handle_notification, NewReceiptNotification};
     use crate::agent::sender_allocation::tests::MockSenderAccount;
-    use crate::config;
     use crate::tap::test_utils::{
         create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
         ALLOCATION_ID_1, INDEXER, SENDER, SENDER_2, SENDER_3, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
@@ -598,6 +599,7 @@ mod tests {
     use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
     use ractor::concurrency::JoinHandle;
     use ractor::{Actor, ActorProcessingErr, ActorRef};
+    use reqwest::Url;
     use ruint::aliases::U256;
     use sqlx::postgres::PgListener;
     use sqlx::PgPool;
@@ -615,18 +617,15 @@ mod tests {
         )))
     }
 
-    fn get_config() -> &'static config::Config {
-        Box::leak(Box::new(config::Config {
-            config: None,
-            ethereum: config::Ethereum {
-                indexer_address: INDEXER.1,
-            },
-            tap: config::Tap {
-                rav_request_trigger_value: 100,
-                rav_request_timestamp_buffer_ms: 1,
-                ..Default::default()
-            },
-            ..Default::default()
+    fn get_config() -> &'static super::SenderAccountConfig {
+        Box::leak(Box::new(SenderAccountConfig {
+            rav_request_buffer: Duration::from_millis(1),
+            max_amount_willing_to_lose_grt: 0,
+            trigger_value: 100,
+            rav_request_timeout: Duration::from_millis(1),
+            rav_request_receipt_limit: 1000,
+            indexer_address: INDEXER.1,
+            escrow_polling_interval: Duration::default(),
         }))
     }
 
@@ -657,8 +656,8 @@ mod tests {
             escrow_accounts: escrow_accounts_rx,
             escrow_subgraph,
             sender_aggregator_endpoints: HashMap::from([
-                (SENDER.1, String::from("http://localhost:8000")),
-                (SENDER_2.1, String::from("http://localhost:8000")),
+                (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
+                (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
             ]),
             prefix: Some(prefix.clone()),
         };
@@ -699,8 +698,8 @@ mod tests {
                 escrow_accounts: watch::channel(escrow_accounts).1,
                 escrow_subgraph: get_subgraph_client(),
                 sender_aggregator_endpoints: HashMap::from([
-                    (SENDER.1, String::from("http://localhost:8000")),
-                    (SENDER_2.1, String::from("http://localhost:8000")),
+                    (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
+                    (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
                 ]),
                 prefix: Some(prefix),
             },

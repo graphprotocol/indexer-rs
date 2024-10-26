@@ -10,6 +10,7 @@ use bigdecimal::ToPrimitive;
 use graphql_client::GraphQLQuery;
 use jsonrpsee::http_client::HttpClientBuilder;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
+use reqwest::Url;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::time::Duration;
@@ -27,14 +28,11 @@ use tracing::{error, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
 use crate::adaptative_concurrency::AdaptiveLimiter;
-use crate::agent::sender_allocation::SenderAllocationMessage;
+use crate::agent::sender_allocation::{AllocationConfig, SenderAllocationMessage};
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::backoff::BackoffInfo;
+use crate::tap::escrow_adapter::EscrowAdapter;
 use crate::tracker::{SenderFeeTracker, SimpleFeeTracker};
-use crate::{
-    config::{self},
-    tap::escrow_adapter::EscrowAdapter,
-};
 use lazy_static::lazy_static;
 
 lazy_static! {
@@ -119,14 +117,15 @@ pub enum SenderAccountMessage {
 pub struct SenderAccount;
 
 pub struct SenderAccountArgs {
-    pub config: &'static config::Config,
+    pub config: &'static SenderAccountConfig,
+
     pub pgpool: PgPool,
     pub sender_id: Address,
     pub escrow_accounts: Receiver<EscrowAccounts>,
     pub indexer_allocations: Receiver<HashSet<Address>>,
     pub escrow_subgraph: &'static SubgraphClient,
     pub domain_separator: Eip712Domain,
-    pub sender_aggregator_endpoint: String,
+    pub sender_aggregator_endpoint: Url,
     pub allocation_ids: HashSet<Address>,
     pub prefix: Option<String>,
 
@@ -158,12 +157,40 @@ pub struct State {
     escrow_subgraph: &'static SubgraphClient,
     escrow_adapter: EscrowAdapter,
     domain_separator: Eip712Domain,
-    config: &'static config::Config,
     pgpool: PgPool,
     sender_aggregator: jsonrpsee::http_client::HttpClient,
 
     // Backoff info
     backoff_info: BackoffInfo,
+
+    // Config
+    config: &'static SenderAccountConfig,
+}
+
+pub struct SenderAccountConfig {
+    pub rav_request_buffer: Duration,
+    pub max_amount_willing_to_lose_grt: u128,
+    pub trigger_value: u128,
+
+    // allocation config
+    pub rav_request_timeout: Duration,
+    pub rav_request_receipt_limit: u64,
+    pub indexer_address: Address,
+    pub escrow_polling_interval: Duration,
+}
+
+impl SenderAccountConfig {
+    pub fn from_config(config: &indexer_config::Config) -> Self {
+        Self {
+            rav_request_buffer: config.tap.rav_request.timestamp_buffer_secs,
+            rav_request_receipt_limit: config.tap.rav_request.max_receipts_per_request,
+            indexer_address: config.indexer.indexer_address,
+            escrow_polling_interval: config.subgraphs.escrow.config.syncing_interval_secs,
+            max_amount_willing_to_lose_grt: config.tap.max_amount_willing_to_lose_grt.get_value(),
+            trigger_value: config.tap.get_trigger_value(),
+            rav_request_timeout: config.tap.rav_request.request_timeout_secs,
+        }
+    }
 }
 
 impl State {
@@ -178,7 +205,6 @@ impl State {
             "SenderAccount is creating allocation."
         );
         let args = SenderAllocationArgs {
-            config: self.config,
             pgpool: self.pgpool.clone(),
             allocation_id,
             sender: self.sender,
@@ -188,6 +214,7 @@ impl State {
             domain_separator: self.domain_separator.clone(),
             sender_account_ref: sender_account_ref.clone(),
             sender_aggregator: self.sender_aggregator.clone(),
+            config: AllocationConfig::from_sender_config(self.config),
         };
 
         SenderAllocation::spawn_linked(
@@ -304,10 +331,10 @@ impl State {
         let unaggregated_fees = self.sender_fee_tracker.get_total_fee();
         let pending_fees_over_balance =
             U256::from(pending_ravs + unaggregated_fees) >= self.sender_balance;
-        let max_unaggregated_fees = self.config.tap.max_unnaggregated_fees_per_sender;
+        let max_amount_willing_to_lose = self.config.max_amount_willing_to_lose_grt;
         let invalid_receipt_fees = self.invalid_receipts_tracker.get_total_fee();
         let total_fee_over_max_value =
-            unaggregated_fees + invalid_receipt_fees >= max_unaggregated_fees;
+            unaggregated_fees + invalid_receipt_fees >= max_amount_willing_to_lose;
 
         tracing::trace!(
             %pending_fees_over_balance,
@@ -323,7 +350,7 @@ impl State {
         tracing::warn!(
             fee_tracker = self.sender_fee_tracker.get_total_fee(),
             rav_tracker = self.rav_tracker.get_total_fee(),
-            max_fee_per_sender = self.config.tap.max_unnaggregated_fees_per_sender,
+            max_amount_willing_to_lose = self.config.max_amount_willing_to_lose_grt,
             sender_balance = self.sender_balance.to_u128(),
             "Denying sender."
         );
@@ -340,7 +367,7 @@ impl State {
         tracing::info!(
             fee_tracker = self.sender_fee_tracker.get_total_fee(),
             rav_tracker = self.rav_tracker.get_total_fee(),
-            max_fee_per_sender = self.config.tap.max_unnaggregated_fees_per_sender,
+            max_amount_willing_to_lose = self.config.max_amount_willing_to_lose_grt,
             sender_balance = self.sender_balance.to_u128(),
             "Allowing sender."
         );
@@ -517,40 +544,38 @@ impl Actor for SenderAccount {
 
         MAX_FEE_PER_SENDER
             .with_label_values(&[&sender_id.to_string()])
-            .set(config.tap.max_unnaggregated_fees_per_sender as f64);
+            .set(config.max_amount_willing_to_lose_grt as f64);
 
         RAV_REQUEST_TRIGGER_VALUE
             .with_label_values(&[&sender_id.to_string()])
-            .set(config.tap.rav_request_trigger_value as f64);
+            .set(config.trigger_value as f64);
 
         let sender_aggregator = HttpClientBuilder::default()
-            .request_timeout(Duration::from_secs(config.tap.rav_request_timeout_secs))
+            .request_timeout(config.rav_request_timeout)
             .build(&sender_aggregator_endpoint)?;
 
         let state = State {
-            sender_fee_tracker: SenderFeeTracker::new(Duration::from_millis(
-                config.tap.rav_request_timestamp_buffer_ms,
-            )),
+            prefix,
+            sender_fee_tracker: SenderFeeTracker::new(config.rav_request_buffer),
             rav_tracker: SimpleFeeTracker::default(),
             invalid_receipts_tracker: SimpleFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
             _indexer_allocations_handle,
             _escrow_account_monitor,
-            prefix,
-            escrow_accounts,
-            escrow_subgraph,
-            escrow_adapter,
-            domain_separator,
-            sender_aggregator,
-            config,
-            pgpool,
+            scheduled_rav_request: None,
             sender: sender_id,
             denied,
             sender_balance,
             retry_interval,
-            scheduled_rav_request: None,
             adaptive_limiter: AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50),
+            escrow_accounts,
+            escrow_subgraph,
+            escrow_adapter,
+            domain_separator,
+            pgpool,
+            sender_aggregator,
             backoff_info: BackoffInfo::default(),
+            config,
         };
 
         for allocation_id in &allocation_ids {
@@ -661,21 +686,21 @@ impl Actor for SenderAccount {
                         .get_count_outside_buffer_for_allocation(&allocation_id);
                     let can_trigger_rav = state.sender_fee_tracker.can_trigger_rav(allocation_id);
                     let counter_greater_receipt_limit = total_counter_for_allocation
-                        >= state.config.tap.rav_request_receipt_limit
+                        >= state.config.rav_request_receipt_limit
                         && can_trigger_rav;
                     let rav_result = if !state.backoff_info.in_backoff()
-                        && total_fee_outside_buffer >= state.config.tap.rav_request_trigger_value
+                        && total_fee_outside_buffer >= state.config.trigger_value
                     {
                         tracing::debug!(
                             total_fee_outside_buffer,
-                            trigger_value = state.config.tap.rav_request_trigger_value,
+                            trigger_value = state.config.trigger_value,
                             "Total fee greater than the trigger value. Triggering RAV request"
                         );
                         state.rav_request_for_heaviest_allocation().await
                     } else if counter_greater_receipt_limit {
                         tracing::debug!(
                             total_counter_for_allocation,
-                            rav_request_receipt_limit = state.config.tap.rav_request_receipt_limit,
+                            rav_request_receipt_limit = state.config.rav_request_receipt_limit,
                             %allocation_id,
                             "Total counter greater than the receipt limit per rav. Triggering RAV request"
                         );
@@ -922,7 +947,6 @@ pub mod tests {
     use crate::agent::sender_accounts_manager::NewReceiptNotification;
     use crate::agent::sender_allocation::SenderAllocationMessage;
     use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-    use crate::config;
     use crate::tap::test_utils::{
         create_rav, store_rav_with_options, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER,
         SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
@@ -933,6 +957,7 @@ pub mod tests {
     use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
     use ractor::concurrency::JoinHandle;
     use ractor::{call, Actor, ActorProcessingErr, ActorRef, ActorStatus};
+    use reqwest::Url;
     use serde_json::json;
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
@@ -996,7 +1021,7 @@ pub mod tests {
         pgpool: PgPool,
         initial_allocation: HashSet<Address>,
         rav_request_trigger_value: u128,
-        max_unnaggregated_fees_per_sender: u128,
+        max_amount_willing_to_lose_grt: u128,
         escrow_subgraph_endpoint: &str,
         rav_request_receipt_limit: u64,
     ) -> (
@@ -1005,20 +1030,14 @@ pub mod tests {
         String,
         Sender<EscrowAccounts>,
     ) {
-        let config = Box::leak(Box::new(config::Config {
-            config: None,
-            ethereum: config::Ethereum {
-                indexer_address: INDEXER.1,
-            },
-            tap: config::Tap {
-                rav_request_trigger_value,
-                rav_request_timestamp_buffer_ms: BUFFER_MS,
-                rav_request_timeout_secs: 5,
-                max_unnaggregated_fees_per_sender,
-                rav_request_receipt_limit,
-                ..Default::default()
-            },
-            ..Default::default()
+        let config = Box::leak(Box::new(super::SenderAccountConfig {
+            rav_request_buffer: Duration::from_millis(BUFFER_MS),
+            max_amount_willing_to_lose_grt,
+            trigger_value: rav_request_trigger_value,
+            rav_request_timeout: Duration::default(),
+            rav_request_receipt_limit,
+            indexer_address: INDEXER.1,
+            escrow_polling_interval: Duration::default(),
         }));
 
         let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
@@ -1031,7 +1050,7 @@ pub mod tests {
         escrow_accounts_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ));
+        )).expect("Failed to update escrow_accounts channel");
 
         let prefix = format!(
             "test-{}",
@@ -1046,7 +1065,7 @@ pub mod tests {
             indexer_allocations: watch::channel(initial_allocation).1,
             escrow_subgraph,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            sender_aggregator_endpoint: DUMMY_URL.to_string(),
+            sender_aggregator_endpoint: Url::parse(DUMMY_URL).unwrap(),
             allocation_ids: HashSet::new(),
             prefix: Some(prefix.clone()),
             retry_interval: Duration::from_millis(10),
@@ -1878,7 +1897,7 @@ pub mod tests {
         escrow_accounts_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ));
+        )).unwrap();
 
         // wait the actor react to the messages
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1917,7 +1936,7 @@ pub mod tests {
         escrow_accounts_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE / 2))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ));
+        )).unwrap();
 
         tokio::time::sleep(Duration::from_millis(20)).await;
 
@@ -1928,7 +1947,7 @@ pub mod tests {
         escrow_accounts_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ));
+        )).unwrap();
 
         tokio::time::sleep(Duration::from_millis(10)).await;
 

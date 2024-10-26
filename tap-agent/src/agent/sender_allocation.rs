@@ -35,12 +35,13 @@ use crate::agent::sender_account::SenderAccountMessage;
 use crate::agent::sender_accounts_manager::NewReceiptNotification;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::{
-    config::{self},
     tap::context::{checks::Signature, TapAgentContext},
     tap::signers_trimmed,
     tap::{context::checks::AllocationId, escrow_adapter::EscrowAdapter},
 };
 use thiserror::Error;
+
+use super::sender_account::SenderAccountConfig;
 
 lazy_static! {
     static ref CLOSED_SENDER_ALLOCATIONS: CounterVec = register_counter_vec!(
@@ -100,16 +101,37 @@ pub struct SenderAllocationState {
     tap_manager: TapManager,
     allocation_id: Address,
     sender: Address,
-    config: &'static config::Config,
     escrow_accounts: Receiver<EscrowAccounts>,
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
 
     sender_aggregator: jsonrpsee::http_client::HttpClient,
+
+    //config
+    timestamp_buffer_ns: u64,
+    rav_request_receipt_limit: u64,
+}
+
+#[derive(Clone)]
+pub struct AllocationConfig {
+    pub timestamp_buffer_ns: u64,
+    pub rav_request_receipt_limit: u64,
+    pub indexer_address: Address,
+    pub escrow_polling_interval: Duration,
+}
+
+impl AllocationConfig {
+    pub fn from_sender_config(config: &SenderAccountConfig) -> Self {
+        Self {
+            timestamp_buffer_ns: config.rav_request_buffer.as_nanos() as u64,
+            rav_request_receipt_limit: config.rav_request_receipt_limit,
+            indexer_address: config.indexer_address,
+            escrow_polling_interval: config.escrow_polling_interval,
+        }
+    }
 }
 
 pub struct SenderAllocationArgs {
-    pub config: &'static config::Config,
     pub pgpool: PgPool,
     pub allocation_id: Address,
     pub sender: Address,
@@ -119,6 +141,9 @@ pub struct SenderAllocationArgs {
     pub domain_separator: Eip712Domain,
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
     pub sender_aggregator: jsonrpsee::http_client::HttpClient,
+
+    //config
+    pub config: AllocationConfig,
 }
 
 #[derive(Debug)]
@@ -298,7 +323,6 @@ impl Actor for SenderAllocation {
 impl SenderAllocationState {
     async fn new(
         SenderAllocationArgs {
-            config,
             pgpool,
             allocation_id,
             sender,
@@ -308,14 +332,16 @@ impl SenderAllocationState {
             domain_separator,
             sender_account_ref,
             sender_aggregator,
+            config,
         }: SenderAllocationArgs,
     ) -> anyhow::Result<Self> {
         let required_checks: Vec<Arc<dyn Check + Send + Sync>> = vec![
             Arc::new(AllocationId::new(
+                config.indexer_address,
+                config.escrow_polling_interval,
                 sender,
                 allocation_id,
                 escrow_subgraph,
-                config,
             )),
             Arc::new(Signature::new(
                 domain_separator.clone(),
@@ -341,14 +367,16 @@ impl SenderAllocationState {
             tap_manager,
             allocation_id,
             sender,
-            config,
             escrow_accounts,
             domain_separator,
+
             sender_account_ref: sender_account_ref.clone(),
             unaggregated_fees: UnaggregatedReceipts::default(),
             invalid_receipts_fees: UnaggregatedReceipts::default(),
             latest_rav,
             sender_aggregator,
+            rav_request_receipt_limit: config.rav_request_receipt_limit,
+            timestamp_buffer_ns: config.timestamp_buffer_ns,
         })
     }
 
@@ -493,8 +521,8 @@ impl SenderAllocationState {
         } = self
             .tap_manager
             .create_rav_request(
-                self.config.tap.rav_request_timestamp_buffer_ms * 1_000_000,
-                Some(self.config.tap.rav_request_receipt_limit),
+                self.timestamp_buffer_ns,
+                Some(self.rav_request_receipt_limit),
             )
             .await?;
         match (
@@ -825,7 +853,6 @@ pub mod tests {
             sender_accounts_manager::NewReceiptNotification,
             unaggregated_receipts::UnaggregatedReceipts,
         },
-        config,
         tap::{
             escrow_adapter::EscrowAdapter,
             test_utils::{
@@ -850,7 +877,7 @@ pub mod tests {
     use std::{
         collections::HashMap,
         sync::Arc,
-        time::{SystemTime, UNIX_EPOCH},
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
     use tap_aggregator::{jsonrpsee_helpers::JsonRpcResponse, server::run_server};
     use tap_core::receipt::{
@@ -920,21 +947,6 @@ pub mod tests {
         escrow_subgraph_endpoint: &str,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
     ) -> SenderAllocationArgs {
-        let config = Box::leak(Box::new(config::Config {
-            config: None,
-            ethereum: config::Ethereum {
-                indexer_address: INDEXER.1,
-            },
-            tap: config::Tap {
-                rav_request_trigger_value: 100,
-                rav_request_timestamp_buffer_ms: 1,
-                rav_request_timeout_secs: 5,
-                rav_request_receipt_limit: 1000,
-                ..Default::default()
-            },
-            ..Default::default()
-        }));
-
         let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
             reqwest::Client::new(),
             None,
@@ -957,7 +969,6 @@ pub mod tests {
             .build(&sender_aggregator_endpoint)
             .unwrap();
         SenderAllocationArgs {
-            config,
             pgpool: pgpool.clone(),
             allocation_id: *ALLOCATION_ID_0,
             sender: SENDER.1,
@@ -967,6 +978,12 @@ pub mod tests {
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             sender_account_ref,
             sender_aggregator,
+            config: super::AllocationConfig {
+                timestamp_buffer_ns: 1,
+                rav_request_receipt_limit: 1000,
+                indexer_address: INDEXER.1,
+                escrow_polling_interval: Duration::from_millis(1000),
+            },
         }
     }
 

@@ -9,7 +9,7 @@ serde.workspace = true
 thegraph-core.workspace = true
 tracing.workspace = true
 bigdecimal = { workspace = true, features = ["serde"] }
-bip39 = "2.0.0"
+bip39 = { version = "2.0.0", features = ["rand"] }
 figment = { version = "0.10.19", features = ["env", "toml"] }
 serde_with = { version = "3.8.1", default-features = false }
 serde_repr = "0.1.19"
