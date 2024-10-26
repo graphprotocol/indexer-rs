@@ -6,10 +6,8 @@ use std::time::Duration;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tracing::debug;
 
-use crate::config;
-
-pub async fn connect(config: &config::Postgres) -> PgPool {
-    let url = &config.postgres_url;
+pub async fn connect(config: indexer_config::DatabaseConfig) -> PgPool {
+    let url = &config.get_formated_postgres_url();
     debug!(
         postgres_host = tracing::field::debug(&url.host()),
         postgres_port = tracing::field::debug(&url.port()),

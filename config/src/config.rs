@@ -215,7 +215,7 @@ pub struct IndexerConfig {
     pub operator_mnemonic: Mnemonic,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
@@ -312,7 +312,7 @@ pub struct SubgraphConfig {
     pub syncing_interval_secs: Duration,
 }
 
-#[derive(Debug, Deserialize_repr, Clone)]
+#[derive(Debug, Deserialize_repr, Clone, Copy)]
 #[cfg_attr(test, derive(PartialEq))]
 #[repr(u64)]
 pub enum TheGraphChainId {

@@ -16,9 +16,7 @@ async fn main() -> Result<()> {
     let (manager, handler) = agent::start_agent().await;
     info!("TAP Agent started.");
 
-    tokio::spawn(metrics::run_server(
-        CONFIG.indexer_infrastructure.metrics_port,
-    ));
+    tokio::spawn(metrics::run_server(CONFIG.metrics.port));
     info!("Metrics port opened");
 
     // Have tokio wait for SIGTERM or SIGINT.
