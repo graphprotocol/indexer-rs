@@ -82,8 +82,8 @@ where
 {
     #[error("Issues with provided receipt: {0}")]
     ReceiptError(tap_core::Error),
-    #[error("Service is not ready yet, try again in a moment")]
-    ServiceNotReady,
+    // #[error("Service is not ready yet, try again in a moment")]
+    // ServiceNotReady,
     #[error("No attestation signer found for allocation `{0}`")]
     NoSignerForAllocation(Address),
     #[error("Invalid request body: {0}")]
@@ -119,8 +119,7 @@ where
         }
 
         let status = match self {
-            ServiceNotReady => StatusCode::SERVICE_UNAVAILABLE,
-
+            //ServiceNotReady => StatusCode::SERVICE_UNAVAILABLE,
             Unauthorized => StatusCode::UNAUTHORIZED,
 
             NoSignerForAllocation(_) | FailedToSignAttestation => StatusCode::INTERNAL_SERVER_ERROR,

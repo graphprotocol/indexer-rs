@@ -6,7 +6,6 @@ use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::Address;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
-use tokio::sync::watch::Receiver;
 use std::collections::HashSet;
 use std::sync::RwLock;
 use std::{str::FromStr, sync::Arc};
@@ -16,6 +15,7 @@ use tap_core::receipt::{
     state::Checking,
     ReceiptWithState,
 };
+use tokio::sync::watch::Receiver;
 use tracing::error;
 
 pub struct DenyListCheck {
@@ -160,7 +160,7 @@ impl Check for DenyListCheck {
             })
             .map_err(CheckError::Failed)?;
         let escrow_accounts_snapshot = self.escrow_accounts.borrow();
-        
+
         let receipt_sender = escrow_accounts_snapshot
             .get_sender_for_signer(&receipt_signer)
             .map_err(|e| CheckError::Failed(e.into()))?;
@@ -209,7 +209,8 @@ mod tests {
         let escrow_accounts_rx = watch::channel(EscrowAccounts::new(
             test_vectors::ESCROW_ACCOUNTS_BALANCES.to_owned(),
             test_vectors::ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
-        )).1;
+        ))
+        .1;
 
         DenyListCheck::new(
             pgpool,

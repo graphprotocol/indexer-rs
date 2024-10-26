@@ -205,8 +205,8 @@ mod test {
     use indexer_common::escrow_accounts::EscrowAccounts;
     use lazy_static::lazy_static;
     use sqlx::PgPool;
-    use tokio::sync::watch::{self, Receiver};
     use std::collections::HashMap;
+    use tokio::sync::watch::{self, Receiver};
 
     lazy_static! {
         pub static ref SENDER_IRRELEVANT: (PrivateKeySigner, Address) = wallet(1);
@@ -221,7 +221,8 @@ mod test {
         let escrow_accounts = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        )).1;
+        ))
+        .1;
 
         let storage_adapter = TapAgentContext::new(
             pgpool,
@@ -436,7 +437,8 @@ mod test {
         let escrow_accounts = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        )).1;
+        ))
+        .1;
 
         let storage_adapter = TapAgentContext::new(
             pgpool.clone(),
@@ -501,10 +503,11 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn retrieve_receipts_in_timestamp_range(pgpool: PgPool) {
-        let escrow_accounts =watch::channel(EscrowAccounts::new(
+        let escrow_accounts = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        )).1;
+        ))
+        .1;
 
         let storage_adapter = TapAgentContext::new(
             pgpool.clone(),
@@ -629,10 +632,11 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn remove_receipts_in_timestamp_range(pgpool: PgPool) {
-        let escrow_accounts =watch::channel(EscrowAccounts::new(
+        let escrow_accounts = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        )).1;
+        ))
+        .1;
 
         let storage_adapter = TapAgentContext::new(
             pgpool,

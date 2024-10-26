@@ -126,8 +126,8 @@ impl Actor for SenderAccountsManager {
             );
         let myself_clone = myself.clone();
         let mut accounts_clone = escrow_accounts.clone();
-        let _eligible_allocations_senders_pipe = tokio::spawn(async move{
-            while accounts_clone.changed().await.is_ok(){
+        let _eligible_allocations_senders_pipe = tokio::spawn(async move {
+            while accounts_clone.changed().await.is_ok() {
                 myself_clone
                     .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
                         accounts_clone.borrow().get_senders(),
@@ -341,9 +341,6 @@ impl State {
     }
 
     async fn get_pending_sender_allocation_id(&self) -> HashMap<Address, HashSet<Address>> {
-        //change cloning
-        let escrow_accounts_snapshot = self.escrow_accounts.borrow().clone();
-
         // Gather all outstanding receipts and unfinalized RAVs from the database.
         // Used to create SenderAccount instances for all senders that have unfinalized allocations
         // and try to finalize them if they have become ineligible.
@@ -389,7 +386,9 @@ impl State {
                 .collect::<HashSet<Address>>();
             let signer_id = Address::from_str(&row.signer_address)
                 .expect("signer_address should be a valid address");
-            let sender_id = escrow_accounts_snapshot
+            let sender_id = self
+                .escrow_accounts
+                .borrow()
                 .get_sender_for_signer(&signer_id)
                 .expect("should be able to get sender from signer");
 
@@ -450,8 +449,7 @@ impl State {
             config: self.config,
             pgpool: self.pgpool.clone(),
             sender_id: *sender_id,
-            // change self.escrow_accounts.clone()
-            escrow_accounts: watch::channel(EscrowAccounts::default()).1,
+            escrow_accounts: self.escrow_accounts.clone(),
             indexer_allocations: self.indexer_allocations.clone(),
             escrow_subgraph: self.escrow_subgraph,
             domain_separator: self.domain_separator.clone(),
@@ -640,8 +638,7 @@ mod tests {
         let (_allocations_tx, allocations_rx) = watch::channel(HashMap::new());
         let escrow_subgraph = get_subgraph_client();
 
-        let (_, escrow_accounts_rx) =
-            watch::channel(EscrowAccounts::default());
+        let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
         //change escrow_accounts_tx.write(EscrowAccounts::default());
 
         let prefix = format!(
@@ -692,7 +689,7 @@ mod tests {
                 domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
                 sender_ids: HashSet::new(),
                 new_receipts_watcher_handle: None,
-                _eligible_allocations_senders_pipe: tokio::spawn(async move{}),
+                _eligible_allocations_senders_pipe: tokio::spawn(async move {}),
                 pgpool,
                 indexer_allocations: watch::channel(HashSet::new()).1,
                 escrow_accounts: watch::channel(escrow_accounts).1,
@@ -891,7 +888,8 @@ mod tests {
         let escrow_accounts_rx = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        )).1;
+        ))
+        .1;
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         let new_receipts_watcher_handle = tokio::spawn(new_receipts_watcher(

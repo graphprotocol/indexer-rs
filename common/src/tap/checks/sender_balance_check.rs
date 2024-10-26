@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-
 use crate::escrow_accounts::EscrowAccounts;
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::U256;

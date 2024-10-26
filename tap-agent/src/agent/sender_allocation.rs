@@ -956,7 +956,8 @@ pub mod tests {
         let escrow_accounts_rx = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        )).1;
+        ))
+        .1;
 
         let escrow_adapter = EscrowAdapter::new(escrow_accounts_rx.clone(), SENDER.1);
 

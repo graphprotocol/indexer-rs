@@ -56,7 +56,7 @@ pub async fn request_handler<I>(
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
-    _request_handler(manifest_id, typed_header, state, headers, body, ).await
+    _request_handler(manifest_id, typed_header, state, headers, body).await
 }
 
 async fn _request_handler<I>(

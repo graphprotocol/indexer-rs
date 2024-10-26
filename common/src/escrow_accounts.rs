@@ -11,7 +11,10 @@ use alloy::primitives::{Address, U256};
 use anyhow::{anyhow, Result};
 use graphql_client::GraphQLQuery;
 use thiserror::Error;
-use tokio::{sync::watch::{self, Receiver}, time::{self, sleep}};
+use tokio::{
+    sync::watch::{self, Receiver},
+    time::{self, sleep},
+};
 use tracing::{error, warn};
 
 use crate::prelude::SubgraphClient;
@@ -110,12 +113,12 @@ pub fn escrow_accounts(
         time_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
         loop {
             time_interval.tick().await;
-            let result = get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers)
-                .await;
-            match result{
+            let result =
+                get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers).await;
+            match result {
                 Ok(accounts) => tx
-                .send(accounts)
-                .expect("Failed to update escrow_accounts channel"),
+                    .send(accounts)
+                    .expect("Failed to update escrow_accounts channel"),
                 Err(err) => {
                     error!(
                         "Failed to fetch escrow accounts for indexer {:?}: {}",
@@ -123,7 +126,7 @@ pub fn escrow_accounts(
                     );
                     // Sleep for a bit before we retry
                     sleep(interval.div_f32(2.0)).await;
-                },
+                }
             }
         }
     });

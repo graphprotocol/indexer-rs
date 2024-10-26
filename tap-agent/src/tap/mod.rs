@@ -13,7 +13,7 @@ pub mod escrow_adapter;
 pub mod test_utils;
 
 pub async fn signers_trimmed(
-    escrow_accounts: Receiver<EscrowAccounts> ,
+    escrow_accounts: Receiver<EscrowAccounts>,
     sender: Address,
 ) -> Result<Vec<String>, anyhow::Error> {
     let escrow_accounts = escrow_accounts.borrow();
