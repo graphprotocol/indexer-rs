@@ -93,14 +93,17 @@ async fn modify_sigers(
         if !signers.contains_key(id) {
             let signer =
                 AttestationSigner::new(&indexer_mnemonic, allocation, chain_id, dispute_manager);
-            if let Err(e) = signer {
-                warn!(
-                    "Failed to establish signer for allocation {}, deployment {}, createdAtEpoch {}: {}",
-                    allocation.id, allocation.subgraph_deployment.id,
-                    allocation.created_at_epoch, e
-                );
-            } else {
-                signers.insert(*id, signer.unwrap());
+            match signer {
+                Ok(signer) => {
+                    signers.insert(*id, signer);
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to establish signer for allocation {}, deployment {}, createdAtEpoch {}: {}",
+                        allocation.id, allocation.subgraph_deployment.id,
+                        allocation.created_at_epoch, e
+                    );
+                }
             }
         }
     }
