@@ -249,7 +249,7 @@ mod tests {
             Duration::from_secs(60),
             true,
         );
-        accounts.changed().await;
+        accounts.changed().await.unwrap();
         assert_eq!(
             accounts.borrow().clone(),
             EscrowAccounts::new(

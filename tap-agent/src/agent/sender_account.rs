@@ -416,9 +416,7 @@ impl Actor for SenderAccount {
         let mut accounts_clone = escrow_accounts.clone();
         let _escrow_account_monitor = tokio::spawn(async move{
             while accounts_clone.changed().await.is_ok(){
-                // change let accounts_ref = escrow_accounts.borrow();
-                // let escrow_account = accounts_ref.as_ref().unwrap();
-                let escrow_account = accounts_clone.borrow().clone().unwrap();
+                let escrow_account = accounts_clone.borrow().clone();
                 let myself = myself_clone.clone();
                 let pgpool = pgpool_clone.clone();
                 // Get balance or default value for sender
@@ -1005,7 +1003,7 @@ pub mod tests {
         ActorRef<SenderAccountMessage>,
         tokio::task::JoinHandle<()>,
         String,
-        Sender<Option<EscrowAccounts>>,
+        Sender<EscrowAccounts>,
     ) {
         let config = Box::leak(Box::new(config::Config {
             config: None,
@@ -1028,12 +1026,12 @@ pub mod tests {
             None,
             DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
         )));
-        let ( escrow_accounts_tx, escrow_accounts_rx) = watch::channel(None);
+        let ( escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
 
-        escrow_accounts_tx.send(Some(EscrowAccounts::new(
+        escrow_accounts_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        )));
+        ));
 
         let prefix = format!(
             "test-{}",
@@ -1877,10 +1875,10 @@ pub mod tests {
             )
             .await;
         // escrow_account updated
-        escrow_accounts_tx.send(Some(EscrowAccounts::new(
+        escrow_accounts_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        )));
+        ));
 
         // wait the actor react to the messages
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1916,10 +1914,10 @@ pub mod tests {
         assert!(!deny, "should start unblocked");
 
         // update the escrow to a lower value
-        escrow_accounts_tx.send(Some(EscrowAccounts::new(
+        escrow_accounts_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE / 2))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        )));
+        ));
 
         tokio::time::sleep(Duration::from_millis(20)).await;
 
@@ -1927,10 +1925,10 @@ pub mod tests {
         assert!(deny, "should block the sender");
 
         // simulate deposit
-        escrow_accounts_tx.send(Some(EscrowAccounts::new(
+        escrow_accounts_tx.send(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        )));
+        ));
 
         tokio::time::sleep(Duration::from_millis(10)).await;
 

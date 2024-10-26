@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use alloy::primitives::Address;
 use anyhow::anyhow;
+use eventuals::{Eventual, EventualExt};
 use graphql_client::GraphQLQuery;
 use indexer_common::subgraph_client::SubgraphClient;
 use tap_core::receipt::{

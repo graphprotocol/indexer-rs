@@ -13,6 +13,7 @@ use anyhow::Result;
 use anyhow::{anyhow, bail};
 use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::prelude::{Allocation, SubgraphClient};
+use ractor::concurrency::JoinHandle;
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
@@ -66,7 +67,7 @@ pub struct SenderAccountsManagerArgs {
 pub struct State {
     sender_ids: HashSet<Address>,
     new_receipts_watcher_handle: Option<tokio::task::JoinHandle<()>>,
-    _eligible_allocations_senders_pipe: PipeHandle,
+    _eligible_allocations_senders_pipe: JoinHandle<()>,
 
     config: &'static config::Config,
     domain_separator: Eip712Domain,
@@ -121,21 +122,19 @@ impl Actor for SenderAccountsManager {
                 "should be able to subscribe to Postgres Notify events on the channel \
                 'scalar_tap_receipt_notification'",
             );
-        let clone = myself.clone();
-        let _eligible_allocations_senders_pipe =
-            escrow_accounts.clone().pipe_async(move |escrow_accounts| {
-                let myself = clone.clone();
-
-                async move {
-                    myself
-                        .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
-                            escrow_accounts.get_senders(),
-                        ))
-                        .unwrap_or_else(|e| {
-                            error!("Error while updating sender_accounts: {:?}", e);
-                        });
-                }
-            });
+        let myself_clone = myself.clone();
+        let mut accounts_clone = escrow_accounts.clone();
+        let _eligible_allocations_senders_pipe = tokio::spawn(async move{
+            while accounts_clone.changed().await.is_ok(){
+                myself_clone
+                    .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
+                        accounts_clone.borrow().get_senders(),
+                    ))
+                    .unwrap_or_else(|e| {
+                        error!("Error while updating sender_accounts: {:?}", e);
+                    });
+            }
+        });
 
         let mut state = State {
             config,
@@ -340,7 +339,8 @@ impl State {
     }
 
     async fn get_pending_sender_allocation_id(&self) -> HashMap<Address, HashSet<Address>> {
-        let escrow_accounts_snapshot = self.escrow_accounts.borrow();
+        //change cloning
+        let escrow_accounts_snapshot = self.escrow_accounts.borrow().clone();
 
         // Gather all outstanding receipts and unfinalized RAVs from the database.
         // Used to create SenderAccount instances for all senders that have unfinalized allocations
@@ -448,7 +448,8 @@ impl State {
             config: self.config,
             pgpool: self.pgpool.clone(),
             sender_id: *sender_id,
-            escrow_accounts: self.escrow_accounts.clone(),
+            // change self.escrow_accounts.clone()
+            escrow_accounts: watch::channel(EscrowAccounts::default()).1,
             indexer_allocations: self.indexer_allocations.clone(),
             escrow_subgraph: self.escrow_subgraph,
             domain_separator: self.domain_separator.clone(),
@@ -471,7 +472,7 @@ impl State {
 /// corresponding SenderAccount.
 async fn new_receipts_watcher(
     mut pglistener: PgListener,
-    escrow_accounts: Receiver<EscrowAccounts>,
+    escrow_accounts_rx: Receiver<EscrowAccounts>,
     prefix: Option<String>,
 ) {
     loop {
@@ -487,7 +488,7 @@ async fn new_receipts_watcher(
             );
         if let Err(e) = handle_notification(
             new_receipt_notification,
-            &escrow_accounts,
+            escrow_accounts_rx.clone(),
             prefix.as_deref(),
         )
         .await
@@ -499,7 +500,7 @@ async fn new_receipts_watcher(
 
 async fn handle_notification(
     new_receipt_notification: NewReceiptNotification,
-    escrow_accounts: Receiver<EscrowAccounts>,
+    escrow_accounts_rx: Receiver<EscrowAccounts>,
     prefix: Option<&str>,
 ) -> Result<()> {
     tracing::trace!(
@@ -507,10 +508,8 @@ async fn handle_notification(
         "New receipt notification detected!"
     );
 
-    let Ok(sender_address) = escrow_accounts
-        .value()
-        .await
-        .expect("should be able to get escrow accounts")
+    let Ok(sender_address) = escrow_accounts_rx
+        .borrow()
         .get_sender_for_signer(&new_receipt_notification.signer_address)
     else {
         // TODO: save the receipt in the failed receipts table?
@@ -642,9 +641,9 @@ mod tests {
         let (_allocations_tx, allocations_rx) = watch::channel(HashMap::new());
         let escrow_subgraph = get_subgraph_client();
 
-        let (mut escrow_accounts_tx, escrow_accounts_rx) =
+        let (_, escrow_accounts_rx) =
             watch::channel(EscrowAccounts::default());
-        // change escrow_accounts_tx.write(EscrowAccounts::default());
+        //change escrow_accounts_tx.write(EscrowAccounts::default());
 
         let prefix = format!(
             "test-{}",
@@ -694,11 +693,10 @@ mod tests {
                 domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
                 sender_ids: HashSet::new(),
                 new_receipts_watcher_handle: None,
-                _eligible_allocations_senders_pipe: Eventual::from_value(())
-                    .pipe_async(|_| async {}),
+                _eligible_allocations_senders_pipe: tokio::spawn(async move{}),
                 pgpool,
                 indexer_allocations: watch::channel(HashSet::new()).1,
-                escrow_accounts: Eventual::from_value(escrow_accounts),
+                escrow_accounts: watch::channel(escrow_accounts).1,
                 escrow_subgraph: get_subgraph_client(),
                 sender_aggregator_endpoints: HashMap::from([
                     (SENDER.1, String::from("http://localhost:8000")),
@@ -891,10 +889,10 @@ mod tests {
                 'scalar_tap_receipt_notification'",
             );
 
-        let escrow_accounts_rx = Eventual::from_value(EscrowAccounts::new(
+        let escrow_accounts_rx = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ));
+        )).1;
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         let new_receipts_watcher_handle = tokio::spawn(new_receipts_watcher(
@@ -927,7 +925,7 @@ mod tests {
     async fn test_create_allocation_id() {
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
         let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
-        let escrow_accounts = Eventual::from_value(escrow_accounts);
+        let escrow_accounts = watch::channel(escrow_accounts).1;
 
         let prefix = format!(
             "test-{}",
@@ -954,7 +952,7 @@ mod tests {
             value: 1,
         };
 
-        handle_notification(new_receipt_notification, &escrow_accounts, Some(&prefix))
+        handle_notification(new_receipt_notification, escrow_accounts, Some(&prefix))
             .await
             .unwrap();
 

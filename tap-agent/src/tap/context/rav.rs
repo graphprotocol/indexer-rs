@@ -128,7 +128,7 @@ impl RAVStore for TapAgentContext {
 
 #[cfg(test)]
 mod test {
-    use eventuals::Eventual;
+    use indexer_common::escrow_accounts::EscrowAccounts;
     use sqlx::PgPool;
     use tokio::sync::watch;
 
@@ -158,7 +158,7 @@ mod test {
             pool.clone(),
             *ALLOCATION_ID_0,
             SENDER.1,
-            watch::channel(None).1,
+            watch::channel(EscrowAccounts::default()).1,
             EscrowAdapter::mock(),
         );
 

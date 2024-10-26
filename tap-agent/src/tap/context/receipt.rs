@@ -218,10 +218,10 @@ mod test {
     /// The point here it to test the deserialization of large numbers.
     #[sqlx::test(migrations = "../migrations")]
     async fn insert_and_retrieve_single_receipt(pgpool: PgPool) {
-        let escrow_accounts = watch::channel(Some(EscrowAccounts::new(
+        let escrow_accounts = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ))).1;
+        )).1;
 
         let storage_adapter = TapAgentContext::new(
             pgpool,
@@ -260,7 +260,7 @@ mod test {
         received_receipt_vec: &[ReceiptWithState<Checking>],
         range: R,
     ) -> Result<()> {
-        let escrow_accounts_snapshot = self.escrow_accounts.borrow();
+        let escrow_accounts_snapshot = escrow_accounts.borrow();
 
         // Filtering the received receipts by timestamp range
         let received_receipt_vec: Vec<ReceiptWithState<Checking>> = received_receipt_vec
@@ -310,7 +310,7 @@ mod test {
         received_receipt_vec: &[ReceiptWithState<Checking>],
         range: R,
     ) -> Result<()> {
-        let escrow_accounts_snapshot = self.escrow_accounts.borrow();
+        let escrow_accounts_snapshot = escrow_accounts.borrow();
 
         // Storing the receipts
         let mut received_receipt_id_vec = Vec::new();
@@ -433,10 +433,10 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn retrieve_receipts_with_limit(pgpool: PgPool) {
-        let escrow_accounts = watch::channel(Some(EscrowAccounts::new(
+        let escrow_accounts = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ))).1;
+        )).1;
 
         let storage_adapter = TapAgentContext::new(
             pgpool.clone(),
@@ -501,10 +501,10 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn retrieve_receipts_in_timestamp_range(pgpool: PgPool) {
-        let escrow_accounts =watch::channel(Some(EscrowAccounts::new(
+        let escrow_accounts =watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ))).1;
+        )).1;
 
         let storage_adapter = TapAgentContext::new(
             pgpool.clone(),
@@ -629,10 +629,10 @@ mod test {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn remove_receipts_in_timestamp_range(pgpool: PgPool) {
-        let escrow_accounts =watch::channel(Some(EscrowAccounts::new(
+        let escrow_accounts =watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ))).1;
+        )).1;
 
         let storage_adapter = TapAgentContext::new(
             pgpool,
