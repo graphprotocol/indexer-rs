@@ -65,8 +65,8 @@ pub struct SubgraphServiceState {
     pub database: PgPool,
     pub cost_schema: routes::cost::CostSchema,
     pub graph_node_client: reqwest::Client,
-    pub graph_node_status_url: String,
-    pub graph_node_query_base_url: String,
+    pub graph_node_status_url: Url,
+    pub graph_node_query_base_url: Url,
 }
 
 struct SubgraphService {
@@ -91,8 +91,9 @@ impl IndexerServiceImpl for SubgraphService {
         deployment: DeploymentId,
         request: Self::Request,
     ) -> Result<(Self::Request, Self::Response), Self::Error> {
-        let deployment_url = Url::parse(&self.state.graph_node_query_base_url)
-            .expect("Invalid `graph_node.query_url` in config")
+        let deployment_url = self
+            .state
+            .graph_node_query_base_url
             .join(&format!("subgraphs/id/{deployment}"))
             .map_err(|_| SubgraphServiceError::InvalidDeployment(deployment))?;
 
@@ -157,8 +158,8 @@ pub async fn run() -> anyhow::Result<()> {
             .timeout(Duration::from_secs(30))
             .build()
             .expect("Failed to init HTTP client for Graph Node"),
-        graph_node_status_url: config.graph_node.status_url.clone().to_string(),
-        graph_node_query_base_url: config.graph_node.query_url.clone().to_string(),
+        graph_node_status_url: config.graph_node.status_url.clone(),
+        graph_node_query_base_url: config.graph_node.query_url.clone(),
     });
 
     IndexerService::run(IndexerServiceOptions {
