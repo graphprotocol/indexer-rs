@@ -233,23 +233,17 @@ impl IndexerService {
         let allocations = indexer_allocations(
             network_subgraph,
             options.config.indexer.indexer_address,
-            Duration::from_secs(
-                options
-                    .config
-                    .subgraphs
-                    .network
-                    .config
-                    .syncing_interval_secs
-                    .as_secs(),
-            ),
-            Duration::from_secs(
-                options
-                    .config
-                    .subgraphs
-                    .network
-                    .recently_closed_allocation_buffer_secs
-                    .as_secs(),
-            ),
+            options
+                .config
+                .subgraphs
+                .network
+                .config
+                .syncing_interval_secs,
+            options
+                .config
+                .subgraphs
+                .network
+                .recently_closed_allocation_buffer_secs,
         );
 
         // Maintain an up-to-date set of attestation signers, one for each
@@ -285,15 +279,7 @@ impl IndexerService {
         let escrow_accounts = escrow_accounts(
             escrow_subgraph,
             options.config.indexer.indexer_address,
-            Duration::from_secs(
-                options
-                    .config
-                    .subgraphs
-                    .escrow
-                    .config
-                    .syncing_interval_secs
-                    .as_secs(),
-            ),
+            options.config.subgraphs.escrow.config.syncing_interval_secs,
             true, // Reject thawing signers eagerly
         );
 
@@ -323,14 +309,7 @@ impl IndexerService {
         );
         let indexer_context =
             IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
-        let timestamp_error_tolerance = Duration::from_secs(
-            options
-                .config
-                .tap
-                .rav_request
-                .timestamp_buffer_secs
-                .as_secs(),
-        );
+        let timestamp_error_tolerance = options.config.tap.rav_request.timestamp_buffer_secs;
 
         let receipt_max_value = options.config.service.tap.max_receipt_value_grt.get_value();
 
