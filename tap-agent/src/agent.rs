@@ -118,7 +118,8 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         *indexer_address,
         *escrow_sync_interval,
         false,
-    );
+    )
+    .await;
 
     let config = Box::leak(Box::new(SenderAccountConfig::from_config(&CONFIG)));
 

@@ -276,7 +276,8 @@ impl IndexerService {
             options.config.indexer.indexer_address,
             Duration::from_secs(options.config.escrow_subgraph.syncing_interval),
             true, // Reject thawing signers eagerly
-        );
+        )
+        .await;
 
         // Establish Database connection necessary for serving indexer management
         // requests with defined schema

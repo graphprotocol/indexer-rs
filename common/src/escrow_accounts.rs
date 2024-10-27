@@ -101,13 +101,17 @@ type BigInt = String;
 )]
 pub struct EscrowAccountQuery;
 
-pub fn escrow_accounts(
+pub async fn escrow_accounts(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     interval: Duration,
     reject_thawing_signers: bool,
 ) -> Receiver<EscrowAccounts> {
-    let (tx, rx) = watch::channel(EscrowAccounts::default());
+    let initial_accounts =
+        get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers)
+            .await
+            .expect("Failed to create escrow_accounts channel");
+    let (tx, rx) = watch::channel(initial_accounts);
     tokio::spawn(async move {
         let mut time_interval = time::interval(interval);
         time_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
@@ -251,7 +255,8 @@ mod tests {
             *test_vectors::INDEXER_ADDRESS,
             Duration::from_secs(60),
             true,
-        );
+        )
+        .await;
         accounts.changed().await.unwrap();
         assert_eq!(
             accounts.borrow().clone(),
