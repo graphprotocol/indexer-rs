@@ -1,6 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use bip39::Mnemonic;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thegraph_core::{Address, ChainId};
@@ -18,12 +19,13 @@ use crate::prelude::{Allocation, AttestationSigner};
 /// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
 pub async fn attestation_signers(
     mut indexer_allocations_rx: Receiver<HashMap<Address, Allocation>>,
-    indexer_mnemonic: String,
+    indexer_mnemonic: Mnemonic,
     chain_id: ChainId,
     mut dispute_manager_rx: Receiver<Option<Address>>,
 ) -> Receiver<HashMap<Address, AttestationSigner>> {
     let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
         Box::leak(Box::new(Mutex::new(HashMap::new())));
+    let indexer_mnemonic = indexer_mnemonic.to_string();
 
     let starter_signers_map = modify_sigers(
         Arc::new(indexer_mnemonic.clone()),
@@ -91,14 +93,17 @@ async fn modify_sigers(
         if !signers.contains_key(id) {
             let signer =
                 AttestationSigner::new(&indexer_mnemonic, allocation, chain_id, dispute_manager);
-            if let Err(e) = signer {
-                warn!(
-                    "Failed to establish signer for allocation {}, deployment {}, createdAtEpoch {}: {}",
-                    allocation.id, allocation.subgraph_deployment.id,
-                    allocation.created_at_epoch, e
-                );
-            } else {
-                signers.insert(*id, signer.unwrap());
+            match signer {
+                Ok(signer) => {
+                    signers.insert(*id, signer);
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to establish signer for allocation {}, deployment {}, createdAtEpoch {}: {}",
+                        allocation.id, allocation.subgraph_deployment.id,
+                        allocation.created_at_epoch, e
+                    );
+                }
             }
         }
     }
@@ -108,9 +113,7 @@ async fn modify_sigers(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_vectors::{
-        DISPUTE_MANAGER_ADDRESS, INDEXER_ALLOCATIONS, INDEXER_OPERATOR_MNEMONIC,
-    };
+    use crate::test_vectors::{DISPUTE_MANAGER_ADDRESS, INDEXER_ALLOCATIONS, INDEXER_MNEMONIC};
 
     use super::*;
 
@@ -123,7 +126,7 @@ mod tests {
             .unwrap();
         let mut signers = attestation_signers(
             allocations_rx,
-            (*INDEXER_OPERATOR_MNEMONIC).to_string(),
+            INDEXER_MNEMONIC.clone(),
             1,
             dispute_manager_rx,
         )
