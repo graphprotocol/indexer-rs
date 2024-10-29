@@ -173,7 +173,7 @@ where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
     pub service_impl: I,
-    pub config: Config,
+    pub config: &'static Config,
     pub release: IndexerServiceRelease,
     pub url_namespace: &'static str,
     pub extra_routes: Router<Arc<IndexerServiceState<I>>>,
@@ -352,7 +352,7 @@ impl IndexerService {
         };
 
         let operator_address = Json(
-            serde_json::json!({ "publicKey": public_key(options.config.indexer.operator_mnemonic)?}),
+            serde_json::json!({ "publicKey": public_key(&options.config.indexer.operator_mnemonic)?}),
         );
 
         let mut misc_routes = Router::new()
@@ -400,7 +400,7 @@ impl IndexerService {
 
         let data_routes = Router::new()
             .route(
-                PathBuf::from(options.config.service.url_prefix)
+                PathBuf::from(&options.config.service.url_prefix)
                     .join(format!("{}/id/:id", options.url_namespace))
                     .to_str()
                     .expect("Failed to set up `/{url_namespace}/id/:id` route"),
