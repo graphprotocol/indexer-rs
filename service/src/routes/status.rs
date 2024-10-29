@@ -25,6 +25,7 @@ lazy_static::lazy_static! {
             "publicProofsOfIndexing",
             "entityChangesInBlock",
             "blockData",
+            "blockHashFromNumber",
             "cachedEthereumCalls",
             "subgraphFeatures",
             "apiVersions",
