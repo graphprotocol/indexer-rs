@@ -27,6 +27,10 @@ use crate::cost_model;
 // we only accept receipts with minimal 1 wei grt
 const MINIMAL_VALUE: u128 = 1;
 
+/// Represents a query that can be checked against an agora model
+///
+/// It contains the deployment_id to check which agora model evaluate
+/// and also the query and variables to perform the evaluation
 pub struct AgoraQuery {
     pub deployment_id: DeploymentId,
     pub query: String,
@@ -36,6 +40,10 @@ pub struct AgoraQuery {
 type CostModelMap = Arc<RwLock<HashMap<DeploymentId, CostModel>>>;
 type GlobalModel = Arc<RwLock<Option<CostModel>>>;
 
+/// Represents the check for minimum for a receipt
+///
+/// It contains all information needed in memory to
+/// make it as fast as possible
 pub struct MinimumValue {
     cost_model_map: CostModelMap,
     global_model: GlobalModel,
