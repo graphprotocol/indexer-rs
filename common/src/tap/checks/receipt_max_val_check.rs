@@ -20,7 +20,11 @@ impl ReceiptMaxValueCheck {
 
 #[async_trait::async_trait]
 impl Check for ReceiptMaxValueCheck {
-    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult {
+    async fn check(
+        &self,
+        _: &tap_core::receipt::Context,
+        receipt: &ReceiptWithState<Checking>,
+    ) -> CheckResult {
         let receipt_value = receipt.signed_receipt().message.value;
 
         if receipt_value < self.receipt_max_value {
@@ -42,6 +46,7 @@ mod tests {
     use std::str::FromStr;
     use std::time::Duration;
     use std::time::SystemTime;
+    use tap_core::receipt::Context;
 
     use super::*;
     use crate::tap::Eip712Domain;
@@ -92,20 +97,29 @@ mod tests {
     async fn test_receipt_lower_than_limit() {
         let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT - 1);
         let timestamp_check = ReceiptMaxValueCheck::new(RECEIPT_LIMIT);
-        assert!(timestamp_check.check(&signed_receipt).await.is_ok());
+        assert!(timestamp_check
+            .check(&Context::new(), &signed_receipt)
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
     async fn test_receipt_higher_than_limit() {
         let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT + 1);
         let timestamp_check = ReceiptMaxValueCheck::new(RECEIPT_LIMIT);
-        assert!(timestamp_check.check(&signed_receipt).await.is_err());
+        assert!(timestamp_check
+            .check(&Context::new(), &signed_receipt)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
     async fn test_receipt_same_as_limit() {
         let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT);
         let timestamp_check = ReceiptMaxValueCheck::new(RECEIPT_LIMIT);
-        assert!(timestamp_check.check(&signed_receipt).await.is_err());
+        assert!(timestamp_check
+            .check(&Context::new(), &signed_receipt)
+            .await
+            .is_err());
     }
 }

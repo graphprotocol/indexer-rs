@@ -27,7 +27,11 @@ impl AllocationEligible {
 }
 #[async_trait::async_trait]
 impl Check for AllocationEligible {
-    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult {
+    async fn check(
+        &self,
+        _: &tap_core::receipt::Context,
+        receipt: &ReceiptWithState<Checking>,
+    ) -> CheckResult {
         let allocation_id = receipt.signed_receipt().message.allocation_id;
         if !self
             .indexer_allocations

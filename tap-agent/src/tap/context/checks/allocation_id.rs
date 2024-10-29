@@ -46,7 +46,11 @@ impl AllocationId {
 
 #[async_trait::async_trait]
 impl Check for AllocationId {
-    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult {
+    async fn check(
+        &self,
+        _: &tap_core::receipt::Context,
+        receipt: &ReceiptWithState<Checking>,
+    ) -> CheckResult {
         let allocation_id = receipt.signed_receipt().message.allocation_id;
         // TODO: Remove the if block below? Each TAP Monitor is specific to an allocation
         // ID. So the receipts that are received here should already have been filtered by
