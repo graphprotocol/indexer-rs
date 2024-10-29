@@ -154,7 +154,7 @@ impl Actor for SenderAllocation {
         }
 
         // update unaggregated_fees
-        state.unaggregated_fees = state.refresh_all_database().await?;
+        state.unaggregated_fees = state.recalculate_all_unaggregated_fees().await?;
 
         sender_account_ref.cast(SenderAccountMessage::UpdateReceiptFees(
             allocation_id,
@@ -188,7 +188,7 @@ impl Actor for SenderAllocation {
             "Closing SenderAllocation, triggering last rav",
         );
         loop {
-            match state.refresh_all_database().await {
+            match state.recalculate_all_unaggregated_fees().await {
                 Ok(value) => {
                     state.unaggregated_fees = value;
                     break;
@@ -366,7 +366,7 @@ impl SenderAllocationState {
         })
     }
 
-    async fn refresh_all_database(&self) -> Result<UnaggregatedReceipts> {
+    async fn recalculate_all_unaggregated_fees(&self) -> Result<UnaggregatedReceipts> {
         self.calculate_fee_until_last_id(i64::MAX).await
     }
 
@@ -1408,7 +1408,7 @@ pub mod tests {
         }
 
         // calculate unaggregated fee
-        let total_unaggregated_fees = state.refresh_all_database().await.unwrap();
+        let total_unaggregated_fees = state.recalculate_all_unaggregated_fees().await.unwrap();
 
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 45u128);
@@ -1463,7 +1463,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        let total_unaggregated_fees = state.refresh_all_database().await.unwrap();
+        let total_unaggregated_fees = state.recalculate_all_unaggregated_fees().await.unwrap();
 
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 35u128);
