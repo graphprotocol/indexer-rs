@@ -57,6 +57,7 @@ struct CostModelWatcher {
     global_model: GlobalModel,
 }
 
+#[allow(dead_code)]
 impl CostModelWatcher {
     async fn cost_models_watcher(
         pgpool: PgPool,
@@ -169,6 +170,7 @@ impl Drop for MinimumValue {
     }
 }
 
+#[allow(dead_code)]
 impl MinimumValue {
     pub async fn new(pgpool: PgPool) -> Self {
         let cost_model_map: CostModelMap = Default::default();
