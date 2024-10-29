@@ -95,63 +95,69 @@ impl CostModelWatcher {
                 deployment,
                 model,
                 variables,
-            }) => {
-                let model = compile_cost_model(model, variables).unwrap();
-
-                match deployment.as_str() {
-                    "global" => {
-                        *self.global_model.write().unwrap() = Some(model);
-                    }
-                    deployment_id => match DeploymentId::from_str(deployment_id) {
-                        Ok(deployment_id) => {
-                            let mut cost_model_write = self.cost_models.write().unwrap();
-                            cost_model_write.insert(deployment_id, model);
-                        }
-                        Err(_) => {
-                            error!(
-                                "Received insert request for an invalid deployment_id: {}",
-                                deployment_id
-                            )
-                        }
-                    },
-                };
-            }
-            Ok(CostModelNotification::Delete { deployment }) => {
-                match deployment.as_str() {
-                    "global" => {
-                        *self.global_model.write().unwrap() = None;
-                    }
-                    deployment_id => match DeploymentId::from_str(deployment_id) {
-                        Ok(deployment_id) => {
-                            self.cost_models.write().unwrap().remove(&deployment_id);
-                        }
-                        Err(_) => {
-                            error!(
-                                "Received delete request for an invalid deployment_id: {}",
-                                deployment_id
-                            )
-                        }
-                    },
-                };
-            }
+            }) => self.handle_insert(deployment, model, variables),
+            Ok(CostModelNotification::Delete { deployment }) => self.handle_delete(deployment),
             // UPDATE and TRUNCATE are not expected to happen. Reload the entire cost
             // model cache.
-            Err(_) => {
-                error!(
-                    "Received an unexpected cost model table notification: {}. Reloading entire \
-                                cost model.",
-                    payload
-                );
-
-                MinimumValue::value_check_reload(
-                    &self.pgpool,
-                    self.cost_models.clone(),
-                    self.global_model.clone(),
-                )
-                .await
-                .expect("should be able to reload cost models")
-            }
+            Err(_) => self.handle_unexpected_notification(payload).await,
         }
+    }
+
+    fn handle_insert(&self, deployment: String, model: String, variables: String) {
+        let model = compile_cost_model(model, variables).unwrap();
+
+        match deployment.as_str() {
+            "global" => {
+                *self.global_model.write().unwrap() = Some(model);
+            }
+            deployment_id => match DeploymentId::from_str(deployment_id) {
+                Ok(deployment_id) => {
+                    let mut cost_model_write = self.cost_models.write().unwrap();
+                    cost_model_write.insert(deployment_id, model);
+                }
+                Err(_) => {
+                    error!(
+                        "Received insert request for an invalid deployment_id: {}",
+                        deployment_id
+                    )
+                }
+            },
+        };
+    }
+
+    fn handle_delete(&self, deployment: String) {
+        match deployment.as_str() {
+            "global" => {
+                *self.global_model.write().unwrap() = None;
+            }
+            deployment_id => match DeploymentId::from_str(deployment_id) {
+                Ok(deployment_id) => {
+                    self.cost_models.write().unwrap().remove(&deployment_id);
+                }
+                Err(_) => {
+                    error!(
+                        "Received delete request for an invalid deployment_id: {}",
+                        deployment_id
+                    )
+                }
+            },
+        };
+    }
+
+    async fn handle_unexpected_notification(&self, payload: &str) {
+        error!(
+            "Received an unexpected cost model table notification: {}. Reloading entire \
+                                cost model.",
+            payload
+        );
+
+        MinimumValue::value_check_reload(
+            &self.pgpool,
+            self.cost_models.clone(),
+            self.global_model.clone(),
+        )
+        .await
+        .expect("should be able to reload cost models")
     }
 }
 
@@ -196,7 +202,7 @@ impl MinimumValue {
         }
     }
 
-    fn get_expected_value(&self, agora_query: &AgoraQuery) -> anyhow::Result<u128> {
+    fn expected_value(&self, agora_query: &AgoraQuery) -> anyhow::Result<u128> {
         // get agora model for the deployment_id
         let model = self.cost_model_map.read().unwrap();
         let subgraph_model = model.get(&agora_query.deployment_id);
@@ -267,7 +273,7 @@ impl Check for MinimumValue {
             .ok_or(CheckError::Failed(anyhow!("Could not find agora query")))?;
 
         let expected_value = self
-            .get_expected_value(agora_query)
+            .expected_value(agora_query)
             .map_err(CheckError::Failed)?;
 
         // get value
