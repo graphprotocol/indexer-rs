@@ -226,7 +226,9 @@ impl IndexerService {
         )));
 
         // Identify the dispute manager for the configured network
-        let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(3600));
+        let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(3600))
+            .await
+            .expect("Failed to initialize dispute manager");
 
         // Monitor the indexer's own allocations
         let allocations = indexer_allocations(
@@ -243,7 +245,9 @@ impl IndexerService {
                 .subgraphs
                 .network
                 .recently_closed_allocation_buffer_secs,
-        );
+        )
+        .await
+        .expect("Failed to initialize indexer_allocations watcher");
 
         // Maintain an up-to-date set of attestation signers, one for each
         // allocation
@@ -252,8 +256,7 @@ impl IndexerService {
             options.config.indexer.operator_mnemonic.clone(),
             options.config.blockchain.chain_id as u64,
             dispute_manager,
-        )
-        .await;
+        );
 
         let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(SubgraphClient::new(
             http_client,

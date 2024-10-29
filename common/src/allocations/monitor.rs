@@ -8,15 +8,11 @@ use std::{
 };
 
 use super::Allocation;
-use crate::prelude::SubgraphClient;
+use crate::{prelude::SubgraphClient, watcher::new_watcher};
 use alloy::primitives::{TxHash, B256, U256};
 use graphql_client::GraphQLQuery;
 use thegraph_core::{Address, DeploymentId};
-use tokio::{
-    sync::watch::{self, Receiver},
-    time::{self, sleep},
-};
-use tracing::warn;
+use tokio::sync::watch::Receiver;
 
 type BigInt = U256;
 type Bytes = B256;
@@ -58,43 +54,21 @@ impl TryFrom<allocations_query::AllocationFragment> for Allocation {
 }
 
 /// An always up-to-date list of an indexer's active and recently closed allocations.
-pub fn indexer_allocations(
+pub async fn indexer_allocations(
     network_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     interval: Duration,
     recently_closed_allocation_buffer: Duration,
-) -> Receiver<HashMap<Address, Allocation>> {
-    let (tx, rx) = watch::channel(HashMap::new());
-    tokio::spawn(async move {
-        // Refresh indexer allocations every now and then
-        let mut time_interval = time::interval(interval);
-        time_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-        loop {
-            time_interval.tick().await;
-            let result = get_allocations(
-                network_subgraph,
-                indexer_address,
-                recently_closed_allocation_buffer,
-            )
-            .await;
-            match result {
-                Ok(allocations) => {
-                    tx.send(allocations)
-                        .expect("Failed to update indexer_allocations channel");
-                }
-                Err(err) => {
-                    warn!(
-                        "Failed to fetch active or recently closed allocations for indexer {:?}: {}",
-                        indexer_address, err
-                    );
-
-                    // Sleep for a bit before we retry
-                    sleep(interval.div_f32(2.0)).await;
-                }
-            }
-        }
-    });
-    rx
+) -> anyhow::Result<Receiver<HashMap<Address, Allocation>>> {
+    new_watcher(interval, move || async move {
+        get_allocations(
+            network_subgraph,
+            indexer_address,
+            recently_closed_allocation_buffer,
+        )
+        .await
+    })
+    .await
 }
 
 pub async fn get_allocations(

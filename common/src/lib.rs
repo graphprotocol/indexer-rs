@@ -10,6 +10,7 @@ pub mod graphql;
 pub mod indexer_service;
 pub mod subgraph_client;
 pub mod tap;
+pub mod watcher;
 
 #[cfg(test)]
 mod test_vectors;
