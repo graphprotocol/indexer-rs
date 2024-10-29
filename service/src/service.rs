@@ -61,12 +61,12 @@ impl IndexerServiceResponse for SubgraphServiceResponse {
 }
 
 pub struct SubgraphServiceState {
-    pub config: Config,
+    pub config: &'static Config,
     pub database: PgPool,
     pub cost_schema: routes::cost::CostSchema,
     pub graph_node_client: reqwest::Client,
-    pub graph_node_status_url: Url,
-    pub graph_node_query_base_url: Url,
+    pub graph_node_status_url: &'static Url,
+    pub graph_node_query_base_url: &'static Url,
 }
 
 struct SubgraphService {
@@ -130,8 +130,8 @@ pub async fn run() -> anyhow::Result<()> {
     // Load the json-rpc service configuration, which is a combination of the
     // general configuration options for any indexer service and specific
     // options added for JSON-RPC
-    let config = Config::parse(indexer_config::ConfigPrefix::Service, cli.config.as_ref())
-        .map_err(|e| {
+    let config = Box::leak(Box::new(
+        Config::parse(indexer_config::ConfigPrefix::Service, cli.config.as_ref()).map_err(|e| {
             error!(
                 "Invalid configuration file `{}`: {}, if a value is missing you can also use \
                 --config to fill the rest of the values",
@@ -139,7 +139,8 @@ pub async fn run() -> anyhow::Result<()> {
                 e
             );
             anyhow!(e)
-        })?;
+        })?,
+    ));
 
     // Parse basic configurations
     build_info::build_info!(fn build_info);
@@ -149,7 +150,7 @@ pub async fn run() -> anyhow::Result<()> {
     // "state", which will be passed to any request handler, middleware etc.
     // that is involved in serving requests
     let state = Arc::new(SubgraphServiceState {
-        config: config.clone(),
+        config,
         database: database::connect(config.database.clone().get_formated_postgres_url().as_ref())
             .await,
         cost_schema: routes::cost::build_schema().await,
@@ -158,13 +159,13 @@ pub async fn run() -> anyhow::Result<()> {
             .timeout(Duration::from_secs(30))
             .build()
             .expect("Failed to init HTTP client for Graph Node"),
-        graph_node_status_url: config.graph_node.status_url.clone(),
-        graph_node_query_base_url: config.graph_node.query_url.clone(),
+        graph_node_status_url: &config.graph_node.status_url,
+        graph_node_query_base_url: &config.graph_node.query_url,
     });
 
     IndexerService::run(IndexerServiceOptions {
         release,
-        config: config.clone(),
+        config,
         url_namespace: "subgraphs",
         service_impl: SubgraphService::new(state.clone()),
         extra_routes: Router::new()
