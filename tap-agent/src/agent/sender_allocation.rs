@@ -179,7 +179,7 @@ impl Actor for SenderAllocation {
         }
 
         // update unaggregated_fees
-        state.unaggregated_fees = state.initialize_unaggregated_receipts().await?;
+        state.unaggregated_fees = state.recalculate_all_unaggregated_fees().await?;
 
         sender_account_ref.cast(SenderAccountMessage::UpdateReceiptFees(
             allocation_id,
@@ -212,6 +212,20 @@ impl Actor for SenderAllocation {
             allocation_id = %state.allocation_id,
             "Closing SenderAllocation, triggering last rav",
         );
+        loop {
+            match state.recalculate_all_unaggregated_fees().await {
+                Ok(value) => {
+                    state.unaggregated_fees = value;
+                    break;
+                }
+                Err(err) => {
+                    error!(
+                        error = %err,
+                        "There was an error while calculating the last unaggregated receipts. Retrying in 30 seconds...");
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                }
+            }
+        }
         // Request a RAV and mark the allocation as final.
         while state.unaggregated_fees.value > 0 {
             if let Err(err) = state.request_rav().await {
@@ -380,7 +394,7 @@ impl SenderAllocationState {
         })
     }
 
-    async fn initialize_unaggregated_receipts(&self) -> Result<UnaggregatedReceipts> {
+    async fn recalculate_all_unaggregated_fees(&self) -> Result<UnaggregatedReceipts> {
         self.calculate_fee_until_last_id(i64::MAX).await
     }
 
@@ -1412,7 +1426,7 @@ pub mod tests {
         }
 
         // calculate unaggregated fee
-        let total_unaggregated_fees = state.initialize_unaggregated_receipts().await.unwrap();
+        let total_unaggregated_fees = state.recalculate_all_unaggregated_fees().await.unwrap();
 
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 45u128);
@@ -1467,7 +1481,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        let total_unaggregated_fees = state.initialize_unaggregated_receipts().await.unwrap();
+        let total_unaggregated_fees = state.recalculate_all_unaggregated_fees().await.unwrap();
 
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 35u128);
