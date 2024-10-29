@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-
 //! This is a module that reimplements eventuals using
 //! tokio::watch module and fixing some problems that eventuals
 //! usually carry like initializing things without initializing
@@ -32,14 +31,13 @@ where
     let (tx, rx) = watch::channel(initial_value);
 
     tokio::spawn(async move {
-        // Refresh indexer allocations every now and then
         let mut time_interval = time::interval(interval);
         time_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
         loop {
             time_interval.tick().await;
             let result = function().await;
             match result {
-                Ok(allocations) => tx.send(allocations).expect("Failed to update channel"),
+                Ok(value) => tx.send(value).expect("Failed to update channel"),
                 Err(err) => {
                     // TODO mark it as delayed
                     warn!(error = %err, "There was an error while updating watcher");
@@ -52,17 +50,20 @@ where
     Ok(rx)
 }
 
-
 /// Join two watch::Receiver
-pub fn join_watcher<T1, T2>(
+pub fn join_and_map_watcher<T1, T2, T3, F>(
     mut receiver_1: watch::Receiver<T1>,
     mut receiver_2: watch::Receiver<T2>,
-) -> watch::Receiver<(T1, T2)>
+    map_function: F,
+) -> watch::Receiver<T3>
 where
     T1: Clone + Send + Sync + 'static,
     T2: Clone + Send + Sync + 'static,
+    T3: Send + Sync + 'static,
+    F: Fn((T1, T2)) -> T3 + Send + 'static,
 {
-    let (tx, rx) = watch::channel((receiver_1.borrow().clone(), receiver_2.borrow().clone()));
+    let initial_value = map_function((receiver_1.borrow().clone(), receiver_2.borrow().clone()));
+    let (tx, rx) = watch::channel(initial_value);
 
     tokio::spawn(async move {
         loop {
@@ -74,34 +75,10 @@ where
                     panic!("receiver_1 or receiver_2 was dropped");
                 }
             }
-            tx.send((receiver_1.borrow().clone(), receiver_2.borrow().clone()))
-                .expect("Failed to update signers channel");
-        }
-    });
-    rx
-}
 
-/// Maps a watch::Receiver into another type
-pub fn map_watcher<T1, T2, F>(
-    mut receiver: watch::Receiver<T1>,
-    map_function: F,
-) -> watch::Receiver<T2>
-where
-    F: Fn(T1) -> T2 + Send + 'static,
-    T1: Default + Clone + Sync + Send + 'static,
-    T2: Sync + Send + 'static,
-{
-    let initial_value = map_function(receiver.borrow().clone());
-    let (tx, rx) = watch::channel(initial_value);
-
-    tokio::spawn(async move {
-        loop {
-            match receiver.changed().await {
-                Ok(_) => {}
-                Err(_) => panic!("reciever was dropped"),
-            }
-            let current_val = receiver.borrow().clone();
-            let mapped_value = map_function(current_val);
+            let current_val_1 = receiver_1.borrow().clone();
+            let current_val_2 = receiver_2.borrow().clone();
+            let mapped_value = map_function((current_val_1, current_val_2));
             tx.send(mapped_value).expect("Failed to update channel");
         }
     });

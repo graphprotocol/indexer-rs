@@ -10,7 +10,7 @@ use tracing::warn;
 
 use crate::{
     prelude::{Allocation, AttestationSigner},
-    watcher::{join_watcher, map_watcher},
+    watcher::join_and_map_watcher,
 };
 
 /// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
@@ -24,18 +24,20 @@ pub fn attestation_signers(
         Box::leak(Box::new(Mutex::new(HashMap::new())));
     let indexer_mnemonic = Arc::new(indexer_mnemonic.to_string());
 
-    let joined_watcher = join_watcher(indexer_allocations_rx, dispute_manager_rx);
-
-    map_watcher(joined_watcher, move |(allocation, dispute)| {
-        let indexer_mnemonic = indexer_mnemonic.clone();
-        modify_sigers(
-            &indexer_mnemonic,
-            chain_id,
-            attestation_signers_map,
-            &allocation,
-            &dispute,
-        )
-    })
+    join_and_map_watcher(
+        indexer_allocations_rx,
+        dispute_manager_rx,
+        move |(allocation, dispute)| {
+            let indexer_mnemonic = indexer_mnemonic.clone();
+            modify_sigers(
+                &indexer_mnemonic,
+                chain_id,
+                attestation_signers_map,
+                &allocation,
+                &dispute,
+            )
+        },
+    )
 }
 fn modify_sigers(
     indexer_mnemonic: &str,
