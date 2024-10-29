@@ -196,7 +196,7 @@ impl Actor for SenderAllocation {
                 Err(err) => {
                     error!(
                         error = %err,
-                        "There was an error while calculating last unaggregated receipts. Retrying in 30 seconds...");
+                        "There was an error while calculating the last unaggregated receipts. Retrying in 30 seconds...");
                     tokio::time::sleep(Duration::from_secs(30)).await;
                 }
             }
