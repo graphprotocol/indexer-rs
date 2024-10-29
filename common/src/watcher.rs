@@ -1,3 +1,7 @@
+// Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
+
 //! This is a module that reimplements eventuals using
 //! tokio::watch module and fixing some problems that eventuals
 //! usually carry like initializing things without initializing
@@ -12,6 +16,8 @@ use tokio::{
 };
 use tracing::warn;
 
+/// Creates a new watcher that auto initializes it with initial_value
+/// and updates it given an interval
 pub async fn new_watcher<T, F, Fut>(
     interval: Duration,
     function: F,
@@ -46,6 +52,8 @@ where
     Ok(rx)
 }
 
+
+/// Join two watch::Receiver
 pub fn join_watcher<T1, T2>(
     mut receiver_1: watch::Receiver<T1>,
     mut receiver_2: watch::Receiver<T2>,
@@ -73,6 +81,7 @@ where
     rx
 }
 
+/// Maps a watch::Receiver into another type
 pub fn map_watcher<T1, T2, F>(
     mut receiver: watch::Receiver<T1>,
     map_function: F,
