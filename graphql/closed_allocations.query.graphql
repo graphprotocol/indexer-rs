@@ -1,0 +1,23 @@
+query ClosedAllocations(
+    $allocation_ids: [ID!]!, 
+    $block: Block_height,
+    $first: Int!,
+    $last: ID!,
+  ) {
+    meta: _meta(block: $block) { block { number hash timestamp } }
+    allocations(
+        block: $block
+        orderBy: id
+        orderDirection: asc
+        first: $first
+        where: {
+            and: [
+                { closedAt_not: null }
+                { id_gt: $last }
+                { id_in: $allocation_ids }
+            ]
+        }
+    ) {
+      id
+    }
+}

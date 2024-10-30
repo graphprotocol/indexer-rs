@@ -62,6 +62,7 @@ pub struct SenderAccountsManagerArgs {
     pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     pub escrow_accounts: Eventual<EscrowAccounts>,
     pub escrow_subgraph: &'static SubgraphClient,
+    pub network_subgraph: &'static SubgraphClient,
     pub sender_aggregator_endpoints: HashMap<Address, Url>,
 
     pub prefix: Option<String>,
@@ -78,6 +79,7 @@ pub struct State {
     indexer_allocations: Receiver<HashSet<Address>>,
     escrow_accounts: Eventual<EscrowAccounts>,
     escrow_subgraph: &'static SubgraphClient,
+    network_subgraph: &'static SubgraphClient,
     sender_aggregator_endpoints: HashMap<Address, Url>,
     prefix: Option<String>,
 }
@@ -98,6 +100,7 @@ impl Actor for SenderAccountsManager {
             pgpool,
             escrow_accounts,
             escrow_subgraph,
+            network_subgraph,
             sender_aggregator_endpoints,
             prefix,
         }: Self::Arguments,
@@ -151,6 +154,7 @@ impl Actor for SenderAccountsManager {
             indexer_allocations: allocations_rx,
             escrow_accounts: escrow_accounts.clone(),
             escrow_subgraph,
+            network_subgraph,
             sender_aggregator_endpoints,
             prefix: prefix.clone(),
         };
@@ -462,6 +466,7 @@ impl State {
             escrow_accounts: self.escrow_accounts.clone(),
             indexer_allocations: self.indexer_allocations.clone(),
             escrow_subgraph: self.escrow_subgraph,
+            network_subgraph: self.network_subgraph,
             domain_separator: self.domain_separator.clone(),
             sender_aggregator_endpoint: self
                 .sender_aggregator_endpoints
@@ -650,6 +655,7 @@ mod tests {
 
         let (_allocations_tx, allocations_rx) = watch::channel(HashMap::new());
         let escrow_subgraph = get_subgraph_client();
+        let network_subgraph = get_subgraph_client();
 
         let (mut escrow_accounts_writer, escrow_accounts_eventual) =
             Eventual::<EscrowAccounts>::new();
@@ -666,6 +672,7 @@ mod tests {
             indexer_allocations: allocations_rx,
             escrow_accounts: escrow_accounts_eventual,
             escrow_subgraph,
+            network_subgraph,
             sender_aggregator_endpoints: HashMap::from([
                 (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
                 (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
@@ -709,6 +716,7 @@ mod tests {
                 indexer_allocations: watch::channel(HashSet::new()).1,
                 escrow_accounts: Eventual::from_value(escrow_accounts),
                 escrow_subgraph: get_subgraph_client(),
+                network_subgraph: get_subgraph_client(),
                 sender_aggregator_endpoints: HashMap::from([
                     (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
                     (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),

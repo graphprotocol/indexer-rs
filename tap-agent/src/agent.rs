@@ -131,6 +131,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         indexer_allocations,
         escrow_accounts,
         escrow_subgraph,
+        network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
         prefix: None,
     };
