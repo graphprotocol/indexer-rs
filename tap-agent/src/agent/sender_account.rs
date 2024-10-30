@@ -7,6 +7,7 @@ use alloy::primitives::U256;
 use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
 
+use futures::{stream, StreamExt};
 use graphql_client::GraphQLQuery;
 use jsonrpsee::http_client::HttpClientBuilder;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
@@ -580,12 +581,14 @@ impl Actor for SenderAccount {
             config,
         };
 
-        for allocation_id in &allocation_ids {
+        stream::iter(allocation_ids)
             // Create a sender allocation for each allocation
-            state
-                .create_sender_allocation(myself.clone(), *allocation_id)
-                .await?;
-        }
+            .map(|allocation_id| state.create_sender_allocation(myself.clone(), allocation_id))
+            .buffered(10) // Limit concurrency to 10 allocations at a time
+            .collect::<Vec<anyhow::Result<()>>>()
+            .await
+            .into_iter()
+            .collect::<anyhow::Result<Vec<()>>>()?;
 
         tracing::info!(sender = %sender_id, "SenderAccount created!");
         Ok(state)

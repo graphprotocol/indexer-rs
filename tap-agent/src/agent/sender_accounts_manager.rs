@@ -12,6 +12,7 @@ use alloy::primitives::Address;
 use anyhow::Result;
 use anyhow::{anyhow, bail};
 use eventuals::{Eventual, EventualExt, PipeHandle};
+use futures::{stream, StreamExt};
 use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::prelude::{Allocation, SubgraphClient};
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
@@ -160,12 +161,15 @@ impl Actor for SenderAccountsManager {
             }
         };
 
-        for (sender_id, allocation_ids) in sender_allocation {
-            state.sender_ids.insert(sender_id);
-            state
-                .create_or_deny_sender(myself.get_cell(), sender_id, allocation_ids)
-                .await;
-        }
+        state.sender_ids.extend(sender_allocation.keys());
+
+        stream::iter(sender_allocation)
+            .map(|(sender_id, allocation_ids)| {
+                state.create_or_deny_sender(myself.get_cell(), sender_id, allocation_ids)
+            })
+            .buffered(10) // Limit concurrency to 10 senders at a time
+            .collect::<Vec<()>>()
+            .await;
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         // after starting all senders

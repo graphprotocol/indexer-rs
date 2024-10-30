@@ -41,8 +41,8 @@ tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-pr
 ractor = { version = "0.9", features = [
   "async-trait",
 ], default-features = false }
+futures = { version = "0.3.30", default-features = false }
 
 [dev-dependencies]
 tempfile = "3.8.0"
 wiremock = "0.6.1"
-futures = { version = "0.3.30", default-features = false }
