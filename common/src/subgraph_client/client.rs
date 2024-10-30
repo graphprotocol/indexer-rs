@@ -184,8 +184,15 @@ impl DeploymentClient {
         // TODO handle partial responses
         Ok(match (response.data, response.errors) {
             (Some(data), None) => Ok(data),
-            (_, Some(errors)) => Err(anyhow!("{errors:?}")),
-            (_, _) => Err(anyhow!("Invalid error")),
+            (None, Some(errors)) => Err(anyhow!("{errors:?}")),
+            (Some(_data), Some(err)) => Err(anyhow!("Unsupported partial results. Error: {err:?}")),
+            (None, None) => {
+                let body = serde_json::to_string(&body).unwrap_or_default();
+                Err(anyhow!(
+                    "No data or error returned for query: {body}. Endpoint: {}",
+                    self.query_url.as_str()
+                ))
+            }
         })
     }
 
