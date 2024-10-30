@@ -745,7 +745,13 @@ impl Actor for SenderAccount {
                                 &state.sender.to_string(),
                                 &allocation_id.to_string(),
                             ])
-                            .add(value as f64);
+                            .set(
+                                state
+                                    .sender_fee_tracker
+                                    .get_total_fee_for_allocation(&allocation_id)
+                                    .map(|fee| fee.value)
+                                    .unwrap_or_default() as f64,
+                            );
                     }
                     ReceiptFees::RavRequestResponse(rav_result) => {
                         state.finalize_rav_request(allocation_id, rav_result);

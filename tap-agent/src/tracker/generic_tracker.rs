@@ -105,6 +105,10 @@ where
     pub fn get_total_fee(&self) -> u128 {
         self.global.get_total_fee()
     }
+
+    pub fn get_total_fee_for_allocation(&self, allocation: &Address) -> Option<U> {
+        self.id_to_fee.get(allocation).map(|fee| fee.get_stats())
+    }
 }
 
 impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, UnaggregatedReceipts> {
