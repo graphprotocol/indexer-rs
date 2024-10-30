@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.4.0...indexer-tap-agent-v1.4.1) (2024-10-30)
+
+
+### Bug Fixes
+
+* check subgraph before closing allocations ([#435](https://github.com/graphprotocol/indexer-rs/issues/435)) ([a3cc07e](https://github.com/graphprotocol/indexer-rs/commit/a3cc07e72d2e6a8440788c96ff005ea566eac751))
+
 ## [1.4.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.3.0...indexer-tap-agent-v1.4.0) (2024-10-30)
 
 

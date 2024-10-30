@@ -1,5 +1,7 @@
 # Changelog
 
+
+
 ## [1.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.1.1...indexer-service-rs-v1.2.0) (2024-10-30)
 
 

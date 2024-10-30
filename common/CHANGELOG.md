@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-common-v1.2.0...indexer-common-v1.2.1) (2024-10-30)
+
+
+### Bug Fixes
+
+* add more information about failing subgraph query ([#436](https://github.com/graphprotocol/indexer-rs/issues/436)) ([1e52f82](https://github.com/graphprotocol/indexer-rs/commit/1e52f82ec240c63c940bcc3b20e58750c31b4d66))
+* proper build graph-node query url ([#438](https://github.com/graphprotocol/indexer-rs/issues/438)) ([df94692](https://github.com/graphprotocol/indexer-rs/commit/df94692e66f48a186deeac99bda8e0fcfddb2e52))
+
 ## [1.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-common-v1.1.0...indexer-common-v1.2.0) (2024-10-30)
 
 
