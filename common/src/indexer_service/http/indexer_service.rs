@@ -344,13 +344,13 @@ impl IndexerService {
         // time between consecutive requests after that, effectively rate
         // limiting to 10 req/s.
         let misc_rate_limiter = GovernorLayer {
-            config: Box::leak(Box::new(
+            config: Arc::new(
                 GovernorConfigBuilder::default()
                     .per_millisecond(100)
                     .burst_size(10)
                     .finish()
                     .expect("Failed to set up rate limiting"),
-            )),
+            ),
         };
 
         let operator_address = Json(
@@ -367,13 +367,13 @@ impl IndexerService {
         // time between consecutive requests after that, effectively rate
         // limiting to 50 req/s.
         let static_subgraph_rate_limiter = GovernorLayer {
-            config: Box::leak(Box::new(
+            config: Arc::new(
                 GovernorConfigBuilder::default()
                     .per_millisecond(20)
                     .burst_size(50)
                     .finish()
                     .expect("Failed to set up rate limiting"),
-            )),
+            ),
         };
 
         if options.config.service.serve_network_subgraph {
