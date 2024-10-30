@@ -503,7 +503,7 @@ impl SenderAllocationState {
         })
     }
 
-    async fn request_rav(&mut self) -> (Result<()>) {
+    async fn request_rav(&mut self) -> Result<()> {
         match self.rav_requester_single().await {
             Ok(rav) => {
                 self.unaggregated_fees = self.calculate_unaggregated_fee().await?;

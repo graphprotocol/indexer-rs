@@ -25,7 +25,7 @@ use eventuals::{Eventual, EventualExt, PipeHandle};
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use sqlx::PgPool;
-use tap_core::rav::{self, SignedRAV};
+use tap_core::rav::SignedRAV;
 use tracing::{error, warn, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
