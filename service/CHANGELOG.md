@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.1.1...indexer-service-rs-v1.2.0) (2024-10-30)
+
+
+### Features
+
+* add value check ([#153](https://github.com/graphprotocol/indexer-rs/issues/153)) ([1e4a3cd](https://github.com/graphprotocol/indexer-rs/commit/1e4a3cdd8c18b5356e64285b8082d8abde20d6de))
+
 ## [1.1.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.1.0...indexer-service-rs-v1.1.1) (2024-10-09)
 
 

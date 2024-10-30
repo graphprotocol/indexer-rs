@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.4.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.3.0...indexer-tap-agent-v1.4.0) (2024-10-30)
+
+
+### Features
+
+* add value check ([#153](https://github.com/graphprotocol/indexer-rs/issues/153)) ([1e4a3cd](https://github.com/graphprotocol/indexer-rs/commit/1e4a3cdd8c18b5356e64285b8082d8abde20d6de))
+
+
+### Bug Fixes
+
+* initialize allocations monitor ([#428](https://github.com/graphprotocol/indexer-rs/issues/428)) ([f0c7d03](https://github.com/graphprotocol/indexer-rs/commit/f0c7d0367abf8a833f1824264780df50ad6a3c52))
+* refresh database before closing allocation ([#411](https://github.com/graphprotocol/indexer-rs/issues/411)) ([edc1d2c](https://github.com/graphprotocol/indexer-rs/commit/edc1d2c733ca7a9ac57656066cf3f701ac76df4f))
+
+
+### Performance Improvements
+
+* create allocations in parallel ([#431](https://github.com/graphprotocol/indexer-rs/issues/431)) ([a0ed7b2](https://github.com/graphprotocol/indexer-rs/commit/a0ed7b25355c4655805b686f369f379799f64718))
+
 ## [1.3.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.2.1...indexer-tap-agent-v1.3.0) (2024-10-23)
 
 
