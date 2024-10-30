@@ -307,19 +307,21 @@ impl Actor for SenderAllocation {
             }
             SenderAllocationMessage::TriggerRAVRequest => {
                 let rav_result = if state.unaggregated_fees.value > 0 {
-                    state
-                        .request_rav()
-                        .await
-                        .map(|_| (state.unaggregated_fees, state.latest_rav.clone()))
+                    state.request_rav().await
                 } else {
                     Err(anyhow!("Unaggregated fee equals zero"))
                 };
-
+                let ufees_lrav_rav_result = (
+                    state.unaggregated_fees,
+                    state.latest_rav.clone(),
+                    rav_result,
+                );
+                // encapsulate inanother okay, unwrap after and send the result over here
                 state
                     .sender_account_ref
                     .cast(SenderAccountMessage::UpdateReceiptFees(
                         state.allocation_id,
-                        ReceiptFees::RavRequestResponse(rav_result),
+                        ReceiptFees::RavRequestResponse(ufees_lrav_rav_result),
                     ))?;
             }
             #[cfg(test)]
@@ -501,7 +503,7 @@ impl SenderAllocationState {
         })
     }
 
-    async fn request_rav(&mut self) -> Result<()> {
+    async fn request_rav(&mut self) -> (Result<()>) {
         match self.rav_requester_single().await {
             Ok(rav) => {
                 self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
@@ -1619,7 +1621,7 @@ pub mod tests {
                 _,
                 ReceiptFees::RavRequestResponse(rav_response),
             ) => {
-                assert!(rav_response.is_err());
+                assert!(rav_response.2.is_err());
             }
             v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
         }
@@ -1734,7 +1736,7 @@ pub mod tests {
                 _,
                 ReceiptFees::RavRequestResponse(rav_response),
             ) => {
-                assert!(rav_response.is_err());
+                assert!(rav_response.2.is_err());
             }
             v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
         }

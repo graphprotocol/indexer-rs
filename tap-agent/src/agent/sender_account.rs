@@ -25,7 +25,7 @@ use eventuals::{Eventual, EventualExt, PipeHandle};
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use sqlx::PgPool;
-use tap_core::rav::SignedRAV;
+use tap_core::rav::{self, SignedRAV};
 use tracing::{error, warn, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
@@ -87,7 +87,13 @@ type Balance = U256;
 pub enum ReceiptFees {
     NewReceipt(u128, u64),
     UpdateValue(UnaggregatedReceipts),
-    RavRequestResponse(anyhow::Result<(UnaggregatedReceipts, Option<SignedRAV>)>),
+    RavRequestResponse(
+        (
+            UnaggregatedReceipts,
+            Option<SignedRAV>,
+            Result<(), anyhow::Error>,
+        ),
+    ),
     Retry,
 }
 
@@ -285,11 +291,15 @@ impl State {
     fn finalize_rav_request(
         &mut self,
         allocation_id: Address,
-        rav_result: anyhow::Result<(UnaggregatedReceipts, Option<SignedRAV>)>,
+        rav_result: (
+            UnaggregatedReceipts,
+            Option<SignedRAV>,
+            Result<(), anyhow::Error>,
+        ),
     ) {
         self.sender_fee_tracker.finish_rav_request(allocation_id);
         match rav_result {
-            Ok((fees, rav)) => {
+            (fees, rav, Ok(())) => {
                 self.sender_fee_tracker.ok_rav_request(allocation_id);
                 self.adaptive_limiter.on_success();
 
@@ -299,14 +309,14 @@ impl State {
                 // update sender fee tracker
                 self.update_sender_fee(allocation_id, fees);
             }
-            Err(err) => {
-                // TODO we should update the total value too
+            (fees, _, Err(err)) => {
                 self.sender_fee_tracker.failed_rav_backoff(allocation_id);
                 self.adaptive_limiter.on_failure();
                 error!(
                     "Error while requesting RAV for sender {} and allocation {}: {}",
                     self.sender, allocation_id, err
                 );
+                self.update_sender_fee(allocation_id, fees);
             }
         };
     }
@@ -1079,8 +1089,18 @@ pub mod tests {
                                 ReceiptFees::RavRequestResponse(l),
                                 ReceiptFees::RavRequestResponse(r),
                             ) => match (l, r) {
-                                (Ok(l), Ok(r)) => l == r,
-                                (Err(l), Err(r)) => l.to_string() == r.to_string(),
+                                (l, r) if l.2.is_ok() && r.2.is_ok() => l.0 == r.0 && l.1 == r.1,
+                                (l, r) if l.2.is_err() && r.2.is_err() => {
+                                    let l = match &l.2 {
+                                        Ok(()) => "Success".to_string(),
+                                        Err(e) => e.to_string(),
+                                    };
+                                    let r = match &r.2 {
+                                        Ok(()) => "Success".to_string(),
+                                        Err(e) => e.to_string(),
+                                    };
+                                    l == r
+                                }
                                 _ => false,
                             },
                             (ReceiptFees::Retry, ReceiptFees::Retry) => true,
@@ -1483,14 +1503,15 @@ pub mod tests {
                     if let Some(sender_account) = self.sender_actor.as_ref() {
                         sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
                             *ALLOCATION_ID_0,
-                            ReceiptFees::RavRequestResponse(Ok((
+                            ReceiptFees::RavRequestResponse((
                                 UnaggregatedReceipts {
                                     value: *self.next_unaggregated_fees_value.lock().unwrap(),
                                     last_id: 0,
                                     counter: 0,
                                 },
                                 Some(signed_rav),
-                            ))),
+                                Ok(()),
+                            )),
                         ))?;
                     }
                 }
