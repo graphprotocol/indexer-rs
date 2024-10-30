@@ -243,12 +243,12 @@ impl Actor for SenderAccountsManager {
                 let sender_id = cell.get_name();
                 tracing::info!(?sender_id, ?reason, "Actor SenderAccount was terminated")
             }
-            SupervisionEvent::ActorPanicked(cell, error) => {
+            SupervisionEvent::ActorFailed(cell, error) => {
                 let sender_id = cell.get_name();
                 tracing::warn!(
                     ?sender_id,
                     ?error,
-                    "Actor SenderAccount panicked. Restarting..."
+                    "Actor SenderAccount failed. Restarting..."
                 );
                 let Some(sender_id) = cell.get_name() else {
                     tracing::error!("SenderAllocation doesn't have a name");

@@ -893,12 +893,12 @@ impl Actor for SenderAccount {
 
                 // rav tracker is not updated because it's still not redeemed
             }
-            SupervisionEvent::ActorPanicked(cell, error) => {
+            SupervisionEvent::ActorFailed(cell, error) => {
                 let sender_allocation = cell.get_name();
                 tracing::warn!(
                     ?sender_allocation,
                     ?error,
-                    "Actor SenderAllocation panicked. Restarting..."
+                    "Actor SenderAllocation failed. Restarting..."
                 );
                 let Some(allocation_id) = cell.get_name() else {
                     tracing::error!("SenderAllocation doesn't have a name");
