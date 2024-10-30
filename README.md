@@ -15,13 +15,13 @@ A Rust impl for The Graph [indexer service](https://github.com/graphprotocol/ind
 ## Quick start
 
 ```txt
-$ cargo run -p service -- --help
+$ cargo run -p indexer-service-rs -- --help
 
-Usage: service --config <FILE>
+Usage: indexer-service-rs --config <FILE>
 
 Options:
       --config <FILE>  Path to the configuration file.
-                       See https://github.com/graphprotocol/indexer-rs/tree/main/service for examples.
+                       See https://github.com/graphprotocol/indexer-rs/tree/main/config for examples.
   -h, --help           Print help
 ```
 
