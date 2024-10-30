@@ -1,6 +1,6 @@
 {
-  "tap-agent": "1.4.0",
-  "common": "1.2.0",
+  "tap-agent": "1.4.1",
+  "common": "1.2.1",
   "config": "1.2.0",
-  "service": "1.2.0"
+  "service": "1.2.1"
 }
