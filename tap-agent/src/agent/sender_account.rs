@@ -52,6 +52,12 @@ lazy_static! {
         &["sender", "allocation"]
     )
     .unwrap();
+    static ref SENDER_FEE_TRACKER: GaugeVec = register_gauge_vec!(
+        "tap_sender_fee_tracker_grt_total",
+        "Sender fee tracker metric",
+        &["sender"]
+    )
+    .unwrap();
     static ref INVALID_RECEIPT_FEES: GaugeVec = register_gauge_vec!(
         "tap_invalid_receipt_fees_grt_total",
         "Failed receipt fees",
@@ -325,6 +331,9 @@ impl State {
     ) {
         self.sender_fee_tracker
             .update(allocation_id, unaggregated_fees);
+        SENDER_FEE_TRACKER
+            .with_label_values(&[&self.sender.to_string()])
+            .set(self.sender_fee_tracker.get_total_fee() as f64);
 
         UNAGGREGATED_FEES
             .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
@@ -727,6 +736,10 @@ impl Actor for SenderAccount {
                         state
                             .sender_fee_tracker
                             .add(allocation_id, value, timestamp_ns);
+
+                        SENDER_FEE_TRACKER
+                            .with_label_values(&[&state.sender.to_string()])
+                            .set(state.sender_fee_tracker.get_total_fee() as f64);
                         UNAGGREGATED_FEES
                             .with_label_values(&[
                                 &state.sender.to_string(),
@@ -971,6 +984,13 @@ impl Actor for SenderAccount {
 
                 // remove from sender_fee_tracker
                 state.sender_fee_tracker.remove(allocation_id);
+
+                SENDER_FEE_TRACKER
+                    .with_label_values(&[&state.sender.to_string()])
+                    .set(state.sender_fee_tracker.get_total_fee() as f64);
+
+                let _ = UNAGGREGATED_FEES
+                    .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
 
                 // check for deny conditions
                 let _ = myself.cast(SenderAccountMessage::UpdateReceiptFees(
