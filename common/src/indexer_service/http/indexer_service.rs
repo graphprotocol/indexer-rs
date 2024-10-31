@@ -45,7 +45,8 @@ use crate::{
     tap::IndexerTapContext,
 };
 
-use super::{request_handler::request_handler, IndexerServiceConfig};
+use super::request_handler::request_handler;
+use indexer_config::Config;
 
 pub trait IndexerServiceResponse {
     type Data: IntoResponse;
@@ -64,15 +65,14 @@ pub enum AttestationOutput {
 #[async_trait]
 pub trait IndexerServiceImpl {
     type Error: std::error::Error;
-    type Request: DeserializeOwned + Send + Debug + Serialize;
     type Response: IndexerServiceResponse + Sized;
     type State: Send + Sync;
 
-    async fn process_request(
+    async fn process_request<Request: DeserializeOwned + Send + Debug + Serialize>(
         &self,
         manifest_id: DeploymentId,
-        request: Self::Request,
-    ) -> Result<(Self::Request, Self::Response), Self::Error>;
+        request: Request,
+    ) -> Result<(Request, Self::Response), Self::Error>;
 }
 
 #[derive(Debug, Error)]
@@ -170,7 +170,7 @@ where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
     pub service_impl: I,
-    pub config: IndexerServiceConfig,
+    pub config: &'static Config,
     pub release: IndexerServiceRelease,
     pub url_namespace: &'static str,
     pub extra_routes: Router<Arc<IndexerServiceState<I>>>,
@@ -180,7 +180,7 @@ pub struct IndexerServiceState<I>
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
-    pub config: IndexerServiceConfig,
+    pub config: Config,
     pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
     pub tap_manager: Manager<IndexerTapContext>,
     pub service_impl: Arc<I>,
@@ -207,74 +207,99 @@ impl IndexerService {
             http_client.clone(),
             options
                 .config
-                .graph_node
-                .as_ref()
-                .zip(options.config.network_subgraph.deployment)
-                .map(|(graph_node, deployment)| {
-                    DeploymentDetails::for_graph_node(
-                        &graph_node.status_url,
-                        &graph_node.query_base_url,
+                .subgraphs
+                .network
+                .config
+                .deployment_id
+                .map(|deployment| {
+                    DeploymentDetails::for_graph_node_url(
+                        options.config.graph_node.status_url.clone(),
+                        options.config.graph_node.query_url.clone(),
                         deployment,
                     )
                 })
-                .transpose()?,
+                .transpose()
+                .expect(
+                    "Failed to parse graph node query endpoint and network subgraph deployment",
+                ),
             DeploymentDetails::for_query_url_with_token(
-                &options.config.network_subgraph.query_url,
-                options.config.network_subgraph.query_auth_token.clone(),
+                options.config.subgraphs.network.config.query_url.as_ref(),
+                options
+                    .config
+                    .subgraphs
+                    .network
+                    .config
+                    .query_auth_token
+                    .clone(),
             )?,
         )));
 
         // Identify the dispute manager for the configured network
-        let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(3600));
+        let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(3600))
+            .await
+            .expect("Failed to initialize dispute manager");
 
         // Monitor the indexer's own allocations
         let allocations = indexer_allocations(
             network_subgraph,
             options.config.indexer.indexer_address,
-            Duration::from_secs(options.config.network_subgraph.syncing_interval),
-            Duration::from_secs(
-                options
-                    .config
-                    .network_subgraph
-                    .recently_closed_allocation_buffer_seconds,
-            ),
-        );
+            options
+                .config
+                .subgraphs
+                .network
+                .config
+                .syncing_interval_secs,
+            options
+                .config
+                .subgraphs
+                .network
+                .recently_closed_allocation_buffer_secs,
+        )
+        .await
+        .expect("Failed to initialize indexer_allocations watcher");
 
         // Maintain an up-to-date set of attestation signers, one for each
         // allocation
         let attestation_signers = attestation_signers(
             allocations.clone(),
             options.config.indexer.operator_mnemonic.clone(),
-            options.config.graph_network.chain_id,
+            options.config.blockchain.chain_id as u64,
             dispute_manager,
-        )
-        .await;
+        );
 
         let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(SubgraphClient::new(
             http_client,
             options
                 .config
-                .graph_node
-                .as_ref()
-                .zip(options.config.escrow_subgraph.deployment)
-                .map(|(graph_node, deployment)| {
-                    DeploymentDetails::for_graph_node(
-                        &graph_node.status_url,
-                        &graph_node.query_base_url,
+                .subgraphs
+                .escrow
+                .config
+                .deployment_id
+                .map(|deployment| {
+                    DeploymentDetails::for_graph_node_url(
+                        options.config.graph_node.status_url.clone(),
+                        options.config.graph_node.query_url.clone(),
                         deployment,
                     )
                 })
-                .transpose()?,
+                .transpose()
+                .expect("Failed to parse graph node query endpoint and escrow subgraph deployment"),
             DeploymentDetails::for_query_url_with_token(
-                &options.config.escrow_subgraph.query_url,
-                options.config.escrow_subgraph.query_auth_token.clone(),
+                options.config.subgraphs.escrow.config.query_url.as_ref(),
+                options
+                    .config
+                    .subgraphs
+                    .escrow
+                    .config
+                    .query_auth_token
+                    .clone(),
             )?,
         )));
 
         let escrow_accounts = escrow_accounts(
             escrow_subgraph,
             options.config.indexer.indexer_address,
-            Duration::from_secs(options.config.escrow_subgraph.syncing_interval),
+            options.config.subgraphs.escrow.config.syncing_interval_secs,
             true, // Reject thawing signers eagerly
         )
         .await;
@@ -289,19 +314,25 @@ impl IndexerService {
         let database = PgPoolOptions::new()
             .max_connections(50)
             .acquire_timeout(Duration::from_secs(30))
-            .connect(&options.config.database.postgres_url)
+            .connect(
+                options
+                    .config
+                    .database
+                    .clone()
+                    .get_formated_postgres_url()
+                    .as_ref(),
+            )
             .await?;
 
         let domain_separator = tap_eip712_domain(
-            options.config.tap.chain_id,
-            options.config.tap.receipts_verifier_address,
+            options.config.blockchain.chain_id as u64,
+            options.config.blockchain.receipts_verifier_address,
         );
         let indexer_context =
             IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
-        let timestamp_error_tolerance =
-            Duration::from_secs(options.config.tap.timestamp_error_tolerance);
+        let timestamp_error_tolerance = options.config.tap.rav_request.timestamp_buffer_secs;
 
-        let receipt_max_value = options.config.tap.receipt_max_value;
+        let receipt_max_value = options.config.service.tap.max_receipt_value_grt.get_value();
 
         let checks = IndexerTapContext::get_checks(
             database,
@@ -332,13 +363,13 @@ impl IndexerService {
         // time between consecutive requests after that, effectively rate
         // limiting to 10 req/s.
         let misc_rate_limiter = GovernorLayer {
-            config: Box::leak(Box::new(
+            config: Arc::new(
                 GovernorConfigBuilder::default()
                     .per_millisecond(100)
                     .burst_size(10)
                     .finish()
                     .expect("Failed to set up rate limiting"),
-            )),
+            ),
         };
 
         let operator_address = Json(
@@ -355,38 +386,34 @@ impl IndexerService {
         // time between consecutive requests after that, effectively rate
         // limiting to 50 req/s.
         let static_subgraph_rate_limiter = GovernorLayer {
-            config: Box::leak(Box::new(
+            config: Arc::new(
                 GovernorConfigBuilder::default()
                     .per_millisecond(20)
                     .burst_size(50)
                     .finish()
                     .expect("Failed to set up rate limiting"),
-            )),
+            ),
         };
 
-        if options.config.network_subgraph.serve_subgraph {
+        if options.config.service.serve_network_subgraph {
             info!("Serving network subgraph at /network");
 
             misc_routes = misc_routes.route(
                 "/network",
                 post(static_subgraph_request_handler::<I>)
                     .route_layer(Extension(network_subgraph))
-                    .route_layer(Extension(
-                        options.config.network_subgraph.serve_auth_token.clone(),
-                    ))
+                    .route_layer(Extension(options.config.service.serve_auth_token.clone()))
                     .route_layer(static_subgraph_rate_limiter.clone()),
             );
         }
 
-        if options.config.escrow_subgraph.serve_subgraph {
+        if options.config.service.serve_escrow_subgraph {
             info!("Serving escrow subgraph at /escrow");
 
             misc_routes = misc_routes
                 .route("/escrow", post(static_subgraph_request_handler::<I>))
                 .route_layer(Extension(escrow_subgraph))
-                .route_layer(Extension(
-                    options.config.escrow_subgraph.serve_auth_token.clone(),
-                ))
+                .route_layer(Extension(options.config.service.serve_auth_token.clone()))
                 .route_layer(static_subgraph_rate_limiter);
         }
 
@@ -394,7 +421,7 @@ impl IndexerService {
 
         let data_routes = Router::new()
             .route(
-                PathBuf::from(options.config.server.url_prefix)
+                PathBuf::from(&options.config.service.url_prefix)
                     .join(format!("{}/id/:id", options.url_namespace))
                     .to_str()
                     .expect("Failed to set up `/{url_namespace}/id/:id` route"),
@@ -439,13 +466,13 @@ impl IndexerService {
                 .with_state(state),
         );
 
-        Self::serve_metrics(options.config.server.metrics_host_and_port);
+        Self::serve_metrics(options.config.metrics.get_socket_addr());
 
         info!(
-            address = %options.config.server.host_and_port,
+            address = %options.config.service.host_and_port,
             "Serving requests",
         );
-        let listener = TcpListener::bind(&options.config.server.host_and_port)
+        let listener = TcpListener::bind(&options.config.service.host_and_port)
             .await
             .expect("Failed to bind to indexer-service port");
 

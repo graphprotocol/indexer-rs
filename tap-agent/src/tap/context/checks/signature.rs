@@ -27,7 +27,11 @@ impl Signature {
 
 #[async_trait::async_trait]
 impl Check for Signature {
-    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult {
+    async fn check(
+        &self,
+        _: &tap_core::receipt::Context,
+        receipt: &ReceiptWithState<Checking>,
+    ) -> CheckResult {
         let signer = receipt
             .signed_receipt()
             .recover_signer(&self.domain_separator)

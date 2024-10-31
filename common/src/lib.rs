@@ -4,11 +4,13 @@
 pub mod address;
 pub mod allocations;
 pub mod attestations;
+pub mod cost_model;
 pub mod escrow_accounts;
 pub mod graphql;
 pub mod indexer_service;
 pub mod subgraph_client;
 pub mod tap;
+pub mod watcher;
 
 #[cfg(test)]
 mod test_vectors;

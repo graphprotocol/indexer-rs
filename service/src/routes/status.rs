@@ -25,6 +25,7 @@ lazy_static::lazy_static! {
             "publicProofsOfIndexing",
             "entityChangesInBlock",
             "blockData",
+            "blockHashFromNumber",
             "cachedEthereumCalls",
             "subgraphFeatures",
             "apiVersions",
@@ -102,7 +103,7 @@ pub async fn status(
 
     let result = state
         .graph_node_client
-        .post(&state.graph_node_status_url)
+        .post(state.graph_node_status_url.clone())
         .send_graphql::<Value>(WrappedGraphQLRequest(request))
         .await
         .map_err(|e| SubgraphServiceError::StatusQueryError(e.into()))?;

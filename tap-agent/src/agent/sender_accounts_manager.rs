@@ -11,6 +11,7 @@ use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::Address;
 use anyhow::Result;
 use anyhow::{anyhow, bail};
+use futures::{stream, StreamExt};
 use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::prelude::{Allocation, SubgraphClient};
 use ractor::concurrency::JoinHandle;
@@ -61,6 +62,7 @@ pub struct SenderAccountsManagerArgs {
     pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     pub escrow_accounts: Receiver<EscrowAccounts>,
     pub escrow_subgraph: &'static SubgraphClient,
+    pub network_subgraph: &'static SubgraphClient,
     pub sender_aggregator_endpoints: HashMap<Address, Url>,
 
     pub prefix: Option<String>,
@@ -77,6 +79,7 @@ pub struct State {
     indexer_allocations: Receiver<HashSet<Address>>,
     escrow_accounts: Receiver<EscrowAccounts>,
     escrow_subgraph: &'static SubgraphClient,
+    network_subgraph: &'static SubgraphClient,
     sender_aggregator_endpoints: HashMap<Address, Url>,
     prefix: Option<String>,
 }
@@ -97,6 +100,7 @@ impl Actor for SenderAccountsManager {
             pgpool,
             escrow_accounts,
             escrow_subgraph,
+            network_subgraph,
             sender_aggregator_endpoints,
             prefix,
         }: Self::Arguments,
@@ -148,6 +152,7 @@ impl Actor for SenderAccountsManager {
             indexer_allocations: allocations_rx,
             escrow_accounts: escrow_accounts.clone(),
             escrow_subgraph,
+            network_subgraph,
             sender_aggregator_endpoints,
             prefix: prefix.clone(),
         };
@@ -158,12 +163,15 @@ impl Actor for SenderAccountsManager {
             }
         };
 
-        for (sender_id, allocation_ids) in sender_allocation {
-            state.sender_ids.insert(sender_id);
-            state
-                .create_or_deny_sender(myself.get_cell(), sender_id, allocation_ids)
-                .await;
-        }
+        state.sender_ids.extend(sender_allocation.keys());
+
+        stream::iter(sender_allocation)
+            .map(|(sender_id, allocation_ids)| {
+                state.create_or_deny_sender(myself.get_cell(), sender_id, allocation_ids)
+            })
+            .buffered(10) // Limit concurrency to 10 senders at a time
+            .collect::<Vec<()>>()
+            .await;
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         // after starting all senders
@@ -237,12 +245,12 @@ impl Actor for SenderAccountsManager {
                 let sender_id = cell.get_name();
                 tracing::info!(?sender_id, ?reason, "Actor SenderAccount was terminated")
             }
-            SupervisionEvent::ActorPanicked(cell, error) => {
+            SupervisionEvent::ActorFailed(cell, error) => {
                 let sender_id = cell.get_name();
                 tracing::warn!(
                     ?sender_id,
                     ?error,
-                    "Actor SenderAccount panicked. Restarting..."
+                    "Actor SenderAccount failed. Restarting..."
                 );
                 let Some(sender_id) = cell.get_name() else {
                     tracing::error!("SenderAllocation doesn't have a name");
@@ -452,6 +460,7 @@ impl State {
             escrow_accounts: self.escrow_accounts.clone(),
             indexer_allocations: self.indexer_allocations.clone(),
             escrow_subgraph: self.escrow_subgraph,
+            network_subgraph: self.network_subgraph,
             domain_separator: self.domain_separator.clone(),
             sender_aggregator_endpoint: self
                 .sender_aggregator_endpoints
@@ -637,6 +646,7 @@ mod tests {
 
         let (_allocations_tx, allocations_rx) = watch::channel(HashMap::new());
         let escrow_subgraph = get_subgraph_client();
+        let network_subgraph = get_subgraph_client();
 
         let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
 
@@ -651,6 +661,7 @@ mod tests {
             indexer_allocations: allocations_rx,
             escrow_accounts: escrow_accounts_rx,
             escrow_subgraph,
+            network_subgraph,
             sender_aggregator_endpoints: HashMap::from([
                 (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
                 (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
@@ -693,6 +704,7 @@ mod tests {
                 indexer_allocations: watch::channel(HashSet::new()).1,
                 escrow_accounts: watch::channel(escrow_accounts).1,
                 escrow_subgraph: get_subgraph_client(),
+                network_subgraph: get_subgraph_client(),
                 sender_aggregator_endpoints: HashMap::from([
                     (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
                     (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),

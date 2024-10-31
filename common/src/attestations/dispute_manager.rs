@@ -2,13 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::subgraph_client::SubgraphClient;
+use crate::watcher::new_watcher;
 use alloy::primitives::Address;
 use anyhow::Error;
 use graphql_client::GraphQLQuery;
 use std::time::Duration;
-use tokio::sync::watch::{self, Receiver};
-use tokio::time::{self, sleep};
-use tracing::warn;
+use tokio::sync::watch::Receiver;
 
 type Bytes = Address;
 
@@ -21,46 +20,26 @@ type Bytes = Address;
 )]
 struct DisputeManager;
 
-pub fn dispute_manager(
+pub async fn dispute_manager(
     network_subgraph: &'static SubgraphClient,
     interval: Duration,
-) -> Receiver<Option<Address>> {
-    let (tx, rx) = watch::channel(None);
-    tokio::spawn(async move {
-        let mut time_interval = time::interval(interval);
-        time_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-        loop {
-            time_interval.tick().await;
-
-            let result = async {
-                let response = network_subgraph
-                    .query::<DisputeManager, _>(dispute_manager::Variables {})
-                    .await?;
-                response?
-                    .graph_network
-                    .map(|network| network.dispute_manager)
-                    .ok_or_else(|| Error::msg("Network 1 not found in network subgraph"))
-            }
-            .await;
-
-            match result {
-                Ok(address) => tx
-                    .send(Some(address))
-                    .expect("Failed to update dispute_manager channel"),
-                Err(err) => {
-                    warn!("Failed to query dispute manager for network: {}", err);
-                    // Sleep for a bit before we retry
-                    sleep(interval.div_f32(2.0)).await;
-                }
-            }
-        }
-    });
-    rx
+) -> anyhow::Result<Receiver<Address>> {
+    new_watcher(interval, move || async move {
+        let response = network_subgraph
+            .query::<DisputeManager, _>(dispute_manager::Variables {})
+            .await?;
+        response?
+            .graph_network
+            .map(|network| network.dispute_manager)
+            .ok_or_else(|| Error::msg("Network 1 not found in network subgraph"))
+    })
+    .await
 }
 
 #[cfg(test)]
 mod test {
     use serde_json::json;
+    use tokio::time::sleep;
     use wiremock::{
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
@@ -109,9 +88,11 @@ mod test {
     async fn test_parses_dispute_manager_from_network_subgraph_correctly() {
         let (network_subgraph, _mock_server) = setup_mock_network_subgraph().await;
 
-        let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(60));
+        let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(60))
+            .await
+            .unwrap();
         sleep(Duration::from_millis(50)).await;
         let result = *dispute_manager.borrow();
-        assert_eq!(result.unwrap(), *DISPUTE_MANAGER_ADDRESS);
+        assert_eq!(result, *DISPUTE_MANAGER_ADDRESS);
     }
 }

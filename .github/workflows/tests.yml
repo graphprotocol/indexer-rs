@@ -13,7 +13,7 @@ jobs:
     container:
       image: rust:1.80-bookworm
     steps:
-      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - run: |
           rustup component add rustfmt
           cargo fmt --all -- --check
@@ -38,7 +38,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
-      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Cache dependencies
         uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 #v2.7.3
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -66,7 +66,7 @@ jobs:
       DATABASE_URL: postgres://postgres@postgres:5432
       SQLX_OFFLINE: true
     steps:
-      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Cache dependencies
         uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 #v2.7.3
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -107,7 +107,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
-      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Cache dependencies
         uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 #v2.7.3
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -128,7 +128,7 @@ jobs:
       - name: Run tests and generate coverage report
         run: cargo llvm-cov test --all-features --workspace --lcov --output-path lcov.info
       - name: Upload coverage to Coveralls
-        uses: coverallsapp/github-action@4cdef0b2dbe0c9aa26bed48edb868db738625e79 # v2.3.3
+        uses: coverallsapp/github-action@cfd0633edbd2411b532b808ba7a8b5e04f76d2c8 # v2.3.4
         with:
           file: ./lcov.info
 
@@ -157,7 +157,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
-      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Cache dependencies
         uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 #v2.7.3
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}

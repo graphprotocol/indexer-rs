@@ -4,6 +4,7 @@
 use alloy::signers::local::{
     coins_bip39::English, LocalSignerError, MnemonicBuilder, PrivateKeySigner,
 };
+use bip39::Mnemonic;
 
 /// Build Wallet from Private key or Mnemonic
 pub fn build_wallet(value: &str) -> Result<PrivateKeySigner, LocalSignerError> {
@@ -13,8 +14,8 @@ pub fn build_wallet(value: &str) -> Result<PrivateKeySigner, LocalSignerError> {
 }
 
 // Format public key to a String
-pub fn public_key(value: &str) -> Result<String, LocalSignerError> {
-    let wallet = build_wallet(value)?;
+pub fn public_key(value: &Mnemonic) -> Result<String, LocalSignerError> {
+    let wallet = build_wallet(&value.to_string())?;
     let addr = format!("{:?}", wallet.address());
     Ok(addr)
 }

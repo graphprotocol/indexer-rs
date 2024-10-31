@@ -150,7 +150,11 @@ impl DenyListCheck {
 
 #[async_trait::async_trait]
 impl Check for DenyListCheck {
-    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult {
+    async fn check(
+        &self,
+        _: &tap_core::receipt::Context,
+        receipt: &ReceiptWithState<Checking>,
+    ) -> CheckResult {
         let receipt_signer = receipt
             .signed_receipt()
             .recover_signer(&self.domain_separator)
@@ -195,7 +199,7 @@ mod tests {
     use std::str::FromStr;
 
     use alloy::hex::ToHexExt;
-    use tap_core::receipt::ReceiptWithState;
+    use tap_core::receipt::{Context, ReceiptWithState};
     use tokio::sync::watch;
 
     use crate::test_vectors::{self, create_signed_receipt, TAP_SENDER};
@@ -243,7 +247,10 @@ mod tests {
         let checking_receipt = ReceiptWithState::new(signed_receipt);
 
         // Check that the receipt is rejected
-        assert!(deny_list_check.check(&checking_receipt).await.is_err());
+        assert!(deny_list_check
+            .check(&Context::new(), &checking_receipt)
+            .await
+            .is_err());
     }
 
     #[sqlx::test(migrations = "../migrations")]
@@ -257,7 +264,10 @@ mod tests {
         // Check that the receipt is valid
         let checking_receipt = ReceiptWithState::new(signed_receipt);
 
-        deny_list_check.check(&checking_receipt).await.unwrap();
+        deny_list_check
+            .check(&Context::new(), &checking_receipt)
+            .await
+            .unwrap();
 
         // Add the sender to the denylist
         sqlx::query!(
@@ -273,7 +283,10 @@ mod tests {
 
         // Check that the receipt is rejected
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        assert!(deny_list_check.check(&checking_receipt).await.is_err());
+        assert!(deny_list_check
+            .check(&Context::new(), &checking_receipt)
+            .await
+            .is_err());
 
         // Remove the sender from the denylist
         sqlx::query!(
@@ -289,6 +302,9 @@ mod tests {
 
         // Check that the receipt is valid again
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        deny_list_check.check(&checking_receipt).await.unwrap();
+        deny_list_check
+            .check(&Context::new(), &checking_receipt)
+            .await
+            .unwrap();
     }
 }

@@ -30,8 +30,13 @@ impl SenderBalanceCheck {
 
 #[async_trait::async_trait]
 impl Check for SenderBalanceCheck {
-    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult {
+    async fn check(
+        &self,
+        _: &tap_core::receipt::Context,
+        receipt: &ReceiptWithState<Checking>,
+    ) -> CheckResult {
         let escrow_accounts_snapshot = self.escrow_accounts.borrow();
+
         let receipt_signer = receipt
             .signed_receipt()
             .recover_signer(&self.domain_separator)

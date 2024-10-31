@@ -24,7 +24,11 @@ pub struct Value {
 
 #[async_trait::async_trait]
 impl Check for Value {
-    async fn check(&self, receipt: &ReceiptWithState<Checking>) -> CheckResult {
+    async fn check(
+        &self,
+        _: &tap_core::receipt::Context,
+        receipt: &ReceiptWithState<Checking>,
+    ) -> CheckResult {
         let value = receipt.signed_receipt().message.value;
         let query_id = receipt.signed_receipt().unique_hash();
 

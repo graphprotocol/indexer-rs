@@ -37,7 +37,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Extract version from tag
         id: extract_version
         run: |
@@ -69,7 +69,7 @@ jobs:
             type=sha
 
       - name: Log in to the Container registry
-        uses: docker/login-action@1f36f5b7a2d2f7bfd524795fc966e6d88c37baa9
+        uses: docker/login-action@06895751d15a223ec091bea144ad5c7f50d228d0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}

@@ -7,6 +7,7 @@ use alloy::primitives::U256;
 use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
 
+use futures::{stream, StreamExt};
 use graphql_client::GraphQLQuery;
 use jsonrpsee::http_client::HttpClientBuilder;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
@@ -24,7 +25,7 @@ use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use sqlx::PgPool;
 use tap_core::rav::SignedRAV;
-use tracing::{error, Level};
+use tracing::{error, warn, Level};
 
 use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
 use crate::adaptative_concurrency::AdaptiveLimiter;
@@ -124,6 +125,7 @@ pub struct SenderAccountArgs {
     pub escrow_accounts: Receiver<EscrowAccounts>,
     pub indexer_allocations: Receiver<HashSet<Address>>,
     pub escrow_subgraph: &'static SubgraphClient,
+    pub network_subgraph: &'static SubgraphClient,
     pub domain_separator: Eip712Domain,
     pub sender_aggregator_endpoint: Url,
     pub allocation_ids: HashSet<Address>,
@@ -155,6 +157,8 @@ pub struct State {
     escrow_accounts: Receiver<EscrowAccounts>,
 
     escrow_subgraph: &'static SubgraphClient,
+    network_subgraph: &'static SubgraphClient,
+
     escrow_adapter: EscrowAdapter,
     domain_separator: Eip712Domain,
     pgpool: PgPool,
@@ -387,6 +391,58 @@ impl State {
             .with_label_values(&[&self.sender.to_string()])
             .set(0);
     }
+
+    /// receives a list of possible closed allocations and verify
+    /// if they are really closed
+    async fn check_closed_allocations(
+        &self,
+        allocation_ids: HashSet<&Address>,
+    ) -> anyhow::Result<HashSet<Address>> {
+        if allocation_ids.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let allocation_ids: Vec<String> = allocation_ids
+            .into_iter()
+            .map(|addr| addr.to_string().to_lowercase())
+            .collect();
+
+        let mut hash: Option<String> = None;
+        let mut last: Option<String> = None;
+        let mut responses = vec![];
+        let page_size = 200;
+
+        loop {
+            let result = self
+                .network_subgraph
+                .query::<ClosedAllocations, _>(closed_allocations::Variables {
+                    allocation_ids: allocation_ids.clone(),
+                    first: page_size,
+                    last: last.unwrap_or_default(),
+                    block: hash.map(|hash| closed_allocations::Block_height {
+                        hash: Some(hash),
+                        number: None,
+                        number_gte: None,
+                    }),
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+            let mut data = result?;
+            let page_len = data.allocations.len();
+
+            hash = data.meta.and_then(|meta| meta.block.hash);
+            last = data.allocations.last().map(|entry| entry.id.to_string());
+
+            responses.append(&mut data.allocations);
+            if (page_len as i64) < page_size {
+                break;
+            }
+        }
+        Ok(responses
+            .into_iter()
+            .map(|allocation| Address::from_str(&allocation.id))
+            .collect::<Result<HashSet<Address>, _>>()?)
+    }
 }
 
 #[derive(GraphQLQuery)]
@@ -397,6 +453,17 @@ impl State {
     variables_derives = "Clone"
 )]
 struct UnfinalizedTransactions;
+
+type Bytes = String;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "../graphql/network.schema.graphql",
+    query_path = "../graphql/closed_allocations.query.graphql",
+    response_derives = "Debug",
+    variables_derives = "Clone"
+)]
+struct ClosedAllocations;
 
 #[async_trait::async_trait]
 impl Actor for SenderAccount {
@@ -414,6 +481,7 @@ impl Actor for SenderAccount {
             escrow_accounts,
             indexer_allocations,
             escrow_subgraph,
+            network_subgraph,
             domain_separator,
             sender_aggregator_endpoint,
             allocation_ids,
@@ -570,6 +638,7 @@ impl Actor for SenderAccount {
             adaptive_limiter: AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50),
             escrow_accounts,
             escrow_subgraph,
+            network_subgraph,
             escrow_adapter,
             domain_separator,
             pgpool,
@@ -578,12 +647,14 @@ impl Actor for SenderAccount {
             config,
         };
 
-        for allocation_id in &allocation_ids {
+        stream::iter(allocation_ids)
             // Create a sender allocation for each allocation
-            state
-                .create_sender_allocation(myself.clone(), *allocation_id)
-                .await?;
-        }
+            .map(|allocation_id| state.create_sender_allocation(myself.clone(), allocation_id))
+            .buffered(10) // Limit concurrency to 10 allocations at a time
+            .collect::<Vec<anyhow::Result<()>>>()
+            .await
+            .into_iter()
+            .collect::<anyhow::Result<Vec<()>>>()?;
 
         tracing::info!(sender = %sender_id, "SenderAccount created!");
         Ok(state)
@@ -738,6 +809,7 @@ impl Actor for SenderAccount {
             }
             SenderAccountMessage::UpdateAllocationIds(allocation_ids) => {
                 // Create new sender allocations
+                let mut new_allocation_ids = state.allocation_ids.clone();
                 for allocation_id in allocation_ids.difference(&state.allocation_ids) {
                     if let Err(error) = state
                         .create_sender_allocation(myself.clone(), *allocation_id)
@@ -748,28 +820,46 @@ impl Actor for SenderAccount {
                             %allocation_id,
                             "There was an error while creating Sender Allocation."
                         );
+                    } else {
+                        new_allocation_ids.insert(*allocation_id);
                     }
                 }
 
+                let possibly_closed_allocations = state
+                    .allocation_ids
+                    .difference(&allocation_ids)
+                    .collect::<HashSet<_>>();
+
+                let really_closed = state
+                    .check_closed_allocations(possibly_closed_allocations.clone())
+                    .await
+                    .inspect_err(|err| error!(error = %err, "There was an error while querying the subgraph for closed allocations"))
+                    .unwrap_or_default();
+
                 // Remove sender allocations
-                for allocation_id in state.allocation_ids.difference(&allocation_ids) {
-                    if let Some(sender_handle) = ActorRef::<SenderAllocationMessage>::where_is(
-                        state.format_sender_allocation(allocation_id),
-                    ) {
-                        tracing::trace!(%allocation_id, "SenderAccount shutting down SenderAllocation");
-                        // we can not send a rav request to this allocation
-                        // because it's gonna trigger the last rav
-                        state.sender_fee_tracker.block_allocation_id(*allocation_id);
-                        sender_handle.stop(None);
+                for allocation_id in possibly_closed_allocations {
+                    if really_closed.contains(allocation_id) {
+                        if let Some(sender_handle) = ActorRef::<SenderAllocationMessage>::where_is(
+                            state.format_sender_allocation(allocation_id),
+                        ) {
+                            tracing::trace!(%allocation_id, "SenderAccount shutting down SenderAllocation");
+                            // we can not send a rav request to this allocation
+                            // because it's gonna trigger the last rav
+                            state.sender_fee_tracker.block_allocation_id(*allocation_id);
+                            sender_handle.stop(None);
+                            new_allocation_ids.remove(allocation_id);
+                        }
+                    } else {
+                        warn!(%allocation_id, "Missing allocation was not closed yet");
                     }
                 }
 
                 tracing::trace!(
                     old_ids= ?state.allocation_ids,
-                    new_ids = ?allocation_ids,
+                    new_ids = ?new_allocation_ids,
                     "Updating allocation ids"
                 );
-                state.allocation_ids = allocation_ids;
+                state.allocation_ids = new_allocation_ids;
             }
             SenderAccountMessage::NewAllocationId(allocation_id) => {
                 if let Err(error) = state
@@ -888,12 +978,12 @@ impl Actor for SenderAccount {
 
                 // rav tracker is not updated because it's still not redeemed
             }
-            SupervisionEvent::ActorPanicked(cell, error) => {
+            SupervisionEvent::ActorFailed(cell, error) => {
                 let sender_allocation = cell.get_name();
                 tracing::warn!(
                     ?sender_allocation,
                     ?error,
-                    "Actor SenderAllocation panicked. Restarting..."
+                    "Actor SenderAllocation failed. Restarting..."
                 );
                 let Some(allocation_id) = cell.get_name() else {
                     tracing::error!("SenderAllocation doesn't have a name");
@@ -1023,6 +1113,7 @@ pub mod tests {
         rav_request_trigger_value: u128,
         max_amount_willing_to_lose_grt: u128,
         escrow_subgraph_endpoint: &str,
+        network_subgraph_endpoint: &str,
         rav_request_receipt_limit: u64,
     ) -> (
         ActorRef<SenderAccountMessage>,
@@ -1040,6 +1131,11 @@ pub mod tests {
             escrow_polling_interval: Duration::default(),
         }));
 
+        let network_subgraph = Box::leak(Box::new(SubgraphClient::new(
+            reqwest::Client::new(),
+            None,
+            DeploymentDetails::for_query_url(network_subgraph_endpoint).unwrap(),
+        )));
         let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
             reqwest::Client::new(),
             None,
@@ -1066,6 +1162,7 @@ pub mod tests {
             escrow_accounts: escrow_accounts_rx,
             indexer_allocations: watch::channel(initial_allocation).1,
             escrow_subgraph,
+            network_subgraph,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             sender_aggregator_endpoint: Url::parse(DUMMY_URL).unwrap(),
             allocation_ids: HashSet::new(),
@@ -1082,12 +1179,34 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_update_allocation_ids(pgpool: PgPool) {
+        // Start a mock graphql server using wiremock
+        let mock_server = MockServer::start().await;
+
+        let no_allocations_closed_guard = mock_server
+            .register_as_scoped(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("ClosedAllocations"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
+                            "meta": {
+                                "block": {
+                                    "number": 1,
+                                    "hash": "hash",
+                                    "timestamp": 1
+                                }
+                            },
+                            "allocations": []
+                        }
+                    }))),
+            )
+            .await;
+
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            &mock_server.uri(),
             RECEIPT_LIMIT,
         )
         .await;
@@ -1113,6 +1232,37 @@ pub mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
+        assert!(actor_ref.is_some());
+
+        drop(no_allocations_closed_guard);
+        mock_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("ClosedAllocations"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
+                            "meta": {
+                                "block": {
+                                    "number": 1,
+                                    "hash": "hash",
+                                    "timestamp": 1
+                                }
+                            },
+                            "allocations": [
+                                {"id": *ALLOCATION_ID_0 }
+                            ]
+                        }
+                    }))),
+            )
+            .await;
+
+        // try to delete sender allocation_id
+        sender_account
+            .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_none());
 
         // safely stop the manager
@@ -1123,12 +1273,34 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_new_allocation_id(pgpool: PgPool) {
+        // Start a mock graphql server using wiremock
+        let mock_server = MockServer::start().await;
+
+        let no_closed = mock_server
+            .register_as_scoped(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("ClosedAllocations"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
+                            "meta": {
+                                "block": {
+                                    "number": 1,
+                                    "hash": "hash",
+                                    "timestamp": 1
+                                }
+                            },
+                            "allocations": []
+                        }
+                    }))),
+            )
+            .await;
+
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            &mock_server.uri(),
             RECEIPT_LIMIT,
         )
         .await;
@@ -1152,6 +1324,40 @@ pub mod tests {
             ))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // try to delete sender allocation_id
+        sender_account
+            .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // should not delete it because it was not in network subgraph
+        let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
+        assert!(actor_ref.is_some());
+
+        // Mock result for closed allocations
+
+        drop(no_closed);
+        mock_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("ClosedAllocations"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
+                            "meta": {
+                                "block": {
+                                    "number": 1,
+                                    "hash": "hash",
+                                    "timestamp": 1
+                                }
+                            },
+                            "allocations": [
+                                {"id": *ALLOCATION_ID_0 }
+                            ]
+                        }
+                    }))),
+            )
+            .await;
 
         // try to delete sender allocation_id
         sender_account
@@ -1338,6 +1544,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            DUMMY_URL,
             RECEIPT_LIMIT,
         )
         .await;
@@ -1380,6 +1587,7 @@ pub mod tests {
             HashSet::new(),
             TRIGGER_VALUE,
             TRIGGER_VALUE,
+            DUMMY_URL,
             DUMMY_URL,
             RECEIPT_LIMIT,
         )
@@ -1440,6 +1648,7 @@ pub mod tests {
             HashSet::new(),
             TRIGGER_VALUE,
             TRIGGER_VALUE,
+            DUMMY_URL,
             DUMMY_URL,
             2,
         )
@@ -1507,6 +1716,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            DUMMY_URL,
             RECEIPT_LIMIT,
         )
         .await;
@@ -1559,6 +1769,7 @@ pub mod tests {
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             DUMMY_URL,
+            DUMMY_URL,
             RECEIPT_LIMIT,
         )
         .await;
@@ -1577,6 +1788,7 @@ pub mod tests {
             HashSet::new(),
             TRIGGER_VALUE,
             max_unaggregated_fees_per_sender,
+            DUMMY_URL,
             DUMMY_URL,
             RECEIPT_LIMIT,
         )
@@ -1633,6 +1845,7 @@ pub mod tests {
             HashSet::new(),
             u128::MAX,
             max_unaggregated_fees_per_sender,
+            DUMMY_URL,
             DUMMY_URL,
             RECEIPT_LIMIT,
         )
@@ -1732,6 +1945,7 @@ pub mod tests {
             TRIGGER_VALUE,
             u128::MAX,
             DUMMY_URL,
+            DUMMY_URL,
             RECEIPT_LIMIT,
         )
         .await;
@@ -1765,6 +1979,7 @@ pub mod tests {
             HashSet::new(),
             trigger_rav_request,
             u128::MAX,
+            DUMMY_URL,
             DUMMY_URL,
             RECEIPT_LIMIT,
         )
@@ -1873,6 +2088,7 @@ pub mod tests {
             TRIGGER_VALUE,
             u128::MAX,
             &mock_server.uri(),
+            DUMMY_URL,
             RECEIPT_LIMIT,
         )
         .await;
@@ -1929,6 +2145,7 @@ pub mod tests {
             TRIGGER_VALUE,
             u128::MAX,
             DUMMY_URL,
+            DUMMY_URL,
             RECEIPT_LIMIT,
         )
         .await;
@@ -1976,6 +2193,7 @@ pub mod tests {
             HashSet::new(),
             TRIGGER_VALUE,
             max_unaggregated_fees_per_sender,
+            DUMMY_URL,
             DUMMY_URL,
             RECEIPT_LIMIT,
         )

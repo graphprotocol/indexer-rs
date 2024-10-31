@@ -93,7 +93,9 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         *indexer_address,
         *network_sync_interval,
         *recently_closed_allocation_buffer,
-    );
+    )
+    .await
+    .expect("Failed to initialize indexer_allocations watcher");
 
     let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
         http_client.clone(),
@@ -130,6 +132,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         indexer_allocations,
         escrow_accounts,
         escrow_subgraph,
+        network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
         prefix: None,
     };
