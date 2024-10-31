@@ -350,13 +350,16 @@ impl SenderAllocationState {
         }: SenderAllocationArgs,
     ) -> anyhow::Result<Self> {
         let required_checks: Vec<Arc<dyn Check + Send + Sync>> = vec![
-            Arc::new(AllocationId::new(
-                config.indexer_address,
-                config.escrow_polling_interval,
-                sender,
-                allocation_id,
-                escrow_subgraph,
-            )),
+            Arc::new(
+                AllocationId::new(
+                    config.indexer_address,
+                    config.escrow_polling_interval,
+                    sender,
+                    allocation_id,
+                    escrow_subgraph,
+                )
+                .await,
+            ),
             Arc::new(Signature::new(
                 domain_separator.clone(),
                 escrow_accounts.clone(),
