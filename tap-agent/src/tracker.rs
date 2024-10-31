@@ -24,5 +24,6 @@ pub trait AllocationStats<U> {
     fn update(&mut self, v: U);
     fn is_allowed_to_trigger_rav_request(&self) -> bool;
     fn get_stats(&self) -> U;
+    fn get_total_fee(&self) -> u128;
     fn get_valid_fee(&mut self) -> u128;
 }
