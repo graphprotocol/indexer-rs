@@ -119,4 +119,8 @@ impl AllocationStats<UnaggregatedReceipts> for SenderFeeStats {
     fn get_valid_fee(&mut self) -> u128 {
         self.total_fee - self.buffer_info.get_sum().min(self.total_fee)
     }
+
+    fn get_total_fee(&self) -> u128 {
+        self.total_fee
+    }
 }
