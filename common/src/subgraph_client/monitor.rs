@@ -41,8 +41,7 @@ pub async fn monitor_deployment_status(
     status_url: Url,
 ) -> anyhow::Result<Receiver<DeploymentStatus>> {
     new_watcher(Duration::from_secs(30), move || {
-        let status_url = status_url.clone();
-        async move { check_deployment_status(deployment, status_url).await }
+        check_deployment_status(deployment, status_url.clone())
     })
     .await
 }

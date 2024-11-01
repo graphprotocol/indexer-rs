@@ -152,9 +152,12 @@ impl DeploymentClient {
                 Some((deployment, url)) => Some(
                     monitor_deployment_status(deployment, url)
                         .await
-                        .expect(&format!(
-                            "Failed to initialize monitoring for deployment {deployment}"
-                        )),
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "Failed to initialize monitoring for deployment `{}`",
+                                deployment
+                            )
+                        }),
                 ),
                 None => None,
             },
