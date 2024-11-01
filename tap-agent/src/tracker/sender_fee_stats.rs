@@ -18,7 +18,7 @@ pub struct SenderFeeStats {
     // heaviest allocation, because they are already marked for finalization,
     // and thus requesting RAVs on their own in their `post_stop` routine.
     pub(super) blocked: bool,
-    pub(super) requesting: bool,
+    pub(super) requesting: u128,
 
     // Buffer info
     pub(super) buffer_info: BufferInfo,
@@ -103,7 +103,7 @@ impl AllocationStats<UnaggregatedReceipts> for SenderFeeStats {
     }
 
     fn is_allowed_to_trigger_rav_request(&self) -> bool {
-        !self.backoff_info.in_backoff() && !self.blocked && !self.requesting
+        !self.backoff_info.in_backoff() && !self.blocked && self.requesting == 0
     }
 
     fn get_stats(&self) -> UnaggregatedReceipts {
