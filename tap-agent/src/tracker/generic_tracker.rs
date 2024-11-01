@@ -143,7 +143,9 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
     }
 
     pub fn get_ravable_total_fee(&mut self) -> u128 {
-        self.get_total_fee() - self.get_buffered_fee().min(self.global.total_fee)
+        self.get_total_fee()
+            - self.global.requesting
+            - self.get_buffered_fee().min(self.global.total_fee)
     }
 
     fn get_buffered_fee(&mut self) -> u128 {
