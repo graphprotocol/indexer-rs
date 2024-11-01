@@ -983,11 +983,14 @@ pub mod tests {
         escrow_subgraph_endpoint: &str,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
     ) -> SenderAllocationArgs {
-        let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
-            None,
-            DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
-        )));
+        let escrow_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
+            )
+            .await,
+        ));
 
         let escrow_accounts_eventual = Eventual::from_value(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),

@@ -4,7 +4,6 @@
 use super::monitor::{monitor_deployment_status, DeploymentStatus};
 use anyhow::anyhow;
 use axum::body::Bytes;
-use eventuals::Eventual;
 use graphql_client::GraphQLQuery;
 use reqwest::{header, Url};
 use serde_json::{Map, Value};
@@ -13,6 +12,7 @@ use thegraph_graphql_http::{
     graphql::{Document, IntoDocument},
     http::request::{IntoRequestParameters, RequestParameters},
 };
+use tokio::sync::watch::Receiver;
 use tracing::warn;
 
 #[derive(Clone)]
@@ -140,18 +140,27 @@ impl DeploymentDetails {
 
 struct DeploymentClient {
     pub http_client: reqwest::Client,
-    pub status: Option<Eventual<DeploymentStatus>>,
+    pub status: Option<Receiver<DeploymentStatus>>,
     pub query_url: Url,
 }
 
 impl DeploymentClient {
-    pub fn new(http_client: reqwest::Client, details: DeploymentDetails) -> Self {
+    pub async fn new(http_client: reqwest::Client, details: DeploymentDetails) -> Self {
         Self {
             http_client,
-            status: details
-                .deployment
-                .zip(details.status_url)
-                .map(|(deployment, url)| monitor_deployment_status(deployment, url)),
+            status: match details.deployment.zip(details.status_url) {
+                Some((deployment, url)) => Some(
+                    monitor_deployment_status(deployment, url)
+                        .await
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "Failed to initialize monitoring for deployment `{}`",
+                                deployment
+                            )
+                        }),
+                ),
+                None => None,
+            },
             query_url: details.query_url,
         }
     }
@@ -161,7 +170,7 @@ impl DeploymentClient {
         variables: T::Variables,
     ) -> Result<ResponseResult<T::ResponseData>, anyhow::Error> {
         if let Some(ref status) = self.status {
-            let deployment_status = status.value().await.expect("reading deployment status");
+            let deployment_status = status.borrow();
 
             if !deployment_status.synced || &deployment_status.health != "healthy" {
                 return Err(anyhow!(
@@ -198,7 +207,7 @@ impl DeploymentClient {
 
     pub async fn query_raw(&self, body: Bytes) -> Result<reqwest::Response, anyhow::Error> {
         if let Some(ref status) = self.status {
-            let deployment_status = status.value().await.expect("reading deployment status");
+            let deployment_status = status.borrow();
 
             if !deployment_status.synced || &deployment_status.health != "healthy" {
                 return Err(anyhow!(
@@ -226,14 +235,17 @@ pub struct SubgraphClient {
 }
 
 impl SubgraphClient {
-    pub fn new(
+    pub async fn new(
         http_client: reqwest::Client,
         local_deployment: Option<DeploymentDetails>,
         remote_deployment: DeploymentDetails,
     ) -> Self {
         Self {
-            local_client: local_deployment.map(|d| DeploymentClient::new(http_client.clone(), d)),
-            remote_client: DeploymentClient::new(http_client, remote_deployment),
+            local_client: match local_deployment {
+                Some(d) => Some(DeploymentClient::new(http_client.clone(), d).await),
+                None => None,
+            },
+            remote_client: DeploymentClient::new(http_client, remote_deployment).await,
         }
     }
 
@@ -335,12 +347,13 @@ mod test {
         mock_server
     }
 
-    fn network_subgraph_client() -> SubgraphClient {
+    async fn network_subgraph_client() -> SubgraphClient {
         SubgraphClient::new(
             reqwest::Client::new(),
             None,
             DeploymentDetails::for_query_url(NETWORK_SUBGRAPH_URL).unwrap(),
         )
+        .await
     }
 
     #[derive(GraphQLQuery)]
@@ -359,6 +372,7 @@ mod test {
 
         // Check that the response is valid JSON
         let result = network_subgraph_client()
+            .await
             .query::<CurrentEpoch, _>(current_epoch::Variables {})
             .await
             .unwrap();
@@ -447,6 +461,7 @@ mod test {
 
         // Query the subgraph
         let data = client
+            .await
             .query::<UserQuery, _>(user_query::Variables {})
             .await
             .expect("Query should succeed")
@@ -527,6 +542,7 @@ mod test {
 
         // Query the subgraph
         let data = client
+            .await
             .query::<UserQuery, _>(user_query::Variables {})
             .await
             .expect("Query should succeed")
@@ -607,6 +623,7 @@ mod test {
 
         // Query the subgraph
         let data = client
+            .await
             .query::<UserQuery, _>(user_query::Variables {})
             .await
             .expect("Query should succeed")

@@ -1151,16 +1151,22 @@ pub mod tests {
             escrow_polling_interval: Duration::default(),
         }));
 
-        let network_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
-            None,
-            DeploymentDetails::for_query_url(network_subgraph_endpoint).unwrap(),
-        )));
-        let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
-            None,
-            DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
-        )));
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(network_subgraph_endpoint).unwrap(),
+            )
+            .await,
+        ));
+        let escrow_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
+            )
+            .await,
+        ));
         let (mut writer, escrow_accounts_eventual) = Eventual::new();
 
         writer.write(EscrowAccounts::new(

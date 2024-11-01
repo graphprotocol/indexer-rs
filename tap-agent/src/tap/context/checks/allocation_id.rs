@@ -135,7 +135,8 @@ mod tests {
                 "https://api.studio.thegraph.com/query/53925/arb-sepolia-tap-subgraph/version/latest"
             )
             .unwrap(),
-        )));
+        ).await
+        ));
 
         let result = super::query_escrow_check_transactions(
             allocation_id.parse().unwrap(),
