@@ -22,7 +22,7 @@ impl GlobalTracker<u128> for u128 {
 
 impl GlobalTracker<UnaggregatedReceipts> for GlobalFeeTracker {
     fn get_total_fee(&self) -> u128 {
-        self.total_fee - self.requesting
+        self.total_fee
     }
 
     fn update(&mut self, new_fee: u128) {
