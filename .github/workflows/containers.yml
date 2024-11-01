@@ -66,6 +66,10 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{steps.extract_version.outputs.version}}
             type=semver,pattern={{major}}.{{minor}}.{{patch}},value=${{steps.extract_version.outputs.version}}
             type=semver,pattern={{major}},value=${{steps.extract_version.outputs.version}}
+            type=semver,pattern=v{{version}},value=${{steps.extract_version.outputs.version}}
+            type=semver,pattern=v{{major}}.{{minor}},value=${{steps.extract_version.outputs.version}}
+            type=semver,pattern=v{{major}}.{{minor}}.{{patch}},value=${{steps.extract_version.outputs.version}}
+            type=semver,pattern=v{{major}},value=${{steps.extract_version.outputs.version}}
             type=sha
 
       - name: Log in to the Container registry
