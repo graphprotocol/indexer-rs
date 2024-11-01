@@ -134,19 +134,22 @@ mod test {
 
     use super::*;
 
-    fn network_subgraph_client() -> &'static SubgraphClient {
-        Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
-            None,
-            DeploymentDetails::for_query_url(NETWORK_SUBGRAPH_URL).unwrap(),
-        )))
+    async fn network_subgraph_client() -> &'static SubgraphClient {
+        Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(NETWORK_SUBGRAPH_URL).unwrap(),
+            )
+            .await,
+        ))
     }
 
     #[tokio::test]
     #[ignore = "depends on the defunct hosted-service"]
     async fn test_network_query() {
         let result = get_allocations(
-            network_subgraph_client(),
+            network_subgraph_client().await,
             Address::from_str("0x326c584e0f0eab1f1f83c93cc6ae1acc0feba0bc").unwrap(),
             Duration::from_secs(1712448507),
         )
@@ -158,7 +161,7 @@ mod test {
     #[ignore = "depends on the defunct hosted-service"]
     async fn test_network_query_empty_response() {
         let result = get_allocations(
-            network_subgraph_client(),
+            network_subgraph_client().await,
             Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
             Duration::from_secs(1712448507),
         )

@@ -205,36 +205,39 @@ impl IndexerService {
             .build()
             .expect("Failed to init HTTP client");
 
-        let network_subgraph: &'static SubgraphClient = Box::leak(Box::new(SubgraphClient::new(
-            http_client.clone(),
-            options
-                .config
-                .subgraphs
-                .network
-                .config
-                .deployment_id
-                .map(|deployment| {
-                    DeploymentDetails::for_graph_node_url(
-                        options.config.graph_node.status_url.clone(),
-                        options.config.graph_node.query_url.clone(),
-                        deployment,
-                    )
-                })
-                .transpose()
-                .expect(
-                    "Failed to parse graph node query endpoint and network subgraph deployment",
-                ),
-            DeploymentDetails::for_query_url_with_token(
-                options.config.subgraphs.network.config.query_url.as_ref(),
+        let network_subgraph: &'static SubgraphClient = Box::leak(Box::new(
+            SubgraphClient::new(
+                http_client.clone(),
                 options
                     .config
                     .subgraphs
                     .network
                     .config
-                    .query_auth_token
-                    .clone(),
-            )?,
-        )));
+                    .deployment_id
+                    .map(|deployment| {
+                        DeploymentDetails::for_graph_node_url(
+                            options.config.graph_node.status_url.clone(),
+                            options.config.graph_node.query_url.clone(),
+                            deployment,
+                        )
+                    })
+                    .transpose()
+                    .expect(
+                        "Failed to parse graph node query endpoint and network subgraph deployment",
+                    ),
+                DeploymentDetails::for_query_url_with_token(
+                    options.config.subgraphs.network.config.query_url.as_ref(),
+                    options
+                        .config
+                        .subgraphs
+                        .network
+                        .config
+                        .query_auth_token
+                        .clone(),
+                )?,
+            )
+            .await,
+        ));
 
         // Identify the dispute manager for the configured network
         let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(3600))
@@ -269,34 +272,39 @@ impl IndexerService {
             dispute_manager,
         );
 
-        let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(SubgraphClient::new(
-            http_client,
-            options
-                .config
-                .subgraphs
-                .escrow
-                .config
-                .deployment_id
-                .map(|deployment| {
-                    DeploymentDetails::for_graph_node_url(
-                        options.config.graph_node.status_url.clone(),
-                        options.config.graph_node.query_url.clone(),
-                        deployment,
-                    )
-                })
-                .transpose()
-                .expect("Failed to parse graph node query endpoint and escrow subgraph deployment"),
-            DeploymentDetails::for_query_url_with_token(
-                options.config.subgraphs.escrow.config.query_url.as_ref(),
+        let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(
+            SubgraphClient::new(
+                http_client,
                 options
                     .config
                     .subgraphs
                     .escrow
                     .config
-                    .query_auth_token
-                    .clone(),
-            )?,
-        )));
+                    .deployment_id
+                    .map(|deployment| {
+                        DeploymentDetails::for_graph_node_url(
+                            options.config.graph_node.status_url.clone(),
+                            options.config.graph_node.query_url.clone(),
+                            deployment,
+                        )
+                    })
+                    .transpose()
+                    .expect(
+                        "Failed to parse graph node query endpoint and escrow subgraph deployment",
+                    ),
+                DeploymentDetails::for_query_url_with_token(
+                    options.config.subgraphs.escrow.config.query_url.as_ref(),
+                    options
+                        .config
+                        .subgraphs
+                        .escrow
+                        .config
+                        .query_auth_token
+                        .clone(),
+                )?,
+            )
+            .await,
+        ));
 
         let escrow_accounts = escrow_accounts(
             escrow_subgraph,
