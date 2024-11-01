@@ -1059,7 +1059,7 @@ pub mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use tokio::sync::watch;
     use wiremock::matchers::{body_string_contains, method};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::{Mock, MockGuard, MockServer, ResponseTemplate};
 
     // we implement the PartialEq and Eq traits for SenderAccountMessage to be able to compare
     impl Eq for SenderAccountMessage {}
@@ -1109,6 +1109,23 @@ pub mod tests {
     const ESCROW_VALUE: u128 = 1000;
     const BUFFER_MS: u64 = 100;
     const RECEIPT_LIMIT: u64 = 10000;
+
+    async fn mock_escrow_subgraph() -> (MockServer, MockGuard) {
+        let mock_ecrow_subgraph_server: MockServer = MockServer::start().await;
+        let _mock_ecrow_subgraph = mock_ecrow_subgraph_server
+                .register_as_scoped(
+                    Mock::given(method("POST"))
+                        .and(body_string_contains("TapTransactions"))
+                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
+                                "transactions": [{
+                                    "id": "0x00224ee6ad4ae77b817b4e509dc29d644da9004ad0c44005a7f34481d421256409000000"
+                                }],
+                            }
+                        }))),
+                )
+                .await;
+        (mock_ecrow_subgraph_server, _mock_ecrow_subgraph)
+    }
 
     async fn create_sender_account(
         pgpool: PgPool,
@@ -1201,12 +1218,14 @@ pub mod tests {
             )
             .await;
 
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
             TRIGGER_VALUE,
-            DUMMY_URL,
+            &mock_escrow_subgraph_server.uri(),
             &mock_server.uri(),
             RECEIPT_LIMIT,
         )
@@ -1295,12 +1314,14 @@ pub mod tests {
             )
             .await;
 
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
             TRIGGER_VALUE,
-            DUMMY_URL,
+            &mock_escrow_subgraph_server.uri(),
             &mock_server.uri(),
             RECEIPT_LIMIT,
         )
@@ -1711,12 +1732,13 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_remove_sender_account(pgpool: PgPool) {
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             vec![*ALLOCATION_ID_0].into_iter().collect(),
             TRIGGER_VALUE,
             TRIGGER_VALUE,
-            DUMMY_URL,
+            &mock_escrow_subgraph_server.uri(),
             DUMMY_URL,
             RECEIPT_LIMIT,
         )
