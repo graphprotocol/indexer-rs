@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-common-v1.2.1...indexer-common-v1.3.0) (2024-11-01)
+
+
+### Features
+
+* enable value check ([#430](https://github.com/graphprotocol/indexer-rs/issues/430)) ([466a5a9](https://github.com/graphprotocol/indexer-rs/commit/466a5a92c66f5cd31f5aa9c20fb51cd0df391d6c))
+
 ## [1.2.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-common-v1.2.0...indexer-common-v1.2.1) (2024-10-30)
 
 
