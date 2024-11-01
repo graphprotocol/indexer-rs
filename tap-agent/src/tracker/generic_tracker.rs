@@ -164,8 +164,8 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
             .id_to_fee
             .entry(allocation_id)
             .or_insert(SenderFeeStats::default_from_extra(&self.extra_data));
-        entry.requesting = true;
-        self.global.requesting += entry.total_fee;
+        entry.requesting = entry.total_fee;
+        self.global.requesting += entry.requesting;
     }
 
     /// Should be called before `update`
@@ -174,8 +174,8 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
             .id_to_fee
             .entry(allocation_id)
             .or_insert(SenderFeeStats::default_from_extra(&self.extra_data));
-        entry.requesting = false;
-        self.global.requesting -= entry.total_fee;
+        self.global.requesting -= entry.requesting;
+        entry.requesting = 0;
     }
 
     pub fn ok_rav_request(&mut self, allocation_id: Address) {
