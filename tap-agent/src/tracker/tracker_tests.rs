@@ -265,13 +265,13 @@ fn test_ongoing_rav_requests() {
     tracker.start_rav_request(allocation_id_2);
 
     assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
-    assert_eq!(tracker.get_total_fee(), 30);
+    assert_eq!(tracker.get_total_fee(), 60);
     assert_eq!(tracker.get_ravable_total_fee(), 30);
 
     tracker.add(allocation_id_2, 1, get_current_timestamp_u64_ns());
 
     assert_eq!(tracker.get_heaviest_allocation_id(), Some(allocation_id_1));
-    assert_eq!(tracker.get_total_fee(), 31);
+    assert_eq!(tracker.get_total_fee(), 61);
     assert_eq!(tracker.get_ravable_total_fee(), 31);
 
     tracker.finish_rav_request(allocation_id_2);
