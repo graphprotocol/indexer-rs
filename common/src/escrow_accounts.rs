@@ -11,13 +11,10 @@ use alloy::primitives::{Address, U256};
 use anyhow::{anyhow, Result};
 use graphql_client::GraphQLQuery;
 use thiserror::Error;
-use tokio::{
-    sync::watch::{self, Receiver},
-    time::{self, sleep},
-};
+use tokio::sync::watch::Receiver;
 use tracing::{error, warn};
 
-use crate::prelude::SubgraphClient;
+use crate::{prelude::SubgraphClient, watcher};
 
 #[derive(Error, Debug)]
 pub enum EscrowAccountsError {
@@ -107,34 +104,11 @@ pub async fn escrow_accounts(
     interval: Duration,
     reject_thawing_signers: bool,
 ) -> Receiver<EscrowAccounts> {
-    let initial_accounts =
+    watcher::new_watcher(interval, move || {
         get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers)
-            .await
-            .expect("Failed to create escrow_accounts channel");
-    let (tx, rx) = watch::channel(initial_accounts);
-    tokio::spawn(async move {
-        let mut time_interval = time::interval(interval);
-        time_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-        loop {
-            time_interval.tick().await;
-            let result =
-                get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers).await;
-            match result {
-                Ok(accounts) => tx
-                    .send(accounts)
-                    .expect("Failed to update escrow_accounts channel"),
-                Err(err) => {
-                    error!(
-                        "Failed to fetch escrow accounts for indexer {:?}: {}",
-                        indexer_address, err
-                    );
-                    // Sleep for a bit before we retry
-                    sleep(interval.div_f32(2.0)).await;
-                }
-            }
-        }
-    });
-    rx
+    })
+    .await
+    .unwrap()
 }
 
 async fn get_escrow_accounts(

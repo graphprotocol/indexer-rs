@@ -141,8 +141,8 @@ where
     let signer = receipt
         .recover_signer(&state.domain_separator)
         .map_err(IndexerServiceError::CouldNotDecodeSigner)?;
-    let escrow_accounts = state.escrow_accounts.clone();
-    let sender = escrow_accounts
+    let sender = state
+        .escrow_accounts
         .borrow()
         .get_sender_for_signer(&signer)
         .map_err(IndexerServiceError::EscrowAccount)?;
