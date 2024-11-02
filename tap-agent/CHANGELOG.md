@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.4.1...indexer-tap-agent-v1.5.0) (2024-11-01)
+
+
+### Features
+
+* add sender fee tracker metric ([f4fb366](https://github.com/graphprotocol/indexer-rs/commit/f4fb36610a438a8c9e1ee73da44c369f247843d1))
+
+
+### Bug Fixes
+
+* recalculate all allocations ([09993b7](https://github.com/graphprotocol/indexer-rs/commit/09993b748ded427f485b6979a5ce342299d84dba))
+* use requesting value in global ([1ea3afa](https://github.com/graphprotocol/indexer-rs/commit/1ea3afae44800d467d27c8474612580f1ca2bee0))
+
 ## [1.4.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.4.0...indexer-tap-agent-v1.4.1) (2024-10-30)
 
 

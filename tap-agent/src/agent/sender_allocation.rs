@@ -350,13 +350,16 @@ impl SenderAllocationState {
         }: SenderAllocationArgs,
     ) -> anyhow::Result<Self> {
         let required_checks: Vec<Arc<dyn Check + Send + Sync>> = vec![
-            Arc::new(AllocationId::new(
-                config.indexer_address,
-                config.escrow_polling_interval,
-                sender,
-                allocation_id,
-                escrow_subgraph,
-            )),
+            Arc::new(
+                AllocationId::new(
+                    config.indexer_address,
+                    config.escrow_polling_interval,
+                    sender,
+                    allocation_id,
+                    escrow_subgraph,
+                )
+                .await,
+            ),
             Arc::new(Signature::new(
                 domain_separator.clone(),
                 escrow_accounts.clone(),
@@ -903,13 +906,30 @@ pub mod tests {
     use tokio::sync::{mpsc, watch};
     use wiremock::{
         matchers::{body_string_contains, method},
-        Mock, MockServer, Respond, ResponseTemplate,
+        Mock, MockGuard, MockServer, Respond, ResponseTemplate,
     };
 
     const DUMMY_URL: &str = "http://localhost:1234";
 
     pub struct MockSenderAccount {
         pub last_message_emitted: tokio::sync::mpsc::Sender<SenderAccountMessage>,
+    }
+
+    async fn mock_escrow_subgraph() -> (MockServer, MockGuard) {
+        let mock_ecrow_subgraph_server: MockServer = MockServer::start().await;
+        let _mock_ecrow_subgraph = mock_ecrow_subgraph_server
+                .register_as_scoped(
+                    Mock::given(method("POST"))
+                        .and(body_string_contains("TapTransactions"))
+                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
+                                "transactions": [{
+                                    "id": "0x00224ee6ad4ae77b817b4e509dc29d644da9004ad0c44005a7f34481d421256409000000"
+                                }],
+                            }
+                        }))),
+                )
+                .await;
+        (mock_ecrow_subgraph_server, _mock_ecrow_subgraph)
     }
 
     #[async_trait::async_trait]
@@ -962,11 +982,14 @@ pub mod tests {
         escrow_subgraph_endpoint: &str,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
     ) -> SenderAllocationArgs {
-        let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
-            None,
-            DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
-        )));
+        let escrow_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
+            )
+            .await,
+        ));
 
         let escrow_accounts_rx = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
@@ -1026,6 +1049,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn should_update_unaggregated_fees_on_start(pgpool: PgPool) {
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (mut last_message_emitted, sender_account, _join_handle) =
             create_mock_sender_account().await;
         // Add receipts to the database.
@@ -1039,7 +1063,7 @@ pub mod tests {
         let sender_allocation = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
-            DUMMY_URL,
+            &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
         .await;
@@ -1069,6 +1093,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn should_return_invalid_receipts_on_startup(pgpool: PgPool) {
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (mut message_receiver, sender_account, _join_handle) =
             create_mock_sender_account().await;
         // Add receipts to the database.
@@ -1082,7 +1107,7 @@ pub mod tests {
         let sender_allocation = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
-            DUMMY_URL,
+            &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
         .await;
@@ -1120,13 +1145,14 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_receive_new_receipt(pgpool: PgPool) {
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (mut message_receiver, sender_account, _join_handle) =
             create_mock_sender_account().await;
 
         let sender_allocation = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
-            DUMMY_URL,
+            &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
         .await;
@@ -1291,6 +1317,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_close_allocation_no_pending_fees(pgpool: PgPool) {
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (mut message_receiver, sender_account, _join_handle) =
             create_mock_sender_account().await;
 
@@ -1298,7 +1325,7 @@ pub mod tests {
         let sender_allocation = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
-            DUMMY_URL,
+            &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
         .await;
@@ -1412,9 +1439,14 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn should_return_unaggregated_fees_without_rav(pgpool: PgPool) {
-        let args =
-            create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
-                .await;
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+        let args = create_sender_allocation_args(
+            pgpool.clone(),
+            DUMMY_URL.to_string(),
+            &mock_escrow_subgraph_server.uri(),
+            None,
+        )
+        .await;
         let state = SenderAllocationState::new(args).await.unwrap();
 
         // Add receipts to the database.
@@ -1434,9 +1466,14 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn should_calculate_invalid_receipts_fee(pgpool: PgPool) {
-        let args =
-            create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
-                .await;
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+        let args = create_sender_allocation_args(
+            pgpool.clone(),
+            DUMMY_URL.to_string(),
+            &mock_escrow_subgraph_server.uri(),
+            None,
+        )
+        .await;
         let state = SenderAllocationState::new(args).await.unwrap();
 
         // Add receipts to the database.
@@ -1462,9 +1499,14 @@ pub mod tests {
     /// than the RAV's timestamp.
     #[sqlx::test(migrations = "../migrations")]
     async fn should_return_unaggregated_fees_with_rav(pgpool: PgPool) {
-        let args =
-            create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
-                .await;
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+        let args = create_sender_allocation_args(
+            pgpool.clone(),
+            DUMMY_URL.to_string(),
+            &mock_escrow_subgraph_server.uri(),
+            None,
+        )
+        .await;
         let state = SenderAllocationState::new(args).await.unwrap();
 
         // Add the RAV to the database.
@@ -1489,9 +1531,14 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_store_failed_rav(pgpool: PgPool) {
-        let args =
-            create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
-                .await;
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+        let args = create_sender_allocation_args(
+            pgpool.clone(),
+            DUMMY_URL.to_string(),
+            &mock_escrow_subgraph_server.uri(),
+            None,
+        )
+        .await;
         let state = SenderAllocationState::new(args).await.unwrap();
 
         let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
@@ -1519,9 +1566,14 @@ pub mod tests {
             }
         }
 
-        let args =
-            create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
-                .await;
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+        let args = create_sender_allocation_args(
+            pgpool.clone(),
+            DUMMY_URL.to_string(),
+            &mock_escrow_subgraph_server.uri(),
+            None,
+        )
+        .await;
         let mut state = SenderAllocationState::new(args).await.unwrap();
 
         let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
@@ -1553,12 +1605,17 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_mark_rav_last(pgpool: PgPool) {
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
         store_rav(&pgpool, signed_rav, SENDER.1).await.unwrap();
 
-        let args =
-            create_sender_allocation_args(pgpool.clone(), DUMMY_URL.to_string(), DUMMY_URL, None)
-                .await;
+        let args = create_sender_allocation_args(
+            pgpool.clone(),
+            DUMMY_URL.to_string(),
+            &mock_escrow_subgraph_server.uri(),
+            None,
+        )
+        .await;
         let state = SenderAllocationState::new(args).await.unwrap();
 
         // mark rav as final
@@ -1570,6 +1627,8 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_failed_rav_request(pgpool: PgPool) {
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+
         // Add receipts to the database.
         for i in 0..10 {
             let receipt =
@@ -1586,7 +1645,7 @@ pub mod tests {
         let sender_allocation = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
-            DUMMY_URL,
+            &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
         .await;

@@ -616,12 +616,15 @@ mod tests {
 
     const DUMMY_URL: &str = "http://localhost:1234";
 
-    fn get_subgraph_client() -> &'static SubgraphClient {
-        Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
-            None,
-            DeploymentDetails::for_query_url(DUMMY_URL).unwrap(),
-        )))
+    async fn get_subgraph_client() -> &'static SubgraphClient {
+        Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(DUMMY_URL).unwrap(),
+            )
+            .await,
+        ))
     }
 
     fn get_config() -> &'static super::SenderAccountConfig {
@@ -645,8 +648,8 @@ mod tests {
         let config = get_config();
 
         let (_allocations_tx, allocations_rx) = watch::channel(HashMap::new());
-        let escrow_subgraph = get_subgraph_client();
-        let network_subgraph = get_subgraph_client();
+        let escrow_subgraph = get_subgraph_client().await;
+        let network_subgraph = get_subgraph_client().await;
 
         let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
 
@@ -683,7 +686,7 @@ mod tests {
         join_handle.await.unwrap();
     }
 
-    fn create_state(pgpool: PgPool) -> (String, State) {
+    async fn create_state(pgpool: PgPool) -> (String, State) {
         let config = get_config();
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
         let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
@@ -703,8 +706,8 @@ mod tests {
                 pgpool,
                 indexer_allocations: watch::channel(HashSet::new()).1,
                 escrow_accounts: watch::channel(escrow_accounts).1,
-                escrow_subgraph: get_subgraph_client(),
-                network_subgraph: get_subgraph_client(),
+                escrow_subgraph: get_subgraph_client().await,
+                network_subgraph: get_subgraph_client().await,
                 sender_aggregator_endpoints: HashMap::from([
                     (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
                     (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
@@ -716,7 +719,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_pending_sender_allocations(pgpool: PgPool) {
-        let (_, state) = create_state(pgpool.clone());
+        let (_, state) = create_state(pgpool.clone()).await;
 
         // add receipts to the database
         for i in 1..=10 {
@@ -790,7 +793,7 @@ mod tests {
             }
         }
 
-        let (prefix, state) = create_state(pgpool.clone());
+        let (prefix, state) = create_state(pgpool.clone()).await;
         let (supervisor, handle) = DummyActor::spawn(None, DummyActor, ()).await.unwrap();
         // we wait to check if the sender is created
 
@@ -827,7 +830,7 @@ mod tests {
             }
         }
 
-        let (_prefix, state) = create_state(pgpool.clone());
+        let (_prefix, state) = create_state(pgpool.clone()).await;
         let (supervisor, handle) = DummyActor::spawn(None, DummyActor, ()).await.unwrap();
         // we wait to check if the sender is created
 

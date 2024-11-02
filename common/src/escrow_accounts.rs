@@ -201,16 +201,19 @@ mod tests {
     async fn test_current_accounts() {
         // Set up a mock escrow subgraph
         let mock_server = MockServer::start().await;
-        let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
-            None,
-            DeploymentDetails::for_query_url(&format!(
-                "{}/subgraphs/id/{}",
-                &mock_server.uri(),
-                *test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT
-            ))
-            .unwrap(),
-        )));
+        let escrow_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&format!(
+                    "{}/subgraphs/id/{}",
+                    &mock_server.uri(),
+                    *test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT
+                ))
+                .unwrap(),
+            )
+            .await,
+        ));
 
         let mock = Mock::given(method("POST"))
             .and(path(format!(

@@ -6,7 +6,7 @@ use crate::tap::checks::deny_list_check::DenyListCheck;
 use crate::tap::checks::receipt_max_val_check::ReceiptMaxValueCheck;
 use crate::tap::checks::sender_balance_check::SenderBalanceCheck;
 use crate::tap::checks::timestamp_check::TimestampCheck;
-// use crate::tap::checks::value_check::MinimumValue;
+use crate::tap::checks::value_check::MinimumValue;
 use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::Address;
@@ -57,7 +57,7 @@ impl IndexerTapContext {
             Arc::new(TimestampCheck::new(timestamp_error_tolerance)),
             Arc::new(DenyListCheck::new(pgpool.clone(), escrow_accounts, domain_separator).await),
             Arc::new(ReceiptMaxValueCheck::new(receipt_max_value)),
-            // Arc::new(MinimumValue::new(pgpool).await),
+            Arc::new(MinimumValue::new(pgpool).await),
         ]
     }
 

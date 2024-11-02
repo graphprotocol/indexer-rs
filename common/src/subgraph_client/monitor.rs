@@ -3,7 +3,6 @@
 
 use std::time::Duration;
 
-use eventuals::{timer, Eventual, EventualExt};
 use reqwest::Url;
 use serde::Deserialize;
 use serde_json::json;
@@ -12,15 +11,16 @@ use thegraph_graphql_http::{
     http::request::IntoRequestParameters,
     http_client::{ReqwestExt, ResponseResult},
 };
-use tokio::time::sleep;
-use tracing::warn;
+use tokio::sync::watch::Receiver;
+
+use crate::watcher::new_watcher;
 
 use super::Query;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeploymentStatusResponse {
-    indexing_statuses: Option<Vec<DeploymentStatus>>,
+    indexing_statuses: Vec<DeploymentStatus>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -36,48 +36,44 @@ async fn query<T: for<'de> Deserialize<'de>>(
     Ok(reqwest::Client::new().post(url).send_graphql(query).await?)
 }
 
-pub fn monitor_deployment_status(
+pub async fn monitor_deployment_status(
     deployment: DeploymentId,
     status_url: Url,
-) -> Eventual<DeploymentStatus> {
-    timer(Duration::from_secs(30)).map_with_retry(
-        move |_| {
-            let status_url = status_url.clone();
+) -> anyhow::Result<Receiver<DeploymentStatus>> {
+    new_watcher(Duration::from_secs(30), move || {
+        check_deployment_status(deployment, status_url.clone())
+    })
+    .await
+}
 
-            async move {
-                let body = Query::new_with_variables(
-                    r#"
-                    query indexingStatuses($ids: [String!]!) {
-                        indexingStatuses(subgraphs: $ids) {
-                            synced
-                            health
-                        }
-                    }
-                "#,
-                    [("ids", json!([deployment.to_string()]))],
-                );
-
-                let response = query::<DeploymentStatusResponse>(status_url, body)
-                    .await
-                    .map_err(|e| {
-                        format!("Failed to query status of deployment `{deployment}`: {e}")
-                    })?;
-
-                response.map_err(|e| format!("{e}")).and_then(|data| {
-                    data.indexing_statuses
-                        .and_then(|statuses| statuses.first().cloned())
-                        .ok_or_else(|| format!("Deployment `{deployment}` not found"))
-                })
+pub async fn check_deployment_status(
+    deployment: DeploymentId,
+    status_url: Url,
+) -> Result<DeploymentStatus, anyhow::Error> {
+    let body = Query::new_with_variables(
+        r#"
+        query indexingStatuses($ids: [String!]!) {
+            indexingStatuses(subgraphs: $ids) {
+                synced
+                health
             }
-        },
-        move |err: String| async move {
-            warn!(
-                "Error querying deployment status for `{}`: {}",
-                deployment, err
-            );
-            sleep(Duration::from_secs(15)).await
-        },
-    )
+        }
+    "#,
+        [("ids", json!([deployment.to_string()]))],
+    );
+
+    let response = query::<DeploymentStatusResponse>(status_url, body).await?;
+
+    match response {
+        Ok(deployment_status) => deployment_status
+            .indexing_statuses
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Deployment `{deployment}` not found")),
+        Err(e) => Err(anyhow::anyhow!(
+            "Failed to query status of deployment `{deployment}`: {e}"
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -116,10 +112,12 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let status = monitor_deployment_status(deployment, status_url);
+        let status = monitor_deployment_status(deployment, status_url)
+            .await
+            .unwrap();
 
         assert_eq!(
-            status.value().await.unwrap(),
+            status.borrow().clone(),
             DeploymentStatus {
                 synced: true,
                 health: "healthy".to_string()
@@ -154,10 +152,12 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let status = monitor_deployment_status(deployment, status_url);
+        let status = monitor_deployment_status(deployment, status_url)
+            .await
+            .unwrap();
 
         assert_eq!(
-            status.value().await.unwrap(),
+            status.borrow().clone(),
             DeploymentStatus {
                 synced: false,
                 health: "healthy".to_string()
@@ -192,10 +192,12 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let status = monitor_deployment_status(deployment, status_url);
+        let status = monitor_deployment_status(deployment, status_url)
+            .await
+            .unwrap();
 
         assert_eq!(
-            status.value().await.unwrap(),
+            status.borrow().clone(),
             DeploymentStatus {
                 synced: true,
                 health: "unhealthy".to_string()
@@ -230,10 +232,12 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let status = monitor_deployment_status(deployment, status_url);
+        let status = monitor_deployment_status(deployment, status_url)
+            .await
+            .unwrap();
 
         assert_eq!(
-            status.value().await.unwrap(),
+            status.borrow().clone(),
             DeploymentStatus {
                 synced: true,
                 health: "failed".to_string()

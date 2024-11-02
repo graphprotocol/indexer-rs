@@ -10,7 +10,6 @@ use alloy::primitives::Address;
 use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
-    ops::{AddAssign, SubAssign},
     time::Duration,
 };
 
@@ -23,18 +22,6 @@ pub struct GlobalFeeTracker {
 impl PartialOrd for GlobalFeeTracker {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.get_total_fee().partial_cmp(&other.get_total_fee())
-    }
-}
-
-impl SubAssign<UnaggregatedReceipts> for GlobalFeeTracker {
-    fn sub_assign(&mut self, rhs: UnaggregatedReceipts) {
-        self.total_fee -= rhs.value;
-    }
-}
-
-impl AddAssign<UnaggregatedReceipts> for GlobalFeeTracker {
-    fn add_assign(&mut self, rhs: UnaggregatedReceipts) {
-        self.total_fee += rhs.value;
     }
 }
 
@@ -67,14 +54,20 @@ where
             .id_to_fee
             .entry(id)
             .or_insert(F::default_from_extra(&self.extra_data));
-        self.global -= fee.get_stats();
+
         fee.update(value);
-        self.global += value;
+
+        self.recalculate_global();
+    }
+
+    fn recalculate_global(&mut self) {
+        self.global
+            .update(self.id_to_fee.values().map(|fee| fee.get_total_fee()).sum());
     }
 
     pub fn remove(&mut self, id: Address) {
-        if let Some(old_fee) = self.id_to_fee.remove(&id) {
-            self.global -= old_fee.get_stats();
+        if self.id_to_fee.remove(&id).is_some() {
+            self.recalculate_global();
         }
     }
 
@@ -104,6 +97,10 @@ where
 
     pub fn get_total_fee(&self) -> u128 {
         self.global.get_total_fee()
+    }
+
+    pub fn get_total_fee_for_allocation(&self, allocation: &Address) -> Option<U> {
+        self.id_to_fee.get(allocation).map(|fee| fee.get_stats())
     }
 }
 
@@ -146,7 +143,9 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
     }
 
     pub fn get_ravable_total_fee(&mut self) -> u128 {
-        self.get_total_fee() - self.get_buffered_fee().min(self.global.total_fee)
+        self.get_total_fee()
+            - self.global.requesting
+            - self.get_buffered_fee().min(self.global.total_fee)
     }
 
     fn get_buffered_fee(&mut self) -> u128 {
@@ -167,8 +166,8 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
             .id_to_fee
             .entry(allocation_id)
             .or_insert(SenderFeeStats::default_from_extra(&self.extra_data));
-        entry.requesting = true;
-        self.global.requesting += entry.total_fee;
+        entry.requesting = entry.total_fee;
+        self.global.requesting += entry.requesting;
     }
 
     /// Should be called before `update`
@@ -177,8 +176,8 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
             .id_to_fee
             .entry(allocation_id)
             .or_insert(SenderFeeStats::default_from_extra(&self.extra_data));
-        entry.requesting = false;
-        self.global.requesting -= entry.total_fee;
+        self.global.requesting -= entry.requesting;
+        entry.requesting = 0;
     }
 
     pub fn ok_rav_request(&mut self, allocation_id: Address) {
@@ -237,5 +236,9 @@ impl AllocationStats<u128> for u128 {
 
     fn get_valid_fee(&mut self) -> u128 {
         self.get_stats()
+    }
+
+    fn get_total_fee(&self) -> u128 {
+        *self
     }
 }

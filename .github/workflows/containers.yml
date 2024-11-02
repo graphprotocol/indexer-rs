@@ -66,6 +66,10 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{steps.extract_version.outputs.version}}
             type=semver,pattern={{major}}.{{minor}}.{{patch}},value=${{steps.extract_version.outputs.version}}
             type=semver,pattern={{major}},value=${{steps.extract_version.outputs.version}}
+            type=semver,pattern=v{{version}},value=${{steps.extract_version.outputs.version}}
+            type=semver,pattern=v{{major}}.{{minor}},value=${{steps.extract_version.outputs.version}}
+            type=semver,pattern=v{{major}}.{{minor}}.{{patch}},value=${{steps.extract_version.outputs.version}}
+            type=semver,pattern=v{{major}},value=${{steps.extract_version.outputs.version}}
             type=sha
 
       - name: Log in to the Container registry
@@ -79,6 +83,6 @@ jobs:
         uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6
         with:
           context: ./
-          push: true
+          push: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
           tags: ${{ steps.meta.outputs.tags }}
           file: Dockerfile.${{ matrix.target }}

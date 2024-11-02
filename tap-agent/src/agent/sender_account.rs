@@ -51,6 +51,12 @@ lazy_static! {
         &["sender", "allocation"]
     )
     .unwrap();
+    static ref SENDER_FEE_TRACKER: GaugeVec = register_gauge_vec!(
+        "tap_sender_fee_tracker_grt_total",
+        "Sender fee tracker metric",
+        &["sender"]
+    )
+    .unwrap();
     static ref INVALID_RECEIPT_FEES: GaugeVec = register_gauge_vec!(
         "tap_invalid_receipt_fees_grt_total",
         "Failed receipt fees",
@@ -324,6 +330,9 @@ impl State {
     ) {
         self.sender_fee_tracker
             .update(allocation_id, unaggregated_fees);
+        SENDER_FEE_TRACKER
+            .with_label_values(&[&self.sender.to_string()])
+            .set(self.sender_fee_tracker.get_total_fee() as f64);
 
         UNAGGREGATED_FEES
             .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
@@ -725,12 +734,22 @@ impl Actor for SenderAccount {
                         state
                             .sender_fee_tracker
                             .add(allocation_id, value, timestamp_ns);
+
+                        SENDER_FEE_TRACKER
+                            .with_label_values(&[&state.sender.to_string()])
+                            .set(state.sender_fee_tracker.get_total_fee() as f64);
                         UNAGGREGATED_FEES
                             .with_label_values(&[
                                 &state.sender.to_string(),
                                 &allocation_id.to_string(),
                             ])
-                            .add(value as f64);
+                            .set(
+                                state
+                                    .sender_fee_tracker
+                                    .get_total_fee_for_allocation(&allocation_id)
+                                    .map(|fee| fee.value)
+                                    .unwrap_or_default() as f64,
+                            );
                     }
                     ReceiptFees::RavRequestResponse(rav_result) => {
                         state.finalize_rav_request(allocation_id, rav_result);
@@ -970,6 +989,13 @@ impl Actor for SenderAccount {
                 // remove from sender_fee_tracker
                 state.sender_fee_tracker.remove(allocation_id);
 
+                SENDER_FEE_TRACKER
+                    .with_label_values(&[&state.sender.to_string()])
+                    .set(state.sender_fee_tracker.get_total_fee() as f64);
+
+                let _ = UNAGGREGATED_FEES
+                    .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
+
                 // check for deny conditions
                 let _ = myself.cast(SenderAccountMessage::UpdateReceiptFees(
                     allocation_id,
@@ -1056,7 +1082,7 @@ pub mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use tokio::sync::watch::{self, Sender};
     use wiremock::matchers::{body_string_contains, method};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::{Mock, MockGuard, MockServer, ResponseTemplate};
 
     // we implement the PartialEq and Eq traits for SenderAccountMessage to be able to compare
     impl Eq for SenderAccountMessage {}
@@ -1107,6 +1133,23 @@ pub mod tests {
     const BUFFER_MS: u64 = 100;
     const RECEIPT_LIMIT: u64 = 10000;
 
+    async fn mock_escrow_subgraph() -> (MockServer, MockGuard) {
+        let mock_ecrow_subgraph_server: MockServer = MockServer::start().await;
+        let _mock_ecrow_subgraph = mock_ecrow_subgraph_server
+                .register_as_scoped(
+                    Mock::given(method("POST"))
+                        .and(body_string_contains("TapTransactions"))
+                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
+                                "transactions": [{
+                                    "id": "0x00224ee6ad4ae77b817b4e509dc29d644da9004ad0c44005a7f34481d421256409000000"
+                                }],
+                            }
+                        }))),
+                )
+                .await;
+        (mock_ecrow_subgraph_server, _mock_ecrow_subgraph)
+    }
+
     async fn create_sender_account(
         pgpool: PgPool,
         initial_allocation: HashSet<Address>,
@@ -1131,18 +1174,23 @@ pub mod tests {
             escrow_polling_interval: Duration::default(),
         }));
 
-        let network_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
-            None,
-            DeploymentDetails::for_query_url(network_subgraph_endpoint).unwrap(),
-        )));
-        let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
-            None,
-            DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
-        )));
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(network_subgraph_endpoint).unwrap(),
+            )
+            .await,
+        ));
+        let escrow_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
+            )
+            .await,
+        ));
         let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
-
         escrow_accounts_tx
             .send(EscrowAccounts::new(
                 HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
@@ -1200,12 +1248,14 @@ pub mod tests {
             )
             .await;
 
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
             TRIGGER_VALUE,
-            DUMMY_URL,
+            &mock_escrow_subgraph_server.uri(),
             &mock_server.uri(),
             RECEIPT_LIMIT,
         )
@@ -1294,12 +1344,14 @@ pub mod tests {
             )
             .await;
 
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
             TRIGGER_VALUE,
-            DUMMY_URL,
+            &mock_escrow_subgraph_server.uri(),
             &mock_server.uri(),
             RECEIPT_LIMIT,
         )
@@ -1710,12 +1762,13 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_remove_sender_account(pgpool: PgPool) {
+        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
             vec![*ALLOCATION_ID_0].into_iter().collect(),
             TRIGGER_VALUE,
             TRIGGER_VALUE,
-            DUMMY_URL,
+            &mock_escrow_subgraph_server.uri(),
             DUMMY_URL,
             RECEIPT_LIMIT,
         )

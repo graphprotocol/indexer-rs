@@ -5,37 +5,37 @@ use std::time::Duration;
 
 use alloy::primitives::Address;
 use anyhow::anyhow;
-use eventuals::{Eventual, EventualExt};
 use graphql_client::GraphQLQuery;
-use indexer_common::subgraph_client::SubgraphClient;
+use indexer_common::{subgraph_client::SubgraphClient, watcher::new_watcher};
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
 };
-use tokio::time::sleep;
-use tracing::error;
+use tokio::sync::watch::Receiver;
 
 pub struct AllocationId {
-    tap_allocation_redeemed: Eventual<bool>,
+    tap_allocation_redeemed: Receiver<bool>,
     allocation_id: Address,
 }
 
 impl AllocationId {
-    pub fn new(
+    pub async fn new(
         indexer_address: Address,
         escrow_polling_interval: Duration,
         sender_id: Address,
         allocation_id: Address,
         escrow_subgraph: &'static SubgraphClient,
     ) -> Self {
-        let tap_allocation_redeemed = tap_allocation_redeemed_eventual(
+        let tap_allocation_redeemed = tap_allocation_redeemed_watcher(
             allocation_id,
             sender_id,
             indexer_address,
             escrow_subgraph,
             escrow_polling_interval,
-        );
+        )
+        .await
+        .expect("Failed to initialize tap_allocation_redeemed_watcher");
 
         Self {
             tap_allocation_redeemed,
@@ -60,46 +60,33 @@ impl Check for AllocationId {
         };
 
         // Check that the allocation ID is not redeemed yet for this consumer
-        match self.tap_allocation_redeemed.value().await {
-            Ok(false) => Ok(()),
-            Ok(true) => Err(CheckError::Failed(anyhow!(
+        match *self.tap_allocation_redeemed.borrow() {
+            false => Ok(()),
+            true => Err(CheckError::Failed(anyhow!(
                 "Allocation {} already redeemed",
                 allocation_id
-            ))),
-            Err(e) => Err(CheckError::Retryable(anyhow!(
-                "Could not get allocation escrow redemption status from eventual: {:?}",
-                e
             ))),
         }
     }
 }
 
-fn tap_allocation_redeemed_eventual(
+async fn tap_allocation_redeemed_watcher(
     allocation_id: Address,
     sender_address: Address,
     indexer_address: Address,
     escrow_subgraph: &'static SubgraphClient,
     escrow_polling_interval: Duration,
-) -> Eventual<bool> {
-    eventuals::timer(escrow_polling_interval).map_with_retry(
-        move |_| async move {
-            query_escrow_check_transactions(
-                allocation_id,
-                sender_address,
-                indexer_address,
-                escrow_subgraph,
-            )
-            .await
-            .map_err(|e| e.to_string())
-        },
-        move |error: String| {
-            error!(
-                "Failed to check the escrow redeem status for allocation {} and sender {}: {}",
-                allocation_id, sender_address, error
-            );
-            sleep(escrow_polling_interval.div_f32(2.))
-        },
-    )
+) -> anyhow::Result<Receiver<bool>> {
+    new_watcher(escrow_polling_interval, move || async move {
+        query_escrow_check_transactions(
+            allocation_id,
+            sender_address,
+            indexer_address,
+            escrow_subgraph,
+        )
+        .await
+    })
+    .await
 }
 
 #[derive(GraphQLQuery)]
@@ -148,7 +135,8 @@ mod tests {
                 "https://api.studio.thegraph.com/query/53925/arb-sepolia-tap-subgraph/version/latest"
             )
             .unwrap(),
-        )));
+        ).await
+        ));
 
         let result = super::query_escrow_check_transactions(
             allocation_id.parse().unwrap(),

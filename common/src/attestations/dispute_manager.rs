@@ -65,7 +65,8 @@ mod test {
                 *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
             ))
             .unwrap(),
-        );
+        )
+        .await;
 
         // Mock result for current epoch requests
         mock_server
