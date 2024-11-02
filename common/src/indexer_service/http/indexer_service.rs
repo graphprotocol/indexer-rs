@@ -299,7 +299,8 @@ impl IndexerService {
             options.config.subgraphs.escrow.config.syncing_interval_secs,
             true, // Reject thawing signers eagerly
         )
-        .await;
+        .await
+        .expect("Error creating escrow_accounts channel");
 
         // Establish Database connection necessary for serving indexer management
         // requests with defined schema

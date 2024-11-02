@@ -103,12 +103,11 @@ pub async fn escrow_accounts(
     indexer_address: Address,
     interval: Duration,
     reject_thawing_signers: bool,
-) -> Receiver<EscrowAccounts> {
+) -> Result<Receiver<EscrowAccounts>, anyhow::Error> {
     watcher::new_watcher(interval, move || {
         get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers)
     })
     .await
-    .unwrap()
 }
 
 async fn get_escrow_accounts(
@@ -230,7 +229,8 @@ mod tests {
             Duration::from_secs(60),
             true,
         )
-        .await;
+        .await
+        .unwrap();
         accounts.changed().await.unwrap();
         assert_eq!(
             accounts.borrow().clone(),
