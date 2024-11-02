@@ -34,8 +34,10 @@ use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::Tr
 use tracing::error;
 use tracing::{info, info_span};
 
+use super::request_handler::request_handler;
 use crate::escrow_accounts::EscrowAccounts;
 use crate::escrow_accounts::EscrowAccountsError;
+use crate::indexer_service::http::health::health;
 use crate::{
     address::public_key,
     indexer_service::http::static_subgraph::static_subgraph_request_handler,
@@ -45,8 +47,6 @@ use crate::{
     },
     tap::IndexerTapContext,
 };
-
-use super::request_handler::request_handler;
 use indexer_config::Config;
 
 pub trait IndexerServiceResponse {
@@ -403,6 +403,11 @@ impl IndexerService {
                     .expect("Failed to set up rate limiting"),
             ),
         };
+
+        // Check subgraph Health
+        misc_routes = misc_routes
+            .route("/subgraph/health/:deployment_id", get(health))
+            .route_layer(Extension(options.config.graph_node.clone()));
 
         if options.config.service.serve_network_subgraph {
             info!("Serving network subgraph at /network");
