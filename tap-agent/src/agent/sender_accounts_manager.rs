@@ -169,7 +169,7 @@ impl Actor for SenderAccountsManager {
             .map(|(sender_id, allocation_ids)| {
                 state.create_or_deny_sender(myself.get_cell(), sender_id, allocation_ids)
             })
-            .buffered(10) // Limit concurrency to 10 senders at a time
+            .buffer_unordered(10) // Limit concurrency to 10 senders at a time
             .collect::<Vec<()>>()
             .await;
 
