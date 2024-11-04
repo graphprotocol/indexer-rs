@@ -132,7 +132,7 @@ where
     });
 
     // recover the signer address
-    // get escrow accounts from eventual
+    // get escrow accounts from channel
     // return sender from signer
     //
     // TODO: We are currently doing this process twice.
@@ -141,13 +141,9 @@ where
     let signer = receipt
         .recover_signer(&state.domain_separator)
         .map_err(IndexerServiceError::CouldNotDecodeSigner)?;
-
-    let escrow_accounts = state
+    let sender = state
         .escrow_accounts
-        .value_immediate()
-        .ok_or(IndexerServiceError::ServiceNotReady)?;
-
-    let sender = escrow_accounts
+        .borrow()
         .get_sender_for_signer(&signer)
         .map_err(IndexerServiceError::EscrowAccount)?;
 

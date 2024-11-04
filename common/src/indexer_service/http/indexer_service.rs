@@ -14,7 +14,6 @@ use axum::{
 };
 use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
-use eventuals::Eventual;
 use prometheus::TextEncoder;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
@@ -83,8 +82,6 @@ where
 {
     #[error("Issues with provided receipt: {0}")]
     ReceiptError(tap_core::Error),
-    #[error("Service is not ready yet, try again in a moment")]
-    ServiceNotReady,
     #[error("No attestation signer found for allocation `{0}`")]
     NoSignerForAllocation(Address),
     #[error("Invalid request body: {0}")]
@@ -120,8 +117,6 @@ where
         }
 
         let status = match self {
-            ServiceNotReady => StatusCode::SERVICE_UNAVAILABLE,
-
             Unauthorized => StatusCode::UNAUTHORIZED,
 
             NoSignerForAllocation(_) | FailedToSignAttestation => StatusCode::INTERNAL_SERVER_ERROR,
@@ -188,7 +183,7 @@ where
     pub service_impl: Arc<I>,
 
     // tap
-    pub escrow_accounts: Eventual<EscrowAccounts>,
+    pub escrow_accounts: Receiver<EscrowAccounts>,
     pub domain_separator: Eip712Domain,
 }
 
@@ -311,7 +306,9 @@ impl IndexerService {
             options.config.indexer.indexer_address,
             options.config.subgraphs.escrow.config.syncing_interval_secs,
             true, // Reject thawing signers eagerly
-        );
+        )
+        .await
+        .expect("Error creating escrow_accounts channel");
 
         // Establish Database connection necessary for serving indexer management
         // requests with defined schema

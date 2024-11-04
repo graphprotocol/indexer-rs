@@ -128,7 +128,9 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         *indexer_address,
         *escrow_sync_interval,
         false,
-    );
+    )
+    .await
+    .expect("Error creating escrow_accounts channel");
 
     let config = Box::leak(Box::new(SenderAccountConfig::from_config(&CONFIG)));
 
