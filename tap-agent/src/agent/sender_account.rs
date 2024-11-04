@@ -87,13 +87,7 @@ type Balance = U256;
 pub enum ReceiptFees {
     NewReceipt(u128, u64),
     UpdateValue(UnaggregatedReceipts),
-    RavRequestResponse(
-        (
-            UnaggregatedReceipts,
-            Option<SignedRAV>,
-            Result<(), anyhow::Error>,
-        ),
-    ),
+    RavRequestResponse((UnaggregatedReceipts, anyhow::Result<Option<SignedRAV>>)),
     Retry,
 }
 
@@ -291,34 +285,31 @@ impl State {
     fn finalize_rav_request(
         &mut self,
         allocation_id: Address,
-        rav_result: (
-            UnaggregatedReceipts,
-            Option<SignedRAV>,
-            Result<(), anyhow::Error>,
-        ),
+        rav_response: (UnaggregatedReceipts, anyhow::Result<Option<SignedRAV>>),
     ) {
         self.sender_fee_tracker.finish_rav_request(allocation_id);
+        let (fees, rav_result) = rav_response;
         match rav_result {
-            (fees, rav, Ok(())) => {
+            Ok(signed_rav) => {
                 self.sender_fee_tracker.ok_rav_request(allocation_id);
                 self.adaptive_limiter.on_success();
 
-                let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
+                let rav_value = signed_rav
+                    .expect("Should have a signed rav")
+                    .message
+                    .valueAggregate;
                 self.update_rav(allocation_id, rav_value);
-
-                // update sender fee tracker
-                self.update_sender_fee(allocation_id, fees);
             }
-            (fees, _, Err(err)) => {
+            Err(err) => {
                 self.sender_fee_tracker.failed_rav_backoff(allocation_id);
                 self.adaptive_limiter.on_failure();
                 error!(
                     "Error while requesting RAV for sender {} and allocation {}: {}",
                     self.sender, allocation_id, err
                 );
-                self.update_sender_fee(allocation_id, fees);
             }
         };
+        self.update_sender_fee(allocation_id, fees);
     }
 
     fn update_rav(&mut self, allocation_id: Address, rav_value: u128) {
@@ -1089,17 +1080,9 @@ pub mod tests {
                                 ReceiptFees::RavRequestResponse(l),
                                 ReceiptFees::RavRequestResponse(r),
                             ) => match (l, r) {
-                                (l, r) if l.2.is_ok() && r.2.is_ok() => l.0 == r.0 && l.1 == r.1,
-                                (l, r) if l.2.is_err() && r.2.is_err() => {
-                                    let l = match &l.2 {
-                                        Ok(()) => "Success".to_string(),
-                                        Err(e) => e.to_string(),
-                                    };
-                                    let r = match &r.2 {
-                                        Ok(()) => "Success".to_string(),
-                                        Err(e) => e.to_string(),
-                                    };
-                                    l == r
+                                ((fee, Ok(rav)), (fee1, Ok(rav1))) => fee == fee1 && rav == rav1,
+                                ((fee, Err(error)), (fee1, Err(error1))) => {
+                                    fee == fee1 && error.to_string() == error1.to_string()
                                 }
                                 _ => false,
                             },
@@ -1509,8 +1492,7 @@ pub mod tests {
                                     last_id: 0,
                                     counter: 0,
                                 },
-                                Some(signed_rav),
-                                Ok(()),
+                                Ok(Some(signed_rav)),
                             )),
                         ))?;
                     }
