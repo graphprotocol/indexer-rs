@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.5.0...indexer-tap-agent-v1.6.0) (2024-11-04)
+
+
+### Features
+
+* calculate unnagregated fees even if the rav fails ([#442](https://github.com/graphprotocol/indexer-rs/issues/442)) ([3ae39c0](https://github.com/graphprotocol/indexer-rs/commit/3ae39c0b91d9798a2260736358ee3ef45d6944b9))
+
+
+### Bug Fixes
+
+* change buffered to buffered_unordened for faster collecting ([#457](https://github.com/graphprotocol/indexer-rs/issues/457)) ([7bf77c5](https://github.com/graphprotocol/indexer-rs/commit/7bf77c574ba9316d647aad5877f91db45b142c43))
+
 ## [1.5.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.4.1...indexer-tap-agent-v1.5.0) (2024-11-01)
 
 
