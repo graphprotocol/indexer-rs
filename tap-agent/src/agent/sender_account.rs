@@ -293,11 +293,7 @@ impl State {
             Ok(signed_rav) => {
                 self.sender_fee_tracker.ok_rav_request(allocation_id);
                 self.adaptive_limiter.on_success();
-
-                let rav_value = signed_rav
-                    .expect("Should have a signed rav")
-                    .message
-                    .valueAggregate;
+                let rav_value = signed_rav.map_or(0, |rav| rav.message.valueAggregate);
                 self.update_rav(allocation_id, rav_value);
             }
             Err(err) => {
