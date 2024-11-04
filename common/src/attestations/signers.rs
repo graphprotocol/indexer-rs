@@ -29,7 +29,7 @@ pub fn attestation_signers(
         dispute_manager_rx,
         move |(allocation, dispute)| {
             let indexer_mnemonic = indexer_mnemonic.clone();
-            modify_sigers(
+            modify_signers(
                 &indexer_mnemonic,
                 chain_id,
                 attestation_signers_map,
@@ -39,7 +39,7 @@ pub fn attestation_signers(
         },
     )
 }
-fn modify_sigers(
+fn modify_signers(
     indexer_mnemonic: &str,
     chain_id: ChainId,
     attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>>,
