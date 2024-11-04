@@ -659,7 +659,7 @@ impl Actor for SenderAccount {
         stream::iter(allocation_ids)
             // Create a sender allocation for each allocation
             .map(|allocation_id| state.create_sender_allocation(myself.clone(), allocation_id))
-            .buffered(10) // Limit concurrency to 10 allocations at a time
+            .buffer_unordered(10) // Limit concurrency to 10 allocations at a time
             .collect::<Vec<anyhow::Result<()>>>()
             .await
             .into_iter()
