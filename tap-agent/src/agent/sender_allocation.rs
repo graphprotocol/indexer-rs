@@ -307,19 +307,17 @@ impl Actor for SenderAllocation {
             }
             SenderAllocationMessage::TriggerRAVRequest => {
                 let rav_result = if state.unaggregated_fees.value > 0 {
-                    state
-                        .request_rav()
-                        .await
-                        .map(|_| (state.unaggregated_fees, state.latest_rav.clone()))
+                    state.request_rav().await.map(|_| state.latest_rav.clone())
                 } else {
                     Err(anyhow!("Unaggregated fee equals zero"))
                 };
-
+                let rav_response = (state.unaggregated_fees, rav_result);
+                // encapsulate inanother okay, unwrap after and send the result over here
                 state
                     .sender_account_ref
                     .cast(SenderAccountMessage::UpdateReceiptFees(
                         state.allocation_id,
-                        ReceiptFees::RavRequestResponse(rav_result),
+                        ReceiptFees::RavRequestResponse(rav_response),
                     ))?;
             }
             #[cfg(test)]
@@ -1678,7 +1676,7 @@ pub mod tests {
                 _,
                 ReceiptFees::RavRequestResponse(rav_response),
             ) => {
-                assert!(rav_response.is_err());
+                assert!(rav_response.1.is_err());
             }
             v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
         }
@@ -1793,7 +1791,7 @@ pub mod tests {
                 _,
                 ReceiptFees::RavRequestResponse(rav_response),
             ) => {
-                assert!(rav_response.is_err());
+                assert!(rav_response.1.is_err());
             }
             v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
         }

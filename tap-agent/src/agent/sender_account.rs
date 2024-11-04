@@ -92,7 +92,7 @@ type Balance = U256;
 pub enum ReceiptFees {
     NewReceipt(u128, u64),
     UpdateValue(UnaggregatedReceipts),
-    RavRequestResponse(anyhow::Result<(UnaggregatedReceipts, Option<SignedRAV>)>),
+    RavRequestResponse((UnaggregatedReceipts, anyhow::Result<Option<SignedRAV>>)),
     Retry,
 }
 
@@ -290,22 +290,18 @@ impl State {
     fn finalize_rav_request(
         &mut self,
         allocation_id: Address,
-        rav_result: anyhow::Result<(UnaggregatedReceipts, Option<SignedRAV>)>,
+        rav_response: (UnaggregatedReceipts, anyhow::Result<Option<SignedRAV>>),
     ) {
         self.sender_fee_tracker.finish_rav_request(allocation_id);
+        let (fees, rav_result) = rav_response;
         match rav_result {
-            Ok((fees, rav)) => {
+            Ok(signed_rav) => {
                 self.sender_fee_tracker.ok_rav_request(allocation_id);
                 self.adaptive_limiter.on_success();
-
-                let rav_value = rav.map_or(0, |rav| rav.message.valueAggregate);
+                let rav_value = signed_rav.map_or(0, |rav| rav.message.valueAggregate);
                 self.update_rav(allocation_id, rav_value);
-
-                // update sender fee tracker
-                self.update_sender_fee(allocation_id, fees);
             }
             Err(err) => {
-                // TODO we should update the total value too
                 self.sender_fee_tracker.failed_rav_backoff(allocation_id);
                 self.adaptive_limiter.on_failure();
                 error!(
@@ -314,6 +310,7 @@ impl State {
                 );
             }
         };
+        self.update_sender_fee(allocation_id, fees);
     }
 
     fn update_rav(&mut self, allocation_id: Address, rav_value: u128) {
@@ -1102,8 +1099,10 @@ pub mod tests {
                                 ReceiptFees::RavRequestResponse(l),
                                 ReceiptFees::RavRequestResponse(r),
                             ) => match (l, r) {
-                                (Ok(l), Ok(r)) => l == r,
-                                (Err(l), Err(r)) => l.to_string() == r.to_string(),
+                                ((fee, Ok(rav)), (fee1, Ok(rav1))) => fee == fee1 && rav == rav1,
+                                ((fee, Err(error)), (fee1, Err(error1))) => {
+                                    fee == fee1 && error.to_string() == error1.to_string()
+                                }
                                 _ => false,
                             },
                             (ReceiptFees::Retry, ReceiptFees::Retry) => true,
@@ -1534,14 +1533,14 @@ pub mod tests {
                     if let Some(sender_account) = self.sender_actor.as_ref() {
                         sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
                             *ALLOCATION_ID_0,
-                            ReceiptFees::RavRequestResponse(Ok((
+                            ReceiptFees::RavRequestResponse((
                                 UnaggregatedReceipts {
                                     value: *self.next_unaggregated_fees_value.lock().unwrap(),
                                     last_id: 0,
                                     counter: 0,
                                 },
-                                Some(signed_rav),
-                            ))),
+                                Ok(Some(signed_rav)),
+                            )),
                         ))?;
                     }
                 }
