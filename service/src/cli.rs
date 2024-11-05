@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Parser)]
+#[command(version)]
 pub struct Cli {
     /// Path to the configuration file.
     /// See https://github.com/graphprotocol/indexer-rs/tree/main/service for examples.
