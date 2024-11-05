@@ -28,5 +28,5 @@ jobs:
             -ignore '.github/*.yml' \
             -ignore '.github/workflows/*.yaml' \
             -ignore '.github/*.yaml' \
-            -ignore 'migrations/*.sql' \
+            -ignore 'crates/migrations/*.sql' \
             .
