@@ -9,6 +9,7 @@ use bigdecimal::ToPrimitive;
 
 use futures::{stream, StreamExt};
 use graphql_client::GraphQLQuery;
+use indexer_common::watcher::watch_pipe;
 use jsonrpsee::http_client::HttpClientBuilder;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
 use reqwest::Url;
@@ -496,30 +497,27 @@ impl Actor for SenderAccount {
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
-        let _indexer_allocations_handle = tokio::spawn(async move {
-            let mut indexer_allocations = indexer_allocations.clone();
-            loop {
-                let allocation_ids = indexer_allocations.borrow().clone();
+        let _indexer_allocations_handle = watch_pipe(indexer_allocations, move |rx| {
+            let myself = myself_clone.clone();
+            async move {
+                let allocation_ids = rx.borrow().clone();
                 // Update the allocation_ids
-                myself_clone
+                myself
                     .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
                     .unwrap_or_else(|e| {
                         error!("Error while updating allocation_ids: {:?}", e);
                     });
-                if indexer_allocations.changed().await.is_err() {
-                    break;
-                }
             }
         });
 
         let myself_clone = myself.clone();
         let pgpool_clone = pgpool.clone();
-        let mut accounts_clone = escrow_accounts.clone();
-        let _escrow_account_monitor = tokio::spawn(async move {
-            while accounts_clone.changed().await.is_ok() {
-                let escrow_account = accounts_clone.borrow().clone();
-                let myself = myself_clone.clone();
-                let pgpool = pgpool_clone.clone();
+        let accounts_clone = escrow_accounts.clone();
+        let _escrow_account_monitor = watch_pipe(accounts_clone, move |rx| {
+            let escrow_account = rx.borrow().clone();
+            let myself = myself_clone.clone();
+            let pgpool = pgpool_clone.clone();
+            async move {
                 // Get balance or default value for sender
                 // this balance already takes into account thawing
                 let balance = escrow_account
