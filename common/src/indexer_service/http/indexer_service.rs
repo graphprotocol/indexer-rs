@@ -386,7 +386,7 @@ impl IndexerService {
             .route("/", get("Service is up and running"))
             .route("/version", get(Json(options.release)))
             .route("/info", get(operator_address))
-            .layer(misc_rate_limiter);
+            .layer(misc_rate_limiter.clone());
 
         // Rate limits by allowing bursts of 50 requests and requiring 20ms of
         // time between consecutive requests after that, effectively rate
@@ -404,7 +404,8 @@ impl IndexerService {
         // Check subgraph Health
         misc_routes = misc_routes
             .route("/subgraph/health/:deployment_id", get(health))
-            .route_layer(Extension(options.config.graph_node.clone()));
+            .route_layer(Extension(options.config.graph_node.clone()))
+            .layer(misc_rate_limiter);
 
         if options.config.service.serve_network_subgraph {
             info!("Serving network subgraph at /network");
