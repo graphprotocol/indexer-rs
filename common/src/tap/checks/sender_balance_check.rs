@@ -5,22 +5,22 @@ use crate::escrow_accounts::EscrowAccounts;
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::U256;
 use anyhow::anyhow;
-use eventuals::Eventual;
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
 };
+use tokio::sync::watch::Receiver;
 use tracing::error;
 
 pub struct SenderBalanceCheck {
-    escrow_accounts: Eventual<EscrowAccounts>,
+    escrow_accounts: Receiver<EscrowAccounts>,
 
     domain_separator: Eip712Domain,
 }
 
 impl SenderBalanceCheck {
-    pub fn new(escrow_accounts: Eventual<EscrowAccounts>, domain_separator: Eip712Domain) -> Self {
+    pub fn new(escrow_accounts: Receiver<EscrowAccounts>, domain_separator: Eip712Domain) -> Self {
         Self {
             escrow_accounts,
             domain_separator,
@@ -35,7 +35,7 @@ impl Check for SenderBalanceCheck {
         _: &tap_core::receipt::Context,
         receipt: &ReceiptWithState<Checking>,
     ) -> CheckResult {
-        let escrow_accounts_snapshot = self.escrow_accounts.value_immediate().unwrap_or_default();
+        let escrow_accounts_snapshot = self.escrow_accounts.borrow();
 
         let receipt_signer = receipt
             .signed_receipt()
