@@ -5,6 +5,9 @@ use std::collections::HashSet;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 
+use super::sender_account::{
+    SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
+};
 use crate::agent::sender_allocation::SenderAllocationMessage;
 use crate::lazy_static;
 use alloy::dyn_abi::Eip712Domain;
@@ -14,6 +17,8 @@ use anyhow::{anyhow, bail};
 use futures::{stream, StreamExt};
 use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::prelude::{Allocation, SubgraphClient};
+use indexer_common::watcher::watch_pipe;
+use prometheus::{register_counter_vec, CounterVec};
 use ractor::concurrency::JoinHandle;
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use reqwest::Url;
@@ -22,12 +27,6 @@ use sqlx::{postgres::PgListener, PgPool};
 use tokio::select;
 use tokio::sync::watch::{self, Receiver};
 use tracing::{error, warn};
-
-use prometheus::{register_counter_vec, CounterVec};
-
-use super::sender_account::{
-    SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
-};
 
 lazy_static! {
     static ref RECEIPTS_CREATED: CounterVec = register_counter_vec!(
@@ -106,17 +105,11 @@ impl Actor for SenderAccountsManager {
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let (allocations_tx, allocations_rx) = watch::channel(HashSet::<Address>::new());
-        tokio::spawn(async move {
-            let mut indexer_allocations = indexer_allocations.clone();
-            while indexer_allocations.changed().await.is_ok() {
+        watch_pipe(indexer_allocations.clone(), move |rx| {
+            let allocations_tx = allocations_tx.clone();
+            async move {
                 allocations_tx
-                    .send(
-                        indexer_allocations
-                            .borrow()
-                            .keys()
-                            .cloned()
-                            .collect::<HashSet<Address>>(),
-                    )
+                    .send(rx.borrow().keys().cloned().collect::<HashSet<Address>>())
                     .expect("Failed to update indexer_allocations_set channel");
             }
         });
@@ -129,12 +122,13 @@ impl Actor for SenderAccountsManager {
                 'scalar_tap_receipt_notification'",
             );
         let myself_clone = myself.clone();
-        let mut accounts_clone = escrow_accounts.clone();
-        let _eligible_allocations_senders_handle = tokio::spawn(async move {
-            while accounts_clone.changed().await.is_ok() {
-                myself_clone
+        let accounts_clone = escrow_accounts.clone();
+        let _eligible_allocations_senders_handle = watch_pipe(accounts_clone, move |rx| {
+            let myself = myself_clone.clone();
+            async move {
+                myself
                     .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
-                        accounts_clone.borrow().get_senders(),
+                        rx.borrow().get_senders(),
                     ))
                     .unwrap_or_else(|e| {
                         error!("Error while updating sender_accounts: {:?}", e);

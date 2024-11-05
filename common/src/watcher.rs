@@ -11,6 +11,7 @@ use std::{future::Future, time::Duration};
 use tokio::{
     select,
     sync::watch,
+    task::JoinHandle,
     time::{self, sleep},
 };
 use tracing::warn;
@@ -83,4 +84,21 @@ where
         }
     });
     rx
+}
+
+// Replacement for pipe_async function in eventuals
+// Listen to the changes in a receiver and runs parametric function
+pub fn watch_pipe<T, F, Fut>(rx: watch::Receiver<T>, function: F) -> JoinHandle<()>
+where
+    T: Clone + Send + Sync + 'static,
+    F: Fn(watch::Receiver<T>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut rx = rx;
+        function(rx.clone()).await;
+        while rx.changed().await.is_ok() {
+            function(rx.clone()).await;
+        }
+    })
 }
