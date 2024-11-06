@@ -3273,7 +3273,7 @@ dependencies = [
  "graphql_client",
  "indexer-common",
  "indexer-config",
- "jsonrpsee 0.24.6",
+ "jsonrpsee 0.24.7",
  "lazy_static",
  "prometheus",
  "ractor",
@@ -3455,13 +3455,13 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee"
-version = "0.24.6"
+version = "0.24.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02f01f48e04e0d7da72280ab787c9943695699c9b32b99158ece105e8ad0afea"
+checksum = "c5c71d8c1a731cc4227c2f698d377e7848ca12c8a48866fc5e6951c43a4db843"
 dependencies = [
- "jsonrpsee-core 0.24.6",
+ "jsonrpsee-core 0.24.7",
  "jsonrpsee-http-client",
- "jsonrpsee-types 0.24.6",
+ "jsonrpsee-types 0.24.7",
  "tracing",
 ]
 
@@ -3491,9 +3491,9 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-core"
-version = "0.24.6"
+version = "0.24.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c2709a32915d816a6e8f625bf72cf74523ebe5d8829f895d6b041b1d3137818"
+checksum = "f2882f6f8acb9fdaec7cefc4fd607119a9bd709831df7d7672a1d3b644628280"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3501,7 +3501,7 @@ dependencies = [
  "http 1.1.0",
  "http-body 1.0.1",
  "http-body-util",
- "jsonrpsee-types 0.24.6",
+ "jsonrpsee-types 0.24.7",
  "serde",
  "serde_json",
  "thiserror",
@@ -3511,9 +3511,9 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-http-client"
-version = "0.24.6"
+version = "0.24.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc54db939002b030e794fbfc9d5a925aa2854889c5a2f0352b0bffa54681707e"
+checksum = "b3638bc4617f96675973253b3a45006933bde93c2fd8a6170b33c777cc389e5b"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3521,8 +3521,8 @@ dependencies = [
  "hyper 1.5.0",
  "hyper-rustls 0.27.3",
  "hyper-util",
- "jsonrpsee-core 0.24.6",
- "jsonrpsee-types 0.24.6",
+ "jsonrpsee-core 0.24.7",
+ "jsonrpsee-types 0.24.7",
  "rustls 0.23.14",
  "rustls-platform-verifier",
  "serde",
@@ -3583,9 +3583,9 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-types"
-version = "0.24.6"
+version = "0.24.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ca331cd7b3fe95b33432825c2d4c9f5a43963e207fdc01ae67f9fd80ab0930f"
+checksum = "a178c60086f24cc35bb82f57c651d0d25d99c4742b4d335de04e97fa1f08a8a1"
 dependencies = [
  "http 1.1.0",
  "serde",
@@ -7106,7 +7106,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
