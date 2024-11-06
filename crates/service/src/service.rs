@@ -1,10 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-use std::time::Duration;
-
-use super::{error::SubgraphServiceError, routes};
+use crate::{cli::Cli, metrics, routes};
+use alloy::{dyn_abi::Eip712Domain, primitives::Address};
 use anyhow::anyhow;
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_axum::GraphQL;
@@ -34,15 +32,47 @@ use crate::{
 };
 
 use clap::Parser;
+use axum::{
+    extract::MatchedPath,
+    http::Request,
+    routing::{get, post},
+    serve, Extension, Json, Router, ServiceExt,
+};
+use clap::Parser;
+use indexer_common::{
+    address::public_key,
+    allocations::monitor::indexer_allocations,
+    attestations::{dispute_manager, signer::AttestationSigner, signers::attestation_signers},
+    escrow_accounts::EscrowAccounts,
+    monitors::escrow_accounts,
+    subgraph_client::{DeploymentDetails, SubgraphClient},
+    tap::IndexerTapContext,
+};
+use indexer_config::Config;
+use reqwest::Method;
+use sqlx::postgres::PgPoolOptions;
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
+use tokio::{net::TcpListener, signal, sync::watch::Receiver};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_http::{
+    cors::{self, CorsLayer},
+    normalize_path::NormalizePath,
+    trace::TraceLayer,
 use indexer_common::indexer_service::http::{
     IndexerService, IndexerServiceOptions, IndexerServiceRelease,
 };
-use tracing::error;
+use tracing::{error, info, info_span};
+use version_info::IndexerServiceRelease;
 
 mod error;
 mod graphnode_client;
 mod response;
 mod version_info;
+
+pub use error::IndexerServiceError;
+pub use graphnode_client::{AttestationOutput, SubgraphServiceState};
+pub use response::{IndexerServiceResponse, SubgraphServiceResponse};
 
 pub struct IndexerServiceState {
     pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
@@ -51,6 +81,8 @@ pub struct IndexerServiceState {
     // tap
     pub escrow_accounts: Receiver<EscrowAccounts>,
     pub domain_separator: Eip712Domain,
+
+    pub free_query_auth_token: Option<&'static str>,
 }
 
 /// Run the subgraph indexer service
@@ -81,16 +113,14 @@ pub async fn run() -> anyhow::Result<()> {
     // "state", which will be passed to any request handler, middleware etc.
     // that is involved in serving requests
     let state = Arc::new(SubgraphServiceState {
-        config,
-        database: database::connect(config.database.clone().get_formated_postgres_url().as_ref())
-            .await,
-        cost_schema: routes::cost::build_schema().await,
+        // database: database::connect(config.database.clone().get_formated_postgres_url().as_ref())
+        //     .await,
         graph_node_client: reqwest::ClientBuilder::new()
             .tcp_nodelay(true)
             .timeout(Duration::from_secs(30))
             .build()
             .expect("Failed to init HTTP client for Graph Node"),
-        graph_node_status_url: &config.graph_node.status_url,
+        // graph_node_status_url: &config.graph_node.status_url,
         graph_node_query_base_url: &config.graph_node.query_url,
     });
 
@@ -170,9 +200,10 @@ pub async fn run() -> anyhow::Result<()> {
     ));
 
     // Identify the dispute manager for the configured network
-    let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(3600))
-        .await
-        .expect("Failed to initialize dispute manager");
+    let dispute_manager =
+        dispute_manager::dispute_manager(network_subgraph, Duration::from_secs(3600))
+            .await
+            .expect("Failed to initialize dispute manager");
 
     // Monitor the indexer's own allocations
     let allocations = indexer_allocations(
@@ -240,14 +271,7 @@ pub async fn run() -> anyhow::Result<()> {
     let database = PgPoolOptions::new()
         .max_connections(50)
         .acquire_timeout(Duration::from_secs(30))
-        .connect(
-            options
-                .config
-                .database
-                .clone()
-                .get_formated_postgres_url()
-                .as_ref(),
-        )
+        .connect(config.database.clone().get_formated_postgres_url().as_ref())
         .await?;
 
     let domain_separator = tap_eip712_domain(
@@ -280,6 +304,7 @@ pub async fn run() -> anyhow::Result<()> {
         tap_manager,
         escrow_accounts,
         domain_separator,
+        free_query_auth_token: config.service.free_query_auth_token.map(|e| e.as_str()),
     });
 
     // Rate limits by allowing bursts of 10 requests and requiring 100ms of
@@ -295,13 +320,12 @@ pub async fn run() -> anyhow::Result<()> {
         ),
     };
 
-    let operator_address = Json(
-        serde_json::json!({ "publicKey": public_key(&config.indexer.operator_mnemonic)?}),
-    );
+    let operator_address =
+        Json(serde_json::json!({ "publicKey": public_key(&config.indexer.operator_mnemonic)?}));
 
     let mut misc_routes = Router::new()
         .route("/", get("Service is up and running"))
-        .route("/version", get(Json(options.release)))
+        .route("/version", get(Json(release)))
         .route("/info", get(operator_address))
         .layer(misc_rate_limiter);
 
@@ -318,25 +342,25 @@ pub async fn run() -> anyhow::Result<()> {
         ),
     };
 
-    if options.config.service.serve_network_subgraph {
+    if config.service.serve_network_subgraph {
         info!("Serving network subgraph at /network");
 
         misc_routes = misc_routes.route(
             "/network",
-            post(static_subgraph_request_handler::<I>)
+            post(routes::static_subgraph_request_handler)
                 .route_layer(Extension(network_subgraph))
-                .route_layer(Extension(options.config.service.serve_auth_token.clone()))
+                .route_layer(Extension(config.service.serve_auth_token.clone()))
                 .route_layer(static_subgraph_rate_limiter.clone()),
         );
     }
 
-    if options.config.service.serve_escrow_subgraph {
+    if config.service.serve_escrow_subgraph {
         info!("Serving escrow subgraph at /escrow");
 
         misc_routes = misc_routes
-            .route("/escrow", post(static_subgraph_request_handler::<I>))
+            .route("/escrow", post(routes::static_subgraph_request_handler))
             .route_layer(Extension(escrow_subgraph))
-            .route_layer(Extension(options.config.service.serve_auth_token.clone()))
+            .route_layer(Extension(config.service.serve_auth_token.clone()))
             .route_layer(static_subgraph_rate_limiter);
     }
 
@@ -344,11 +368,11 @@ pub async fn run() -> anyhow::Result<()> {
 
     let data_routes = Router::new()
         .route(
-            PathBuf::from(&options.config.service.url_prefix)
+            PathBuf::from(&config.service.url_prefix)
                 .join(format!("{}/id/:id", options.url_namespace))
                 .to_str()
                 .expect("Failed to set up `/{url_namespace}/id/:id` route"),
-            post(request_handler::<I>),
+            post(routes::request_handler),
         )
         .with_state(state.clone());
 
@@ -389,13 +413,13 @@ pub async fn run() -> anyhow::Result<()> {
             .with_state(state),
     );
 
-    Self::serve_metrics(options.config.metrics.get_socket_addr());
+    metrics::serve_metrics(config.metrics.get_socket_addr());
 
     info!(
-        address = %options.config.service.host_and_port,
+        address = %config.service.host_and_port,
         "Serving requests",
     );
-    let listener = TcpListener::bind(&options.config.service.host_and_port)
+    let listener = TcpListener::bind(&config.service.host_and_port)
         .await
         .expect("Failed to bind to indexer-service port");
 
@@ -408,10 +432,9 @@ pub async fn run() -> anyhow::Result<()> {
 }
 
 pub struct IndexerServiceOptions {
-    pub config: &'static Config,
     pub release: IndexerServiceRelease,
     pub url_namespace: &'static str,
-    pub extra_routes: Router<Arc<IndexerServiceState<I>>>,
+    pub extra_routes: Router<Arc<IndexerServiceState>>,
 }
 
 pub async fn shutdown_signal() {

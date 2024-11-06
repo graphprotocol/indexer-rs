@@ -1,3 +1,14 @@
+use std::sync::Arc;
+
+use axum::async_trait;
+use reqwest::Url;
+use serde::{de::DeserializeOwned, Serialize};
+use thegraph_core::{Attestation, DeploymentId};
+
+use crate::error::SubgraphServiceError;
+
+use super::{response::IndexerServiceResponse, SubgraphServiceResponse};
+
 pub struct SubgraphServiceState {
     pub graph_node_client: reqwest::Client,
     pub graph_node_query_base_url: &'static Url,
@@ -24,7 +35,7 @@ pub trait IndexerServiceImpl {
     type Response: IndexerServiceResponse + Sized;
     type State: Send + Sync;
 
-    async fn process_request<Request: DeserializeOwned + Send + Debug + Serialize>(
+    async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
         &self,
         manifest_id: DeploymentId,
         request: Request,

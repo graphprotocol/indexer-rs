@@ -1,4 +1,3 @@
+mod tap;
 
-struct TapMiddleware {}
-
-
+pub use tap::TapReceipt;

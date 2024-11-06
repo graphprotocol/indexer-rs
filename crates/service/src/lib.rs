@@ -4,7 +4,6 @@
 mod cli;
 mod database;
 mod error;
-mod http;
 mod metrics;
 mod routes;
 pub mod service;

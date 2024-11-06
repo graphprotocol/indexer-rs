@@ -1,7 +1,14 @@
+use axum::{response::IntoResponse, Json};
+use serde_json::{json, Value};
+
+use crate::error::SubgraphServiceError;
+
+use super::graphnode_client::AttestationOutput;
+
 
 pub trait IndexerServiceResponse {
     type Data: IntoResponse;
-    type Error: Error;
+    type Error: std::error::Error;
 
     fn is_attestable(&self) -> bool;
     fn as_str(&self) -> Result<&str, Self::Error>;
@@ -10,7 +17,7 @@ pub trait IndexerServiceResponse {
 
 
 #[derive(Debug)]
-struct SubgraphServiceResponse {
+pub struct SubgraphServiceResponse {
     inner: String,
     attestable: bool,
 }

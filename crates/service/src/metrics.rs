@@ -1,4 +1,14 @@
-use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
+use std::net::SocketAddr;
+
+use axum::{routing::get, serve, Router};
+use lazy_static::lazy_static;
+use prometheus::{
+    register_counter, register_counter_vec, register_histogram, register_histogram_vec, Counter,
+    CounterVec, Histogram, HistogramVec, TextEncoder,
+};
+use reqwest::StatusCode;
+use tokio::net::TcpListener;
+use tracing::{error, info};
 
 lazy_static! {
     /// Register indexer error metrics in Prometheus registry
@@ -60,7 +70,7 @@ lazy_static! {
 
 }
 
-fn serve_metrics(host_and_port: SocketAddr) {
+pub fn serve_metrics(host_and_port: SocketAddr) {
     info!(address = %host_and_port, "Serving prometheus metrics");
 
     tokio::spawn(async move {

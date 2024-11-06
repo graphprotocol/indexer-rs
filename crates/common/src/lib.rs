@@ -15,21 +15,25 @@ pub mod watcher;
 #[cfg(test)]
 mod test_vectors;
 
-
+pub mod monitors {
+    pub use crate::allocations::monitor::indexer_allocations;
+    pub use crate::attestations::dispute_manager;
+    pub use crate::escrow_accounts::escrow_accounts;
+}
 
 // monitors
 //      - allocations
-         // - new allocation
-         // - close allocation
+// - new allocation
+// - close allocation
 //      - attestations
 //      - dispute_manager
 //      - status_monitor
 //          - allow subgraph clients to and have a single monitor
 //      - escrow_accounts
-         // - new sender
-         // - update escrow balance
-         // - new signer
-         // - remove signer
+// - new sender
+// - update escrow balance
+// - new signer
+// - remove signer
 // queries
 //      - allocation
 //      - escrow_accounts
@@ -51,5 +55,3 @@ mod test_vectors;
 //          - sender balance check
 //          - receipt max value check
 //
-
-

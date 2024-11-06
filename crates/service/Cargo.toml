@@ -27,6 +27,10 @@ thegraph-graphql-http.workspace = true
 tracing-subscriber = { workspace = true, features = ["fmt"] }
 
 
+autometrics = { version = "1.0.1", features = ["prometheus-exporter"] }
+axum-extra = { version = "0.9.3", features = [
+  "typed-header",
+], default-features = false }
 tower_governor = "0.4.0"
 tower-http = { version = "0.5.2", features = [
   "cors",

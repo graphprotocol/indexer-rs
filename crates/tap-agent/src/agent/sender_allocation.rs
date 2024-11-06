@@ -10,7 +10,7 @@ use alloy::primitives::Address;
 use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt};
 use anyhow::{anyhow, ensure, Result};
 use bigdecimal::{num_bigint::BigInt, ToPrimitive};
-use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
+use indexer_common::{escrow_accounts::EscrowAccounts, subgraph_client::SubgraphClient};
 use jsonrpsee::{core::client::ClientT, rpc_params};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef};

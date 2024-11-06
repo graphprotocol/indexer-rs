@@ -1,9 +1,16 @@
+use alloy::primitives::Address;
+use axum::{
+    response::{IntoResponse, Response},
+    Json,
+};
+use indexer_common::escrow_accounts::EscrowAccountsError;
+use reqwest::StatusCode;
+use serde::Serialize;
 
-#[derive(Debug, Error)]
-pub enum IndexerServiceError<E>
-where
-    E: std::error::Error,
-{
+use crate::error::SubgraphServiceError;
+
+#[derive(Debug, thiserror::Error)]
+pub enum IndexerServiceError {
     #[error("Issues with provided receipt: {0}")]
     ReceiptError(tap_core::Error),
     #[error("No attestation signer found for allocation `{0}`")]
@@ -11,7 +18,7 @@ where
     #[error("Invalid request body: {0}")]
     InvalidRequest(anyhow::Error),
     #[error("Error while processing the request: {0}")]
-    ProcessingError(E),
+    ProcessingError(SubgraphServiceError),
     #[error("No valid receipt or free query auth token provided")]
     Unauthorized,
     #[error("Invalid free query auth token")]
@@ -28,10 +35,7 @@ where
     EscrowAccount(EscrowAccountsError),
 }
 
-impl<E> IntoResponse for IndexerServiceError<E>
-where
-    E: std::error::Error,
-{
+impl IntoResponse for IndexerServiceError {
     fn into_response(self) -> Response {
         use IndexerServiceError::*;
 

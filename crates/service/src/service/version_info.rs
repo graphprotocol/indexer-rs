@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+
+use build_info::BuildInfo;
+use serde::Serialize;
 
 #[derive(Clone, Serialize)]
 pub struct IndexerServiceRelease {
@@ -19,4 +23,3 @@ impl From<&BuildInfo> for IndexerServiceRelease {
         }
     }
 }
-

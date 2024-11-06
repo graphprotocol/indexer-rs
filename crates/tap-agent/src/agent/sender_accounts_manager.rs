@@ -15,6 +15,7 @@ use alloy::primitives::Address;
 use anyhow::Result;
 use anyhow::{anyhow, bail};
 use futures::{stream, StreamExt};
+use indexer_common::allocations::Allocation;
 use indexer_common::escrow_accounts::EscrowAccounts;
 use indexer_common::prelude::{Allocation, SubgraphClient};
 use indexer_common::watcher::watch_pipe;
@@ -594,7 +595,7 @@ mod tests {
     };
     use alloy::hex::ToHexExt;
     use indexer_common::escrow_accounts::EscrowAccounts;
-    use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
+    use indexer_common::subgraph_client::{DeploymentDetails, SubgraphClient};
     use ractor::concurrency::JoinHandle;
     use ractor::{Actor, ActorProcessingErr, ActorRef};
     use reqwest::Url;

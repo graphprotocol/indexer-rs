@@ -1,24 +1,19 @@
-
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 use axum::{body::Bytes, http::HeaderMap, response::IntoResponse, Extension};
+use indexer_common::subgraph_client::SubgraphClient;
 use tracing::warn;
 
-use crate::subgraph_client::SubgraphClient;
-
-use super::{indexer_service::IndexerServiceError, IndexerServiceImpl};
+use crate::service::IndexerServiceError;
 
 #[autometrics::autometrics]
-pub async fn static_subgraph_request_handler<I>(
+pub async fn static_subgraph_request_handler(
     Extension(subgraph_client): Extension<&'static SubgraphClient>,
     Extension(required_auth_token): Extension<Option<String>>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<impl IntoResponse, IndexerServiceError<I::Error>>
-where
-    I: IndexerServiceImpl + Sync + Send + 'static,
-{
+) -> Result<impl IntoResponse, IndexerServiceError> {
     if let Some(required_auth_token) = required_auth_token {
         let authorization = headers
             .get("authorization")

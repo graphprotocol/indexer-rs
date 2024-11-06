@@ -8,16 +8,14 @@ use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, S
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::extract::State;
 use indexer_common::cost_model::{self, CostModel};
-use lazy_static::lazy_static;
-use prometheus::{
-    register_counter, register_counter_vec, register_histogram, register_histogram_vec, Counter,
-    CounterVec, Histogram, HistogramVec,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thegraph_core::DeploymentId;
 
-use crate::service::SubgraphServiceState;
+use crate::{metrics::{
+    COST_MODEL_BATCH_FAILED, COST_MODEL_BATCH_INVALID, COST_MODEL_BATCH_METRIC,
+    COST_MODEL_BATCH_SIZE, COST_MODEL_FAILED, COST_MODEL_INVALID, COST_MODEL_METRIC,
+}, service::SubgraphServiceState};
 
 #[derive(Clone, Debug, Serialize, Deserialize, SimpleObject)]
 pub struct GraphQlCostModel {

@@ -9,7 +9,7 @@ use axum::{
     response::IntoResponse,
 };
 use axum_extra::TypedHeader;
-use lazy_static::lazy_static;
+use indexer_common::{middleware::TapReceipt, tap::AgoraQuery};
 use reqwest::StatusCode;
 use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
@@ -17,25 +17,18 @@ use tracing::trace;
 
 use serde_json::value::RawValue;
 
-use crate::{indexer_service::http::IndexerServiceResponse, tap::AgoraQuery};
-
-use super::{
-    indexer_service::{AttestationOutput, IndexerServiceError, IndexerServiceState},
-    tap_receipt_header::TapReceipt,
-    IndexerServiceImpl,
+use crate::{
+    metrics::{FAILED_RECEIPT, HANDLER_FAILURE, HANDLER_HISTOGRAM},
+    service::{AttestationOutput, IndexerServiceError, IndexerServiceState},
 };
 
-
-pub async fn request_handler<I>(
+pub async fn request_handler(
     Path(manifest_id): Path<DeploymentId>,
     typed_header: TypedHeader<TapReceipt>,
-    state: State<Arc<IndexerServiceState<I>>>,
+    state: State<Arc<IndexerServiceState>>,
     headers: HeaderMap,
     body: String,
-) -> Result<impl IntoResponse, IndexerServiceError<I::Error>>
-where
-    I: IndexerServiceImpl + Sync + Send + 'static,
-{
+) -> Result<impl IntoResponse, IndexerServiceError> {
     _request_handler(manifest_id, typed_header, state, headers, body)
         .await
         .inspect_err(|_| {
@@ -45,16 +38,13 @@ where
         })
 }
 
-async fn _request_handler<I>(
+async fn _request_handler(
     manifest_id: DeploymentId,
     TypedHeader(receipt): TypedHeader<TapReceipt>,
-    State(state): State<Arc<IndexerServiceState<I>>>,
+    State(state): State<Arc<IndexerServiceState>>,
     headers: HeaderMap,
     req: String,
-) -> Result<impl IntoResponse, IndexerServiceError<I::Error>>
-where
-    I: IndexerServiceImpl + Sync + Send + 'static,
-{
+) -> Result<impl IntoResponse, IndexerServiceError> {
     trace!("Handling request for deployment `{manifest_id}`");
 
     let request: QueryBody =
@@ -70,7 +60,7 @@ where
         {
             None => return Err(IndexerServiceError::Unauthorized),
             Some(ref token) => {
-                if Some(token) != state.config.service.free_query_auth_token.as_ref() {
+                if Some(token.as_str()) != state.free_query_auth_token {
                     return Err(IndexerServiceError::InvalidFreeQueryAuthToken);
                 }
             }
