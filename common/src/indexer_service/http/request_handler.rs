@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use axum::{
-    body::Bytes,
     extract::{Path, State},
     http::HeaderMap,
     response::IntoResponse,
@@ -54,7 +53,7 @@ pub async fn request_handler<I>(
     typed_header: TypedHeader<TapReceipt>,
     state: State<Arc<IndexerServiceState<I>>>,
     headers: HeaderMap,
-    body: Bytes,
+    body: String,
 ) -> Result<impl IntoResponse, IndexerServiceError<I::Error>>
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
@@ -73,7 +72,7 @@ async fn _request_handler<I>(
     TypedHeader(receipt): TypedHeader<TapReceipt>,
     State(state): State<Arc<IndexerServiceState<I>>>,
     headers: HeaderMap,
-    body: Bytes,
+    req: String,
 ) -> Result<impl IntoResponse, IndexerServiceError<I::Error>>
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
@@ -81,7 +80,7 @@ where
     trace!("Handling request for deployment `{manifest_id}`");
 
     let request: QueryBody =
-        serde_json::from_slice(&body).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
+        serde_json::from_str(&req).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
 
     let Some(receipt) = receipt.into_signed_receipt() else {
         // Serve free query, NO METRICS
@@ -178,9 +177,6 @@ where
         .await
         .map_err(IndexerServiceError::ProcessingError)?;
 
-    let req =
-        std::str::from_utf8(&body).map_err(|_| IndexerServiceError::FailedToSignAttestation)?;
-
     let res = response
         .as_str()
         .map_err(|_| IndexerServiceError::FailedToSignAttestation)?;
@@ -188,7 +184,7 @@ where
     let attestation = AttestationOutput::Attestation(
         response
             .is_attestable()
-            .then(|| signer.create_attestation(req, res)),
+            .then(|| signer.create_attestation(&req, res)),
     );
 
     let response = response.finalize(attestation);
