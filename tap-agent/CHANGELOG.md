@@ -1,5 +1,7 @@
 # Changelog
 
+
+
 ## [1.7.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.6.0...indexer-tap-agent-v1.7.0) (2024-11-05)
 
 
