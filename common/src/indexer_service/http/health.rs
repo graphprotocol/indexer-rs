@@ -1,12 +1,12 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::subgraph_client::Query;
 use axum::{
     extract::Path,
     response::{IntoResponse, Response as AxumResponse},
     Extension, Json,
 };
+use graphql_client::GraphQLQuery;
 use indexer_config::GraphNodeConfig;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,15 @@ struct IndexingStatus {
 struct Message {
     message: String,
 }
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "../graphql/indexing_status.schema.graphql",
+    query_path = "../graphql/subgraph_health.query.graphql",
+    response_derives = "Debug",
+    variables_derives = "Clone"
+)]
+pub struct HealthQuery;
 
 #[derive(Deserialize, Debug)]
 #[allow(non_camel_case_types)]
@@ -84,25 +93,16 @@ pub async fn health(
     Path(deployment_id): Path<String>,
     Extension(graph_node): Extension<GraphNodeConfig>,
 ) -> Result<impl IntoResponse, CheckHealthError> {
-    let body = Query::new_with_variables(
-        r#"
-            query indexingStatuses($ids: [String!]!) {
-                indexingStatuses(subgraphs: $ids) {
-                    health
-                    fatalError {
-                        message
-                    }
-                    nonFatalErrors {
-                        message
-                    }
-                }
-            }
-        "#,
-        [("ids", json!([deployment_id]))],
-    );
+    let req_body = HealthQuery::build_query(health_query::Variables {
+        ids: vec![deployment_id],
+    });
 
     let client = reqwest::Client::new();
-    let response = client.post(graph_node.status_url).json(&body).send().await;
+    let response = client
+        .post(graph_node.status_url)
+        .json(&req_body)
+        .send()
+        .await;
     let res = response.expect("Failed to get response");
     let response_json: Result<Response, reqwest::Error> = res.json().await;
 

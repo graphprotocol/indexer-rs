@@ -1,0 +1,182 @@
+schema {
+  query: Query
+}
+
+type ApiVersion {
+  """
+  Version number in SemVer format
+  
+  """
+  version: String!
+}
+
+scalar BigInt
+
+type Block {
+  hash: Bytes!
+  number: BigInt!
+}
+
+input BlockInput {
+  hash: Bytes!
+  number: BigInt!
+}
+
+scalar Bytes
+
+type CachedEthereumCall {
+  idHash: Bytes!
+  block: Block!
+  contractAddress: Bytes!
+  returnValue: Bytes!
+}
+
+interface ChainIndexingStatus {
+  network: String!
+  chainHeadBlock: Block
+  earliestBlock: EarliestBlock
+  latestBlock: Block
+  lastHealthyBlock: Block
+}
+
+scalar Date
+
+type EarliestBlock {
+  hash: Bytes!
+  number: BigInt!
+}
+
+type EntityChanges {
+  updates: [EntityTypeUpdates!]!
+  deletions: [EntityTypeDeletions!]!
+}
+
+type EntityTypeDeletions {
+  type: String!
+  entities: [ID!]!
+}
+
+type EntityTypeUpdates {
+  type: String!
+  entities: [JSONObject!]!
+}
+
+type EthereumIndexingStatus implements ChainIndexingStatus {
+  network: String!
+  chainHeadBlock: Block
+  earliestBlock: EarliestBlock
+  latestBlock: Block
+  lastHealthyBlock: Block
+}
+
+enum Feature {
+  nonFatalErrors
+  grafting
+  fullTextSearch
+  ipfsOnEthereumContracts
+  aggregations
+  declaredEthCalls
+  immutableEntities
+  bytesAsIds
+}
+
+enum Health {
+  """Subgraph syncing normally"""
+  healthy
+  """Subgraph syncing but with errors"""
+  unhealthy
+  """Subgraph halted due to errors"""
+  failed
+}
+
+scalar JSONObject
+
+type PartialBlock {
+  hash: Bytes
+  number: BigInt!
+}
+
+input ProofOfIndexingRequest {
+  deployment: String!
+  block: BlockInput!
+}
+
+type ProofOfIndexingResult {
+  deployment: String!
+  block: Block!
+  """
+  There may not be a proof of indexing available for the deployment and block
+  """
+  proofOfIndexing: Bytes
+}
+
+input PublicProofOfIndexingRequest {
+  deployment: String!
+  blockNumber: BigInt!
+}
+
+type PublicProofOfIndexingResult {
+  deployment: String!
+  block: PartialBlock!
+  proofOfIndexing: Bytes!
+}
+
+type Query {
+  indexingStatusForCurrentVersion(subgraphName: String!): SubgraphIndexingStatus
+  indexingStatusForPendingVersion(subgraphName: String!): SubgraphIndexingStatus
+  indexingStatusesForSubgraphName(subgraphName: String!): [SubgraphIndexingStatus!]!
+  indexingStatuses(subgraphs: [String!]): [SubgraphIndexingStatus!]!
+  proofOfIndexing(subgraph: String!, blockNumber: Int!, blockHash: Bytes!, indexer: Bytes): Bytes
+  """
+  Proofs of indexing for several deployments and blocks that can be shared and
+  compared in public without revealing the _actual_ proof of indexing that every
+  indexer has in their database
+  
+  """
+  publicProofsOfIndexing(requests: [PublicProofOfIndexingRequest!]!): [PublicProofOfIndexingResult!]!
+  subgraphFeatures(subgraphId: String!): SubgraphFeatures!
+  entityChangesInBlock(subgraphId: String!, blockNumber: Int!): EntityChanges!
+  blockData(network: String!, blockHash: Bytes!): JSONObject
+  blockHashFromNumber(network: String!, blockNumber: Int!): Bytes
+  version: Version!
+  cachedEthereumCalls(network: String!, blockHash: Bytes!): [CachedEthereumCall!]
+  apiVersions(subgraphId: String!): [ApiVersion!]!
+}
+
+type SubgraphError {
+  message: String!
+  block: Block
+  handler: String
+  deterministic: Boolean!
+}
+
+type SubgraphFeatures {
+  apiVersion: String
+  specVersion: String!
+  features: [Feature!]!
+  dataSources: [String!]!
+  handlers: [String!]!
+  network: String
+}
+
+type SubgraphIndexingStatus {
+  subgraph: String!
+  synced: Boolean!
+  health: Health!
+  """If the subgraph has failed, this is the error caused it"""
+  fatalError: SubgraphError
+  """Sorted from first to last, limited to first 1000"""
+  nonFatalErrors: [SubgraphError!]!
+  chains: [ChainIndexingStatus!]!
+  entityCount: BigInt!
+  """null if deployment is not assigned to an indexing node"""
+  node: String
+  """null if deployment is not assigned to an indexing node"""
+  paused: Boolean
+  historyBlocks: Int!
+}
+
+type Version {
+  version: String!
+  commit: String!
+}
