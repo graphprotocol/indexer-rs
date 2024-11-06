@@ -19,7 +19,7 @@ use serde_json::value::RawValue;
 
 use crate::{
     metrics::{FAILED_RECEIPT, HANDLER_FAILURE, HANDLER_HISTOGRAM},
-    service::{AttestationOutput, IndexerServiceError, IndexerServiceState},
+    service::{AttestationOutput, IndexerServiceError, IndexerServiceImpl, IndexerServiceResponse, IndexerServiceState},
 };
 
 pub async fn request_handler(
@@ -60,7 +60,7 @@ async fn _request_handler(
         {
             None => return Err(IndexerServiceError::Unauthorized),
             Some(ref token) => {
-                if Some(token.as_str()) != state.free_query_auth_token {
+                if Some(token) != state.free_query_auth_token {
                     return Err(IndexerServiceError::InvalidFreeQueryAuthToken);
                 }
             }

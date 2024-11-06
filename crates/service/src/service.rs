@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{cli::Cli, metrics, routes};
+use crate::{cli::Cli, database, metrics, routes};
 use alloy::{dyn_abi::Eip712Domain, primitives::Address};
 use anyhow::anyhow;
 use async_graphql::{EmptySubscription, Schema};
@@ -33,7 +33,7 @@ use crate::{
 
 use clap::Parser;
 use axum::{
-    extract::MatchedPath,
+    extract::{MatchedPath, Request as ExtractRequest},
     http::Request,
     routing::{get, post},
     serve, Extension, Json, Router, ServiceExt,
@@ -50,8 +50,8 @@ use indexer_common::{
 };
 use indexer_config::Config;
 use reqwest::Method;
-use sqlx::postgres::PgPoolOptions;
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use subgraph_service::SubgraphService;
 use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
 use tokio::{net::TcpListener, signal, sync::watch::Receiver};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
@@ -66,15 +66,16 @@ use tracing::{error, info, info_span};
 use version_info::IndexerServiceRelease;
 
 mod error;
-mod graphnode_client;
 mod response;
+mod subgraph_service;
 mod version_info;
 
 pub use error::IndexerServiceError;
-pub use graphnode_client::{AttestationOutput, SubgraphServiceState};
 pub use response::{IndexerServiceResponse, SubgraphServiceResponse};
+pub use subgraph_service::{AttestationOutput, IndexerServiceImpl, SubgraphServiceState};
 
 pub struct IndexerServiceState {
+    pub service_impl: SubgraphService,
     pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
     pub tap_manager: Manager<IndexerTapContext>,
 
@@ -82,7 +83,7 @@ pub struct IndexerServiceState {
     pub escrow_accounts: Receiver<EscrowAccounts>,
     pub domain_separator: Eip712Domain,
 
-    pub free_query_auth_token: Option<&'static str>,
+    pub free_query_auth_token: Option<&'static String>,
 }
 
 /// Run the subgraph indexer service
@@ -109,18 +110,28 @@ pub async fn run() -> anyhow::Result<()> {
     build_info::build_info!(fn build_info);
     let release = IndexerServiceRelease::from(build_info());
 
+    // Establish Database connection necessary for serving indexer management
+    // requests with defined schema
+    // Note: Typically, you'd call `sqlx::migrate!();` here to sync the models
+    // which defaults to files in  "./migrations" to sync the database;
+    // however, this can cause conflicts with the migrations run by indexer
+    // agent. Hence we leave syncing and migrating entirely to the agent and
+    // assume the models are up to date in the service.
+    let database =
+        database::connect(config.database.clone().get_formated_postgres_url().as_ref()).await;
+
     // Some of the subgraph service configuration goes into the so-called
     // "state", which will be passed to any request handler, middleware etc.
     // that is involved in serving requests
     let state = Arc::new(SubgraphServiceState {
-        // database: database::connect(config.database.clone().get_formated_postgres_url().as_ref())
-        //     .await,
+        cost_schema: routes::cost::build_schema().await,
+        database: database.clone(),
         graph_node_client: reqwest::ClientBuilder::new()
             .tcp_nodelay(true)
             .timeout(Duration::from_secs(30))
             .build()
             .expect("Failed to init HTTP client for Graph Node"),
-        // graph_node_status_url: &config.graph_node.status_url,
+        graph_node_status_url: &config.graph_node.status_url,
         graph_node_query_base_url: &config.graph_node.query_url,
     });
 
@@ -160,9 +171,7 @@ pub async fn run() -> anyhow::Result<()> {
     }
 
     let options = IndexerServiceOptions {
-        release,
         url_namespace: "subgraphs",
-        // service_impl: SubgraphService::new(state.clone()),
         extra_routes: router,
     };
 
@@ -261,19 +270,6 @@ pub async fn run() -> anyhow::Result<()> {
     .await
     .expect("Error creating escrow_accounts channel");
 
-    // Establish Database connection necessary for serving indexer management
-    // requests with defined schema
-    // Note: Typically, you'd call `sqlx::migrate!();` here to sync the models
-    // which defaults to files in  "./migrations" to sync the database;
-    // however, this can cause conflicts with the migrations run by indexer
-    // agent. Hence we leave syncing and migrating entirely to the agent and
-    // assume the models are up to date in the service.
-    let database = PgPoolOptions::new()
-        .max_connections(50)
-        .acquire_timeout(Duration::from_secs(30))
-        .connect(config.database.clone().get_formated_postgres_url().as_ref())
-        .await?;
-
     let domain_separator = tap_eip712_domain(
         config.blockchain.chain_id as u64,
         config.blockchain.receipts_verifier_address,
@@ -304,7 +300,8 @@ pub async fn run() -> anyhow::Result<()> {
         tap_manager,
         escrow_accounts,
         domain_separator,
-        free_query_auth_token: config.service.free_query_auth_token.map(|e| e.as_str()),
+        service_impl: SubgraphService::new(state),
+        free_query_auth_token: config.service.free_query_auth_token.as_ref(),
     });
 
     // Rate limits by allowing bursts of 10 requests and requiring 100ms of
@@ -432,7 +429,6 @@ pub async fn run() -> anyhow::Result<()> {
 }
 
 pub struct IndexerServiceOptions {
-    pub release: IndexerServiceRelease,
     pub url_namespace: &'static str,
     pub extra_routes: Router<Arc<IndexerServiceState>>,
 }

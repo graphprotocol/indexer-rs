@@ -3,23 +3,29 @@ use std::sync::Arc;
 use axum::async_trait;
 use reqwest::Url;
 use serde::{de::DeserializeOwned, Serialize};
+use sqlx::Postgres;
 use thegraph_core::{Attestation, DeploymentId};
 
-use crate::error::SubgraphServiceError;
+use crate::{error::SubgraphServiceError, routes};
 
 use super::{response::IndexerServiceResponse, SubgraphServiceResponse};
 
 pub struct SubgraphServiceState {
+    pub database: sqlx::Pool<Postgres>,
+
+    pub cost_schema: routes::cost::CostSchema,
+
     pub graph_node_client: reqwest::Client,
     pub graph_node_query_base_url: &'static Url,
+    pub graph_node_status_url: &'static Url,
 }
 
-struct SubgraphService {
+pub struct SubgraphService {
     state: Arc<SubgraphServiceState>,
 }
 
 impl SubgraphService {
-    fn new(state: Arc<SubgraphServiceState>) -> Self {
+    pub fn new(state: Arc<SubgraphServiceState>) -> Self {
         Self { state }
     }
 }

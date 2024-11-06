@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 
 use crate::error::SubgraphServiceError;
 
-use super::graphnode_client::AttestationOutput;
+use super::subgraph_service::AttestationOutput;
 
 
 pub trait IndexerServiceResponse {
