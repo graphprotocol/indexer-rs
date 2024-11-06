@@ -509,7 +509,7 @@ mod tests {
         sleep(Duration::from_millis(1010)).await;
 
         assert!(
-            check.check(&ctx, &receipt).await.is_ok(),
+            check.check(&ctx, &receipt).await.is_err(),
             "Should require minimal value"
         );
 
