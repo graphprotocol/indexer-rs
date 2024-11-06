@@ -90,7 +90,7 @@ impl IndexerServiceImpl for SubgraphService {
         &self,
         deployment: DeploymentId,
         request: Request,
-    ) -> Result<(Request, Self::Response), Self::Error> {
+    ) -> Result<Self::Response, Self::Error> {
         let deployment_url = self
             .state
             .graph_node_query_base_url
@@ -118,7 +118,7 @@ impl IndexerServiceImpl for SubgraphService {
             .await
             .map_err(SubgraphServiceError::QueryForwardingError)?;
 
-        Ok((request, SubgraphServiceResponse::new(body, attestable)))
+        Ok(SubgraphServiceResponse::new(body, attestable))
     }
 }
 

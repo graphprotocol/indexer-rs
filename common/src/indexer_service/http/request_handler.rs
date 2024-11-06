@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use axum::{
-    body::Bytes,
     extract::{Path, State},
     http::HeaderMap,
     response::IntoResponse,
@@ -54,7 +53,7 @@ pub async fn request_handler<I>(
     typed_header: TypedHeader<TapReceipt>,
     state: State<Arc<IndexerServiceState<I>>>,
     headers: HeaderMap,
-    body: Bytes,
+    body: String,
 ) -> Result<impl IntoResponse, IndexerServiceError<I::Error>>
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
@@ -73,21 +72,15 @@ async fn _request_handler<I>(
     TypedHeader(receipt): TypedHeader<TapReceipt>,
     State(state): State<Arc<IndexerServiceState<I>>>,
     headers: HeaderMap,
-    body: Bytes,
+    req: String,
 ) -> Result<impl IntoResponse, IndexerServiceError<I::Error>>
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
     trace!("Handling request for deployment `{manifest_id}`");
 
-    #[derive(Debug, serde::Deserialize, serde::Serialize)]
-    pub struct QueryBody {
-        pub query: String,
-        pub variables: Option<Box<RawValue>>,
-    }
-
     let request: QueryBody =
-        serde_json::from_slice(&body).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
+        serde_json::from_str(&req).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
 
     let Some(receipt) = receipt.into_signed_receipt() else {
         // Serve free query, NO METRICS
@@ -112,7 +105,6 @@ where
             .process_request(manifest_id, request)
             .await
             .map_err(IndexerServiceError::ProcessingError)?
-            .1
             .finalize(AttestationOutput::Attestable);
         return Ok((StatusCode::OK, response));
     };
@@ -179,14 +171,11 @@ where
         .cloned()
         .ok_or_else(|| (IndexerServiceError::NoSignerForAllocation(allocation_id)))?;
 
-    let (request, response) = state
+    let response = state
         .service_impl
         .process_request(manifest_id, request)
         .await
         .map_err(IndexerServiceError::ProcessingError)?;
-
-    let req = serde_json::to_string(&request)
-        .map_err(|_| IndexerServiceError::FailedToSignAttestation)?;
 
     let res = response
         .as_str()
@@ -201,4 +190,10 @@ where
     let response = response.finalize(attestation);
 
     Ok((StatusCode::OK, response))
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct QueryBody {
+    pub query: String,
+    pub variables: Option<Box<RawValue>>,
 }

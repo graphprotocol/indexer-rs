@@ -72,7 +72,7 @@ pub trait IndexerServiceImpl {
         &self,
         manifest_id: DeploymentId,
         request: Request,
-    ) -> Result<(Request, Self::Response), Self::Error>;
+    ) -> Result<Self::Response, Self::Error>;
 }
 
 #[derive(Debug, Error)]
