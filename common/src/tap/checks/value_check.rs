@@ -12,6 +12,7 @@ use std::{
     collections::HashMap,
     str::FromStr,
     sync::{Arc, RwLock},
+    time::Instant,
 };
 use thegraph_core::DeploymentId;
 use tracing::error;
@@ -39,6 +40,7 @@ pub struct AgoraQuery {
 
 type CostModelMap = Arc<RwLock<HashMap<DeploymentId, CostModel>>>;
 type GlobalModel = Arc<RwLock<Option<CostModel>>>;
+type GracePeriod = Arc<RwLock<Instant>>;
 
 /// Represents the check for minimum for a receipt
 ///
@@ -48,6 +50,8 @@ pub struct MinimumValue {
     cost_model_map: CostModelMap,
     global_model: GlobalModel,
     watcher_cancel_token: tokio_util::sync::CancellationToken,
+    updated_at: GracePeriod,
+    grace_period: u64,
 }
 
 struct CostModelWatcher {
@@ -55,6 +59,7 @@ struct CostModelWatcher {
 
     cost_models: CostModelMap,
     global_model: GlobalModel,
+    updated_at: GracePeriod,
 }
 
 impl CostModelWatcher {
@@ -64,11 +69,13 @@ impl CostModelWatcher {
         cost_models: CostModelMap,
         global_model: GlobalModel,
         cancel_token: tokio_util::sync::CancellationToken,
+        grace_period: GracePeriod,
     ) {
         let cost_model_watcher = CostModelWatcher {
             pgpool,
             global_model,
             cost_models,
+            updated_at: grace_period,
         };
 
         loop {
@@ -123,6 +130,8 @@ impl CostModelWatcher {
                 }
             },
         };
+
+        *self.updated_at.write().unwrap() = Instant::now();
     }
 
     fn handle_delete(&self, deployment: String) {
@@ -142,6 +151,7 @@ impl CostModelWatcher {
                 }
             },
         };
+        *self.updated_at.write().unwrap() = Instant::now();
     }
 
     async fn handle_unexpected_notification(&self, payload: &str) {
@@ -157,7 +167,9 @@ impl CostModelWatcher {
             self.global_model.clone(),
         )
         .await
-        .expect("should be able to reload cost models")
+        .expect("should be able to reload cost models");
+
+        *self.updated_at.write().unwrap() = Instant::now();
     }
 }
 
@@ -170,9 +182,10 @@ impl Drop for MinimumValue {
 }
 
 impl MinimumValue {
-    pub async fn new(pgpool: PgPool) -> Self {
+    pub async fn new(pgpool: PgPool, grace_period: u64) -> Self {
         let cost_model_map: CostModelMap = Default::default();
         let global_model: GlobalModel = Default::default();
+        let updated_at: GracePeriod = Arc::new(RwLock::new(Instant::now()));
         Self::value_check_reload(&pgpool, cost_model_map.clone(), global_model.clone())
             .await
             .expect("should be able to reload cost models");
@@ -193,13 +206,20 @@ impl MinimumValue {
             cost_model_map.clone(),
             global_model.clone(),
             watcher_cancel_token.clone(),
+            updated_at.clone(),
         ));
-
         Self {
             global_model,
             cost_model_map,
             watcher_cancel_token,
+            updated_at,
+            grace_period,
         }
+    }
+
+    fn inside_grace_period(&self) -> bool {
+        let time_elapsed = Instant::now().duration_since(*self.updated_at.read().unwrap());
+        time_elapsed.as_secs() < self.grace_period
     }
 
     fn expected_value(&self, agora_query: &AgoraQuery) -> anyhow::Result<u128> {
@@ -271,13 +291,16 @@ impl Check for MinimumValue {
         let agora_query = ctx
             .get()
             .ok_or(CheckError::Failed(anyhow!("Could not find agora query")))?;
+        // get value
+        let value = receipt.signed_receipt().message.value;
+
+        if self.inside_grace_period() && value > MINIMAL_VALUE {
+            return Ok(());
+        }
 
         let expected_value = self
             .expected_value(agora_query)
             .map_err(CheckError::Failed)?;
-
-        // get value
-        let value = receipt.signed_receipt().message.value;
 
         let should_accept = value >= expected_value;
 
@@ -339,7 +362,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn initialize_check(pgpool: PgPool) {
-        let check = MinimumValue::new(pgpool).await;
+        let check = MinimumValue::new(pgpool, 0).await;
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
     }
 
@@ -350,7 +373,7 @@ mod tests {
 
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
-        let check = MinimumValue::new(pgpool).await;
+        let check = MinimumValue::new(pgpool, 0).await;
         assert_eq!(check.cost_model_map.read().unwrap().len(), 2);
 
         // no global model
@@ -359,7 +382,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn should_watch_model_insert(pgpool: PgPool) {
-        let check = MinimumValue::new(pgpool.clone()).await;
+        let check = MinimumValue::new(pgpool.clone(), 0).await;
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
 
         // insert 2 cost models for different deployment_id
@@ -379,7 +402,7 @@ mod tests {
         let test_models = crate::cost_model::test::test_data();
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
-        let check = MinimumValue::new(pgpool.clone()).await;
+        let check = MinimumValue::new(pgpool.clone(), 0).await;
         assert_eq!(check.cost_model_map.read().unwrap().len(), 2);
 
         // remove
@@ -398,13 +421,13 @@ mod tests {
         let global_model = global_cost_model();
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
 
-        let check = MinimumValue::new(pgpool.clone()).await;
+        let check = MinimumValue::new(pgpool.clone(), 0).await;
         assert!(check.global_model.read().unwrap().is_some());
     }
 
     #[sqlx::test(migrations = "../migrations")]
     async fn should_watch_global_model(pgpool: PgPool) {
-        let check = MinimumValue::new(pgpool.clone()).await;
+        let check = MinimumValue::new(pgpool.clone(), 0).await;
 
         let global_model = global_cost_model();
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
@@ -418,7 +441,7 @@ mod tests {
         let global_model = global_cost_model();
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
 
-        let check = MinimumValue::new(pgpool.clone()).await;
+        let check = MinimumValue::new(pgpool.clone(), 0).await;
         assert!(check.global_model.read().unwrap().is_some());
 
         sqlx::query!(r#"DELETE FROM "CostModels""#)
@@ -440,7 +463,7 @@ mod tests {
 
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
-        let check = MinimumValue::new(pgpool).await;
+        let check = MinimumValue::new(pgpool, 1).await;
 
         let deployment_id = test_models[0].deployment;
         let mut ctx = Context::new();
@@ -477,8 +500,16 @@ mod tests {
         let signed_receipt =
             create_signed_receipt(ALLOCATION_ID, u64::MAX, u64::MAX, minimal_value - 1).await;
         let receipt = ReceiptWithState::new(signed_receipt);
+
         assert!(
-            check.check(&ctx, &receipt).await.is_err(),
+            check.check(&ctx, &receipt).await.is_ok(),
+            "Should accept since its inside grace period "
+        );
+
+        sleep(Duration::from_millis(1010)).await;
+
+        assert!(
+            check.check(&ctx, &receipt).await.is_ok(),
             "Should require minimal value"
         );
 
@@ -508,7 +539,7 @@ mod tests {
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
-        let check = MinimumValue::new(pgpool).await;
+        let check = MinimumValue::new(pgpool, 0).await;
 
         let deployment_id = test_models[0].deployment;
         let mut ctx = Context::new();
