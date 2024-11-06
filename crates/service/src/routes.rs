@@ -3,6 +3,9 @@
 
 pub mod cost;
 pub mod dips;
+mod cost;
+mod request_handler;
+mod static_subgraph;
 mod status;
 
 pub use status::status;

@@ -46,7 +46,6 @@ mod test {
     };
 
     use crate::{
-        prelude::SubgraphClient,
         subgraph_client::DeploymentDetails,
         test_vectors::{self, DISPUTE_MANAGER_ADDRESS},
     };

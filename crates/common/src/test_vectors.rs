@@ -17,7 +17,7 @@ use tap_core::{
 };
 use thegraph_core::{Address, DeploymentId};
 
-use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
+use crate::allocations::{Allocation, AllocationStatus, SubgraphDeployment};
 
 /// The allocation IDs below are generated using the mnemonic
 /// "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"

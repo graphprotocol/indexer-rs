@@ -10,7 +10,6 @@ use axum::{
 };
 use axum_extra::TypedHeader;
 use lazy_static::lazy_static;
-use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use reqwest::StatusCode;
 use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
@@ -26,27 +25,6 @@ use super::{
     IndexerServiceImpl,
 };
 
-lazy_static! {
-    /// Register indexer error metrics in Prometheus registry
-    pub static ref HANDLER_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "indexer_query_handler_seconds",
-        "Histogram for default indexer query handler",
-        &["deployment", "allocation", "sender"]
-    ).unwrap();
-
-    pub static ref HANDLER_FAILURE: CounterVec = register_counter_vec!(
-        "indexer_query_handler_failed_total",
-        "Failed queries to handler",
-        &["deployment"]
-    ).unwrap();
-
-    pub static ref FAILED_RECEIPT: CounterVec = register_counter_vec!(
-        "indexer_receipt_failed_total",
-        "Failed receipt checks",
-        &["deployment", "allocation", "sender"]
-    ).unwrap();
-
-}
 
 pub async fn request_handler<I>(
     Path(manifest_id): Path<DeploymentId>,

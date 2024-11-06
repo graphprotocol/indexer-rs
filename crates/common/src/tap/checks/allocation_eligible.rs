@@ -13,7 +13,8 @@ use tap_core::receipt::{
 };
 use tokio::sync::watch::Receiver;
 
-use crate::prelude::Allocation;
+use crate::allocations::Allocation;
+
 pub struct AllocationEligible {
     indexer_allocations: Receiver<HashMap<Address, Allocation>>,
 }

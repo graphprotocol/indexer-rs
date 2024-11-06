@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::Allocation;
-use crate::{prelude::SubgraphClient, watcher::new_watcher};
+use crate::{subgraph_client::SubgraphClient, watcher::new_watcher};
 use alloy::primitives::{TxHash, B256, U256};
 use graphql_client::GraphQLQuery;
 use thegraph_core::{Address, DeploymentId};
@@ -130,7 +130,7 @@ mod test {
         "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-arbitrum";
     use std::str::FromStr;
 
-    use crate::{prelude::SubgraphClient, subgraph_client::DeploymentDetails};
+    use crate::subgraph_client::DeploymentDetails;
 
     use super::*;
 

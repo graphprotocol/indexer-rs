@@ -77,10 +77,10 @@ impl IntoRequestParameters for Query {
 
 #[derive(Debug, Clone)]
 pub struct DeploymentDetails {
-    pub deployment: Option<DeploymentId>,
-    pub status_url: Option<Url>,
-    pub query_url: Url,
-    pub query_auth_token: Option<String>,
+    deployment: Option<DeploymentId>,
+    status_url: Option<Url>,
+    query_url: Url,
+    query_auth_token: Option<String>,
 }
 
 impl DeploymentDetails {

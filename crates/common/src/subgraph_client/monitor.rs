@@ -46,7 +46,7 @@ pub async fn monitor_deployment_status(
     .await
 }
 
-pub async fn check_deployment_status(
+async fn check_deployment_status(
     deployment: DeploymentId,
     status_url: Url,
 ) -> Result<DeploymentStatus, anyhow::Error> {

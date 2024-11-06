@@ -1,13 +1,14 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::allocations::Allocation;
+use crate::escrow_accounts::EscrowAccounts;
 use crate::tap::checks::allocation_eligible::AllocationEligible;
 use crate::tap::checks::deny_list_check::DenyListCheck;
 use crate::tap::checks::receipt_max_val_check::ReceiptMaxValueCheck;
 use crate::tap::checks::sender_balance_check::SenderBalanceCheck;
 use crate::tap::checks::timestamp_check::TimestampCheck;
 use crate::tap::checks::value_check::MinimumValue;
-use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::Address;
 use receipt_store::{DatabaseReceipt, InnerContext};

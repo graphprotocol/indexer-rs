@@ -39,101 +39,18 @@ use indexer_common::indexer_service::http::{
 };
 use tracing::error;
 
-#[derive(Debug)]
-struct SubgraphServiceResponse {
-    inner: String,
-    attestable: bool,
-}
+mod error;
+mod graphnode_client;
+mod response;
+mod version_info;
 
-impl SubgraphServiceResponse {
-    pub fn new(inner: String, attestable: bool) -> Self {
-        Self { inner, attestable }
-    }
-}
+pub struct IndexerServiceState {
+    pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
+    pub tap_manager: Manager<IndexerTapContext>,
 
-impl IndexerServiceResponse for SubgraphServiceResponse {
-    type Data = Json<Value>;
-    type Error = SubgraphServiceError; // not used
-
-    fn is_attestable(&self) -> bool {
-        self.attestable
-    }
-
-    fn as_str(&self) -> Result<&str, Self::Error> {
-        Ok(self.inner.as_str())
-    }
-
-    fn finalize(self, attestation: AttestationOutput) -> Self::Data {
-        let (attestation_key, attestation_value) = match attestation {
-            AttestationOutput::Attestation(attestation) => ("attestation", json!(attestation)),
-            AttestationOutput::Attestable => ("attestable", json!(self.is_attestable())),
-        };
-        Json(json!({
-            "graphQLResponse": self.inner,
-            attestation_key: attestation_value,
-        }))
-    }
-}
-
-pub struct SubgraphServiceState {
-    pub config: &'static Config,
-    pub database: PgPool,
-    pub cost_schema: routes::cost::CostSchema,
-    pub graph_node_client: reqwest::Client,
-    pub graph_node_status_url: &'static Url,
-    pub graph_node_query_base_url: &'static Url,
-}
-
-struct SubgraphService {
-    state: Arc<SubgraphServiceState>,
-}
-
-impl SubgraphService {
-    fn new(state: Arc<SubgraphServiceState>) -> Self {
-        Self { state }
-    }
-}
-
-#[async_trait]
-impl IndexerServiceImpl for SubgraphService {
-    type Error = SubgraphServiceError;
-    type Response = SubgraphServiceResponse;
-    type State = SubgraphServiceState;
-
-    async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
-        &self,
-        deployment: DeploymentId,
-        request: Request,
-    ) -> Result<Self::Response, Self::Error> {
-        let deployment_url = self
-            .state
-            .graph_node_query_base_url
-            .join(&format!("subgraphs/id/{deployment}"))
-            .map_err(|_| SubgraphServiceError::InvalidDeployment(deployment))?;
-
-        let response = self
-            .state
-            .graph_node_client
-            .post(deployment_url)
-            .json(&request)
-            .send()
-            .await
-            .map_err(SubgraphServiceError::QueryForwardingError)?;
-
-        let attestable = response
-            .headers()
-            .get("graph-attestable")
-            .map_or(false, |value| {
-                value.to_str().map(|value| value == "true").unwrap_or(false)
-            });
-
-        let body = response
-            .text()
-            .await
-            .map_err(SubgraphServiceError::QueryForwardingError)?;
-
-        Ok(SubgraphServiceResponse::new(body, attestable))
-    }
+    // tap
+    pub escrow_accounts: Receiver<EscrowAccounts>,
+    pub domain_separator: Eip712Domain,
 }
 
 /// Run the subgraph indexer service
@@ -212,12 +129,309 @@ pub async fn run() -> anyhow::Result<()> {
         router = router.route("/dips", post_service(GraphQL::new(schema)));
     }
 
-    IndexerService::run(IndexerServiceOptions {
+    let options = IndexerServiceOptions {
         release,
-        config,
         url_namespace: "subgraphs",
-        service_impl: SubgraphService::new(state),
+        // service_impl: SubgraphService::new(state.clone()),
         extra_routes: router,
-    })
+    };
+
+    let http_client = reqwest::Client::builder()
+        .tcp_nodelay(true)
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("Failed to init HTTP client");
+
+    let network_subgraph: &'static SubgraphClient = Box::leak(Box::new(
+        SubgraphClient::new(
+            http_client.clone(),
+            config
+                .subgraphs
+                .network
+                .config
+                .deployment_id
+                .map(|deployment| {
+                    DeploymentDetails::for_graph_node_url(
+                        config.graph_node.status_url.clone(),
+                        config.graph_node.query_url.clone(),
+                        deployment,
+                    )
+                })
+                .transpose()
+                .expect(
+                    "Failed to parse graph node query endpoint and network subgraph deployment",
+                ),
+            DeploymentDetails::for_query_url_with_token(
+                config.subgraphs.network.config.query_url.as_ref(),
+                config.subgraphs.network.config.query_auth_token.clone(),
+            )?,
+        )
+        .await,
+    ));
+
+    // Identify the dispute manager for the configured network
+    let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(3600))
+        .await
+        .expect("Failed to initialize dispute manager");
+
+    // Monitor the indexer's own allocations
+    let allocations = indexer_allocations(
+        network_subgraph,
+        config.indexer.indexer_address,
+        config.subgraphs.network.config.syncing_interval_secs,
+        config
+            .subgraphs
+            .network
+            .recently_closed_allocation_buffer_secs,
+    )
     .await
+    .expect("Failed to initialize indexer_allocations watcher");
+
+    // Maintain an up-to-date set of attestation signers, one for each
+    // allocation
+    let attestation_signers = attestation_signers(
+        allocations.clone(),
+        config.indexer.operator_mnemonic.clone(),
+        config.blockchain.chain_id as u64,
+        dispute_manager,
+    );
+
+    let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(
+        SubgraphClient::new(
+            http_client,
+            config
+                .subgraphs
+                .escrow
+                .config
+                .deployment_id
+                .map(|deployment| {
+                    DeploymentDetails::for_graph_node_url(
+                        config.graph_node.status_url.clone(),
+                        config.graph_node.query_url.clone(),
+                        deployment,
+                    )
+                })
+                .transpose()
+                .expect("Failed to parse graph node query endpoint and escrow subgraph deployment"),
+            DeploymentDetails::for_query_url_with_token(
+                config.subgraphs.escrow.config.query_url.as_ref(),
+                config.subgraphs.escrow.config.query_auth_token.clone(),
+            )?,
+        )
+        .await,
+    ));
+
+    let escrow_accounts = escrow_accounts(
+        escrow_subgraph,
+        config.indexer.indexer_address,
+        config.subgraphs.escrow.config.syncing_interval_secs,
+        true, // Reject thawing signers eagerly
+    )
+    .await
+    .expect("Error creating escrow_accounts channel");
+
+    // Establish Database connection necessary for serving indexer management
+    // requests with defined schema
+    // Note: Typically, you'd call `sqlx::migrate!();` here to sync the models
+    // which defaults to files in  "./migrations" to sync the database;
+    // however, this can cause conflicts with the migrations run by indexer
+    // agent. Hence we leave syncing and migrating entirely to the agent and
+    // assume the models are up to date in the service.
+    let database = PgPoolOptions::new()
+        .max_connections(50)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(
+            options
+                .config
+                .database
+                .clone()
+                .get_formated_postgres_url()
+                .as_ref(),
+        )
+        .await?;
+
+    let domain_separator = tap_eip712_domain(
+        config.blockchain.chain_id as u64,
+        config.blockchain.receipts_verifier_address,
+    );
+    let indexer_context = IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
+    let timestamp_error_tolerance = config.tap.rav_request.timestamp_buffer_secs;
+
+    let receipt_max_value = config.service.tap.max_receipt_value_grt.get_value();
+
+    let checks = IndexerTapContext::get_checks(
+        database,
+        allocations,
+        escrow_accounts.clone(),
+        domain_separator.clone(),
+        timestamp_error_tolerance,
+        receipt_max_value,
+    )
+    .await;
+
+    let tap_manager = Manager::new(
+        domain_separator.clone(),
+        indexer_context,
+        CheckList::new(checks),
+    );
+
+    let state = Arc::new(IndexerServiceState {
+        attestation_signers,
+        tap_manager,
+        escrow_accounts,
+        domain_separator,
+    });
+
+    // Rate limits by allowing bursts of 10 requests and requiring 100ms of
+    // time between consecutive requests after that, effectively rate
+    // limiting to 10 req/s.
+    let misc_rate_limiter = GovernorLayer {
+        config: Arc::new(
+            GovernorConfigBuilder::default()
+                .per_millisecond(100)
+                .burst_size(10)
+                .finish()
+                .expect("Failed to set up rate limiting"),
+        ),
+    };
+
+    let operator_address = Json(
+        serde_json::json!({ "publicKey": public_key(&config.indexer.operator_mnemonic)?}),
+    );
+
+    let mut misc_routes = Router::new()
+        .route("/", get("Service is up and running"))
+        .route("/version", get(Json(options.release)))
+        .route("/info", get(operator_address))
+        .layer(misc_rate_limiter);
+
+    // Rate limits by allowing bursts of 50 requests and requiring 20ms of
+    // time between consecutive requests after that, effectively rate
+    // limiting to 50 req/s.
+    let static_subgraph_rate_limiter = GovernorLayer {
+        config: Arc::new(
+            GovernorConfigBuilder::default()
+                .per_millisecond(20)
+                .burst_size(50)
+                .finish()
+                .expect("Failed to set up rate limiting"),
+        ),
+    };
+
+    if options.config.service.serve_network_subgraph {
+        info!("Serving network subgraph at /network");
+
+        misc_routes = misc_routes.route(
+            "/network",
+            post(static_subgraph_request_handler::<I>)
+                .route_layer(Extension(network_subgraph))
+                .route_layer(Extension(options.config.service.serve_auth_token.clone()))
+                .route_layer(static_subgraph_rate_limiter.clone()),
+        );
+    }
+
+    if options.config.service.serve_escrow_subgraph {
+        info!("Serving escrow subgraph at /escrow");
+
+        misc_routes = misc_routes
+            .route("/escrow", post(static_subgraph_request_handler::<I>))
+            .route_layer(Extension(escrow_subgraph))
+            .route_layer(Extension(options.config.service.serve_auth_token.clone()))
+            .route_layer(static_subgraph_rate_limiter);
+    }
+
+    misc_routes = misc_routes.with_state(state.clone());
+
+    let data_routes = Router::new()
+        .route(
+            PathBuf::from(&options.config.service.url_prefix)
+                .join(format!("{}/id/:id", options.url_namespace))
+                .to_str()
+                .expect("Failed to set up `/{url_namespace}/id/:id` route"),
+            post(request_handler::<I>),
+        )
+        .with_state(state.clone());
+
+    let router = NormalizePath::trim_trailing_slash(
+        misc_routes
+            .merge(data_routes)
+            .merge(options.extra_routes)
+            .layer(
+                CorsLayer::new()
+                    .allow_origin(cors::Any)
+                    .allow_headers(cors::Any)
+                    .allow_methods([Method::OPTIONS, Method::POST, Method::GET]),
+            )
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(|req: &Request<_>| {
+                        let method = req.method();
+                        let uri = req.uri();
+                        let matched_path = req
+                            .extensions()
+                            .get::<MatchedPath>()
+                            .map(MatchedPath::as_str);
+
+                        info_span!(
+                            "http_request",
+                            %method,
+                            %uri,
+                            matched_path,
+                        )
+                    })
+                    // we disable failures here because we doing our own error logging
+                    .on_failure(
+                        |_error: tower_http::classify::ServerErrorsFailureClass,
+                         _latency: Duration,
+                         _span: &tracing::Span| {},
+                    ),
+            )
+            .with_state(state),
+    );
+
+    Self::serve_metrics(options.config.metrics.get_socket_addr());
+
+    info!(
+        address = %options.config.service.host_and_port,
+        "Serving requests",
+    );
+    let listener = TcpListener::bind(&options.config.service.host_and_port)
+        .await
+        .expect("Failed to bind to indexer-service port");
+
+    Ok(serve(
+        listener,
+        ServiceExt::<ExtractRequest>::into_make_service_with_connect_info::<SocketAddr>(router),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?)
+}
+
+pub struct IndexerServiceOptions {
+    pub config: &'static Config,
+    pub release: IndexerServiceRelease,
+    pub url_namespace: &'static str,
+    pub extra_routes: Router<Arc<IndexerServiceState<I>>>,
+}
+
+pub async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    info!("Signal received, starting graceful shutdown");
 }
