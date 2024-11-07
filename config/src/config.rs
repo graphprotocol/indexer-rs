@@ -41,7 +41,7 @@ pub struct Config {
     pub blockchain: BlockchainConfig,
     pub service: ServiceConfig,
     pub tap: TapConfig,
-    pub dips: DipsConfig,
+    pub dips: Option<DipsConfig>,
 }
 
 // Newtype wrapping Config to be able use serde_ignored with Figment
@@ -419,9 +419,10 @@ pub struct RavRequestConfig {
 
 #[cfg(test)]
 mod tests {
+    use alloy::primitives::FixedBytes;
     use figment::value::Uncased;
     use sealed_test::prelude::*;
-    use std::{env, fs, path::PathBuf};
+    use std::{env, fs, path::PathBuf, str::FromStr};
     use tracing_test::traced_test;
 
     use crate::{Config, ConfigPrefix};
@@ -440,11 +441,18 @@ mod tests {
     #[test]
     fn test_maximal_config() {
         // Generate full config by deserializing the minimal config and let the code fill in the defaults.
-        let max_config = Config::parse(
+        let mut max_config = Config::parse(
             ConfigPrefix::Service,
             Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
+        max_config.dips = Some(crate::DipsConfig {
+            allowed_payers: vec![thegraph_core::Address(
+                FixedBytes::<20>::from_str("0x3333333333333333333333333333333333333333").unwrap(),
+            )],
+            cancellation_time_tolerance: None,
+        });
+
         let max_config_file: Config = toml::from_str(
             fs::read_to_string("maximal-config-example.toml")
                 .unwrap()
