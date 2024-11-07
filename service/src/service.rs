@@ -16,7 +16,7 @@ use axum::{
 use indexer_common::indexer_service::http::{
     AttestationOutput, IndexerServiceImpl, IndexerServiceResponse,
 };
-use indexer_config::Config;
+use indexer_config::{Config, DipsConfig};
 use reqwest::Url;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
@@ -180,37 +180,44 @@ pub async fn run() -> anyhow::Result<()> {
     let agreement_store: Arc<dyn AgreementStore> = Arc::new(InMemoryAgreementStore::default());
     let prices: Vec<Price> = vec![];
 
-    let schema = Schema::build(
-        routes::dips::AgreementQuery {},
-        routes::dips::AgreementMutation {
-            expected_payee: config.indexer.indexer_address,
-            allowed_payers: config.dips.allowed_payers.clone(),
-            domain: eip712_domain(
-                // 42161, // arbitrum
-                config.blockchain.chain_id as u64,
-                config.blockchain.receipts_verifier_address,
-            ),
-            cancel_voucher_time_tolerance: config
-                .dips
-                .cancellation_time_tolerance
-                .unwrap_or(Duration::from_secs(5)),
-        },
-        EmptySubscription,
-    )
-    .data(agreement_store)
-    .data(prices)
-    .finish();
+    let mut router = Router::new()
+        .route("/cost", post(routes::cost::cost))
+        .route("/status", post(routes::status))
+        .with_state(state.clone());
+
+    if let Some(DipsConfig {
+        allowed_payers,
+        cancellation_time_tolerance,
+    }) = config.dips.as_ref()
+    {
+        let schema = Schema::build(
+            routes::dips::AgreementQuery {},
+            routes::dips::AgreementMutation {
+                expected_payee: config.indexer.indexer_address,
+                allowed_payers: allowed_payers.clone(),
+                domain: eip712_domain(
+                    // 42161, // arbitrum
+                    config.blockchain.chain_id as u64,
+                    config.blockchain.receipts_verifier_address,
+                ),
+                cancel_voucher_time_tolerance: cancellation_time_tolerance
+                    .unwrap_or(Duration::from_secs(5)),
+            },
+            EmptySubscription,
+        )
+        .data(agreement_store)
+        .data(prices)
+        .finish();
+
+        router = router.route("/dips", post_service(GraphQL::new(schema)));
+    }
 
     IndexerService::run(IndexerServiceOptions {
         release,
         config,
         url_namespace: "subgraphs",
-        service_impl: SubgraphService::new(state.clone()),
-        extra_routes: Router::new()
-            .route("/cost", post(routes::cost::cost))
-            .route("/status", post(routes::status))
-            .route("/dips", post_service(GraphQL::new(schema)))
-            .with_state(state),
+        service_impl: SubgraphService::new(state),
+        extra_routes: router,
     })
     .await
 }
