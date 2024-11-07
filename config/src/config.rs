@@ -90,14 +90,34 @@ impl Config {
             config_content = Self::substitute_env_vars(config_content)?;
             figment_config = figment_config.merge(Toml::string(&config_content));
         }
+
         let config: ConfigWrapper = figment_config
-            .merge(Env::prefixed(prefix.get_prefix()).split("__"))
-            .merge(Env::prefixed(SHARED_PREFIX).split("__"))
+            .merge(Self::from_env_ignore_empty(prefix.get_prefix()))
+            .merge(Self::from_env_ignore_empty(SHARED_PREFIX))
             .extract()
             .map_err(|e| e.to_string())?;
 
         config.0.validate()?;
         Ok(config.0)
+    }
+
+    fn from_env_ignore_empty(prefix: &str) -> Env {
+        let prefixed_env = Env::prefixed(prefix).split("__");
+        let ignore_prefixed: Vec<_> = prefixed_env
+            .iter()
+            .filter_map(|(key, value)| {
+                if value.is_empty() {
+                    Some(key.into_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let ref_ignore = ignore_prefixed
+            .iter()
+            .map(|k| k.as_str())
+            .collect::<Vec<_>>();
+        prefixed_env.ignore(&ref_ignore)
     }
 
     fn substitute_env_vars(content: String) -> Result<String, String> {
@@ -399,13 +419,14 @@ pub struct RavRequestConfig {
 
 #[cfg(test)]
 mod tests {
+    use figment::value::Uncased;
     use sealed_test::prelude::*;
     use std::{env, fs, path::PathBuf};
     use tracing_test::traced_test;
 
     use crate::{Config, ConfigPrefix};
 
-    use super::DatabaseConfig;
+    use super::{DatabaseConfig, SHARED_PREFIX};
 
     #[test]
     fn test_minimal_config() {
@@ -518,6 +539,23 @@ mod tests {
             config.subgraphs.network.config.query_url.as_str(),
             test_value
         );
+    }
+
+    #[test]
+    fn test_ignore_empty_values() {
+        env::set_var("INDEXER_TEST1", "123");
+        env::set_var("INDEXER_TEST2", "");
+        env::set_var("INDEXER_TEST3__TEST1", "123");
+        env::set_var("INDEXER_TEST3__TEST2", "");
+
+        let env = Config::from_env_ignore_empty(SHARED_PREFIX);
+
+        let values: Vec<_> = env.iter().collect();
+
+        assert_eq!(values.len(), 2);
+
+        assert_eq!(values[0], (Uncased::new("test1"), "123".to_string()));
+        assert_eq!(values[1], (Uncased::new("test3.test1"), "123".to_string()));
     }
 
     // Test to check substitute_env_vars function is substituting env variables
