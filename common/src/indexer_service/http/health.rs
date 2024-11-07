@@ -35,23 +35,16 @@ pub enum CheckHealthError {
 
 impl IntoResponse for CheckHealthError {
     fn into_response(self) -> AxumResponse {
-        let (status, error_message) = match &self {
-            CheckHealthError::DeploymentNotFound => (StatusCode::NOT_FOUND, "Deployment not found"),
-            CheckHealthError::BadResponse => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to decode response",
-            ),
-            CheckHealthError::RequestFailed => (StatusCode::BAD_GATEWAY, "Failed to send request"),
-            CheckHealthError::InvalidHealthStatus => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Invalid health status found",
-            ),
+        let status = match &self {
+            CheckHealthError::DeploymentNotFound => StatusCode::NOT_FOUND,
+            CheckHealthError::InvalidHealthStatus | CheckHealthError::BadResponse => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            CheckHealthError::RequestFailed => StatusCode::BAD_GATEWAY,
         };
-
         let body = serde_json::json!({
-            "error": error_message,
+            "error": self.to_string(),
         });
-
         (status, Json(body)).into_response()
     }
 }
@@ -79,15 +72,12 @@ pub async fn health(
 
     let data = match (graphql_response.data, graphql_response.errors) {
         (Some(data), None) => data,
-        (_, Some(_)) => return Err(CheckHealthError::BadResponse),
-        (_, _) => return Err(CheckHealthError::BadResponse),
+        _ => return Err(CheckHealthError::BadResponse),
     };
 
-    if data.indexing_statuses.is_empty() {
+    let Some(status) = data.indexing_statuses.first() else {
         return Err(CheckHealthError::DeploymentNotFound);
-    }
-
-    let status = &data.indexing_statuses[0];
+    };
     let health_response = match status.health {
         health_query::Health::healthy => json!({ "health": status.health }),
         health_query::Health::unhealthy => {
