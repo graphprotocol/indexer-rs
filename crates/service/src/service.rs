@@ -71,11 +71,11 @@ mod subgraph_service;
 mod version_info;
 
 pub use error::IndexerServiceError;
-pub use response::{IndexerServiceResponse, SubgraphServiceResponse};
-pub use subgraph_service::{AttestationOutput, IndexerServiceImpl, SubgraphServiceState};
+pub use response::SubgraphServiceResponse;
+pub use subgraph_service::{AttestationOutput, SubgraphServiceState};
 
 pub struct IndexerServiceState {
-    pub service_impl: SubgraphService,
+    pub subgraph_service: SubgraphService,
     pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
     pub tap_manager: Manager<IndexerTapContext>,
 
@@ -300,7 +300,7 @@ pub async fn run() -> anyhow::Result<()> {
         tap_manager,
         escrow_accounts,
         domain_separator,
-        service_impl: SubgraphService::new(state),
+        subgraph_service: SubgraphService::new(state),
         free_query_auth_token: config.service.free_query_auth_token.as_ref(),
     });
 

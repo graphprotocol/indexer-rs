@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
-use axum::async_trait;
 use reqwest::Url;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::Serialize;
 use sqlx::Postgres;
 use thegraph_core::{Attestation, DeploymentId};
 
 use crate::{error::SubgraphServiceError, routes};
 
-use super::{response::IndexerServiceResponse, SubgraphServiceResponse};
+use super::SubgraphServiceResponse;
 
 pub struct SubgraphServiceState {
     pub database: sqlx::Pool<Postgres>,
@@ -35,30 +34,12 @@ pub enum AttestationOutput {
     Attestable,
 }
 
-#[async_trait]
-pub trait IndexerServiceImpl {
-    type Error: std::error::Error;
-    type Response: IndexerServiceResponse + Sized;
-    type State: Send + Sync;
-
-    async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
-        &self,
-        manifest_id: DeploymentId,
-        request: Request,
-    ) -> Result<(Request, Self::Response), Self::Error>;
-}
-
-#[async_trait]
-impl IndexerServiceImpl for SubgraphService {
-    type Error = SubgraphServiceError;
-    type Response = SubgraphServiceResponse;
-    type State = SubgraphServiceState;
-
-    async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
+impl SubgraphService {
+    pub async fn process_request<Request: Serialize>(
         &self,
         deployment: DeploymentId,
         request: Request,
-    ) -> Result<Self::Response, Self::Error> {
+    ) -> Result<SubgraphServiceResponse, SubgraphServiceError> {
         let deployment_url = self
             .state
             .graph_node_query_base_url

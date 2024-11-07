@@ -19,7 +19,7 @@ use serde_json::value::RawValue;
 
 use crate::{
     metrics::{FAILED_RECEIPT, HANDLER_FAILURE, HANDLER_HISTOGRAM},
-    service::{AttestationOutput, IndexerServiceError, IndexerServiceImpl, IndexerServiceResponse, IndexerServiceState},
+    service::{AttestationOutput, IndexerServiceError, IndexerServiceState},
 };
 
 pub async fn request_handler(
@@ -69,7 +69,7 @@ async fn _request_handler(
         trace!(?manifest_id, "New free query");
 
         let response = state
-            .service_impl
+            .subgraph_service
             .process_request(manifest_id, request)
             .await
             .map_err(IndexerServiceError::ProcessingError)?
@@ -140,7 +140,7 @@ async fn _request_handler(
         .ok_or_else(|| (IndexerServiceError::NoSignerForAllocation(allocation_id)))?;
 
     let response = state
-        .service_impl
+        .subgraph_service
         .process_request(manifest_id, request)
         .await
         .map_err(IndexerServiceError::ProcessingError)?;

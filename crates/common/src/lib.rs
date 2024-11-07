@@ -6,7 +6,6 @@ pub mod allocations;
 pub mod attestations;
 pub mod cost_model;
 pub mod escrow_accounts;
-pub mod graphql;
 pub mod middleware;
 pub mod subgraph_client;
 pub mod tap;
