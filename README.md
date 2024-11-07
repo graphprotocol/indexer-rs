@@ -113,6 +113,35 @@ curl -X POST \
 }
 ```
 
+## Subgraph health check
+```bash
+curl http://localhost:7600/subgraphs/health/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
+```
+```json
+{
+    "health": "healthy"
+}
+```
+## Unfound subgraph
+```bash
+curl http://localhost:7600/subgraphs/health/QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB
+```
+```json
+{
+    "error": "Deployment not found"
+}
+```
+## Failed Subgraph
+```bash
+curl http://localhost:7600/subgraphs/health/QmVGSJyvjEjkk5U9EdxyyB78NCXK3EAoFhrzm6LV7SxxAm
+```
+```json
+{
+    "fatalError": "transaction 21e77ed08fbc9df7be81101e9b03c2616494cee7cac2f6ad4f1ee387cf799e0c: error while executing at wasm backtrace:\t    0: 0x5972 - <unknown>!mappings/core/handleSwap: Mapping aborted at mappings/core.ts, line 73, column 16, with message: unexpected null in handler `handleSwap` at block #36654250 (5ab4d80c8e2cd628d5bf03abab4c302fd21d25d734e66afddff7a706b804fe13)",
+    "health": "failed"
+}
+```
+
 # Network queries
 ## Checks for auth and configuration to serve-network-subgraph
 
