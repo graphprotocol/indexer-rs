@@ -91,14 +91,25 @@ where
 pub fn watch_pipe<T, F, Fut>(rx: watch::Receiver<T>, function: F) -> JoinHandle<()>
 where
     T: Clone + Send + Sync + 'static,
-    F: Fn(watch::Receiver<T>) -> Fut + Send + Sync + 'static,
+    F: Fn(T) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
     tokio::spawn(async move {
         let mut rx = rx;
-        function(rx.clone()).await;
-        while rx.changed().await.is_ok() {
-            function(rx.clone()).await;
+        let value = rx.borrow().clone();
+        function(value).await;
+        loop {
+            let res = rx.changed().await;
+            match res {
+                Ok(_) => {
+                    let value = rx.borrow().clone();
+                    function(value).await;
+                }
+                Err(err) => {
+                    warn!("{err}");
+                    break;
+                }
+            };
         }
     })
 }
