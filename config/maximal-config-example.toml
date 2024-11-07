@@ -145,3 +145,6 @@ max_receipts_per_request = 10000
 # Key-Value of all senders and their aggregator endpoints
 0xdeadbeefcafebabedeadbeefcafebabedeadbeef = "https://example.com/aggregate-receipts"
 0x0123456789abcdef0123456789abcdef01234567 = "https://other.example.com/aggregate-receipts"
+
+[dips]
+allowed_payers = ["0x3333333333333333333333333333333333333333"]
