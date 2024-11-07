@@ -10,7 +10,7 @@ use std::{future::Future, time::Duration};
 
 use tokio::{
     select,
-    sync::watch,
+    sync::watch::{self, Ref},
     task::JoinHandle,
     time::{self, sleep},
 };
@@ -91,18 +91,18 @@ where
 pub fn watch_pipe<T, F, Fut>(rx: watch::Receiver<T>, function: F) -> JoinHandle<()>
 where
     T: Clone + Send + Sync + 'static,
-    F: Fn(T) -> Fut + Send + Sync + 'static,
+    F: Fn(Ref<'_, T>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
     tokio::spawn(async move {
         let mut rx = rx;
-        let value = rx.borrow().clone();
+        let value = rx.borrow();
         function(value).await;
         loop {
             let res = rx.changed().await;
             match res {
                 Ok(_) => {
-                    let value = rx.borrow().clone();
+                    let value = rx.borrow();
                     function(value).await;
                 }
                 Err(err) => {
