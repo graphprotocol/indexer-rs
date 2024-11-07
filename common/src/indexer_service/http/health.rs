@@ -9,33 +9,8 @@ use axum::{
 use graphql_client::GraphQLQuery;
 use indexer_config::GraphNodeConfig;
 use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
-
-#[derive(Deserialize, Debug)]
-struct Response {
-    data: SubgraphData,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(non_snake_case)]
-struct SubgraphData {
-    indexingStatuses: Vec<IndexingStatus>,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(non_snake_case)]
-struct IndexingStatus {
-    health: Health,
-    fatalError: Option<Message>,
-    nonFatalErrors: Vec<Message>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Message {
-    message: String,
-}
 
 #[derive(GraphQLQuery)]
 #[graphql(
@@ -46,39 +21,31 @@ struct Message {
 )]
 pub struct HealthQuery;
 
-#[derive(Deserialize, Debug)]
-#[allow(non_camel_case_types)]
-enum Health {
-    healthy,
-    unhealthy,
-    failed,
-}
-
-impl Health {
-    fn as_str(&self) -> &str {
-        match self {
-            Health::healthy => "healthy",
-            Health::unhealthy => "unhealthy",
-            Health::failed => "failed",
-        }
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum CheckHealthError {
+    #[error("Failed to send request")]
+    RequestFailed,
+    #[error("Failed to decode response")]
+    BadResponse,
     #[error("Deployment not found")]
     DeploymentNotFound,
-    #[error("Failed to process query")]
-    QueryForwardingError,
+    #[error("Invalid health status found")]
+    InvalidHealthStatus,
 }
 
 impl IntoResponse for CheckHealthError {
     fn into_response(self) -> AxumResponse {
         let (status, error_message) = match &self {
             CheckHealthError::DeploymentNotFound => (StatusCode::NOT_FOUND, "Deployment not found"),
-            CheckHealthError::QueryForwardingError => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to process query")
-            }
+            CheckHealthError::BadResponse => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to decode response",
+            ),
+            CheckHealthError::RequestFailed => (StatusCode::BAD_GATEWAY, "Failed to send request"),
+            CheckHealthError::InvalidHealthStatus => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid health status found",
+            ),
         };
 
         let body = serde_json::json!({
@@ -102,32 +69,39 @@ pub async fn health(
         .post(graph_node.status_url)
         .json(&req_body)
         .send()
-        .await;
-    let res = response.expect("Failed to get response");
-    let response_json: Result<Response, reqwest::Error> = res.json().await;
+        .await
+        .map_err(|_| CheckHealthError::RequestFailed)?;
 
-    match response_json {
-        Ok(res) => {
-            if res.data.indexingStatuses.is_empty() {
-                return Err(CheckHealthError::DeploymentNotFound);
-            };
-            let status = &res.data.indexingStatuses[0];
-            let health_response = match status.health {
-                Health::healthy => json!({ "health": status.health.as_str() }),
-                Health::unhealthy => {
-                    let errors: Vec<&String> = status
-                        .nonFatalErrors
-                        .iter()
-                        .map(|msg| &msg.message)
-                        .collect();
-                    json!({ "health": status.health.as_str(), "nonFatalErrors": errors })
-                }
-                Health::failed => {
-                    json!({ "health": status.health.as_str(), "fatalError": status.fatalError.as_ref().map_or("null", |msg| &msg.message) })
-                }
-            };
-            Ok(Json(health_response))
-        }
-        Err(_) => Err(CheckHealthError::QueryForwardingError),
+    let graphql_response: graphql_client::Response<health_query::ResponseData> = response
+        .json()
+        .await
+        .map_err(|_| CheckHealthError::BadResponse)?;
+
+    let data = match (graphql_response.data, graphql_response.errors) {
+        (Some(data), None) => data,
+        (_, Some(_)) => return Err(CheckHealthError::BadResponse),
+        (_, _) => return Err(CheckHealthError::BadResponse),
+    };
+
+    if data.indexing_statuses.is_empty() {
+        return Err(CheckHealthError::DeploymentNotFound);
     }
+
+    let status = &data.indexing_statuses[0];
+    let health_response = match status.health {
+        health_query::Health::healthy => json!({ "health": status.health }),
+        health_query::Health::unhealthy => {
+            let errors: Vec<&String> = status
+                .non_fatal_errors
+                .iter()
+                .map(|msg| &msg.message)
+                .collect();
+            json!({ "health": status.health, "nonFatalErrors": errors })
+        }
+        health_query::Health::failed => {
+            json!({ "health": status.health, "fatalError": status.fatal_error.as_ref().map_or("null", |msg| &msg.message) })
+        }
+        health_query::Health::Other(_) => return Err(CheckHealthError::InvalidHealthStatus),
+    };
+    Ok(Json(health_response))
 }
