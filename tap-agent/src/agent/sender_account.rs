@@ -497,10 +497,9 @@ impl Actor for SenderAccount {
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
-        let _indexer_allocations_handle = watch_pipe(indexer_allocations, move |rx| {
+        let _indexer_allocations_handle = watch_pipe(indexer_allocations, move |allocation_ids| {
             let myself = myself_clone.clone();
             async move {
-                let allocation_ids = rx.borrow().clone();
                 // Update the allocation_ids
                 myself
                     .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
@@ -513,8 +512,7 @@ impl Actor for SenderAccount {
         let myself_clone = myself.clone();
         let pgpool_clone = pgpool.clone();
         let accounts_clone = escrow_accounts.clone();
-        let _escrow_account_monitor = watch_pipe(accounts_clone, move |rx| {
-            let escrow_account = rx.borrow().clone();
+        let _escrow_account_monitor = watch_pipe(accounts_clone, move |escrow_account| {
             let myself = myself_clone.clone();
             let pgpool = pgpool_clone.clone();
             async move {

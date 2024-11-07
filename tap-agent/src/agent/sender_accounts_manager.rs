@@ -105,11 +105,12 @@ impl Actor for SenderAccountsManager {
         }: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let (allocations_tx, allocations_rx) = watch::channel(HashSet::<Address>::new());
-        watch_pipe(indexer_allocations.clone(), move |rx| {
+        watch_pipe(indexer_allocations.clone(), move |allocation_id| {
             let allocations_tx = allocations_tx.clone();
+            let allocation_set = allocation_id.keys().cloned().collect::<HashSet<Address>>();
             async move {
                 allocations_tx
-                    .send(rx.borrow().keys().cloned().collect::<HashSet<Address>>())
+                    .send(allocation_set)
                     .expect("Failed to update indexer_allocations_set channel");
             }
         });
@@ -123,18 +124,18 @@ impl Actor for SenderAccountsManager {
             );
         let myself_clone = myself.clone();
         let accounts_clone = escrow_accounts.clone();
-        let _eligible_allocations_senders_handle = watch_pipe(accounts_clone, move |rx| {
-            let myself = myself_clone.clone();
-            async move {
-                myself
-                    .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
-                        rx.borrow().get_senders(),
-                    ))
-                    .unwrap_or_else(|e| {
-                        error!("Error while updating sender_accounts: {:?}", e);
-                    });
-            }
-        });
+        let _eligible_allocations_senders_handle =
+            watch_pipe(accounts_clone, move |escrow_accounts| {
+                let myself = myself_clone.clone();
+                let senders = escrow_accounts.get_senders();
+                async move {
+                    myself
+                        .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(senders))
+                        .unwrap_or_else(|e| {
+                            error!("Error while updating sender_accounts: {:?}", e);
+                        });
+                }
+            });
 
         let mut state = State {
             config,
