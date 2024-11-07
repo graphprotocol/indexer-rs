@@ -499,6 +499,7 @@ impl Actor for SenderAccount {
         let myself_clone = myself.clone();
         let _indexer_allocations_handle = watch_pipe(indexer_allocations, move |allocation_ids| {
             let myself = myself_clone.clone();
+            let allocation_ids = allocation_ids.clone();
             async move {
                 // Update the allocation_ids
                 myself
@@ -515,6 +516,7 @@ impl Actor for SenderAccount {
         let _escrow_account_monitor = watch_pipe(accounts_clone, move |escrow_account| {
             let myself = myself_clone.clone();
             let pgpool = pgpool_clone.clone();
+            let escrow_account = escrow_account.clone();
             async move {
                 // Get balance or default value for sender
                 // this balance already takes into account thawing
