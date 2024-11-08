@@ -4,7 +4,7 @@
 use bip39::Mnemonic;
 use std::sync::Arc;
 use std::{collections::HashMap, sync::Mutex};
-use thegraph_core::{Address, ChainId};
+use thegraph_core::alloy::primitives::{Address, ChainId};
 use tokio::sync::watch::Receiver;
 use tracing::warn;
 
@@ -45,7 +45,7 @@ fn modify_sigers(
     attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>>,
     allocations: &HashMap<Address, Allocation>,
     dispute_manager: &Address,
-) -> HashMap<thegraph_core::Address, AttestationSigner> {
+) -> HashMap<Address, AttestationSigner> {
     let mut signers = attestation_signers_map.lock().unwrap();
     // Remove signers for allocations that are no longer active or recently closed
     signers.retain(|id, _| allocations.contains_key(id));

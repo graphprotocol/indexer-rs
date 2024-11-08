@@ -11,7 +11,7 @@ use super::Allocation;
 use crate::{prelude::SubgraphClient, watcher::new_watcher};
 use alloy::primitives::{TxHash, B256, U256};
 use graphql_client::GraphQLQuery;
-use thegraph_core::{Address, DeploymentId};
+use thegraph_core::{alloy::primitives::Address, DeploymentId};
 use tokio::sync::watch::Receiver;
 
 type BigInt = U256;

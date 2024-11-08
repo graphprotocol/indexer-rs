@@ -8,7 +8,9 @@ use alloy::{
         local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     },
 };
-use thegraph_core::{attestation, Address, Attestation, ChainId, DeploymentId};
+use thegraph_core::{
+    alloy::primitives::Address, alloy::primitives::ChainId, attestation, Attestation, DeploymentId,
+};
 
 use crate::prelude::Allocation;
 

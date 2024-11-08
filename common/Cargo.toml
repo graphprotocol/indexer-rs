@@ -19,7 +19,7 @@ prometheus.workspace = true
 thegraph-core.workspace = true
 axum.workspace = true
 lazy_static.workspace = true
-thegraph-graphql-http.workspace = true
+thegraph-graphql-http = { workspace = true, features = ["http-client-reqwest"] }
 build-info.workspace = true
 graphql_client.workspace = true
 

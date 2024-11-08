@@ -3,7 +3,7 @@
 
 use alloy::primitives::U256;
 use serde::{Deserialize, Deserializer};
-use thegraph_core::{Address, DeploymentId};
+use thegraph_core::{alloy::primitives::Address, DeploymentId};
 
 pub mod monitor;
 

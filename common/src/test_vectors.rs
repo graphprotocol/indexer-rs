@@ -15,7 +15,7 @@ use tap_core::{
     signed_message::EIP712SignedMessage,
     tap_eip712_domain,
 };
-use thegraph_core::{Address, DeploymentId};
+use thegraph_core::{alloy::primitives::Address, DeploymentId};
 
 use crate::prelude::{Allocation, AllocationStatus, SubgraphDeployment};
 

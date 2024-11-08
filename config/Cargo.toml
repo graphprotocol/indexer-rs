@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 alloy.workspace = true
 serde.workspace = true
-thegraph-core.workspace = true
+thegraph-core = { workspace = true, features = ["serde"] }
 tracing.workspace = true
 bigdecimal = { workspace = true, features = ["serde"] }
 bip39 = { version = "2.0.0", features = ["rand"] }

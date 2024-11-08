@@ -23,7 +23,7 @@ use std::{
     time::Duration,
 };
 use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
-use thegraph_core::{Address, Attestation, DeploymentId};
+use thegraph_core::{alloy::primitives::Address, Attestation, DeploymentId};
 use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::signal;

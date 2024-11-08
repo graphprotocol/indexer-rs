@@ -6,7 +6,7 @@ resolver = "2"
 opt-level = 3
 
 [workspace.dependencies]
-alloy = { version = "0.2.1", features = [
+alloy = { version = "0.6.2", features = [
     "kzg",
     "signer-mnemonic",
 ], default-features = false }
@@ -38,14 +38,12 @@ sqlx = { version = "0.8.2", features = [
 tracing = { version = "0.1.40", default-features = false }
 bigdecimal = "0.4.3"
 build-info = "0.0.39"
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "3fe6bc2", default-features = false }
+tap_core = { git = "https://github.com/LNSD/timeline-aggregation-protocol", rev = "a02e63e", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
     "json",
     "env-filter",
     "ansi",
 ], default-features = false }
-thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "85ee00b", features = [
-    "subgraph-client",
-] }
+thegraph-core = "0.8.1"
 thegraph-graphql-http = "0.2.0"
 graphql_client = { version = "0.14.0", features = ["reqwest-rustls"] }
