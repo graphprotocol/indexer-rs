@@ -108,11 +108,10 @@ impl Actor for SenderAccountsManager {
         watch_pipe(indexer_allocations.clone(), move |allocation_id| {
             let allocations_tx = allocations_tx.clone();
             let allocation_set = allocation_id.keys().cloned().collect::<HashSet<Address>>();
-            async move {
-                allocations_tx
-                    .send(allocation_set)
-                    .expect("Failed to update indexer_allocations_set channel");
-            }
+            allocations_tx
+                .send(allocation_set)
+                .expect("Failed to update indexer_allocations_set channel");
+            async {}
         });
         let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
         pglistener
@@ -128,13 +127,12 @@ impl Actor for SenderAccountsManager {
             watch_pipe(accounts_clone, move |escrow_accounts| {
                 let myself = myself_clone.clone();
                 let senders = escrow_accounts.get_senders();
-                async move {
-                    myself
-                        .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(senders))
-                        .unwrap_or_else(|e| {
-                            error!("Error while updating sender_accounts: {:?}", e);
-                        });
-                }
+                myself
+                    .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(senders))
+                    .unwrap_or_else(|e| {
+                        error!("Error while updating sender_accounts: {:?}", e);
+                    });
+                async {}
             });
 
         let mut state = State {
