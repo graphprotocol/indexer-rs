@@ -3502,6 +3502,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
+ "tower 0.5.1",
  "tracing",
  "wiremock 0.5.22",
 ]
