@@ -4,6 +4,8 @@
 
 
 
+
+
 ## [1.3.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.3.0...indexer-service-rs-v1.3.1) (2024-11-06)
 
 

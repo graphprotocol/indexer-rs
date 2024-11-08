@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.2.0...indexer-config-v1.2.1) (2024-11-08)
+
+
+### Bug Fixes
+
+* ignore empty environment variables strings ([#473](https://github.com/graphprotocol/indexer-rs/issues/473)) ([1bc3c4e](https://github.com/graphprotocol/indexer-rs/commit/1bc3c4e96584ef8977a133e03530cdcb801d2270))
+
 ## [1.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.1.0...indexer-config-v1.2.0) (2024-10-09)
 
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-common-v1.3.1...indexer-common-v1.4.0) (2024-11-08)
+
+
+### Features
+
+* Add grace period ([#467](https://github.com/graphprotocol/indexer-rs/issues/467)) ([775f2f6](https://github.com/graphprotocol/indexer-rs/commit/775f2f62e6c7aad0489beef03a9346a943d7b406))
+* add subgraph health endpoint ([#449](https://github.com/graphprotocol/indexer-rs/issues/449)) ([bab22af](https://github.com/graphprotocol/indexer-rs/commit/bab22afabb10c58138f5d72f366cf3bf015b8251))
+
 ## [1.3.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-common-v1.3.0...indexer-common-v1.3.1) (2024-11-06)
 
 
