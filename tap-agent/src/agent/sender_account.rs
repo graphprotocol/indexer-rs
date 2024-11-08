@@ -500,14 +500,13 @@ impl Actor for SenderAccount {
         let _indexer_allocations_handle = watch_pipe(indexer_allocations, move |allocation_ids| {
             let myself = myself_clone.clone();
             let allocation_ids = allocation_ids.clone();
-            async move {
-                // Update the allocation_ids
-                myself
-                    .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
-                    .unwrap_or_else(|e| {
-                        error!("Error while updating allocation_ids: {:?}", e);
-                    });
-            }
+            // Update the allocation_ids
+            myself
+                .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
+                .unwrap_or_else(|e| {
+                    error!("Error while updating allocation_ids: {:?}", e);
+                });
+            async {}
         });
 
         let myself_clone = myself.clone();
@@ -516,13 +515,12 @@ impl Actor for SenderAccount {
         let _escrow_account_monitor = watch_pipe(accounts_clone, move |escrow_account| {
             let myself = myself_clone.clone();
             let pgpool = pgpool_clone.clone();
-            let escrow_account = escrow_account.clone();
+            // Get balance or default value for sender
+            // this balance already takes into account thawing
+            let balance = escrow_account
+                .get_balance_for_sender(&sender_id)
+                .unwrap_or_default();
             async move {
-                // Get balance or default value for sender
-                // this balance already takes into account thawing
-                let balance = escrow_account
-                    .get_balance_for_sender(&sender_id)
-                    .unwrap_or_default();
                 let last_non_final_ravs = sqlx::query!(
                     r#"
                             SELECT allocation_id, value_aggregate
