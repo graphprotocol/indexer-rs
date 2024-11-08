@@ -4,7 +4,7 @@
 use std::str::FromStr;
 
 use super::{error::AdapterError, TapAgentContext};
-use alloy::signers::Signature;
+use alloy::primitives::PrimitiveSignature as Signature;
 use alloy::{hex::ToHexExt, primitives::Address};
 use bigdecimal::num_bigint::{BigInt, ToBigInt};
 use bigdecimal::ToPrimitive;
