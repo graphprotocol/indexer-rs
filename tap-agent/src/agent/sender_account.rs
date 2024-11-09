@@ -498,10 +498,9 @@ impl Actor for SenderAccount {
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
         let _indexer_allocations_handle = watch_pipe(indexer_allocations, move |allocation_ids| {
-            let myself = myself_clone.clone();
             let allocation_ids = allocation_ids.clone();
             // Update the allocation_ids
-            myself
+            myself_clone
                 .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
                 .unwrap_or_else(|e| {
                     error!("Error while updating allocation_ids: {:?}", e);
