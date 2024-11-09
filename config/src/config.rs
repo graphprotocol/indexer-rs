@@ -41,6 +41,7 @@ pub struct Config {
     pub blockchain: BlockchainConfig,
     pub service: ServiceConfig,
     pub tap: TapConfig,
+    pub dips: Option<DipsConfig>,
 }
 
 // Newtype wrapping Config to be able use serde_ignored with Figment
@@ -89,14 +90,34 @@ impl Config {
             config_content = Self::substitute_env_vars(config_content)?;
             figment_config = figment_config.merge(Toml::string(&config_content));
         }
+
         let config: ConfigWrapper = figment_config
-            .merge(Env::prefixed(prefix.get_prefix()).split("__"))
-            .merge(Env::prefixed(SHARED_PREFIX).split("__"))
+            .merge(Self::from_env_ignore_empty(prefix.get_prefix()))
+            .merge(Self::from_env_ignore_empty(SHARED_PREFIX))
             .extract()
             .map_err(|e| e.to_string())?;
 
         config.0.validate()?;
         Ok(config.0)
+    }
+
+    fn from_env_ignore_empty(prefix: &str) -> Env {
+        let prefixed_env = Env::prefixed(prefix).split("__");
+        let ignore_prefixed: Vec<_> = prefixed_env
+            .iter()
+            .filter_map(|(key, value)| {
+                if value.is_empty() {
+                    Some(key.into_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let ref_ignore = ignore_prefixed
+            .iter()
+            .map(|k| k.as_str())
+            .collect::<Vec<_>>();
+        prefixed_env.ignore(&ref_ignore)
     }
 
     fn substitute_env_vars(content: String) -> Result<String, String> {
@@ -362,6 +383,13 @@ pub struct TapConfig {
     pub sender_aggregator_endpoints: HashMap<Address, Url>,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct DipsConfig {
+    pub allowed_payers: Vec<Address>,
+    pub cancellation_time_tolerance: Option<Duration>,
+}
+
 impl TapConfig {
     pub fn get_trigger_value(&self) -> u128 {
         let grt_wei = self.max_amount_willing_to_lose_grt.get_value();
@@ -391,13 +419,15 @@ pub struct RavRequestConfig {
 
 #[cfg(test)]
 mod tests {
+    use alloy::primitives::FixedBytes;
+    use figment::value::Uncased;
     use sealed_test::prelude::*;
-    use std::{env, fs, path::PathBuf};
+    use std::{env, fs, path::PathBuf, str::FromStr};
     use tracing_test::traced_test;
 
     use crate::{Config, ConfigPrefix};
 
-    use super::DatabaseConfig;
+    use super::{DatabaseConfig, SHARED_PREFIX};
 
     #[test]
     fn test_minimal_config() {
@@ -411,11 +441,18 @@ mod tests {
     #[test]
     fn test_maximal_config() {
         // Generate full config by deserializing the minimal config and let the code fill in the defaults.
-        let max_config = Config::parse(
+        let mut max_config = Config::parse(
             ConfigPrefix::Service,
             Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
+        max_config.dips = Some(crate::DipsConfig {
+            allowed_payers: vec![thegraph_core::Address(
+                FixedBytes::<20>::from_str("0x3333333333333333333333333333333333333333").unwrap(),
+            )],
+            cancellation_time_tolerance: None,
+        });
+
         let max_config_file: Config = toml::from_str(
             fs::read_to_string("maximal-config-example.toml")
                 .unwrap()
@@ -510,6 +547,23 @@ mod tests {
             config.subgraphs.network.config.query_url.as_str(),
             test_value
         );
+    }
+
+    #[test]
+    fn test_ignore_empty_values() {
+        env::set_var("INDEXER_TEST1", "123");
+        env::set_var("INDEXER_TEST2", "");
+        env::set_var("INDEXER_TEST3__TEST1", "123");
+        env::set_var("INDEXER_TEST3__TEST2", "");
+
+        let env = Config::from_env_ignore_empty(SHARED_PREFIX);
+
+        let values: Vec<_> = env.iter().collect();
+
+        assert_eq!(values.len(), 2);
+
+        assert_eq!(values[0], (Uncased::new("test1"), "123".to_string()));
+        assert_eq!(values[1], (Uncased::new("test3.test1"), "123".to_string()));
     }
 
     // Test to check substitute_env_vars function is substituting env variables

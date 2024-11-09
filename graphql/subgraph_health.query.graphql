@@ -1,0 +1,11 @@
+query HealthQuery($ids: [String!]!) {
+    indexingStatuses(subgraphs: $ids) {
+        health
+        fatalError {
+            message
+        }
+        nonFatalErrors {
+            message
+        }
+    }
+}

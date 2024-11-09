@@ -26,6 +26,8 @@ mod receipt_store;
 
 pub use checks::value_check::AgoraQuery;
 
+const GRACE_PERIOD: u64 = 60;
+
 #[derive(Clone)]
 pub struct IndexerTapContext {
     domain_separator: Arc<Eip712Domain>,
@@ -57,7 +59,7 @@ impl IndexerTapContext {
             Arc::new(TimestampCheck::new(timestamp_error_tolerance)),
             Arc::new(DenyListCheck::new(pgpool.clone(), escrow_accounts, domain_separator).await),
             Arc::new(ReceiptMaxValueCheck::new(receipt_max_value)),
-            Arc::new(MinimumValue::new(pgpool).await),
+            Arc::new(MinimumValue::new(pgpool, Duration::from_secs(GRACE_PERIOD)).await),
         ]
     }
 

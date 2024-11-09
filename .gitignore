@@ -10,3 +10,4 @@ indexer.toml
 # IDE files
 .vscode/
 # migrations/
+.helix

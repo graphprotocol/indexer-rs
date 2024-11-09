@@ -1,0 +1,12 @@
+[package]
+name = "indexer-dips"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy.workspace = true 
+thiserror.workspace = true
+anyhow.workspace = true
+alloy-sol-types = "=0.8.10"
+alloy-rlp = "0.3.9" 
+thegraph-core.workspace = true

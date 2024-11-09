@@ -4,6 +4,22 @@
 
 
 
+
+
+## [1.3.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.3.0...indexer-service-rs-v1.3.1) (2024-11-06)
+
+
+### Bug Fixes
+
+* use request from gateway instead of serde req ([#464](https://github.com/graphprotocol/indexer-rs/issues/464)) ([fdeda9f](https://github.com/graphprotocol/indexer-rs/commit/fdeda9fea996f96e1c0a7bef291a551f426f5591))
+
+## [1.3.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.2.2...indexer-service-rs-v1.3.0) (2024-11-05)
+
+
+### Features
+
+* add versioning on cli ([#460](https://github.com/graphprotocol/indexer-rs/issues/460)) ([419e7ff](https://github.com/graphprotocol/indexer-rs/commit/419e7ff513fd11294c8523f5dae102a5cbf77f94))
+
 ## [1.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.1.1...indexer-service-rs-v1.2.0) (2024-10-30)
 
 

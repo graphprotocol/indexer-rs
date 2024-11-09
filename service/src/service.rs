@@ -6,18 +6,32 @@ use std::time::Duration;
 
 use super::{error::SubgraphServiceError, routes};
 use anyhow::anyhow;
-use axum::{async_trait, routing::post, Json, Router};
+use async_graphql::{EmptySubscription, Schema};
+use async_graphql_axum::GraphQL;
+use axum::{
+    async_trait,
+    routing::{post, post_service},
+    Json, Router,
+};
 use indexer_common::indexer_service::http::{
     AttestationOutput, IndexerServiceImpl, IndexerServiceResponse,
 };
-use indexer_config::Config;
+use indexer_config::{Config, DipsConfig};
 use reqwest::Url;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use thegraph_core::attestation::eip712_domain;
 use thegraph_core::DeploymentId;
 
-use crate::{cli::Cli, database};
+use crate::{
+    cli::Cli,
+    database::{
+        self,
+        dips::{AgreementStore, InMemoryAgreementStore},
+    },
+    routes::dips::Price,
+};
 
 use clap::Parser;
 use indexer_common::indexer_service::http::{
@@ -90,7 +104,7 @@ impl IndexerServiceImpl for SubgraphService {
         &self,
         deployment: DeploymentId,
         request: Request,
-    ) -> Result<(Request, Self::Response), Self::Error> {
+    ) -> Result<Self::Response, Self::Error> {
         let deployment_url = self
             .state
             .graph_node_query_base_url
@@ -118,7 +132,7 @@ impl IndexerServiceImpl for SubgraphService {
             .await
             .map_err(SubgraphServiceError::QueryForwardingError)?;
 
-        Ok((request, SubgraphServiceResponse::new(body, attestable)))
+        Ok(SubgraphServiceResponse::new(body, attestable))
     }
 }
 
@@ -163,15 +177,47 @@ pub async fn run() -> anyhow::Result<()> {
         graph_node_query_base_url: &config.graph_node.query_url,
     });
 
+    let agreement_store: Arc<dyn AgreementStore> = Arc::new(InMemoryAgreementStore::default());
+    let prices: Vec<Price> = vec![];
+
+    let mut router = Router::new()
+        .route("/cost", post(routes::cost::cost))
+        .route("/status", post(routes::status))
+        .with_state(state.clone());
+
+    if let Some(DipsConfig {
+        allowed_payers,
+        cancellation_time_tolerance,
+    }) = config.dips.as_ref()
+    {
+        let schema = Schema::build(
+            routes::dips::AgreementQuery {},
+            routes::dips::AgreementMutation {
+                expected_payee: config.indexer.indexer_address,
+                allowed_payers: allowed_payers.clone(),
+                domain: eip712_domain(
+                    // 42161, // arbitrum
+                    config.blockchain.chain_id as u64,
+                    config.blockchain.receipts_verifier_address,
+                ),
+                cancel_voucher_time_tolerance: cancellation_time_tolerance
+                    .unwrap_or(Duration::from_secs(5)),
+            },
+            EmptySubscription,
+        )
+        .data(agreement_store)
+        .data(prices)
+        .finish();
+
+        router = router.route("/dips", post_service(GraphQL::new(schema)));
+    }
+
     IndexerService::run(IndexerServiceOptions {
         release,
         config,
         url_namespace: "subgraphs",
-        service_impl: SubgraphService::new(state.clone()),
-        extra_routes: Router::new()
-            .route("/cost", post(routes::cost::cost))
-            .route("/status", post(routes::status))
-            .with_state(state),
+        service_impl: SubgraphService::new(state),
+        extra_routes: router,
     })
     .await
 }

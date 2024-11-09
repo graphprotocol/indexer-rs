@@ -33,8 +33,10 @@ use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::Tr
 use tracing::error;
 use tracing::{info, info_span};
 
+use super::request_handler::request_handler;
 use crate::escrow_accounts::EscrowAccounts;
 use crate::escrow_accounts::EscrowAccountsError;
+use crate::indexer_service::http::health::health;
 use crate::{
     address::public_key,
     indexer_service::http::static_subgraph::static_subgraph_request_handler,
@@ -44,8 +46,6 @@ use crate::{
     },
     tap::IndexerTapContext,
 };
-
-use super::request_handler::request_handler;
 use indexer_config::Config;
 
 pub trait IndexerServiceResponse {
@@ -72,7 +72,7 @@ pub trait IndexerServiceImpl {
         &self,
         manifest_id: DeploymentId,
         request: Request,
-    ) -> Result<(Request, Self::Response), Self::Error>;
+    ) -> Result<Self::Response, Self::Error>;
 }
 
 #[derive(Debug, Error)]
@@ -386,7 +386,7 @@ impl IndexerService {
             .route("/", get("Service is up and running"))
             .route("/version", get(Json(options.release)))
             .route("/info", get(operator_address))
-            .layer(misc_rate_limiter);
+            .layer(misc_rate_limiter.clone());
 
         // Rate limits by allowing bursts of 50 requests and requiring 20ms of
         // time between consecutive requests after that, effectively rate
@@ -400,6 +400,12 @@ impl IndexerService {
                     .expect("Failed to set up rate limiting"),
             ),
         };
+
+        // Check subgraph Health
+        misc_routes = misc_routes
+            .route("/subgraph/health/:deployment_id", get(health))
+            .route_layer(Extension(options.config.graph_node.clone()))
+            .layer(misc_rate_limiter);
 
         if options.config.service.serve_network_subgraph {
             info!("Serving network subgraph at /network");

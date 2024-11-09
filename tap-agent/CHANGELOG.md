@@ -1,5 +1,16 @@
 # Changelog
 
+
+
+
+
+## [1.7.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.6.0...indexer-tap-agent-v1.7.0) (2024-11-05)
+
+
+### Features
+
+* add versioning on cli ([#460](https://github.com/graphprotocol/indexer-rs/issues/460)) ([419e7ff](https://github.com/graphprotocol/indexer-rs/commit/419e7ff513fd11294c8523f5dae102a5cbf77f94))
+
 ## [1.6.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.5.0...indexer-tap-agent-v1.6.0) (2024-11-04)
 
 

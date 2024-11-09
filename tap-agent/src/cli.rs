@@ -10,6 +10,7 @@ use tracing::{error, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 #[derive(Parser)]
+#[command(version)]
 pub struct Cli {
     /// Path to the configuration file.
     /// See https://github.com/graphprotocol/indexer-rs/tree/main/tap-agent for examples.
