@@ -14,7 +14,7 @@ use tokio::{
     task::JoinHandle,
     time::{self, sleep},
 };
-use tracing::warn;
+use tracing::{error, warn};
 
 /// Creates a new watcher that auto initializes it with initial_value
 /// and updates it given an interval
@@ -106,7 +106,7 @@ where
                     function(value).await;
                 }
                 Err(err) => {
-                    warn!("{err}");
+                    error!("There was an error piping the watcher results: {err}");
                     break;
                 }
             };

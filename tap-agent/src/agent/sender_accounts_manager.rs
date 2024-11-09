@@ -106,7 +106,6 @@ impl Actor for SenderAccountsManager {
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let (allocations_tx, allocations_rx) = watch::channel(HashSet::<Address>::new());
         watch_pipe(indexer_allocations.clone(), move |allocation_id| {
-            let allocations_tx = allocations_tx.clone();
             let allocation_set = allocation_id.keys().cloned().collect::<HashSet<Address>>();
             allocations_tx
                 .send(allocation_set)
@@ -125,9 +124,8 @@ impl Actor for SenderAccountsManager {
         let accounts_clone = escrow_accounts.clone();
         let _eligible_allocations_senders_handle =
             watch_pipe(accounts_clone, move |escrow_accounts| {
-                let myself = myself_clone.clone();
                 let senders = escrow_accounts.get_senders();
-                myself
+                myself_clone
                     .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(senders))
                     .unwrap_or_else(|e| {
                         error!("Error while updating sender_accounts: {:?}", e);
