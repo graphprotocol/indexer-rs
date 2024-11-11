@@ -343,7 +343,7 @@ dependencies = [
  "lru",
  "parking_lot",
  "pin-project 1.1.6",
- "reqwest 0.12.8",
+ "reqwest 0.12.9",
  "schnellru",
  "serde",
  "serde_json",
@@ -410,7 +410,7 @@ dependencies = [
  "alloy-transport-ws",
  "futures",
  "pin-project 1.1.6",
- "reqwest 0.12.8",
+ "reqwest 0.12.9",
  "serde",
  "serde_json",
  "tokio",
@@ -671,7 +671,7 @@ checksum = "91fd1a5d0827939847983b46f2f79510361f901dc82f8e3c38ac7397af142c6e"
 dependencies = [
  "alloy-json-rpc",
  "alloy-transport",
- "reqwest 0.12.8",
+ "reqwest 0.12.9",
  "serde_json",
  "tower 0.5.1",
  "tracing",
@@ -1551,8 +1551,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33415e24172c1b7d6066f6d999545375ab8e1d95421d6784bdfff9496f292387"
 dependencies = [
  "bitcoin_hashes",
- "rand 0.8.5",
- "rand_core 0.6.4",
+ "rand 0.7.3",
+ "rand_core 0.5.1",
  "serde",
  "unicode-normalization",
 ]
@@ -2839,7 +2839,7 @@ dependencies = [
  "once_cell",
  "prost",
  "prost-types",
- "reqwest 0.12.8",
+ "reqwest 0.12.9",
  "secret-vault-value",
  "serde",
  "serde_json",
@@ -3493,7 +3493,7 @@ dependencies = [
  "lazy_static",
  "prometheus",
  "regex",
- "reqwest 0.12.8",
+ "reqwest 0.12.9",
  "serde",
  "serde_json",
  "sqlx",
@@ -3565,7 +3565,7 @@ dependencies = [
  "indexer-dips",
  "lazy_static",
  "prometheus",
- "reqwest 0.12.8",
+ "reqwest 0.12.9",
  "serde",
  "serde_json",
  "sqlx",
@@ -3598,7 +3598,7 @@ dependencies = [
  "lazy_static",
  "prometheus",
  "ractor",
- "reqwest 0.12.8",
+ "reqwest 0.12.9",
  "ruint",
  "serde",
  "serde_json",
@@ -5329,9 +5329,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.8"
+version = "0.12.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f713147fbe92361e52392c73b8c9e48c04c6625bce969ef54dc901e58e042a7b"
+checksum = "a77c62af46e79de0a562e1a9849205ffcb7fc1238876e9bd743357570e04046f"
 dependencies = [
  "async-compression",
  "base64 0.22.1",
@@ -6690,7 +6690,7 @@ dependencies = [
  "alloy-sol-types",
  "bs58",
  "indoc",
- "reqwest 0.12.8",
+ "reqwest 0.12.9",
  "serde",
  "serde_json",
  "serde_with",
@@ -6707,7 +6707,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ae3b675ae2fd6e213fa1b428ba44009b309338b6e9b7e6205a674ccecd5d67d4"
 dependencies = [
  "async-trait",
- "reqwest 0.12.8",
+ "reqwest 0.12.9",
  "serde",
  "serde_json",
  "thiserror",
@@ -7568,7 +7568,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
