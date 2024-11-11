@@ -7,7 +7,6 @@ use indexer_common::escrow_accounts::EscrowAccounts;
 use tokio::sync::watch::Receiver;
 
 pub mod context;
-pub mod escrow_adapter;
 
 #[cfg(test)]
 pub mod test_utils;

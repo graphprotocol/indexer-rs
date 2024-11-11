@@ -133,10 +133,7 @@ mod test {
     use tokio::sync::watch;
 
     use super::*;
-    use crate::tap::{
-        escrow_adapter::EscrowAdapter,
-        test_utils::{create_rav, ALLOCATION_ID_0, SENDER, SIGNER},
-    };
+    use crate::tap::test_utils::{create_rav, ALLOCATION_ID_0, SENDER, SIGNER};
 
     #[derive(Debug)]
     struct TestableRav(SignedRAV);
@@ -159,7 +156,6 @@ mod test {
             *ALLOCATION_ID_0,
             SENDER.1,
             watch::channel(EscrowAccounts::default()).1,
-            EscrowAdapter::mock(),
         );
 
         // Insert a rav
