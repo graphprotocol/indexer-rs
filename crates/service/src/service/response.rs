@@ -11,6 +11,8 @@ pub struct SubgraphServiceResponse {
     attestable: bool,
 }
 
+
+
 impl SubgraphServiceResponse {
     pub fn new(inner: String, attestable: bool) -> Self {
         Self { inner, attestable }

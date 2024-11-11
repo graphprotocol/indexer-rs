@@ -160,7 +160,7 @@ async fn _request_handler(
     Ok((StatusCode::OK, response))
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize)]
 pub struct QueryBody {
     pub query: String,
     pub variables: Option<Box<RawValue>>,

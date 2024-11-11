@@ -36,7 +36,7 @@ use axum::{
     extract::{MatchedPath, Request as ExtractRequest},
     http::Request,
     routing::{get, post},
-    serve, Extension, Json, Router, ServiceExt,
+    serve, Json, Router, ServiceExt,
 };
 use clap::Parser;
 use indexer_common::{
@@ -44,6 +44,7 @@ use indexer_common::{
     allocations::monitor::indexer_allocations,
     attestations::{dispute_manager, signer::AttestationSigner, signers::attestation_signers},
     escrow_accounts::EscrowAccounts,
+    middleware::free_query,
     monitors::escrow_accounts,
     subgraph_client::{DeploymentDetails, SubgraphClient},
     tap::IndexerTapContext,
@@ -62,7 +63,7 @@ use tower_http::{
 use indexer_common::indexer_service::http::{
     IndexerService, IndexerServiceOptions, IndexerServiceRelease,
 };
-use tracing::{error, info, info_span};
+use tracing::{error, info, info_span, warn};
 use version_info::IndexerServiceRelease;
 
 mod error;
@@ -340,25 +341,38 @@ pub async fn run() -> anyhow::Result<()> {
     };
 
     if config.service.serve_network_subgraph {
-        info!("Serving network subgraph at /network");
-
-        misc_routes = misc_routes.route(
-            "/network",
-            post(routes::static_subgraph_request_handler)
-                .route_layer(Extension(network_subgraph))
-                .route_layer(Extension(config.service.serve_auth_token.clone()))
-                .route_layer(static_subgraph_rate_limiter.clone()),
-        );
+        if let Some(free_auth_token) = &config.service.serve_auth_token {
+            info!("Serving network subgraph at /network");
+            misc_routes = misc_routes.route(
+                "/network",
+                post(routes::static_subgraph_request_handler)
+                    .with_state(network_subgraph)
+                    .route_layer(free_query::new(free_auth_token.to_string()))
+                    .route_layer(static_subgraph_rate_limiter.clone()),
+            );
+        } else {
+            warn!(
+                "`serve_network_subgraph` is enabled but no `serve_auth_token` provided. Disabling it."
+            )
+        }
     }
 
     if config.service.serve_escrow_subgraph {
-        info!("Serving escrow subgraph at /escrow");
+        if let Some(free_auth_token) = &config.service.serve_auth_token {
+            info!("Serving escrow subgraph at /escrow");
 
-        misc_routes = misc_routes
-            .route("/escrow", post(routes::static_subgraph_request_handler))
-            .route_layer(Extension(escrow_subgraph))
-            .route_layer(Extension(config.service.serve_auth_token.clone()))
-            .route_layer(static_subgraph_rate_limiter);
+            misc_routes = misc_routes.route(
+                "/escrow",
+                post(routes::static_subgraph_request_handler)
+                    .route_layer(free_query::new(free_auth_token.to_string()))
+                    .route_layer(static_subgraph_rate_limiter)
+                    .with_state(escrow_subgraph),
+            );
+        } else {
+            warn!(
+                "`serve_escrow_subgraph` is enabled but no `serve_auth_token` provided. Disabling it."
+            )
+        }
     }
 
     misc_routes = misc_routes.with_state(state.clone());

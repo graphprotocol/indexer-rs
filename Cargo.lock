@@ -342,7 +342,7 @@ dependencies = [
  "futures-utils-wasm",
  "lru",
  "parking_lot",
- "pin-project 1.1.6",
+ "pin-project 1.1.7",
  "reqwest 0.12.9",
  "schnellru",
  "serde",
@@ -409,7 +409,7 @@ dependencies = [
  "alloy-transport-ipc",
  "alloy-transport-ws",
  "futures",
- "pin-project 1.1.6",
+ "pin-project 1.1.7",
  "reqwest 0.12.9",
  "serde",
  "serde_json",
@@ -690,7 +690,7 @@ dependencies = [
  "bytes",
  "futures",
  "interprocess",
- "pin-project 1.1.6",
+ "pin-project 1.1.7",
  "serde_json",
  "tokio",
  "tokio-util",
@@ -1551,8 +1551,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33415e24172c1b7d6066f6d999545375ab8e1d95421d6784bdfff9496f292387"
 dependencies = [
  "bitcoin_hashes",
- "rand 0.7.3",
- "rand_core 0.5.1",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
  "serde",
  "unicode-normalization",
 ]
@@ -3488,7 +3488,9 @@ dependencies = [
  "env_logger",
  "eventuals",
  "graphql_client",
+ "headers",
  "lazy_static",
+ "pin-project 1.1.7",
  "prometheus",
  "regex",
  "reqwest 0.12.9",
@@ -3503,6 +3505,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tower 0.5.1",
+ "tower-http 0.6.1",
  "tracing",
  "wiremock 0.5.22",
 ]
@@ -3573,7 +3576,7 @@ dependencies = [
  "thegraph-graphql-http",
  "thiserror",
  "tokio",
- "tower-http",
+ "tower-http 0.5.2",
  "tower_governor",
  "tracing",
  "tracing-subscriber",
@@ -3853,7 +3856,7 @@ dependencies = [
  "hyper-util",
  "jsonrpsee-core",
  "jsonrpsee-types",
- "pin-project 1.1.6",
+ "pin-project 1.1.7",
  "route-recognizer",
  "serde",
  "serde_json",
@@ -4696,11 +4699,11 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
-version = "1.1.6"
+version = "1.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "baf123a161dde1e524adf36f90bc5d8d3462824a9c43553ad07a8183161189ec"
+checksum = "be57f64e946e500c8ee36ef6331845d40a93055567ec57e8fae13efd33759b95"
 dependencies = [
- "pin-project-internal 1.1.6",
+ "pin-project-internal 1.1.7",
 ]
 
 [[package]]
@@ -4716,9 +4719,9 @@ dependencies = [
 
 [[package]]
 name = "pin-project-internal"
-version = "1.1.6"
+version = "1.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4502d8515ca9f32f1fb543d987f63d95a14934883db45bdb48060b6b69257f8"
+checksum = "3c0f5fad0874fc7abcd4d750e76917eaebbecaa2c20bde22e1dbeeba8beb758c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6964,7 +6967,7 @@ dependencies = [
  "hyper-timeout",
  "hyper-util",
  "percent-encoding",
- "pin-project 1.1.6",
+ "pin-project 1.1.7",
  "prost",
  "rustls-native-certs 0.8.0",
  "rustls-pemfile 2.2.0",
@@ -6987,7 +6990,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "indexmap 1.9.3",
- "pin-project 1.1.6",
+ "pin-project 1.1.7",
  "pin-project-lite",
  "rand 0.8.5",
  "slab",
@@ -7032,6 +7035,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tower-http"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8437150ab6bbc8c5f0f519e3d5ed4aa883a83dd4cdd3d1b21f9482936046cb97"
+dependencies = [
+ "base64 0.22.1",
+ "bitflags 2.6.0",
+ "bytes",
+ "http 1.1.0",
+ "mime",
+ "pin-project-lite",
+ "tower-layer",
+ "tower-service",
+]
+
+[[package]]
 name = "tower-layer"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7065,7 +7084,7 @@ dependencies = [
  "forwarded-header-value",
  "governor",
  "http 1.1.0",
- "pin-project 1.1.6",
+ "pin-project 1.1.7",
  "thiserror",
  "tower 0.5.1",
  "tracing",
@@ -7570,7 +7589,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

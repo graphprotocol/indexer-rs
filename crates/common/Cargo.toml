@@ -33,6 +33,9 @@ regex = "1.7.1"
 tokio-util = "0.7.10"
 bip39 = "2.0.0"
 tower = "0.5.1"
+pin-project = "1.1.7"
+headers = "0.4.0"
+tower-http = { version = "0.6.1", features = ["auth"] }
 
 [dev-dependencies]
 env_logger = { version = "0.11.0", default-features = false }

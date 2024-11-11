@@ -42,12 +42,9 @@ impl Header for TapReceipt {
     {
         let mut execute = || {
             let value = values.next();
-            let raw_receipt = value
-                .map(|value| value.to_str())
-                .transpose()
-                .map_err(|_| headers::Error::invalid())?;
-            let parsed_receipt = raw_receipt
-                .map(serde_json::from_str)
+            let parsed_receipt = value
+                .map(|value| value.as_bytes())
+                .map(serde_json::from_slice)
                 .transpose()
                 .map_err(|_| headers::Error::invalid())?;
             Ok(TapReceipt(parsed_receipt))
