@@ -1702,18 +1702,20 @@ pub mod tests {
             .register(
                 Mock::given(method("POST"))
                     .and(body_string_contains("transactions"))
-                    .respond_with(
-                        ResponseTemplate::new(200)
-                            .set_body_json(json!({ "data": { "transactions": []}})),
-                    ),
+                    .respond_with(ResponseTemplate::new(200).set_body_json(
+                        json!({ "data": { "transactions": [
+                            {
+                                "id": "redeemed"
+                            }
+                        ]}}),
+                    )),
             )
             .await;
-        // Add invalid receipts to the database. ( receipts are older than rav )
+        // Add invalid receipts to the database. ( already redeemed )
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
-            .as_nanos() as u64
-            - 10000;
+            .as_nanos() as u64;
         const RECEIPT_VALUE: u128 = 1622018441284756158;
         const TOTAL_RECEIPTS: u64 = 10;
         const TOTAL_SUM: u128 = RECEIPT_VALUE * TOTAL_RECEIPTS as u128;
