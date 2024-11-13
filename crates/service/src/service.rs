@@ -7,36 +7,21 @@ use anyhow::anyhow;
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_axum::GraphQL;
 use axum::{
-    async_trait,
     routing::{post, post_service},
     Json, Router,
 };
-use indexer_common::indexer_service::http::{
-    AttestationOutput, IndexerServiceImpl, IndexerServiceResponse,
-};
 use indexer_config::{Config, DipsConfig};
-use reqwest::Url;
-use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{json, Value};
-use sqlx::PgPool;
 use thegraph_core::attestation::eip712_domain;
-use thegraph_core::DeploymentId;
 
 use crate::{
-    cli::Cli,
-    database::{
-        self,
-        dips::{AgreementStore, InMemoryAgreementStore},
-    },
+    database::dips::{AgreementStore, InMemoryAgreementStore},
     routes::dips::Price,
 };
 
-use clap::Parser;
 use axum::{
     extract::{MatchedPath, Request as ExtractRequest},
-    http::Request,
-    routing::{get, post},
-    serve, Json, Router, ServiceExt,
+    routing::get,
+    serve, ServiceExt,
 };
 use clap::Parser;
 use indexer_common::{
@@ -44,12 +29,11 @@ use indexer_common::{
     allocations::monitor::indexer_allocations,
     attestations::{dispute_manager, signer::AttestationSigner, signers::attestation_signers},
     escrow_accounts::EscrowAccounts,
-    middleware::free_query,
+    middleware::free_query::FreeQueryAuthorize,
     monitors::escrow_accounts,
     subgraph_client::{DeploymentDetails, SubgraphClient},
     tap::IndexerTapContext,
 };
-use indexer_config::Config;
 use reqwest::Method;
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use subgraph_service::SubgraphService;
@@ -57,11 +41,10 @@ use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
 use tokio::{net::TcpListener, signal, sync::watch::Receiver};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{
+    auth::AsyncRequireAuthorizationLayer,
     cors::{self, CorsLayer},
     normalize_path::NormalizePath,
     trace::TraceLayer,
-use indexer_common::indexer_service::http::{
-    IndexerService, IndexerServiceOptions, IndexerServiceRelease,
 };
 use tracing::{error, info, info_span, warn};
 use version_info::IndexerServiceRelease;
@@ -343,12 +326,16 @@ pub async fn run() -> anyhow::Result<()> {
     if config.service.serve_network_subgraph {
         if let Some(free_auth_token) = &config.service.serve_auth_token {
             info!("Serving network subgraph at /network");
+
+            let auth_layer = AsyncRequireAuthorizationLayer::new(FreeQueryAuthorize::new(
+                free_auth_token.to_string(),
+            ));
             misc_routes = misc_routes.route(
                 "/network",
                 post(routes::static_subgraph_request_handler)
-                    .with_state(network_subgraph)
-                    // .route_layer(free_query::new(free_auth_token.to_string()))
-                    .route_layer(static_subgraph_rate_limiter.clone()),
+                    .route_layer(auth_layer)
+                    .route_layer(static_subgraph_rate_limiter.clone())
+                    .with_state(network_subgraph),
             );
         } else {
             warn!(
@@ -361,13 +348,17 @@ pub async fn run() -> anyhow::Result<()> {
         if let Some(free_auth_token) = &config.service.serve_auth_token {
             info!("Serving escrow subgraph at /escrow");
 
+            let auth_layer = AsyncRequireAuthorizationLayer::new(FreeQueryAuthorize::new(
+                free_auth_token.to_string(),
+            ));
+
             misc_routes = misc_routes.route(
                 "/escrow",
                 post(routes::static_subgraph_request_handler)
-                    // .route_layer(free_query::new(free_auth_token.to_string()))
+                    .route_layer(auth_layer)
                     .route_layer(static_subgraph_rate_limiter)
                     .with_state(escrow_subgraph),
-            );
+            )
         } else {
             warn!(
                 "`serve_escrow_subgraph` is enabled but no `serve_auth_token` provided. Disabling it."
@@ -377,13 +368,19 @@ pub async fn run() -> anyhow::Result<()> {
 
     misc_routes = misc_routes.with_state(state.clone());
 
+    // let free_query = FreeQueryAuthorize::new(token.clone());
+    // let tap_auth = TapReceiptAuthorize::new(Arc::new(tap_manager), metric);
+    // let authorize_requests = free_query.or(tap_auth);
+
+    // let auth_layer = AsyncRequireAuthorizationLayer::new(authorize_requests);
+
     let data_routes = Router::new()
         .route(
             PathBuf::from(&config.service.url_prefix)
                 .join(format!("{}/id/:id", options.url_namespace))
                 .to_str()
                 .expect("Failed to set up `/{url_namespace}/id/:id` route"),
-            post(routes::request_handler),
+            post(routes::request_handler), // .layer(auth_layer),
         )
         .with_state(state.clone());
 
@@ -399,7 +396,7 @@ pub async fn run() -> anyhow::Result<()> {
             )
             .layer(
                 TraceLayer::new_for_http()
-                    .make_span_with(|req: &Request<_>| {
+                    .make_span_with(|req: &ExtractRequest<_>| {
                         let method = req.method();
                         let uri = req.uri();
                         let matched_path = req

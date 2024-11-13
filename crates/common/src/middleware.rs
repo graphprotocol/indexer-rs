@@ -15,6 +15,7 @@ pub use tap_header::TapReceipt;
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use alloy::primitives::{address, Address};
     use axum::http::{Request, Response};
@@ -51,7 +52,7 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn test_middleware_composition(pgpool: PgPool) {
         let token = "test".to_string();
-        let context = IndexerTapContext::new(pgpool, TAP_EIP712_DOMAIN.clone()).await;
+        let context = IndexerTapContext::new(pgpool.clone(), TAP_EIP712_DOMAIN.clone()).await;
         let tap_manager = Manager::new(TAP_EIP712_DOMAIN.clone(), context, CheckList::empty());
         let metric = prometheus::register_counter_vec!(
             "test1",
@@ -59,7 +60,7 @@ mod tests {
             &["deployment"]
         )
         .unwrap();
-        let free_query = FreeQueryAuthorize::<String>::new(token.clone());
+        let free_query = FreeQueryAuthorize::new(token.clone());
         let tap_auth = TapReceiptAuthorize::new(Arc::new(tap_manager), metric);
         let authorize_requests = free_query.or(tap_auth);
 
@@ -89,6 +90,7 @@ mod tests {
 
         let receipt = create_signed_receipt(ALLOCATION_ID, 1, 1, 1).await;
 
+        // check with receipt
         let mut req = Request::new(
             serde_json::to_string(&QueryBody {
                 query: "test".to_string(),
@@ -101,15 +103,24 @@ mod tests {
         let res = handle.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
+        // todo make this sleep better
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // verify receipts
+        let result = sqlx::query!("SELECT * FROM scalar_tap_receipts")
+            .fetch_all(&pgpool)
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        // if it fails tap receipt, should return failed to process payment + tap message
+
+        // if it has neither, should return unauthorized
         // check no headers
         let req = Request::new(String::new());
         let res = handle.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 
         // if the query don't contains token, should verify and store tap TapReceipt
-        // if it fails tap receipt, should return failed to process payment + tap message
-
-        // if it has neither, should return unauthorized
     }
 
     #[tokio::test]

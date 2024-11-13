@@ -5,12 +5,7 @@ use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc};
 use super::metrics::MetricLabels;
 use crate::tap::AgoraQuery;
 use anyhow::anyhow;
-use axum::{
-    body::{to_bytes, Body},
-    extract::{Path, Request},
-    http::Response,
-    RequestExt,
-};
+use axum::http::{Request, Response};
 use reqwest::StatusCode;
 use serde_json::value::RawValue;
 use tap_core::{
@@ -45,11 +40,11 @@ impl<T> TapReceiptAuthorize<T> {
     }
 }
 
-impl<T> AsyncAuthorizeRequest<Body> for TapReceiptAuthorize<T>
+impl<T> AsyncAuthorizeRequest<String> for TapReceiptAuthorize<T>
 where
     T: Clone + ReceiptStore + 'static,
 {
-    type RequestBody = Body;
+    type RequestBody = String;
 
     type ResponseBody = String;
 
@@ -58,48 +53,44 @@ where
         Box<dyn Future<Output = Result<Request<Self::RequestBody>, Response<Self::ResponseBody>>>>,
     >;
 
-    fn authorize(&mut self, mut request: Request) -> Self::Future {
+    fn authorize(&mut self, request: Request<String>) -> Self::Future {
         let this = self.clone();
         Box::pin(async move {
             let execute = move || async move {
                 let receipt = match request.extensions().get::<SignedReceipt>() {
                     Some(receipt) => receipt.clone(),
                     None => {
-                        // extract from header
-                        todo!()
+                        // TODO extract from header
+                        return Err(anyhow!("Could not find receipt"));
                     }
                 };
                 let labels = request.extensions().get::<MetricLabels>().cloned();
 
+
                 let deployment_id = match request.extensions().get::<DeploymentId>() {
                     Some(deployment) => *deployment,
                     None => {
-                        // extract from path
-                        if let Ok(Path(deployment)) =
-                            request.extract_parts::<Path<DeploymentId>>().await
-                        {
-                            deployment
-                        } else {
-                            return Err(anyhow!("Could not find deployment_id"));
-                        }
+                        // TODO extract from path
+                        return Err(anyhow!("Could not find deployment id"));
                     }
                 };
 
-                let (_, body) = request.into_parts();
-                let bytes = to_bytes(body, usize::MAX).await?;
-                let query_body: QueryBody = serde_json::from_slice(&bytes)?;
+                let body = request.body();
+                let query_body: QueryBody = serde_json::from_str(body)?;
 
                 let variables = query_body
                     .variables
                     .as_ref()
                     .map(ToString::to_string)
                     .unwrap_or_default();
+
                 let mut ctx = Context::new();
                 ctx.insert(AgoraQuery {
                     deployment_id,
                     query: query_body.query.clone(),
                     variables,
                 });
+
 
                 // Verify the receipt and store it in the database
                 this.tap_manager
@@ -112,10 +103,11 @@ where
                                 .inc()
                         }
                     })?;
-                Ok::<_, anyhow::Error>(Request::new(bytes.into()))
+
+                Ok::<_, anyhow::Error>(request)
             };
-            execute().await.map_err(|_| {
-                let mut res = Response::new(String::default());
+            execute().await.map_err(|e| {
+                let mut res = Response::new(e.to_string());
                 *res.status_mut() = StatusCode::UNAUTHORIZED;
                 res
             })

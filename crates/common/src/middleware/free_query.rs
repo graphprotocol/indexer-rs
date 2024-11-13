@@ -13,13 +13,21 @@ use pin_project::pin_project;
 use reqwest::{header, StatusCode};
 use tower_http::auth::AsyncAuthorizeRequest;
 
-#[derive(Clone)]
-pub struct FreeQueryAuthorize<ResBody> {
+pub struct FreeQueryAuthorize<ReqBody, ResBody> {
     header_value: HeaderValue,
-    _ty: PhantomData<fn() -> ResBody>,
+    _ty: PhantomData<fn(Request<ReqBody>) -> Response<ResBody>>,
 }
 
-impl<ResBody> FreeQueryAuthorize<ResBody> {
+impl<ReqBody, ResBody> Clone for FreeQueryAuthorize<ReqBody, ResBody> {
+    fn clone(&self) -> Self {
+        Self {
+            header_value: self.header_value.clone(),
+            _ty: self._ty,
+        }
+    }
+}
+
+impl<ReqBody, ResBody> FreeQueryAuthorize<ReqBody, ResBody> {
     pub fn new(token: String) -> Self {
         Self {
             header_value: format!("Bearer {}", token)
@@ -30,21 +38,33 @@ impl<ResBody> FreeQueryAuthorize<ResBody> {
     }
 }
 
-impl<ResBody, B> AsyncAuthorizeRequest<B> for FreeQueryAuthorize<ResBody>
+// impl<B, F, Fut, ReqBody, ResBody> AsyncAuthorizeRequest<B> for F
+// where
+//     F: FnMut(Request<B>) -> Fut,
+//     Fut: Future<Output = Result<Request<ReqBody>, Response<ResBody>>>,
+// {
+//     type RequestBody = ReqBody;
+//     type ResponseBody = ResBody;
+//     type Future = Fut;
+//
+//     fn authorize(&mut self, request: Request<B>) -> Self::Future {
+//         self(request)
+//     }
+// }
+
+impl<ReqBody, ResBody> AsyncAuthorizeRequest<ReqBody> for FreeQueryAuthorize<ReqBody, ResBody>
 where
     ResBody: Default,
 {
-    type RequestBody = B;
-
+    type RequestBody = ReqBody;
     type ResponseBody = ResBody;
-
     type Future = Ready<Result<Request<Self::RequestBody>, Response<Self::ResponseBody>>>;
 
-    fn authorize(&mut self, request: Request<B>) -> Self::Future {
+    fn authorize(&mut self, request: Request<ReqBody>) -> Self::Future {
         let res = match request.headers().get(header::AUTHORIZATION) {
-            Some(actual) if actual == self.header_value => Ok(request),
+            Some(actual) if actual == self.header_value => Ok(Request::new(request.into_body())),
             _ => {
-                let mut res = Response::new(ResBody::default());
+                let mut res = Response::default();
                 *res.status_mut() = StatusCode::UNAUTHORIZED;
                 Err(res)
             }

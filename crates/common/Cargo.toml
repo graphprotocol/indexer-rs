@@ -21,6 +21,7 @@ lazy_static.workspace = true
 thegraph-graphql-http.workspace = true
 build-info.workspace = true
 graphql_client.workspace = true
+tower-http.workspace = true
 
 axum-extra = { version = "0.9.3", features = [
   "typed-header",
@@ -35,7 +36,6 @@ bip39 = "2.0.0"
 tower = "0.5.1"
 pin-project = "1.1.7"
 headers = "0.4.0"
-tower-http = { version = "0.6.1", features = ["auth"] }
 
 [dev-dependencies]
 env_logger = { version = "0.11.0", default-features = false }
