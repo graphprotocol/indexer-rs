@@ -9,22 +9,10 @@ use std::{
 
 use super::Allocation;
 use crate::{prelude::SubgraphClient, watcher::new_watcher};
-use alloy::primitives::{TxHash, B256, U256};
-use graphql_client::GraphQLQuery;
+use alloy::primitives::TxHash;
+use indexer_query::allocations_query::{self, AllocationsQuery};
 use thegraph_core::{Address, DeploymentId};
 use tokio::sync::watch::Receiver;
-
-type BigInt = U256;
-type Bytes = B256;
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "../graphql/network.schema.graphql",
-    query_path = "../graphql/allocations.query.graphql",
-    response_derives = "Debug",
-    variables_derives = "Clone"
-)]
-pub struct AllocationsQuery;
 
 impl TryFrom<allocations_query::AllocationFragment> for Allocation {
     type Error = anyhow::Error;

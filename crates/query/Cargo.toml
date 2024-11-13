@@ -1,0 +1,11 @@
+[package]
+name = "indexer-query"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+graphql_client.workspace = true
+thegraph-core.workspace = true
+serde.workspace = true
+alloy.workspace = true
+anyhow.workspace = true

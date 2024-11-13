@@ -9,7 +9,7 @@ use std::{
 
 use alloy::primitives::{Address, U256};
 use anyhow::{anyhow, Result};
-use graphql_client::GraphQLQuery;
+use indexer_query::escrow_account::{self, EscrowAccountQuery};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
 use tracing::{error, warn};
@@ -87,17 +87,6 @@ impl EscrowAccounts {
     }
 }
 
-type BigInt = String;
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "../graphql/tap.schema.graphql",
-    query_path = "../graphql/escrow_account.query.graphql",
-    response_derives = "Debug",
-    variables_derives = "Clone"
-)]
-pub struct EscrowAccountQuery;
-
 pub async fn escrow_accounts(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
@@ -121,7 +110,7 @@ async fn get_escrow_accounts(
     // isAuthorized == true means that the signer is still authorized to sign
     // payments in the name of the sender.
     let response = escrow_subgraph
-        .query::<EscrowAccountQuery, _>(escrow_account_query::Variables {
+        .query::<EscrowAccountQuery, _>(escrow_account::Variables {
             indexer: format!("{:x?}", indexer_address),
             thaw_end_timestamp: if reject_thawing_signers {
                 U256::ZERO.to_string()

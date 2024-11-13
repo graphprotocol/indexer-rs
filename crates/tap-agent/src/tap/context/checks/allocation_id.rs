@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use alloy::primitives::Address;
 use anyhow::anyhow;
-use graphql_client::GraphQLQuery;
 use indexer_common::{subgraph_client::SubgraphClient, watcher::new_watcher};
+use indexer_query::{tap_transactions, TapTransactions};
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
@@ -88,15 +88,6 @@ async fn tap_allocation_redeemed_watcher(
     })
     .await
 }
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "../graphql/tap.schema.graphql",
-    query_path = "../graphql/transactions.query.graphql",
-    response_derives = "Debug",
-    variables_derives = "Clone"
-)]
-struct TapTransactions;
 
 async fn query_escrow_check_transactions(
     allocation_id: Address,

@@ -8,18 +8,10 @@ use axum::{
 };
 use graphql_client::GraphQLQuery;
 use indexer_config::GraphNodeConfig;
+use indexer_query::{health_query, HealthQuery};
 use reqwest::StatusCode;
 use serde_json::json;
 use thiserror::Error;
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "../graphql/indexing_status.schema.graphql",
-    query_path = "../graphql/subgraph_health.query.graphql",
-    response_derives = "Debug",
-    variables_derives = "Clone"
-)]
-pub struct HealthQuery;
 
 #[derive(Debug, Error)]
 pub enum CheckHealthError {

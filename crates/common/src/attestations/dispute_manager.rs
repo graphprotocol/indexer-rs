@@ -5,20 +5,9 @@ use crate::subgraph_client::SubgraphClient;
 use crate::watcher::new_watcher;
 use alloy::primitives::Address;
 use anyhow::Error;
-use graphql_client::GraphQLQuery;
+use indexer_query::dispute_manager::{self, DisputeManager};
 use std::time::Duration;
 use tokio::sync::watch::Receiver;
-
-type Bytes = Address;
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "../graphql/network.schema.graphql",
-    query_path = "../graphql/dispute.query.graphql",
-    response_derives = "Debug",
-    variables_derives = "Clone"
-)]
-struct DisputeManager;
 
 pub async fn dispute_manager(
     network_subgraph: &'static SubgraphClient,

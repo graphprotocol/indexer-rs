@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 indexer-common = { path = "../common" }
 indexer-config = { path = "../config" }
+indexer-query = { path = "../query" }
 alloy.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true

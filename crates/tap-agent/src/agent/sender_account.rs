@@ -8,8 +8,12 @@ use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
 
 use futures::{stream, StreamExt};
-use graphql_client::GraphQLQuery;
 use indexer_common::watcher::watch_pipe;
+use indexer_query::unfinalized_transactions;
+use indexer_query::{
+    closed_allocations::{self, ClosedAllocations},
+    UnfinalizedTransactions,
+};
 use jsonrpsee::http_client::HttpClientBuilder;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
 use reqwest::Url;
@@ -448,26 +452,6 @@ impl State {
             .collect::<Result<HashSet<Address>, _>>()?)
     }
 }
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "../graphql/tap.schema.graphql",
-    query_path = "../graphql/unfinalized_tx.query.graphql",
-    response_derives = "Debug",
-    variables_derives = "Clone"
-)]
-struct UnfinalizedTransactions;
-
-type Bytes = String;
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "../graphql/network.schema.graphql",
-    query_path = "../graphql/closed_allocations.query.graphql",
-    response_derives = "Debug",
-    variables_derives = "Clone"
-)]
-struct ClosedAllocations;
 
 #[async_trait::async_trait]
 impl Actor for SenderAccount {
