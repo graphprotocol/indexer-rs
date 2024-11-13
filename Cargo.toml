@@ -1,5 +1,11 @@
 [workspace]
-members = ["common", "config", "dips", "service", "tap-agent"]
+members = [
+  "crates/common",
+  "crates/config",
+  "crates/dips",
+  "crates/service",
+  "crates/tap-agent",
+]
 resolver = "2"
 
 [profile.dev.package."*"]
@@ -7,14 +13,14 @@ opt-level = 3
 
 [workspace.dependencies]
 alloy = { version = "=0.5.4", features = [
-    "kzg",
-    "signer-mnemonic",
-    "dyn-abi",
-    "sol-types",
-    "signer-local",
-    "eip712",
-    "rlp",
-    "signers",
+  "kzg",
+  "signer-mnemonic",
+  "dyn-abi",
+  "sol-types",
+  "signer-local",
+  "eip712",
+  "rlp",
+  "signers",
 ], default-features = false }
 clap = "4.4.3"
 lazy_static = "1.4.0"
@@ -27,21 +33,21 @@ async-trait = "0.1.72"
 eventuals = "0.6.7"
 base64 = "0.22.1"
 reqwest = { version = "0.12", features = [
-    "charset",
-    "h2",
+  "charset",
+  "h2",
 ], default-features = false }
 serde = { version = "1.0.206", default-features = false }
 serde_json = "1.0.124"
 sqlx = { version = "0.8.2", features = [
-    "bigdecimal",
-    "chrono",
-    "json",
-    "macros",
-    "migrate",
-    "postgres",
-    "runtime-tokio",
-    "rust_decimal",
-    "uuid",
+  "bigdecimal",
+  "chrono",
+  "json",
+  "macros",
+  "migrate",
+  "postgres",
+  "runtime-tokio",
+  "rust_decimal",
+  "uuid",
 ], default-features = false }
 uuid = { version = "1.11.0", features = ["v7"] }
 tracing = { version = "0.1.40", default-features = false }
@@ -50,12 +56,12 @@ build-info = "0.0.39"
 tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "61b47b3", default-features = false }
 tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "61b47b3", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
-    "json",
-    "env-filter",
-    "ansi",
+  "json",
+  "env-filter",
+  "ansi",
 ], default-features = false }
 thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "1663534fc1738e2db1b11cb54b5bb478ee970d40", features = [
-    "subgraph-client",
+  "subgraph-client",
 ] }
 thegraph-graphql-http = "0.2.0"
 graphql_client = { version = "0.14.0", features = ["reqwest-rustls"] }

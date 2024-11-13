@@ -53,7 +53,7 @@ jobs:
       - name: Install sqlx
         run: cargo install sqlx-cli --no-default-features --features postgres
       - name: Run the test sqlx migrations
-        run: cargo sqlx migrate run
+        run: cargo sqlx migrate run --source crates/migrations
       - name: Check that the sqlx prepared query metadata is up-to-date
         run: cargo sqlx prepare --workspace --check -- --all-targets --all-features
 
@@ -124,7 +124,7 @@ jobs:
       - name: Install sqlx
         run: cargo install sqlx-cli --no-default-features --features postgres
       - name: Run the test sqlx migrations
-        run: cargo sqlx migrate run
+        run: cargo sqlx migrate run --source crates/migrations
       - name: Run tests and generate coverage report
         run: cargo llvm-cov test --all-features --workspace --lcov --output-path lcov.info
       - name: Upload coverage to Coveralls
@@ -172,6 +172,6 @@ jobs:
       - name: Install sqlx
         run: cargo install sqlx-cli --no-default-features --features postgres
       - name: Run the test sqlx migrations
-        run: cargo sqlx migrate run
+        run: cargo sqlx migrate run --source crates/migrations
       - name: Test documentation code snippets
         run: cargo test --doc --all-features --workspace

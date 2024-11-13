@@ -4,9 +4,9 @@
   "release-type": "rust",
   "plugins": ["cargo-workspace"],
   "packages": {
-    "common": {},
-    "config": {},
-    "service": {},
-    "tap-agent": {}
+    "crates/common": {},
+    "crates/config": {},
+    "crates/service": {},
+    "crates/tap-agent": {}
   }
 }
