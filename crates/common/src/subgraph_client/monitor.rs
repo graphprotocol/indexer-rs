@@ -3,23 +3,17 @@
 
 use std::time::Duration;
 
-use deployment_status_query::Health;
 use graphql_client::GraphQLQuery;
+use indexer_query::{
+    deployment_status_query::{self, Health},
+    DeploymentStatusQuery,
+};
 use reqwest::Url;
 use serde::Deserialize;
 use thegraph_core::DeploymentId;
 use tokio::sync::watch::Receiver;
 
 use crate::watcher::new_watcher;
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "../graphql/indexing_status.schema.graphql",
-    query_path = "../graphql/subgraph_deployment_status.graphql",
-    response_derives = "Debug",
-    variables_derives = "Clone"
-)]
-pub struct DeploymentStatusQuery;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct DeploymentStatus {

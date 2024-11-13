@@ -312,6 +312,7 @@ impl SubgraphClient {
 mod test {
     use std::str::FromStr;
 
+    use indexer_query::{current_epoch, user_query, CurrentEpoch, UserQuery};
     use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -356,15 +357,6 @@ mod test {
         .await
     }
 
-    #[derive(GraphQLQuery)]
-    #[graphql(
-        schema_path = "../graphql/network.schema.graphql",
-        query_path = "../graphql/epoch.query.graphql",
-        response_derives = "Debug",
-        variables_derives = "Clone"
-    )]
-    struct CurrentEpoch;
-
     #[tokio::test]
     #[ignore = "depends on the defunct hosted-service"]
     async fn test_network_query() {
@@ -379,15 +371,6 @@ mod test {
 
         assert!(result.is_ok());
     }
-
-    #[derive(GraphQLQuery)]
-    #[graphql(
-        schema_path = "../graphql/test.schema.graphql",
-        query_path = "../graphql/user.query.graphql",
-        response_derives = "Debug",
-        variables_derives = "Clone"
-    )]
-    struct UserQuery;
 
     #[tokio::test]
     async fn test_uses_local_deployment_if_healthy_and_synced() {

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 indexer-config = { path = "../config" }
+indexer-query = { path = "../query" }
 thiserror.workspace = true
 async-trait.workspace = true
 alloy.workspace = true
@@ -29,14 +30,14 @@ tokio = { workspace = true, features = ["fs", "tokio-macros"] }
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
 regex = "1.7.1"
 axum-extra = { version = "0.9.3", features = [
-    "typed-header",
+  "typed-header",
 ], default-features = false }
 autometrics = { version = "1.0.1", features = ["prometheus-exporter"] }
 tower_governor = "0.4.0"
 tower-http = { version = "0.5.2", features = [
-    "cors",
-    "normalize-path",
-    "trace",
+  "cors",
+  "normalize-path",
+  "trace",
 ] }
 tokio-util = "0.7.10"
 bip39 = "2.0.0"

@@ -3,6 +3,7 @@ members = [
   "crates/common",
   "crates/config",
   "crates/dips",
+  "crates/query",
   "crates/service",
   "crates/tap-agent",
 ]

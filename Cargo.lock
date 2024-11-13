@@ -3490,6 +3490,7 @@ dependencies = [
  "eventuals",
  "graphql_client",
  "indexer-config",
+ "indexer-query",
  "lazy_static",
  "prometheus",
  "regex",
@@ -3546,6 +3547,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer-query"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "graphql_client",
+ "serde",
+ "thegraph-core",
+]
+
+[[package]]
 name = "indexer-service-rs"
 version = "1.3.2"
 dependencies = [
@@ -3594,6 +3606,7 @@ dependencies = [
  "graphql_client",
  "indexer-common",
  "indexer-config",
+ "indexer-query",
  "jsonrpsee",
  "lazy_static",
  "prometheus",
