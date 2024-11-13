@@ -73,7 +73,7 @@ mod version_info;
 
 pub use error::IndexerServiceError;
 pub use response::SubgraphServiceResponse;
-pub use subgraph_service::{AttestationOutput, SubgraphServiceState};
+pub use subgraph_service::SubgraphServiceState;
 
 pub struct IndexerServiceState {
     pub subgraph_service: SubgraphService,
@@ -347,7 +347,7 @@ pub async fn run() -> anyhow::Result<()> {
                 "/network",
                 post(routes::static_subgraph_request_handler)
                     .with_state(network_subgraph)
-                    .route_layer(free_query::new(free_auth_token.to_string()))
+                    // .route_layer(free_query::new(free_auth_token.to_string()))
                     .route_layer(static_subgraph_rate_limiter.clone()),
             );
         } else {
@@ -364,7 +364,7 @@ pub async fn run() -> anyhow::Result<()> {
             misc_routes = misc_routes.route(
                 "/escrow",
                 post(routes::static_subgraph_request_handler)
-                    .route_layer(free_query::new(free_auth_token.to_string()))
+                    // .route_layer(free_query::new(free_auth_token.to_string()))
                     .route_layer(static_subgraph_rate_limiter)
                     .with_state(escrow_subgraph),
             );

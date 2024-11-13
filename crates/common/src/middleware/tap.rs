@@ -1,84 +1,139 @@
 //! verifies and stores tap receipt, or else reject
 
+use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc};
+
+use super::metrics::MetricLabels;
+use crate::tap::AgoraQuery;
 use anyhow::anyhow;
 use axum::{
-    extract::{Request, State},
-    middleware::Next,
-    response::Response,
+    body::{to_bytes, Body},
+    extract::{Path, Request},
+    http::Response,
+    RequestExt,
 };
-use axum_extra::TypedHeader;
+use reqwest::StatusCode;
 use serde_json::value::RawValue;
-use tap_core::{manager::Manager, receipt::Context};
-use thegraph_core::{AllocationId, DeploymentId};
-
-use crate::tap::{AgoraQuery, IndexerTapContext};
-
-use super::{sender::Sender, TapReceipt};
+use tap_core::{
+    manager::{adapters::ReceiptStore, Manager},
+    receipt::{Context, SignedReceipt},
+};
+use thegraph_core::DeploymentId;
+use tower_http::auth::AsyncAuthorizeRequest;
 
 #[derive(Debug, serde::Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 pub struct QueryBody {
     pub query: String,
     pub variables: Option<Box<RawValue>>,
 }
 
-pub struct MyState {
-    tap_manager: Manager<IndexerTapContext>,
-    failed_receipt: prometheus::CounterVec,
+#[derive(Clone)]
+pub struct TapReceiptAuthorize<T> {
+    tap_manager: Arc<Manager<T>>,
+    failed_receipt_metric: prometheus::CounterVec,
 }
 
-const NO_SENDER: &str = "no-sender";
-const NO_ALLOCATION: &str = "no-allocation";
-
-async fn tap_middleware(
-    manifest_id: DeploymentId,
-    State(state): State<MyState>,
-    TypedHeader(receipt): TypedHeader<TapReceipt>,
-    request: Request,
-    next: Next,
-) -> Result<Response, anyhow::Error> {
-    match receipt.into_signed_receipt() {
-        Some(receipt) => {
-            let sender = request.extensions().get::<Sender>();
-            let allocation_id = request.extensions().get::<AllocationId>();
-            let body = request.body().into();
-            // let body = body::to_bytes(body, usize::MAX).await?;
-
-            let request: QueryBody = serde_json::from_slice(&body)?;
-
-            let variables = request
-                .variables
-                .as_ref()
-                .map(ToString::to_string)
-                .unwrap_or_default();
-            let mut ctx = Context::new();
-            ctx.insert(AgoraQuery {
-                deployment_id: manifest_id,
-                query: request.query.clone(),
-                variables,
-            });
-
-            // Verify the receipt and store it in the database
-            state
-                .tap_manager
-                .verify_and_store_receipt(&ctx, receipt)
-                .await
-                .inspect_err(|_| {
-                    state
-                        .failed_receipt
-                        .with_label_values(&[
-                            &manifest_id.to_string(),
-                            &allocation_id
-                                .map(|a| a.to_string())
-                                .unwrap_or(NO_ALLOCATION.to_string()),
-                            &sender
-                                .map(|sender| *sender.into())
-                                .unwrap_or(NO_SENDER.to_string()),
-                        ])
-                        .inc()
-                })?;
+impl<T> TapReceiptAuthorize<T> {
+    pub fn new(
+        tap_manager: Arc<Manager<T>>,
+        failed_receipt_metric: prometheus::CounterVec,
+    ) -> Self {
+        Self {
+            tap_manager,
+            failed_receipt_metric,
         }
-        None => return Err(anyhow!("Could not verify receipt")),
     }
+}
 
-    Ok(next.run(request).await)
+impl<T> AsyncAuthorizeRequest<Body> for TapReceiptAuthorize<T>
+where
+    T: Clone + ReceiptStore + 'static,
+{
+    type RequestBody = Body;
+
+    type ResponseBody = String;
+
+    // type Future = TapFuture<Result<Request<Self::RequestBody>, Response<Self::ResponseBody>>>;
+    type Future = Pin<
+        Box<dyn Future<Output = Result<Request<Self::RequestBody>, Response<Self::ResponseBody>>>>,
+    >;
+
+    fn authorize(&mut self, mut request: Request) -> Self::Future {
+        let this = self.clone();
+        Box::pin(async move {
+            let execute = move || async move {
+                let receipt = match request.extensions().get::<SignedReceipt>() {
+                    Some(receipt) => receipt.clone(),
+                    None => {
+                        // extract from header
+                        todo!()
+                    }
+                };
+                let labels = request.extensions().get::<MetricLabels>().cloned();
+
+                let deployment_id = match request.extensions().get::<DeploymentId>() {
+                    Some(deployment) => *deployment,
+                    None => {
+                        // extract from path
+                        if let Ok(Path(deployment)) =
+                            request.extract_parts::<Path<DeploymentId>>().await
+                        {
+                            deployment
+                        } else {
+                            return Err(anyhow!("Could not find deployment_id"));
+                        }
+                    }
+                };
+
+                let (_, body) = request.into_parts();
+                let bytes = to_bytes(body, usize::MAX).await?;
+                let query_body: QueryBody = serde_json::from_slice(&bytes)?;
+
+                let variables = query_body
+                    .variables
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
+                let mut ctx = Context::new();
+                ctx.insert(AgoraQuery {
+                    deployment_id,
+                    query: query_body.query.clone(),
+                    variables,
+                });
+
+                // Verify the receipt and store it in the database
+                this.tap_manager
+                    .verify_and_store_receipt(&ctx, receipt)
+                    .await
+                    .inspect_err(|_| {
+                        if let Some(labels) = labels {
+                            this.failed_receipt_metric
+                                .with_label_values(&labels.get_labels())
+                                .inc()
+                        }
+                    })?;
+                Ok::<_, anyhow::Error>(Request::new(bytes.into()))
+            };
+            execute().await.map_err(|_| {
+                let mut res = Response::new(String::default());
+                *res.status_mut() = StatusCode::UNAUTHORIZED;
+                res
+            })
+        })
+    }
+}
+
+pub struct TapFuture<T> {
+    _t: PhantomData<T>,
+}
+
+impl<Req, Resp> Future for TapFuture<Result<Request<Req>, Response<Resp>>> {
+    type Output = Result<Request<Req>, Response<Resp>>;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        todo!()
+    }
 }

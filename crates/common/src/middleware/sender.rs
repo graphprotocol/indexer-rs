@@ -6,12 +6,10 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use axum_extra::TypedHeader;
+use tap_core::receipt::SignedReceipt;
 use tokio::sync::watch;
 
 use crate::escrow_accounts::EscrowAccounts;
-
-use super::TapReceipt;
 
 pub struct MyState {
     domain_separator: Eip712Domain,
@@ -29,11 +27,10 @@ impl From<Sender> for String {
 
 async fn sender_middleware(
     State(state): State<MyState>,
-    TypedHeader(receipt): TypedHeader<TapReceipt>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, anyhow::Error> {
-    if let Some(receipt) = receipt.into_signed_receipt() {
+    if let Some(receipt) = request.extensions().get::<SignedReceipt>() {
         let signer = receipt.recover_signer(&state.domain_separator)?;
         let sender = state
             .escrow_accounts

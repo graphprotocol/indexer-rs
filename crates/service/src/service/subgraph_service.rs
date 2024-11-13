@@ -3,7 +3,7 @@ use std::sync::Arc;
 use reqwest::Url;
 use serde::Serialize;
 use sqlx::Postgres;
-use thegraph_core::{Attestation, DeploymentId};
+use thegraph_core::{DeploymentId};
 
 use crate::{error::SubgraphServiceError, routes};
 
@@ -27,11 +27,6 @@ impl SubgraphService {
     pub fn new(state: Arc<SubgraphServiceState>) -> Self {
         Self { state }
     }
-}
-
-pub enum AttestationOutput {
-    Attestation(Option<Attestation>),
-    Attestable,
 }
 
 impl SubgraphService {

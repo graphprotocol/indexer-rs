@@ -8,47 +8,53 @@
 //!     - return with no attestation
 //!
 
-use alloy::dyn_abi::Eip712Domain;
-use axum::{
-    extract::{Request, State},
-    middleware::Next,
-    response::Response,
-};
-use axum_extra::TypedHeader;
-use tokio::sync::watch;
-
-use crate::escrow_accounts::EscrowAccounts;
-
-use super::TapReceipt;
-
-pub struct MyState {
-    domain_separator: Eip712Domain,
-    escrow_accounts: watch::Receiver<EscrowAccounts>,
-}
-
-#[derive(Clone)]
-pub struct Sender(String);
-
-impl From<Sender> for String {
-    fn from(value: Sender) -> Self {
-        value.0
-    }
-}
-
-async fn attestation_middleware(
-    State(state): State<MyState>,
-    TypedHeader(receipt): TypedHeader<TapReceipt>,
-    mut request: Request,
-    next: Next,
-) -> Result<Response, anyhow::Error> {
-    if let Some(receipt) = receipt.into_signed_receipt() {
-        let signer = receipt.recover_signer(&state.domain_separator)?;
-        let sender = state
-            .escrow_accounts
-            .borrow()
-            .get_sender_for_signer(&signer)?;
-        request.extensions_mut().insert(Sender(sender.to_string()));
-    }
-
-    Ok(next.run(request).await)
-}
+// use crate::attestations::{signer::AttestationSigner, AttestableResponse, AttestationOutput};
+// use alloy::primitives::Address;
+// use anyhow::anyhow;
+// use axum::{
+//     extract::{Request, State},
+//     middleware::Next,
+//     response::Response,
+// };
+// use std::collections::HashMap;
+// use tokio::sync::watch;
+//
+// use super::allocation::Allocation;
+//
+// pub struct MyState {
+//     attestation_signers: watch::Receiver<HashMap<Address, AttestationSigner>>,
+// }
+//
+// async fn attestation_middleware<T>(
+//     State(state): State<MyState>,
+//     request: Request<String>,
+//     next: Next,
+// ) -> Result<Response<T>, anyhow::Error> {
+//     let Allocation(allocation_id) = request
+//         .extensions()
+//         .get::<Allocation>()
+//         .ok_or(anyhow!("Could not find allocation"))?;
+//
+//     let (parts, req) = request.into_parts();
+//
+//     let signer = state
+//         .attestation_signers
+//         .borrow()
+//         .get(allocation_id)
+//         .cloned()
+//         .ok_or_else(|| anyhow!("Error"))?;
+//
+//     let response: Box<dyn AttestableResponse<T>> = next.run(Request::new(req.into())).await.into();
+//
+//     let res = response.as_str();
+//
+//     let attestation = AttestationOutput::Attestation(
+//         response
+//             .is_attestable()
+//             .then(|| signer.create_attestation(&req, res)),
+//     );
+//
+//     let response = response.finalize(attestation);
+//
+//     Ok(Response::new(response))
+// }

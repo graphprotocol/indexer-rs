@@ -9,7 +9,11 @@ use axum::{
     response::IntoResponse,
 };
 use axum_extra::TypedHeader;
-use indexer_common::{middleware::TapReceipt, tap::AgoraQuery};
+use indexer_common::{
+    attestations::{AttestableResponse, AttestationOutput},
+    middleware::TapReceipt,
+    tap::AgoraQuery,
+};
 use reqwest::StatusCode;
 use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
@@ -19,17 +23,16 @@ use serde_json::value::RawValue;
 
 use crate::{
     metrics::{FAILED_RECEIPT, HANDLER_FAILURE, HANDLER_HISTOGRAM},
-    service::{AttestationOutput, IndexerServiceError, IndexerServiceState},
+    service::{IndexerServiceError, IndexerServiceState},
 };
 
 pub async fn request_handler(
     Path(manifest_id): Path<DeploymentId>,
     typed_header: TypedHeader<TapReceipt>,
     state: State<Arc<IndexerServiceState>>,
-    headers: HeaderMap,
     body: String,
 ) -> Result<impl IntoResponse, IndexerServiceError> {
-    _request_handler(manifest_id, typed_header, state, headers, body)
+    _request_handler(manifest_id, typed_header, state, body)
         .await
         .inspect_err(|_| {
             HANDLER_FAILURE
@@ -42,7 +45,6 @@ async fn _request_handler(
     manifest_id: DeploymentId,
     TypedHeader(receipt): TypedHeader<TapReceipt>,
     State(state): State<Arc<IndexerServiceState>>,
-    headers: HeaderMap,
     req: String,
 ) -> Result<impl IntoResponse, IndexerServiceError> {
     trace!("Handling request for deployment `{manifest_id}`");
@@ -50,32 +52,33 @@ async fn _request_handler(
     let request: QueryBody =
         serde_json::from_str(&req).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
 
-    let Some(receipt) = receipt.into_signed_receipt() else {
-        // Serve free query, NO METRICS
-        match headers
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.strip_prefix("Bearer "))
-            .map(|s| s.to_string())
-        {
-            None => return Err(IndexerServiceError::Unauthorized),
-            Some(ref token) => {
-                if Some(token) != state.free_query_auth_token {
-                    return Err(IndexerServiceError::InvalidFreeQueryAuthToken);
-                }
-            }
-        }
-
-        trace!(?manifest_id, "New free query");
-
-        let response = state
-            .subgraph_service
-            .process_request(manifest_id, request)
-            .await
-            .map_err(IndexerServiceError::ProcessingError)?
-            .finalize(AttestationOutput::Attestable);
-        return Ok((StatusCode::OK, response));
-    };
+    let receipt = receipt.into_signed_receipt();
+    // let Some(receipt) = receipt.into_signed_receipt() else {
+    //     // Serve free query, NO METRICS
+    //     match headers
+    //         .get("authorization")
+    //         .and_then(|v| v.to_str().ok())
+    //         .and_then(|s| s.strip_prefix("Bearer "))
+    //         .map(|s| s.to_string())
+    //     {
+    //         None => return Err(IndexerServiceError::Unauthorized),
+    //         Some(ref token) => {
+    //             if Some(token) != state.free_query_auth_token {
+    //                 return Err(IndexerServiceError::InvalidFreeQueryAuthToken);
+    //             }
+    //         }
+    //     }
+    //
+    //     trace!(?manifest_id, "New free query");
+    //
+    //     let response = state
+    //         .subgraph_service
+    //         .process_request(manifest_id, request)
+    //         .await
+    //         .map_err(IndexerServiceError::ProcessingError)?
+    //         .finalize(AttestationOutput::Attestable);
+    //     return Ok((StatusCode::OK, response));
+    // };
 
     let allocation_id = receipt.message.allocation_id;
 
@@ -145,9 +148,7 @@ async fn _request_handler(
         .await
         .map_err(IndexerServiceError::ProcessingError)?;
 
-    let res = response
-        .as_str()
-        .map_err(|_| IndexerServiceError::FailedToSignAttestation)?;
+    let res = response.as_str();
 
     let attestation = AttestationOutput::Attestation(
         response
@@ -160,7 +161,7 @@ async fn _request_handler(
     Ok((StatusCode::OK, response))
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct QueryBody {
     pub query: String,
     pub variables: Option<Box<RawValue>>,

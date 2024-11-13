@@ -9,16 +9,16 @@ use prometheus::{register_counter, Counter};
 use tap_core::receipt::SignedReceipt;
 
 #[derive(Debug, PartialEq)]
-pub struct TapReceipt(Option<SignedReceipt>);
+pub struct TapReceipt(SignedReceipt);
 
 impl TapReceipt {
-    pub fn into_signed_receipt(self) -> Option<SignedReceipt> {
+    pub fn into_signed_receipt(self) -> SignedReceipt {
         self.0
     }
 }
 
 impl Deref for TapReceipt {
-    type Target = Option<SignedReceipt>;
+    type Target = SignedReceipt;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -26,7 +26,7 @@ impl Deref for TapReceipt {
 }
 
 lazy_static! {
-    static ref TAP_RECEIPT: HeaderName = HeaderName::from_static("tap-receipt");
+    pub static ref TAP_RECEIPT: HeaderName = HeaderName::from_static("tap-receipt");
     pub static ref TAP_RECEIPT_INVALID: Counter =
         register_counter!("indexer_tap_invalid_total", "Invalid tap receipt decode",).unwrap();
 }
@@ -41,12 +41,9 @@ impl Header for TapReceipt {
         I: Iterator<Item = &'i HeaderValue>,
     {
         let mut execute = || {
-            let value = values.next();
-            let parsed_receipt = value
-                .map(|value| value.as_bytes())
-                .map(serde_json::from_slice)
-                .transpose()
-                .map_err(|_| headers::Error::invalid())?;
+            let value = values.next().ok_or(headers::Error::invalid())?;
+            let parsed_receipt =
+                serde_json::from_slice(value.as_bytes()).map_err(|_| headers::Error::invalid())?;
             Ok(TapReceipt(parsed_receipt))
         };
         execute().inspect_err(|_| TAP_RECEIPT_INVALID.inc())
@@ -83,7 +80,7 @@ mod test {
         let decoded_receipt = TapReceipt::decode(&mut header_values.into_iter())
             .expect("tap receipt header value should be valid");
 
-        assert_eq!(decoded_receipt, TapReceipt(Some(original_receipt.clone())));
+        assert_eq!(decoded_receipt, TapReceipt(original_receipt.clone()));
     }
 
     #[test]
