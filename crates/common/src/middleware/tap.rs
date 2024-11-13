@@ -17,40 +17,48 @@ use tap_core::{
 use thegraph_core::DeploymentId;
 use tower_http::auth::AsyncAuthorizeRequest;
 
-#[derive(Debug, serde::Deserialize)]
-#[cfg_attr(test, derive(serde::Serialize))]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct QueryBody {
     pub query: String,
     pub variables: Option<Box<RawValue>>,
 }
 
-#[derive(Clone)]
-pub struct TapReceiptAuthorize<F1, F2, Func, Func2>
-where
-    F1: Future<Output = Result<axum::body::Bytes, axum::Error>>,
-    F2: Future<Output = Result<(), tap_core::Error>>,
-    Func: FnOnce(Context, SignedReceipt) -> F2,
-    Func2: FnOnce(Body) -> F1,
-{
+pub struct TapReceiptAuthorize<F1, F2, Func, Func2> {
     failed_receipt_metric: prometheus::CounterVec,
     func: Option<Func>,
     func2: Option<Func2>,
     _ty: PhantomData<fn(F1) -> F2>,
 }
 
+impl<F1, F2, Func, Func2> Clone for TapReceiptAuthorize<F1, F2, Func, Func2> {
+    fn clone(&self) -> Self {
+        todo!()
+        // Self {
+        //     failed_receipt_metric: self.failed_receipt_metric.clone(),
+        //     func: self.func.clone(),
+        //     func2: self.func2.clone(),
+        //     _ty: self._ty.clone(),
+        // }
+    }
+}
+
 pub fn tap_receipt_authorize<T>(
     tap_manager: Manager<T>,
     failed_receipt_metric: prometheus::CounterVec,
-) -> impl AsyncAuthorizeRequest<Body>
+) -> impl AsyncAuthorizeRequest<
+    axum::body::Body,
+    RequestBody = Body,
+    ResponseBody = Body,
+    Future = impl Send,
+> + Clone
+       + Send
 where
-    T: ReceiptStore,
+    T: ReceiptStore + Send + Sync,
 {
     TapReceiptAuthorize {
         // tap_manager,
         failed_receipt_metric,
-        func: Some(move |ctx: Context, receipt: SignedReceipt| async move {
-            tap_manager.verify_and_store_receipt(&ctx, receipt).await
-        }),
+        func: Some(move |ctx: Context, receipt: SignedReceipt| async { todo!() }),
         func2: Some(|body| to_bytes(body, usize::MAX)),
         _ty: PhantomData,
     }

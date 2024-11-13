@@ -29,7 +29,7 @@ mod tests {
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
-    use crate::middleware::tap::{self, QueryBody, TapReceiptAuthorize};
+    use crate::middleware::tap::{self, QueryBody};
     use crate::test_vectors::{NETWORK_SUBGRAPH_DEPLOYMENT, TAP_EIP712_DOMAIN};
     use crate::{
         middleware::{inject_labels::SenderAllocationDeploymentLabels, metrics::MetricLabels},
@@ -77,7 +77,7 @@ mod tests {
 
         // should allow queries that contains the free token
         // if the token does not match, return unauthorized
-        let mut req = Request::new(String::new());
+        let mut req = Request::new(Default::default());
         req.headers_mut().insert(
             header::AUTHORIZATION,
             format!("Bearer {token}").parse().unwrap(),
@@ -85,7 +85,7 @@ mod tests {
         let res = handle.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        let mut req = Request::new(String::new());
+        let mut req = Request::new(Default::default());
         req.headers_mut()
             .insert(header::AUTHORIZATION, "Bearer wrongtoken".parse().unwrap());
         let res = handle.call(req).await.unwrap();
@@ -119,7 +119,7 @@ mod tests {
 
         // if it has neither, should return unauthorized
         // check no headers
-        let req = Request::new(String::new());
+        let req = Request::new(Default::default());
         let res = handle.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 
@@ -170,7 +170,7 @@ mod tests {
         // default labels, all empty
         let labels: MetricLabels = Arc::new(SenderAllocationDeploymentLabels::default());
 
-        let mut req = Request::new(String::new());
+        let mut req = Request::new(Default::default());
         req.extensions_mut().insert(labels.clone());
         let _ = handle.call(req).await;
 
@@ -196,7 +196,7 @@ mod tests {
             .service_fn(handle_err);
         let handle = service.ready().await.unwrap();
 
-        let mut req = Request::new(String::new());
+        let mut req = Request::new(Default::default());
         req.extensions_mut().insert(labels);
         let _ = handle.call(req).await;
 

@@ -364,16 +364,16 @@ pub async fn run() -> anyhow::Result<()> {
 
     misc_routes = misc_routes.with_state(state.clone());
 
-    let tap_auth = tap::tap_receipt_authorize(tap_manager, *metrics::FAILED_RECEIPT);
+    let tap_auth = tap::tap_receipt_authorize(tap_manager, metrics::FAILED_RECEIPT.clone());
 
     let mut route = post(routes::request_handler);
 
     if let Some(free_auth_token) = &config.service.serve_auth_token {
-        let free_query = FreeQueryAuthorize::new(free_auth_token.clone());
-        let result = free_query.or(tap_auth);
+        // let free_query = FreeQueryAuthorize::new(free_auth_token.clone());
+        // let result = free_query.or(tap_auth);
         // AsyncAuthorizeRequest::authorize(&mut result, Request::new(Body::default())).await;
-        let auth_layer = AsyncRequireAuthorizationLayer::new(result);
-        route = route.layer(auth_layer);
+        // let auth_layer = AsyncRequireAuthorizationLayer::new(result);
+        // route = route.layer(auth_layer);
     } else {
         let auth_layer = AsyncRequireAuthorizationLayer::new(tap_auth);
         route = route.layer(auth_layer);
