@@ -1,0 +1,6 @@
+query DeploymentStatusQuery($ids: [String!]) {
+    indexingStatuses(subgraphs: $ids) {
+        synced
+        health
+    }
+}
