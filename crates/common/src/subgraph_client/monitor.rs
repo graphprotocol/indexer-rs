@@ -42,7 +42,7 @@ pub async fn check_deployment_status(
     status_url: Url,
 ) -> Result<DeploymentStatus, anyhow::Error> {
     let req_body = DeploymentStatusQuery::build_query(deployment_status_query::Variables {
-        ids: Some(vec![deployment.to_string()]),
+        ids: vec![deployment.to_string()],
     });
     let client = reqwest::Client::new();
     let response = client.post(status_url).json(&req_body).send().await?;
