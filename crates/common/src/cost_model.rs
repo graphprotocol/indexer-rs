@@ -250,7 +250,7 @@ pub(crate) mod test {
         ]
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn success_cost_models(pool: PgPool) {
         let test_models = test_data();
         let test_deployments = test_models
@@ -312,7 +312,7 @@ pub(crate) mod test {
         }
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn global_fallback_cost_models(pool: PgPool) {
         let test_models = test_data();
         let test_deployments = test_models
@@ -403,7 +403,7 @@ pub(crate) mod test {
         assert_eq!(missing_model.model, global_model.model);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn success_cost_model(pool: PgPool) {
         add_cost_models(&pool, to_db_models(test_data())).await;
 
@@ -425,7 +425,7 @@ pub(crate) mod test {
         assert_eq!(model.model, Some("default => 0.00025;".to_string()));
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn global_fallback_cost_model(pool: PgPool) {
         let test_models = test_data();
         let global_model = global_cost_model();

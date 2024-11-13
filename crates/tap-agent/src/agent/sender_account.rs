@@ -1197,7 +1197,7 @@ pub mod tests {
         (sender, handle, prefix, escrow_accounts_tx)
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_allocation_ids(pgpool: PgPool) {
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
@@ -1293,7 +1293,7 @@ pub mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_new_allocation_id(pgpool: PgPool) {
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
@@ -1560,7 +1560,7 @@ pub mod tests {
             .as_nanos() as u64
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
@@ -1604,7 +1604,7 @@ pub mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_receipt_fees_trigger_rav(pgpool: PgPool) {
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
@@ -1665,7 +1665,7 @@ pub mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_counter_greater_limit_trigger_rav(pgpool: PgPool) {
         let (sender_account, handle, prefix, _) = create_sender_account(
             pgpool,
@@ -1732,7 +1732,7 @@ pub mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_remove_sender_account(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (sender_account, handle, prefix, _) = create_sender_account(
@@ -1769,7 +1769,7 @@ pub mod tests {
     }
 
     /// Test that the deny status is correctly loaded from the DB at the start of the actor
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_init_deny(pgpool: PgPool) {
         sqlx::query!(
             r#"
@@ -1803,7 +1803,7 @@ pub mod tests {
         assert!(deny);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_retry_unaggregated_fees(pgpool: PgPool) {
         // we set to zero to block the sender, no matter the fee
         let max_unaggregated_fees_per_sender: u128 = 0;
@@ -1856,7 +1856,7 @@ pub mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_deny_allow(pgpool: PgPool) {
         async fn get_deny_status(sender_account: &ActorRef<SenderAccountMessage>) -> bool {
             call!(sender_account, SenderAccountMessage::GetDeny).unwrap()
@@ -1956,7 +1956,7 @@ pub mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_initialization_with_pending_ravs_over_the_limit(pgpool: PgPool) {
         // add last non-final ravs
         let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
@@ -1982,7 +1982,7 @@ pub mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_unaggregated_fees_over_balance(pgpool: PgPool) {
         // add last non-final ravs
         let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
@@ -2078,7 +2078,7 @@ pub mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_pending_rav_already_redeemed_and_redeem(pgpool: PgPool) {
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
@@ -2156,7 +2156,7 @@ pub mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_thawing_deposit_process(pgpool: PgPool) {
         // add last non-final ravs
         let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
@@ -2208,7 +2208,7 @@ pub mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_sender_denied_close_allocation_stop_retry(pgpool: PgPool) {
         // we set to 1 to block the sender on a really low value
         let max_unaggregated_fees_per_sender: u128 = 1;

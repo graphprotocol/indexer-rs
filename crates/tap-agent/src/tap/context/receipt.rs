@@ -213,7 +213,7 @@ mod test {
 
     /// Insert a single receipt and retrieve it from the database using the adapter.
     /// The point here it to test the deserialization of large numbers.
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn insert_and_retrieve_single_receipt(pgpool: PgPool) {
         let escrow_accounts = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
@@ -424,7 +424,7 @@ mod test {
         Ok(())
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn retrieve_receipts_with_limit(pgpool: PgPool) {
         let escrow_accounts = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
@@ -492,7 +492,7 @@ mod test {
         assert_eq!(recovered_received_receipt_vec.len(), 49);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn retrieve_receipts_in_timestamp_range(pgpool: PgPool) {
         let escrow_accounts = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
@@ -620,7 +620,7 @@ mod test {
         }
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn remove_receipts_in_timestamp_range(pgpool: PgPool) {
         let escrow_accounts = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
