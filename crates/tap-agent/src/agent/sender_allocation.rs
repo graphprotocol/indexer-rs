@@ -1035,7 +1035,7 @@ pub mod tests {
         allocation_ref
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_update_unaggregated_fees_on_start(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (mut last_message_emitted, sender_account, _join_handle) =
@@ -1079,7 +1079,7 @@ pub mod tests {
         assert_eq!(total_unaggregated_fees.value, 55u128);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_invalid_receipts_on_startup(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (mut message_receiver, sender_account, _join_handle) =
@@ -1131,7 +1131,7 @@ pub mod tests {
         assert_eq!(total_unaggregated_fees.value, 0u128);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_receive_new_receipt(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (mut message_receiver, sender_account, _join_handle) =
@@ -1198,7 +1198,7 @@ pub mod tests {
         assert_eq!(last_message_emitted, expected_message);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_trigger_rav_request(pgpool: PgPool) {
         // Start a TAP aggregator server.
         let (handle, aggregator_endpoint) = run_server(
@@ -1303,7 +1303,7 @@ pub mod tests {
         handle.stopped().await;
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_close_allocation_no_pending_fees(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (mut message_receiver, sender_account, _join_handle) =
@@ -1334,7 +1334,7 @@ pub mod tests {
         );
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_close_allocation_with_pending_fees(pgpool: PgPool) {
         struct Response {
             data: Arc<tokio::sync::Notify>,
@@ -1425,7 +1425,7 @@ pub mod tests {
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_unaggregated_fees_without_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args(
@@ -1452,7 +1452,7 @@ pub mod tests {
         assert_eq!(total_unaggregated_fees.value, 45u128);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_calculate_invalid_receipts_fee(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args(
@@ -1485,7 +1485,7 @@ pub mod tests {
     ///
     /// The sender_allocation should only consider receipts with a timestamp greater
     /// than the RAV's timestamp.
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_unaggregated_fees_with_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args(
@@ -1517,7 +1517,7 @@ pub mod tests {
         assert_eq!(total_unaggregated_fees.value, 35u128);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_store_failed_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args(
@@ -1539,7 +1539,7 @@ pub mod tests {
         assert!(result.is_ok());
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_store_invalid_receipts(pgpool: PgPool) {
         struct FailingCheck;
 
@@ -1591,7 +1591,7 @@ pub mod tests {
         assert!(result.is_ok());
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_mark_rav_last(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
@@ -1613,7 +1613,7 @@ pub mod tests {
         assert!(result.is_ok());
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_failed_rav_request(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
 
@@ -1679,7 +1679,7 @@ pub mod tests {
         //assert_eq!(total_unaggregated_fees.value, 45u128);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_rav_request_when_all_receipts_invalid(pgpool: PgPool) {
         // Start a TAP aggregator server.
         let (_handle, aggregator_endpoint) = run_server(

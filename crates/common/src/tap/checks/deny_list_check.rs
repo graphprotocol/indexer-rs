@@ -224,7 +224,7 @@ mod tests {
         .await
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_sender_denylist(pgpool: PgPool) {
         // Add the sender to the denylist
         sqlx::query!(
@@ -253,7 +253,7 @@ mod tests {
             .is_err());
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_sender_denylist_updates(pgpool: PgPool) {
         let allocation_id = Address::from_str(ALLOCATION_ID).unwrap();
         let signed_receipt =

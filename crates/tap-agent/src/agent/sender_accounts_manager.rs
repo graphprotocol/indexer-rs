@@ -670,7 +670,7 @@ mod tests {
         )
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_create_sender_accounts_manager(pgpool: PgPool) {
         let (_, (actor, join_handle)) = create_sender_accounts_manager(pgpool).await;
         actor.stop_and_wait(None, None).await.unwrap();
@@ -708,7 +708,7 @@ mod tests {
         )
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_pending_sender_allocations(pgpool: PgPool) {
         let (_, state) = create_state(pgpool.clone()).await;
 
@@ -732,7 +732,7 @@ mod tests {
         assert_eq!(pending_allocation_id.get(&SENDER.1).unwrap().len(), 2);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_sender_allocation(pgpool: PgPool) {
         let (prefix, (actor, join_handle)) = create_sender_accounts_manager(pgpool).await;
 
@@ -766,7 +766,7 @@ mod tests {
         join_handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_create_sender_account(pgpool: PgPool) {
         struct DummyActor;
         #[async_trait::async_trait]
@@ -803,7 +803,7 @@ mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_deny_sender_account_on_failure(pgpool: PgPool) {
         struct DummyActor;
         #[async_trait::async_trait]
@@ -857,7 +857,7 @@ mod tests {
         handle.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn test_receive_notifications_(pgpool: PgPool) {
         let prefix = format!(
             "test-{}",

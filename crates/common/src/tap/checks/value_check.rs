@@ -361,13 +361,13 @@ mod tests {
 
     use super::MinimumValue;
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn initialize_check(pgpool: PgPool) {
         let check = MinimumValue::new(pgpool, Duration::from_secs(0)).await;
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_initialize_check_with_models(pgpool: PgPool) {
         // insert 2 cost models for different deployment_id
         let test_models = crate::cost_model::test::test_data();
@@ -381,7 +381,7 @@ mod tests {
         assert!(check.global_model.read().unwrap().is_none());
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_watch_model_insert(pgpool: PgPool) {
         let check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
@@ -397,7 +397,7 @@ mod tests {
         );
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_watch_model_remove(pgpool: PgPool) {
         // insert 2 cost models for different deployment_id
         let test_models = crate::cost_model::test::test_data();
@@ -417,7 +417,7 @@ mod tests {
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_start_global_model(pgpool: PgPool) {
         let global_model = global_cost_model();
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
@@ -426,7 +426,7 @@ mod tests {
         assert!(check.global_model.read().unwrap().is_some());
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_watch_global_model(pgpool: PgPool) {
         let check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
 
@@ -437,7 +437,7 @@ mod tests {
         assert!(check.global_model.read().unwrap().is_some());
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_remove_global_model(pgpool: PgPool) {
         let global_model = global_cost_model();
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
@@ -457,7 +457,7 @@ mod tests {
 
     const ALLOCATION_ID: Address = address!("deadbeefcafebabedeadbeefcafebabedeadbeef");
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_check_minimal_value(pgpool: PgPool) {
         // insert cost models for different deployment_id
         let test_models = crate::cost_model::test::test_data();
@@ -531,7 +531,7 @@ mod tests {
             .expect("should accept more than minimal");
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn should_check_using_global(pgpool: PgPool) {
         // insert cost models for different deployment_id
         let test_models = crate::cost_model::test::test_data();

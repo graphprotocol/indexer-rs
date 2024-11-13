@@ -147,7 +147,7 @@ mod test {
         }
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn update_and_retrieve_rav(pool: PgPool) {
         let timestamp_ns = u64::MAX - 10;
         let value_aggregate = u128::MAX;
