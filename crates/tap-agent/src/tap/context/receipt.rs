@@ -193,12 +193,9 @@ impl ReceiptDelete for TapAgentContext {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::tap::{
-        escrow_adapter::EscrowAdapter,
-        test_utils::{
-            create_received_receipt, store_receipt, wallet, ALLOCATION_ID_0, SENDER, SIGNER,
-            TAP_EIP712_DOMAIN_SEPARATOR,
-        },
+    use crate::tap::test_utils::{
+        create_received_receipt, store_receipt, wallet, ALLOCATION_ID_0, SENDER, SIGNER,
+        TAP_EIP712_DOMAIN_SEPARATOR,
     };
     use alloy::{primitives::U256, signers::local::PrivateKeySigner};
     use anyhow::Result;
@@ -224,13 +221,8 @@ mod test {
         ))
         .1;
 
-        let storage_adapter = TapAgentContext::new(
-            pgpool,
-            *ALLOCATION_ID_0,
-            SENDER.1,
-            escrow_accounts.clone(),
-            EscrowAdapter::mock(),
-        );
+        let storage_adapter =
+            TapAgentContext::new(pgpool, *ALLOCATION_ID_0, SENDER.1, escrow_accounts.clone());
 
         let received_receipt =
             create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX);
@@ -445,7 +437,6 @@ mod test {
             *ALLOCATION_ID_0,
             SENDER.1,
             escrow_accounts.clone(),
-            EscrowAdapter::mock(),
         );
 
         // Creating 100 receipts with timestamps 42 to 141
@@ -514,7 +505,6 @@ mod test {
             *ALLOCATION_ID_0,
             SENDER.1,
             escrow_accounts.clone(),
-            EscrowAdapter::mock(),
         );
 
         // Creating 10 receipts with timestamps 42 to 51
@@ -638,13 +628,8 @@ mod test {
         ))
         .1;
 
-        let storage_adapter = TapAgentContext::new(
-            pgpool,
-            *ALLOCATION_ID_0,
-            SENDER.1,
-            escrow_accounts.clone(),
-            EscrowAdapter::mock(),
-        );
+        let storage_adapter =
+            TapAgentContext::new(pgpool, *ALLOCATION_ID_0, SENDER.1, escrow_accounts.clone());
 
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();

@@ -6,8 +6,6 @@ use indexer_common::escrow_accounts::EscrowAccounts;
 use sqlx::PgPool;
 use tokio::sync::watch::Receiver;
 
-use super::escrow_adapter::EscrowAdapter;
-
 pub mod checks;
 mod error;
 mod escrow;
@@ -22,7 +20,6 @@ pub struct TapAgentContext {
     allocation_id: Address,
     sender: Address,
     escrow_accounts: Receiver<EscrowAccounts>,
-    escrow_adapter: EscrowAdapter,
 }
 
 impl TapAgentContext {
@@ -31,14 +28,12 @@ impl TapAgentContext {
         allocation_id: Address,
         sender: Address,
         escrow_accounts: Receiver<EscrowAccounts>,
-        escrow_adapter: EscrowAdapter,
     ) -> Self {
         Self {
             pgpool,
             allocation_id,
             sender,
             escrow_accounts,
-            escrow_adapter,
         }
     }
 }

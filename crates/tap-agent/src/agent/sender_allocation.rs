@@ -35,9 +35,9 @@ use crate::agent::sender_account::SenderAccountMessage;
 use crate::agent::sender_accounts_manager::NewReceiptNotification;
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::{
+    tap::context::checks::AllocationId,
     tap::context::{checks::Signature, TapAgentContext},
     tap::signers_trimmed,
-    tap::{context::checks::AllocationId, escrow_adapter::EscrowAdapter},
 };
 use thiserror::Error;
 
@@ -137,7 +137,6 @@ pub struct SenderAllocationArgs {
     pub sender: Address,
     pub escrow_accounts: Receiver<EscrowAccounts>,
     pub escrow_subgraph: &'static SubgraphClient,
-    pub escrow_adapter: EscrowAdapter,
     pub domain_separator: Eip712Domain,
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
     pub sender_aggregator: jsonrpsee::http_client::HttpClient,
@@ -340,7 +339,6 @@ impl SenderAllocationState {
             sender,
             escrow_accounts,
             escrow_subgraph,
-            escrow_adapter,
             domain_separator,
             sender_account_ref,
             sender_aggregator,
@@ -368,7 +366,6 @@ impl SenderAllocationState {
             allocation_id,
             sender,
             escrow_accounts.clone(),
-            escrow_adapter,
         );
         let latest_rav = context.last_rav().await.unwrap_or_default();
         let tap_manager = TapManager::new(
@@ -869,13 +866,9 @@ pub mod tests {
             sender_accounts_manager::NewReceiptNotification,
             unaggregated_receipts::UnaggregatedReceipts,
         },
-        tap::{
-            escrow_adapter::EscrowAdapter,
-            test_utils::{
-                create_rav, create_received_receipt, store_invalid_receipt, store_rav,
-                store_receipt, ALLOCATION_ID_0, INDEXER, SENDER, SIGNER,
-                TAP_EIP712_DOMAIN_SEPARATOR,
-            },
+        tap::test_utils::{
+            create_rav, create_received_receipt, store_invalid_receipt, store_rav, store_receipt,
+            ALLOCATION_ID_0, INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
     use futures::future::join_all;
@@ -995,8 +988,6 @@ pub mod tests {
         ))
         .1;
 
-        let escrow_adapter = EscrowAdapter::new(escrow_accounts_rx.clone(), SENDER.1);
-
         let sender_account_ref = match sender_account {
             Some(sender) => sender,
             None => create_mock_sender_account().await.1,
@@ -1011,7 +1002,6 @@ pub mod tests {
             sender: SENDER.1,
             escrow_accounts: escrow_accounts_rx,
             escrow_subgraph,
-            escrow_adapter,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
             sender_account_ref,
             sender_aggregator,
@@ -1712,18 +1702,20 @@ pub mod tests {
             .register(
                 Mock::given(method("POST"))
                     .and(body_string_contains("transactions"))
-                    .respond_with(
-                        ResponseTemplate::new(200)
-                            .set_body_json(json!({ "data": { "transactions": []}})),
-                    ),
+                    .respond_with(ResponseTemplate::new(200).set_body_json(
+                        json!({ "data": { "transactions": [
+                            {
+                                "id": "redeemed"
+                            }
+                        ]}}),
+                    )),
             )
             .await;
-        // Add invalid receipts to the database. ( receipts are older than rav )
+        // Add invalid receipts to the database. ( already redeemed )
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
-            .as_nanos() as u64
-            - 10000;
+            .as_nanos() as u64;
         const RECEIPT_VALUE: u128 = 1622018441284756158;
         const TOTAL_RECEIPTS: u64 = 10;
         const TOTAL_SUM: u128 = RECEIPT_VALUE * TOTAL_RECEIPTS as u128;

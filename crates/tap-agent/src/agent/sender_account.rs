@@ -33,7 +33,6 @@ use crate::adaptative_concurrency::AdaptiveLimiter;
 use crate::agent::sender_allocation::{AllocationConfig, SenderAllocationMessage};
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::backoff::BackoffInfo;
-use crate::tap::escrow_adapter::EscrowAdapter;
 use crate::tracker::{SenderFeeTracker, SimpleFeeTracker};
 use lazy_static::lazy_static;
 
@@ -166,7 +165,6 @@ pub struct State {
     escrow_subgraph: &'static SubgraphClient,
     network_subgraph: &'static SubgraphClient,
 
-    escrow_adapter: EscrowAdapter,
     domain_separator: Eip712Domain,
     pgpool: PgPool,
     sender_aggregator: jsonrpsee::http_client::HttpClient,
@@ -221,7 +219,6 @@ impl State {
             sender: self.sender,
             escrow_accounts: self.escrow_accounts.clone(),
             escrow_subgraph: self.escrow_subgraph,
-            escrow_adapter: self.escrow_adapter.clone(),
             domain_separator: self.domain_separator.clone(),
             sender_account_ref: sender_account_ref.clone(),
             sender_aggregator: self.sender_aggregator.clone(),
@@ -584,8 +581,6 @@ impl Actor for SenderAccount {
             }
         });
 
-        let escrow_adapter = EscrowAdapter::new(escrow_accounts.clone(), sender_id);
-
         // Get deny status from the scalar_tap_denylist table
         let denied = sqlx::query!(
             r#"
@@ -640,7 +635,6 @@ impl Actor for SenderAccount {
             escrow_accounts,
             escrow_subgraph,
             network_subgraph,
-            escrow_adapter,
             domain_separator,
             pgpool,
             sender_aggregator,
