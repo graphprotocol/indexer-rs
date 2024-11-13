@@ -24,11 +24,11 @@ impl From<Allocation> for String {
     }
 }
 
-struct MyState {
+pub struct MyState {
     attestation: watch::Receiver<HashMap<DeploymentId, Address>>,
 }
 
-async fn allocation_middleware(
+pub async fn allocation_middleware(
     State(my_state): State<MyState>,
     mut request: Request,
     next: Next,

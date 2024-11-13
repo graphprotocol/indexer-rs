@@ -71,3 +71,4 @@ tower-http = { version = "0.6.1", features = [
   "normalize-path",
   "trace",
 ] }
+tower = "0.5.1"

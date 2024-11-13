@@ -19,7 +19,7 @@ impl From<Allocation> for String {
     }
 }
 
-async fn deployment_middleware(
+pub async fn deployment_middleware(
     mut request: Request,
     next: Next,
 ) -> Result<Response, anyhow::Error> {

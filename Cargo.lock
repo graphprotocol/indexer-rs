@@ -3561,6 +3561,7 @@ dependencies = [
  "build-info-build",
  "clap",
  "graphql 0.3.0",
+ "graphql_client",
  "hex-literal",
  "indexer-common",
  "indexer-config",

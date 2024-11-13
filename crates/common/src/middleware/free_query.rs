@@ -38,20 +38,6 @@ impl<ReqBody, ResBody> FreeQueryAuthorize<ReqBody, ResBody> {
     }
 }
 
-// impl<B, F, Fut, ReqBody, ResBody> AsyncAuthorizeRequest<B> for F
-// where
-//     F: FnMut(Request<B>) -> Fut,
-//     Fut: Future<Output = Result<Request<ReqBody>, Response<ResBody>>>,
-// {
-//     type RequestBody = ReqBody;
-//     type ResponseBody = ResBody;
-//     type Future = Fut;
-//
-//     fn authorize(&mut self, request: Request<B>) -> Self::Future {
-//         self(request)
-//     }
-// }
-
 impl<ReqBody, ResBody> AsyncAuthorizeRequest<ReqBody> for FreeQueryAuthorize<ReqBody, ResBody>
 where
     ResBody: Default,

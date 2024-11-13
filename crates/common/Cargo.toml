@@ -22,6 +22,7 @@ thegraph-graphql-http.workspace = true
 build-info.workspace = true
 graphql_client.workspace = true
 tower-http.workspace = true
+tower.workspace = true
 
 axum-extra = { version = "0.9.3", features = [
   "typed-header",
@@ -33,7 +34,6 @@ cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
 regex = "1.7.1"
 tokio-util = "0.7.10"
 bip39 = "2.0.0"
-tower = "0.5.1"
 pin-project = "1.1.7"
 headers = "0.4.0"
 

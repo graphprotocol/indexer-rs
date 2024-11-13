@@ -25,7 +25,7 @@ impl From<Sender> for String {
     }
 }
 
-async fn sender_middleware(
+pub async fn sender_middleware(
     State(state): State<MyState>,
     mut request: Request,
     next: Next,

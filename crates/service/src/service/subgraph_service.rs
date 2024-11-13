@@ -3,16 +3,14 @@ use std::sync::Arc;
 use reqwest::Url;
 use serde::Serialize;
 use sqlx::Postgres;
-use thegraph_core::{DeploymentId};
+use thegraph_core::DeploymentId;
 
-use crate::{error::SubgraphServiceError, routes};
+use crate::error::SubgraphServiceError;
 
 use super::SubgraphServiceResponse;
 
 pub struct SubgraphServiceState {
     pub database: sqlx::Pool<Postgres>,
-
-    pub cost_schema: routes::cost::CostSchema,
 
     pub graph_node_client: reqwest::Client,
     pub graph_node_query_base_url: &'static Url,

@@ -8,13 +8,15 @@ use axum::{
     response::IntoResponse,
     Extension,
 };
-use indexer_common::attestations::{AttestableResponse, AttestationOutput};
+use indexer_common::{
+    attestations::{AttestableResponse, AttestationOutput},
+    middleware::tap::QueryBody,
+};
 use reqwest::StatusCode;
 use thegraph_core::DeploymentId;
 use tracing::trace;
 
 use alloy::primitives::Address;
-use serde_json::value::RawValue;
 
 use crate::service::{IndexerServiceError, IndexerServiceState};
 
@@ -53,10 +55,4 @@ pub async fn request_handler(
     let response = response.finalize(attestation);
 
     Ok((StatusCode::OK, response))
-}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct QueryBody {
-    pub query: String,
-    pub variables: Option<Box<RawValue>>,
 }

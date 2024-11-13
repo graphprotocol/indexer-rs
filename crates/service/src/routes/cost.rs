@@ -5,17 +5,18 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
-use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
-use axum::extract::State;
 use indexer_common::cost_model::{self, CostModel};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thegraph_core::DeploymentId;
 
-use crate::{metrics::{
-    COST_MODEL_BATCH_FAILED, COST_MODEL_BATCH_INVALID, COST_MODEL_BATCH_METRIC,
-    COST_MODEL_BATCH_SIZE, COST_MODEL_FAILED, COST_MODEL_INVALID, COST_MODEL_METRIC,
-}, service::SubgraphServiceState};
+use crate::{
+    metrics::{
+        COST_MODEL_BATCH_FAILED, COST_MODEL_BATCH_INVALID, COST_MODEL_BATCH_METRIC,
+        COST_MODEL_BATCH_SIZE, COST_MODEL_FAILED, COST_MODEL_INVALID, COST_MODEL_METRIC,
+    },
+    service::SubgraphServiceState,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize, SimpleObject)]
 pub struct GraphQlCostModel {
@@ -104,17 +105,6 @@ impl Query {
 
 pub type CostSchema = Schema<Query, EmptyMutation, EmptySubscription>;
 
-pub async fn build_schema() -> CostSchema {
+pub fn build_schema() -> CostSchema {
     Schema::build(Query, EmptyMutation, EmptySubscription).finish()
-}
-
-pub async fn cost(
-    State(state): State<Arc<SubgraphServiceState>>,
-    req: GraphQLRequest,
-) -> GraphQLResponse {
-    state
-        .cost_schema
-        .execute(req.into_inner().data(state.clone()))
-        .await
-        .into()
 }

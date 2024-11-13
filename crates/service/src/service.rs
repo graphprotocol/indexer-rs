@@ -1,14 +1,17 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{cli::Cli, database, metrics, routes};
-use alloy::{dyn_abi::Eip712Domain, primitives::Address};
+use crate::{
+    cli::Cli,
+    database, metrics,
+    routes::{self, health},
+};
+use alloy::primitives::Address;
 use anyhow::anyhow;
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_axum::GraphQL;
 use axum::{
-    routing::{post, post_service},
-    Json, Router,
+    body::{Body, HttpBody}, http::Request, routing::{post, post_service}, Extension, Json, Router
 };
 use indexer_config::{Config, DipsConfig};
 use thegraph_core::attestation::eip712_domain;
@@ -28,8 +31,9 @@ use indexer_common::{
     address::public_key,
     allocations::monitor::indexer_allocations,
     attestations::{dispute_manager, signer::AttestationSigner, signers::attestation_signers},
-    escrow_accounts::EscrowAccounts,
-    middleware::free_query::FreeQueryAuthorize,
+    middleware::{
+        free_query::{FreeQueryAuthorize, OrExt}, tap, TapReceiptAuthorize
+    },
     monitors::escrow_accounts,
     subgraph_client::{DeploymentDetails, SubgraphClient},
     tap::IndexerTapContext,
@@ -41,7 +45,7 @@ use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
 use tokio::{net::TcpListener, signal, sync::watch::Receiver};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{
-    auth::AsyncRequireAuthorizationLayer,
+    auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer},
     cors::{self, CorsLayer},
     normalize_path::NormalizePath,
     trace::TraceLayer,
@@ -61,13 +65,6 @@ pub use subgraph_service::SubgraphServiceState;
 pub struct IndexerServiceState {
     pub subgraph_service: SubgraphService,
     pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
-    pub tap_manager: Manager<IndexerTapContext>,
-
-    // tap
-    pub escrow_accounts: Receiver<EscrowAccounts>,
-    pub domain_separator: Eip712Domain,
-
-    pub free_query_auth_token: Option<&'static String>,
 }
 
 /// Run the subgraph indexer service
@@ -108,7 +105,6 @@ pub async fn run() -> anyhow::Result<()> {
     // "state", which will be passed to any request handler, middleware etc.
     // that is involved in serving requests
     let state = Arc::new(SubgraphServiceState {
-        cost_schema: routes::cost::build_schema().await,
         database: database.clone(),
         graph_node_client: reqwest::ClientBuilder::new()
             .tcp_nodelay(true)
@@ -122,8 +118,11 @@ pub async fn run() -> anyhow::Result<()> {
     let agreement_store: Arc<dyn AgreementStore> = Arc::new(InMemoryAgreementStore::default());
     let prices: Vec<Price> = vec![];
 
-    let mut router = Router::new()
-        .route("/cost", post(routes::cost::cost))
+    let mut extra_router = Router::new()
+        .route(
+            "/cost",
+            post_service(GraphQL::new(routes::cost::build_schema())),
+        )
         .route("/status", post(routes::status))
         .with_state(state.clone());
 
@@ -151,13 +150,8 @@ pub async fn run() -> anyhow::Result<()> {
         .data(prices)
         .finish();
 
-        router = router.route("/dips", post_service(GraphQL::new(schema)));
+        extra_router = extra_router.route("/dips", post_service(GraphQL::new(schema)));
     }
-
-    let options = IndexerServiceOptions {
-        url_namespace: "subgraphs",
-        extra_routes: router,
-    };
 
     let http_client = reqwest::Client::builder()
         .tcp_nodelay(true)
@@ -281,11 +275,11 @@ pub async fn run() -> anyhow::Result<()> {
 
     let state = Arc::new(IndexerServiceState {
         attestation_signers,
-        tap_manager,
-        escrow_accounts,
-        domain_separator,
+        // tap_manager,
+        // escrow_accounts,
+        // domain_separator,
         subgraph_service: SubgraphService::new(state),
-        free_query_auth_token: config.service.free_query_auth_token.as_ref(),
+        // free_query_auth_token: config.service.free_query_auth_token.as_ref(),
     });
 
     // Rate limits by allowing bursts of 10 requests and requiring 100ms of
@@ -308,6 +302,8 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/", get("Service is up and running"))
         .route("/version", get(Json(release)))
         .route("/info", get(operator_address))
+        .route("/subgraph/health/:deployment_id", get(health))
+        .route_layer(Extension(config.graph_node.clone()))
         .layer(misc_rate_limiter);
 
     // Rate limits by allowing bursts of 50 requests and requiring 20ms of
@@ -368,26 +364,34 @@ pub async fn run() -> anyhow::Result<()> {
 
     misc_routes = misc_routes.with_state(state.clone());
 
-    // let free_query = FreeQueryAuthorize::new(token.clone());
-    // let tap_auth = TapReceiptAuthorize::new(Arc::new(tap_manager), metric);
-    // let authorize_requests = free_query.or(tap_auth);
+    let tap_auth = tap::tap_receipt_authorize(tap_manager, *metrics::FAILED_RECEIPT);
 
-    // let auth_layer = AsyncRequireAuthorizationLayer::new(authorize_requests);
+    let mut route = post(routes::request_handler);
 
+    if let Some(free_auth_token) = &config.service.serve_auth_token {
+        let free_query = FreeQueryAuthorize::new(free_auth_token.clone());
+        let result = free_query.or(tap_auth);
+        // AsyncAuthorizeRequest::authorize(&mut result, Request::new(Body::default())).await;
+        let auth_layer = AsyncRequireAuthorizationLayer::new(result);
+        route = route.layer(auth_layer);
+    } else {
+        let auth_layer = AsyncRequireAuthorizationLayer::new(tap_auth);
+        route = route.layer(auth_layer);
+    }
     let data_routes = Router::new()
         .route(
             PathBuf::from(&config.service.url_prefix)
-                .join(format!("{}/id/:id", options.url_namespace))
+                .join("subgraphs/id/:id")
                 .to_str()
-                .expect("Failed to set up `/{url_namespace}/id/:id` route"),
-            post(routes::request_handler), // .layer(auth_layer),
+                .expect("Failed to set up `/subgraphs/id/:id` route"),
+            route,
         )
         .with_state(state.clone());
 
     let router = NormalizePath::trim_trailing_slash(
         misc_routes
             .merge(data_routes)
-            .merge(options.extra_routes)
+            .merge(extra_router)
             .layer(
                 CorsLayer::new()
                     .allow_origin(cors::Any)
@@ -437,11 +441,6 @@ pub async fn run() -> anyhow::Result<()> {
     )
     .with_graceful_shutdown(shutdown_signal())
     .await?)
-}
-
-pub struct IndexerServiceOptions {
-    pub url_namespace: &'static str,
-    pub extra_routes: Router<Arc<IndexerServiceState>>,
 }
 
 pub async fn shutdown_signal() {

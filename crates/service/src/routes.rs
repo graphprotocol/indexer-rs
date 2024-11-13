@@ -3,6 +3,7 @@
 
 pub mod cost;
 pub mod dips;
+mod health;
 mod request_handler;
 mod static_subgraph;
 mod status;
@@ -10,3 +11,4 @@ mod status;
 pub use request_handler::request_handler;
 pub use static_subgraph::static_subgraph_request_handler;
 pub use status::status;
+pub use health::health;
