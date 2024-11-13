@@ -3580,7 +3580,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-tap-agent"
-version = "1.7.2"
+version = "1.7.3"
 dependencies = [
  "alloy",
  "anyhow",

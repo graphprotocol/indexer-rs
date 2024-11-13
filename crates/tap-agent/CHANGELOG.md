@@ -4,6 +4,13 @@
 
 
 
+## [1.7.3](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.7.2...indexer-tap-agent-v1.7.3) (2024-11-13)
+
+
+### Bug Fixes
+
+* remove escrow adapter check ([#483](https://github.com/graphprotocol/indexer-rs/issues/483)) ([1faa61e](https://github.com/graphprotocol/indexer-rs/commit/1faa61e3432cf94771f29ab0872572eeb8aabd06))
+
 ## [1.7.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.6.0...indexer-tap-agent-v1.7.0) (2024-11-05)
 
 
