@@ -1,14 +1,15 @@
 //! verifies and stores tap receipt, or else reject
 
-use std::{future::Future, marker::PhantomData, task::Poll};
+use std::{future::Future, marker::PhantomData, sync::Arc, task::Poll};
 
-use super::metrics::MetricLabels;
+use super::{free_query::AsyncAuthorizeRequestRef, metrics::MetricLabels};
 use crate::tap::AgoraQuery;
 use axum::{
     body::{to_bytes, Body},
     http::{Request, Response},
 };
 use pin_project::pin_project;
+use reqwest::StatusCode;
 use serde_json::value::RawValue;
 use tap_core::{
     manager::{adapters::ReceiptStore, Manager},
@@ -39,6 +40,50 @@ impl<F1, F2, Func, Func2> Clone for TapReceiptAuthorize<F1, F2, Func, Func2> {
         //     func2: self.func2.clone(),
         //     _ty: self._ty.clone(),
         // }
+    }
+}
+
+
+
+
+pub fn tap_receipt_authorize_2<T>(
+    tap_manager: &'static Manager<T>,
+    failed_receipt_metric: &'static prometheus::CounterVec,
+) -> impl AsyncAuthorizeRequestRef<Body, ResponseBody = Body> + Clone
+where
+    T: ReceiptStore,
+{
+    |request: &Request<Body>| {
+        let receipt = request.extensions().get::<SignedReceipt>().cloned();
+        // load labels from previous middlewares
+        let labels = request.extensions().get::<MetricLabels>().cloned();
+        // load context from previous middlewares
+        let ctx = request.extensions().get::<Arc<Context>>().cloned();
+
+        async {
+            let execute = || async {
+                // Verify the receipt and store it in the database
+                tap_manager
+                    .verify_and_store_receipt(
+                        &ctx.unwrap_or_default(),
+                        receipt.ok_or(anyhow::anyhow!("Could not find receipt"))?,
+                    )
+                    .await
+                    .inspect_err(|_| {
+                        if let Some(labels) = labels {
+                            failed_receipt_metric
+                                .with_label_values(&labels.get_labels())
+                                .inc()
+                        }
+                    })?;
+                Ok::<_, anyhow::Error>(())
+            };
+            execute().await.map_err(|_| {
+                let mut res = Response::new(Body::default());
+                *res.status_mut() = StatusCode::UNAUTHORIZED;
+                res
+            })
+        }
     }
 }
 

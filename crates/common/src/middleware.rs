@@ -4,6 +4,7 @@ pub mod attestation;
 pub mod deployment_id;
 pub mod free_query;
 pub mod inject_labels;
+pub mod inject_tap_context;
 pub mod metrics;
 pub mod receipt;
 pub mod sender;
@@ -56,15 +57,21 @@ mod tests {
     async fn test_middleware_composition(pgpool: PgPool) {
         let token = "test".to_string();
         let context = IndexerTapContext::new(pgpool.clone(), TAP_EIP712_DOMAIN.clone()).await;
-        let tap_manager = Manager::new(TAP_EIP712_DOMAIN.clone(), context, CheckList::empty());
-        let metric = prometheus::register_counter_vec!(
-            "test1",
-            "Failed queries to handler",
-            &["deployment"]
-        )
-        .unwrap();
+        let tap_manager = Box::leak(Box::new(Manager::new(
+            TAP_EIP712_DOMAIN.clone(),
+            context,
+            CheckList::empty(),
+        )));
+        let metric = Box::leak(Box::new(
+            prometheus::register_counter_vec!(
+                "test1",
+                "Failed queries to handler",
+                &["deployment"]
+            )
+            .unwrap(),
+        ));
         let free_query = FreeQueryAuthorize::new(token.clone());
-        let tap_auth = tap::tap_receipt_authorize(tap_manager, metric);
+        let tap_auth = tap::tap_receipt_authorize_2(tap_manager, metric);
         let authorize_requests = free_query.or(tap_auth);
 
         let authorization_middleware = AsyncRequireAuthorizationLayer::new(authorize_requests);
@@ -99,7 +106,8 @@ mod tests {
                 query: "test".to_string(),
                 variables: None,
             })
-            .unwrap(),
+            .unwrap()
+            .into(),
         );
         req.extensions_mut().insert(receipt);
         req.extensions_mut().insert(*NETWORK_SUBGRAPH_DEPLOYMENT);
