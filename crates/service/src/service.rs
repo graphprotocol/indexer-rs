@@ -13,7 +13,7 @@ use async_graphql_axum::GraphQL;
 use axum::{
     middleware::{from_fn, from_fn_with_state},
     routing::{post, post_service},
-    Extension, Json, Router,
+    Json, Router,
 };
 use indexer_config::{Config, DipsConfig};
 use thegraph_core::attestation::eip712_domain;
@@ -108,16 +108,15 @@ pub async fn run() -> anyhow::Result<()> {
     // Some of the subgraph service configuration goes into the so-called
     // "state", which will be passed to any request handler, middleware etc.
     // that is involved in serving requests
-    let state = Arc::new(SubgraphServiceState {
+    let state = SubgraphServiceState {
         database: database.clone(),
         graph_node_client: reqwest::ClientBuilder::new()
             .tcp_nodelay(true)
             .timeout(Duration::from_secs(30))
             .build()
             .expect("Failed to init HTTP client for Graph Node"),
-        graph_node_status_url: &config.graph_node.status_url,
-        graph_node_query_base_url: &config.graph_node.query_url,
-    });
+        graph_node_config: &config.graph_node,
+    };
 
     let agreement_store: Arc<dyn AgreementStore> = Arc::new(InMemoryAgreementStore::default());
     let prices: Vec<Price> = vec![];
@@ -125,10 +124,9 @@ pub async fn run() -> anyhow::Result<()> {
     let mut extra_router = Router::new()
         .route(
             "/cost",
-            post_service(GraphQL::new(routes::cost::build_schema())),
+            post_service(GraphQL::new(routes::cost::build_schema(state.clone()))),
         )
-        .route("/status", post(routes::status))
-        .with_state(state.clone());
+        .route("/status", post(routes::status));
 
     if let Some(DipsConfig {
         allowed_payers,
@@ -301,7 +299,6 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/version", get(Json(release)))
         .route("/info", get(operator_address))
         .route("/subgraph/health/:deployment_id", get(health))
-        .route_layer(Extension(config.graph_node.clone()))
         .layer(misc_rate_limiter);
 
     // Rate limits by allowing bursts of 50 requests and requiring 20ms of
@@ -357,6 +354,26 @@ pub async fn run() -> anyhow::Result<()> {
 
     misc_routes = misc_routes.with_state(state.clone());
 
+    let mut request_handler_route = post(routes::request_handler);
+
+    // inject auth
+    let failed_receipt_metric = Box::leak(Box::new(metrics::FAILED_RECEIPT.clone()));
+    let tap_auth = auth::tap_receipt_authorize(tap_manager, failed_receipt_metric);
+
+    if let Some(free_auth_token) = &config.service.serve_auth_token {
+        let free_query = Bearer::new(free_auth_token);
+        let result = free_query.or(tap_auth);
+        let auth_layer = AsyncRequireAuthorizationLayer::new(result);
+        request_handler_route = request_handler_route
+            .layer(auth_layer)
+            .layer(from_fn(context_middleware));
+    } else {
+        let auth_layer = AsyncRequireAuthorizationLayer::new(tap_auth);
+        request_handler_route = request_handler_route
+            .layer(auth_layer)
+            .layer(from_fn(context_middleware));
+    }
+    // add all other middleware
     let sender_state = SenderState {
         escrow_accounts,
         domain_separator,
@@ -383,53 +400,27 @@ pub async fn run() -> anyhow::Result<()> {
             HANDLER_FAILURE.clone(),
         ))
         // tap context
-        .layer(from_fn(context_middleware));
-
-    // add tap
-    let failed_receipt_metric = Box::leak(Box::new(metrics::FAILED_RECEIPT.clone()));
-    let tap_auth = auth::tap_receipt_authorize(tap_manager, failed_receipt_metric);
-    // let service_builder = if let Some(free_auth_token) = &config.service.serve_auth_token {
-    //     let free_query = Bearer::new(free_auth_token);
-    //     let result = free_query.or(tap_auth);
-    //     let auth_layer = AsyncRequireAuthorizationLayer::new(result);
-    //     service_builder.layer(auth_layer);
-    // } else {
-    //     let auth_layer = AsyncRequireAuthorizationLayer::new(tap_auth);
-    //     service_builder = service_builder.layer(auth_layer);
-    // };
-
-    let service_builder = service_builder
+        .layer(from_fn(context_middleware))
         // inject signer
         .layer(from_fn_with_state(attestation_state, signer_middleware))
         // create attestation
         .layer(from_fn(attestation_middleware));
 
-    let mut route = post(routes::request_handler)
-        .with_state(state.clone())
-        .layer(service_builder);
+    request_handler_route = request_handler_route.layer(service_builder);
 
-    if let Some(free_auth_token) = &config.service.serve_auth_token {
-        let free_query = Bearer::new(free_auth_token);
-        let result = free_query.or(tap_auth);
-        let auth_layer = AsyncRequireAuthorizationLayer::new(result);
-        route = route.layer(auth_layer).layer(from_fn(context_middleware));
-    } else {
-        let auth_layer = AsyncRequireAuthorizationLayer::new(tap_auth);
-        route = route.layer(auth_layer).layer(from_fn(context_middleware));
-    }
-    let data_routes = Router::new()
+    let data_router = Router::new()
         .route(
             PathBuf::from(&config.service.url_prefix)
                 .join("subgraphs/id/:id")
                 .to_str()
                 .expect("Failed to set up `/subgraphs/id/:id` route"),
-            route,
+            request_handler_route,
         )
         .with_state(state.clone());
 
     let router = NormalizePath::trim_trailing_slash(
         misc_routes
-            .merge(data_routes)
+            .merge(data_router)
             .merge(extra_router)
             .layer(
                 CorsLayer::new()

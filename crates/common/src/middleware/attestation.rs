@@ -7,6 +7,7 @@
 //! else:
 //!     - return with no attestation
 //!
+//! Required AttestationSigner
 
 use std::string::FromUtf8Error;
 

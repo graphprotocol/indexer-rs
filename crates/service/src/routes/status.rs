@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use async_graphql_axum::GraphQLRequest;
 use axum::{extract::State, response::IntoResponse, Json};
@@ -58,7 +57,7 @@ impl IntoRequestParameters for WrappedGraphQLRequest {
 
 // Custom middleware function to process the request before reaching the main handler
 pub async fn status(
-    State(state): State<Arc<SubgraphServiceState>>,
+    State(state): State<SubgraphServiceState>,
     request: GraphQLRequest,
 ) -> Result<impl IntoResponse, SubgraphServiceError> {
     let request = request.into_inner();
@@ -103,7 +102,7 @@ pub async fn status(
 
     let result = state
         .graph_node_client
-        .post(state.graph_node_status_url.clone())
+        .post(state.graph_node_config.status_url.clone())
         .send_graphql::<Value>(WrappedGraphQLRequest(request))
         .await
         .map_err(|e| SubgraphServiceError::StatusQueryError(e.into()))?;

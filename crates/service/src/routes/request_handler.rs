@@ -1,8 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-
 use axum::{
     extract::{Path, State},
     http::Response,
@@ -16,13 +14,14 @@ use crate::{error::SubgraphServiceError, service::SubgraphServiceState};
 
 pub async fn request_handler(
     Path(deployment): Path<DeploymentId>,
-    State(state): State<Arc<SubgraphServiceState>>,
+    State(state): State<SubgraphServiceState>,
     request: String,
 ) -> Result<impl IntoResponse, SubgraphServiceError> {
     trace!("Handling request for deployment `{deployment}`");
 
     let deployment_url = state
-        .graph_node_query_base_url
+        .graph_node_config
+        .query_url
         .join(&format!("subgraphs/id/{deployment}"))
         .map_err(|_| SubgraphServiceError::InvalidDeployment(deployment))?;
     let req = request.clone();

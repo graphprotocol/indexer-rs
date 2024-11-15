@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::str::FromStr;
-use std::sync::Arc;
 
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 use indexer_common::cost_model::{self, CostModel};
@@ -86,7 +85,7 @@ impl Query {
         ctx: &Context<'_>,
         deployment_ids: Vec<DeploymentId>,
     ) -> Result<Vec<GraphQlCostModel>, anyhow::Error> {
-        let pool = &ctx.data_unchecked::<Arc<SubgraphServiceState>>().database;
+        let pool = &ctx.data_unchecked::<SubgraphServiceState>().database;
         let cost_models = cost_model::cost_models(pool, &deployment_ids).await?;
         Ok(cost_models.into_iter().map(|m| m.into()).collect())
     }
@@ -96,7 +95,7 @@ impl Query {
         ctx: &Context<'_>,
         deployment_id: DeploymentId,
     ) -> Result<Option<GraphQlCostModel>, anyhow::Error> {
-        let pool = &ctx.data_unchecked::<Arc<SubgraphServiceState>>().database;
+        let pool = &ctx.data_unchecked::<SubgraphServiceState>().database;
         cost_model::cost_model(pool, &deployment_id)
             .await
             .map(|model_opt| model_opt.map(GraphQlCostModel::from))
@@ -105,6 +104,8 @@ impl Query {
 
 pub type CostSchema = Schema<Query, EmptyMutation, EmptySubscription>;
 
-pub fn build_schema() -> CostSchema {
-    Schema::build(Query, EmptyMutation, EmptySubscription).finish()
+pub fn build_schema(data: SubgraphServiceState) -> CostSchema {
+    Schema::build(Query, EmptyMutation, EmptySubscription)
+        .data(data)
+        .finish()
 }

@@ -2,15 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use axum::{
-    extract::Path,
+    extract::{Path, State},
     response::{IntoResponse, Response as AxumResponse},
-    Extension, Json,
+    Json,
 };
 use graphql_client::GraphQLQuery;
-use indexer_config::GraphNodeConfig;
 use reqwest::StatusCode;
 use serde_json::json;
 use thiserror::Error;
+
+use crate::service::SubgraphServiceState;
 
 #[derive(GraphQLQuery)]
 #[graphql(
@@ -51,15 +52,16 @@ impl IntoResponse for CheckHealthError {
 
 pub async fn health(
     Path(deployment_id): Path<String>,
-    Extension(graph_node): Extension<GraphNodeConfig>,
+    State(state): State<SubgraphServiceState>,
 ) -> Result<impl IntoResponse, CheckHealthError> {
     let req_body = HealthQuery::build_query(health_query::Variables {
         ids: vec![deployment_id],
     });
+    let graph_node = state.graph_node_config;
 
     let client = reqwest::Client::new();
     let response = client
-        .post(graph_node.status_url)
+        .post(graph_node.status_url.clone())
         .json(&req_body)
         .send()
         .await
