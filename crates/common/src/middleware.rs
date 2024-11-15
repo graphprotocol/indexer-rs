@@ -1,8 +1,9 @@
 pub mod allocation;
 pub mod async_graphql_metrics;
-pub mod auth;
 pub mod attestation;
+pub mod auth;
 pub mod deployment_id;
+pub mod inject_attestation_signer;
 pub mod inject_labels;
 pub mod inject_tap_context;
 pub mod metrics;

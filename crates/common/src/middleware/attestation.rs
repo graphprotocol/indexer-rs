@@ -8,53 +8,80 @@
 //!     - return with no attestation
 //!
 
-// use crate::attestations::{signer::AttestationSigner, AttestableResponse, AttestationOutput};
-// use alloy::primitives::Address;
-// use anyhow::anyhow;
-// use axum::{
-//     extract::{Request, State},
-//     middleware::Next,
-//     response::Response,
-// };
-// use std::collections::HashMap;
-// use tokio::sync::watch;
-//
-// use super::allocation::Allocation;
-//
-// pub struct MyState {
-//     attestation_signers: watch::Receiver<HashMap<Address, AttestationSigner>>,
-// }
-//
-// async fn attestation_middleware<T>(
-//     State(state): State<MyState>,
-//     request: Request<String>,
-//     next: Next,
-// ) -> Result<Response<T>, anyhow::Error> {
-//     let Allocation(allocation_id) = request
-//         .extensions()
-//         .get::<Allocation>()
-//         .ok_or(anyhow!("Could not find allocation"))?;
-//
-//     let (parts, req) = request.into_parts();
-//
-//     let signer = state
-//         .attestation_signers
-//         .borrow()
-//         .get(allocation_id)
-//         .cloned()
-//         .ok_or_else(|| anyhow!("Error"))?;
-//
-//     let response: Box<dyn AttestableResponse<T>> = next.run(Request::new(req.into())).await.into();
-//
-//     let res = response.as_str();
-//
-//     let attestation = AttestationOutput::Attestation(
-//         response
-//             .is_attestable()
-//             .then(|| signer.create_attestation(&req, res)),
-//     );
-//
-//     let response = response.finalize(attestation);
-//
-//     Ok(Response::new(response))
-// }
+use std::string::FromUtf8Error;
+
+use axum::{
+    body::to_bytes,
+    extract::Request,
+    middleware::Next,
+    response::{IntoResponse, Response},
+};
+use serde::Serialize;
+use thegraph_core::Attestation;
+
+use crate::attestations::signer::AttestationSigner;
+
+#[derive(Clone)]
+pub enum AttestationInput {
+    Attestable { req: String, res: String },
+    NotAttestable,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IndexerResponsePayload {
+    #[serde(rename = "graphQLResponse")]
+    graphql_response: String,
+    attestation: Option<Attestation>,
+}
+
+pub async fn attestation_middleware(
+    request: Request,
+    next: Next,
+) -> Result<Response, AttestationError> {
+    let signer = request
+        .extensions()
+        .get::<AttestationSigner>()
+        .cloned()
+        .ok_or(AttestationError::CouldNotFindSigner)?;
+
+    let (parts, graphql_response) = next.run(request).await.into_parts();
+    let attestation_response = parts.extensions.get::<AttestationInput>();
+    let bytes = to_bytes(graphql_response, usize::MAX).await?;
+    let graphql_response = String::from_utf8(bytes.into())?;
+
+    let attestation = match attestation_response {
+        Some(AttestationInput::Attestable { req, res }) => {
+            Some(signer.create_attestation(req, res))
+        }
+        _ => None,
+    };
+
+    Ok(Response::new(
+        serde_json::to_string(&IndexerResponsePayload {
+            graphql_response,
+            attestation,
+        })?
+        .into(),
+    ))
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum AttestationError {
+    #[error("Could not find signer for allocation")]
+    CouldNotFindSigner,
+
+    #[error("There was an AxumError: {0}")]
+    AxumError(#[from] axum::Error),
+
+    #[error("There was an error converting the response to UTF-8 string: {0}")]
+    FromUtf8Error(#[from] FromUtf8Error),
+
+    #[error("there was an error while serializing the response: {0}")]
+    SerializationError(#[from] serde_json::Error),
+}
+
+impl IntoResponse for AttestationError {
+    fn into_response(self) -> Response {
+        todo!()
+    }
+}

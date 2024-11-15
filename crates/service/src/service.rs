@@ -6,17 +6,17 @@ use crate::{
     database, metrics,
     routes::{self, health},
 };
-use alloy::primitives::Address;
 use anyhow::anyhow;
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_axum::GraphQL;
 use axum::{
-    middleware::from_fn,
+    middleware::{from_fn, from_fn_with_state},
     routing::{post, post_service},
     Extension, Json, Router,
 };
 use indexer_config::{Config, DipsConfig};
 use thegraph_core::attestation::eip712_domain;
+use tower::ServiceBuilder;
 
 use crate::{
     database::dips::{AgreementStore, InMemoryAgreementStore},
@@ -32,9 +32,12 @@ use clap::Parser;
 use indexer_common::{
     address::public_key,
     allocations::monitor::indexer_allocations,
-    attestations::{dispute_manager, signer::AttestationSigner, signers::attestation_signers},
+    attestations::{dispute_manager, signers::attestation_signers},
     middleware::{
+        attestation::attestation_middleware,
         auth::{self, Bearer, OrExt},
+        deployment_id::deployment_middleware,
+        inject_attestation_signer::{signer_middleware, MyState},
         inject_tap_context::context_middleware,
     },
     monitors::escrow_accounts,
@@ -42,10 +45,9 @@ use indexer_common::{
     tap::IndexerTapContext,
 };
 use reqwest::Method;
-use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
-use subgraph_service::SubgraphService;
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
-use tokio::{net::TcpListener, signal, sync::watch::Receiver};
+use tokio::{net::TcpListener, signal};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{
     auth::AsyncRequireAuthorizationLayer,
@@ -57,19 +59,10 @@ use tower_http::{
 use tracing::{error, info, info_span, warn};
 use version_info::IndexerServiceRelease;
 
-mod error;
-mod response;
-mod subgraph_service;
+mod state;
 mod version_info;
 
-pub use error::IndexerServiceError;
-pub use response::SubgraphServiceResponse;
-pub use subgraph_service::SubgraphServiceState;
-
-pub struct IndexerServiceState {
-    pub subgraph_service: SubgraphService,
-    pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
-}
+pub use state::SubgraphServiceState;
 
 /// Run the subgraph indexer service
 pub async fn run() -> anyhow::Result<()> {
@@ -218,6 +211,10 @@ pub async fn run() -> anyhow::Result<()> {
         dispute_manager,
     );
 
+    let attestation_state = MyState {
+        attestation_signers,
+    };
+
     let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(
         SubgraphClient::new(
             http_client,
@@ -276,15 +273,6 @@ pub async fn run() -> anyhow::Result<()> {
         indexer_context,
         CheckList::new(checks),
     )));
-
-    let state = Arc::new(IndexerServiceState {
-        attestation_signers,
-        // tap_manager,
-        // escrow_accounts,
-        // domain_separator,
-        subgraph_service: SubgraphService::new(state),
-        // free_query_auth_token: config.service.free_query_auth_token.as_ref(),
-    });
 
     // Rate limits by allowing bursts of 10 requests and requiring 100ms of
     // time between consecutive requests after that, effectively rate
@@ -366,7 +354,17 @@ pub async fn run() -> anyhow::Result<()> {
     let failed_receipt_metric = Box::leak(Box::new(metrics::FAILED_RECEIPT.clone()));
     let tap_auth = auth::tap_receipt_authorize(tap_manager, failed_receipt_metric);
 
-    let mut route = post(routes::request_handler);
+    let service_builder = ServiceBuilder::new()
+        // inject deployment id
+        .layer(from_fn(deployment_middleware))
+        // inject signer
+        .layer(from_fn_with_state(attestation_state, signer_middleware))
+        // create attestation
+        .layer(from_fn(attestation_middleware));
+
+    let mut route = post(routes::request_handler)
+        .with_state(state.clone())
+        .route_layer(service_builder);
 
     if let Some(free_auth_token) = &config.service.serve_auth_token {
         let free_query = Bearer::new(free_auth_token);

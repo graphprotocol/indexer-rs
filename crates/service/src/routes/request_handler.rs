@@ -5,48 +5,58 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
+    http::Response,
     response::IntoResponse,
-    Extension,
 };
-use indexer_common::attestations::{AttestableResponse, AttestationOutput};
-use reqwest::StatusCode;
+use indexer_common::middleware::attestation::AttestationInput;
 use thegraph_core::DeploymentId;
 use tracing::trace;
 
-use alloy::primitives::Address;
-
-use crate::service::{IndexerServiceError, IndexerServiceState};
+use crate::{error::SubgraphServiceError, service::SubgraphServiceState};
 
 pub async fn request_handler(
-    Path(manifest_id): Path<DeploymentId>,
-    State(state): State<Arc<IndexerServiceState>>,
-    Extension(allocation_id): Extension<Address>,
-    req: String,
-) -> Result<impl IntoResponse, IndexerServiceError> {
-    trace!("Handling request for deployment `{manifest_id}`");
-    // Check if we have an attestation signer for the allocation the receipt was created for
-    let signer = state
-        .attestation_signers
-        .borrow()
-        .get(&allocation_id)
-        .cloned()
-        .ok_or_else(|| (IndexerServiceError::NoSignerForAllocation(allocation_id)))?;
+    Path(deployment): Path<DeploymentId>,
+    State(state): State<Arc<SubgraphServiceState>>,
+    request: String,
+) -> Result<impl IntoResponse, SubgraphServiceError> {
+    trace!("Handling request for deployment `{deployment}`");
+
+    let deployment_url = state
+        .graph_node_query_base_url
+        .join(&format!("subgraphs/id/{deployment}"))
+        .map_err(|_| SubgraphServiceError::InvalidDeployment(deployment))?;
+    let req = request.clone();
 
     let response = state
-        .subgraph_service
-        .process_request(manifest_id, req.clone())
+        .graph_node_client
+        .post(deployment_url)
+        .body(request)
+        .send()
         .await
-        .map_err(IndexerServiceError::ProcessingError)?;
+        .map_err(SubgraphServiceError::QueryForwardingError)?;
 
-    let res = response.as_str();
+    let attestable = response
+        .headers()
+        .get("graph-attestable")
+        .map_or(false, |value| {
+            value.to_str().map(|value| value == "true").unwrap_or(false)
+        });
 
-    let attestation = AttestationOutput::Attestation(
-        response
-            .is_attestable()
-            .then(|| signer.create_attestation(&req, res)),
-    );
+    let body = response
+        .text()
+        .await
+        .map_err(SubgraphServiceError::QueryForwardingError)?;
 
-    let response = response.finalize(attestation);
+    let attestation_input = if attestable {
+        AttestationInput::Attestable {
+            req,
+            res: body.clone(),
+        }
+    } else {
+        AttestationInput::NotAttestable
+    };
 
-    Ok((StatusCode::OK, response))
+    let mut response = Response::new(body);
+    response.extensions_mut().insert(attestation_input);
+    Ok(response)
 }
