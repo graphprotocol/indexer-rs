@@ -17,6 +17,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use reqwest::StatusCode;
 use serde::Serialize;
 use thegraph_core::Attestation;
 
@@ -83,6 +84,12 @@ pub enum AttestationError {
 
 impl IntoResponse for AttestationError {
     fn into_response(self) -> Response {
-        todo!()
+        match self {
+            AttestationError::CouldNotFindSigner
+            | AttestationError::AxumError(_)
+            | AttestationError::FromUtf8Error(_)
+            | AttestationError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+        .into_response()
     }
 }

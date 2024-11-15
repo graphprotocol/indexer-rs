@@ -30,7 +30,6 @@ axum-extra = { version = "0.9.3", features = [
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["fs", "tokio-macros"] }
-cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
 regex = "1.7.1"
 tokio-util = "0.7.10"
 bip39 = "2.0.0"

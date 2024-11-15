@@ -8,10 +8,9 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use indexer_common::{error::IndexerError, escrow_accounts::EscrowAccounts};
 use tap_core::receipt::SignedReceipt;
 use tokio::sync::watch;
-
-use crate::{error::IndexerError, escrow_accounts::EscrowAccounts};
 
 #[derive(Clone)]
 pub struct SenderState {

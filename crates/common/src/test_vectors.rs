@@ -243,8 +243,7 @@ lazy_static! {
 
     /// Fixture to generate a wallet and address.
     /// Address: 0x533661F0fb14d2E8B26223C86a610Dd7D2260892
-    pub static ref TAP_SIGNER: (PrivateKeySigner, Address) = {
-        let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
+    pub static ref TAP_SIGNER: (PrivateKeySigner, Address) = { let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
             .phrase("rude pipe parade travel organ vendor card festival magnet novel forget refuse keep draft tool")
             .build()
             .unwrap();

@@ -4,17 +4,15 @@
 use std::str::FromStr;
 
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
-use indexer_common::cost_model::{self, CostModel};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thegraph_core::DeploymentId;
 
 use crate::{
-    metrics::{
+    database::cost_model::{self, CostModel}, metrics::{
         COST_MODEL_BATCH_FAILED, COST_MODEL_BATCH_INVALID, COST_MODEL_BATCH_METRIC,
         COST_MODEL_BATCH_SIZE, COST_MODEL_FAILED, COST_MODEL_INVALID, COST_MODEL_METRIC,
-    },
-    service::SubgraphServiceState,
+    }, service::SubgraphServiceState
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize, SimpleObject)]

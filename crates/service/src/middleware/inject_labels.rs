@@ -5,11 +5,11 @@
 use std::sync::Arc;
 
 use axum::{extract::Request, middleware::Next, response::Response};
+use indexer_common::middleware::metrics::{MetricLabelProvider, MetricLabels};
 use thegraph_core::DeploymentId;
 
 use super::{
     allocation::Allocation,
-    metrics::{MetricLabelProvider, MetricLabels},
     sender::Sender,
 };
 

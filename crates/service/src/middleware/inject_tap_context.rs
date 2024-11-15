@@ -2,6 +2,7 @@
 //!
 //! Requires Deployment Id extension to available
 
+use serde_json::value::RawValue;
 use std::sync::Arc;
 
 use axum::{
@@ -11,12 +12,17 @@ use axum::{
     response::Response,
     RequestExt,
 };
+use indexer_common::error::IndexerError;
 use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
 
-use crate::{error::IndexerError, tap::AgoraQuery};
+use crate::tap::AgoraQuery;
 
-use super::auth::QueryBody;
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+struct QueryBody {
+    query: String,
+    variables: Option<Box<RawValue>>,
+}
 
 pub async fn context_middleware(
     mut request: Request,

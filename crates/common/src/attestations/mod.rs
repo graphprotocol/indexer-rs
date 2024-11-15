@@ -4,6 +4,7 @@
 use thegraph_core::Attestation;
 
 pub mod dispute_manager;
+pub mod deployment_to_allocation;
 pub mod signer;
 pub mod signers;
 

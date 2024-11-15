@@ -5,5 +5,7 @@ mod cli;
 mod database;
 mod error;
 mod metrics;
+pub mod middleware;
 mod routes;
 pub mod service;
+pub mod tap;

@@ -17,7 +17,6 @@ use axum::{
 };
 use axum_extra::TypedHeader;
 use reqwest::StatusCode;
-use serde_json::value::RawValue;
 use tap_core::{
     manager::{adapters::ReceiptStore, Manager},
     receipt::{Context, SignedReceipt},
@@ -25,12 +24,6 @@ use tap_core::{
 use tower_http::auth::AsyncAuthorizeRequest;
 
 use crate::middleware::{metrics::MetricLabels, TapReceipt};
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct QueryBody {
-    pub query: String,
-    pub variables: Option<Box<RawValue>>,
-}
 
 pub fn tap_receipt_authorize<T>(
     tap_manager: &'static Manager<T>,

@@ -88,6 +88,38 @@ where
 
 // Replacement for pipe_async function in eventuals
 // Listen to the changes in a receiver and runs parametric function
+pub fn map_watcher<T1, T2, F>(
+    mut receiver_1: watch::Receiver<T1>,
+    map_function: F,
+) -> watch::Receiver<T2>
+where
+    T1: Clone + Send + Sync + 'static,
+    T2: Send + Sync + 'static,
+    F: Fn(T1) -> T2 + Send + 'static,
+{
+    let initial_value = map_function(receiver_1.borrow().clone());
+    let (tx, rx) = watch::channel(initial_value);
+
+    tokio::spawn(async move {
+        loop {
+            select! {
+                Ok(())= receiver_1.changed() =>{},
+                else=>{
+                    // Something is wrong.
+                    panic!("receiver_1 or receiver_2 was dropped");
+                }
+            }
+
+            let current_val_1 = receiver_1.borrow().clone();
+            let mapped_value = map_function(current_val_1);
+            tx.send(mapped_value).expect("Failed to update channel");
+        }
+    });
+    rx
+}
+
+// Replacement for pipe_async function in eventuals
+// Listen to the changes in a receiver and runs parametric function
 pub fn watch_pipe<T, F, Fut>(rx: watch::Receiver<T>, function: F) -> JoinHandle<()>
 where
     T: Clone + Send + Sync + 'static,

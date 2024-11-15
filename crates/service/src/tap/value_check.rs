@@ -1,9 +1,9 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use ::cost_model::CostModel;
 use anyhow::anyhow;
 use bigdecimal::ToPrimitive;
+use cost_model::CostModel;
 use sqlx::{
     postgres::{PgListener, PgNotification},
     PgPool,
@@ -24,7 +24,7 @@ use tap_core::receipt::{
     Context, ReceiptWithState,
 };
 
-use crate::cost_model;
+use crate::database::cost_model::global_cost_model;
 
 // we only accept receipts with minimal 1 wei grt
 const MINIMAL_VALUE: u128 = 1;
@@ -271,16 +271,13 @@ impl MinimumValue {
 
         *cost_model_map.write().unwrap() = models;
 
-        *global_model.write().unwrap() =
-            cost_model::global_cost_model(pgpool)
-                .await?
-                .and_then(|model| {
-                    compile_cost_model(
-                        model.model.unwrap_or_default(),
-                        model.variables.map(|v| v.to_string()).unwrap_or_default(),
-                    )
-                    .ok()
-                });
+        *global_model.write().unwrap() = global_cost_model(pgpool).await?.and_then(|model| {
+            compile_cost_model(
+                model.model.unwrap_or_default(),
+                model.variables.map(|v| v.to_string()).unwrap_or_default(),
+            )
+            .ok()
+        });
 
         Ok(())
     }
@@ -346,17 +343,30 @@ enum CostModelNotification {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{address, Address};
+    use alloy::{
+        dyn_abi::Eip712Domain,
+        primitives::{address, Address},
+        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
+    };
+    use lazy_static::lazy_static;
     use std::time::Duration;
 
     use sqlx::PgPool;
-    use tap_core::receipt::{checks::Check, Context, ReceiptWithState};
+    use tap_core::{
+        receipt::{checks::Check, Context, Receipt, ReceiptWithState, SignedReceipt},
+        signed_message::EIP712SignedMessage, tap_eip712_domain,
+    };
     use tokio::time::sleep;
 
+    // use crate::{
+    //     cost_model::test::{add_cost_models, global_cost_model, to_db_models},
+    //     tap::AgoraQuery,
+    //     test_vectors::create_signed_receipt,
+    // };
+
     use crate::{
-        cost_model::test::{add_cost_models, global_cost_model, to_db_models},
+        database::cost_model::test::{self, add_cost_models, global_cost_model, to_db_models},
         tap::AgoraQuery,
-        test_vectors::create_signed_receipt,
     };
 
     use super::MinimumValue;
@@ -370,7 +380,7 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn should_initialize_check_with_models(pgpool: PgPool) {
         // insert 2 cost models for different deployment_id
-        let test_models = crate::cost_model::test::test_data();
+        let test_models = test::test_data();
 
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
@@ -387,7 +397,7 @@ mod tests {
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
 
         // insert 2 cost models for different deployment_id
-        let test_models = crate::cost_model::test::test_data();
+        let test_models = test::test_data();
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
         sleep(Duration::from_millis(200)).await;
 
@@ -400,7 +410,7 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn should_watch_model_remove(pgpool: PgPool) {
         // insert 2 cost models for different deployment_id
-        let test_models = crate::cost_model::test::test_data();
+        let test_models = test::test_data();
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
         let check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
@@ -460,7 +470,7 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn should_check_minimal_value(pgpool: PgPool) {
         // insert cost models for different deployment_id
-        let test_models = crate::cost_model::test::test_data();
+        let test_models = test::test_data();
 
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
@@ -534,7 +544,7 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn should_check_using_global(pgpool: PgPool) {
         // insert cost models for different deployment_id
-        let test_models = crate::cost_model::test::test_data();
+        let test_models = test::test_data();
         let global_model = global_cost_model();
 
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
@@ -577,5 +587,45 @@ mod tests {
             .check(&ctx, &receipt)
             .await
             .expect("should accept more than global");
+    }
+
+    lazy_static! {
+        pub static ref TAP_EIP712_DOMAIN: Eip712Domain = tap_eip712_domain(
+            1,
+            Address::from([0x11u8; 20])
+        );
+
+    /// Fixture to generate a wallet and address.
+    /// Address: 0x533661F0fb14d2E8B26223C86a610Dd7D2260892
+    pub static ref TAP_SIGNER: (PrivateKeySigner, Address) = { let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
+            .phrase("rude pipe parade travel organ vendor card festival magnet novel forget refuse keep draft tool")
+            .build()
+            .unwrap();
+        let address = wallet.address();
+
+        (wallet, address)
+    };
+    }
+
+    /// Function to generate a signed receipt using the TAP_SIGNER wallet.
+    pub async fn create_signed_receipt(
+        allocation_id: Address,
+        nonce: u64,
+        timestamp_ns: u64,
+        value: u128,
+    ) -> SignedReceipt {
+        let (wallet, _) = &*self::TAP_SIGNER;
+
+        EIP712SignedMessage::new(
+            &self::TAP_EIP712_DOMAIN,
+            Receipt {
+                allocation_id,
+                nonce,
+                timestamp_ns,
+                value,
+            },
+            wallet,
+        )
+        .unwrap()
     }
 }

@@ -1,17 +1,8 @@
-pub mod allocation;
-pub mod async_graphql_metrics;
 pub mod attestation;
 pub mod auth;
-pub mod deployment_id;
-pub mod inject_attestation_signer;
-pub mod inject_labels;
-pub mod inject_tap_context;
 pub mod metrics;
-pub mod receipt;
-pub mod sender;
 pub mod tap_header;
 
-pub use allocation::allocation_middleware;
 pub use tap_header::TapReceipt;
 
 #[cfg(test)]
@@ -29,15 +20,14 @@ mod tests {
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
-    use crate::middleware::auth::{self, Bearer, OrExt, QueryBody};
+    use crate::middleware::auth::{self, Bearer, OrExt};
     use crate::test_vectors::{NETWORK_SUBGRAPH_DEPLOYMENT, TAP_EIP712_DOMAIN};
     use crate::{
-        middleware::{inject_labels::SenderAllocationDeploymentLabels, metrics::MetricLabels},
-        tap::IndexerTapContext,
+        middleware::metrics::MetricLabels, tap::IndexerTapContext,
         test_vectors::create_signed_receipt,
     };
 
-    use super::metrics::MetricsMiddlewareLayer;
+    use super::metrics::{MetricLabelProvider, MetricsMiddlewareLayer};
 
     const ALLOCATION_ID: Address = address!("deadbeefcafebabedeadbeefcafebabedeadbeef");
 
@@ -97,14 +87,7 @@ mod tests {
         let receipt = create_signed_receipt(ALLOCATION_ID, 1, 1, 1).await;
 
         // check with receipt
-        let mut req = Request::new(
-            serde_json::to_string(&QueryBody {
-                query: "test".to_string(),
-                variables: None,
-            })
-            .unwrap()
-            .into(),
-        );
+        let mut req = Request::new(Default::default());
         req.extensions_mut().insert(receipt);
         req.extensions_mut().insert(*NETWORK_SUBGRAPH_DEPLOYMENT);
         let res = handle.call(req).await.unwrap();
@@ -128,6 +111,12 @@ mod tests {
         assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 
         // if the query don't contains token, should verify and store tap TapReceipt
+    }
+    struct TestLabel;
+    impl MetricLabelProvider for TestLabel {
+        fn get_labels(&self) -> Vec<&str> {
+            vec!["label1,", "label2", "label3"]
+        }
     }
 
     #[tokio::test]
@@ -172,7 +161,7 @@ mod tests {
         let handle = service.ready().await.unwrap();
 
         // default labels, all empty
-        let labels: MetricLabels = Arc::new(SenderAllocationDeploymentLabels::default());
+        let labels: MetricLabels = Arc::new(TestLabel);
 
         let mut req = Request::new(Default::default());
         req.extensions_mut().insert(labels.clone());

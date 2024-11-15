@@ -5,7 +5,6 @@ pub mod address;
 pub mod allocations;
 pub mod error;
 pub mod attestations;
-pub mod cost_model;
 pub mod escrow_accounts;
 pub mod middleware;
 pub mod subgraph_client;

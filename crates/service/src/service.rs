@@ -5,7 +5,13 @@ use crate::{
     cli::Cli,
     database,
     metrics::{self, HANDLER_FAILURE, HANDLER_HISTOGRAM},
+    middleware::{
+        allocation_middleware, context_middleware, deployment_middleware, labels_middleware,
+        receipt_middleware, sender_middleware, signer_middleware, AllocationState,
+        AttestationState, SenderState,
+    },
     routes::{self, health},
+    tap,
 };
 use anyhow::anyhow;
 use async_graphql::{EmptySubscription, Schema};
@@ -33,19 +39,11 @@ use clap::Parser;
 use indexer_common::{
     address::public_key,
     allocations::monitor::indexer_allocations,
-    attestations::{dispute_manager, signers::attestation_signers},
+    attestations::{deployment_to_allocation, dispute_manager, signers::attestation_signers},
     middleware::{
-        allocation::AllocationState,
-        allocation_middleware,
         attestation::attestation_middleware,
         auth::{self, Bearer, OrExt},
-        deployment_id::deployment_middleware,
-        inject_attestation_signer::{signer_middleware, AttestationState},
-        inject_labels::labels_middleware,
-        inject_tap_context::context_middleware,
         metrics::MetricsMiddlewareLayer,
-        receipt::receipt_middleware,
-        sender::{sender_middleware, SenderState},
     },
     monitors::escrow_accounts,
     subgraph_client::{DeploymentDetails, SubgraphClient},
@@ -54,7 +52,7 @@ use indexer_common::{
 use reqwest::Method;
 use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
-use tokio::{net::TcpListener, signal, sync::watch};
+use tokio::{net::TcpListener, signal};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{
     auth::AsyncRequireAuthorizationLayer,
@@ -108,20 +106,12 @@ pub async fn run() -> anyhow::Result<()> {
     // Some of the subgraph service configuration goes into the so-called
     // "state", which will be passed to any request handler, middleware etc.
     // that is involved in serving requests
-    let state = SubgraphServiceState {
-        database: database.clone(),
-        graph_node_client: reqwest::ClientBuilder::new()
-            .tcp_nodelay(true)
-            .timeout(Duration::from_secs(30))
-            .build()
-            .expect("Failed to init HTTP client for Graph Node"),
-        graph_node_config: &config.graph_node,
-    };
+    let state = SubgraphServiceState::new(database.clone(), &config.graph_node);
 
     let agreement_store: Arc<dyn AgreementStore> = Arc::new(InMemoryAgreementStore::default());
     let prices: Vec<Price> = vec![];
 
-    let mut extra_router = Router::new()
+    let mut service_router = Router::new()
         .route(
             "/cost",
             post_service(GraphQL::new(routes::cost::build_schema(state.clone()))),
@@ -151,7 +141,7 @@ pub async fn run() -> anyhow::Result<()> {
         .data(prices)
         .finish();
 
-        extra_router = extra_router.route("/dips", post_service(GraphQL::new(schema)));
+        service_router = service_router.route("/dips", post_service(GraphQL::new(schema)));
     }
 
     let http_client = reqwest::Client::builder()
@@ -215,10 +205,6 @@ pub async fn run() -> anyhow::Result<()> {
         dispute_manager,
     );
 
-    let attestation_state = AttestationState {
-        attestation_signers,
-    };
-
     let escrow_subgraph: &'static SubgraphClient = Box::leak(Box::new(
         SubgraphClient::new(
             http_client,
@@ -253,24 +239,25 @@ pub async fn run() -> anyhow::Result<()> {
     .await
     .expect("Error creating escrow_accounts channel");
 
+    // load tap
     let domain_separator = tap_eip712_domain(
         config.blockchain.chain_id as u64,
         config.blockchain.receipts_verifier_address,
     );
     let indexer_context = IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
     let timestamp_error_tolerance = config.tap.rav_request.timestamp_buffer_secs;
-
     let receipt_max_value = config.service.tap.max_receipt_value_grt.get_value();
 
-    let checks = IndexerTapContext::get_checks(
-        database,
-        allocations,
+    let mut checks = IndexerTapContext::get_checks(
+        database.clone(),
         escrow_accounts.clone(),
         domain_separator.clone(),
         timestamp_error_tolerance,
         receipt_max_value,
     )
     .await;
+
+    checks.extend(tap::get_extra_checks(database, allocations.clone()).await);
 
     let tap_manager = Box::leak(Box::new(Manager::new(
         domain_separator.clone(),
@@ -352,8 +339,6 @@ pub async fn run() -> anyhow::Result<()> {
         }
     }
 
-    misc_routes = misc_routes.with_state(state.clone());
-
     let mut request_handler_route = post(routes::request_handler);
 
     // inject auth
@@ -364,23 +349,22 @@ pub async fn run() -> anyhow::Result<()> {
         let free_query = Bearer::new(free_auth_token);
         let result = free_query.or(tap_auth);
         let auth_layer = AsyncRequireAuthorizationLayer::new(result);
-        request_handler_route = request_handler_route
-            .layer(auth_layer)
-            .layer(from_fn(context_middleware));
+        request_handler_route = request_handler_route.layer(auth_layer);
     } else {
         let auth_layer = AsyncRequireAuthorizationLayer::new(tap_auth);
-        request_handler_route = request_handler_route
-            .layer(auth_layer)
-            .layer(from_fn(context_middleware));
+        request_handler_route = request_handler_route.layer(auth_layer);
     }
     // add all other middleware
     let sender_state = SenderState {
         escrow_accounts,
         domain_separator,
     };
-
+    let deployment_to_allocation = deployment_to_allocation::monitor(allocations);
     let allocation_state = AllocationState {
-        attestation: watch::channel(Default::default()).1,
+        attestation: deployment_to_allocation,
+    };
+    let attestation_state = AttestationState {
+        attestation_signers,
     };
 
     let service_builder = ServiceBuilder::new()
@@ -408,20 +392,18 @@ pub async fn run() -> anyhow::Result<()> {
 
     request_handler_route = request_handler_route.layer(service_builder);
 
-    let data_router = Router::new()
-        .route(
-            PathBuf::from(&config.service.url_prefix)
-                .join("subgraphs/id/:id")
-                .to_str()
-                .expect("Failed to set up `/subgraphs/id/:id` route"),
-            request_handler_route,
-        )
-        .with_state(state.clone());
+    let handler_router = Router::new().route(
+        PathBuf::from(&config.service.url_prefix)
+            .join("subgraphs/id/:id")
+            .to_str()
+            .expect("Failed to set up `/subgraphs/id/:id` route"),
+        request_handler_route,
+    );
 
     let router = NormalizePath::trim_trailing_slash(
         misc_routes
-            .merge(data_router)
-            .merge(extra_router)
+            .merge(handler_router)
+            .merge(service_router)
             .layer(
                 CorsLayer::new()
                     .allow_origin(cors::Any)
