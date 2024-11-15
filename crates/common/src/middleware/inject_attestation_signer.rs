@@ -1,4 +1,6 @@
 //! injects the attestation signer
+//! 
+//! Needs Allocation Extension to be added
 
 use std::collections::HashMap;
 
@@ -15,7 +17,7 @@ use crate::{attestations::signer::AttestationSigner, error::IndexerError};
 use super::allocation::Allocation;
 
 #[derive(Clone)]
-pub struct MyState {
+pub struct AttestationState {
     pub attestation_signers: watch::Receiver<HashMap<Address, AttestationSigner>>,
 }
 
@@ -29,7 +31,7 @@ impl From<Sender> for String {
 }
 
 pub async fn signer_middleware(
-    State(state): State<MyState>,
+    State(state): State<AttestationState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, IndexerError> {

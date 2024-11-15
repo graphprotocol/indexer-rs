@@ -3,7 +3,8 @@
 
 use crate::{
     cli::Cli,
-    database, metrics,
+    database,
+    metrics::{self, HANDLER_FAILURE, HANDLER_HISTOGRAM},
     routes::{self, health},
 };
 use anyhow::anyhow;
@@ -34,11 +35,17 @@ use indexer_common::{
     allocations::monitor::indexer_allocations,
     attestations::{dispute_manager, signers::attestation_signers},
     middleware::{
+        allocation::AllocationState,
+        allocation_middleware,
         attestation::attestation_middleware,
         auth::{self, Bearer, OrExt},
         deployment_id::deployment_middleware,
-        inject_attestation_signer::{signer_middleware, MyState},
+        inject_attestation_signer::{signer_middleware, AttestationState},
+        inject_labels::labels_middleware,
         inject_tap_context::context_middleware,
+        metrics::MetricsMiddlewareLayer,
+        receipt::receipt_middleware,
+        sender::{sender_middleware, SenderState},
     },
     monitors::escrow_accounts,
     subgraph_client::{DeploymentDetails, SubgraphClient},
@@ -47,7 +54,7 @@ use indexer_common::{
 use reqwest::Method;
 use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
-use tokio::{net::TcpListener, signal};
+use tokio::{net::TcpListener, signal, sync::watch};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{
     auth::AsyncRequireAuthorizationLayer,
@@ -134,7 +141,6 @@ pub async fn run() -> anyhow::Result<()> {
                 expected_payee: config.indexer.indexer_address,
                 allowed_payers: allowed_payers.clone(),
                 domain: eip712_domain(
-                    // 42161, // arbitrum
                     config.blockchain.chain_id as u64,
                     config.blockchain.receipts_verifier_address,
                 ),
@@ -211,7 +217,7 @@ pub async fn run() -> anyhow::Result<()> {
         dispute_manager,
     );
 
-    let attestation_state = MyState {
+    let attestation_state = AttestationState {
         attestation_signers,
     };
 
@@ -351,12 +357,48 @@ pub async fn run() -> anyhow::Result<()> {
 
     misc_routes = misc_routes.with_state(state.clone());
 
-    let failed_receipt_metric = Box::leak(Box::new(metrics::FAILED_RECEIPT.clone()));
-    let tap_auth = auth::tap_receipt_authorize(tap_manager, failed_receipt_metric);
+    let sender_state = SenderState {
+        escrow_accounts,
+        domain_separator,
+    };
+
+    let allocation_state = AllocationState {
+        attestation: watch::channel(Default::default()).1,
+    };
 
     let service_builder = ServiceBuilder::new()
         // inject deployment id
         .layer(from_fn(deployment_middleware))
+        // inject receipt
+        .layer(from_fn(receipt_middleware))
+        // inject deployment id
+        .layer(from_fn_with_state(allocation_state, allocation_middleware))
+        // inject sender
+        .layer(from_fn_with_state(sender_state, sender_middleware))
+        // inject metrics labels
+        .layer(from_fn(labels_middleware))
+        // metrics for histogram and failure
+        .layer(MetricsMiddlewareLayer::new(
+            HANDLER_HISTOGRAM.clone(),
+            HANDLER_FAILURE.clone(),
+        ))
+        // tap context
+        .layer(from_fn(context_middleware));
+
+    // add tap
+    let failed_receipt_metric = Box::leak(Box::new(metrics::FAILED_RECEIPT.clone()));
+    let tap_auth = auth::tap_receipt_authorize(tap_manager, failed_receipt_metric);
+    // let service_builder = if let Some(free_auth_token) = &config.service.serve_auth_token {
+    //     let free_query = Bearer::new(free_auth_token);
+    //     let result = free_query.or(tap_auth);
+    //     let auth_layer = AsyncRequireAuthorizationLayer::new(result);
+    //     service_builder.layer(auth_layer);
+    // } else {
+    //     let auth_layer = AsyncRequireAuthorizationLayer::new(tap_auth);
+    //     service_builder = service_builder.layer(auth_layer);
+    // };
+
+    let service_builder = service_builder
         // inject signer
         .layer(from_fn_with_state(attestation_state, signer_middleware))
         // create attestation
@@ -364,7 +406,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     let mut route = post(routes::request_handler)
         .with_state(state.clone())
-        .route_layer(service_builder);
+        .layer(service_builder);
 
     if let Some(free_auth_token) = &config.service.serve_auth_token {
         let free_query = Bearer::new(free_auth_token);

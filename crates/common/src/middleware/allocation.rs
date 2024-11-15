@@ -2,6 +2,8 @@
 //! - check if allocation id already exists
 //! - else, try to fetch allocation id from deployment_id and allocations watcher
 //! - execute query
+//!
+//! Needs signed receipt Extension to be added OR deployment id
 
 use std::collections::HashMap;
 
@@ -24,12 +26,13 @@ impl From<Allocation> for String {
     }
 }
 
-pub struct MyState {
-    attestation: watch::Receiver<HashMap<DeploymentId, Address>>,
+#[derive(Clone)]
+pub struct AllocationState {
+    pub attestation: watch::Receiver<HashMap<DeploymentId, Address>>,
 }
 
 pub async fn allocation_middleware(
-    State(my_state): State<MyState>,
+    State(my_state): State<AllocationState>,
     mut request: Request,
     next: Next,
 ) -> Response {

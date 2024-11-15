@@ -17,12 +17,14 @@ pub trait MetricLabelProvider {
     fn get_labels(&self) -> Vec<&str>;
 }
 
+#[derive(Clone)]
 pub struct MetricsMiddleware<S> {
     inner: S,
     histogram: prometheus::HistogramVec,
     failure: prometheus::CounterVec,
 }
 
+#[derive(Clone)]
 pub struct MetricsMiddlewareLayer {
     histogram: prometheus::HistogramVec,
     failure: prometheus::CounterVec,

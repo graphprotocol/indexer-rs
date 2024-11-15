@@ -1,4 +1,6 @@
 //! injects the sender
+//!
+//! Needs Receipt Extension to be available
 
 use alloy::dyn_abi::Eip712Domain;
 use axum::{
@@ -11,9 +13,10 @@ use tokio::sync::watch;
 
 use crate::{error::IndexerError, escrow_accounts::EscrowAccounts};
 
-pub struct MyState {
-    domain_separator: Eip712Domain,
-    escrow_accounts: watch::Receiver<EscrowAccounts>,
+#[derive(Clone)]
+pub struct SenderState {
+    pub domain_separator: Eip712Domain,
+    pub escrow_accounts: watch::Receiver<EscrowAccounts>,
 }
 
 #[derive(Clone)]
@@ -26,7 +29,7 @@ impl From<Sender> for String {
 }
 
 pub async fn sender_middleware(
-    State(state): State<MyState>,
+    State(state): State<SenderState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, IndexerError> {

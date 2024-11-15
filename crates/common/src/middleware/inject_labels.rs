@@ -1,6 +1,11 @@
+//! Injects Metric Labels
+//!
+//! Require Sender, Allocation and Deployment extensions
+
 use std::sync::Arc;
 
 use axum::{extract::Request, middleware::Next, response::Response};
+use thegraph_core::DeploymentId;
 
 use super::{
     allocation::Allocation,
@@ -54,8 +59,8 @@ pub async fn labels_middleware(mut request: Request, next: Next) -> Response {
 
     let deployment_id: Option<String> = request
         .extensions()
-        .get::<Allocation>()
-        .map(|s| s.clone().into());
+        .get::<DeploymentId>()
+        .map(|s| s.clone().to_string());
 
     let labels: MetricLabels = Arc::new(SenderAllocationDeploymentLabels {
         sender,
