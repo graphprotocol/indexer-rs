@@ -11,7 +11,9 @@ use anyhow::anyhow;
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_axum::GraphQL;
 use axum::{
-    body::{Body, HttpBody}, http::Request, routing::{post, post_service}, Extension, Json, Router
+    middleware::from_fn,
+    routing::{post, post_service},
+    Extension, Json, Router,
 };
 use indexer_config::{Config, DipsConfig};
 use thegraph_core::attestation::eip712_domain;
@@ -32,7 +34,8 @@ use indexer_common::{
     allocations::monitor::indexer_allocations,
     attestations::{dispute_manager, signer::AttestationSigner, signers::attestation_signers},
     middleware::{
-        free_query::{FreeQueryAuthorize, OrExt}, tap, TapReceiptAuthorize
+        auth::{self, Bearer, OrExt},
+        inject_tap_context::context_middleware,
     },
     monitors::escrow_accounts,
     subgraph_client::{DeploymentDetails, SubgraphClient},
@@ -45,10 +48,11 @@ use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
 use tokio::{net::TcpListener, signal, sync::watch::Receiver};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{
-    auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer},
+    auth::AsyncRequireAuthorizationLayer,
     cors::{self, CorsLayer},
     normalize_path::NormalizePath,
     trace::TraceLayer,
+    validate_request::ValidateRequestHeaderLayer,
 };
 use tracing::{error, info, info_span, warn};
 use version_info::IndexerServiceRelease;
@@ -267,11 +271,11 @@ pub async fn run() -> anyhow::Result<()> {
     )
     .await;
 
-    let tap_manager = Manager::new(
+    let tap_manager = Box::leak(Box::new(Manager::new(
         domain_separator.clone(),
         indexer_context,
         CheckList::new(checks),
-    );
+    )));
 
     let state = Arc::new(IndexerServiceState {
         attestation_signers,
@@ -323,9 +327,7 @@ pub async fn run() -> anyhow::Result<()> {
         if let Some(free_auth_token) = &config.service.serve_auth_token {
             info!("Serving network subgraph at /network");
 
-            let auth_layer = AsyncRequireAuthorizationLayer::new(FreeQueryAuthorize::new(
-                free_auth_token.to_string(),
-            ));
+            let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
             misc_routes = misc_routes.route(
                 "/network",
                 post(routes::static_subgraph_request_handler)
@@ -344,10 +346,7 @@ pub async fn run() -> anyhow::Result<()> {
         if let Some(free_auth_token) = &config.service.serve_auth_token {
             info!("Serving escrow subgraph at /escrow");
 
-            let auth_layer = AsyncRequireAuthorizationLayer::new(FreeQueryAuthorize::new(
-                free_auth_token.to_string(),
-            ));
-
+            let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
             misc_routes = misc_routes.route(
                 "/escrow",
                 post(routes::static_subgraph_request_handler)
@@ -364,19 +363,19 @@ pub async fn run() -> anyhow::Result<()> {
 
     misc_routes = misc_routes.with_state(state.clone());
 
-    let tap_auth = tap::tap_receipt_authorize(tap_manager, metrics::FAILED_RECEIPT.clone());
+    let failed_receipt_metric = Box::leak(Box::new(metrics::FAILED_RECEIPT.clone()));
+    let tap_auth = auth::tap_receipt_authorize(tap_manager, failed_receipt_metric);
 
     let mut route = post(routes::request_handler);
 
     if let Some(free_auth_token) = &config.service.serve_auth_token {
-        // let free_query = FreeQueryAuthorize::new(free_auth_token.clone());
-        // let result = free_query.or(tap_auth);
-        // AsyncAuthorizeRequest::authorize(&mut result, Request::new(Body::default())).await;
-        // let auth_layer = AsyncRequireAuthorizationLayer::new(result);
-        // route = route.layer(auth_layer);
+        let free_query = Bearer::new(free_auth_token);
+        let result = free_query.or(tap_auth);
+        let auth_layer = AsyncRequireAuthorizationLayer::new(result);
+        route = route.layer(auth_layer).layer(from_fn(context_middleware));
     } else {
         let auth_layer = AsyncRequireAuthorizationLayer::new(tap_auth);
-        route = route.layer(auth_layer);
+        route = route.layer(auth_layer).layer(from_fn(context_middleware));
     }
     let data_routes = Router::new()
         .route(

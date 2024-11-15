@@ -1,20 +1,29 @@
 use std::sync::Arc;
 
-use axum::{body::to_bytes, extract::Request, middleware::Next, response::Response};
+use axum::{
+    body::to_bytes,
+    extract::{Path, Request},
+    middleware::Next,
+    response::Response,
+    RequestExt,
+};
 use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
 
-use crate::tap::AgoraQuery;
+use crate::{error::IndexerError, tap::AgoraQuery};
 
-use super::tap::QueryBody;
+use super::auth::QueryBody;
 
-pub async fn context_middleware(request: Request, next: Next) -> Result<Response, anyhow::Error> {
+pub async fn context_middleware(
+    mut request: Request,
+    next: Next,
+) -> Result<Response, IndexerError> {
     let deployment_id = match request.extensions().get::<DeploymentId>() {
         Some(deployment) => *deployment,
-        None => {
-            // TODO extract from path
-            return Err(anyhow::anyhow!("Could not find deployment id"));
-        }
+        None => match request.extract_parts::<Path<DeploymentId>>().await {
+            Ok(Path(deployment)) => deployment,
+            Err(_) => return Err(IndexerError::DeploymentIdNotFound),
+        },
     };
 
     let (mut parts, body) = request.into_parts();

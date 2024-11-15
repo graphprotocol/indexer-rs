@@ -8,10 +8,7 @@ use axum::{
     response::IntoResponse,
     Extension,
 };
-use indexer_common::{
-    attestations::{AttestableResponse, AttestationOutput},
-    middleware::tap::QueryBody,
-};
+use indexer_common::attestations::{AttestableResponse, AttestationOutput};
 use reqwest::StatusCode;
 use thegraph_core::DeploymentId;
 use tracing::trace;
@@ -27,9 +24,6 @@ pub async fn request_handler(
     req: String,
 ) -> Result<impl IntoResponse, IndexerServiceError> {
     trace!("Handling request for deployment `{manifest_id}`");
-
-    let request: QueryBody =
-        serde_json::from_str(&req).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
     // Check if we have an attestation signer for the allocation the receipt was created for
     let signer = state
         .attestation_signers
@@ -40,7 +34,7 @@ pub async fn request_handler(
 
     let response = state
         .subgraph_service
-        .process_request(manifest_id, request)
+        .process_request(manifest_id, req.clone())
         .await
         .map_err(IndexerServiceError::ProcessingError)?;
 

@@ -41,7 +41,7 @@ impl MetricLabelProvider for SenderAllocationDeploymentLabels {
     }
 }
 
-pub async fn labels_middleware(mut request: Request, next: Next) -> Result<Response, anyhow::Error> {
+pub async fn labels_middleware(mut request: Request, next: Next) -> Response {
     let sender: Option<String> = request
         .extensions()
         .get::<Sender>()
@@ -64,5 +64,5 @@ pub async fn labels_middleware(mut request: Request, next: Next) -> Result<Respo
     });
     request.extensions_mut().insert(labels);
 
-    Ok(next.run(request).await)
+    next.run(request).await
 }

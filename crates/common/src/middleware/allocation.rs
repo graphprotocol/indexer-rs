@@ -32,7 +32,7 @@ pub async fn allocation_middleware(
     State(my_state): State<MyState>,
     mut request: Request,
     next: Next,
-) -> Result<Response, anyhow::Error> {
+) -> Response {
     if let Some(receipt) = request.extensions().get::<SignedReceipt>() {
         let allocation = receipt.message.allocation_id;
         request.extensions_mut().insert(Allocation(allocation));
@@ -42,5 +42,5 @@ pub async fn allocation_middleware(
         }
     }
 
-    Ok(next.run(request).await)
+    next.run(request).await
 }

@@ -19,14 +19,10 @@ impl From<Allocation> for String {
     }
 }
 
-pub async fn deployment_middleware(
-    mut request: Request,
-    next: Next,
-) -> Result<Response, anyhow::Error> {
+pub async fn deployment_middleware(mut request: Request, next: Next) -> Response {
     let deployment_id = request.extract_parts::<Path<DeploymentId>>().await.ok();
     if let Some(Path(deployment_id)) = deployment_id {
         request.extensions_mut().insert(deployment_id);
     }
-
-    Ok(next.run(request).await)
+    next.run(request).await
 }

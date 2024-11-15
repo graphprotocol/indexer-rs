@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use reqwest::Url;
-use serde::Serialize;
 use sqlx::Postgres;
 use thegraph_core::DeploymentId;
 
@@ -28,11 +27,14 @@ impl SubgraphService {
 }
 
 impl SubgraphService {
-    pub async fn process_request<Request: Serialize>(
+    pub async fn process_request<Request>(
         &self,
         deployment: DeploymentId,
         request: Request,
-    ) -> Result<SubgraphServiceResponse, SubgraphServiceError> {
+    ) -> Result<SubgraphServiceResponse, SubgraphServiceError>
+    where
+        reqwest::Body: From<Request>,
+    {
         let deployment_url = self
             .state
             .graph_node_query_base_url
@@ -43,7 +45,7 @@ impl SubgraphService {
             .state
             .graph_node_client
             .post(deployment_url)
-            .json(&request)
+            .body(request)
             .send()
             .await
             .map_err(SubgraphServiceError::QueryForwardingError)?;

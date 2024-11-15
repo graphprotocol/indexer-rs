@@ -1,18 +1,16 @@
 pub mod allocation;
 pub mod async_graphql_metrics;
+pub mod auth;
 pub mod attestation;
 pub mod deployment_id;
-pub mod free_query;
 pub mod inject_labels;
 pub mod inject_tap_context;
 pub mod metrics;
 pub mod receipt;
 pub mod sender;
-pub mod tap;
 pub mod tap_header;
 
 pub use allocation::allocation_middleware;
-pub use tap::TapReceiptAuthorize;
 pub use tap_header::TapReceipt;
 
 #[cfg(test)]
@@ -30,7 +28,7 @@ mod tests {
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
-    use crate::middleware::tap::{self, QueryBody};
+    use crate::middleware::auth::{self, Bearer, OrExt, QueryBody};
     use crate::test_vectors::{NETWORK_SUBGRAPH_DEPLOYMENT, TAP_EIP712_DOMAIN};
     use crate::{
         middleware::{inject_labels::SenderAllocationDeploymentLabels, metrics::MetricLabels},
@@ -38,10 +36,7 @@ mod tests {
         test_vectors::create_signed_receipt,
     };
 
-    use super::{
-        free_query::{FreeQueryAuthorize, OrExt},
-        metrics::MetricsMiddlewareLayer,
-    };
+    use super::metrics::MetricsMiddlewareLayer;
 
     const ALLOCATION_ID: Address = address!("deadbeefcafebabedeadbeefcafebabedeadbeef");
 
@@ -70,8 +65,8 @@ mod tests {
             )
             .unwrap(),
         ));
-        let free_query = FreeQueryAuthorize::new(token.clone());
-        let tap_auth = tap::tap_receipt_authorize_2(tap_manager, metric);
+        let free_query = Bearer::new(&token);
+        let tap_auth = auth::tap_receipt_authorize(tap_manager, metric);
         let authorize_requests = free_query.or(tap_auth);
 
         let authorization_middleware = AsyncRequireAuthorizationLayer::new(authorize_requests);

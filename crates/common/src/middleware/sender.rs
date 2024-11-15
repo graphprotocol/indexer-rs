@@ -9,7 +9,7 @@ use axum::{
 use tap_core::receipt::SignedReceipt;
 use tokio::sync::watch;
 
-use crate::escrow_accounts::EscrowAccounts;
+use crate::{error::IndexerError, escrow_accounts::EscrowAccounts};
 
 pub struct MyState {
     domain_separator: Eip712Domain,
@@ -29,7 +29,7 @@ pub async fn sender_middleware(
     State(state): State<MyState>,
     mut request: Request,
     next: Next,
-) -> Result<Response, anyhow::Error> {
+) -> Result<Response, IndexerError> {
     if let Some(receipt) = request.extensions().get::<SignedReceipt>() {
         let signer = receipt.recover_signer(&state.domain_separator)?;
         let sender = state
