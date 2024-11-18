@@ -203,7 +203,7 @@ mod tests {
     use tokio::sync::watch;
 
     use crate::test_vectors;
-    use test_vector::{self, create_signed_receipt, TAP_EIP712_DOMAIN, TAP_SENDER};
+    use test_tap_utils::{self, create_signed_receipt, TAP_EIP712_DOMAIN, TAP_SENDER};
 
     use super::*;
 

@@ -3498,7 +3498,7 @@ dependencies = [
  "sqlx",
  "tap_core",
  "test-log",
- "test-vector",
+ "test-tap-utils",
  "thegraph-core",
  "thegraph-graphql-http",
  "thiserror",
@@ -3583,7 +3583,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tap_core",
- "test-vector",
+ "test-tap-utils",
  "thegraph-core",
  "thegraph-graphql-http",
  "thiserror",
@@ -6699,7 +6699,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-vector"
+name = "test-tap-utils"
 version = "0.1.0"
 dependencies = [
  "alloy",

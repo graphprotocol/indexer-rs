@@ -48,7 +48,7 @@ axum-extra = { version = "0.9.3", features = [
 
 [dev-dependencies]
 hex-literal = "0.4.1"
-test-vector = { path = "../test-vector" }
+test-tap-utils = { path = "../tests/tap-utils" }
 
 [build-dependencies]
 build-info-build = { version = "0.0.39", default-features = false }
