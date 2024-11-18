@@ -14,6 +14,15 @@ use axum::{
 };
 use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
+use indexer_common::{
+    address::public_key,
+    escrow_accounts::{EscrowAccounts, EscrowAccountsError},
+    prelude::{
+        attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
+        AttestationSigner, DeploymentDetails, SubgraphClient,
+    },
+    tap::IndexerTapContext,
+};
 use prometheus::TextEncoder;
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Serialize};
@@ -30,22 +39,10 @@ use tokio::signal;
 use tokio::sync::watch::Receiver;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::TraceLayer};
-use tracing::error;
-use tracing::{info, info_span};
+use tracing::{error, info, info_span};
 
 use super::request_handler::request_handler;
-use crate::escrow_accounts::EscrowAccounts;
-use crate::escrow_accounts::EscrowAccountsError;
-use crate::indexer_service::http::health::health;
-use crate::{
-    address::public_key,
-    indexer_service::http::static_subgraph::static_subgraph_request_handler,
-    prelude::{
-        attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
-        AttestationSigner, DeploymentDetails, SubgraphClient,
-    },
-    tap::IndexerTapContext,
-};
+use super::{health::health, static_subgraph::static_subgraph_request_handler};
 use indexer_config::Config;
 
 pub trait IndexerServiceResponse {

@@ -10,6 +10,7 @@ license = "Apache-2.0"
 indexer-common = { path = "../common" }
 indexer-config = { path = "../config" }
 indexer-dips = { path = "../dips" }
+indexer-query = { path = "../query" }
 anyhow = { workspace = true }
 prometheus = { workspace = true }
 reqwest = { workspace = true }
@@ -22,6 +23,7 @@ axum.workspace = true
 sqlx.workspace = true
 thegraph-core.workspace = true
 thegraph-graphql-http.workspace = true
+graphql_client.workspace = true
 tracing-subscriber = { workspace = true, features = ["fmt"] }
 clap = { workspace = true, features = ["derive"] }
 build-info.workspace = true
@@ -30,11 +32,23 @@ async-graphql = { version = "7.0.11", default-features = false }
 async-graphql-axum = "7.0.11"
 base64.workspace = true
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0" }
+tap_core.workspace = true
 uuid.workspace = true
 alloy.workspace = true
- 
+tower_governor = "0.4.0"
+tower-http = { version = "0.5.2", features = [
+  "cors",
+  "normalize-path",
+  "trace",
+] }
+autometrics = { version = "1.0.1", features = ["prometheus-exporter"] }
+axum-extra = { version = "0.9.3", features = [
+  "typed-header",
+], default-features = false }
+
 [dev-dependencies]
 hex-literal = "0.4.1"
+test-vector = { path = "../test-vector" }
 
 [build-dependencies]
 build-info-build = { version = "0.0.39", default-features = false }

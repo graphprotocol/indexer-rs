@@ -4,7 +4,7 @@
 use axum::{body::Bytes, http::HeaderMap, response::IntoResponse, Extension};
 use tracing::warn;
 
-use crate::subgraph_client::SubgraphClient;
+use indexer_common::subgraph_client::SubgraphClient;
 
 use super::{indexer_service::IndexerServiceError, IndexerServiceImpl};
 
