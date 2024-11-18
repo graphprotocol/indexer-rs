@@ -3498,6 +3498,7 @@ dependencies = [
  "sqlx",
  "tap_core",
  "test-log",
+ "test-vector",
  "thegraph-core",
  "thegraph-graphql-http",
  "thiserror",

@@ -202,7 +202,8 @@ mod tests {
     use tap_core::receipt::{Context, ReceiptWithState};
     use tokio::sync::watch;
 
-    use crate::test_vectors::{self, create_signed_receipt, TAP_SENDER};
+    use crate::test_vectors;
+    use test_vector::{self, create_signed_receipt, TAP_EIP712_DOMAIN, TAP_SENDER};
 
     use super::*;
 
@@ -216,12 +217,7 @@ mod tests {
         ))
         .1;
 
-        DenyListCheck::new(
-            pgpool,
-            escrow_accounts_rx,
-            test_vectors::TAP_EIP712_DOMAIN.to_owned(),
-        )
-        .await
+        DenyListCheck::new(pgpool, escrow_accounts_rx, TAP_EIP712_DOMAIN.to_owned()).await
     }
 
     #[sqlx::test(migrations = "../../migrations")]
