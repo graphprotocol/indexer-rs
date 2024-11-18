@@ -13,9 +13,6 @@ use axum::{
     routing::{post, post_service},
     Json, Router,
 };
-use indexer_common::indexer_service::http::{
-    AttestationOutput, IndexerServiceImpl, IndexerServiceResponse,
-};
 use indexer_config::{Config, DipsConfig};
 use reqwest::Url;
 use serde::{de::DeserializeOwned, Serialize};
@@ -31,13 +28,19 @@ use crate::{
         dips::{AgreementStore, InMemoryAgreementStore},
     },
     routes::dips::Price,
+    service::indexer_service::{
+        AttestationOutput, IndexerService, IndexerServiceImpl, IndexerServiceOptions,
+        IndexerServiceRelease, IndexerServiceResponse,
+    },
 };
-
 use clap::Parser;
-use indexer_common::indexer_service::http::{
-    IndexerService, IndexerServiceOptions, IndexerServiceRelease,
-};
 use tracing::error;
+
+mod health;
+mod indexer_service;
+mod request_handler;
+mod static_subgraph;
+mod tap_receipt_header;
 
 #[derive(Debug)]
 struct SubgraphServiceResponse {

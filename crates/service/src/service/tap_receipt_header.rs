@@ -71,7 +71,7 @@ mod test {
     use axum::http::HeaderValue;
     use axum_extra::headers::Header;
 
-    use crate::test_vectors::create_signed_receipt;
+    use test_tap_utils::create_signed_receipt;
 
     use super::TapReceipt;
 

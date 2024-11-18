@@ -348,6 +348,7 @@ enum CostModelNotification {
 mod tests {
     use alloy::primitives::{address, Address};
     use std::time::Duration;
+    use test_tap_utils::create_signed_receipt;
 
     use sqlx::PgPool;
     use tap_core::receipt::{checks::Check, Context, ReceiptWithState};
@@ -356,7 +357,6 @@ mod tests {
     use crate::{
         cost_model::test::{add_cost_models, global_cost_model, to_db_models},
         tap::AgoraQuery,
-        test_vectors::create_signed_receipt,
     };
 
     use super::MinimumValue;

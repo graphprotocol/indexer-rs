@@ -9,21 +9,19 @@ use axum::{
     response::IntoResponse,
 };
 use axum_extra::TypedHeader;
+use indexer_common::tap::AgoraQuery;
 use lazy_static::lazy_static;
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use reqwest::StatusCode;
+use serde_json::value::RawValue;
 use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
 use tracing::trace;
 
-use serde_json::value::RawValue;
-
-use crate::{indexer_service::http::IndexerServiceResponse, tap::AgoraQuery};
-
 use super::{
     indexer_service::{AttestationOutput, IndexerServiceError, IndexerServiceState},
     tap_receipt_header::TapReceipt,
-    IndexerServiceImpl,
+    IndexerServiceImpl, IndexerServiceResponse,
 };
 
 lazy_static! {
