@@ -36,7 +36,9 @@ use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::sync::watch::Receiver;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_http::validate_request::ValidateRequestHeaderLayer;
 use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::TraceLayer};
+use tracing::warn;
 use tracing::{error, info, info_span};
 
 use crate::routes::health;
@@ -414,12 +416,21 @@ impl IndexerService {
         }
 
         if options.config.service.serve_escrow_subgraph {
-            info!("Serving escrow subgraph at /escrow");
+            if let Some(free_auth_token) = &options.config.service.serve_auth_token {
+                info!("Serving escrow subgraph at /escrow");
 
-            misc_routes = misc_routes
-                .route("/escrow", post(static_subgraph_request_handler))
-                .route_layer(Extension(escrow_subgraph))
-                .route_layer(static_subgraph_rate_limiter);
+                let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
+
+                misc_routes = misc_routes
+                    .route(
+                        "/escrow",
+                        post(static_subgraph_request_handler).route_layer(auth_layer),
+                    )
+                    .route_layer(Extension(escrow_subgraph))
+                    .route_layer(static_subgraph_rate_limiter);
+            } else {
+                warn!("`serve_escrow_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
+            }
         }
 
         misc_routes = misc_routes.with_state(state.clone());
