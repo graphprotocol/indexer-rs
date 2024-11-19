@@ -10,7 +10,7 @@ use axum::{
     async_trait,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension, Json, Router,
+    Json, Router,
 };
 use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
@@ -409,7 +409,6 @@ impl IndexerService {
                 "/network",
                 post(static_subgraph_request_handler)
                     .route_layer(Extension(network_subgraph))
-                    .route_layer(Extension(options.config.service.serve_auth_token.clone()))
                     .route_layer(static_subgraph_rate_limiter.clone()),
             );
         }
@@ -420,7 +419,6 @@ impl IndexerService {
             misc_routes = misc_routes
                 .route("/escrow", post(static_subgraph_request_handler))
                 .route_layer(Extension(escrow_subgraph))
-                .route_layer(Extension(options.config.service.serve_auth_token.clone()))
                 .route_layer(static_subgraph_rate_limiter);
         }
 
