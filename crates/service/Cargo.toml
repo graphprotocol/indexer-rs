@@ -39,6 +39,7 @@ uuid.workspace = true
 alloy.workspace = true
 tower_governor = "0.4.0"
 tower-http = { version = "0.5.2", features = [
+  "auth",
   "cors",
   "normalize-path",
   "trace",
