@@ -405,14 +405,21 @@ impl IndexerService {
             .layer(misc_rate_limiter);
 
         if options.config.service.serve_network_subgraph {
-            info!("Serving network subgraph at /network");
+            if let Some(free_auth_token) = &options.config.service.serve_auth_token {
+                info!("Serving network subgraph at /network");
 
-            misc_routes = misc_routes.route(
-                "/network",
-                post(static_subgraph_request_handler)
-                    .route_layer(Extension(network_subgraph))
-                    .route_layer(static_subgraph_rate_limiter.clone()),
-            );
+                let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
+
+                misc_routes = misc_routes.route(
+                    "/network",
+                    post(static_subgraph_request_handler)
+                        .route_layer(auth_layer)
+                        .route_layer(Extension(network_subgraph))
+                        .route_layer(static_subgraph_rate_limiter.clone()),
+                );
+            } else {
+                warn!("`serve_network_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
+            }
         }
 
         if options.config.service.serve_escrow_subgraph {
@@ -424,9 +431,10 @@ impl IndexerService {
                 misc_routes = misc_routes
                     .route(
                         "/escrow",
-                        post(static_subgraph_request_handler).route_layer(auth_layer),
+                        post(static_subgraph_request_handler)
+                            .route_layer(auth_layer)
+                            .route_layer(Extension(escrow_subgraph)),
                     )
-                    .route_layer(Extension(escrow_subgraph))
                     .route_layer(static_subgraph_rate_limiter);
             } else {
                 warn!("`serve_escrow_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
