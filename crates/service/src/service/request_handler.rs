@@ -3,13 +3,13 @@
 
 use std::sync::Arc;
 
+use crate::tap::AgoraQuery;
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
     response::IntoResponse,
 };
 use axum_extra::TypedHeader;
-use indexer_common::tap::AgoraQuery;
 use lazy_static::lazy_static;
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use reqwest::StatusCode;

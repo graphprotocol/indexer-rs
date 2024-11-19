@@ -1,10 +1,10 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::escrow_accounts::EscrowAccounts;
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::U256;
 use anyhow::anyhow;
+use indexer_common::escrow_accounts::EscrowAccounts;
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,

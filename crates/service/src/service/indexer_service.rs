@@ -21,7 +21,6 @@ use indexer_common::{
         attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
         AttestationSigner, DeploymentDetails, SubgraphClient,
     },
-    tap::IndexerTapContext,
 };
 use prometheus::TextEncoder;
 use reqwest::StatusCode;
@@ -43,6 +42,7 @@ use tracing::{error, info, info_span};
 
 use super::request_handler::request_handler;
 use super::{health::health, static_subgraph::static_subgraph_request_handler};
+use crate::tap::IndexerTapContext;
 use indexer_config::Config;
 
 pub trait IndexerServiceResponse {

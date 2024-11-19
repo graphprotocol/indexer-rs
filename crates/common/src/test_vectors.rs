@@ -179,45 +179,4 @@ lazy_static! {
             },
         ),
     ]);
-
-    pub static ref ESCROW_ACCOUNTS_BALANCES: HashMap<Address, U256> = HashMap::from([
-        (Address::from_str("0x9858EfFD232B4033E47d90003D41EC34EcaEda94").unwrap(), U256::from(24)), // TAP_SENDER
-        (Address::from_str("0x22d491bde2303f2f43325b2108d26f1eaba1e32b").unwrap(), U256::from(42)),
-        (Address::from_str("0x192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002").unwrap(), U256::from(2975)),
-    ]);
-
-    /// Maps signers back to their senders
-    pub static ref ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS: HashMap<Address, Address> = HashMap::from([
-        (
-            Address::from_str("0x533661F0fb14d2E8B26223C86a610Dd7D2260892").unwrap(), // TAP_SIGNER
-            Address::from_str("0x9858EfFD232B4033E47d90003D41EC34EcaEda94").unwrap(), // TAP_SENDER
-        ),
-        (
-            Address::from_str("0x2740f6fA9188cF53ffB6729DDD21575721dE92ce").unwrap(),
-            Address::from_str("0x9858EfFD232B4033E47d90003D41EC34EcaEda94").unwrap(), // TAP_SENDER
-        ),
-        (
-            Address::from_str("0x245059163ff6ee14279aa7b35ea8f0fdb967df6e").unwrap(),
-            Address::from_str("0x22d491bde2303f2f43325b2108d26f1eaba1e32b").unwrap(),
-        ),
-    ]);
-
-    pub static ref ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS: HashMap<Address, Vec<Address>> = HashMap::from([
-        (
-            Address::from_str("0x9858EfFD232B4033E47d90003D41EC34EcaEda94").unwrap(), // TAP_SENDER
-            vec![
-                Address::from_str("0x533661F0fb14d2E8B26223C86a610Dd7D2260892").unwrap(), // TAP_SIGNER
-                Address::from_str("0x2740f6fA9188cF53ffB6729DDD21575721dE92ce").unwrap(),
-            ],
-        ),
-        (
-            Address::from_str("0x22d491bde2303f2f43325b2108d26f1eaba1e32b").unwrap(),
-            vec![Address::from_str("0x245059163ff6ee14279aa7b35ea8f0fdb967df6e").unwrap()],
-        ),
-        (
-            Address::from_str("0x192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002").unwrap(),
-            vec![],
-        ),
-    ]);
-
 }

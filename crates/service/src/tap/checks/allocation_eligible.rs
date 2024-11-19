@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use alloy::primitives::Address;
 use anyhow::anyhow;
 
+use indexer_common::allocations::Allocation;
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
@@ -13,7 +14,6 @@ use tap_core::receipt::{
 };
 use tokio::sync::watch::Receiver;
 
-use crate::prelude::Allocation;
 pub struct AllocationEligible {
     indexer_allocations: Receiver<HashMap<Address, Allocation>>,
 }

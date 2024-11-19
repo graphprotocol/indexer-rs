@@ -24,7 +24,7 @@ use tap_core::receipt::{
     Context, ReceiptWithState,
 };
 
-use crate::cost_model;
+use crate::database::cost_model;
 
 // we only accept receipts with minimal 1 wei grt
 const MINIMAL_VALUE: u128 = 1;
@@ -354,9 +354,9 @@ mod tests {
     use tap_core::receipt::{checks::Check, Context, ReceiptWithState};
     use tokio::time::sleep;
 
-    use crate::{
-        cost_model::test::{add_cost_models, global_cost_model, to_db_models},
-        tap::AgoraQuery,
+    use super::AgoraQuery;
+    use crate::database::cost_model::test::{
+        self, add_cost_models, global_cost_model, to_db_models,
     };
 
     use super::MinimumValue;
@@ -370,7 +370,7 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_initialize_check_with_models(pgpool: PgPool) {
         // insert 2 cost models for different deployment_id
-        let test_models = crate::cost_model::test::test_data();
+        let test_models = test::test_data();
 
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
@@ -387,7 +387,7 @@ mod tests {
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
 
         // insert 2 cost models for different deployment_id
-        let test_models = crate::cost_model::test::test_data();
+        let test_models = test::test_data();
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
         sleep(Duration::from_millis(200)).await;
 
@@ -400,7 +400,7 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_watch_model_remove(pgpool: PgPool) {
         // insert 2 cost models for different deployment_id
-        let test_models = crate::cost_model::test::test_data();
+        let test_models = test::test_data();
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
         let check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
@@ -460,7 +460,7 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_check_minimal_value(pgpool: PgPool) {
         // insert cost models for different deployment_id
-        let test_models = crate::cost_model::test::test_data();
+        let test_models = test::test_data();
 
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
@@ -534,7 +534,7 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_check_using_global(pgpool: PgPool) {
         // insert cost models for different deployment_id
-        let test_models = crate::cost_model::test::test_data();
+        let test_models = test::test_data();
         let global_model = global_cost_model();
 
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
