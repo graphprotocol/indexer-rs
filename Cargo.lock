@@ -3490,7 +3490,6 @@ dependencies = [
  "indexer-query",
  "lazy_static",
  "prometheus",
- "regex",
  "reqwest 0.12.9",
  "serde",
  "serde_json",
