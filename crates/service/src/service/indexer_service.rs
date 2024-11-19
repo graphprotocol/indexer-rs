@@ -91,8 +91,6 @@ where
     InvalidFreeQueryAuthToken,
     #[error("Failed to sign attestation")]
     FailedToSignAttestation,
-    #[error("Failed to query subgraph: {0}")]
-    FailedToQueryStaticSubgraph(anyhow::Error),
 
     #[error("Could not decode signer: {0}")]
     CouldNotDecodeSigner(tap_core::Error),
@@ -124,8 +122,6 @@ where
             | CouldNotDecodeSigner(_)
             | EscrowAccount(_)
             | ProcessingError(_) => StatusCode::BAD_REQUEST,
-
-            FailedToQueryStaticSubgraph(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         tracing::error!(%self, "An IndexerServiceError occoured.");
         (
@@ -409,7 +405,7 @@ impl IndexerService {
 
             misc_routes = misc_routes.route(
                 "/network",
-                post(static_subgraph_request_handler::<I>)
+                post(static_subgraph_request_handler)
                     .route_layer(Extension(network_subgraph))
                     .route_layer(Extension(options.config.service.serve_auth_token.clone()))
                     .route_layer(static_subgraph_rate_limiter.clone()),
@@ -420,7 +416,7 @@ impl IndexerService {
             info!("Serving escrow subgraph at /escrow");
 
             misc_routes = misc_routes
-                .route("/escrow", post(static_subgraph_request_handler::<I>))
+                .route("/escrow", post(static_subgraph_request_handler))
                 .route_layer(Extension(escrow_subgraph))
                 .route_layer(Extension(options.config.service.serve_auth_token.clone()))
                 .route_layer(static_subgraph_rate_limiter);
