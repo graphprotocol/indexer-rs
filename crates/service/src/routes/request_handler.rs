@@ -18,10 +18,9 @@ use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
 use tracing::trace;
 
-use super::{
-    indexer_service::{AttestationOutput, IndexerServiceError, IndexerServiceState},
-    tap_receipt_header::TapReceipt,
-    IndexerServiceImpl, IndexerServiceResponse,
+use crate::service::{
+    AttestationOutput, IndexerServiceError, IndexerServiceImpl, IndexerServiceResponse,
+    IndexerServiceState, TapReceipt,
 };
 
 lazy_static! {
