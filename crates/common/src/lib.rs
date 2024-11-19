@@ -5,7 +5,6 @@ pub mod address;
 pub mod allocations;
 pub mod attestations;
 pub mod escrow_accounts;
-pub mod graphql;
 pub mod subgraph_client;
 pub mod watcher;
 
