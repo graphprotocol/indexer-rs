@@ -14,7 +14,7 @@ use thiserror::Error;
 use tokio::sync::watch::Receiver;
 use tracing::{error, warn};
 
-use crate::{prelude::SubgraphClient, watcher};
+use crate::{client::SubgraphClient, watcher};
 
 #[derive(Error, Debug)]
 pub enum EscrowAccountsError {
@@ -172,7 +172,7 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    use crate::prelude::DeploymentDetails;
+    use crate::client::DeploymentDetails;
     use crate::test_vectors;
 
     use super::*;

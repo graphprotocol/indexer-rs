@@ -6,74 +6,11 @@ use anyhow::anyhow;
 use axum::body::Bytes;
 use graphql_client::GraphQLQuery;
 use reqwest::{header, Url};
-use serde_json::{Map, Value};
 use thegraph_core::DeploymentId;
-use thegraph_graphql_http::{
-    graphql::{Document, IntoDocument},
-    http::request::{IntoRequestParameters, RequestParameters},
-};
 use tokio::sync::watch::Receiver;
 use tracing::warn;
 
-#[derive(Clone)]
-pub struct Query {
-    pub query: Document,
-    pub variables: Map<String, Value>,
-}
-
 pub type ResponseResult<T> = Result<T, anyhow::Error>;
-
-impl Query {
-    pub fn new(query: &str) -> Self {
-        Self {
-            query: query.into_document(),
-            variables: Map::default(),
-        }
-    }
-
-    pub fn new_with_variables(
-        query: impl IntoDocument,
-        variables: impl Into<QueryVariables>,
-    ) -> Self {
-        Self {
-            query: query.into_document(),
-            variables: variables.into().into(),
-        }
-    }
-}
-
-pub struct QueryVariables(Map<String, Value>);
-
-impl<'a, T> From<T> for QueryVariables
-where
-    T: IntoIterator<Item = (&'a str, Value)>,
-{
-    fn from(variables: T) -> Self {
-        Self(
-            variables
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), v))
-                .collect::<Map<_, _>>(),
-        )
-    }
-}
-
-impl From<QueryVariables> for Map<String, Value> {
-    fn from(variables: QueryVariables) -> Self {
-        variables.0
-    }
-}
-
-impl IntoRequestParameters for Query {
-    fn into_request_parameters(self) -> RequestParameters {
-        RequestParameters {
-            query: self.query.into_document(),
-            variables: self.variables,
-            extensions: Map::default(),
-            operation_name: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct DeploymentDetails {

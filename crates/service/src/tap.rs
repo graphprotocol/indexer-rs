@@ -9,7 +9,7 @@ use crate::tap::checks::timestamp_check::TimestampCheck;
 use crate::tap::checks::value_check::MinimumValue;
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::Address;
-use indexer_common::{escrow_accounts::EscrowAccounts, prelude::Allocation};
+use indexer_common::{Allocation, EscrowAccounts};
 use receipt_store::{DatabaseReceipt, InnerContext};
 use sqlx::PgPool;
 use std::fmt::Debug;

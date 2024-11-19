@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use alloy::primitives::Address;
 use anyhow::anyhow;
 
-use indexer_common::allocations::Allocation;
+use indexer_common::Allocation;
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,

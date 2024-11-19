@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 indexer-config = { path = "../config" }
 indexer-query = { path = "../query" }
+indexer-types = { path = "../types" }
 thiserror.workspace = true
 async-trait.workspace = true
 alloy.workspace = true
@@ -20,7 +21,6 @@ prometheus.workspace = true
 thegraph-core.workspace = true
 axum.workspace = true
 lazy_static.workspace = true
-thegraph-graphql-http.workspace = true
 build-info.workspace = true
 graphql_client.workspace = true
 

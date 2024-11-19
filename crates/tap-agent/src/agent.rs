@@ -1,8 +1,9 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use indexer_common::prelude::{
-    escrow_accounts, indexer_allocations, DeploymentDetails, SubgraphClient,
+use indexer_common::{
+    monitors::{escrow_accounts, indexer_allocations},
+    DeploymentDetails, SubgraphClient,
 };
 use indexer_config::{
     Config, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,

@@ -1,0 +1,11 @@
+[package]
+name = "indexer-types"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+indexer-query = { path = "../query" }
+serde = { workspace = true, features = ["derive"] }
+alloy.workspace = true
+thegraph-core.workspace = true
+anyhow.workspace = true

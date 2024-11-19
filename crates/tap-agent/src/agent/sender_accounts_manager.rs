@@ -16,8 +16,8 @@ use anyhow::Result;
 use anyhow::{anyhow, bail};
 use futures::{stream, StreamExt};
 use indexer_common::escrow_accounts::EscrowAccounts;
-use indexer_common::prelude::{Allocation, SubgraphClient};
 use indexer_common::watcher::watch_pipe;
+use indexer_common::{Allocation, SubgraphClient};
 use prometheus::{register_counter_vec, CounterVec};
 use ractor::concurrency::JoinHandle;
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
@@ -593,8 +593,8 @@ mod tests {
         ALLOCATION_ID_1, INDEXER, SENDER, SENDER_2, SENDER_3, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };
     use alloy::hex::ToHexExt;
+    use indexer_common::client::{DeploymentDetails, SubgraphClient};
     use indexer_common::escrow_accounts::EscrowAccounts;
-    use indexer_common::prelude::{DeploymentDetails, SubgraphClient};
     use ractor::concurrency::JoinHandle;
     use ractor::{Actor, ActorProcessingErr, ActorRef};
     use reqwest::Url;
