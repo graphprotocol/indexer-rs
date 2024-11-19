@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use axum::{
-    extract::Path,
+    extract::{Path, State},
     response::{IntoResponse, Response as AxumResponse},
-    Extension, Json,
+    Json,
 };
 use graphql_client::GraphQLQuery;
 use indexer_config::GraphNodeConfig;
@@ -43,7 +43,7 @@ impl IntoResponse for CheckHealthError {
 
 pub async fn health(
     Path(deployment_id): Path<String>,
-    Extension(graph_node): Extension<GraphNodeConfig>,
+    State(graph_node): State<GraphNodeConfig>,
 ) -> Result<impl IntoResponse, CheckHealthError> {
     let req_body = HealthQuery::build_query(health_query::Variables {
         ids: vec![deployment_id],

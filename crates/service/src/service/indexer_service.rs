@@ -396,8 +396,10 @@ impl IndexerService {
 
         // Check subgraph Health
         misc_routes = misc_routes
-            .route("/subgraph/health/:deployment_id", get(health))
-            .route_layer(Extension(options.config.graph_node.clone()))
+            .route(
+                "/subgraph/health/:deployment_id",
+                get(health).with_state(options.config.graph_node.clone()),
+            )
             .layer(misc_rate_limiter);
 
         if options.config.service.serve_network_subgraph {
