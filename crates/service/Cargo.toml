@@ -54,7 +54,7 @@ cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
 
 [dev-dependencies]
 hex-literal = "0.4.1"
-test-tap-utils = { path = "../tests/tap-utils" }
+test-assets = { path = "../test-assets" }
 
 [build-dependencies]
 build-info-build = { version = "0.0.39", default-features = false }

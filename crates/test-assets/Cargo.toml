@@ -1,12 +1,12 @@
 [package]
-name = "test-tap-utils"
+name = "test-assets"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+indexer-allocation = { path = "../allocation" }
 alloy.workspace = true
 bip39 = "2.0.0"
 lazy_static.workspace = true
 tap_core.workspace = true
 thegraph-core.workspace = true
-indexer-allocation = { path = "../../allocation" }

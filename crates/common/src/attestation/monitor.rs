@@ -75,7 +75,7 @@ fn modify_sigers(
 mod tests {
     use tokio::sync::watch;
 
-    use crate::test_vectors::{DISPUTE_MANAGER_ADDRESS, INDEXER_ALLOCATIONS, INDEXER_MNEMONIC};
+    use test_assets::{DISPUTE_MANAGER_ADDRESS, INDEXER_ALLOCATIONS, INDEXER_MNEMONIC};
 
     use super::*;
 

@@ -121,8 +121,8 @@ mod tests {
     use std::str::FromStr;
     use test_log::test;
 
-    use crate::test_vectors::DISPUTE_MANAGER_ADDRESS;
     use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
+    use test_assets::DISPUTE_MANAGER_ADDRESS;
 
     use super::*;
 

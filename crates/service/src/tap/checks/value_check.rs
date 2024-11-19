@@ -348,7 +348,7 @@ enum CostModelNotification {
 mod tests {
     use alloy::primitives::{address, Address};
     use std::time::Duration;
-    use test_tap_utils::create_signed_receipt;
+    use test_assets::create_signed_receipt;
 
     use sqlx::PgPool;
     use tap_core::receipt::{checks::Check, Context, ReceiptWithState};

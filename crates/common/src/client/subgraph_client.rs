@@ -254,8 +254,6 @@ mod test {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    use crate::test_vectors::{self};
-
     use super::*;
 
     const NETWORK_SUBGRAPH_URL: &str =
@@ -266,7 +264,7 @@ mod test {
         let mock = Mock::given(method("POST"))
             .and(path(format!(
                 "/subgraphs/id/{}",
-                *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
+                *test_assets::NETWORK_SUBGRAPH_DEPLOYMENT
             )))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
                 r#"

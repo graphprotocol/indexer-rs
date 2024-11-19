@@ -3507,8 +3507,8 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tap_core",
+ "test-assets",
  "test-log",
- "test-tap-utils",
  "thegraph-core",
  "thiserror",
  "tokio",
@@ -3595,7 +3595,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tap_core",
- "test-tap-utils",
+ "test-assets",
  "thegraph-core",
  "thegraph-graphql-http",
  "thiserror",
@@ -6693,6 +6693,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-assets"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "bip39",
+ "indexer-allocation",
+ "lazy_static",
+ "tap_core",
+ "thegraph-core",
+]
+
+[[package]]
 name = "test-log"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6710,18 +6722,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.79",
-]
-
-[[package]]
-name = "test-tap-utils"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "bip39",
- "indexer-allocation",
- "lazy_static",
- "tap_core",
- "thegraph-core",
 ]
 
 [[package]]

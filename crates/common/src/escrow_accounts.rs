@@ -165,7 +165,7 @@ async fn get_escrow_accounts(
 #[cfg(test)]
 mod tests {
     use test_log::test;
-    use test_tap_utils::{
+    use test_assets::{
         ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
         ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS,
     };
@@ -173,7 +173,6 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use crate::client::DeploymentDetails;
-    use crate::test_vectors;
 
     use super::*;
 
@@ -201,7 +200,7 @@ mod tests {
                 DeploymentDetails::for_query_url(&format!(
                     "{}/subgraphs/id/{}",
                     &mock_server.uri(),
-                    *test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT
+                    *test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
                 ))
                 .unwrap(),
             )
@@ -211,17 +210,17 @@ mod tests {
         let mock = Mock::given(method("POST"))
             .and(path(format!(
                 "/subgraphs/id/{}",
-                *test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT
+                *test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
             )))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_raw(test_vectors::ESCROW_QUERY_RESPONSE, "application/json"),
+                    .set_body_raw(test_assets::ESCROW_QUERY_RESPONSE, "application/json"),
             );
         mock_server.register(mock).await;
 
         let mut accounts = escrow_accounts(
             escrow_subgraph,
-            *test_vectors::INDEXER_ADDRESS,
+            *test_assets::INDEXER_ADDRESS,
             Duration::from_secs(60),
             true,
         )

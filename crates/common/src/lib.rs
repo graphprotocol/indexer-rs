@@ -9,9 +9,6 @@ pub mod escrow_accounts;
 pub mod wallet;
 pub mod watcher;
 
-#[cfg(test)]
-mod test_vectors;
-
 pub mod monitors {
     pub use super::allocations::indexer_allocations;
     pub use super::attestation::attestation_signers;
