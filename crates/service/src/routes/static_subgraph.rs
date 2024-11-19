@@ -6,7 +6,7 @@ use tracing::warn;
 
 use indexer_common::SubgraphClient;
 
-use super::{indexer_service::IndexerServiceError, IndexerServiceImpl};
+use crate::service::{IndexerServiceError, IndexerServiceImpl};
 
 #[autometrics::autometrics]
 pub async fn static_subgraph_request_handler<I>(

@@ -39,8 +39,9 @@ use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::TraceLayer};
 use tracing::{error, info, info_span};
 
-use super::request_handler::request_handler;
-use super::{health::health, static_subgraph::static_subgraph_request_handler};
+use crate::routes::health;
+use crate::routes::request_handler;
+use crate::routes::static_subgraph_request_handler;
 use crate::tap::IndexerTapContext;
 use indexer_config::Config;
 

@@ -28,19 +28,19 @@ use crate::{
         dips::{AgreementStore, InMemoryAgreementStore},
     },
     routes::dips::Price,
-    service::indexer_service::{
-        AttestationOutput, IndexerService, IndexerServiceImpl, IndexerServiceOptions,
-        IndexerServiceRelease, IndexerServiceResponse,
-    },
+    service::indexer_service::{IndexerService, IndexerServiceOptions, IndexerServiceRelease},
 };
 use clap::Parser;
 use tracing::error;
 
-mod health;
 mod indexer_service;
-mod request_handler;
-mod static_subgraph;
 mod tap_receipt_header;
+
+pub use indexer_service::{
+    AttestationOutput, IndexerServiceError, IndexerServiceImpl, IndexerServiceResponse,
+    IndexerServiceState,
+};
+pub use tap_receipt_header::TapReceipt;
 
 #[derive(Debug)]
 struct SubgraphServiceResponse {
