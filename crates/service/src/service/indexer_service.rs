@@ -15,12 +15,11 @@ use axum::{
 use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
 use indexer_common::{
-    address::public_key,
+    attestation::AttestationSigner,
+    client::{DeploymentDetails, SubgraphClient},
     escrow_accounts::{EscrowAccounts, EscrowAccountsError},
-    prelude::{
-        attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
-        AttestationSigner, DeploymentDetails, SubgraphClient,
-    },
+    monitors::{attestation_signers, dispute_manager, escrow_accounts, indexer_allocations},
+    wallet::public_key,
 };
 use prometheus::TextEncoder;
 use reqwest::StatusCode;

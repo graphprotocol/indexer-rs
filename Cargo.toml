@@ -6,6 +6,7 @@ members = [
   "crates/query",
   "crates/service",
   "crates/tap-agent",
+  "crates/types",
   "crates/tests/tap-utils",
 ]
 resolver = "2"

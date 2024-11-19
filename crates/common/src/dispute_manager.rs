@@ -1,8 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::subgraph_client::SubgraphClient;
-use crate::watcher::new_watcher;
+use crate::{client::SubgraphClient, watcher::new_watcher};
 use alloy::primitives::Address;
 use anyhow::Error;
 use indexer_query::dispute_manager::{self, DisputeManager};
@@ -35,8 +34,8 @@ mod test {
     };
 
     use crate::{
-        prelude::SubgraphClient,
-        subgraph_client::DeploymentDetails,
+        client::DeploymentDetails,
+        client::SubgraphClient,
         test_vectors::{self, DISPUTE_MANAGER_ADDRESS},
     };
 

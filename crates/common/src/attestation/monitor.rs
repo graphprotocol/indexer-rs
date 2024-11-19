@@ -8,10 +8,8 @@ use thegraph_core::{Address, ChainId};
 use tokio::sync::watch::Receiver;
 use tracing::warn;
 
-use crate::{
-    prelude::{Allocation, AttestationSigner},
-    watcher::join_and_map_watcher,
-};
+use crate::{attestation::signer::AttestationSigner, watcher::join_and_map_watcher};
+use indexer_types::Allocation;
 
 /// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
 pub fn attestation_signers(
