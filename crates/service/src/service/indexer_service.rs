@@ -152,7 +152,7 @@ pub struct IndexerServiceState {
     pub config: Config,
     pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
     pub tap_manager: Manager<IndexerTapContext>,
-    pub service_impl: Arc<SubgraphService>,
+    pub service_impl: SubgraphService,
 
     // tap
     pub escrow_accounts: Receiver<EscrowAccounts>,
@@ -329,7 +329,7 @@ impl IndexerService {
             config: options.config.clone(),
             attestation_signers,
             tap_manager,
-            service_impl: Arc::new(options.service_impl),
+            service_impl: options.service_impl,
             escrow_accounts,
             domain_separator,
         });

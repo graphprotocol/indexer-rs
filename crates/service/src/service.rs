@@ -36,8 +36,7 @@ mod indexer_service;
 mod tap_receipt_header;
 
 pub use indexer_service::{
-    AttestationOutput, IndexerServiceError, IndexerServiceResponse,
-    IndexerServiceState,
+    AttestationOutput, IndexerServiceError, IndexerServiceResponse, IndexerServiceState,
 };
 pub use tap_receipt_header::TapReceipt;
 
@@ -77,6 +76,7 @@ impl IndexerServiceResponse for SubgraphServiceResponse {
     }
 }
 
+#[derive(Clone)]
 pub struct SubgraphServiceState {
     pub config: &'static Config,
     pub database: PgPool,
@@ -87,11 +87,11 @@ pub struct SubgraphServiceState {
 }
 
 pub struct SubgraphService {
-    state: Arc<SubgraphServiceState>,
+    state: SubgraphServiceState,
 }
 
 impl SubgraphService {
-    fn new(state: Arc<SubgraphServiceState>) -> Self {
+    fn new(state: SubgraphServiceState) -> Self {
         Self { state }
     }
 }
@@ -160,7 +160,7 @@ pub async fn run() -> anyhow::Result<()> {
     // Some of the subgraph service configuration goes into the so-called
     // "state", which will be passed to any request handler, middleware etc.
     // that is involved in serving requests
-    let state = Arc::new(SubgraphServiceState {
+    let state = SubgraphServiceState {
         config,
         database: database::connect(config.database.clone().get_formated_postgres_url().as_ref())
             .await,
@@ -172,7 +172,7 @@ pub async fn run() -> anyhow::Result<()> {
             .expect("Failed to init HTTP client for Graph Node"),
         graph_node_status_url: &config.graph_node.status_url,
         graph_node_query_base_url: &config.graph_node.query_url,
-    });
+    };
 
     let agreement_store: Arc<dyn AgreementStore> = Arc::new(InMemoryAgreementStore::default());
     let prices: Vec<Price> = vec![];
