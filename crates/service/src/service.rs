@@ -9,7 +9,6 @@ use anyhow::anyhow;
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_axum::GraphQL;
 use axum::{
-    async_trait,
     routing::{post, post_service},
     Json, Router,
 };
@@ -37,7 +36,7 @@ mod indexer_service;
 mod tap_receipt_header;
 
 pub use indexer_service::{
-    AttestationOutput, IndexerServiceError, IndexerServiceImpl, IndexerServiceResponse,
+    AttestationOutput, IndexerServiceError, IndexerServiceResponse,
     IndexerServiceState,
 };
 pub use tap_receipt_header::TapReceipt;
@@ -87,7 +86,7 @@ pub struct SubgraphServiceState {
     pub graph_node_query_base_url: &'static Url,
 }
 
-struct SubgraphService {
+pub struct SubgraphService {
     state: Arc<SubgraphServiceState>,
 }
 
@@ -97,16 +96,12 @@ impl SubgraphService {
     }
 }
 
-#[async_trait]
-impl IndexerServiceImpl for SubgraphService {
-    type Response = SubgraphServiceResponse;
-    type State = SubgraphServiceState;
-
-    async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
+impl SubgraphService {
+    pub async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
         &self,
         deployment: DeploymentId,
         request: Request,
-    ) -> Result<Self::Response, SubgraphServiceError> {
+    ) -> Result<SubgraphServiceResponse, SubgraphServiceError> {
         let deployment_url = self
             .state
             .graph_node_query_base_url

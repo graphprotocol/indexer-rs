@@ -7,7 +7,6 @@ use axum::extract::MatchedPath;
 use axum::extract::Request as ExtractRequest;
 use axum::http::{Method, Request};
 use axum::{
-    async_trait,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -23,14 +22,14 @@ use indexer_common::{
 };
 use prometheus::TextEncoder;
 use reqwest::StatusCode;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
 use std::{
     collections::HashMap, error::Error, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc,
     time::Duration,
 };
 use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
-use thegraph_core::{Address, Attestation, DeploymentId};
+use thegraph_core::{Address, Attestation};
 use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -48,6 +47,8 @@ use crate::routes::static_subgraph_request_handler;
 use crate::tap::IndexerTapContext;
 use indexer_config::Config;
 
+use super::SubgraphService;
+
 pub trait IndexerServiceResponse {
     type Data: IntoResponse;
     type Error: Error;
@@ -60,18 +61,6 @@ pub trait IndexerServiceResponse {
 pub enum AttestationOutput {
     Attestation(Option<Attestation>),
     Attestable,
-}
-
-#[async_trait]
-pub trait IndexerServiceImpl {
-    type Response: IndexerServiceResponse + Sized;
-    type State: Send + Sync;
-
-    async fn process_request<Request: DeserializeOwned + Send + Debug + Serialize>(
-        &self,
-        manifest_id: DeploymentId,
-        request: Request,
-    ) -> Result<Self::Response, SubgraphServiceError>;
 }
 
 #[derive(Debug, Error)]
@@ -151,25 +140,19 @@ impl From<&BuildInfo> for IndexerServiceRelease {
     }
 }
 
-pub struct IndexerServiceOptions<I>
-where
-    I: IndexerServiceImpl + Sync + Send + 'static,
-{
-    pub service_impl: I,
+pub struct IndexerServiceOptions {
+    pub service_impl: SubgraphService,
     pub config: &'static Config,
     pub release: IndexerServiceRelease,
     pub url_namespace: &'static str,
-    pub extra_routes: Router<Arc<IndexerServiceState<I>>>,
+    pub extra_routes: Router<Arc<IndexerServiceState>>,
 }
 
-pub struct IndexerServiceState<I>
-where
-    I: IndexerServiceImpl + Sync + Send + 'static,
-{
+pub struct IndexerServiceState {
     pub config: Config,
     pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
     pub tap_manager: Manager<IndexerTapContext>,
-    pub service_impl: Arc<I>,
+    pub service_impl: Arc<SubgraphService>,
 
     // tap
     pub escrow_accounts: Receiver<EscrowAccounts>,
@@ -179,10 +162,7 @@ where
 pub struct IndexerService {}
 
 impl IndexerService {
-    pub async fn run<I>(options: IndexerServiceOptions<I>) -> Result<(), anyhow::Error>
-    where
-        I: IndexerServiceImpl + Sync + Send + 'static,
-    {
+    pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
         let http_client = reqwest::Client::builder()
             .tcp_nodelay(true)
             .timeout(Duration::from_secs(30))
@@ -442,7 +422,7 @@ impl IndexerService {
                     .join(format!("{}/id/:id", options.url_namespace))
                     .to_str()
                     .expect("Failed to set up `/{url_namespace}/id/:id` route"),
-                post(request_handler::<I>),
+                post(request_handler),
             )
             .with_state(state.clone());
 

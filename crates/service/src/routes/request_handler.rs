@@ -19,8 +19,7 @@ use thegraph_core::DeploymentId;
 use tracing::trace;
 
 use crate::service::{
-    AttestationOutput, IndexerServiceError, IndexerServiceImpl, IndexerServiceResponse,
-    IndexerServiceState, TapReceipt,
+    AttestationOutput, IndexerServiceError, IndexerServiceResponse, IndexerServiceState, TapReceipt,
 };
 
 lazy_static! {
@@ -45,16 +44,13 @@ lazy_static! {
 
 }
 
-pub async fn request_handler<I>(
+pub async fn request_handler(
     Path(manifest_id): Path<DeploymentId>,
     typed_header: TypedHeader<TapReceipt>,
-    state: State<Arc<IndexerServiceState<I>>>,
+    state: State<Arc<IndexerServiceState>>,
     headers: HeaderMap,
     body: String,
-) -> Result<impl IntoResponse, IndexerServiceError>
-where
-    I: IndexerServiceImpl + Sync + Send + 'static,
-{
+) -> Result<impl IntoResponse, IndexerServiceError> {
     _request_handler(manifest_id, typed_header, state, headers, body)
         .await
         .inspect_err(|_| {
@@ -64,16 +60,13 @@ where
         })
 }
 
-async fn _request_handler<I>(
+async fn _request_handler(
     manifest_id: DeploymentId,
     TypedHeader(receipt): TypedHeader<TapReceipt>,
-    State(state): State<Arc<IndexerServiceState<I>>>,
+    State(state): State<Arc<IndexerServiceState>>,
     headers: HeaderMap,
     req: String,
-) -> Result<impl IntoResponse, IndexerServiceError>
-where
-    I: IndexerServiceImpl + Sync + Send + 'static,
-{
+) -> Result<impl IntoResponse, IndexerServiceError> {
     trace!("Handling request for deployment `{manifest_id}`");
 
     let request: QueryBody =
