@@ -27,7 +27,7 @@ use crate::{
         dips::{AgreementStore, InMemoryAgreementStore},
     },
     routes::dips::Price,
-    service::indexer_service::{IndexerService, IndexerServiceOptions, IndexerServiceRelease},
+    service::indexer_service::{IndexerServiceOptions, IndexerServiceRelease},
 };
 use clap::Parser;
 use tracing::error;
@@ -209,7 +209,7 @@ pub async fn run() -> anyhow::Result<()> {
         router = router.route("/dips", post_service(GraphQL::new(schema)));
     }
 
-    IndexerService::run(IndexerServiceOptions {
+    indexer_service::run(IndexerServiceOptions {
         release,
         config,
         url_namespace: "subgraphs",
