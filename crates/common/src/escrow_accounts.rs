@@ -165,6 +165,10 @@ async fn get_escrow_accounts(
 #[cfg(test)]
 mod tests {
     use test_log::test;
+    use test_tap_utils::{
+        ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
+        ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS,
+    };
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -176,13 +180,13 @@ mod tests {
     #[test]
     fn test_new_escrow_accounts() {
         let escrow_accounts = EscrowAccounts::new(
-            test_vectors::ESCROW_ACCOUNTS_BALANCES.to_owned(),
-            test_vectors::ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
+            ESCROW_ACCOUNTS_BALANCES.to_owned(),
+            ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
         );
 
         assert_eq!(
             escrow_accounts.signers_to_senders,
-            test_vectors::ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS.to_owned()
+            ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS.to_owned()
         )
     }
 
@@ -227,8 +231,8 @@ mod tests {
         assert_eq!(
             accounts.borrow().clone(),
             EscrowAccounts::new(
-                test_vectors::ESCROW_ACCOUNTS_BALANCES.to_owned(),
-                test_vectors::ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
+                ESCROW_ACCOUNTS_BALANCES.to_owned(),
+                ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
             )
         );
     }

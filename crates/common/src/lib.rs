@@ -4,11 +4,9 @@
 pub mod address;
 pub mod allocations;
 pub mod attestations;
-pub mod cost_model;
 pub mod escrow_accounts;
 pub mod graphql;
 pub mod subgraph_client;
-pub mod tap;
 pub mod watcher;
 
 #[cfg(test)]
@@ -23,5 +21,4 @@ pub mod prelude {
     };
     pub use super::escrow_accounts::escrow_accounts;
     pub use super::subgraph_client::{DeploymentDetails, Query, QueryVariables, SubgraphClient};
-    pub use super::tap::IndexerTapContext;
 }

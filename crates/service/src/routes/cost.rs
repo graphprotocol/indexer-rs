@@ -4,10 +4,10 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::database::cost_model::{self, CostModel};
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::extract::State;
-use indexer_common::cost_model::{self, CostModel};
 use lazy_static::lazy_static;
 use prometheus::{
     register_counter, register_counter_vec, register_histogram, register_histogram_vec, Counter,
