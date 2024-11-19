@@ -9,7 +9,6 @@ use anyhow::anyhow;
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_axum::GraphQL;
 use axum::{
-    async_trait,
     routing::{post, post_service},
     Json, Router,
 };
@@ -28,7 +27,7 @@ use crate::{
         dips::{AgreementStore, InMemoryAgreementStore},
     },
     routes::dips::Price,
-    service::indexer_service::{IndexerService, IndexerServiceOptions, IndexerServiceRelease},
+    service::indexer_service::{IndexerServiceOptions, IndexerServiceRelease},
 };
 use clap::Parser;
 use tracing::error;
@@ -37,13 +36,12 @@ mod indexer_service;
 mod tap_receipt_header;
 
 pub use indexer_service::{
-    AttestationOutput, IndexerServiceError, IndexerServiceImpl, IndexerServiceResponse,
-    IndexerServiceState,
+    AttestationOutput, IndexerServiceError, IndexerServiceResponse, IndexerServiceState,
 };
 pub use tap_receipt_header::TapReceipt;
 
 #[derive(Debug)]
-struct SubgraphServiceResponse {
+pub struct SubgraphServiceResponse {
     inner: String,
     attestable: bool,
 }
@@ -78,6 +76,7 @@ impl IndexerServiceResponse for SubgraphServiceResponse {
     }
 }
 
+#[derive(Clone)]
 pub struct SubgraphServiceState {
     pub config: &'static Config,
     pub database: PgPool,
@@ -87,27 +86,22 @@ pub struct SubgraphServiceState {
     pub graph_node_query_base_url: &'static Url,
 }
 
-struct SubgraphService {
-    state: Arc<SubgraphServiceState>,
+pub struct SubgraphService {
+    state: SubgraphServiceState,
 }
 
 impl SubgraphService {
-    fn new(state: Arc<SubgraphServiceState>) -> Self {
+    fn new(state: SubgraphServiceState) -> Self {
         Self { state }
     }
 }
 
-#[async_trait]
-impl IndexerServiceImpl for SubgraphService {
-    type Error = SubgraphServiceError;
-    type Response = SubgraphServiceResponse;
-    type State = SubgraphServiceState;
-
-    async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
+impl SubgraphService {
+    pub async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
         &self,
         deployment: DeploymentId,
         request: Request,
-    ) -> Result<Self::Response, Self::Error> {
+    ) -> Result<SubgraphServiceResponse, SubgraphServiceError> {
         let deployment_url = self
             .state
             .graph_node_query_base_url
@@ -166,7 +160,7 @@ pub async fn run() -> anyhow::Result<()> {
     // Some of the subgraph service configuration goes into the so-called
     // "state", which will be passed to any request handler, middleware etc.
     // that is involved in serving requests
-    let state = Arc::new(SubgraphServiceState {
+    let state = SubgraphServiceState {
         config,
         database: database::connect(config.database.clone().get_formated_postgres_url().as_ref())
             .await,
@@ -178,7 +172,7 @@ pub async fn run() -> anyhow::Result<()> {
             .expect("Failed to init HTTP client for Graph Node"),
         graph_node_status_url: &config.graph_node.status_url,
         graph_node_query_base_url: &config.graph_node.query_url,
-    });
+    };
 
     let agreement_store: Arc<dyn AgreementStore> = Arc::new(InMemoryAgreementStore::default());
     let prices: Vec<Price> = vec![];
@@ -215,7 +209,7 @@ pub async fn run() -> anyhow::Result<()> {
         router = router.route("/dips", post_service(GraphQL::new(schema)));
     }
 
-    IndexerService::run(IndexerServiceOptions {
+    indexer_service::run(IndexerServiceOptions {
         release,
         config,
         url_namespace: "subgraphs",
