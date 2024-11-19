@@ -51,7 +51,7 @@ pub async fn request_handler<I>(
     state: State<Arc<IndexerServiceState<I>>>,
     headers: HeaderMap,
     body: String,
-) -> Result<impl IntoResponse, IndexerServiceError<I::Error>>
+) -> Result<impl IntoResponse, IndexerServiceError>
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {
@@ -70,7 +70,7 @@ async fn _request_handler<I>(
     State(state): State<Arc<IndexerServiceState<I>>>,
     headers: HeaderMap,
     req: String,
-) -> Result<impl IntoResponse, IndexerServiceError<I::Error>>
+) -> Result<impl IntoResponse, IndexerServiceError>
 where
     I: IndexerServiceImpl + Sync + Send + 'static,
 {

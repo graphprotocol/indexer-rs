@@ -43,7 +43,7 @@ pub use indexer_service::{
 pub use tap_receipt_header::TapReceipt;
 
 #[derive(Debug)]
-struct SubgraphServiceResponse {
+pub struct SubgraphServiceResponse {
     inner: String,
     attestable: bool,
 }
@@ -99,7 +99,6 @@ impl SubgraphService {
 
 #[async_trait]
 impl IndexerServiceImpl for SubgraphService {
-    type Error = SubgraphServiceError;
     type Response = SubgraphServiceResponse;
     type State = SubgraphServiceState;
 
@@ -107,7 +106,7 @@ impl IndexerServiceImpl for SubgraphService {
         &self,
         deployment: DeploymentId,
         request: Request,
-    ) -> Result<Self::Response, Self::Error> {
+    ) -> Result<Self::Response, SubgraphServiceError> {
         let deployment_url = self
             .state
             .graph_node_query_base_url

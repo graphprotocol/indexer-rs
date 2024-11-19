@@ -41,6 +41,7 @@ use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::Tr
 use tracing::warn;
 use tracing::{error, info, info_span};
 
+use crate::error::SubgraphServiceError;
 use crate::routes::health;
 use crate::routes::request_handler;
 use crate::routes::static_subgraph_request_handler;
@@ -63,7 +64,6 @@ pub enum AttestationOutput {
 
 #[async_trait]
 pub trait IndexerServiceImpl {
-    type Error: std::error::Error;
     type Response: IndexerServiceResponse + Sized;
     type State: Send + Sync;
 
@@ -71,14 +71,11 @@ pub trait IndexerServiceImpl {
         &self,
         manifest_id: DeploymentId,
         request: Request,
-    ) -> Result<Self::Response, Self::Error>;
+    ) -> Result<Self::Response, SubgraphServiceError>;
 }
 
 #[derive(Debug, Error)]
-pub enum IndexerServiceError<E>
-where
-    E: std::error::Error,
-{
+pub enum IndexerServiceError {
     #[error("Issues with provided receipt: {0}")]
     ReceiptError(tap_core::Error),
     #[error("No attestation signer found for allocation `{0}`")]
@@ -86,7 +83,7 @@ where
     #[error("Invalid request body: {0}")]
     InvalidRequest(anyhow::Error),
     #[error("Error while processing the request: {0}")]
-    ProcessingError(E),
+    ProcessingError(SubgraphServiceError),
     #[error("No valid receipt or free query auth token provided")]
     Unauthorized,
     #[error("Invalid free query auth token")]
@@ -101,10 +98,7 @@ where
     EscrowAccount(EscrowAccountsError),
 }
 
-impl<E> IntoResponse for IndexerServiceError<E>
-where
-    E: std::error::Error,
-{
+impl IntoResponse for IndexerServiceError {
     fn into_response(self) -> Response {
         use IndexerServiceError::*;
 
