@@ -414,7 +414,7 @@ impl IndexerService {
                     "/network",
                     post(static_subgraph_request_handler)
                         .route_layer(auth_layer)
-                        .route_layer(Extension(network_subgraph))
+                        .with_state(network_subgraph)
                         .route_layer(static_subgraph_rate_limiter.clone()),
                 );
             } else {
@@ -428,14 +428,13 @@ impl IndexerService {
 
                 let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
 
-                misc_routes = misc_routes
-                    .route(
-                        "/escrow",
-                        post(static_subgraph_request_handler)
-                            .route_layer(auth_layer)
-                            .route_layer(Extension(escrow_subgraph)),
-                    )
-                    .route_layer(static_subgraph_rate_limiter);
+                misc_routes = misc_routes.route(
+                    "/escrow",
+                    post(static_subgraph_request_handler)
+                        .route_layer(auth_layer)
+                        .with_state(escrow_subgraph)
+                        .route_layer(static_subgraph_rate_limiter),
+                )
             } else {
                 warn!("`serve_escrow_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
             }

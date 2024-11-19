@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use axum::{body::Bytes, response::IntoResponse, Extension, Json};
+use axum::{body::Bytes, extract::State, response::IntoResponse, Json};
 use reqwest::StatusCode;
 use serde_json::json;
 use tracing::warn;
@@ -10,7 +10,7 @@ use indexer_common::SubgraphClient;
 
 #[autometrics::autometrics]
 pub async fn static_subgraph_request_handler(
-    Extension(subgraph_client): Extension<&'static SubgraphClient>,
+    State(subgraph_client): State<&'static SubgraphClient>,
     body: Bytes,
 ) -> Result<impl IntoResponse, StaticSubgraphError> {
     let response = subgraph_client.query_raw(body).await?;
