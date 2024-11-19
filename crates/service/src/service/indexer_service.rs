@@ -159,10 +159,22 @@ pub struct IndexerServiceState {
     pub domain_separator: Eip712Domain,
 }
 
+const HTTP_CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
+const DATABASE_TIMEOUT: Duration = Duration::from_secs(30);
+const DATABASE_MAX_CONNECTIONS: u32 = 50;
+
+const MISC_BURST_SIZE: u32 = 10;
+const MISC_BURST_PER_MILLISECOND: u64 = 100;
+
+const STATIC_BURST_SIZE: u32 = 50;
+const STATIC_BURST_PER_MILLISECOND: u64 = 20;
+
+const DISPUTE_MANAGER_INTERVAL: Duration = Duration::from_secs(3600);
+
 pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
     let http_client = reqwest::Client::builder()
         .tcp_nodelay(true)
-        .timeout(Duration::from_secs(30))
+        .timeout(HTTP_CLIENT_TIMEOUT)
         .build()
         .expect("Failed to init HTTP client");
 
@@ -201,7 +213,7 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
     ));
 
     // Identify the dispute manager for the configured network
-    let dispute_manager = dispute_manager(network_subgraph, Duration::from_secs(3600))
+    let dispute_manager = dispute_manager(network_subgraph, DISPUTE_MANAGER_INTERVAL)
         .await
         .expect("Failed to initialize dispute manager");
 
@@ -282,8 +294,8 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
     // agent. Hence we leave syncing and migrating entirely to the agent and
     // assume the models are up to date in the service.
     let database = PgPoolOptions::new()
-        .max_connections(50)
-        .acquire_timeout(Duration::from_secs(30))
+        .max_connections(DATABASE_MAX_CONNECTIONS)
+        .acquire_timeout(DATABASE_TIMEOUT)
         .connect(
             options
                 .config
@@ -334,8 +346,8 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
     let misc_rate_limiter = GovernorLayer {
         config: Arc::new(
             GovernorConfigBuilder::default()
-                .per_millisecond(100)
-                .burst_size(10)
+                .per_millisecond(MISC_BURST_PER_MILLISECOND)
+                .burst_size(MISC_BURST_SIZE)
                 .finish()
                 .expect("Failed to set up rate limiting"),
         ),
@@ -357,8 +369,8 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
     let static_subgraph_rate_limiter = GovernorLayer {
         config: Arc::new(
             GovernorConfigBuilder::default()
-                .per_millisecond(20)
-                .burst_size(50)
+                .per_millisecond(STATIC_BURST_PER_MILLISECOND)
+                .burst_size(STATIC_BURST_SIZE)
                 .finish()
                 .expect("Failed to set up rate limiting"),
         ),
