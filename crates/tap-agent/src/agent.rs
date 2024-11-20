@@ -1,14 +1,11 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use indexer_monitor::{
-    monitors::{escrow_accounts, indexer_allocations},
-    DeploymentDetails, SubgraphClient,
-};
 use indexer_config::{
     Config, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
     SubgraphConfig, SubgraphsConfig, TapConfig,
 };
+use indexer_monitor::{escrow_accounts, indexer_allocations, DeploymentDetails, SubgraphClient};
 use ractor::concurrency::JoinHandle;
 use ractor::{Actor, ActorRef};
 use sender_account::SenderAccountConfig;

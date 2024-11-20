@@ -7,12 +7,10 @@ mod client;
 mod dispute_manager;
 mod escrow_accounts;
 
-pub mod monitors {
-    pub use super::allocations::indexer_allocations;
-    pub use super::attestation::attestation_signers;
-    pub use super::dispute_manager::dispute_manager;
-    pub use super::escrow_accounts::escrow_accounts;
-}
-
-pub use crate::client::{DeploymentDetails, SubgraphClient};
-pub use escrow_accounts::{EscrowAccounts, EscrowAccountsError};
+pub use crate::{
+    allocations::indexer_allocations,
+    attestation::attestation_signers,
+    client::{DeploymentDetails, SubgraphClient},
+    dispute_manager::dispute_manager,
+    escrow_accounts::{escrow_accounts, EscrowAccounts, EscrowAccountsError},
+};
