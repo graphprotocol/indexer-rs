@@ -53,12 +53,13 @@ axum-extra = { version = "0.9.3", features = [
 tokio-util = "0.7.10"
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
 bip39.workspace = true
+tower = "0.5.1"
+pin-project = "1.1.7"
 
 [dev-dependencies]
 hex-literal = "0.4.1"
 test-assets = { path = "../test-assets" }
 tower-test = "0.4.0"
-tower = "0.5.1"
 tokio-test = "0.4.4"
 
 [build-dependencies]
