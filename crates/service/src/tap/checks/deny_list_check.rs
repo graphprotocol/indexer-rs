@@ -3,7 +3,7 @@
 
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::Address;
-use indexer_common::escrow_accounts::EscrowAccounts;
+use indexer_common::EscrowAccounts;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
 use std::collections::HashSet;

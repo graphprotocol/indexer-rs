@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod allocations;
-pub mod attestation;
-pub mod client;
+mod attestation;
+mod client;
 mod dispute_manager;
-pub mod escrow_accounts;
+mod escrow_accounts;
 
 pub mod monitors {
     pub use super::allocations::indexer_allocations;

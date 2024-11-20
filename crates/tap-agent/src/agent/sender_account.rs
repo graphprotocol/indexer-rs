@@ -26,7 +26,7 @@ use tokio::task::JoinHandle;
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::Address;
 use anyhow::Result;
-use indexer_common::{escrow_accounts::EscrowAccounts, SubgraphClient};
+use indexer_common::{EscrowAccounts, SubgraphClient};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use sqlx::PgPool;
 use tap_core::rav::SignedRAV;
@@ -1039,8 +1039,7 @@ pub mod tests {
     };
     use alloy::hex::ToHexExt;
     use alloy::primitives::{Address, U256};
-    use indexer_common::escrow_accounts::EscrowAccounts;
-    use indexer_common::{DeploymentDetails, SubgraphClient};
+    use indexer_common::{DeploymentDetails, EscrowAccounts, SubgraphClient};
     use ractor::concurrency::JoinHandle;
     use ractor::{call, Actor, ActorProcessingErr, ActorRef, ActorStatus};
     use reqwest::Url;
