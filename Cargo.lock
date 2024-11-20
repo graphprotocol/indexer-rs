@@ -3473,36 +3473,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "indexer-common"
-version = "1.4.0"
+name = "indexer-allocation"
+version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
- "async-trait",
- "axum",
- "bigdecimal",
- "bip39",
- "build-info",
- "env_logger",
- "eventuals",
- "graphql_client",
- "indexer-config",
  "indexer-query",
- "indexer-types",
- "lazy_static",
- "prometheus",
- "reqwest 0.12.9",
  "serde",
- "serde_json",
- "sqlx",
- "tap_core",
- "test-log",
- "test-tap-utils",
  "thegraph-core",
- "thiserror",
- "tokio",
- "tracing",
- "wiremock 0.5.22",
+]
+
+[[package]]
+name = "indexer-attestation"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "indexer-allocation",
+ "test-assets",
+ "test-log",
+ "thegraph-core",
 ]
 
 [[package]]
@@ -3541,6 +3531,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer-monitor"
+version = "1.4.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "axum",
+ "bip39",
+ "env_logger",
+ "graphql_client",
+ "indexer-allocation",
+ "indexer-attestation",
+ "indexer-query",
+ "indexer-watcher",
+ "reqwest 0.12.9",
+ "serde",
+ "serde_json",
+ "test-assets",
+ "test-log",
+ "thegraph-core",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "wiremock 0.5.22",
+]
+
+[[package]]
 name = "indexer-query"
 version = "0.1.0"
 dependencies = [
@@ -3565,6 +3581,7 @@ dependencies = [
  "axum-extra",
  "base64 0.22.1",
  "bigdecimal",
+ "bip39",
  "build-info",
  "build-info-build",
  "clap",
@@ -3572,9 +3589,11 @@ dependencies = [
  "graphql 0.3.0",
  "graphql_client",
  "hex-literal",
- "indexer-common",
+ "indexer-allocation",
+ "indexer-attestation",
  "indexer-config",
  "indexer-dips",
+ "indexer-monitor",
  "indexer-query",
  "lazy_static",
  "prometheus",
@@ -3583,7 +3602,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tap_core",
- "test-tap-utils",
+ "test-assets",
  "thegraph-core",
  "thegraph-graphql-http",
  "thiserror",
@@ -3610,9 +3629,11 @@ dependencies = [
  "futures",
  "futures-util",
  "graphql_client",
- "indexer-common",
+ "indexer-allocation",
  "indexer-config",
+ "indexer-monitor",
  "indexer-query",
+ "indexer-watcher",
  "jsonrpsee",
  "lazy_static",
  "prometheus",
@@ -3634,14 +3655,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "indexer-types"
+name = "indexer-watcher"
 version = "0.1.0"
 dependencies = [
- "alloy",
  "anyhow",
- "indexer-query",
- "serde",
- "thegraph-core",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -6691,6 +6710,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-assets"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "bip39",
+ "indexer-allocation",
+ "lazy_static",
+ "tap_core",
+ "thegraph-core",
+]
+
+[[package]]
 name = "test-log"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6708,18 +6739,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.79",
-]
-
-[[package]]
-name = "test-tap-utils"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "bip39",
- "indexer-types",
- "lazy_static",
- "tap_core",
- "thegraph-core",
 ]
 
 [[package]]

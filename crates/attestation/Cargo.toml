@@ -1,0 +1,15 @@
+[package]
+name = "indexer-attestation"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+indexer-allocation = { path = "../allocation" }
+alloy.workspace = true
+thegraph-core.workspace = true
+anyhow.workspace = true
+
+
+[dev-dependencies]
+test-log = { version = "0.2.12", default-features = false }
+test-assets = { path = "../test-assets" }

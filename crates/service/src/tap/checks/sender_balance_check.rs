@@ -4,7 +4,7 @@
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::U256;
 use anyhow::anyhow;
-use indexer_common::escrow_accounts::EscrowAccounts;
+use indexer_monitor::EscrowAccounts;
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,

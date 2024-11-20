@@ -7,3 +7,4 @@ mod error;
 mod routes;
 pub mod service;
 mod tap;
+mod wallet;

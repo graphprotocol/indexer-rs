@@ -1,0 +1,28 @@
+[package]
+name = "indexer-monitor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+indexer-query = { path = "../query" }
+indexer-allocation = { path = "../allocation" }
+indexer-attestation = { path = "../attestation" }
+indexer-watcher = { path = "../watcher" }
+thiserror.workspace = true
+alloy.workspace = true
+anyhow.workspace = true
+reqwest = { workspace = true, features = ["json"] }
+tracing.workspace = true
+thegraph-core.workspace = true
+axum.workspace = true
+graphql_client.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio.workspace = true
+bip39.workspace = true
+
+[dev-dependencies]
+env_logger = { version = "0.11.0", default-features = false }
+test-log = { version = "0.2.12", default-features = false }
+wiremock = "0.5.19"
+test-assets = { path = "../test-assets" }

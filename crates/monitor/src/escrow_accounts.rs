@@ -14,7 +14,7 @@ use thiserror::Error;
 use tokio::sync::watch::Receiver;
 use tracing::{error, warn};
 
-use crate::{client::SubgraphClient, watcher};
+use crate::client::SubgraphClient;
 
 #[derive(Error, Debug)]
 pub enum EscrowAccountsError {
@@ -93,7 +93,7 @@ pub async fn escrow_accounts(
     interval: Duration,
     reject_thawing_signers: bool,
 ) -> Result<Receiver<EscrowAccounts>, anyhow::Error> {
-    watcher::new_watcher(interval, move || {
+    indexer_watcher::new_watcher(interval, move || {
         get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers)
     })
     .await
@@ -164,16 +164,15 @@ async fn get_escrow_accounts(
 
 #[cfg(test)]
 mod tests {
-    use test_log::test;
-    use test_tap_utils::{
+    use test_assets::{
         ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
         ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS,
     };
+    use test_log::test;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use crate::client::DeploymentDetails;
-    use crate::test_vectors;
 
     use super::*;
 
@@ -201,7 +200,7 @@ mod tests {
                 DeploymentDetails::for_query_url(&format!(
                     "{}/subgraphs/id/{}",
                     &mock_server.uri(),
-                    *test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT
+                    *test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
                 ))
                 .unwrap(),
             )
@@ -211,17 +210,17 @@ mod tests {
         let mock = Mock::given(method("POST"))
             .and(path(format!(
                 "/subgraphs/id/{}",
-                *test_vectors::ESCROW_SUBGRAPH_DEPLOYMENT
+                *test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
             )))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_raw(test_vectors::ESCROW_QUERY_RESPONSE, "application/json"),
+                    .set_body_raw(test_assets::ESCROW_QUERY_RESPONSE, "application/json"),
             );
         mock_server.register(mock).await;
 
         let mut accounts = escrow_accounts(
             escrow_subgraph,
-            *test_vectors::INDEXER_ADDRESS,
+            *test_assets::INDEXER_ADDRESS,
             Duration::from_secs(60),
             true,
         )

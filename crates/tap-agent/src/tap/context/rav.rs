@@ -128,7 +128,7 @@ impl RAVStore for TapAgentContext {
 
 #[cfg(test)]
 mod test {
-    use indexer_common::escrow_accounts::EscrowAccounts;
+    use indexer_monitor::EscrowAccounts;
     use sqlx::PgPool;
     use tokio::sync::watch;
 

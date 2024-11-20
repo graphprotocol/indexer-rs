@@ -3,7 +3,7 @@
 
 use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::Address;
-use indexer_common::escrow_accounts::EscrowAccounts;
+use indexer_monitor::EscrowAccounts;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
 use std::collections::HashSet;
@@ -202,7 +202,7 @@ mod tests {
     use tap_core::receipt::{Context, ReceiptWithState};
     use tokio::sync::watch;
 
-    use test_tap_utils::{
+    use test_assets::{
         self, create_signed_receipt, ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
         TAP_EIP712_DOMAIN, TAP_SENDER,
     };

@@ -13,12 +13,10 @@ use axum::{
 };
 use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
-use indexer_common::{
-    attestation::AttestationSigner,
-    client::{DeploymentDetails, SubgraphClient},
-    escrow_accounts::{EscrowAccounts, EscrowAccountsError},
-    monitors::{attestation_signers, dispute_manager, escrow_accounts, indexer_allocations},
-    wallet::public_key,
+use indexer_attestation::AttestationSigner;
+use indexer_monitor::{
+    attestation_signers, dispute_manager, escrow_accounts, indexer_allocations, DeploymentDetails,
+    EscrowAccounts, EscrowAccountsError, SubgraphClient,
 };
 use prometheus::TextEncoder;
 use reqwest::StatusCode;
@@ -45,6 +43,7 @@ use crate::routes::health;
 use crate::routes::request_handler;
 use crate::routes::static_subgraph_request_handler;
 use crate::tap::IndexerTapContext;
+use crate::wallet::public_key;
 use indexer_config::Config;
 
 use super::SubgraphService;

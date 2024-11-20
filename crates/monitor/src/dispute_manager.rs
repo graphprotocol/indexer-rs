@@ -1,10 +1,11 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{client::SubgraphClient, watcher::new_watcher};
+use crate::client::SubgraphClient;
 use alloy::primitives::Address;
 use anyhow::Error;
 use indexer_query::dispute_manager::{self, DisputeManager};
+use indexer_watcher::new_watcher;
 use std::time::Duration;
 use tokio::sync::watch::Receiver;
 
@@ -27,17 +28,14 @@ pub async fn dispute_manager(
 #[cfg(test)]
 mod test {
     use serde_json::json;
+    use test_assets::DISPUTE_MANAGER_ADDRESS;
     use tokio::time::sleep;
     use wiremock::{
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
     };
 
-    use crate::{
-        client::DeploymentDetails,
-        client::SubgraphClient,
-        test_vectors::{self, DISPUTE_MANAGER_ADDRESS},
-    };
+    use crate::{client::DeploymentDetails, client::SubgraphClient};
 
     use super::*;
 
@@ -50,7 +48,7 @@ mod test {
             DeploymentDetails::for_query_url(&format!(
                 "{}/subgraphs/id/{}",
                 &mock_server.uri(),
-                *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
+                *test_assets::NETWORK_SUBGRAPH_DEPLOYMENT
             ))
             .unwrap(),
         )
@@ -62,7 +60,7 @@ mod test {
                 Mock::given(method("POST"))
                     .and(path(format!(
                         "/subgraphs/id/{}",
-                        *test_vectors::NETWORK_SUBGRAPH_DEPLOYMENT
+                        *test_assets::NETWORK_SUBGRAPH_DEPLOYMENT
                     )))
                     .respond_with(ResponseTemplate::new(200).set_body_json(
                         json!({ "data": { "graphNetwork": { "disputeManager": *DISPUTE_MANAGER_ADDRESS }}}),

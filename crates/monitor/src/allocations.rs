@@ -1,10 +1,11 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{client::SubgraphClient, watcher::new_watcher};
+use crate::client::SubgraphClient;
 use alloy::{primitives::Address, primitives::TxHash};
+use indexer_allocation::Allocation;
 use indexer_query::allocations_query::{self, AllocationsQuery};
-use indexer_types::Allocation;
+use indexer_watcher::new_watcher;
 use std::{
     collections::HashMap,
     time::{Duration, SystemTime, UNIX_EPOCH},

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloy::primitives::Address;
-use indexer_common::escrow_accounts::EscrowAccounts;
+use indexer_monitor::EscrowAccounts;
 use sqlx::PgPool;
 use tokio::sync::watch::Receiver;
 

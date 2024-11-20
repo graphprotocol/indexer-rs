@@ -9,7 +9,9 @@ name = "indexer-tap-agent"
 path = "src/main.rs"
 
 [dependencies]
-indexer-common = { path = "../common" }
+indexer-monitor = { path = "../monitor" }
+indexer-watcher = { path = "../watcher" }
+indexer-allocation = { path = "../allocation" }
 indexer-config = { path = "../config" }
 indexer-query = { path = "../query" }
 alloy.workspace = true

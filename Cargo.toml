@@ -1,13 +1,15 @@
 [workspace]
 members = [
-  "crates/common",
+  "crates/allocation",
+  "crates/attestation",
   "crates/config",
   "crates/dips",
+  "crates/monitor",
   "crates/query",
   "crates/service",
   "crates/tap-agent",
-  "crates/types",
-  "crates/tests/tap-utils",
+  "crates/test-assets",
+  "crates/watcher",
 ]
 resolver = "2"
 
@@ -68,3 +70,4 @@ thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "166353
 ] }
 thegraph-graphql-http = "0.2.0"
 graphql_client = { version = "0.14.0", features = ["reqwest-rustls"] }
+bip39 = "2.0.0"

@@ -7,7 +7,9 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-indexer-common = { path = "../common" }
+indexer-monitor = { path = "../monitor" }
+indexer-attestation = { path = "../attestation" }
+indexer-allocation = { path = "../allocation" }
 indexer-config = { path = "../config" }
 indexer-dips = { path = "../dips" }
 indexer-query = { path = "../query" }
@@ -50,10 +52,11 @@ axum-extra = { version = "0.9.3", features = [
 ], default-features = false }
 tokio-util = "0.7.10"
 cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
+bip39.workspace = true
 
 [dev-dependencies]
 hex-literal = "0.4.1"
-test-tap-utils = { path = "../tests/tap-utils" }
+test-assets = { path = "../test-assets" }
 
 [build-dependencies]
 build-info-build = { version = "0.0.39", default-features = false }
