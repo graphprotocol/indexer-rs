@@ -4,7 +4,10 @@
 use std::sync::Arc;
 
 use crate::{
-    error::IndexerServiceError, metrics::FAILED_RECEIPT, middleware::Sender, tap::AgoraQuery,
+    error::IndexerServiceError,
+    metrics::FAILED_RECEIPT,
+    middleware::{Allocation, Sender},
+    tap::AgoraQuery,
 };
 use axum::{
     extract::{Path, State},
@@ -24,7 +27,8 @@ use crate::service::{AttestationOutput, IndexerServiceResponse, IndexerServiceSt
 pub async fn request_handler(
     Path(manifest_id): Path<DeploymentId>,
     TypedHeader(receipt): TypedHeader<TapReceipt>,
-    Extension(sender): Extension<Sender>,
+    Extension(Sender(sender)): Extension<Sender>,
+    Extension(Allocation(allocation_id)): Extension<Allocation>,
     State(state): State<Arc<IndexerServiceState>>,
     headers: HeaderMap,
     req: String,
@@ -34,8 +38,35 @@ pub async fn request_handler(
     let request: QueryBody =
         serde_json::from_str(&req).map_err(|e| IndexerServiceError::InvalidRequest(e.into()))?;
 
-    let Some(receipt) = receipt.into_signed_receipt() else {
-        // Serve free query, NO METRICS
+    if let Some(receipt) = receipt.into_signed_receipt() {
+        let variables = request
+            .variables
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        let mut ctx = Context::new();
+        ctx.insert(AgoraQuery {
+            deployment_id: manifest_id,
+            query: request.query.clone(),
+            variables,
+        });
+
+        // Verify the receipt and store it in the database
+        state
+            .tap_manager
+            .verify_and_store_receipt(&ctx, receipt)
+            .await
+            .inspect_err(|_| {
+                FAILED_RECEIPT
+                    .with_label_values(&[
+                        &manifest_id.to_string(),
+                        &allocation_id.to_string(),
+                        &sender.to_string(),
+                    ])
+                    .inc()
+            })
+            .map_err(IndexerServiceError::ReceiptError)?;
+    } else {
         match headers
             .get("authorization")
             .and_then(|v| v.to_str().ok())
@@ -51,45 +82,7 @@ pub async fn request_handler(
         }
 
         trace!(?manifest_id, "New free query");
-
-        let response = state
-            .service_impl
-            .process_request(manifest_id, request)
-            .await
-            .map_err(IndexerServiceError::ProcessingError)?
-            .finalize(AttestationOutput::Attestable);
-        return Ok((StatusCode::OK, response));
-    };
-
-    let allocation_id = receipt.message.allocation_id;
-
-    let variables = request
-        .variables
-        .as_ref()
-        .map(ToString::to_string)
-        .unwrap_or_default();
-    let mut ctx = Context::new();
-    ctx.insert(AgoraQuery {
-        deployment_id: manifest_id,
-        query: request.query.clone(),
-        variables,
-    });
-
-    // Verify the receipt and store it in the database
-    state
-        .tap_manager
-        .verify_and_store_receipt(&ctx, receipt)
-        .await
-        .inspect_err(|_| {
-            FAILED_RECEIPT
-                .with_label_values(&[
-                    &manifest_id.to_string(),
-                    &allocation_id.to_string(),
-                    &sender.0.to_string(),
-                ])
-                .inc()
-        })
-        .map_err(IndexerServiceError::ReceiptError)?;
+    }
 
     // Check if we have an attestation signer for the allocation the receipt was created for
     let signer = state
