@@ -872,7 +872,7 @@ pub mod tests {
         },
     };
     use futures::future::join_all;
-    use indexer_monitor::{EscrowAccounts, DeploymentDetails, SubgraphClient};
+    use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
     use jsonrpsee::http_client::HttpClientBuilder;
     use ractor::{
         call, cast, concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef, ActorStatus,

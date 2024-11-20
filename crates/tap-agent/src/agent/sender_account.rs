@@ -8,12 +8,12 @@ use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
 
 use futures::{stream, StreamExt};
-use indexer_watcher::watch_pipe;
 use indexer_query::unfinalized_transactions;
 use indexer_query::{
     closed_allocations::{self, ClosedAllocations},
     UnfinalizedTransactions,
 };
+use indexer_watcher::watch_pipe;
 use jsonrpsee::http_client::HttpClientBuilder;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
 use reqwest::Url;

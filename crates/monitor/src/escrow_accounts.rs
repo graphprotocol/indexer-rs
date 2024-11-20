@@ -164,11 +164,11 @@ async fn get_escrow_accounts(
 
 #[cfg(test)]
 mod tests {
-    use test_log::test;
     use test_assets::{
         ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
         ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS,
     };
+    use test_log::test;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
