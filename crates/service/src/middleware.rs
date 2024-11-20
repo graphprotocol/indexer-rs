@@ -2,3 +2,4 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod inject_deployment;
+mod inject_receipt;
