@@ -8,9 +8,9 @@ mod inject_receipt;
 mod inject_sender;
 mod metrics;
 
-pub use inject_allocation::{allocation_middleware, AllocationState};
+pub use inject_allocation::{allocation_middleware, Allocation, AllocationState};
 pub use inject_deployment::deployment_middleware;
 pub use inject_labels::labels_middleware;
 pub use inject_receipt::receipt_middleware;
-pub use inject_sender::{sender_middleware, SenderState, Sender};
+pub use inject_sender::{sender_middleware, Sender, SenderState};
 pub use metrics::MetricsMiddlewareLayer;
