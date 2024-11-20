@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::dyn_abi::Eip712Domain;
+use alloy::{dyn_abi::Eip712Domain, primitives::Address};
 use axum::{
     extract::{Request, State},
     middleware::Next,
@@ -20,11 +20,11 @@ pub struct SenderState {
 }
 
 #[derive(Clone)]
-pub struct Sender(String);
+pub struct Sender(pub Address);
 
 impl From<Sender> for String {
     fn from(value: Sender) -> Self {
-        value.0
+        value.0.to_string()
     }
 }
 
@@ -39,7 +39,7 @@ pub async fn sender_middleware(
             .escrow_accounts
             .borrow()
             .get_sender_for_signer(&signer)?;
-        request.extensions_mut().insert(Sender(sender.to_string()));
+        request.extensions_mut().insert(Sender(sender));
     }
 
     Ok(next.run(request).await)
@@ -60,7 +60,9 @@ mod tests {
     };
     use indexer_monitor::EscrowAccounts;
     use reqwest::StatusCode;
-    use test_assets::{create_signed_receipt, ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS};
+    use test_assets::{
+        create_signed_receipt, ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
+    };
     use tokio::sync::watch;
     use tower::ServiceExt;
 
@@ -80,7 +82,7 @@ mod tests {
 
         async fn handle(extensions: Extensions) -> Body {
             let sender = extensions.get::<Sender>().expect("Should contain sender");
-            assert_eq!(sender.0, test_assets::TAP_SENDER.1.to_string());
+            assert_eq!(sender.0, test_assets::TAP_SENDER.1);
             Body::empty()
         }
 
