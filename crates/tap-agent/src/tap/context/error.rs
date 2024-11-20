@@ -9,7 +9,7 @@ pub enum AdapterError {
     EscrowEventualError { error: String },
 
     #[error("Could not get available escrow for sender")]
-    AvailableEscrowError(#[from] indexer_common::EscrowAccountsError),
+    AvailableEscrowError(#[from] indexer_monitor::EscrowAccountsError),
 
     #[error("Sender {sender} escrow balance is too large to fit in u128, could not get available escrow.")]
     BalanceTooLarge { sender: Address },

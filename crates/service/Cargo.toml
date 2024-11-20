@@ -7,7 +7,7 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-indexer-common = { path = "../common" }
+indexer-monitor = { path = "../monitor" }
 indexer-attestation = { path = "../attestation" }
 indexer-allocation = { path = "../allocation" }
 indexer-config = { path = "../config" }

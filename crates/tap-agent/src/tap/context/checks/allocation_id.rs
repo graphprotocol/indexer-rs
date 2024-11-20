@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use alloy::primitives::Address;
 use anyhow::anyhow;
-use indexer_common::SubgraphClient;
+use indexer_monitor::SubgraphClient;
 use indexer_query::{tap_transactions, TapTransactions};
 use indexer_watcher::new_watcher;
 use tap_core::receipt::{
@@ -111,7 +111,7 @@ async fn query_escrow_check_transactions(
 
 #[cfg(test)]
 mod tests {
-    use indexer_common::{DeploymentDetails, SubgraphClient};
+    use indexer_monitor::{DeploymentDetails, SubgraphClient};
 
     #[tokio::test]
     async fn test_transaction_exists() {

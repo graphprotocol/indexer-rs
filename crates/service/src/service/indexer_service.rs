@@ -14,7 +14,7 @@ use axum::{
 use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
 use indexer_attestation::AttestationSigner;
-use indexer_common::{
+use indexer_monitor::{
     monitors::{attestation_signers, dispute_manager, escrow_accounts, indexer_allocations},
     DeploymentDetails, EscrowAccounts, EscrowAccountsError, SubgraphClient,
 };

@@ -3,7 +3,7 @@
 
 use alloy::hex::ToHexExt;
 use alloy::primitives::Address;
-use indexer_common::EscrowAccounts;
+use indexer_monitor::EscrowAccounts;
 use tokio::sync::watch::Receiver;
 
 pub mod context;

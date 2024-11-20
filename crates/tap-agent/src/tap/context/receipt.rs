@@ -199,7 +199,7 @@ mod test {
     };
     use alloy::{primitives::U256, signers::local::PrivateKeySigner};
     use anyhow::Result;
-    use indexer_common::EscrowAccounts;
+    use indexer_monitor::EscrowAccounts;
     use lazy_static::lazy_static;
     use sqlx::PgPool;
     use std::collections::HashMap;

@@ -3496,32 +3496,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "indexer-common"
-version = "1.4.0"
-dependencies = [
- "alloy",
- "anyhow",
- "axum",
- "bip39",
- "env_logger",
- "graphql_client",
- "indexer-allocation",
- "indexer-attestation",
- "indexer-query",
- "indexer-watcher",
- "reqwest 0.12.9",
- "serde",
- "serde_json",
- "test-assets",
- "test-log",
- "thegraph-core",
- "thiserror",
- "tokio",
- "tracing",
- "wiremock 0.5.22",
-]
-
-[[package]]
 name = "indexer-config"
 version = "1.2.1"
 dependencies = [
@@ -3554,6 +3528,32 @@ dependencies = [
  "anyhow",
  "thegraph-core",
  "thiserror",
+]
+
+[[package]]
+name = "indexer-monitor"
+version = "1.4.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "axum",
+ "bip39",
+ "env_logger",
+ "graphql_client",
+ "indexer-allocation",
+ "indexer-attestation",
+ "indexer-query",
+ "indexer-watcher",
+ "reqwest 0.12.9",
+ "serde",
+ "serde_json",
+ "test-assets",
+ "test-log",
+ "thegraph-core",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "wiremock 0.5.22",
 ]
 
 [[package]]
@@ -3591,9 +3591,9 @@ dependencies = [
  "hex-literal",
  "indexer-allocation",
  "indexer-attestation",
- "indexer-common",
  "indexer-config",
  "indexer-dips",
+ "indexer-monitor",
  "indexer-query",
  "lazy_static",
  "prometheus",
@@ -3630,8 +3630,8 @@ dependencies = [
  "futures-util",
  "graphql_client",
  "indexer-allocation",
- "indexer-common",
  "indexer-config",
+ "indexer-monitor",
  "indexer-query",
  "indexer-watcher",
  "jsonrpsee",

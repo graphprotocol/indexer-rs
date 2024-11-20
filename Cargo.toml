@@ -1,14 +1,14 @@
 [workspace]
 members = [
-  "crates/common",
+  "crates/allocation",
+  "crates/attestation",
   "crates/config",
   "crates/dips",
+  "crates/monitor",
   "crates/query",
   "crates/service",
   "crates/tap-agent",
-  "crates/allocation",
   "crates/test-assets",
-  "crates/attestation",
   "crates/watcher",
 ]
 resolver = "2"

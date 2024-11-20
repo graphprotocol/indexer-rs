@@ -6,7 +6,7 @@ use reqwest::StatusCode;
 use serde_json::json;
 use tracing::warn;
 
-use indexer_common::SubgraphClient;
+use indexer_monitor::SubgraphClient;
 
 #[autometrics::autometrics]
 pub async fn static_subgraph_request_handler(

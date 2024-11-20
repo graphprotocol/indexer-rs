@@ -10,7 +10,7 @@ use alloy::primitives::Address;
 use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt};
 use anyhow::{anyhow, ensure, Result};
 use bigdecimal::{num_bigint::BigInt, ToPrimitive};
-use indexer_common::{EscrowAccounts, SubgraphClient};
+use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use jsonrpsee::{core::client::ClientT, rpc_params};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
@@ -872,7 +872,7 @@ pub mod tests {
         },
     };
     use futures::future::join_all;
-    use indexer_common::{EscrowAccounts, DeploymentDetails, SubgraphClient};
+    use indexer_monitor::{EscrowAccounts, DeploymentDetails, SubgraphClient};
     use jsonrpsee::http_client::HttpClientBuilder;
     use ractor::{
         call, cast, concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef, ActorStatus,

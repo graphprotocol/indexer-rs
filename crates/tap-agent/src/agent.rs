@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use indexer_common::{
+use indexer_monitor::{
     monitors::{escrow_accounts, indexer_allocations},
     DeploymentDetails, SubgraphClient,
 };
