@@ -40,7 +40,7 @@ tap_core.workspace = true
 uuid.workspace = true
 alloy.workspace = true
 tower_governor = "0.4.0"
-tower-http = { version = "0.5.2", features = [
+tower-http = { version = "0.6.2", features = [
   "auth",
   "cors",
   "normalize-path",
@@ -57,6 +57,9 @@ bip39.workspace = true
 [dev-dependencies]
 hex-literal = "0.4.1"
 test-assets = { path = "../test-assets" }
+tower-test = "0.4.0"
+tower = "0.5.1"
+tokio-test = "0.4.4"
 
 [build-dependencies]
 build-info-build = { version = "0.0.39", default-features = false }
