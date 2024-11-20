@@ -3,46 +3,20 @@
 
 use std::sync::Arc;
 
-use crate::{error::IndexerServiceError, tap::AgoraQuery};
+use crate::{error::IndexerServiceError, metrics::{FAILED_RECEIPT, HANDLER_FAILURE, HANDLER_HISTOGRAM}, tap::AgoraQuery};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
     response::IntoResponse,
 };
 use axum_extra::TypedHeader;
-use lazy_static::lazy_static;
-use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use reqwest::StatusCode;
 use serde_json::value::RawValue;
 use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
 use tracing::trace;
 
-use crate::service::{
-    AttestationOutput, IndexerServiceResponse, IndexerServiceState, TapReceipt,
-};
-
-lazy_static! {
-    /// Register indexer error metrics in Prometheus registry
-    pub static ref HANDLER_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "indexer_query_handler_seconds",
-        "Histogram for default indexer query handler",
-        &["deployment", "allocation", "sender"]
-    ).unwrap();
-
-    pub static ref HANDLER_FAILURE: CounterVec = register_counter_vec!(
-        "indexer_query_handler_failed_total",
-        "Failed queries to handler",
-        &["deployment"]
-    ).unwrap();
-
-    pub static ref FAILED_RECEIPT: CounterVec = register_counter_vec!(
-        "indexer_receipt_failed_total",
-        "Failed receipt checks",
-        &["deployment", "allocation", "sender"]
-    ).unwrap();
-
-}
+use crate::service::{AttestationOutput, IndexerServiceResponse, IndexerServiceState, TapReceipt};
 
 pub async fn request_handler(
     Path(manifest_id): Path<DeploymentId>,

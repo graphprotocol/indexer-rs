@@ -4,6 +4,7 @@
 mod cli;
 mod database;
 mod error;
+mod metrics;
 mod middleware;
 mod routes;
 pub mod service;
