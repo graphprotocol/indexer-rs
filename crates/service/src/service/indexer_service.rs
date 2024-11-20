@@ -7,7 +7,7 @@ use axum::extract::MatchedPath;
 use axum::extract::Request as ExtractRequest;
 use axum::http::{Method, Request};
 use axum::{
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
@@ -16,19 +16,17 @@ use build_info::BuildInfo;
 use indexer_attestation::AttestationSigner;
 use indexer_monitor::{
     attestation_signers, dispute_manager, escrow_accounts, indexer_allocations, DeploymentDetails,
-    EscrowAccounts, EscrowAccountsError, SubgraphClient,
+    EscrowAccounts, SubgraphClient,
 };
 use prometheus::TextEncoder;
 use reqwest::StatusCode;
 use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
 use std::{
-    collections::HashMap, error::Error, fmt::Debug, net::SocketAddr, path::PathBuf, sync::Arc,
-    time::Duration,
+    collections::HashMap, error::Error, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration,
 };
 use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
 use thegraph_core::{Address, Attestation};
-use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::sync::watch::Receiver;
@@ -38,7 +36,6 @@ use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::Tr
 use tracing::warn;
 use tracing::{error, info, info_span};
 
-use crate::error::SubgraphServiceError;
 use crate::routes::health;
 use crate::routes::request_handler;
 use crate::routes::static_subgraph_request_handler;
@@ -60,62 +57,6 @@ pub trait IndexerServiceResponse {
 pub enum AttestationOutput {
     Attestation(Option<Attestation>),
     Attestable,
-}
-
-#[derive(Debug, Error)]
-pub enum IndexerServiceError {
-    #[error("Issues with provided receipt: {0}")]
-    ReceiptError(tap_core::Error),
-    #[error("No attestation signer found for allocation `{0}`")]
-    NoSignerForAllocation(Address),
-    #[error("Invalid request body: {0}")]
-    InvalidRequest(anyhow::Error),
-    #[error("Error while processing the request: {0}")]
-    ProcessingError(SubgraphServiceError),
-    #[error("No valid receipt or free query auth token provided")]
-    Unauthorized,
-    #[error("Invalid free query auth token")]
-    InvalidFreeQueryAuthToken,
-    #[error("Failed to sign attestation")]
-    FailedToSignAttestation,
-
-    #[error("Could not decode signer: {0}")]
-    CouldNotDecodeSigner(tap_core::Error),
-
-    #[error("There was an error while accessing escrow account: {0}")]
-    EscrowAccount(EscrowAccountsError),
-}
-
-impl IntoResponse for IndexerServiceError {
-    fn into_response(self) -> Response {
-        use IndexerServiceError::*;
-
-        #[derive(Serialize)]
-        struct ErrorResponse {
-            message: String,
-        }
-
-        let status = match self {
-            Unauthorized => StatusCode::UNAUTHORIZED,
-
-            NoSignerForAllocation(_) | FailedToSignAttestation => StatusCode::INTERNAL_SERVER_ERROR,
-
-            ReceiptError(_)
-            | InvalidRequest(_)
-            | InvalidFreeQueryAuthToken
-            | CouldNotDecodeSigner(_)
-            | EscrowAccount(_)
-            | ProcessingError(_) => StatusCode::BAD_REQUEST,
-        };
-        tracing::error!(%self, "An IndexerServiceError occoured.");
-        (
-            status,
-            Json(ErrorResponse {
-                message: self.to_string(),
-            }),
-        )
-            .into_response()
-    }
 }
 
 #[derive(Clone, Serialize)]

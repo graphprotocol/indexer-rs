@@ -35,9 +35,7 @@ use tracing::error;
 mod indexer_service;
 mod tap_receipt_header;
 
-pub use indexer_service::{
-    AttestationOutput, IndexerServiceError, IndexerServiceResponse, IndexerServiceState,
-};
+pub use indexer_service::{AttestationOutput, IndexerServiceResponse, IndexerServiceState};
 pub use tap_receipt_header::TapReceipt;
 
 #[derive(Debug)]
