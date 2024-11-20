@@ -1,11 +1,70 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloy::primitives::Address;
 use anyhow::Error;
-use axum::response::{IntoResponse, Response};
+use axum::{response::{IntoResponse, Response}, Json};
+use indexer_monitor::EscrowAccountsError;
 use reqwest::StatusCode;
+use serde::Serialize;
 use thegraph_core::DeploymentId;
 use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum IndexerServiceError {
+    #[error("Issues with provided receipt: {0}")]
+    ReceiptError(tap_core::Error),
+    #[error("No attestation signer found for allocation `{0}`")]
+    NoSignerForAllocation(Address),
+    #[error("Invalid request body: {0}")]
+    InvalidRequest(anyhow::Error),
+    #[error("Error while processing the request: {0}")]
+    ProcessingError(SubgraphServiceError),
+    #[error("No valid receipt or free query auth token provided")]
+    Unauthorized,
+    #[error("Invalid free query auth token")]
+    InvalidFreeQueryAuthToken,
+    #[error("Failed to sign attestation")]
+    FailedToSignAttestation,
+
+    #[error("Could not decode signer: {0}")]
+    CouldNotDecodeSigner(tap_core::Error),
+
+    #[error("There was an error while accessing escrow account: {0}")]
+    EscrowAccount(EscrowAccountsError),
+}
+
+impl IntoResponse for IndexerServiceError {
+    fn into_response(self) -> Response {
+        use IndexerServiceError::*;
+
+        #[derive(Serialize)]
+        struct ErrorResponse {
+            message: String,
+        }
+
+        let status = match self {
+            Unauthorized => StatusCode::UNAUTHORIZED,
+
+            NoSignerForAllocation(_) | FailedToSignAttestation => StatusCode::INTERNAL_SERVER_ERROR,
+
+            ReceiptError(_)
+            | InvalidRequest(_)
+            | InvalidFreeQueryAuthToken
+            | CouldNotDecodeSigner(_)
+            | EscrowAccount(_)
+            | ProcessingError(_) => StatusCode::BAD_REQUEST,
+        };
+        tracing::error!(%self, "An IndexerServiceError occoured.");
+        (
+            status,
+            Json(ErrorResponse {
+                message: self.to_string(),
+            }),
+        )
+            .into_response()
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum SubgraphServiceError {

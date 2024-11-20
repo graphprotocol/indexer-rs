@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use crate::tap::AgoraQuery;
+use crate::{error::IndexerServiceError, tap::AgoraQuery};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -19,7 +19,7 @@ use thegraph_core::DeploymentId;
 use tracing::trace;
 
 use crate::service::{
-    AttestationOutput, IndexerServiceError, IndexerServiceResponse, IndexerServiceState, TapReceipt,
+    AttestationOutput, IndexerServiceResponse, IndexerServiceState, TapReceipt,
 };
 
 lazy_static! {
