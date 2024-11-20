@@ -3,11 +3,14 @@
 
 use std::sync::Arc;
 
-use crate::{error::IndexerServiceError, metrics::{FAILED_RECEIPT, HANDLER_FAILURE, HANDLER_HISTOGRAM}, tap::AgoraQuery};
+use crate::{
+    error::IndexerServiceError, metrics::FAILED_RECEIPT, middleware::Sender, tap::AgoraQuery,
+};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
     response::IntoResponse,
+    Extension,
 };
 use axum_extra::TypedHeader;
 use reqwest::StatusCode;
@@ -20,23 +23,8 @@ use crate::service::{AttestationOutput, IndexerServiceResponse, IndexerServiceSt
 
 pub async fn request_handler(
     Path(manifest_id): Path<DeploymentId>,
-    typed_header: TypedHeader<TapReceipt>,
-    state: State<Arc<IndexerServiceState>>,
-    headers: HeaderMap,
-    body: String,
-) -> Result<impl IntoResponse, IndexerServiceError> {
-    _request_handler(manifest_id, typed_header, state, headers, body)
-        .await
-        .inspect_err(|_| {
-            HANDLER_FAILURE
-                .with_label_values(&[&manifest_id.to_string()])
-                .inc()
-        })
-}
-
-async fn _request_handler(
-    manifest_id: DeploymentId,
     TypedHeader(receipt): TypedHeader<TapReceipt>,
+    Extension(sender): Extension<Sender>,
     State(state): State<Arc<IndexerServiceState>>,
     headers: HeaderMap,
     req: String,
@@ -87,30 +75,6 @@ async fn _request_handler(
         variables,
     });
 
-    // recover the signer address
-    // get escrow accounts from channel
-    // return sender from signer
-    //
-    // TODO: We are currently doing this process twice.
-    // One here and other on common/src/tap/checks/sender_balance_check.rs
-    // We'll get back to normal once we have attachable context to `verify_and_store_receipt`
-    let signer = receipt
-        .recover_signer(&state.domain_separator)
-        .map_err(IndexerServiceError::CouldNotDecodeSigner)?;
-    let sender = state
-        .escrow_accounts
-        .borrow()
-        .get_sender_for_signer(&signer)
-        .map_err(IndexerServiceError::EscrowAccount)?;
-
-    let _metric = HANDLER_HISTOGRAM
-        .with_label_values(&[
-            &manifest_id.to_string(),
-            &allocation_id.to_string(),
-            &sender.to_string(),
-        ])
-        .start_timer();
-
     // Verify the receipt and store it in the database
     state
         .tap_manager
@@ -121,7 +85,7 @@ async fn _request_handler(
                 .with_label_values(&[
                     &manifest_id.to_string(),
                     &allocation_id.to_string(),
-                    &sender.to_string(),
+                    &sender.0.to_string(),
                 ])
                 .inc()
         })
