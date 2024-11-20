@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 indexer-common = { path = "../common" }
+indexer-watcher = { path = "../watcher" }
 indexer-allocation = { path = "../allocation" }
 indexer-config = { path = "../config" }
 indexer-query = { path = "../query" }

@@ -8,7 +8,7 @@ use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::ToPrimitive;
 
 use futures::{stream, StreamExt};
-use indexer_common::watcher::watch_pipe;
+use indexer_watcher::watch_pipe;
 use indexer_query::unfinalized_transactions;
 use indexer_query::{
     closed_allocations::{self, ClosedAllocations},

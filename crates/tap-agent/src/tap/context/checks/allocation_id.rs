@@ -5,8 +5,9 @@ use std::time::Duration;
 
 use alloy::primitives::Address;
 use anyhow::anyhow;
-use indexer_common::{watcher::new_watcher, SubgraphClient};
+use indexer_common::SubgraphClient;
 use indexer_query::{tap_transactions, TapTransactions};
+use indexer_watcher::new_watcher;
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,

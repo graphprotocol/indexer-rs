@@ -13,7 +13,7 @@ use serde::Deserialize;
 use thegraph_core::DeploymentId;
 use tokio::sync::watch::Receiver;
 
-use crate::watcher::new_watcher;
+use indexer_watcher::new_watcher;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct DeploymentStatus {

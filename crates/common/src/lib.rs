@@ -7,7 +7,6 @@ pub mod client;
 mod dispute_manager;
 pub mod escrow_accounts;
 pub mod wallet;
-pub mod watcher;
 
 pub mod monitors {
     pub use super::allocations::indexer_allocations;

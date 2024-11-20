@@ -1,10 +1,11 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{client::SubgraphClient, watcher::new_watcher};
+use crate::client::SubgraphClient;
 use alloy::primitives::Address;
 use anyhow::Error;
 use indexer_query::dispute_manager::{self, DisputeManager};
+use indexer_watcher::new_watcher;
 use std::time::Duration;
 use tokio::sync::watch::Receiver;
 

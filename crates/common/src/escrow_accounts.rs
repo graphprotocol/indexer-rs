@@ -14,7 +14,7 @@ use thiserror::Error;
 use tokio::sync::watch::Receiver;
 use tracing::{error, warn};
 
-use crate::{client::SubgraphClient, watcher};
+use crate::client::SubgraphClient;
 
 #[derive(Error, Debug)]
 pub enum EscrowAccountsError {
@@ -93,7 +93,7 @@ pub async fn escrow_accounts(
     interval: Duration,
     reject_thawing_signers: bool,
 ) -> Result<Receiver<EscrowAccounts>, anyhow::Error> {
-    watcher::new_watcher(interval, move || {
+    indexer_watcher::new_watcher(interval, move || {
         get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers)
     })
     .await

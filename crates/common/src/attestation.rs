@@ -4,7 +4,7 @@
 use bip39::Mnemonic;
 use indexer_allocation::Allocation;
 use indexer_attestation::AttestationSigner;
-use crate::watcher::join_and_map_watcher;
+use indexer_watcher::join_and_map_watcher;
 use std::sync::Arc;
 use std::{collections::HashMap, sync::Mutex};
 use thegraph_core::{Address, ChainId};

@@ -9,6 +9,7 @@ members = [
   "crates/allocation",
   "crates/test-assets",
   "crates/attestation",
+  "crates/watcher",
 ]
 resolver = "2"
 
