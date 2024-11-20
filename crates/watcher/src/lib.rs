@@ -113,3 +113,34 @@ where
         }
     })
 }
+
+// Maps all outputs of Receiver into a new watcher
+pub fn map_watcher<T1, T2, F>(
+    mut receiver: watch::Receiver<T1>,
+    map_function: F,
+) -> watch::Receiver<T2>
+where
+    T1: Clone + Send + Sync + 'static,
+    T2: Send + Sync + 'static,
+    F: Fn(T1) -> T2 + Send + 'static,
+{
+    let initial_value = map_function(receiver.borrow().clone());
+    let (tx, rx) = watch::channel(initial_value);
+
+    tokio::spawn(async move {
+        loop {
+            select! {
+                Ok(())= receiver.changed() =>{},
+                else=>{
+                    // Something is wrong.
+                    panic!("receiver was dropped");
+                }
+            }
+
+            let current_val = receiver.borrow().clone();
+            let mapped_value = map_function(current_val);
+            tx.send(mapped_value).expect("Failed to update channel");
+        }
+    });
+    rx
+}
