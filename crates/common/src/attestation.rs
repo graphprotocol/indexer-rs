@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use bip39::Mnemonic;
+use indexer_allocation::Allocation;
+use indexer_attestation::AttestationSigner;
+use crate::watcher::join_and_map_watcher;
 use std::sync::Arc;
 use std::{collections::HashMap, sync::Mutex};
 use thegraph_core::{Address, ChainId};
 use tokio::sync::watch::Receiver;
 use tracing::warn;
 
-use crate::{attestation::signer::AttestationSigner, watcher::join_and_map_watcher};
-use indexer_allocation::Allocation;
 
 /// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
 pub fn attestation_signers(

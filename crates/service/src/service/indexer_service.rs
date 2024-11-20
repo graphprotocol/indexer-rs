@@ -13,8 +13,8 @@ use axum::{
 };
 use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
+use indexer_attestation::AttestationSigner;
 use indexer_common::{
-    attestation::AttestationSigner,
     client::{DeploymentDetails, SubgraphClient},
     escrow_accounts::{EscrowAccounts, EscrowAccountsError},
     monitors::{attestation_signers, dispute_manager, escrow_accounts, indexer_allocations},

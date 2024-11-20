@@ -8,6 +8,7 @@ members = [
   "crates/tap-agent",
   "crates/allocation",
   "crates/test-assets",
+  "crates/attestation",
 ]
 resolver = "2"
 

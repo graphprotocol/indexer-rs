@@ -3484,6 +3484,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer-attestation"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "indexer-allocation",
+ "test-assets",
+ "test-log",
+ "thegraph-core",
+]
+
+[[package]]
 name = "indexer-common"
 version = "1.4.0"
 dependencies = [
@@ -3498,6 +3510,7 @@ dependencies = [
  "eventuals",
  "graphql_client",
  "indexer-allocation",
+ "indexer-attestation",
  "indexer-config",
  "indexer-query",
  "lazy_static",
@@ -3584,6 +3597,7 @@ dependencies = [
  "graphql_client",
  "hex-literal",
  "indexer-allocation",
+ "indexer-attestation",
  "indexer-common",
  "indexer-config",
  "indexer-dips",
