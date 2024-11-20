@@ -1,22 +1,21 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::dyn_abi::Eip712Domain;
 use anyhow;
 use axum::extract::MatchedPath;
 use axum::extract::Request as ExtractRequest;
-use axum::http::{Method, Request};
 use axum::{
+    http::{Method, Request},
+    middleware::{from_fn, from_fn_with_state},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
+    serve, Json, Router, ServiceExt,
 };
-use axum::{serve, ServiceExt};
 use build_info::BuildInfo;
 use indexer_attestation::AttestationSigner;
 use indexer_monitor::{
-    attestation_signers, dispute_manager, escrow_accounts, indexer_allocations, DeploymentDetails,
-    EscrowAccounts, SubgraphClient,
+    attestation_signers, deployment_to_allocation, dispute_manager, escrow_accounts,
+    indexer_allocations, DeploymentDetails, SubgraphClient,
 };
 use prometheus::TextEncoder;
 use reqwest::StatusCode;
@@ -30,17 +29,23 @@ use thegraph_core::{Address, Attestation};
 use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::sync::watch::Receiver;
+use tower::ServiceBuilder;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::TraceLayer};
 use tracing::warn;
 use tracing::{error, info, info_span};
 
-use crate::routes::health;
-use crate::routes::request_handler;
-use crate::routes::static_subgraph_request_handler;
-use crate::tap::IndexerTapContext;
-use crate::wallet::public_key;
+use crate::{
+    metrics::{HANDLER_FAILURE, HANDLER_HISTOGRAM},
+    middleware::{
+        allocation_middleware, deployment_middleware, labels_middleware, receipt_middleware,
+        sender_middleware, AllocationState, MetricsMiddlewareLayer, SenderState,
+    },
+    routes::{health, request_handler, static_subgraph_request_handler},
+    tap::IndexerTapContext,
+    wallet::public_key,
+};
 use indexer_config::Config;
 
 use super::SubgraphService;
@@ -93,10 +98,6 @@ pub struct IndexerServiceState {
     pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
     pub tap_manager: Manager<IndexerTapContext>,
     pub service_impl: SubgraphService,
-
-    // tap
-    pub escrow_accounts: Receiver<EscrowAccounts>,
-    pub domain_separator: Eip712Domain,
 }
 
 const HTTP_CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -257,7 +258,7 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
 
     let checks = IndexerTapContext::get_checks(
         database,
-        allocations,
+        allocations.clone(),
         escrow_accounts.clone(),
         domain_separator.clone(),
         timestamp_error_tolerance,
@@ -276,8 +277,6 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
         attestation_signers,
         tap_manager,
         service_impl: options.service_impl,
-        escrow_accounts,
-        domain_separator,
     });
 
     // Rate limits by allowing bursts of 10 requests and requiring 100ms of
@@ -362,13 +361,39 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
 
     misc_routes = misc_routes.with_state(state.clone());
 
+    let deployment_to_allocation = deployment_to_allocation(allocations);
+    let allocation_state = AllocationState {
+        deployment_to_allocation,
+    };
+    let sender_state = SenderState {
+        escrow_accounts,
+        domain_separator,
+    };
+
+    let service_builder = ServiceBuilder::new()
+        // inject deployment id
+        .layer(from_fn(deployment_middleware))
+        // inject receipt
+        .layer(from_fn(receipt_middleware))
+        // inject allocation id
+        .layer(from_fn_with_state(allocation_state, allocation_middleware))
+        // inject sender
+        .layer(from_fn_with_state(sender_state, sender_middleware))
+        // inject metrics labels
+        .layer(from_fn(labels_middleware))
+        // metrics for histogram and failure
+        .layer(MetricsMiddlewareLayer::new(
+            HANDLER_HISTOGRAM.clone(),
+            HANDLER_FAILURE.clone(),
+        ));
+
     let data_routes = Router::new()
         .route(
             PathBuf::from(&options.config.service.url_prefix)
                 .join(format!("{}/id/:id", options.url_namespace))
                 .to_str()
                 .expect("Failed to set up `/{url_namespace}/id/:id` route"),
-            post(request_handler),
+            post(request_handler).route_layer(service_builder),
         )
         .with_state(state.clone());
 

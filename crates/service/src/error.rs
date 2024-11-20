@@ -30,9 +30,6 @@ pub enum IndexerServiceError {
     #[error("Failed to sign attestation")]
     FailedToSignAttestation,
 
-    #[error("Could not decode signer: {0}")]
-    CouldNotDecodeSigner(tap_core::Error),
-
     #[error("There was an error while accessing escrow account: {0}")]
     EscrowAccount(#[from] EscrowAccountsError),
 }
@@ -54,7 +51,6 @@ impl IntoResponse for IndexerServiceError {
             ReceiptError(_)
             | InvalidRequest(_)
             | InvalidFreeQueryAuthToken
-            | CouldNotDecodeSigner(_)
             | EscrowAccount(_)
             | ProcessingError(_) => StatusCode::BAD_REQUEST,
         };
