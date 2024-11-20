@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 indexer-config = { path = "../config" }
 indexer-query = { path = "../query" }
-indexer-types = { path = "../types" }
+indexer-allocation = { path = "../allocation" }
 thiserror.workspace = true
 async-trait.workspace = true
 alloy.workspace = true

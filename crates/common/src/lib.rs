@@ -21,4 +21,3 @@ pub mod monitors {
 
 pub use crate::client::{DeploymentDetails, SubgraphClient};
 pub use escrow_accounts::{EscrowAccounts, EscrowAccountsError};
-pub use indexer_types::{Allocation, AllocationStatus, SubgraphDeployment};

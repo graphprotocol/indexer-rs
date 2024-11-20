@@ -10,7 +10,7 @@ use alloy::{
 };
 use thegraph_core::{attestation, Address, Attestation, ChainId, DeploymentId};
 
-use indexer_types::Allocation;
+use indexer_allocation::Allocation;
 
 pub fn derive_key_pair(
     indexer_mnemonic: &str,
@@ -122,7 +122,7 @@ mod tests {
     use test_log::test;
 
     use crate::test_vectors::DISPUTE_MANAGER_ADDRESS;
-    use indexer_types::{Allocation, AllocationStatus, SubgraphDeployment};
+    use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
 
     use super::*;
 

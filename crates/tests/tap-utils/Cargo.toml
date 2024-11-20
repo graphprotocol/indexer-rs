@@ -9,4 +9,4 @@ bip39 = "2.0.0"
 lazy_static.workspace = true
 tap_core.workspace = true
 thegraph-core.workspace = true
-indexer-types = { path = "../../types" }
+indexer-allocation = { path = "../../allocation" }

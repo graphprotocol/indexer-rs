@@ -3,8 +3,8 @@
 
 use crate::{client::SubgraphClient, watcher::new_watcher};
 use alloy::{primitives::Address, primitives::TxHash};
+use indexer_allocation::Allocation;
 use indexer_query::allocations_query::{self, AllocationsQuery};
-use indexer_types::Allocation;
 use std::{
     collections::HashMap,
     time::{Duration, SystemTime, UNIX_EPOCH},

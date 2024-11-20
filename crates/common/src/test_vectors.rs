@@ -8,7 +8,7 @@ use bip39::Mnemonic;
 use lazy_static::lazy_static;
 use thegraph_core::{Address, DeploymentId};
 
-use indexer_types::{Allocation, AllocationStatus, SubgraphDeployment};
+use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
 
 /// The allocation IDs below are generated using the mnemonic
 /// "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"

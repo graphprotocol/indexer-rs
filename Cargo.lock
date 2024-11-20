@@ -3473,6 +3473,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer-allocation"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "indexer-query",
+ "serde",
+ "thegraph-core",
+]
+
+[[package]]
 name = "indexer-common"
 version = "1.4.0"
 dependencies = [
@@ -3486,9 +3497,9 @@ dependencies = [
  "env_logger",
  "eventuals",
  "graphql_client",
+ "indexer-allocation",
  "indexer-config",
  "indexer-query",
- "indexer-types",
  "lazy_static",
  "prometheus",
  "reqwest 0.12.9",
@@ -3572,6 +3583,7 @@ dependencies = [
  "graphql 0.3.0",
  "graphql_client",
  "hex-literal",
+ "indexer-allocation",
  "indexer-common",
  "indexer-config",
  "indexer-dips",
@@ -3610,6 +3622,7 @@ dependencies = [
  "futures",
  "futures-util",
  "graphql_client",
+ "indexer-allocation",
  "indexer-common",
  "indexer-config",
  "indexer-query",
@@ -3631,17 +3644,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wiremock 0.6.2",
-]
-
-[[package]]
-name = "indexer-types"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "anyhow",
- "indexer-query",
- "serde",
- "thegraph-core",
 ]
 
 [[package]]
@@ -6716,7 +6718,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "bip39",
- "indexer-types",
+ "indexer-allocation",
  "lazy_static",
  "tap_core",
  "thegraph-core",
