@@ -3,7 +3,10 @@
 
 use alloy::primitives::Address;
 use anyhow::Error;
-use axum::{response::{IntoResponse, Response}, Json};
+use axum::{
+    response::{IntoResponse, Response},
+    Json,
+};
 use indexer_monitor::EscrowAccountsError;
 use reqwest::StatusCode;
 use serde::Serialize;
@@ -13,7 +16,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum IndexerServiceError {
     #[error("Issues with provided receipt: {0}")]
-    ReceiptError(tap_core::Error),
+    ReceiptError(#[from] tap_core::Error),
     #[error("No attestation signer found for allocation `{0}`")]
     NoSignerForAllocation(Address),
     #[error("Invalid request body: {0}")]
@@ -31,7 +34,7 @@ pub enum IndexerServiceError {
     CouldNotDecodeSigner(tap_core::Error),
 
     #[error("There was an error while accessing escrow account: {0}")]
-    EscrowAccount(EscrowAccountsError),
+    EscrowAccount(#[from] EscrowAccountsError),
 }
 
 impl IntoResponse for IndexerServiceError {
