@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow;
-use axum::extract::MatchedPath;
-use axum::extract::Request as ExtractRequest;
 use axum::{
+    extract::{MatchedPath, Request as ExtractRequest},
     http::{Method, Request},
     middleware::{from_fn, from_fn_with_state},
     response::IntoResponse,
@@ -26,20 +25,24 @@ use std::{
 };
 use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
 use thegraph_core::{Address, Attestation};
-use tokio::net::TcpListener;
-use tokio::signal;
-use tokio::sync::watch::Receiver;
+use tokio::{net::TcpListener, signal, sync::watch::Receiver};
 use tower::ServiceBuilder;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
-use tower_http::validate_request::ValidateRequestHeaderLayer;
-use tower_http::{cors, cors::CorsLayer, normalize_path::NormalizePath, trace::TraceLayer};
-use tracing::warn;
-use tracing::{error, info, info_span};
+use tower_http::{
+    auth::AsyncRequireAuthorizationLayer,
+    cors::{self, CorsLayer},
+    normalize_path::NormalizePath,
+    trace::TraceLayer,
+    validate_request::ValidateRequestHeaderLayer,
+};
+use tracing::{error, info, info_span, warn};
 
 use crate::{
-    metrics::{HANDLER_FAILURE, HANDLER_HISTOGRAM},
+    metrics::{FAILED_RECEIPT, HANDLER_FAILURE, HANDLER_HISTOGRAM},
     middleware::{
-        allocation_middleware, deployment_middleware, labels_middleware, receipt_middleware,
+        allocation_middleware,
+        auth::{self, Bearer, OrExt},
+        context_middleware, deployment_middleware, labels_middleware, receipt_middleware,
         sender_middleware, AllocationState, PrometheusMetricsMiddlewareLayer, SenderState,
     },
     routes::{health, request_handler, static_subgraph_request_handler},
@@ -96,7 +99,6 @@ pub struct IndexerServiceOptions {
 pub struct IndexerServiceState {
     pub config: Config,
     pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
-    pub tap_manager: Manager<IndexerTapContext>,
     pub service_impl: SubgraphService,
 }
 
@@ -266,16 +268,15 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
     )
     .await;
 
-    let tap_manager = Manager::new(
+    let tap_manager = Box::leak(Box::new(Manager::new(
         domain_separator.clone(),
         indexer_context,
         CheckList::new(checks),
-    );
+    )));
 
     let state = Arc::new(IndexerServiceState {
         config: options.config.clone(),
         attestation_signers,
-        tap_manager,
         service_impl: options.service_impl,
     });
 
@@ -361,6 +362,22 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
 
     misc_routes = misc_routes.with_state(state.clone());
 
+    let mut request_handler_route = post(request_handler);
+
+    // inject auth
+    let failed_receipt_metric = Box::leak(Box::new(FAILED_RECEIPT.clone()));
+    let tap_auth = auth::tap_receipt_authorize(tap_manager, failed_receipt_metric);
+
+    if let Some(free_auth_token) = &options.config.service.serve_auth_token {
+        let free_query = Bearer::new(free_auth_token);
+        let result = free_query.or(tap_auth);
+        let auth_layer = AsyncRequireAuthorizationLayer::new(result);
+        request_handler_route = request_handler_route.layer(auth_layer);
+    } else {
+        let auth_layer = AsyncRequireAuthorizationLayer::new(tap_auth);
+        request_handler_route = request_handler_route.layer(auth_layer);
+    }
+
     let deployment_to_allocation = deployment_to_allocation(allocations);
     let allocation_state = AllocationState {
         deployment_to_allocation,
@@ -385,7 +402,11 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
         .layer(PrometheusMetricsMiddlewareLayer::new(
             HANDLER_HISTOGRAM.clone(),
             HANDLER_FAILURE.clone(),
-        ));
+        ))
+        // tap context
+        .layer(from_fn(context_middleware));
+
+    request_handler_route = request_handler_route.layer(service_builder);
 
     let data_routes = Router::new()
         .route(
@@ -393,7 +414,7 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
                 .join(format!("{}/id/:id", options.url_namespace))
                 .to_str()
                 .expect("Failed to set up `/{url_namespace}/id/:id` route"),
-            post(request_handler).route_layer(service_builder),
+            request_handler_route,
         )
         .with_state(state.clone());
 

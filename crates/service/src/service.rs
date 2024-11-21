@@ -98,7 +98,7 @@ impl SubgraphService {
     pub async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
         &self,
         deployment: DeploymentId,
-        request: Request,
+        request: &Request,
     ) -> Result<SubgraphServiceResponse, SubgraphServiceError> {
         let deployment_url = self
             .state
@@ -110,7 +110,7 @@ impl SubgraphService {
             .state
             .graph_node_client
             .post(deployment_url)
-            .json(&request)
+            .json(request)
             .send()
             .await
             .map_err(SubgraphServiceError::QueryForwardingError)?;

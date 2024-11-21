@@ -22,14 +22,8 @@ pub enum IndexerServiceError {
     ReceiptError(#[from] tap_core::Error),
     #[error("No attestation signer found for allocation `{0}`")]
     NoSignerForAllocation(Address),
-    #[error("Invalid request body: {0}")]
-    InvalidRequest(anyhow::Error),
     #[error("Error while processing the request: {0}")]
     ProcessingError(SubgraphServiceError),
-    #[error("No valid receipt or free query auth token provided")]
-    Unauthorized,
-    #[error("Invalid free query auth token")]
-    InvalidFreeQueryAuthToken,
     #[error("Failed to sign attestation")]
     FailedToSignAttestation,
 
@@ -47,15 +41,9 @@ impl IntoResponse for IndexerServiceError {
         }
 
         let status = match self {
-            Unauthorized => StatusCode::UNAUTHORIZED,
-
             NoSignerForAllocation(_) | FailedToSignAttestation => StatusCode::INTERNAL_SERVER_ERROR,
 
-            ReceiptError(_)
-            | InvalidRequest(_)
-            | InvalidFreeQueryAuthToken
-            | EscrowAccount(_)
-            | ProcessingError(_) => StatusCode::BAD_REQUEST,
+            ReceiptError(_) | EscrowAccount(_) | ProcessingError(_) => StatusCode::BAD_REQUEST,
             ReceiptNotFound => StatusCode::PAYMENT_REQUIRED,
         };
         tracing::error!(%self, "An IndexerServiceError occoured.");
