@@ -138,7 +138,7 @@ mod tests {
         )));
         let metric = Box::leak(Box::new(
             prometheus::register_counter_vec!(
-                "test1",
+                "tap_middleware_test",
                 "Failed queries to handler",
                 &["deployment"]
             )
