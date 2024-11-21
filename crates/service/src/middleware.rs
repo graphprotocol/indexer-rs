@@ -1,6 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+mod auth;
 mod inject_allocation;
 mod inject_deployment;
 mod inject_labels;

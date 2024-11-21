@@ -15,6 +15,9 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum IndexerServiceError {
+    #[error("No Tap receipt was found in the request")]
+    ReceiptNotFound,
+
     #[error("Issues with provided receipt: {0}")]
     ReceiptError(#[from] tap_core::Error),
     #[error("No attestation signer found for allocation `{0}`")]
@@ -53,6 +56,7 @@ impl IntoResponse for IndexerServiceError {
             | InvalidFreeQueryAuthToken
             | EscrowAccount(_)
             | ProcessingError(_) => StatusCode::BAD_REQUEST,
+            ReceiptNotFound => StatusCode::PAYMENT_REQUIRED,
         };
         tracing::error!(%self, "An IndexerServiceError occoured.");
         (
