@@ -17,6 +17,13 @@ use thiserror::Error;
 pub enum IndexerServiceError {
     #[error("No Tap receipt was found in the request")]
     ReceiptNotFound,
+    #[error("Could not find deployment id")]
+    DeploymentIdNotFound,
+    #[error(transparent)]
+    AxumError(#[from] axum::Error),
+
+    #[error(transparent)]
+    SerializationError(#[from] serde_json::Error),
 
     #[error("Issues with provided receipt: {0}")]
     ReceiptError(#[from] tap_core::Error),
@@ -45,6 +52,9 @@ impl IntoResponse for IndexerServiceError {
 
             ReceiptError(_) | EscrowAccount(_) | ProcessingError(_) => StatusCode::BAD_REQUEST,
             ReceiptNotFound => StatusCode::PAYMENT_REQUIRED,
+            DeploymentIdNotFound => StatusCode::INTERNAL_SERVER_ERROR,
+            AxumError(_) => StatusCode::BAD_REQUEST,
+            SerializationError(_) => StatusCode::BAD_REQUEST,
         };
         tracing::error!(%self, "An IndexerServiceError occoured.");
         (
