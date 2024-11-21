@@ -1,29 +1,13 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::ops::Deref;
-
 use axum_extra::headers::{self, Header, HeaderName, HeaderValue};
 use lazy_static::lazy_static;
 use prometheus::{register_counter, Counter};
 use tap_core::receipt::SignedReceipt;
 
 #[derive(Debug, PartialEq)]
-pub struct TapReceipt(Option<SignedReceipt>);
-
-impl TapReceipt {
-    pub fn into_signed_receipt(self) -> Option<SignedReceipt> {
-        self.0
-    }
-}
-
-impl Deref for TapReceipt {
-    type Target = Option<SignedReceipt>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+pub struct TapReceipt(pub SignedReceipt);
 
 lazy_static! {
     static ref TAP_RECEIPT: HeaderName = HeaderName::from_static("tap-receipt");
@@ -42,14 +26,12 @@ impl Header for TapReceipt {
     {
         let mut execute = || {
             let value = values.next();
-            let raw_receipt = value
-                .map(|value| value.to_str())
-                .transpose()
+            let raw_receipt = value.ok_or(headers::Error::invalid())?;
+            let raw_receipt = raw_receipt
+                .to_str()
                 .map_err(|_| headers::Error::invalid())?;
-            let parsed_receipt = raw_receipt
-                .map(serde_json::from_str)
-                .transpose()
-                .map_err(|_| headers::Error::invalid())?;
+            let parsed_receipt =
+                serde_json::from_str(raw_receipt).map_err(|_| headers::Error::invalid())?;
             Ok(TapReceipt(parsed_receipt))
         };
         execute().inspect_err(|_| TAP_RECEIPT_INVALID.inc())
@@ -86,7 +68,7 @@ mod test {
         let decoded_receipt = TapReceipt::decode(&mut header_values.into_iter())
             .expect("tap receipt header value should be valid");
 
-        assert_eq!(decoded_receipt, TapReceipt(Some(original_receipt.clone())));
+        assert_eq!(decoded_receipt, TapReceipt(original_receipt));
     }
 
     #[test]
