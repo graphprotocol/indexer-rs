@@ -8,6 +8,10 @@ use crate::service::TapReceipt;
 
 /// Injects tap receipts in the extensions
 ///
+/// A request won't always have a receipt because they might be
+/// free queries.
+/// That's why we don't fail with 400.
+///
 /// This is useful to not deserialize multiple times the same receipt
 pub async fn receipt_middleware(mut request: Request, next: Next) -> Response {
     if let Ok(TypedHeader(receipt)) = request.extract_parts::<TypedHeader<TapReceipt>>().await {

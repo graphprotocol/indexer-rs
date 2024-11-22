@@ -34,6 +34,10 @@ impl From<Sender> for String {
 
 /// Injects the sender found from the signer in the receipt
 ///
+/// A request won't always have a receipt because they might be
+/// free queries.
+/// That's why we don't fail with 400.
+///
 /// Requires Receipt extension
 pub async fn sender_middleware(
     State(state): State<SenderState>,
