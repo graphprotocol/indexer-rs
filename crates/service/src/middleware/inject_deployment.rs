@@ -37,12 +37,15 @@ mod tests {
     async fn test_deployment_middleware() {
         let middleware = from_fn(deployment_middleware);
 
-        async fn handle(extensions: Extensions) -> Body {
-            extensions
+        let deployment = *ESCROW_SUBGRAPH_DEPLOYMENT;
+
+        let handle = move |extensions: Extensions| async move {
+            let received_deployment = extensions
                 .get::<DeploymentId>()
                 .expect("Should contain a deployment_id");
+            assert_eq!(*received_deployment, deployment);
             Body::empty()
-        }
+        };
 
         let app = Router::new()
             .route("/:deployment_id", get(handle))
@@ -51,7 +54,7 @@ mod tests {
         let res = app
             .oneshot(
                 Request::builder()
-                    .uri(format!("/{}", *ESCROW_SUBGRAPH_DEPLOYMENT))
+                    .uri(format!("/{}", deployment))
                     .body(Body::empty())
                     .unwrap(),
             )

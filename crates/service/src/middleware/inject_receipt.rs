@@ -40,22 +40,25 @@ mod tests {
     async fn test_receipt_middleware() {
         let middleware = from_fn(receipt_middleware);
 
-        async fn handle(extensions: Extensions) -> Body {
-            extensions
+        let receipt = create_signed_receipt(Address::ZERO, 1, 1, 1).await;
+        let receipt_json = serde_json::to_string(&receipt).unwrap();
+
+        let handle = move |extensions: Extensions| async move {
+            let received_receipt = extensions
                 .get::<SignedReceipt>()
                 .expect("Should decode tap receipt");
+            assert_eq!(received_receipt.message, receipt.message);
+            assert_eq!(received_receipt.signature, receipt.signature);
             Body::empty()
-        }
+        };
 
         let app = Router::new().route("/", get(handle)).layer(middleware);
-
-        let receipt = create_signed_receipt(Address::ZERO, 1, 1, 1).await;
 
         let res = app
             .oneshot(
                 Request::builder()
                     .uri("/")
-                    .header(TapReceipt::name(), serde_json::to_string(&receipt).unwrap())
+                    .header(TapReceipt::name(), receipt_json)
                     .body(Body::empty())
                     .unwrap(),
             )
