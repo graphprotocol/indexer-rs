@@ -4,7 +4,7 @@
 //! Merge a ValidateRequest and an AsyncAuthorizeRequest
 //!
 //! executes a ValidateRequest returning the request if it succeeds
-//! or else, executed the future and return it
+//! or else, executes the future and return it
 
 use std::{future::Future, marker::PhantomData, pin::Pin, task::Poll};
 

@@ -6,7 +6,8 @@
 //! This looks for a Context in the extensions of the request to inject
 //! as part of the checks.
 //!
-//! This also uses MetricLabels injected to
+//! This also uses MetricLabels injected in the receipts to provide
+//! metrics related to receipt check failure
 
 use std::{future::Future, sync::Arc};
 
