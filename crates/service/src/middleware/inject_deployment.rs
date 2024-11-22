@@ -9,6 +9,7 @@ use axum::{
 };
 use thegraph_core::DeploymentId;
 
+/// Injects deployment id in the extensions from the path
 pub async fn deployment_middleware(mut request: Request, next: Next) -> Response {
     let deployment_id = request.extract_parts::<Path<DeploymentId>>().await.ok();
     if let Some(Path(deployment_id)) = deployment_id {

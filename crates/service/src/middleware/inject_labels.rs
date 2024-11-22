@@ -1,10 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Injects Metric Labels
-//!
-//! Require Sender, Allocation and Deployment extensions
-
 use std::sync::Arc;
 
 use axum::{extract::Request, middleware::Next, response::Response};
@@ -20,6 +16,10 @@ const NO_DEPLOYMENT_ID: &str = "no-deployment";
 const NO_ALLOCATION: &str = "no-allocation";
 const NO_SENDER: &str = "no-sender";
 
+/// Labels used by metrics which implements MetricLabelProvider
+///
+/// Might contain sender, allocation and deployment id and fills
+/// the gaps with constant values when they are not present
 #[derive(Clone, Default)]
 pub struct SenderAllocationDeploymentLabels {
     sender: Option<String>,
@@ -49,6 +49,9 @@ impl MetricLabelProvider for SenderAllocationDeploymentLabels {
     }
 }
 
+/// Injects Metric Labels to be used by MetricMiddleware
+///
+/// Soft requirement for Sender, Allocation and Deployment extensions
 pub async fn labels_middleware(mut request: Request, next: Next) -> Response {
     let sender: Option<String> = request
         .extensions()

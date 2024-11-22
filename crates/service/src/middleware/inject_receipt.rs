@@ -6,6 +6,9 @@ use axum_extra::TypedHeader;
 
 use crate::service::TapReceipt;
 
+/// Injects tap receipts in the extensions
+///
+/// This is useful to not deserialize multiple times the same receipt
 pub async fn receipt_middleware(mut request: Request, next: Next) -> Response {
     if let Ok(TypedHeader(receipt)) = request.extract_parts::<TypedHeader<TapReceipt>>().await {
         if let Some(receipt) = receipt.into_signed_receipt() {
