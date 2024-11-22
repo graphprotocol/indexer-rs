@@ -20,3 +20,25 @@ pub fn deployment_to_allocation(
             .collect()
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::watch;
+
+    use super::deployment_to_allocation;
+
+    #[tokio::test]
+    async fn test_deployment_to_allocation() {
+        let allocations = test_assets::INDEXER_ALLOCATIONS.clone();
+        let allocations_watcher = watch::channel(allocations.clone()).1;
+        let deployment = deployment_to_allocation(allocations_watcher);
+
+        let deployments = deployment.borrow();
+        // one of the allocation id point to the same subgraph
+        assert_eq!(deployments.len(), 3);
+        // check if all allocations point to the subgraph id
+        for (key, val) in deployments.iter() {
+            assert_eq!(allocations.get(val).unwrap().subgraph_deployment.id, *key);
+        }
+    }
+}
