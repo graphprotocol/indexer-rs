@@ -21,8 +21,13 @@ use tap_core::{
 };
 use tower_http::auth::AsyncAuthorizeRequest;
 
-use crate::{error::IndexerServiceError, middleware::metrics::MetricLabels};
+use crate::{error::IndexerServiceError, middleware::prometheus_metrics::MetricLabels};
 
+/// Middleware to verify and store TAP receipts
+///
+/// It also optionally updates a failed receipt metric if Labels are provided
+///
+/// Requires SignedReceipt, MetricLabels and Arc<Context> extensions
 pub fn tap_receipt_authorize<T, B>(
     tap_manager: &'static Manager<T>,
     failed_receipt_metric: &'static prometheus::CounterVec,
@@ -93,7 +98,7 @@ mod tests {
     use crate::{
         middleware::{
             auth::tap_receipt_authorize,
-            metrics::{MetricLabelProvider, MetricLabels},
+            prometheus_metrics::{MetricLabelProvider, MetricLabels},
         },
         tap::IndexerTapContext,
     };

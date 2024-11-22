@@ -12,6 +12,7 @@ use axum::http::{Request, Response};
 use pin_project::pin_project;
 use tower_http::{auth::AsyncAuthorizeRequest, validate_request::ValidateRequest};
 
+/// Extension that allows using a simple .or() function and return an Or struct
 pub trait OrExt<T, B, Resp>: Sized {
     fn or(self, other: T) -> Or<Self, T, B, Resp>;
 }
@@ -32,6 +33,11 @@ where
     }
 }
 
+/// Or struct capable of implementing a ValidateRequest or an AsyncAuthorizeRequest
+///
+/// Uses the first parameter to validate the request sync.
+/// if it passes the check return the request to pass to the next middleware
+/// if it doesn't pass, check the async future returning the result
 pub struct Or<T, E, B, Resp>(T, E, PhantomData<fn(B) -> Resp>);
 
 impl<T, E, B, Resp> Clone for Or<T, E, B, Resp>

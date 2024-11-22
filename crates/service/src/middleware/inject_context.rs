@@ -20,12 +20,14 @@ use thegraph_core::DeploymentId;
 
 use crate::{error::IndexerServiceError, tap::AgoraQuery};
 
+/// Graphql query body to be decoded and passed to agora context
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct QueryBody {
     query: String,
     variables: Option<Box<RawValue>>,
 }
 
+/// Injects tap context in the extensions to be used by tap_receipt_authorize
 pub async fn context_middleware(
     mut request: Request,
     next: Next,
