@@ -59,7 +59,9 @@ pin-project = "1.1.7"
 [dev-dependencies]
 hex-literal = "0.4.1"
 test-assets = { path = "../test-assets" }
+rstest.workspace = true
 tower-test = "0.4.0"
+tower-service = "0.3.3"
 tokio-test = "0.4.4"
 
 [build-dependencies]

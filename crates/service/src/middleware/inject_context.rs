@@ -116,7 +116,6 @@ mod tests {
                 Request::builder()
                     .uri("/")
                     .extension(deployment)
-                    .extension(deployment)
                     .body(body)
                     .unwrap(),
             )

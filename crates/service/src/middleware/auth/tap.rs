@@ -52,7 +52,6 @@ where
         async {
             let execute = || async {
                 let receipt = receipt.ok_or(IndexerServiceError::ReceiptNotFound)?;
-
                 // Verify the receipt and store it in the database
                 tap_manager
                     .verify_and_store_receipt(&ctx.unwrap_or_default(), receipt)
@@ -73,7 +72,12 @@ where
 
 #[cfg(test)]
 mod tests {
+
+    use core::panic;
+    use rstest::*;
     use std::{sync::Arc, time::Duration};
+    use tokio::time::sleep;
+    use tower::{Service, ServiceBuilder, ServiceExt};
 
     use alloy::primitives::{address, Address};
     use axum::{
@@ -92,7 +96,6 @@ mod tests {
         },
     };
     use test_assets::{create_signed_receipt, TAP_EIP712_DOMAIN};
-    use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
     use crate::{
@@ -105,20 +108,28 @@ mod tests {
 
     const ALLOCATION_ID: Address = address!("deadbeefcafebabedeadbeefcafebabedeadbeef");
 
-    async fn handle(_: Request<Body>) -> anyhow::Result<Response<Body>> {
-        Ok(Response::new(Body::default()))
+    #[fixture]
+    fn metric() -> &'static prometheus::CounterVec {
+        let registry = prometheus::Registry::new();
+        let metric = Box::leak(Box::new(
+            prometheus::register_counter_vec_with_registry!(
+                "tap_middleware_test",
+                "Failed queries to handler",
+                &["deployment"],
+                registry,
+            )
+            .unwrap(),
+        ));
+        metric
     }
 
-    struct TestLabel;
-    impl MetricLabelProvider for TestLabel {
-        fn get_labels(&self) -> Vec<&str> {
-            vec!["label1"]
-        }
-    }
+    const FAILED_NONCE: u64 = 99;
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_tap_middleware(pgpool: PgPool) {
-        let context = IndexerTapContext::new(pgpool.clone(), TAP_EIP712_DOMAIN.clone()).await;
+    async fn service(
+        metric: &'static prometheus::CounterVec,
+        pgpool: PgPool,
+    ) -> impl Service<Request<Body>, Response = Response<Body>, Error = impl std::fmt::Debug> {
+        let context = IndexerTapContext::new(pgpool, TAP_EIP712_DOMAIN.clone()).await;
 
         struct MyCheck;
         #[async_trait::async_trait]
@@ -128,7 +139,7 @@ mod tests {
                 _: &tap_core::receipt::Context,
                 receipt: &ReceiptWithState<Checking>,
             ) -> CheckResult {
-                if receipt.signed_receipt().message.nonce == 99 {
+                if receipt.signed_receipt().message.nonce == FAILED_NONCE {
                     Err(CheckError::Failed(anyhow::anyhow!("Failed")))
                 } else {
                     Ok(())
@@ -136,69 +147,107 @@ mod tests {
             }
         }
 
-        let tap_manager = Box::leak(Box::new(Manager::new(
+        let manager = Box::leak(Box::new(Manager::new(
             TAP_EIP712_DOMAIN.clone(),
             context,
             CheckList::new(vec![Arc::new(MyCheck)]),
         )));
-        let metric = Box::leak(Box::new(
-            prometheus::register_counter_vec!(
-                "tap_middleware_test",
-                "Failed queries to handler",
-                &["deployment"]
-            )
-            .unwrap(),
-        ));
-
-        let tap_auth = tap_receipt_authorize(tap_manager, metric);
-
+        let tap_auth = tap_receipt_authorize(manager, metric);
         let authorization_middleware = AsyncRequireAuthorizationLayer::new(tap_auth);
 
         let mut service = ServiceBuilder::new()
             .layer(authorization_middleware)
-            .service_fn(handle);
+            .service_fn(|_: Request<Body>| async {
+                Ok::<_, anyhow::Error>(Response::new(Body::default()))
+            });
 
-        let handle = service.ready().await.unwrap();
+        service.ready().await.unwrap();
+        service
+    }
+
+    #[rstest]
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_tap_valid_receipt(
+        metric: &'static prometheus::CounterVec,
+        #[ignore] pgpool: PgPool,
+    ) {
+        let mut service = service(metric, pgpool.clone()).await;
 
         let receipt = create_signed_receipt(ALLOCATION_ID, 1, 1, 1).await;
 
         // check with receipt
-        let mut req = Request::new(Default::default());
+        let mut req = Request::new(Body::default());
         req.extensions_mut().insert(receipt);
-        let res = handle.call(req).await.unwrap();
+        let res = service.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        // todo make this sleep better
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
         // verify receipts
-        let result = sqlx::query!("SELECT * FROM scalar_tap_receipts")
-            .fetch_all(&pgpool)
-            .await
-            .unwrap();
-        assert_eq!(result.len(), 1);
+        if tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let result = sqlx::query!("SELECT * FROM scalar_tap_receipts")
+                    .fetch_all(&pgpool)
+                    .await
+                    .unwrap();
+
+                if result.is_empty() {
+                    sleep(Duration::from_millis(50)).await;
+                } else {
+                    break;
+                }
+            }
+        })
+        .await
+        .is_err()
+        {
+            panic!("Timeout assertion");
+        }
+    }
+
+    #[rstest]
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_invalid_receipt_with_failed_metric(
+        metric: &'static prometheus::CounterVec,
+        #[ignore] pgpool: PgPool,
+    ) {
+        let mut service = service(metric, pgpool.clone()).await;
         // if it fails tap receipt, should return failed to process payment + tap message
 
         assert_eq!(metric.collect().first().unwrap().get_metric().len(), 0);
+
+        struct TestLabel;
+        impl MetricLabelProvider for TestLabel {
+            fn get_labels(&self) -> Vec<&str> {
+                vec!["label1"]
+            }
+        }
 
         // default labels, all empty
         let labels: MetricLabels = Arc::new(TestLabel);
 
         let mut receipt = create_signed_receipt(ALLOCATION_ID, 1, 1, 1).await;
         // change the nonce to make the receipt invalid
-        receipt.message.nonce = 99;
-        let mut req = Request::new(Default::default());
+        receipt.message.nonce = FAILED_NONCE;
+        let mut req = Request::new(Body::default());
         req.extensions_mut().insert(receipt);
         req.extensions_mut().insert(labels);
-        let res = handle.call(req).await.unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let response = service.call(req);
+
+        assert_eq!(response.await.unwrap().status(), StatusCode::BAD_REQUEST);
 
         assert_eq!(metric.collect().first().unwrap().get_metric().len(), 1);
+    }
 
+    #[rstest]
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_tap_missing_signed_receipt(
+        metric: &'static prometheus::CounterVec,
+        #[ignore] pgpool: PgPool,
+    ) {
+        let mut service = service(metric, pgpool.clone()).await;
         // if it doesnt contain the signed receipt
         // should return payment required
-        let req = Request::new(Default::default());
-        let res = handle.call(req).await.unwrap();
+        let req = Request::new(Body::default());
+        let res = service.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::PAYMENT_REQUIRED);
     }
 }
