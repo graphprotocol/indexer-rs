@@ -20,6 +20,7 @@ pub trait MetricLabelProvider {
     fn get_labels(&self) -> Vec<&str>;
 }
 
+/// Middleware for metrics
 #[derive(Clone)]
 pub struct PrometheusMetricsMiddleware<S> {
     inner: S,
@@ -27,9 +28,14 @@ pub struct PrometheusMetricsMiddleware<S> {
     failure: prometheus::CounterVec,
 }
 
+/// MetricsMiddleware used in tower components
+///
+/// Register prometheus metrics in case of success or failure
 #[derive(Clone)]
 pub struct PrometheusMetricsMiddlewareLayer {
+    /// Histogram used to register the processing timer
     histogram: prometheus::HistogramVec,
+    /// Counter metric in case of failure
     failure: prometheus::CounterVec,
 }
 

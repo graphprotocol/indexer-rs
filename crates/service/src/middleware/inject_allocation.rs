@@ -1,13 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-//! injects allocation id in extensions
-//! - check if allocation id already exists
-//! - else, try to fetch allocation id from deployment_id and allocations watcher
-//! - execute query
-//!
-//! Needs signed receipt Extension to be added OR deployment id
-
 use std::collections::HashMap;
 
 use alloy::primitives::Address;
@@ -20,6 +13,7 @@ use tap_core::receipt::SignedReceipt;
 use thegraph_core::DeploymentId;
 use tokio::sync::watch;
 
+/// The current query Allocation Id address
 #[derive(Clone)]
 pub struct Allocation(pub Address);
 
@@ -29,11 +23,18 @@ impl From<Allocation> for String {
     }
 }
 
+/// State to be used by allocation middleware
 #[derive(Clone)]
 pub struct AllocationState {
+    /// watcher that maps deployment ids to allocation ids
     pub deployment_to_allocation: watch::Receiver<HashMap<DeploymentId, Address>>,
 }
 
+/// Injects allocation id in extensions
+/// - check if allocation id already exists
+/// - else, try to fetch allocation id from deployment_id to allocations map
+///
+/// Requires signed receipt Extension to be added OR deployment id
 pub async fn allocation_middleware(
     State(my_state): State<AllocationState>,
     mut request: Request,

@@ -8,7 +8,8 @@ use tokio::sync::watch::Receiver;
 use indexer_allocation::Allocation;
 use indexer_watcher::map_watcher;
 
-/// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
+/// Watcher of indexer allocation
+/// returning a map of subgraph deployment to allocation id
 pub fn deployment_to_allocation(
     indexer_allocations_rx: Receiver<HashMap<Address, Allocation>>,
 ) -> Receiver<HashMap<DeploymentId, Address>> {

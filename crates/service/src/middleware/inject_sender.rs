@@ -13,12 +13,16 @@ use tokio::sync::watch;
 
 use crate::error::IndexerServiceError;
 
+/// Stated used by sender middleware
 #[derive(Clone)]
 pub struct SenderState {
+    /// Used to recover the signer address
     pub domain_separator: Eip712Domain,
+    /// Used to get the sender address given the signer address
     pub escrow_accounts: watch::Receiver<EscrowAccounts>,
 }
 
+/// The current query Sender address
 #[derive(Clone)]
 pub struct Sender(pub Address);
 
@@ -28,6 +32,9 @@ impl From<Sender> for String {
     }
 }
 
+/// Injects the sender found from the signer in the receipt
+///
+/// Requires Receipt extension
 pub async fn sender_middleware(
     State(state): State<SenderState>,
     mut request: Request,
