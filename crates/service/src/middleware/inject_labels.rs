@@ -81,7 +81,10 @@ pub async fn labels_middleware(mut request: Request, next: Next) -> Response {
 #[cfg(test)]
 mod tests {
     use crate::middleware::{
-        inject_allocation::Allocation, inject_sender::Sender, prometheus_metrics::MetricLabels,
+        inject_allocation::Allocation,
+        inject_labels::{NO_ALLOCATION, NO_DEPLOYMENT_ID, NO_SENDER},
+        inject_sender::Sender,
+        prometheus_metrics::MetricLabels,
     };
 
     use super::labels_middleware;
@@ -99,7 +102,7 @@ mod tests {
     use tower::ServiceExt;
 
     #[tokio::test]
-    async fn test_receipt_middleware() {
+    async fn test_label_middleware() {
         let middleware = from_fn(labels_middleware);
 
         let deployment = *ESCROW_SUBGRAPH_DEPLOYMENT;
@@ -109,7 +112,7 @@ mod tests {
         let handle = move |extensions: Extensions| async move {
             let metrics = extensions
                 .get::<MetricLabels>()
-                .expect("Should decode tap receipt");
+                .expect("Should decode metric label");
             assert_eq!(
                 metrics.get_labels(),
                 vec![
@@ -133,6 +136,30 @@ mod tests {
                     .body(Body::empty())
                     .unwrap(),
             )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_empty_label_middleware() {
+        let middleware = from_fn(labels_middleware);
+
+        let handle = move |extensions: Extensions| async move {
+            let metrics = extensions
+                .get::<MetricLabels>()
+                .expect("Should decode metric label");
+            assert_eq!(
+                metrics.get_labels(),
+                vec![NO_DEPLOYMENT_ID, NO_ALLOCATION, NO_SENDER]
+            );
+            Body::empty()
+        };
+
+        let app = Router::new().route("/", get(handle)).layer(middleware);
+
+        let res = app
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
