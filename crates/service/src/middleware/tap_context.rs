@@ -78,7 +78,7 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::{
-        middleware::inject_context::{context_middleware, QueryBody},
+        middleware::tap_context::{context_middleware, QueryBody},
         tap::AgoraQuery,
     };
 

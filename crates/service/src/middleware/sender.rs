@@ -58,7 +58,7 @@ pub async fn sender_middleware(
 
 #[cfg(test)]
 mod tests {
-    use crate::middleware::inject_sender::SenderState;
+    use crate::middleware::sender::SenderState;
 
     use super::{sender_middleware, Sender};
     use alloy::primitives::Address;

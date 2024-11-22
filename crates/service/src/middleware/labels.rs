@@ -7,9 +7,9 @@ use axum::{extract::Request, middleware::Next, response::Response};
 use thegraph_core::DeploymentId;
 
 use super::{
-    inject_allocation::Allocation,
-    inject_sender::Sender,
+    allocation::Allocation,
     prometheus_metrics::{MetricLabelProvider, MetricLabels},
+    sender::Sender,
 };
 
 const NO_DEPLOYMENT_ID: &str = "no-deployment";
@@ -81,10 +81,10 @@ pub async fn labels_middleware(mut request: Request, next: Next) -> Response {
 #[cfg(test)]
 mod tests {
     use crate::middleware::{
-        inject_allocation::Allocation,
-        inject_labels::{NO_ALLOCATION, NO_DEPLOYMENT_ID, NO_SENDER},
-        inject_sender::Sender,
+        allocation::Allocation,
+        labels::{NO_ALLOCATION, NO_DEPLOYMENT_ID, NO_SENDER},
         prometheus_metrics::MetricLabels,
+        sender::Sender,
     };
 
     use super::labels_middleware;
