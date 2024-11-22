@@ -40,7 +40,7 @@ use crate::{
     metrics::{HANDLER_FAILURE, HANDLER_HISTOGRAM},
     middleware::{
         allocation_middleware, deployment_middleware, labels_middleware, receipt_middleware,
-        sender_middleware, AllocationState, MetricsMiddlewareLayer, SenderState,
+        sender_middleware, AllocationState, PrometheusMetricsMiddlewareLayer, SenderState,
     },
     routes::{health, request_handler, static_subgraph_request_handler},
     tap::IndexerTapContext,
@@ -382,7 +382,7 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
         // inject metrics labels
         .layer(from_fn(labels_middleware))
         // metrics for histogram and failure
-        .layer(MetricsMiddlewareLayer::new(
+        .layer(PrometheusMetricsMiddlewareLayer::new(
             HANDLER_HISTOGRAM.clone(),
             HANDLER_FAILURE.clone(),
         ));

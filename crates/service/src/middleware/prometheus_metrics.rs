@@ -21,29 +21,29 @@ pub trait MetricLabelProvider {
 }
 
 #[derive(Clone)]
-pub struct MetricsMiddleware<S> {
+pub struct PrometheusMetricsMiddleware<S> {
     inner: S,
     histogram: prometheus::HistogramVec,
     failure: prometheus::CounterVec,
 }
 
 #[derive(Clone)]
-pub struct MetricsMiddlewareLayer {
+pub struct PrometheusMetricsMiddlewareLayer {
     histogram: prometheus::HistogramVec,
     failure: prometheus::CounterVec,
 }
 
-impl MetricsMiddlewareLayer {
+impl PrometheusMetricsMiddlewareLayer {
     pub fn new(histogram: prometheus::HistogramVec, failure: prometheus::CounterVec) -> Self {
         Self { histogram, failure }
     }
 }
 
-impl<S> Layer<S> for MetricsMiddlewareLayer {
-    type Service = MetricsMiddleware<S>;
+impl<S> Layer<S> for PrometheusMetricsMiddlewareLayer {
+    type Service = PrometheusMetricsMiddleware<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        MetricsMiddleware {
+        PrometheusMetricsMiddleware {
             inner,
             histogram: self.histogram.clone(),
             failure: self.failure.clone(),
@@ -51,22 +51,22 @@ impl<S> Layer<S> for MetricsMiddlewareLayer {
     }
 }
 
-impl<S, ReqBody> Service<Request<ReqBody>> for MetricsMiddleware<S>
+impl<S, ReqBody> Service<Request<ReqBody>> for PrometheusMetricsMiddleware<S>
 where
     S: Service<Request<ReqBody>> + Clone + 'static,
     ReqBody: 'static,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = MetricsFuture<S::Future>;
+    type Future = PrometheusMetricsFuture<S::Future>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Request<ReqBody>) -> MetricsFuture<S::Future> {
+    fn call(&mut self, request: Request<ReqBody>) -> PrometheusMetricsFuture<S::Future> {
         let labels = request.extensions().get::<MetricLabels>().cloned();
-        MetricsFuture {
+        PrometheusMetricsFuture {
             timer: None,
             histogram: self.histogram.clone(),
             failure: self.failure.clone(),
@@ -77,7 +77,7 @@ where
 }
 
 #[pin_project]
-pub struct MetricsFuture<F> {
+pub struct PrometheusMetricsFuture<F> {
     /// Instant at which we started the requst.
     timer: Option<HistogramTimer>,
 
@@ -90,7 +90,7 @@ pub struct MetricsFuture<F> {
     fut: F,
 }
 
-impl<F, R, E> Future for MetricsFuture<F>
+impl<F, R, E> Future for PrometheusMetricsFuture<F>
 where
     F: Future<Output = Result<R, E>>,
 {
@@ -137,7 +137,7 @@ mod tests {
     use prometheus::core::Collector;
     use tower::{Service, ServiceBuilder, ServiceExt};
 
-    use crate::middleware::metrics::{MetricLabels, MetricsMiddlewareLayer};
+    use crate::middleware::prometheus_metrics::{MetricLabels, PrometheusMetricsMiddlewareLayer};
 
     use super::MetricLabelProvider;
 
@@ -190,7 +190,7 @@ mod tests {
         );
 
         let metrics_layer =
-            MetricsMiddlewareLayer::new(histogram_metric.clone(), failure_metric.clone());
+            PrometheusMetricsMiddlewareLayer::new(histogram_metric.clone(), failure_metric.clone());
         let mut service = ServiceBuilder::new()
             .layer(metrics_layer)
             .service_fn(handle);
@@ -219,7 +219,7 @@ mod tests {
         );
 
         let metrics_layer =
-            MetricsMiddlewareLayer::new(histogram_metric.clone(), failure_metric.clone());
+            PrometheusMetricsMiddlewareLayer::new(histogram_metric.clone(), failure_metric.clone());
         let mut service = ServiceBuilder::new()
             .layer(metrics_layer)
             .service_fn(handle_err);

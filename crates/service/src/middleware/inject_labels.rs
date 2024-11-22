@@ -13,7 +13,7 @@ use thegraph_core::DeploymentId;
 use super::{
     inject_allocation::Allocation,
     inject_sender::Sender,
-    metrics::{MetricLabelProvider, MetricLabels},
+    prometheus_metrics::{MetricLabelProvider, MetricLabels},
 };
 
 const NO_DEPLOYMENT_ID: &str = "no-deployment";
@@ -78,7 +78,7 @@ pub async fn labels_middleware(mut request: Request, next: Next) -> Response {
 #[cfg(test)]
 mod tests {
     use crate::middleware::{
-        inject_allocation::Allocation, inject_sender::Sender, metrics::MetricLabels,
+        inject_allocation::Allocation, inject_sender::Sender, prometheus_metrics::MetricLabels,
     };
 
     use super::labels_middleware;
