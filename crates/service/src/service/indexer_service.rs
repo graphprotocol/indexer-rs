@@ -11,7 +11,6 @@ use axum::{
     serve, Json, Router, ServiceExt,
 };
 use build_info::BuildInfo;
-use indexer_attestation::AttestationSigner;
 use indexer_monitor::{
     attestation_signers, deployment_to_allocation, dispute_manager, escrow_accounts,
     indexer_allocations, DeploymentDetails, SubgraphClient,
@@ -24,8 +23,8 @@ use std::{
     collections::HashMap, error::Error, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration,
 };
 use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
-use thegraph_core::{Address, Attestation};
-use tokio::{net::TcpListener, signal, sync::watch::Receiver};
+use thegraph_core::Attestation;
+use tokio::{net::TcpListener, signal};
 use tower::ServiceBuilder;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{
@@ -40,10 +39,11 @@ use tracing::{error, info, info_span, warn};
 use crate::{
     metrics::{FAILED_RECEIPT, HANDLER_FAILURE, HANDLER_HISTOGRAM},
     middleware::{
-        allocation_middleware,
+        allocation_middleware, attestation_middleware,
         auth::{self, Bearer, OrExt},
         context_middleware, deployment_middleware, labels_middleware, receipt_middleware,
-        sender_middleware, AllocationState, PrometheusMetricsMiddlewareLayer, SenderState,
+        sender_middleware, signer_middleware, AllocationState, AttestationState,
+        PrometheusMetricsMiddlewareLayer, SenderState,
     },
     routes::{health, request_handler, static_subgraph_request_handler},
     tap::IndexerTapContext,
@@ -98,7 +98,6 @@ pub struct IndexerServiceOptions {
 
 pub struct IndexerServiceState {
     pub config: Config,
-    pub attestation_signers: Receiver<HashMap<Address, AttestationSigner>>,
     pub service_impl: SubgraphService,
 }
 
@@ -276,7 +275,6 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
 
     let state = Arc::new(IndexerServiceState {
         config: options.config.clone(),
-        attestation_signers,
         service_impl: options.service_impl,
     });
 
@@ -386,6 +384,9 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
         escrow_accounts,
         domain_separator,
     };
+    let attestation_state = AttestationState {
+        attestation_signers,
+    };
 
     let service_builder = ServiceBuilder::new()
         // inject deployment id
@@ -404,7 +405,11 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
             HANDLER_FAILURE.clone(),
         ))
         // tap context
-        .layer(from_fn(context_middleware));
+        .layer(from_fn(context_middleware))
+        // inject signer
+        .layer(from_fn_with_state(attestation_state, signer_middleware))
+        // create attestation
+        .layer(from_fn(attestation_middleware));
 
     request_handler_route = request_handler_route.layer(service_builder);
 

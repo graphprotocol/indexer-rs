@@ -9,13 +9,12 @@ use anyhow::anyhow;
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_axum::GraphQL;
 use axum::{
+    http::{HeaderValue, Response},
     routing::{post, post_service},
-    Json, Router,
+    Router,
 };
 use indexer_config::{Config, DipsConfig};
-use reqwest::Url;
-use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{json, Value};
+use reqwest::{header::CONTENT_TYPE, Url};
 use sqlx::PgPool;
 use thegraph_core::attestation::eip712_domain;
 use thegraph_core::DeploymentId;
@@ -26,6 +25,7 @@ use crate::{
         self,
         dips::{AgreementStore, InMemoryAgreementStore},
     },
+    middleware::AttestationInput,
     routes::dips::Price,
     service::indexer_service::{IndexerServiceOptions, IndexerServiceRelease},
 };
@@ -37,42 +37,6 @@ mod tap_receipt_header;
 
 pub use indexer_service::{AttestationOutput, IndexerServiceResponse, IndexerServiceState};
 pub use tap_receipt_header::TapReceipt;
-
-#[derive(Debug)]
-pub struct SubgraphServiceResponse {
-    inner: String,
-    attestable: bool,
-}
-
-impl SubgraphServiceResponse {
-    pub fn new(inner: String, attestable: bool) -> Self {
-        Self { inner, attestable }
-    }
-}
-
-impl IndexerServiceResponse for SubgraphServiceResponse {
-    type Data = Json<Value>;
-    type Error = SubgraphServiceError; // not used
-
-    fn is_attestable(&self) -> bool {
-        self.attestable
-    }
-
-    fn as_str(&self) -> Result<&str, Self::Error> {
-        Ok(self.inner.as_str())
-    }
-
-    fn finalize(self, attestation: AttestationOutput) -> Self::Data {
-        let (attestation_key, attestation_value) = match attestation {
-            AttestationOutput::Attestation(attestation) => ("attestation", json!(attestation)),
-            AttestationOutput::Attestable => ("attestable", json!(self.is_attestable())),
-        };
-        Json(json!({
-            "graphQLResponse": self.inner,
-            attestation_key: attestation_value,
-        }))
-    }
-}
 
 #[derive(Clone)]
 pub struct SubgraphServiceState {
@@ -95,11 +59,11 @@ impl SubgraphService {
 }
 
 impl SubgraphService {
-    pub async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
+    pub async fn process_request(
         &self,
         deployment: DeploymentId,
-        request: &Request,
-    ) -> Result<SubgraphServiceResponse, SubgraphServiceError> {
+        req: String,
+    ) -> Result<Response<String>, SubgraphServiceError> {
         let deployment_url = self
             .state
             .graph_node_query_base_url
@@ -110,7 +74,8 @@ impl SubgraphService {
             .state
             .graph_node_client
             .post(deployment_url)
-            .json(request)
+            .body(req.clone())
+            .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
             .send()
             .await
             .map_err(SubgraphServiceError::QueryForwardingError)?;
@@ -126,8 +91,16 @@ impl SubgraphService {
             .text()
             .await
             .map_err(SubgraphServiceError::QueryForwardingError)?;
+        let attestation_input = if attestable {
+            AttestationInput::Attestable { req }
+        } else {
+            AttestationInput::NotAttestable
+        };
 
-        Ok(SubgraphServiceResponse::new(body, attestable))
+        let mut response = Response::new(body);
+        response.extensions_mut().insert(attestation_input);
+
+        Ok(response)
     }
 }
 

@@ -18,4 +18,6 @@ pub use inject_deployment::deployment_middleware;
 pub use inject_labels::labels_middleware;
 pub use inject_receipt::receipt_middleware;
 pub use inject_sender::{sender_middleware, SenderState};
+pub use inject_attestation_signer::{signer_middleware, AttestationState};
+pub use attestation::{attestation_middleware, AttestationInput};
 pub use prometheus_metrics::PrometheusMetricsMiddlewareLayer;
