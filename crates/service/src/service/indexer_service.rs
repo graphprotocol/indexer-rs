@@ -6,7 +6,6 @@ use axum::{
     extract::{MatchedPath, Request as ExtractRequest},
     http::{Method, Request},
     middleware::{from_fn, from_fn_with_state},
-    response::IntoResponse,
     routing::{get, post},
     serve, Json, Router, ServiceExt,
 };
@@ -19,11 +18,8 @@ use prometheus::TextEncoder;
 use reqwest::StatusCode;
 use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
-use std::{
-    collections::HashMap, error::Error, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration,
-};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tap_core::{manager::Manager, receipt::checks::CheckList, tap_eip712_domain};
-use thegraph_core::Attestation;
 use tokio::{net::TcpListener, signal};
 use tower::ServiceBuilder;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
@@ -51,21 +47,7 @@ use crate::{
 };
 use indexer_config::Config;
 
-use super::SubgraphService;
-
-pub trait IndexerServiceResponse {
-    type Data: IntoResponse;
-    type Error: Error;
-
-    fn is_attestable(&self) -> bool;
-    fn as_str(&self) -> Result<&str, Self::Error>;
-    fn finalize(self, attestation: AttestationOutput) -> Self::Data;
-}
-
-pub enum AttestationOutput {
-    Attestation(Option<Attestation>),
-    Attestable,
-}
+use super::SubgraphServiceState;
 
 #[derive(Clone, Serialize)]
 pub struct IndexerServiceRelease {
@@ -89,16 +71,11 @@ impl From<&BuildInfo> for IndexerServiceRelease {
 }
 
 pub struct IndexerServiceOptions {
-    pub service_impl: SubgraphService,
+    pub subgraph_state: SubgraphServiceState,
     pub config: &'static Config,
     pub release: IndexerServiceRelease,
     pub url_namespace: &'static str,
-    pub extra_routes: Router<Arc<IndexerServiceState>>,
-}
-
-pub struct IndexerServiceState {
-    pub config: Config,
-    pub service_impl: SubgraphService,
+    pub extra_routes: Router<SubgraphServiceState>,
 }
 
 const HTTP_CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -273,11 +250,6 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
         CheckList::new(checks),
     )));
 
-    let state = Arc::new(IndexerServiceState {
-        config: options.config.clone(),
-        service_impl: options.service_impl,
-    });
-
     // Rate limits by allowing bursts of 10 requests and requiring 100ms of
     // time between consecutive requests after that, effectively rate
     // limiting to 10 req/s.
@@ -358,8 +330,6 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
         }
     }
 
-    misc_routes = misc_routes.with_state(state.clone());
-
     let mut request_handler_route = post(request_handler);
 
     // inject auth
@@ -421,7 +391,7 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
                 .expect("Failed to set up `/{url_namespace}/id/:id` route"),
             request_handler_route,
         )
-        .with_state(state.clone());
+        .with_state(options.subgraph_state.clone());
 
     let router = NormalizePath::trim_trailing_slash(
         misc_routes
@@ -457,7 +427,7 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
                          _span: &tracing::Span| {},
                     ),
             )
-            .with_state(state),
+            .with_state(options.subgraph_state),
     );
 
     serve_metrics(options.config.metrics.get_socket_addr());

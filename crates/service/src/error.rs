@@ -26,8 +26,6 @@ pub enum IndexerServiceError {
 
     #[error("Issues with provided receipt: {0}")]
     ReceiptError(#[from] tap_core::Error),
-    #[error("Error while processing the request: {0}")]
-    ProcessingError(SubgraphServiceError),
 
     #[error("There was an error while accessing escrow account: {0}")]
     EscrowAccount(#[from] EscrowAccountsError),
@@ -43,7 +41,7 @@ impl IntoResponse for IndexerServiceError {
         }
 
         let status = match self {
-            ReceiptError(_) | EscrowAccount(_) | ProcessingError(_) => StatusCode::BAD_REQUEST,
+            ReceiptError(_) | EscrowAccount(_) => StatusCode::BAD_REQUEST,
             ReceiptNotFound => StatusCode::PAYMENT_REQUIRED,
             DeploymentIdNotFound => StatusCode::INTERNAL_SERVER_ERROR,
             AxumError(_) => StatusCode::INTERNAL_SERVER_ERROR,
