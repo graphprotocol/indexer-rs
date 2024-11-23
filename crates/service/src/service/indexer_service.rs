@@ -238,7 +238,6 @@ pub async fn run(options: IndexerServiceOptions) -> Result<(), anyhow::Error> {
         database,
         allocations.clone(),
         escrow_accounts.clone(),
-        domain_separator.clone(),
         timestamp_error_tolerance,
         receipt_max_value,
     )

@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::U256;
 use anyhow::anyhow;
 use indexer_monitor::EscrowAccounts;
@@ -11,20 +10,16 @@ use tap_core::receipt::{
     ReceiptWithState,
 };
 use tokio::sync::watch::Receiver;
-use tracing::error;
+
+use crate::middleware::Sender;
 
 pub struct SenderBalanceCheck {
     escrow_accounts: Receiver<EscrowAccounts>,
-
-    domain_separator: Eip712Domain,
 }
 
 impl SenderBalanceCheck {
-    pub fn new(escrow_accounts: Receiver<EscrowAccounts>, domain_separator: Eip712Domain) -> Self {
-        Self {
-            escrow_accounts,
-            domain_separator,
-        }
+    pub fn new(escrow_accounts: Receiver<EscrowAccounts>) -> Self {
+        Self { escrow_accounts }
     }
 }
 
@@ -32,34 +27,24 @@ impl SenderBalanceCheck {
 impl Check for SenderBalanceCheck {
     async fn check(
         &self,
-        _: &tap_core::receipt::Context,
-        receipt: &ReceiptWithState<Checking>,
+        ctx: &tap_core::receipt::Context,
+        _: &ReceiptWithState<Checking>,
     ) -> CheckResult {
         let escrow_accounts_snapshot = self.escrow_accounts.borrow();
 
-        let receipt_signer = receipt
-            .signed_receipt()
-            .recover_signer(&self.domain_separator)
-            .inspect_err(|e| {
-                error!("Failed to recover receipt signer: {}", e);
-            })
-            .map_err(|e| CheckError::Failed(e.into()))?;
-
-        // We bail if the receipt signer does not have a corresponding sender in the escrow
-        // accounts.
-        let receipt_sender = escrow_accounts_snapshot
-            .get_sender_for_signer(&receipt_signer)
-            .map_err(|e| CheckError::Failed(e.into()))?;
+        let Sender(receipt_sender) = ctx
+            .get::<Sender>()
+            .ok_or(CheckError::Failed(anyhow::anyhow!("Could not find sender")))?;
 
         // Check that the sender has a non-zero balance -- more advanced accounting is done in
         // `tap-agent`.
         if !escrow_accounts_snapshot
-            .get_balance_for_sender(&receipt_sender)
+            .get_balance_for_sender(receipt_sender)
             .map_or(false, |balance| balance > U256::ZERO)
         {
             return Err(CheckError::Failed(anyhow!(
                 "Receipt sender `{}` does not have a sufficient balance",
-                receipt_signer,
+                receipt_sender,
             )));
         }
         Ok(())

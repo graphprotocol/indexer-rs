@@ -1,9 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::dyn_abi::Eip712Domain;
+use crate::middleware::Sender;
 use alloy::primitives::Address;
-use indexer_monitor::EscrowAccounts;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
 use std::collections::HashSet;
@@ -15,23 +14,16 @@ use tap_core::receipt::{
     state::Checking,
     ReceiptWithState,
 };
-use tokio::sync::watch::Receiver;
 use tracing::error;
 
 pub struct DenyListCheck {
-    escrow_accounts: Receiver<EscrowAccounts>,
-    domain_separator: Eip712Domain,
     sender_denylist: Arc<RwLock<HashSet<Address>>>,
     _sender_denylist_watcher_handle: Arc<tokio::task::JoinHandle<()>>,
     sender_denylist_watcher_cancel_token: tokio_util::sync::CancellationToken,
 }
 
 impl DenyListCheck {
-    pub async fn new(
-        pgpool: PgPool,
-        escrow_accounts: Receiver<EscrowAccounts>,
-        domain_separator: Eip712Domain,
-    ) -> Self {
+    pub async fn new(pgpool: PgPool) -> Self {
         // Listen to pg_notify events. We start it before updating the sender_denylist so that we
         // don't miss any updates. PG will buffer the notifications until we start consuming them.
         let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
@@ -57,8 +49,6 @@ impl DenyListCheck {
             sender_denylist_watcher_cancel_token.clone(),
         )));
         Self {
-            domain_separator,
-            escrow_accounts,
             sender_denylist,
             _sender_denylist_watcher_handle: sender_denylist_watcher_handle,
             sender_denylist_watcher_cancel_token,
@@ -152,29 +142,19 @@ impl DenyListCheck {
 impl Check for DenyListCheck {
     async fn check(
         &self,
-        _: &tap_core::receipt::Context,
-        receipt: &ReceiptWithState<Checking>,
+        ctx: &tap_core::receipt::Context,
+        _: &ReceiptWithState<Checking>,
     ) -> CheckResult {
-        let receipt_signer = receipt
-            .signed_receipt()
-            .recover_signer(&self.domain_separator)
-            .map_err(|e| {
-                error!("Failed to recover receipt signer: {}", e);
-                anyhow::anyhow!(e)
-            })
-            .map_err(CheckError::Failed)?;
-        let escrow_accounts_snapshot = self.escrow_accounts.borrow();
-
-        let receipt_sender = escrow_accounts_snapshot
-            .get_sender_for_signer(&receipt_signer)
-            .map_err(|e| CheckError::Failed(e.into()))?;
+        let Sender(receipt_sender) = ctx
+            .get::<Sender>()
+            .ok_or(CheckError::Failed(anyhow::anyhow!("Could not find sender")))?;
 
         // Check that the sender is not denylisted
         if self
             .sender_denylist
             .read()
             .unwrap()
-            .contains(&receipt_sender)
+            .contains(receipt_sender)
         {
             return Err(CheckError::Failed(anyhow::anyhow!(
                 "Received a receipt from a denylisted sender: {}",
@@ -200,12 +180,8 @@ mod tests {
 
     use alloy::hex::ToHexExt;
     use tap_core::receipt::{Context, ReceiptWithState};
-    use tokio::sync::watch;
 
-    use test_assets::{
-        self, create_signed_receipt, ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
-        TAP_EIP712_DOMAIN, TAP_SENDER,
-    };
+    use test_assets::{self, create_signed_receipt, TAP_SENDER};
 
     use super::*;
 
@@ -213,13 +189,7 @@ mod tests {
 
     async fn new_deny_list_check(pgpool: PgPool) -> DenyListCheck {
         // Mock escrow accounts
-        let escrow_accounts_rx = watch::channel(EscrowAccounts::new(
-            ESCROW_ACCOUNTS_BALANCES.to_owned(),
-            ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
-        ))
-        .1;
-
-        DenyListCheck::new(pgpool, escrow_accounts_rx, TAP_EIP712_DOMAIN.to_owned()).await
+        DenyListCheck::new(pgpool).await
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -244,9 +214,12 @@ mod tests {
 
         let checking_receipt = ReceiptWithState::new(signed_receipt);
 
+        let mut ctx = Context::new();
+        ctx.insert(Sender(TAP_SENDER.1));
+
         // Check that the receipt is rejected
         assert!(deny_list_check
-            .check(&Context::new(), &checking_receipt)
+            .check(&ctx, &checking_receipt)
             .await
             .is_err());
     }
@@ -262,8 +235,10 @@ mod tests {
         // Check that the receipt is valid
         let checking_receipt = ReceiptWithState::new(signed_receipt);
 
+        let mut ctx = Context::new();
+        ctx.insert(Sender(TAP_SENDER.1));
         deny_list_check
-            .check(&Context::new(), &checking_receipt)
+            .check(&ctx, &checking_receipt)
             .await
             .unwrap();
 
@@ -282,7 +257,7 @@ mod tests {
         // Check that the receipt is rejected
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(deny_list_check
-            .check(&Context::new(), &checking_receipt)
+            .check(&ctx, &checking_receipt)
             .await
             .is_err());
 
@@ -301,7 +276,7 @@ mod tests {
         // Check that the receipt is valid again
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         deny_list_check
-            .check(&Context::new(), &checking_receipt)
+            .check(&ctx, &checking_receipt)
             .await
             .unwrap();
     }
