@@ -58,7 +58,7 @@ pub async fn allocation_middleware(
 
 #[cfg(test)]
 mod tests {
-    use crate::middleware::inject_allocation::Allocation;
+    use crate::middleware::allocation::Allocation;
 
     use super::{allocation_middleware, AllocationState};
 

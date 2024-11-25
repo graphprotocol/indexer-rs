@@ -4,21 +4,18 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{error::SubgraphServiceError, routes};
+use super::routes;
 use anyhow::anyhow;
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_axum::GraphQL;
 use axum::{
     routing::{post, post_service},
-    Json, Router,
+    Router,
 };
 use indexer_config::{Config, DipsConfig};
 use reqwest::Url;
-use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{json, Value};
 use sqlx::PgPool;
 use thegraph_core::attestation::eip712_domain;
-use thegraph_core::DeploymentId;
 
 use crate::{
     cli::Cli,
@@ -35,44 +32,7 @@ use tracing::error;
 mod indexer_service;
 mod tap_receipt_header;
 
-pub use indexer_service::{AttestationOutput, IndexerServiceResponse, IndexerServiceState};
 pub use tap_receipt_header::TapReceipt;
-
-#[derive(Debug)]
-pub struct SubgraphServiceResponse {
-    inner: String,
-    attestable: bool,
-}
-
-impl SubgraphServiceResponse {
-    pub fn new(inner: String, attestable: bool) -> Self {
-        Self { inner, attestable }
-    }
-}
-
-impl IndexerServiceResponse for SubgraphServiceResponse {
-    type Data = Json<Value>;
-    type Error = SubgraphServiceError; // not used
-
-    fn is_attestable(&self) -> bool {
-        self.attestable
-    }
-
-    fn as_str(&self) -> Result<&str, Self::Error> {
-        Ok(self.inner.as_str())
-    }
-
-    fn finalize(self, attestation: AttestationOutput) -> Self::Data {
-        let (attestation_key, attestation_value) = match attestation {
-            AttestationOutput::Attestation(attestation) => ("attestation", json!(attestation)),
-            AttestationOutput::Attestable => ("attestable", json!(self.is_attestable())),
-        };
-        Json(json!({
-            "graphQLResponse": self.inner,
-            attestation_key: attestation_value,
-        }))
-    }
-}
 
 #[derive(Clone)]
 pub struct SubgraphServiceState {
@@ -82,53 +42,6 @@ pub struct SubgraphServiceState {
     pub graph_node_client: reqwest::Client,
     pub graph_node_status_url: &'static Url,
     pub graph_node_query_base_url: &'static Url,
-}
-
-pub struct SubgraphService {
-    state: SubgraphServiceState,
-}
-
-impl SubgraphService {
-    fn new(state: SubgraphServiceState) -> Self {
-        Self { state }
-    }
-}
-
-impl SubgraphService {
-    pub async fn process_request<Request: DeserializeOwned + Send + std::fmt::Debug + Serialize>(
-        &self,
-        deployment: DeploymentId,
-        request: &Request,
-    ) -> Result<SubgraphServiceResponse, SubgraphServiceError> {
-        let deployment_url = self
-            .state
-            .graph_node_query_base_url
-            .join(&format!("subgraphs/id/{deployment}"))
-            .map_err(|_| SubgraphServiceError::InvalidDeployment(deployment))?;
-
-        let response = self
-            .state
-            .graph_node_client
-            .post(deployment_url)
-            .json(request)
-            .send()
-            .await
-            .map_err(SubgraphServiceError::QueryForwardingError)?;
-
-        let attestable = response
-            .headers()
-            .get("graph-attestable")
-            .map_or(false, |value| {
-                value.to_str().map(|value| value == "true").unwrap_or(false)
-            });
-
-        let body = response
-            .text()
-            .await
-            .map_err(SubgraphServiceError::QueryForwardingError)?;
-
-        Ok(SubgraphServiceResponse::new(body, attestable))
-    }
 }
 
 /// Run the subgraph indexer service
@@ -211,7 +124,7 @@ pub async fn run() -> anyhow::Result<()> {
         release,
         config,
         url_namespace: "subgraphs",
-        service_impl: SubgraphService::new(state),
+        subgraph_state: state,
         extra_routes: router,
     })
     .await

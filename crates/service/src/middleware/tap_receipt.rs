@@ -24,7 +24,7 @@ pub async fn receipt_middleware(mut request: Request, next: Next) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use crate::{middleware::inject_receipt::receipt_middleware, service::TapReceipt};
+    use crate::{middleware::tap_receipt::receipt_middleware, service::TapReceipt};
 
     use alloy::primitives::Address;
     use axum::{

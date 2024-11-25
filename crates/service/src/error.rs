@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::primitives::Address;
 use anyhow::Error;
 use axum::{
     response::{IntoResponse, Response},
@@ -27,12 +26,6 @@ pub enum IndexerServiceError {
 
     #[error("Issues with provided receipt: {0}")]
     ReceiptError(#[from] tap_core::Error),
-    #[error("No attestation signer found for allocation `{0}`")]
-    NoSignerForAllocation(Address),
-    #[error("Error while processing the request: {0}")]
-    ProcessingError(SubgraphServiceError),
-    #[error("Failed to sign attestation")]
-    FailedToSignAttestation,
 
     #[error("There was an error while accessing escrow account: {0}")]
     EscrowAccount(#[from] EscrowAccountsError),
@@ -48,12 +41,10 @@ impl IntoResponse for IndexerServiceError {
         }
 
         let status = match self {
-            NoSignerForAllocation(_) | FailedToSignAttestation => StatusCode::INTERNAL_SERVER_ERROR,
-
-            ReceiptError(_) | EscrowAccount(_) | ProcessingError(_) => StatusCode::BAD_REQUEST,
+            ReceiptError(_) | EscrowAccount(_) => StatusCode::BAD_REQUEST,
             ReceiptNotFound => StatusCode::PAYMENT_REQUIRED,
             DeploymentIdNotFound => StatusCode::INTERNAL_SERVER_ERROR,
-            AxumError(_) => StatusCode::BAD_REQUEST,
+            AxumError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             SerializationError(_) => StatusCode::BAD_REQUEST,
         };
         tracing::error!(%self, "An IndexerServiceError occoured.");
