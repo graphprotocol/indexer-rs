@@ -14,10 +14,10 @@ pub type ResponseResult<T> = Result<T, anyhow::Error>;
 
 #[derive(Debug, Clone)]
 pub struct DeploymentDetails {
-    pub deployment: Option<DeploymentId>,
-    pub status_url: Option<Url>,
-    pub query_url: Url,
-    pub query_auth_token: Option<String>,
+    deployment: Option<DeploymentId>,
+    status_url: Option<Url>,
+    query_url: Url,
+    query_auth_token: Option<String>,
 }
 
 impl DeploymentDetails {
@@ -79,6 +79,7 @@ struct DeploymentClient {
     pub http_client: reqwest::Client,
     pub status: Option<Receiver<DeploymentStatus>>,
     pub query_url: Url,
+    pub query_auth_token: Option<String>,
 }
 
 impl DeploymentClient {
@@ -99,6 +100,7 @@ impl DeploymentClient {
                 None => None,
             },
             query_url: details.query_url,
+            query_auth_token: details.query_auth_token,
         }
     }
 
@@ -118,13 +120,17 @@ impl DeploymentClient {
         }
 
         let body = T::build_query(variables);
-        let reqwest_response = self
+        let mut req = self
             .http_client
             .post(self.query_url.as_ref())
             .header(header::USER_AGENT, "indexer-common")
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+
+        if let Some(token) = self.query_auth_token.as_ref() {
+            req = req.header(header::AUTHORIZATION, format!("Bearer {}", token));
+        }
+
+        let reqwest_response = req.send().await?;
         let response: graphql_client::Response<T::ResponseData> = reqwest_response.json().await?;
 
         // TODO handle partial responses
@@ -154,14 +160,18 @@ impl DeploymentClient {
             }
         }
 
-        Ok(self
+        let mut req = self
             .http_client
             .post(self.query_url.as_ref())
             .header(header::USER_AGENT, "indexer-common")
             .header(header::CONTENT_TYPE, "application/json")
-            .body(body)
-            .send()
-            .await?)
+            .body(body);
+
+        if let Some(token) = self.query_auth_token.as_ref() {
+            req = req.header(header::AUTHORIZATION, format!("Bearer {}", token));
+        }
+
+        Ok(req.send().await?)
     }
 }
 
