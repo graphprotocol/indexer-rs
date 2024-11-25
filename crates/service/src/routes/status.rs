@@ -12,7 +12,7 @@ use thegraph_graphql_http::{
     http_client::{ReqwestExt, ResponseError},
 };
 
-use crate::{error::SubgraphServiceError, service::SubgraphServiceState};
+use crate::{error::SubgraphServiceError, service::GraphNodeState};
 
 lazy_static::lazy_static! {
     static ref SUPPORTED_ROOT_FIELDS: HashSet<&'static str> =
@@ -57,7 +57,7 @@ impl IntoRequestParameters for WrappedGraphQLRequest {
 
 // Custom middleware function to process the request before reaching the main handler
 pub async fn status(
-    State(state): State<SubgraphServiceState>,
+    State(state): State<GraphNodeState>,
     request: GraphQLRequest,
 ) -> Result<impl IntoResponse, SubgraphServiceError> {
     let request = request.into_inner();

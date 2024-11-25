@@ -1,57 +1,44 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
 use std::time::Duration;
 
-use super::routes;
 use anyhow::anyhow;
-use async_graphql::{EmptySubscription, Schema};
-use async_graphql_axum::GraphQL;
-use axum::{
-    routing::{post, post_service},
-    Router,
-};
-use indexer_config::{Config, DipsConfig};
+use axum::{extract::Request, serve, ServiceExt};
+use indexer_config::{Config, GraphNodeConfig, SubgraphConfig};
+use indexer_monitor::{DeploymentDetails, SubgraphClient};
+use release::IndexerServiceRelease;
 use reqwest::Url;
-use sqlx::PgPool;
-use thegraph_core::attestation::eip712_domain;
+use tap_core::tap_eip712_domain;
+use tokio::{net::TcpListener, signal};
+use tower_http::normalize_path::NormalizePath;
 
-use crate::{
-    cli::Cli,
-    database::{
-        self,
-        dips::{AgreementStore, InMemoryAgreementStore},
-    },
-    routes::dips::Price,
-    service::indexer_service::{IndexerServiceOptions, IndexerServiceRelease},
-};
+use crate::{cli::Cli, database, metrics::serve_metrics};
 use clap::Parser;
-use tracing::error;
+use tracing::{error, info};
 
-mod indexer_service;
+mod release;
+mod router;
 mod tap_receipt_header;
 
+pub use router::ServiceRouter;
 pub use tap_receipt_header::TapReceipt;
 
 #[derive(Clone)]
-pub struct SubgraphServiceState {
-    pub config: &'static Config,
-    pub database: PgPool,
-    pub cost_schema: routes::cost::CostSchema,
+pub struct GraphNodeState {
     pub graph_node_client: reqwest::Client,
     pub graph_node_status_url: &'static Url,
     pub graph_node_query_base_url: &'static Url,
 }
+
+const HTTP_CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Run the subgraph indexer service
 pub async fn run() -> anyhow::Result<()> {
     // Parse command line and environment arguments
     let cli = Cli::parse();
 
-    // Load the json-rpc service configuration, which is a combination of the
-    // general configuration options for any indexer service and specific
-    // options added for JSON-RPC
+    // Load the service configuration
     let config = Box::leak(Box::new(
         Config::parse(indexer_config::ConfigPrefix::Service, cli.config.as_ref()).map_err(|e| {
             error!(
@@ -68,64 +55,119 @@ pub async fn run() -> anyhow::Result<()> {
     build_info::build_info!(fn build_info);
     let release = IndexerServiceRelease::from(build_info());
 
-    // Some of the subgraph service configuration goes into the so-called
-    // "state", which will be passed to any request handler, middleware etc.
-    // that is involved in serving requests
-    let state = SubgraphServiceState {
-        config,
-        database: database::connect(config.database.clone().get_formated_postgres_url().as_ref())
-            .await,
-        cost_schema: routes::cost::build_schema().await,
-        graph_node_client: reqwest::ClientBuilder::new()
-            .tcp_nodelay(true)
-            .timeout(Duration::from_secs(30))
-            .build()
-            .expect("Failed to init HTTP client for Graph Node"),
+    let http_client = reqwest::Client::builder()
+        .tcp_nodelay(true)
+        .timeout(HTTP_CLIENT_TIMEOUT)
+        .build()
+        .expect("Failed to init HTTP client");
+
+    // Graphnode state
+    let graphnode_state = GraphNodeState {
+        graph_node_client: http_client.clone(),
         graph_node_status_url: &config.graph_node.status_url,
         graph_node_query_base_url: &config.graph_node.query_url,
     };
 
-    let agreement_store: Arc<dyn AgreementStore> = Arc::new(InMemoryAgreementStore::default());
-    let prices: Vec<Price> = vec![];
+    let network_subgraph = create_subgraph_client(
+        http_client.clone(),
+        &config.graph_node,
+        &config.subgraphs.network.config,
+    )
+    .await;
 
-    let mut router = Router::new()
-        .route("/cost", post(routes::cost::cost))
-        .route("/status", post(routes::status))
-        .with_state(state.clone());
+    let escrow_subgraph = create_subgraph_client(
+        http_client.clone(),
+        &config.graph_node,
+        &config.subgraphs.escrow.config,
+    )
+    .await;
 
-    if let Some(DipsConfig {
-        allowed_payers,
-        cancellation_time_tolerance,
-    }) = config.dips.as_ref()
-    {
-        let schema = Schema::build(
-            routes::dips::AgreementQuery {},
-            routes::dips::AgreementMutation {
-                expected_payee: config.indexer.indexer_address,
-                allowed_payers: allowed_payers.clone(),
-                domain: eip712_domain(
-                    // 42161, // arbitrum
-                    config.blockchain.chain_id as u64,
-                    config.blockchain.receipts_verifier_address,
-                ),
-                cancel_voucher_time_tolerance: cancellation_time_tolerance
-                    .unwrap_or(Duration::from_secs(5)),
-            },
-            EmptySubscription,
+    // Establish Database connection necessary for serving indexer management
+    // requests with defined schema
+    // Note: Typically, you'd call `sqlx::migrate!();` here to sync the models
+    // which defaults to files in  "./migrations" to sync the database;
+    // however, this can cause conflicts with the migrations run by indexer
+    // agent. Hence we leave syncing and migrating entirely to the agent and
+    // assume the models are up to date in the service.
+    let database =
+        database::connect(config.database.clone().get_formated_postgres_url().as_ref()).await;
+
+    let domain_separator = tap_eip712_domain(
+        config.blockchain.chain_id as u64,
+        config.blockchain.receipts_verifier_address,
+    );
+
+    let router = ServiceRouter::builder()
+        .database(database)
+        .domain_separator(domain_separator)
+        .graphnode_state(graphnode_state)
+        .release(release)
+        .config(config)
+        .network_subgraph(network_subgraph)
+        .escrow_subgraph(escrow_subgraph)
+        .build();
+
+    serve_metrics(config.metrics.get_socket_addr());
+
+    info!(
+        address = %config.service.host_and_port,
+        "Serving requests",
+    );
+    let listener = TcpListener::bind(&config.service.host_and_port)
+        .await
+        .expect("Failed to bind to indexer-service port");
+
+    let app = router.create_router().await?;
+    let router = NormalizePath::trim_trailing_slash(app);
+    //
+    let service = ServiceExt::<Request>::into_make_service(router);
+    Ok(serve(listener, service)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?)
+}
+
+async fn create_subgraph_client(
+    http_client: reqwest::Client,
+    graph_node: &GraphNodeConfig,
+    subgraph_config: &SubgraphConfig,
+) -> &'static SubgraphClient {
+    Box::leak(Box::new(
+        SubgraphClient::new(
+            http_client,
+            subgraph_config.deployment_id.map(|deployment| {
+                DeploymentDetails::for_graph_node_url(
+                    graph_node.status_url.clone(),
+                    graph_node.query_url.clone(),
+                    deployment,
+                )
+            }),
+            DeploymentDetails::for_query_url_with_token(
+                subgraph_config.query_url.clone(),
+                subgraph_config.query_auth_token.clone(),
+            ),
         )
-        .data(agreement_store)
-        .data(prices)
-        .finish();
+        .await,
+    ))
+}
 
-        router = router.route("/dips", post_service(GraphQL::new(schema)));
+pub async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
     }
 
-    indexer_service::run(IndexerServiceOptions {
-        release,
-        config,
-        url_namespace: "subgraphs",
-        subgraph_state: state,
-        extra_routes: router,
-    })
-    .await
+    info!("Signal received, starting graceful shutdown");
 }

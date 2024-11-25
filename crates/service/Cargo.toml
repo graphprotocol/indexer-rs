@@ -39,7 +39,8 @@ graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3
 tap_core.workspace = true
 uuid.workspace = true
 alloy.workspace = true
-tower_governor = "0.4.0"
+tower_governor = "0.4.3"
+governor = "0.6.0"
 tower-http = { version = "0.6.2", features = [
   "auth",
   "cors",
@@ -55,6 +56,7 @@ cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
 bip39.workspace = true
 tower = "0.5.1"
 pin-project = "1.1.7"
+typed-builder = "0.20.0"
 
 [dev-dependencies]
 hex-literal = "0.4.1"
