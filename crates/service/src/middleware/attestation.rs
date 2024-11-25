@@ -29,7 +29,7 @@ pub struct IndexerResponsePayload {
     attestation: Option<Attestation>,
 }
 
-/// Check if the query can be attestable generates attestation
+/// Check if the query is attestable and generates attestation
 ///
 /// Executes query -> return subgraph response: (string, attestable (bool))
 /// if attestable && allocation id:
