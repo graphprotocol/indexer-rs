@@ -137,6 +137,18 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
+    async fn send_request(app: Router, signer: Option<AttestationSigner>) -> Response<Body> {
+        let mut request = Request::builder().uri("/");
+
+        if let Some(signer) = signer {
+            request = request.extension(signer);
+        }
+
+        app.oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn test_create_attestation() {
         let (allocation, signer) = allocation_signer();
@@ -153,16 +165,7 @@ mod tests {
         let app = Router::new().route("/", get(handle)).layer(middleware);
 
         // with signer
-        let res = app
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .extension(signer.clone())
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let res = send_request(app, Some(signer.clone())).await;
         assert_eq!(res.status(), StatusCode::OK);
 
         let response = payload_from_response(res).await;
@@ -182,16 +185,7 @@ mod tests {
         let middleware = from_fn(attestation_middleware);
         let app = Router::new().route("/", get(handle)).layer(middleware);
 
-        let res = app
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .extension(signer.clone())
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let res = send_request(app, Some(signer.clone())).await;
         assert_eq!(res.status(), StatusCode::OK);
 
         let response = payload_from_response(res).await;
@@ -208,10 +202,7 @@ mod tests {
         let middleware = from_fn(attestation_middleware);
         let app = Router::new().route("/", get(handle)).layer(middleware);
 
-        let res = app
-            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
+        let res = send_request(app, None).await;
         assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }
