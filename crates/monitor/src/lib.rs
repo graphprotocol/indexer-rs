@@ -9,10 +9,12 @@ mod dispute_manager;
 mod escrow_accounts;
 
 pub use crate::{
-    allocations::indexer_allocations,
-    attestation::attestation_signers,
+    allocations::{indexer_allocations, AllocationWatcher},
+    attestation::{attestation_signers, AttestationWatcher},
     client::{DeploymentDetails, SubgraphClient},
-    deployment_to_allocation::deployment_to_allocation,
-    dispute_manager::dispute_manager,
-    escrow_accounts::{escrow_accounts, EscrowAccounts, EscrowAccountsError},
+    deployment_to_allocation::{deployment_to_allocation, DeploymentToAllocationWatcher},
+    dispute_manager::{dispute_manager, DisputeManagerWatcher},
+    escrow_accounts::{
+        escrow_accounts, EscrowAccounts, EscrowAccountsError, EscrowAccountsWatcher,
+    },
 };

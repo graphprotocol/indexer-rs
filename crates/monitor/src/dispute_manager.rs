@@ -9,10 +9,12 @@ use indexer_watcher::new_watcher;
 use std::time::Duration;
 use tokio::sync::watch::Receiver;
 
+pub type DisputeManagerWatcher = Receiver<Address>;
+
 pub async fn dispute_manager(
     network_subgraph: &'static SubgraphClient,
     interval: Duration,
-) -> anyhow::Result<Receiver<Address>> {
+) -> anyhow::Result<DisputeManagerWatcher> {
     new_watcher(interval, move || async move {
         let response = network_subgraph
             .query::<DisputeManager, _>(dispute_manager::Variables {})

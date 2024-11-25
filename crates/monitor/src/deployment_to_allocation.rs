@@ -8,11 +8,13 @@ use tokio::sync::watch::Receiver;
 use indexer_allocation::Allocation;
 use indexer_watcher::map_watcher;
 
+pub type DeploymentToAllocationWatcher = Receiver<HashMap<DeploymentId, Address>>;
+
 /// Watcher of indexer allocation
 /// returning a map of subgraph deployment to allocation id
 pub fn deployment_to_allocation(
     indexer_allocations_rx: Receiver<HashMap<Address, Allocation>>,
-) -> Receiver<HashMap<DeploymentId, Address>> {
+) -> DeploymentToAllocationWatcher {
     map_watcher(indexer_allocations_rx, move |allocation| {
         allocation
             .iter()

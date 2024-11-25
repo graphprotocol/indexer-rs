@@ -87,12 +87,14 @@ impl EscrowAccounts {
     }
 }
 
+pub type EscrowAccountsWatcher = Receiver<EscrowAccounts>;
+
 pub async fn escrow_accounts(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     interval: Duration,
     reject_thawing_signers: bool,
-) -> Result<Receiver<EscrowAccounts>, anyhow::Error> {
+) -> Result<EscrowAccountsWatcher, anyhow::Error> {
     indexer_watcher::new_watcher(interval, move || {
         get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers)
     })
