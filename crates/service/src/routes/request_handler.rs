@@ -13,6 +13,8 @@ use reqwest::header::CONTENT_TYPE;
 use thegraph_core::DeploymentId;
 use tracing::trace;
 
+const GRAPH_ATTESTABLE: &str = "graph-attestable";
+
 pub async fn request_handler(
     Path(deployment): Path<DeploymentId>,
     State(state): State<SubgraphServiceState>,
@@ -36,7 +38,7 @@ pub async fn request_handler(
 
     let attestable = response
         .headers()
-        .get("graph-attestable")
+        .get(GRAPH_ATTESTABLE)
         .map_or(false, |value| {
             value.to_str().map(|value| value == "true").unwrap_or(false)
         });
