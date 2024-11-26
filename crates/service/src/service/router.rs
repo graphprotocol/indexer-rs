@@ -288,11 +288,11 @@ impl ServiceRouter {
                 )
                 .await;
                 // Returned static Manager
-                Box::leak(Box::new(Manager::new(
+                Arc::new(Manager::new(
                     self.domain_separator.clone(),
                     indexer_context,
                     CheckList::new(checks),
-                )))
+                ))
             };
 
             let mut handler = post(request_handler);

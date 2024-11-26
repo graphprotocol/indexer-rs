@@ -11,6 +11,7 @@ pub use tap::tap_receipt_authorize;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::time::Duration;
 
     use alloy::primitives::{address, Address};
@@ -34,11 +35,11 @@ mod tests {
         pgpool: PgPool,
     ) -> impl Service<Request<Body>, Response = Response<Body>, Error = impl std::fmt::Debug> {
         let context = IndexerTapContext::new(pgpool.clone(), TAP_EIP712_DOMAIN.clone()).await;
-        let tap_manager = Box::leak(Box::new(Manager::new(
+        let tap_manager = Arc::new(Manager::new(
             TAP_EIP712_DOMAIN.clone(),
             context,
             CheckList::empty(),
-        )));
+        ));
 
         let registry = prometheus::Registry::new();
         let metric = Box::leak(Box::new(

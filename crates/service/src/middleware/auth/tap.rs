@@ -30,7 +30,7 @@ use crate::{error::IndexerServiceError, middleware::prometheus_metrics::MetricLa
 ///
 /// Requires SignedReceipt, MetricLabels and Arc<Context> extensions
 pub fn tap_receipt_authorize<T, B>(
-    tap_manager: &'static Manager<T>,
+    tap_manager: Arc<Manager<T>>,
     failed_receipt_metric: &'static prometheus::CounterVec,
 ) -> impl AsyncAuthorizeRequest<
     B,
@@ -40,17 +40,18 @@ pub fn tap_receipt_authorize<T, B>(
 > + Clone
        + Send
 where
-    T: ReceiptStore + Sync + Send,
+    T: ReceiptStore + Sync + Send + 'static,
     B: Send,
 {
-    |request: Request<B>| {
+    move |request: Request<B>| {
         let receipt = request.extensions().get::<SignedReceipt>().cloned();
         // load labels from previous middlewares
         let labels = request.extensions().get::<MetricLabels>().cloned();
         // load context from previous middlewares
         let ctx = request.extensions().get::<Arc<Context>>().cloned();
+        let tap_manager = tap_manager.clone();
 
-        async {
+        async move {
             let execute = || async {
                 let receipt = receipt.ok_or(IndexerServiceError::ReceiptNotFound)?;
                 // Verify the receipt and store it in the database
@@ -148,11 +149,11 @@ mod tests {
             }
         }
 
-        let manager = Box::leak(Box::new(Manager::new(
+        let manager = Arc::new(Manager::new(
             TAP_EIP712_DOMAIN.clone(),
             context,
             CheckList::new(vec![Arc::new(MyCheck)]),
-        )));
+        ));
         let tap_auth = tap_receipt_authorize(manager, metric);
         let authorization_middleware = AsyncRequireAuthorizationLayer::new(tap_auth);
 
