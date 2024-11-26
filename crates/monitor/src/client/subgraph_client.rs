@@ -58,10 +58,6 @@ impl DeploymentDetails {
     }
 
     pub fn for_query_url_with_token(query_url: Url, query_auth_token: Option<String>) -> Self {
-        Self::for_query_url_with_token_url(query_url, query_auth_token)
-    }
-
-    pub fn for_query_url_with_token_url(query_url: Url, query_auth_token: Option<String>) -> Self {
         Self {
             deployment: None,
             status_url: None,

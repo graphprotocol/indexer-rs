@@ -78,7 +78,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
                     deployment,
                 )
             }),
-            DeploymentDetails::for_query_url_with_token_url(
+            DeploymentDetails::for_query_url_with_token(
                 network_query_url.clone(),
                 network_query_auth_token.clone(),
             ),
@@ -105,7 +105,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
                     deployment,
                 )
             }),
-            DeploymentDetails::for_query_url_with_token_url(
+            DeploymentDetails::for_query_url_with_token(
                 escrow_query_url.clone(),
                 escrow_query_auth_token.clone(),
             ),
