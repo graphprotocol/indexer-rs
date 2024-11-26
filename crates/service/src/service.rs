@@ -120,7 +120,7 @@ pub async fn run() -> anyhow::Result<()> {
     //
     let service = ServiceExt::<Request>::into_make_service(router);
     Ok(serve(listener, service)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown_handler())
         .await?)
 }
 
@@ -148,7 +148,8 @@ async fn create_subgraph_client(
     ))
 }
 
-pub async fn shutdown_signal() {
+/// Graceful shutdown handler
+async fn shutdown_handler() {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
