@@ -11,15 +11,17 @@ use thegraph_core::{Address, ChainId};
 use tokio::sync::watch::Receiver;
 use tracing::warn;
 
+use crate::{AllocationWatcher, DisputeManagerWatcher};
+
 /// Receiver for Map of allocation id and attestation signer
 pub type AttestationWatcher = Receiver<HashMap<Address, AttestationSigner>>;
 
 /// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
 pub fn attestation_signers(
-    indexer_allocations_rx: Receiver<HashMap<Address, Allocation>>,
+    indexer_allocations_rx: AllocationWatcher,
     indexer_mnemonic: Mnemonic,
     chain_id: ChainId,
-    dispute_manager_rx: Receiver<Address>,
+    dispute_manager_rx: DisputeManagerWatcher,
 ) -> AttestationWatcher {
     let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
         Box::leak(Box::new(Mutex::new(HashMap::new())));
