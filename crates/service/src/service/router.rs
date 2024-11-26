@@ -180,7 +180,7 @@ impl ServiceRouter {
             )
             .await
             .expect("Error creating escrow_accounts channel"),
-            (None, None) => panic!("No allocations or network subgraph was provided"),
+            (None, None) => panic!("No escrow accounts or escrow subgraph was provided"),
         };
 
         // Monitor dispute manager address
@@ -192,7 +192,7 @@ impl ServiceRouter {
                     .await
                     .expect("Failed to initialize dispute manager")
             }
-            (None, None) => panic!("No allocations or network subgraph was provided"),
+            (None, None) => panic!("No dispute allocations or network subgraph was provided"),
         };
 
         // Maintain an up-to-date set of attestation signers, one for each
