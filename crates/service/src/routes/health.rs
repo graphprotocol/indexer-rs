@@ -7,11 +7,12 @@ use axum::{
     Json,
 };
 use graphql_client::GraphQLQuery;
-use indexer_config::GraphNodeConfig;
 use indexer_query::{health_query, HealthQuery};
 use reqwest::StatusCode;
 use serde_json::json;
 use thiserror::Error;
+
+use crate::service::GraphNodeState;
 
 #[derive(Debug, Error)]
 pub enum CheckHealthError {
@@ -43,15 +44,15 @@ impl IntoResponse for CheckHealthError {
 
 pub async fn health(
     Path(deployment_id): Path<String>,
-    State(graph_node): State<GraphNodeConfig>,
+    State(graph_node): State<GraphNodeState>,
 ) -> Result<impl IntoResponse, CheckHealthError> {
     let req_body = HealthQuery::build_query(health_query::Variables {
         ids: vec![deployment_id],
     });
 
-    let client = reqwest::Client::new();
-    let response = client
-        .post(graph_node.status_url)
+    let response = graph_node
+        .graph_node_client
+        .post(graph_node.graph_node_status_url.clone())
         .json(&req_body)
         .send()
         .await

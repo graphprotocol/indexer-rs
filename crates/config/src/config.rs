@@ -30,7 +30,7 @@ use crate::NonZeroGRT;
 
 const SHARED_PREFIX: &str = "INDEXER_";
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct Config {
     pub indexer: IndexerConfig,
@@ -229,14 +229,14 @@ impl Config {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct IndexerConfig {
     pub indexer_address: Address,
     pub operator_mnemonic: Mnemonic,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
@@ -278,14 +278,14 @@ impl DatabaseConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct GraphNodeConfig {
     pub query_url: Url,
     pub status_url: Url,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct MetricsConfig {
     pub port: u16,
@@ -297,7 +297,7 @@ impl MetricsConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
@@ -305,7 +305,7 @@ pub struct SubgraphsConfig {
 }
 
 #[serde_as]
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct NetworkSubgraphConfig {
     #[serde(flatten)]
@@ -315,7 +315,7 @@ pub struct NetworkSubgraphConfig {
     pub recently_closed_allocation_buffer_secs: Duration,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct EscrowSubgraphConfig {
     #[serde(flatten)]
@@ -323,7 +323,7 @@ pub struct EscrowSubgraphConfig {
 }
 
 #[serde_as]
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct SubgraphConfig {
     pub query_url: Url,
@@ -346,14 +346,14 @@ pub enum TheGraphChainId {
     Test = 1337,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
     pub receipts_verifier_address: Address,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct ServiceConfig {
     pub serve_network_subgraph: bool,
@@ -366,14 +366,14 @@ pub struct ServiceConfig {
 }
 
 #[serde_as]
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct ServiceTapConfig {
     /// what's the maximum value we accept in a receipt
     pub max_receipt_value_grt: NonZeroGRT,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct TapConfig {
     /// what is the maximum amount the indexer is willing to lose in grt
@@ -383,7 +383,7 @@ pub struct TapConfig {
     pub sender_aggregator_endpoints: HashMap<Address, Url>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DipsConfig {
     pub allowed_payers: Vec<Address>,
@@ -402,7 +402,7 @@ impl TapConfig {
 }
 
 #[serde_as]
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct RavRequestConfig {
     /// what divisor of the amount willing to lose to trigger the rav request

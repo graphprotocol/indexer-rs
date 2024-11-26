@@ -5,17 +5,51 @@ use std::time::Duration;
 use std::{str::FromStr, sync::Arc};
 
 use anyhow::bail;
-use async_graphql::{Context, FieldResult, Object, SimpleObject};
+use async_graphql::{Context, EmptySubscription, FieldResult, Object, Schema, SimpleObject};
 use base64::{engine::general_purpose::STANDARD, Engine};
+use indexer_config::{BlockchainConfig, DipsConfig};
 use indexer_dips::alloy::dyn_abi::Eip712Domain;
 use indexer_dips::SignedCancellationRequest;
 use indexer_dips::{
     alloy::core::primitives::Address, alloy_rlp::Decodable, SignedIndexingAgreementVoucher,
     SubgraphIndexingVoucherMetadata,
 };
+use thegraph_core::attestation::eip712_domain;
 use uuid::Uuid;
 
 use crate::database::dips::AgreementStore;
+
+pub type DipsSchema = Schema<AgreementQuery, AgreementMutation, EmptySubscription>;
+pub type DipsStore = Arc<dyn AgreementStore>;
+
+pub fn build_schema(
+    indexer_address: Address,
+    DipsConfig {
+        allowed_payers,
+        cancellation_time_tolerance,
+    }: &DipsConfig,
+    BlockchainConfig {
+        chain_id,
+        receipts_verifier_address,
+    }: &BlockchainConfig,
+    agreement_store: DipsStore,
+    prices: Vec<Price>,
+) -> DipsSchema {
+    Schema::build(
+        AgreementQuery {},
+        AgreementMutation {
+            expected_payee: indexer_address,
+            allowed_payers: allowed_payers.clone(),
+            domain: eip712_domain(*chain_id as u64, *receipts_verifier_address),
+            cancel_voucher_time_tolerance: cancellation_time_tolerance
+                .unwrap_or(Duration::from_secs(5)),
+        },
+        EmptySubscription,
+    )
+    .data(agreement_store)
+    .data(prices)
+    .finish()
+}
 
 pub enum NetworkProtocol {
     ArbitrumMainnet,

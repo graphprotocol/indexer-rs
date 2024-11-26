@@ -346,9 +346,8 @@ enum CostModelNotification {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{address, Address};
     use std::time::Duration;
-    use test_assets::create_signed_receipt;
+    use test_assets::{create_signed_receipt, SignedReceiptRequest};
 
     use sqlx::PgPool;
     use tap_core::receipt::{checks::Check, Context, ReceiptWithState};
@@ -455,8 +454,6 @@ mod tests {
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
     }
 
-    const ALLOCATION_ID: Address = address!("deadbeefcafebabedeadbeefcafebabedeadbeef");
-
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_check_minimal_value(pgpool: PgPool) {
         // insert cost models for different deployment_id
@@ -474,7 +471,8 @@ mod tests {
             variables: "".into(),
         });
 
-        let signed_receipt = create_signed_receipt(ALLOCATION_ID, u64::MAX, u64::MAX, 0).await;
+        let signed_receipt =
+            create_signed_receipt(SignedReceiptRequest::builder().value(0).build()).await;
         let receipt = ReceiptWithState::new(signed_receipt);
 
         assert!(
@@ -482,7 +480,8 @@ mod tests {
             "Should deny if value is 0 for any query"
         );
 
-        let signed_receipt = create_signed_receipt(ALLOCATION_ID, u64::MAX, u64::MAX, 1).await;
+        let signed_receipt =
+            create_signed_receipt(SignedReceiptRequest::builder().value(1).build()).await;
         let receipt = ReceiptWithState::new(signed_receipt);
         assert!(
             check.check(&ctx, &receipt).await.is_ok(),
@@ -498,8 +497,13 @@ mod tests {
         });
         let minimal_value = 500000000000000;
 
-        let signed_receipt =
-            create_signed_receipt(ALLOCATION_ID, u64::MAX, u64::MAX, minimal_value - 1).await;
+        let signed_receipt = create_signed_receipt(
+            SignedReceiptRequest::builder()
+                .value(minimal_value - 1)
+                .build(),
+        )
+        .await;
+
         let receipt = ReceiptWithState::new(signed_receipt);
 
         assert!(
@@ -515,15 +519,22 @@ mod tests {
         );
 
         let signed_receipt =
-            create_signed_receipt(ALLOCATION_ID, u64::MAX, u64::MAX, 500000000000000).await;
+            create_signed_receipt(SignedReceiptRequest::builder().value(minimal_value).build())
+                .await;
+
         let receipt = ReceiptWithState::new(signed_receipt);
         check
             .check(&ctx, &receipt)
             .await
             .expect("should accept equals minimal");
 
-        let signed_receipt =
-            create_signed_receipt(ALLOCATION_ID, u64::MAX, u64::MAX, minimal_value + 1).await;
+        let signed_receipt = create_signed_receipt(
+            SignedReceiptRequest::builder()
+                .value(minimal_value + 1)
+                .build(),
+        )
+        .await;
+
         let receipt = ReceiptWithState::new(signed_receipt);
         check
             .check(&ctx, &receipt)
@@ -551,9 +562,14 @@ mod tests {
         });
 
         let minimal_global_value = 20000000000000;
-        let signed_receipt =
-            create_signed_receipt(ALLOCATION_ID, u64::MAX, u64::MAX, minimal_global_value - 1)
-                .await;
+
+        let signed_receipt = create_signed_receipt(
+            SignedReceiptRequest::builder()
+                .value(minimal_global_value - 1)
+                .build(),
+        )
+        .await;
+
         let receipt = ReceiptWithState::new(signed_receipt);
 
         assert!(
@@ -561,17 +577,24 @@ mod tests {
             "Should deny less than global"
         );
 
-        let signed_receipt =
-            create_signed_receipt(ALLOCATION_ID, u64::MAX, u64::MAX, minimal_global_value).await;
+        let signed_receipt = create_signed_receipt(
+            SignedReceiptRequest::builder()
+                .value(minimal_global_value)
+                .build(),
+        )
+        .await;
         let receipt = ReceiptWithState::new(signed_receipt);
         check
             .check(&ctx, &receipt)
             .await
             .expect("should accept equals global");
 
-        let signed_receipt =
-            create_signed_receipt(ALLOCATION_ID, u64::MAX, u64::MAX, minimal_global_value + 1)
-                .await;
+        let signed_receipt = create_signed_receipt(
+            SignedReceiptRequest::builder()
+                .value(minimal_global_value + 1)
+                .build(),
+        )
+        .await;
         let receipt = ReceiptWithState::new(signed_receipt);
         check
             .check(&ctx, &receipt)

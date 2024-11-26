@@ -11,9 +11,9 @@ pub use tap::tap_receipt_authorize;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::time::Duration;
 
-    use alloy::primitives::{address, Address};
     use axum::body::Body;
     use axum::http::{Request, Response};
     use reqwest::{header, StatusCode};
@@ -25,20 +25,19 @@ mod tests {
 
     use crate::middleware::auth::{self, Bearer, OrExt};
     use crate::tap::IndexerTapContext;
-    use test_assets::{create_signed_receipt, TAP_EIP712_DOMAIN};
+    use test_assets::{create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN};
 
-    const ALLOCATION_ID: Address = address!("deadbeefcafebabedeadbeefcafebabedeadbeef");
     const BEARER_TOKEN: &str = "test";
 
     async fn service(
         pgpool: PgPool,
     ) -> impl Service<Request<Body>, Response = Response<Body>, Error = impl std::fmt::Debug> {
         let context = IndexerTapContext::new(pgpool.clone(), TAP_EIP712_DOMAIN.clone()).await;
-        let tap_manager = Box::leak(Box::new(Manager::new(
+        let tap_manager = Arc::new(Manager::new(
             TAP_EIP712_DOMAIN.clone(),
             context,
             CheckList::empty(),
-        )));
+        ));
 
         let registry = prometheus::Registry::new();
         let metric = Box::leak(Box::new(
@@ -97,7 +96,7 @@ mod tests {
     async fn test_composition_with_receipt(pgpool: PgPool) {
         let mut service = service(pgpool.clone()).await;
 
-        let receipt = create_signed_receipt(ALLOCATION_ID, 1, 1, 1).await;
+        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
 
         // check with receipt
         let mut req = Request::new(Default::default());

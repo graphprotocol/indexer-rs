@@ -10,3 +10,5 @@ mod routes;
 pub mod service;
 mod tap;
 mod wallet;
+
+pub use middleware::QueryBody;

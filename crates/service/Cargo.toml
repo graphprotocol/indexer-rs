@@ -39,7 +39,9 @@ graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3
 tap_core.workspace = true
 uuid.workspace = true
 alloy.workspace = true
-tower_governor = "0.4.0"
+typed-builder.workspace = true
+tower_governor = "0.4.3"
+governor = "0.6.0"
 tower-http = { version = "0.6.2", features = [
   "auth",
   "cors",
@@ -59,10 +61,13 @@ pin-project = "1.1.7"
 [dev-dependencies]
 hex-literal = "0.4.1"
 test-assets = { path = "../test-assets" }
+sqlx = { workspace = true, features = ["migrate"] }
 rstest.workspace = true
 tower-test = "0.4.0"
 tower-service = "0.3.3"
 tokio-test = "0.4.4"
+wiremock.workspace = true
+insta = "1.41.1"
 
 [build-dependencies]
 build-info-build = { version = "0.0.39", default-features = false }

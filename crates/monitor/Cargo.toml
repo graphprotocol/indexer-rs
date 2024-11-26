@@ -24,5 +24,5 @@ bip39.workspace = true
 [dev-dependencies]
 env_logger = { version = "0.11.0", default-features = false }
 test-log = { version = "0.2.12", default-features = false }
-wiremock = "0.5.19"
+wiremock.workspace = true
 test-assets = { path = "../test-assets" }

@@ -1,9 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{
-    error::SubgraphServiceError, middleware::AttestationInput, service::SubgraphServiceState,
-};
+use crate::{error::SubgraphServiceError, middleware::AttestationInput, service::GraphNodeState};
 use axum::{
     extract::{Path, State},
     http::{HeaderValue, Response},
@@ -17,7 +15,7 @@ const GRAPH_ATTESTABLE: &str = "graph-attestable";
 
 pub async fn request_handler(
     Path(deployment): Path<DeploymentId>,
-    State(state): State<SubgraphServiceState>,
+    State(state): State<GraphNodeState>,
     req: String,
 ) -> Result<impl IntoResponse, SubgraphServiceError> {
     trace!("Handling request for deployment `{deployment}`");

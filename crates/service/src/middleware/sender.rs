@@ -61,7 +61,6 @@ mod tests {
     use crate::middleware::sender::SenderState;
 
     use super::{sender_middleware, Sender};
-    use alloy::primitives::Address;
     use axum::{
         body::Body,
         http::{Extensions, Request},
@@ -72,7 +71,8 @@ mod tests {
     use indexer_monitor::EscrowAccounts;
     use reqwest::StatusCode;
     use test_assets::{
-        create_signed_receipt, ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
+        create_signed_receipt, SignedReceiptRequest, ESCROW_ACCOUNTS_BALANCES,
+        ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
     };
     use tokio::sync::watch;
     use tower::ServiceExt;
@@ -99,7 +99,7 @@ mod tests {
 
         let app = Router::new().route("/", get(handle)).layer(middleware);
 
-        let receipt = create_signed_receipt(Address::ZERO, 1, 1, 1).await;
+        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
 
         let res = app
             .oneshot(

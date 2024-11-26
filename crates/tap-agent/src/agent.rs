@@ -71,19 +71,14 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     let network_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
             http_client.clone(),
-            network_deployment_id
-                .map(|deployment| {
-                    DeploymentDetails::for_graph_node_url(
-                        graph_node_status_endpoint.clone(),
-                        graph_node_query_endpoint.clone(),
-                        deployment,
-                    )
-                })
-                .transpose()
-                .expect(
-                    "Failed to parse graph node query endpoint and network subgraph deployment",
-                ),
-            DeploymentDetails::for_query_url_with_token_url(
+            network_deployment_id.map(|deployment| {
+                DeploymentDetails::for_graph_node_url(
+                    graph_node_status_endpoint.clone(),
+                    graph_node_query_endpoint.clone(),
+                    deployment,
+                )
+            }),
+            DeploymentDetails::for_query_url_with_token(
                 network_query_url.clone(),
                 network_query_auth_token.clone(),
             ),
@@ -103,17 +98,14 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     let escrow_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
             http_client.clone(),
-            escrow_deployment_id
-                .map(|deployment| {
-                    DeploymentDetails::for_graph_node_url(
-                        graph_node_status_endpoint.clone(),
-                        graph_node_query_endpoint.clone(),
-                        deployment,
-                    )
-                })
-                .transpose()
-                .expect("Failed to parse graph node query endpoint and escrow subgraph deployment"),
-            DeploymentDetails::for_query_url_with_token_url(
+            escrow_deployment_id.map(|deployment| {
+                DeploymentDetails::for_graph_node_url(
+                    graph_node_status_endpoint.clone(),
+                    graph_node_query_endpoint.clone(),
+                    deployment,
+                )
+            }),
+            DeploymentDetails::for_query_url_with_token(
                 escrow_query_url.clone(),
                 escrow_query_auth_token.clone(),
             ),

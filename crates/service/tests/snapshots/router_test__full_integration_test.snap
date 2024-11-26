@@ -1,0 +1,6 @@
+---
+source: crates/service/tests/router_test.rs
+expression: res
+snapshot_kind: text
+---
+{"graphQLResponse":"\n                {\n                    \"data\": {\n                        \"graphNetwork\": {\n                            \"currentEpoch\": 960\n                        }\n                    }\n                }\n                ","attestation":null}

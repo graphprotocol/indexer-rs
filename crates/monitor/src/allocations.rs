@@ -12,13 +12,16 @@ use std::{
 };
 use tokio::sync::watch::Receiver;
 
+/// Receiver of Map between allocation id and allocation struct
+pub type AllocationWatcher = Receiver<HashMap<Address, Allocation>>;
+
 /// An always up-to-date list of an indexer's active and recently closed allocations.
 pub async fn indexer_allocations(
     network_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     interval: Duration,
     recently_closed_allocation_buffer: Duration,
-) -> anyhow::Result<Receiver<HashMap<Address, Allocation>>> {
+) -> anyhow::Result<AllocationWatcher> {
     new_watcher(interval, move || async move {
         get_allocations(
             network_subgraph,

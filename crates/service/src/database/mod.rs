@@ -9,12 +9,15 @@ use std::time::Duration;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tracing::debug;
 
+const DATABASE_TIMEOUT: Duration = Duration::from_secs(30);
+const DATABASE_MAX_CONNECTIONS: u32 = 50;
+
 pub async fn connect(url: &str) -> PgPool {
     debug!("Connecting to database");
 
     PgPoolOptions::new()
-        .max_connections(50)
-        .acquire_timeout(Duration::from_secs(3))
+        .max_connections(DATABASE_MAX_CONNECTIONS)
+        .acquire_timeout(DATABASE_TIMEOUT)
         .connect(url)
         .await
         .expect("Should be able to connect to the database")

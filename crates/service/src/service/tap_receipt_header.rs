@@ -47,21 +47,16 @@ impl Header for TapReceipt {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-
-    use alloy::primitives::Address;
     use axum::http::HeaderValue;
     use axum_extra::headers::Header;
 
-    use test_assets::create_signed_receipt;
+    use test_assets::{create_signed_receipt, SignedReceiptRequest};
 
     use super::TapReceipt;
 
     #[tokio::test]
     async fn test_decode_valid_tap_receipt_header() {
-        let allocation = Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap();
-        let original_receipt =
-            create_signed_receipt(allocation, u64::MAX, u64::MAX, u128::MAX).await;
+        let original_receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
         let serialized_receipt = serde_json::to_string(&original_receipt).unwrap();
         let header_value = HeaderValue::from_str(&serialized_receipt).unwrap();
         let header_values = vec![&header_value];

@@ -1,8 +1,16 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::net::SocketAddr;
+
+use axum::{routing::get, serve, Router};
 use lazy_static::lazy_static;
-use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
+use prometheus::{
+    register_counter_vec, register_histogram_vec, CounterVec, HistogramVec, TextEncoder,
+};
+use reqwest::StatusCode;
+use tokio::net::TcpListener;
+use tracing::{error, info};
 
 lazy_static! {
     /// Metric registered in global registry for
@@ -36,4 +44,38 @@ lazy_static! {
     )
     .unwrap();
 
+}
+
+pub fn serve_metrics(host_and_port: SocketAddr) {
+    info!(address = %host_and_port, "Serving prometheus metrics");
+
+    tokio::spawn(async move {
+        let router = Router::new().route(
+            "/metrics",
+            get(|| async {
+                let metric_families = prometheus::gather();
+                let encoder = TextEncoder::new();
+
+                match encoder.encode_to_string(&metric_families) {
+                    Ok(s) => (StatusCode::OK, s),
+                    Err(e) => {
+                        error!("Error encoding metrics: {}", e);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Error encoding metrics: {}", e),
+                        )
+                    }
+                }
+            }),
+        );
+
+        serve(
+            TcpListener::bind(host_and_port)
+                .await
+                .expect("Failed to bind to metrics port"),
+            router.into_make_service(),
+        )
+        .await
+        .expect("Failed to serve metrics")
+    });
 }

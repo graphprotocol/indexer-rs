@@ -5,8 +5,6 @@ use std::str::FromStr;
 
 use crate::database::cost_model::{self, CostModel};
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
-use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
-use axum::extract::State;
 use lazy_static::lazy_static;
 use prometheus::{
     register_counter, register_counter_vec, register_histogram, register_histogram_vec, Counter,
@@ -14,9 +12,8 @@ use prometheus::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::PgPool;
 use thegraph_core::DeploymentId;
-
-use crate::service::SubgraphServiceState;
 
 lazy_static! {
     pub static ref COST_MODEL_METRIC: HistogramVec = register_histogram_vec!(
@@ -126,7 +123,7 @@ impl Query {
         ctx: &Context<'_>,
         deployment_ids: Vec<DeploymentId>,
     ) -> Result<Vec<GraphQlCostModel>, anyhow::Error> {
-        let pool = &ctx.data_unchecked::<SubgraphServiceState>().database;
+        let pool = &ctx.data_unchecked::<PgPool>();
         let cost_models = cost_model::cost_models(pool, &deployment_ids).await?;
         Ok(cost_models.into_iter().map(|m| m.into()).collect())
     }
@@ -136,7 +133,7 @@ impl Query {
         ctx: &Context<'_>,
         deployment_id: DeploymentId,
     ) -> Result<Option<GraphQlCostModel>, anyhow::Error> {
-        let pool = &ctx.data_unchecked::<SubgraphServiceState>().database;
+        let pool = &ctx.data_unchecked::<PgPool>();
         cost_model::cost_model(pool, &deployment_id)
             .await
             .map(|model_opt| model_opt.map(GraphQlCostModel::from))
@@ -145,17 +142,8 @@ impl Query {
 
 pub type CostSchema = Schema<Query, EmptyMutation, EmptySubscription>;
 
-pub async fn build_schema() -> CostSchema {
-    Schema::build(Query, EmptyMutation, EmptySubscription).finish()
-}
-
-pub async fn cost(
-    State(state): State<SubgraphServiceState>,
-    req: GraphQLRequest,
-) -> GraphQLResponse {
-    state
-        .cost_schema
-        .execute(req.into_inner().data(state.clone()))
-        .await
-        .into()
+pub async fn build_schema(data: PgPool) -> CostSchema {
+    Schema::build(Query, EmptyMutation, EmptySubscription)
+        .data(data)
+        .finish()
 }
