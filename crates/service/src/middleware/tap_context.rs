@@ -24,9 +24,9 @@ use super::sender::Sender;
 
 /// Graphql query body to be decoded and passed to agora context
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
-struct QueryBody {
-    query: String,
-    variables: Option<Box<RawValue>>,
+pub struct QueryBody {
+    pub query: String,
+    pub variables: Option<Box<RawValue>>,
 }
 
 /// Injects tap context in the extensions to be used by tap_receipt_authorize

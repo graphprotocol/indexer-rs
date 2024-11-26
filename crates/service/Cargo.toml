@@ -61,10 +61,12 @@ typed-builder = "0.20.0"
 [dev-dependencies]
 hex-literal = "0.4.1"
 test-assets = { path = "../test-assets" }
+sqlx = { workspace = true, features = ["migrate"] }
 rstest.workspace = true
 tower-test = "0.4.0"
 tower-service = "0.3.3"
 tokio-test = "0.4.4"
+wiremock.workspace = true
 
 [build-dependencies]
 build-info-build = { version = "0.0.39", default-features = false }

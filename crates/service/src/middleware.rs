@@ -19,5 +19,5 @@ pub use deployment::deployment_middleware;
 pub use labels::labels_middleware;
 pub use prometheus_metrics::PrometheusMetricsMiddlewareLayer;
 pub use sender::{sender_middleware, Sender, SenderState};
-pub use tap_context::context_middleware;
+pub use tap_context::{context_middleware, QueryBody};
 pub use tap_receipt::receipt_middleware;

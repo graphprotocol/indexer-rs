@@ -256,9 +256,12 @@ lazy_static! {
         (wallet, address)
     };
 
+    pub static ref VERIFIER_ADDRESS: Address = Address::from([0x11u8; 20]);
+
+
     pub static ref TAP_EIP712_DOMAIN: Eip712Domain = tap_eip712_domain(
         1,
-        Address::from([0x11u8; 20])
+        *VERIFIER_ADDRESS
     );
 }
 

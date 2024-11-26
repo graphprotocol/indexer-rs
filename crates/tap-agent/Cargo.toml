@@ -48,4 +48,4 @@ futures = { version = "0.3.30", default-features = false }
 
 [dev-dependencies]
 tempfile = "3.8.0"
-wiremock = "0.6.1"
+wiremock.workspace = true
