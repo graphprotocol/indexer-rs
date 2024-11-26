@@ -29,12 +29,7 @@ async fn full_integration_test(database: PgPool) {
         .build()
         .expect("Failed to init HTTP client");
 
-    let allocation = INDEXER_ALLOCATIONS
-        .values()
-        .collect::<Vec<_>>()
-        .pop()
-        .unwrap()
-        .clone();
+    let allocation = INDEXER_ALLOCATIONS.values().next().unwrap().clone();
     let deployment = allocation.subgraph_deployment.id;
 
     let mock_server = MockServer::start().await;
