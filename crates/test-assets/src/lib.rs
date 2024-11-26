@@ -18,6 +18,7 @@ use tap_core::{
 use thegraph_core::{Address, DeploymentId};
 
 use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
+use typed_builder::TypedBuilder;
 
 /// The allocation IDs below are generated using the mnemonic
 /// "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
@@ -265,12 +266,31 @@ lazy_static! {
     );
 }
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(TypedBuilder)]
+pub struct SignedReceiptRequest {
+    #[builder(default = Address::ZERO)]
+    allocation_id: Address,
+    #[builder(default)]
+    nonce: u64,
+    #[builder(default_code = r#"SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64"#)]
+    timestamp_ns: u64,
+    #[builder(default = 1)]
+    value: u128,
+}
+
 /// Function to generate a signed receipt using the TAP_SIGNER wallet.
 pub async fn create_signed_receipt(
-    allocation_id: Address,
-    nonce: u64,
-    timestamp_ns: u64,
-    value: u128,
+    SignedReceiptRequest {
+        allocation_id,
+        nonce,
+        timestamp_ns,
+        value,
+    }: SignedReceiptRequest,
 ) -> SignedReceipt {
     let (wallet, _) = &*self::TAP_SIGNER;
 

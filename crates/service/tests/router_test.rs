@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use alloy::primitives::Address;
 use axum::{body::to_bytes, http::Request};
@@ -14,7 +14,9 @@ use indexer_service_rs::{
 };
 use reqwest::{Method, StatusCode, Url};
 use sqlx::PgPool;
-use test_assets::{create_signed_receipt, INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN};
+use test_assets::{
+    create_signed_receipt, SignedReceiptRequest, INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN,
+};
 use tokio::sync::watch;
 use tower::ServiceExt;
 use wiremock::{
@@ -95,12 +97,13 @@ async fn full_integration_test(database: PgPool) {
 
     let app = router.create_router().await.unwrap();
 
-    let timestamp = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_nanos();
-
-    let receipt = create_signed_receipt(allocation.id, 0, timestamp as u64, 100).await;
+    let receipt = create_signed_receipt(
+        SignedReceiptRequest::builder()
+            .allocation_id(allocation.id)
+            .value(100)
+            .build(),
+    )
+    .await;
 
     let query = QueryBody {
         query: "query".into(),

@@ -176,16 +176,12 @@ impl Drop for DenyListCheck {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use alloy::hex::ToHexExt;
     use tap_core::receipt::{Context, ReceiptWithState};
 
-    use test_assets::{self, create_signed_receipt, TAP_SENDER};
+    use test_assets::{self, create_signed_receipt, SignedReceiptRequest, TAP_SENDER};
 
     use super::*;
-
-    const ALLOCATION_ID: &str = "0xdeadbeefcafebabedeadbeefcafebabedeadbeef";
 
     async fn new_deny_list_check(pgpool: PgPool) -> DenyListCheck {
         // Mock escrow accounts
@@ -206,9 +202,7 @@ mod tests {
         .await
         .unwrap();
 
-        let allocation_id = Address::from_str(ALLOCATION_ID).unwrap();
-        let signed_receipt =
-            create_signed_receipt(allocation_id, u64::MAX, u64::MAX, u128::MAX).await;
+        let signed_receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
 
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
@@ -226,9 +220,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_sender_denylist_updates(pgpool: PgPool) {
-        let allocation_id = Address::from_str(ALLOCATION_ID).unwrap();
-        let signed_receipt =
-            create_signed_receipt(allocation_id, u64::MAX, u64::MAX, u128::MAX).await;
+        let signed_receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
 
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 

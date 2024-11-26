@@ -81,7 +81,6 @@ mod tests {
     use tokio::time::sleep;
     use tower::{Service, ServiceBuilder, ServiceExt};
 
-    use alloy::primitives::{address, Address};
     use axum::{
         body::Body,
         http::{Request, Response},
@@ -97,7 +96,7 @@ mod tests {
             ReceiptWithState,
         },
     };
-    use test_assets::{create_signed_receipt, TAP_EIP712_DOMAIN};
+    use test_assets::{create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
     use crate::{
@@ -107,8 +106,6 @@ mod tests {
         },
         tap::IndexerTapContext,
     };
-
-    const ALLOCATION_ID: Address = address!("deadbeefcafebabedeadbeefcafebabedeadbeef");
 
     #[fixture]
     fn metric() -> &'static prometheus::CounterVec {
@@ -175,7 +172,7 @@ mod tests {
     ) {
         let mut service = service(metric, pgpool.clone()).await;
 
-        let receipt = create_signed_receipt(ALLOCATION_ID, 1, 1, 1).await;
+        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
 
         // check with receipt
         let mut req = Request::new(Body::default());
@@ -226,7 +223,7 @@ mod tests {
         // default labels, all empty
         let labels: MetricLabels = Arc::new(TestLabel);
 
-        let mut receipt = create_signed_receipt(ALLOCATION_ID, 1, 1, 1).await;
+        let mut receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
         // change the nonce to make the receipt invalid
         receipt.message.nonce = FAILED_NONCE;
         let mut req = Request::new(Body::default());

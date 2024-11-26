@@ -26,7 +26,6 @@ pub async fn receipt_middleware(mut request: Request, next: Next) -> Response {
 mod tests {
     use crate::{middleware::tap_receipt::receipt_middleware, service::TapReceipt};
 
-    use alloy::primitives::Address;
     use axum::{
         body::Body,
         http::{Extensions, Request},
@@ -37,14 +36,14 @@ mod tests {
     use axum_extra::headers::Header;
     use reqwest::StatusCode;
     use tap_core::receipt::SignedReceipt;
-    use test_assets::create_signed_receipt;
+    use test_assets::{create_signed_receipt, SignedReceiptRequest};
     use tower::ServiceExt;
 
     #[tokio::test]
     async fn test_receipt_middleware() {
         let middleware = from_fn(receipt_middleware);
 
-        let receipt = create_signed_receipt(Address::ZERO, 1, 1, 1).await;
+        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
         let receipt_json = serde_json::to_string(&receipt).unwrap();
 
         let handle = move |extensions: Extensions| async move {
