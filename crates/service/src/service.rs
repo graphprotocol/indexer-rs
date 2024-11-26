@@ -61,13 +61,6 @@ pub async fn run() -> anyhow::Result<()> {
         .build()
         .expect("Failed to init HTTP client");
 
-    // Graphnode state
-    let graphnode_state = GraphNodeState {
-        graph_node_client: http_client.clone(),
-        graph_node_status_url: &config.graph_node.status_url,
-        graph_node_query_base_url: &config.graph_node.query_url,
-    };
-
     let network_subgraph = create_subgraph_client(
         http_client.clone(),
         &config.graph_node,
@@ -100,11 +93,16 @@ pub async fn run() -> anyhow::Result<()> {
     let router = ServiceRouter::builder()
         .database(database)
         .domain_separator(domain_separator)
-        .graphnode_state(graphnode_state)
+        .graph_node(&config.graph_node)
+        .http_client(http_client)
         .release(release)
-        .config(config)
-        .network_subgraph(network_subgraph)
-        .escrow_subgraph(escrow_subgraph)
+        .indexer(&config.indexer)
+        .service(&config.service)
+        .dips(config.dips.as_ref())
+        .blockchain(&config.blockchain)
+        .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
+        .network_subgraph(network_subgraph, &config.subgraphs.network)
+        .escrow_subgraph(escrow_subgraph, &config.subgraphs.escrow)
         .build();
 
     serve_metrics(config.metrics.get_socket_addr());

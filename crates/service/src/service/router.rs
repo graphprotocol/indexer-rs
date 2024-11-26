@@ -13,6 +13,10 @@ use axum::{
     Json, Router,
 };
 use governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
+use indexer_config::{
+    BlockchainConfig, DipsConfig, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig,
+    NetworkSubgraphConfig, ServiceConfig, ServiceTapConfig,
+};
 use indexer_monitor::{
     attestation_signers, deployment_to_allocation, dispute_manager, escrow_accounts,
     indexer_allocations, AllocationWatcher, DisputeManagerWatcher, EscrowAccountsWatcher,
@@ -58,29 +62,42 @@ use super::{release::IndexerServiceRelease, GraphNodeState};
 pub struct ServiceRouter {
     // database
     database: sqlx::PgPool,
-
     // tap domain
     domain_separator: Eip712Domain,
-
-    // watchers
+    // graphnode client
+    http_client: reqwest::Client,
+    // release info
     #[builder(default, setter(strip_option))]
-    allocations: Option<AllocationWatcher>,
+    release: Option<IndexerServiceRelease>,
+
+    // configuration
+    graph_node: &'static GraphNodeConfig,
+    indexer: &'static IndexerConfig,
+    service: &'static ServiceConfig,
+    blockchain: &'static BlockchainConfig,
+    timestamp_buffer_secs: Duration,
+    #[builder(default)]
+    dips: Option<&'static DipsConfig>,
+
+    // either provide subgraph or watcher
+    #[builder(default, setter(transform =
+        |subgraph: &'static SubgraphClient,
+            config: &'static EscrowSubgraphConfig|
+        Some((subgraph, config))))]
+    escrow_subgraph: Option<(&'static SubgraphClient, &'static EscrowSubgraphConfig)>,
     #[builder(default, setter(strip_option))]
     escrow_accounts: Option<EscrowAccountsWatcher>,
 
+    // provide network subgraph or allocations + dispute manager
+    #[builder(default, setter(transform =
+        |subgraph: &'static SubgraphClient,
+            config: &'static NetworkSubgraphConfig|
+        Some((subgraph, config))))]
+    network_subgraph: Option<(&'static SubgraphClient, &'static NetworkSubgraphConfig)>,
+    #[builder(default, setter(strip_option))]
+    allocations: Option<AllocationWatcher>,
     #[builder(default, setter(strip_option))]
     dispute_manager: Option<DisputeManagerWatcher>,
-
-    // state, maybe create inside
-    graphnode_state: GraphNodeState,
-
-    #[builder(default, setter(strip_option))]
-    release: Option<IndexerServiceRelease>,
-    config: &'static indexer_config::Config,
-
-    // optional serve
-    escrow_subgraph: &'static SubgraphClient,
-    network_subgraph: &'static SubgraphClient,
 }
 
 const MISC_BURST_SIZE: u32 = 10;
@@ -95,6 +112,22 @@ const DEFAULT_ROUTE: &str = "/";
 
 impl ServiceRouter {
     pub async fn create_router(self) -> anyhow::Result<Router> {
+        let IndexerConfig {
+            indexer_address,
+            operator_mnemonic,
+        } = self.indexer;
+        let ServiceConfig {
+            serve_network_subgraph,
+            serve_escrow_subgraph,
+            serve_auth_token,
+            url_prefix,
+            tap: ServiceTapConfig {
+                max_receipt_value_grt,
+            },
+            free_query_auth_token,
+            ..
+        } = self.service;
+
         // COST
         let cost_schema = routes::cost::build_schema(self.database.clone()).await;
         let post_cost = post_service(GraphQL::new(cost_schema));
@@ -106,12 +139,12 @@ impl ServiceRouter {
         let agreement_store: Arc<dyn AgreementStore> = Arc::new(InMemoryAgreementStore::default());
         let prices: Vec<Price> = vec![];
 
-        let dips = match self.config.dips.as_ref() {
+        let dips = match self.dips.as_ref() {
             Some(dips_config) => {
                 let schema = dips::build_schema(
-                    self.config.indexer.indexer_address,
+                    *indexer_address,
                     dips_config,
-                    &self.config.blockchain,
+                    self.blockchain,
                     agreement_store,
                     prices,
                 );
@@ -122,50 +155,52 @@ impl ServiceRouter {
 
         // Monitor the indexer's own allocations
         // if not provided, create monitor from subgraph
-        let allocations = match self.allocations {
-            Some(allocations) => allocations,
-            None => indexer_allocations(
-                self.network_subgraph,
-                self.config.indexer.indexer_address,
-                self.config.subgraphs.network.config.syncing_interval_secs,
-                self.config
-                    .subgraphs
-                    .network
-                    .recently_closed_allocation_buffer_secs,
+        let allocations = match (self.allocations, self.network_subgraph.as_ref()) {
+            (Some(allocations), _) => allocations,
+            (_, Some((network_subgraph, network))) => indexer_allocations(
+                network_subgraph,
+                *indexer_address,
+                network.config.syncing_interval_secs,
+                network.recently_closed_allocation_buffer_secs,
             )
             .await
             .expect("Failed to initialize indexer_allocations watcher"),
+            (None, None) => panic!("No allocations or network subgraph was provided"),
         };
 
         // Monitor escrow accounts
         // if not provided, create monitor from subgraph
-        let escrow_accounts = match self.escrow_accounts {
-            Some(escrow_account) => escrow_account,
-            None => escrow_accounts(
-                self.escrow_subgraph,
-                self.config.indexer.indexer_address,
-                self.config.subgraphs.escrow.config.syncing_interval_secs,
+        let escrow_accounts = match (self.escrow_accounts, self.escrow_subgraph.as_ref()) {
+            (Some(escrow_account), _) => escrow_account,
+            (_, Some((escrow_subgraph, escrow))) => escrow_accounts(
+                escrow_subgraph,
+                *indexer_address,
+                escrow.config.syncing_interval_secs,
                 true, // Reject thawing signers eagerly
             )
             .await
             .expect("Error creating escrow_accounts channel"),
+            (None, None) => panic!("No allocations or network subgraph was provided"),
         };
 
         // Monitor dispute manager address
         // if not provided, create monitor from subgraph
-        let dispute_manager = match self.dispute_manager {
-            Some(dispute_manager) => dispute_manager,
-            None => dispute_manager(self.network_subgraph, DISPUTE_MANAGER_INTERVAL)
-                .await
-                .expect("Failed to initialize dispute manager"),
+        let dispute_manager = match (self.dispute_manager, self.network_subgraph.as_ref()) {
+            (Some(dispute_manager), _) => dispute_manager,
+            (_, Some((network_subgraph, _))) => {
+                dispute_manager(network_subgraph, DISPUTE_MANAGER_INTERVAL)
+                    .await
+                    .expect("Failed to initialize dispute manager")
+            }
+            (None, None) => panic!("No allocations or network subgraph was provided"),
         };
 
         // Maintain an up-to-date set of attestation signers, one for each
         // allocation
         let attestation_signers = attestation_signers(
             allocations.clone(),
-            self.config.indexer.operator_mnemonic.clone(),
-            self.config.blockchain.chain_id as u64,
+            operator_mnemonic.clone(),
+            self.blockchain.chain_id as u64,
             dispute_manager,
         );
 
@@ -182,10 +217,11 @@ impl ServiceRouter {
 
         // load serve_network_subgraph route
         let serve_network_subgraph = match (
-            self.config.service.serve_auth_token.as_ref(),
-            self.config.service.serve_network_subgraph,
+            serve_auth_token.as_ref(),
+            serve_network_subgraph,
+            self.network_subgraph.as_ref(),
         ) {
-            (Some(free_auth_token), true) => {
+            (Some(free_auth_token), true, Some((network_subgraph, _))) => {
                 info!("Serving network subgraph at /network");
 
                 let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
@@ -195,10 +231,10 @@ impl ServiceRouter {
                     post(static_subgraph_request_handler)
                         .route_layer(auth_layer)
                         .route_layer(static_subgraph_rate_limiter.clone())
-                        .with_state(self.network_subgraph),
+                        .with_state(network_subgraph),
                 )
             }
-            (None, true) => {
+            (_, true, _) => {
                 warn!("`serve_network_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
                 Router::new()
             }
@@ -207,10 +243,11 @@ impl ServiceRouter {
 
         // load serve_escrow_subgraph route
         let serve_escrow_subgraph = match (
-            self.config.service.serve_auth_token.as_ref(),
-            self.config.service.serve_escrow_subgraph,
+            serve_auth_token.as_ref(),
+            serve_escrow_subgraph,
+            self.escrow_subgraph,
         ) {
-            (Some(free_auth_token), true) => {
+            (Some(free_auth_token), true, Some((escrow_subgraph, _))) => {
                 info!("Serving escrow subgraph at /escrow");
 
                 let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
@@ -220,10 +257,10 @@ impl ServiceRouter {
                     post(static_subgraph_request_handler)
                         .route_layer(auth_layer)
                         .route_layer(static_subgraph_rate_limiter)
-                        .with_state(self.escrow_subgraph),
+                        .with_state(escrow_subgraph),
                 )
             }
-            (None, true) => {
+            (_, true, _) => {
                 warn!("`serve_escrow_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
                 Router::new()
             }
@@ -238,15 +275,14 @@ impl ServiceRouter {
                     IndexerTapContext::new(self.database.clone(), self.domain_separator.clone())
                         .await;
 
-                let timestamp_error_tolerance = self.config.tap.rav_request.timestamp_buffer_secs;
-                let receipt_max_value = self.config.service.tap.max_receipt_value_grt.get_value();
+                let timestamp_error_tolerance = self.timestamp_buffer_secs;
+                let receipt_max_value = max_receipt_value_grt.get_value();
 
                 // Create checks
                 let checks = IndexerTapContext::get_checks(
                     self.database,
                     allocations.clone(),
                     escrow_accounts.clone(),
-                    self.domain_separator.clone(),
                     timestamp_error_tolerance,
                     receipt_max_value,
                 )
@@ -265,7 +301,7 @@ impl ServiceRouter {
             let failed_receipt_metric = Box::leak(Box::new(FAILED_RECEIPT.clone()));
             let tap_auth = auth::tap_receipt_authorize(tap_manager, failed_receipt_metric);
 
-            if let Some(free_auth_token) = &self.config.service.serve_auth_token {
+            if let Some(free_auth_token) = &free_query_auth_token {
                 let free_query = Bearer::new(free_auth_token);
                 let result = free_query.or(tap_auth);
                 let auth_layer = AsyncRequireAuthorizationLayer::new(result);
@@ -348,16 +384,22 @@ impl ServiceRouter {
             None => Router::new(),
         };
 
-        let operator_address = Json(
-            serde_json::json!({ "publicKey": public_key(&self.config.indexer.operator_mnemonic)?}),
-        );
+        let operator_address =
+            Json(serde_json::json!({ "publicKey": public_key(operator_mnemonic)?}));
+
+        // Graphnode state
+        let graphnode_state = GraphNodeState {
+            graph_node_client: self.http_client,
+            graph_node_status_url: &self.graph_node.status_url,
+            graph_node_query_base_url: &self.graph_node.query_url,
+        };
 
         // data layer
         let data_routes = Router::new()
             .route("/subgraphs/id/:id", post_request_handler)
-            .with_state(self.graphnode_state.clone());
+            .with_state(graphnode_state.clone());
 
-        let subgraphs_route = Router::new().nest(&self.config.service.url_prefix, data_routes);
+        let subgraphs_route = Router::new().nest(url_prefix, data_routes);
 
         let misc_routes = Router::new()
             .route("/", get("Service is up and running"))
@@ -368,13 +410,13 @@ impl ServiceRouter {
             .nest("/dips", dips)
             .route(
                 "/subgraph/health/:deployment_id",
-                get(health).with_state(self.config.graph_node.clone()),
+                get(health).with_state(graphnode_state.clone()),
             )
             .layer(misc_rate_limiter);
 
         let extra_routes = Router::new()
             .route("/cost", post_cost)
-            .route("/status", post_status.with_state(self.graphnode_state));
+            .route("/status", post_status.with_state(graphnode_state));
 
         let router = Router::new()
             .merge(misc_routes)
