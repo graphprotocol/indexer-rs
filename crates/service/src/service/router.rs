@@ -305,10 +305,10 @@ impl ServiceRouter {
                 let free_query = Bearer::new(free_auth_token);
                 let result = free_query.or(tap_auth);
                 let auth_layer = AsyncRequireAuthorizationLayer::new(result);
-                handler = handler.layer(auth_layer);
+                handler = handler.route_layer(auth_layer);
             } else {
                 let auth_layer = AsyncRequireAuthorizationLayer::new(tap_auth);
-                handler = handler.layer(auth_layer);
+                handler = handler.route_layer(auth_layer);
             }
 
             let deployment_to_allocation = deployment_to_allocation(allocations);
@@ -346,7 +346,7 @@ impl ServiceRouter {
                 // create attestation
                 .layer(from_fn(attestation_middleware));
 
-            handler.layer(service_builder)
+            handler.route_layer(service_builder)
         };
 
         // setup cors

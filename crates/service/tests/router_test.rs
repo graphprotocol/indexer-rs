@@ -4,7 +4,7 @@
 use std::time::{Duration, SystemTime};
 
 use alloy::primitives::Address;
-use axum::http::Request;
+use axum::{body::to_bytes, http::Request};
 use axum_extra::headers::Header;
 use indexer_config::{BlockchainConfig, GraphNodeConfig, IndexerConfig, NonZeroGRT};
 use indexer_monitor::EscrowAccounts;
@@ -12,7 +12,7 @@ use indexer_service_rs::{
     service::{ServiceRouter, TapReceipt},
     QueryBody,
 };
-use reqwest::{StatusCode, Url};
+use reqwest::{Method, StatusCode, Url};
 use sqlx::PgPool;
 use test_assets::{create_signed_receipt, INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN};
 use tokio::sync::watch;
@@ -113,6 +113,7 @@ async fn full_integration_test(database: PgPool) {
     };
 
     let request = Request::builder()
+        .method(Method::POST)
         .uri(format!("/subgraphs/id/{deployment}"))
         .header(TapReceipt::name(), serde_json::to_string(&receipt).unwrap())
         .body(serde_json::to_string(&query).unwrap())
@@ -121,6 +122,12 @@ async fn full_integration_test(database: PgPool) {
     // with deployment
     let res = app.oneshot(request).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
+
+    let graphql_response = res.into_body();
+    let bytes = to_bytes(graphql_response, usize::MAX).await.unwrap();
+    let res = String::from_utf8(bytes.into()).unwrap();
+
+    insta::assert_snapshot!(res);
 }
 
 fn leak<T>(thing: T) -> &'static T {

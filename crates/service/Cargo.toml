@@ -67,6 +67,7 @@ tower-test = "0.4.0"
 tower-service = "0.3.3"
 tokio-test = "0.4.4"
 wiremock.workspace = true
+insta = "1.41.1"
 
 [build-dependencies]
 build-info-build = { version = "0.0.39", default-features = false }
