@@ -40,11 +40,7 @@ pub fn build_schema(
         AgreementMutation {
             expected_payee: indexer_address,
             allowed_payers: allowed_payers.clone(),
-            domain: eip712_domain(
-                // 42161, // arbitrum
-                *chain_id as u64,
-                *receipts_verifier_address,
-            ),
+            domain: eip712_domain(*chain_id as u64, *receipts_verifier_address),
             cancel_voucher_time_tolerance: cancellation_time_tolerance
                 .unwrap_or(Duration::from_secs(5)),
         },
