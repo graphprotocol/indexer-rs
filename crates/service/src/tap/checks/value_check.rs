@@ -518,12 +518,9 @@ mod tests {
             "Should require minimal value"
         );
 
-        let signed_receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .value(500000000000000)
-                .build(),
-        )
-        .await;
+        let signed_receipt =
+            create_signed_receipt(SignedReceiptRequest::builder().value(minimal_value).build())
+                .await;
 
         let receipt = ReceiptWithState::new(signed_receipt);
         check
