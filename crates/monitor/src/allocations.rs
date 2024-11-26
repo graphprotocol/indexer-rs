@@ -12,6 +12,7 @@ use std::{
 };
 use tokio::sync::watch::Receiver;
 
+/// Receiver of Map between allocation id and allocation struct
 pub type AllocationWatcher = Receiver<HashMap<Address, Allocation>>;
 
 /// An always up-to-date list of an indexer's active and recently closed allocations.

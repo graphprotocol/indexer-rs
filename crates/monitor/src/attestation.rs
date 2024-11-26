@@ -11,6 +11,7 @@ use thegraph_core::{Address, ChainId};
 use tokio::sync::watch::Receiver;
 use tracing::warn;
 
+/// Receiver for Map of allocation id and attestation signer
 pub type AttestationWatcher = Receiver<HashMap<Address, AttestationSigner>>;
 
 /// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
