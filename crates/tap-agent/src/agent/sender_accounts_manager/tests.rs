@@ -4,7 +4,9 @@ use super::{
 };
 use crate::agent::sender_account::tests::{MockSenderAllocation, PREFIX_ID};
 use crate::agent::sender_account::{SenderAccountConfig, SenderAccountMessage};
-use crate::agent::sender_accounts_manager::{handle_notification, NewReceiptNotification};
+use crate::agent::sender_accounts_manager::{
+    receipt_watcher::handle_notification, NewReceiptNotification,
+};
 use crate::agent::sender_allocation::tests::MockSenderAccount;
 use crate::tap::test_utils::{
     create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
