@@ -20,6 +20,8 @@ use thegraph_core::DeploymentId;
 
 use crate::{error::IndexerServiceError, tap::AgoraQuery};
 
+use super::sender::Sender;
+
 /// Graphql query body to be decoded and passed to agora context
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct QueryBody {
@@ -39,6 +41,7 @@ pub async fn context_middleware(
             Err(_) => return Err(IndexerServiceError::DeploymentIdNotFound),
         },
     };
+    let sender = request.extensions().get::<Sender>().cloned();
 
     let (mut parts, body) = request.into_parts();
     let bytes = to_bytes(body, usize::MAX).await?;
@@ -56,6 +59,10 @@ pub async fn context_middleware(
         query: query_body.query.clone(),
         variables,
     });
+
+    if let Some(sender) = sender {
+        ctx.insert(sender);
+    }
     parts.extensions.insert(Arc::new(ctx));
     let request = Request::from_parts(parts, bytes.into());
     Ok(next.run(request).await)
