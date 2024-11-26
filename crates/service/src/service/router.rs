@@ -71,29 +71,29 @@ pub struct ServiceRouter {
     release: Option<IndexerServiceRelease>,
 
     // configuration
-    graph_node: &'static GraphNodeConfig,
-    indexer: &'static IndexerConfig,
-    service: &'static ServiceConfig,
-    blockchain: &'static BlockchainConfig,
+    graph_node: GraphNodeConfig,
+    indexer: IndexerConfig,
+    service: ServiceConfig,
+    blockchain: BlockchainConfig,
     timestamp_buffer_secs: Duration,
     #[builder(default)]
-    dips: Option<&'static DipsConfig>,
+    dips: Option<DipsConfig>,
 
     // either provide subgraph or watcher
     #[builder(default, setter(transform =
         |subgraph: &'static SubgraphClient,
-            config: &'static EscrowSubgraphConfig|
+            config: EscrowSubgraphConfig|
         Some((subgraph, config))))]
-    escrow_subgraph: Option<(&'static SubgraphClient, &'static EscrowSubgraphConfig)>,
+    escrow_subgraph: Option<(&'static SubgraphClient, EscrowSubgraphConfig)>,
     #[builder(default, setter(strip_option))]
     escrow_accounts: Option<EscrowAccountsWatcher>,
 
     // provide network subgraph or allocations + dispute manager
     #[builder(default, setter(transform =
         |subgraph: &'static SubgraphClient,
-            config: &'static NetworkSubgraphConfig|
+            config: NetworkSubgraphConfig|
         Some((subgraph, config))))]
-    network_subgraph: Option<(&'static SubgraphClient, &'static NetworkSubgraphConfig)>,
+    network_subgraph: Option<(&'static SubgraphClient, NetworkSubgraphConfig)>,
     #[builder(default, setter(strip_option))]
     allocations: Option<AllocationWatcher>,
     #[builder(default, setter(strip_option))]
@@ -142,9 +142,9 @@ impl ServiceRouter {
         let dips = match self.dips.as_ref() {
             Some(dips_config) => {
                 let schema = dips::build_schema(
-                    *indexer_address,
+                    indexer_address,
                     dips_config,
-                    self.blockchain,
+                    &self.blockchain,
                     agreement_store,
                     prices,
                 );
@@ -159,7 +159,7 @@ impl ServiceRouter {
             (Some(allocations), _) => allocations,
             (_, Some((network_subgraph, network))) => indexer_allocations(
                 network_subgraph,
-                *indexer_address,
+                indexer_address,
                 network.config.syncing_interval_secs,
                 network.recently_closed_allocation_buffer_secs,
             )
@@ -174,7 +174,7 @@ impl ServiceRouter {
             (Some(escrow_account), _) => escrow_account,
             (_, Some((escrow_subgraph, escrow))) => escrow_accounts(
                 escrow_subgraph,
-                *indexer_address,
+                indexer_address,
                 escrow.config.syncing_interval_secs,
                 true, // Reject thawing signers eagerly
             )
@@ -385,13 +385,13 @@ impl ServiceRouter {
         };
 
         let operator_address =
-            Json(serde_json::json!({ "publicKey": public_key(operator_mnemonic)?}));
+            Json(serde_json::json!({ "publicKey": public_key(&operator_mnemonic)?}));
 
         // Graphnode state
         let graphnode_state = GraphNodeState {
             graph_node_client: self.http_client,
-            graph_node_status_url: &self.graph_node.status_url,
-            graph_node_query_base_url: &self.graph_node.query_url,
+            graph_node_status_url: self.graph_node.status_url,
+            graph_node_query_base_url: self.graph_node.query_url,
         };
 
         // data layer
@@ -399,7 +399,7 @@ impl ServiceRouter {
             .route("/subgraphs/id/:id", post_request_handler)
             .with_state(graphnode_state.clone());
 
-        let subgraphs_route = Router::new().nest(url_prefix, data_routes);
+        let subgraphs_route = Router::new().nest(&url_prefix, data_routes);
 
         let misc_routes = Router::new()
             .route("/", get("Service is up and running"))

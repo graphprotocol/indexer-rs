@@ -27,8 +27,8 @@ pub use tap_receipt_header::TapReceipt;
 #[derive(Clone)]
 pub struct GraphNodeState {
     pub graph_node_client: reqwest::Client,
-    pub graph_node_status_url: &'static Url,
-    pub graph_node_query_base_url: &'static Url,
+    pub graph_node_status_url: Url,
+    pub graph_node_query_base_url: Url,
 }
 
 const HTTP_CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -39,8 +39,8 @@ pub async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     // Load the service configuration
-    let config = Box::leak(Box::new(
-        Config::parse(indexer_config::ConfigPrefix::Service, cli.config.as_ref()).map_err(|e| {
+    let config = Config::parse(indexer_config::ConfigPrefix::Service, cli.config.as_ref())
+        .map_err(|e| {
             error!(
                 "Invalid configuration file `{}`: {}, if a value is missing you can also use \
                 --config to fill the rest of the values",
@@ -48,8 +48,7 @@ pub async fn run() -> anyhow::Result<()> {
                 e
             );
             anyhow!(e)
-        })?,
-    ));
+        })?;
 
     // Parse basic configurations
     build_info::build_info!(fn build_info);
@@ -90,28 +89,30 @@ pub async fn run() -> anyhow::Result<()> {
         config.blockchain.receipts_verifier_address,
     );
 
+    let host_and_port = config.service.host_and_port;
+
     let router = ServiceRouter::builder()
         .database(database)
         .domain_separator(domain_separator)
-        .graph_node(&config.graph_node)
+        .graph_node(config.graph_node)
         .http_client(http_client)
         .release(release)
-        .indexer(&config.indexer)
-        .service(&config.service)
-        .dips(config.dips.as_ref())
-        .blockchain(&config.blockchain)
+        .indexer(config.indexer)
+        .service(config.service)
+        .dips(config.dips)
+        .blockchain(config.blockchain)
         .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
-        .network_subgraph(network_subgraph, &config.subgraphs.network)
-        .escrow_subgraph(escrow_subgraph, &config.subgraphs.escrow)
+        .network_subgraph(network_subgraph, config.subgraphs.network)
+        .escrow_subgraph(escrow_subgraph, config.subgraphs.escrow)
         .build();
 
     serve_metrics(config.metrics.get_socket_addr());
 
     info!(
-        address = %config.service.host_and_port,
+        address = %host_and_port,
         "Serving requests",
     );
-    let listener = TcpListener::bind(&config.service.host_and_port)
+    let listener = TcpListener::bind(&host_and_port)
         .await
         .expect("Failed to bind to indexer-service port");
 

@@ -66,15 +66,15 @@ async fn full_integration_test(database: PgPool) {
         .database(database)
         .domain_separator(TAP_EIP712_DOMAIN.clone())
         .http_client(http_client)
-        .graph_node(leak(GraphNodeConfig {
+        .graph_node(GraphNodeConfig {
             query_url: graph_node_url.clone(),
             status_url: graph_node_url.clone(),
-        }))
-        .indexer(leak(IndexerConfig {
+        })
+        .indexer(IndexerConfig {
             indexer_address: *test_assets::INDEXER_ADDRESS,
             operator_mnemonic: test_assets::INDEXER_MNEMONIC.clone(),
-        }))
-        .service(leak(indexer_config::ServiceConfig {
+        })
+        .service(indexer_config::ServiceConfig {
             serve_network_subgraph: false,
             serve_escrow_subgraph: false,
             serve_auth_token: None,
@@ -84,11 +84,11 @@ async fn full_integration_test(database: PgPool) {
                 max_receipt_value_grt: NonZeroGRT::new(1000000000000).unwrap(),
             },
             free_query_auth_token: None,
-        }))
-        .blockchain(leak(BlockchainConfig {
+        })
+        .blockchain(BlockchainConfig {
             chain_id: indexer_config::TheGraphChainId::Test,
             receipts_verifier_address: *test_assets::VERIFIER_ADDRESS,
-        }))
+        })
         .timestamp_buffer_secs(Duration::from_secs(10))
         .escrow_accounts(escrow_accounts)
         .dispute_manager(dispute_manager)
@@ -126,8 +126,4 @@ async fn full_integration_test(database: PgPool) {
     let res = String::from_utf8(bytes.into()).unwrap();
 
     insta::assert_snapshot!(res);
-}
-
-fn leak<T>(thing: T) -> &'static T {
-    Box::leak(Box::new(thing))
 }
