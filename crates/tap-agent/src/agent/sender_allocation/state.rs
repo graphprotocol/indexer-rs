@@ -3,8 +3,7 @@
 
 use std::{sync::Arc, time::Instant};
 
-use alloy::primitives::Address;
-use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt};
+use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt, primitives::Address};
 use anyhow::{anyhow, ensure, Result};
 use bigdecimal::{num_bigint::BigInt, ToPrimitive};
 use indexer_monitor::EscrowAccounts;
@@ -25,16 +24,22 @@ use tap_core::{
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, warn};
 
-use crate::agent::sender_account::SenderAccountMessage;
-use crate::agent::sender_allocation::RAV_RESPONSE_TIME;
-use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 use crate::{
-    tap::context::checks::AllocationId,
-    tap::context::{checks::Signature, TapAgentContext},
-    tap::signers_trimmed,
+    agent::{
+        metrics::{RAVS_CREATED, RAVS_FAILED, RAV_RESPONSE_TIME},
+        sender_account::SenderAccountMessage,
+        unaggregated_receipts::UnaggregatedReceipts,
+    },
+    tap::{
+        context::{
+            checks::{AllocationId, Signature},
+            TapAgentContext,
+        },
+        signers_trimmed,
+    },
 };
 
-use super::{RavError, SenderAllocationArgs, TapManager, RAVS_CREATED, RAVS_FAILED};
+use super::{RavError, SenderAllocationArgs, TapManager};
 
 pub struct SenderAllocationState {
     pub(super) unaggregated_fees: UnaggregatedReceipts,

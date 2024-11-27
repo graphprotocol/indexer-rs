@@ -1,36 +1,38 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::hex::ToHexExt;
-use alloy::primitives::U256;
-
-use bigdecimal::ToPrimitive;
-
-use indexer_query::closed_allocations::{self, ClosedAllocations};
-use std::collections::HashSet;
-use std::str::FromStr;
-use std::time::Duration;
-use tokio::sync::watch::Receiver;
-use tokio::task::JoinHandle;
-
-use alloy::dyn_abi::Eip712Domain;
-use alloy::primitives::Address;
+use alloy::{
+    dyn_abi::Eip712Domain,
+    hex::ToHexExt,
+    primitives::{Address, U256},
+};
 use anyhow::Result;
+use bigdecimal::ToPrimitive;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
+use indexer_query::closed_allocations::{self, ClosedAllocations};
 use ractor::{Actor, ActorRef, MessagingErr};
 use sqlx::PgPool;
+use std::{collections::HashSet, str::FromStr, time::Duration};
 use tap_core::rav::SignedRAV;
+use tokio::{sync::watch::Receiver, task::JoinHandle};
 use tracing::error;
 
-use crate::adaptative_concurrency::AdaptiveLimiter;
-use crate::agent::sender_account::{SenderAccount, SENDER_DENIED};
-use crate::agent::sender_allocation::{AllocationConfig, SenderAllocationMessage};
-use crate::agent::sender_allocation::{SenderAllocation, SenderAllocationArgs};
-use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-use crate::backoff::BackoffInfo;
-use crate::tracker::{SenderFeeTracker, SimpleFeeTracker};
+use crate::{
+    adaptative_concurrency::AdaptiveLimiter,
+    agent::{
+        sender_account::{SenderAccount, SENDER_DENIED},
+        sender_allocation::{
+            AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
+        },
+        unaggregated_receipts::UnaggregatedReceipts,
+    },
+    backoff::BackoffInfo,
+    tracker::{SenderFeeTracker, SimpleFeeTracker},
+};
 
-use super::{SenderAccountConfig, SenderAccountMessage, PENDING_RAV, SENDER_FEE_TRACKER, UNAGGREGATED_FEES};
+use super::{
+    SenderAccountConfig, SenderAccountMessage, PENDING_RAV, SENDER_FEE_TRACKER, UNAGGREGATED_FEES,
+};
 
 pub struct State {
     pub(super) prefix: Option<String>,

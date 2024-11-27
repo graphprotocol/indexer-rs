@@ -16,6 +16,7 @@ use crate::agent::sender_accounts_manager::{
 use crate::{database, CONFIG, EIP_712_DOMAIN};
 use sender_accounts_manager::SenderAccountsManager;
 
+mod metrics;
 pub mod sender_account;
 pub mod sender_accounts_manager;
 pub mod sender_allocation;

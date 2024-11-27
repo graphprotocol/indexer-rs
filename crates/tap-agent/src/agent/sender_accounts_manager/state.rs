@@ -1,18 +1,17 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
-use std::time::Duration;
-use std::{collections::HashMap, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+    time::Duration,
+};
 
 use crate::agent::sender_account::{SenderAccount, SenderAccountArgs, SenderAccountConfig};
-use alloy::dyn_abi::Eip712Domain;
-use alloy::primitives::Address;
-use anyhow::Result;
-use anyhow::{anyhow, bail};
+use alloy::{dyn_abi::Eip712Domain, primitives::Address};
+use anyhow::{anyhow, bail, Result};
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
-use ractor::concurrency::JoinHandle;
-use ractor::{Actor, ActorCell};
+use ractor::{concurrency::JoinHandle, Actor, ActorCell};
 use reqwest::Url;
 use sqlx::PgPool;
 use tokio::sync::watch::Receiver;

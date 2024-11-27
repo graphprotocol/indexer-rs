@@ -1,5 +1,5 @@
 use crate::agent::{
-    sender_account::SenderAccountMessage, sender_accounts_manager::RECEIPTS_CREATED,
+    metrics::RECEIPTS_CREATED, sender_account::SenderAccountMessage,
     sender_allocation::SenderAllocationMessage,
 };
 use anyhow::{anyhow, bail, Result};
@@ -10,7 +10,6 @@ use tokio::sync::watch::Receiver;
 use tracing::{error, warn};
 
 use super::NewReceiptNotification;
-
 
 /// Continuously listens for new receipt notifications from Postgres and forwards them to the
 /// corresponding SenderAccount.

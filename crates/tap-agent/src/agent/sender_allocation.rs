@@ -3,22 +3,23 @@
 
 use std::time::Duration;
 
-use alloy::dyn_abi::Eip712Domain;
-use alloy::primitives::Address;
+use alloy::{dyn_abi::Eip712Domain, primitives::Address};
 use anyhow::anyhow;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
-use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use sqlx::PgPool;
 use state::SenderAllocationState;
 use tokio::sync::watch::Receiver;
 use tracing::{error, warn};
 
-use crate::{agent::sender_account::ReceiptFees, lazy_static};
-
-use crate::agent::sender_account::SenderAccountMessage;
-use crate::agent::sender_accounts_manager::NewReceiptNotification;
-use crate::tap::context::TapAgentContext;
+use crate::{
+    agent::{
+        metrics::CLOSED_SENDER_ALLOCATIONS,
+        sender_account::{ReceiptFees, SenderAccountMessage},
+        sender_accounts_manager::NewReceiptNotification,
+    },
+    tap::context::TapAgentContext,
+};
 use thiserror::Error;
 
 use super::sender_account::SenderAccountConfig;
@@ -26,33 +27,6 @@ use super::sender_account::SenderAccountConfig;
 mod state;
 #[cfg(test)]
 pub mod tests;
-
-lazy_static! {
-    static ref CLOSED_SENDER_ALLOCATIONS: CounterVec = register_counter_vec!(
-        "tap_closed_sender_allocation_total",
-        "Count of sender-allocation managers closed since the start of the program",
-        &["sender"]
-    )
-    .unwrap();
-    static ref RAVS_CREATED: CounterVec = register_counter_vec!(
-        "tap_ravs_created_total",
-        "RAVs updated or created per sender allocation since the start of the program",
-        &["sender", "allocation"]
-    )
-    .unwrap();
-    static ref RAVS_FAILED: CounterVec = register_counter_vec!(
-        "tap_ravs_failed_total",
-        "RAV requests failed since the start of the program",
-        &["sender", "allocation"]
-    )
-    .unwrap();
-    static ref RAV_RESPONSE_TIME: HistogramVec = register_histogram_vec!(
-        "tap_rav_response_time_seconds",
-        "RAV response time per sender",
-        &["sender"]
-    )
-    .unwrap();
-}
 
 #[derive(Error, Debug)]
 pub enum RavError {

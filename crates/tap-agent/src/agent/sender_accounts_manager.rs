@@ -9,8 +9,6 @@ use futures::{stream, StreamExt};
 use indexer_allocation::Allocation;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use indexer_watcher::watch_pipe;
-use lazy_static::lazy_static;
-use prometheus::{register_counter_vec, CounterVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use receipt_watcher::new_receipts_watcher;
 use reqwest::Url;
@@ -27,15 +25,6 @@ mod receipt_watcher;
 mod state;
 #[cfg(test)]
 mod tests;
-
-lazy_static! {
-    static ref RECEIPTS_CREATED: CounterVec = register_counter_vec!(
-        "tap_receipts_received_total",
-        "Receipts received since start of the program.",
-        &["sender", "allocation"]
-    )
-    .unwrap();
-}
 
 #[derive(Deserialize, Debug, PartialEq, Eq)]
 pub struct NewReceiptNotification {

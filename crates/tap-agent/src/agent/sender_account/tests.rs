@@ -1,28 +1,33 @@
-
 use super::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
-use crate::agent::sender_account::ReceiptFees;
-use crate::agent::sender_accounts_manager::NewReceiptNotification;
-use crate::agent::sender_allocation::SenderAllocationMessage;
-use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-use crate::tap::test_utils::{
-    create_rav, store_rav_with_options, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER, SIGNER,
-    TAP_EIP712_DOMAIN_SEPARATOR,
+use crate::{
+    agent::{
+        sender_account::ReceiptFees, sender_accounts_manager::NewReceiptNotification,
+        sender_allocation::SenderAllocationMessage, unaggregated_receipts::UnaggregatedReceipts,
+    },
+    tap::test_utils::{
+        create_rav, store_rav_with_options, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER,
+        SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+    },
 };
-use alloy::hex::ToHexExt;
-use alloy::primitives::{Address, U256};
+use alloy::{
+    hex::ToHexExt,
+    primitives::{Address, U256},
+};
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
-use ractor::concurrency::JoinHandle;
-use ractor::{call, Actor, ActorProcessingErr, ActorRef, ActorStatus};
+use ractor::{call, concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef, ActorStatus};
 use reqwest::Url;
 use serde_json::json;
 use sqlx::PgPool;
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicU32;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{atomic::AtomicU32, Arc, Mutex},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tokio::sync::watch::{self, Sender};
-use wiremock::matchers::{body_string_contains, method};
-use wiremock::{Mock, MockGuard, MockServer, ResponseTemplate};
+use wiremock::{
+    matchers::{body_string_contains, method},
+    Mock, MockGuard, MockServer, ResponseTemplate,
+};
 
 // we implement the PartialEq and Eq traits for SenderAccountMessage to be able to compare
 impl Eq for SenderAccountMessage {}
