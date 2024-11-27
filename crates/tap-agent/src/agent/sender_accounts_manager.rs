@@ -587,7 +587,9 @@ mod tests {
     use crate::agent::sender_account::tests::PREFIX_ID;
     use crate::agent::sender_account::{SenderAccountConfig, SenderAccountMessage};
     use crate::agent::sender_accounts_manager::{handle_notification, NewReceiptNotification};
-    use crate::test::actors::{flush_messages, DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor};
+    use crate::test::actors::{
+        flush_messages, DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor,
+    };
     use crate::test::{
         create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
         ALLOCATION_ID_1, INDEXER, SENDER_2, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,

@@ -1032,11 +1032,11 @@ pub mod tests {
     use crate::agent::sender_account::ReceiptFees;
     use crate::agent::sender_allocation::SenderAllocationMessage;
     use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-    use crate::{assert_not_triggered, assert_triggered};
     use crate::test::actors::{
         create_mock_sender_allocation, flush_messages, MockSenderAllocation, TestableActor,
     };
     use crate::test::{create_rav, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR};
+    use crate::{assert_not_triggered, assert_triggered};
 
     use alloy::hex::ToHexExt;
     use alloy::primitives::{Address, U256};
@@ -1646,7 +1646,7 @@ pub mod tests {
             ))
             .unwrap();
         flush_messages(&notify).await;
-        
+
         // wait to try again so it's outside the buffer
         tokio::time::sleep(RETRY_DURATION).await;
         assert_triggered!(triggered_rav_request);

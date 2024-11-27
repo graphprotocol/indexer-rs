@@ -267,7 +267,6 @@ pub mod actors {
                 panic!($msg);
             }
         };
-
     }
 
     #[macro_export]
