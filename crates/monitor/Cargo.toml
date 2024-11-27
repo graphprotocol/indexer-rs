@@ -8,6 +8,7 @@ indexer-query = { path = "../query" }
 indexer-allocation = { path = "../allocation" }
 indexer-attestation = { path = "../attestation" }
 indexer-watcher = { path = "../watcher" }
+indexer-config = { path = "../config" }
 thiserror.workspace = true
 alloy.workspace = true
 anyhow.workspace = true

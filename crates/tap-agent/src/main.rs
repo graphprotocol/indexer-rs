@@ -6,17 +6,19 @@ use ractor::ActorStatus;
 use tokio::signal::unix::{signal, SignalKind};
 use tracing::{debug, error, info};
 
-use indexer_tap_agent::{agent, metrics, CONFIG};
+use indexer_tap_agent::{agent, cli, metrics};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Parse basic configurations, also initializes logging.
-    lazy_static::initialize(&CONFIG);
 
-    let (manager, handler) = agent::start_agent().await;
+    let config = cli::get_config().expect("Failed to load configuration");
+    let metrics_port = config.metrics.port;
+
+    let (manager, handler) = agent::start_agent(config).await;
     info!("TAP Agent started.");
 
-    tokio::spawn(metrics::run_server(CONFIG.metrics.port));
+    tokio::spawn(metrics::run_server(metrics_port));
     info!("Metrics port opened");
 
     // Have tokio wait for SIGTERM or SIGINT.

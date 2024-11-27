@@ -3468,6 +3468,7 @@ dependencies = [
  "graphql_client",
  "indexer-allocation",
  "indexer-attestation",
+ "indexer-config",
  "indexer-query",
  "indexer-watcher",
  "reqwest 0.12.9",
@@ -3587,6 +3588,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "typed-builder",
  "wiremock",
 ]
 

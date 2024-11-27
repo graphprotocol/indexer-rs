@@ -55,7 +55,6 @@ pub struct SenderAccountsManagerArgs {
 
     pub prefix: Option<String>,
 }
-
 #[async_trait::async_trait]
 impl Actor for SenderAccountsManager {
     type Msg = SenderAccountsManagerMessage;

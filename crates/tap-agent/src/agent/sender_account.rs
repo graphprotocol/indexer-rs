@@ -102,8 +102,8 @@ pub struct SenderAccountConfig {
 }
 
 impl SenderAccountConfig {
-    pub fn from_config(config: &indexer_config::Config) -> Self {
-        Self {
+    pub fn from_config(config: &indexer_config::Config) -> &'static Self {
+        Box::leak(Box::new(Self {
             rav_request_buffer: config.tap.rav_request.timestamp_buffer_secs,
             rav_request_receipt_limit: config.tap.rav_request.max_receipts_per_request,
             indexer_address: config.indexer.indexer_address,
@@ -111,7 +111,7 @@ impl SenderAccountConfig {
             max_amount_willing_to_lose_grt: config.tap.max_amount_willing_to_lose_grt.get_value(),
             trigger_value: config.tap.get_trigger_value(),
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
-        }
+        }))
     }
 }
 

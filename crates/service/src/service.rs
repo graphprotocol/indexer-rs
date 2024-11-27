@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use axum::{extract::Request, serve, ServiceExt};
-use indexer_config::{Config, GraphNodeConfig, SubgraphConfig};
-use indexer_monitor::{DeploymentDetails, SubgraphClient};
+use indexer_config::Config;
+use indexer_monitor::create_subgraph_client;
 use release::IndexerServiceRelease;
 use reqwest::Url;
 use tap_core::tap_eip712_domain;
@@ -123,30 +123,6 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(serve(listener, service)
         .with_graceful_shutdown(shutdown_handler())
         .await?)
-}
-
-async fn create_subgraph_client(
-    http_client: reqwest::Client,
-    graph_node: &GraphNodeConfig,
-    subgraph_config: &SubgraphConfig,
-) -> &'static SubgraphClient {
-    Box::leak(Box::new(
-        SubgraphClient::new(
-            http_client,
-            subgraph_config.deployment_id.map(|deployment| {
-                DeploymentDetails::for_graph_node_url(
-                    graph_node.status_url.clone(),
-                    graph_node.query_url.clone(),
-                    deployment,
-                )
-            }),
-            DeploymentDetails::for_query_url_with_token(
-                subgraph_config.query_url.clone(),
-                subgraph_config.query_auth_token.clone(),
-            ),
-        )
-        .await,
-    ))
 }
 
 /// Graceful shutdown handler

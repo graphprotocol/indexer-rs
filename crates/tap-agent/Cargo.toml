@@ -44,6 +44,7 @@ ractor = { version = "0.13", features = [
   "async-trait",
 ], default-features = false }
 tap_aggregator.workspace = true
+typed-builder.workspace = true
 futures = { version = "0.3.30", default-features = false }
 
 [dev-dependencies]

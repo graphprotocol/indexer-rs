@@ -11,7 +11,7 @@ mod escrow_accounts;
 pub use crate::{
     allocations::{indexer_allocations, AllocationWatcher},
     attestation::{attestation_signers, AttestationWatcher},
-    client::{DeploymentDetails, SubgraphClient},
+    client::{create_subgraph_client, DeploymentDetails, SubgraphClient},
     deployment_to_allocation::{deployment_to_allocation, DeploymentToAllocationWatcher},
     dispute_manager::{dispute_manager, DisputeManagerWatcher},
     escrow_accounts::{
