@@ -334,7 +334,7 @@ mod test {
         mock_server_local
             .register(
                 Mock::given(method("POST"))
-                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{}", deployment)))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {
@@ -349,7 +349,7 @@ mod test {
         mock_server_remote
             .register(
                 Mock::given(method("POST"))
-                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{}", deployment)))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {
@@ -415,7 +415,7 @@ mod test {
         mock_server_local
             .register(
                 Mock::given(method("POST"))
-                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{}", deployment)))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {
@@ -430,7 +430,7 @@ mod test {
         mock_server_remote
             .register(
                 Mock::given(method("POST"))
-                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{}", deployment)))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {
@@ -496,7 +496,7 @@ mod test {
         mock_server_local
             .register(
                 Mock::given(method("POST"))
-                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{}", deployment)))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {
@@ -511,7 +511,7 @@ mod test {
         mock_server_remote
             .register(
                 Mock::given(method("POST"))
-                    .and(path(&format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{}", deployment)))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {
