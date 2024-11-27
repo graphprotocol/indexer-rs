@@ -866,7 +866,7 @@ pub mod tests {
             sender_accounts_manager::NewReceiptNotification,
             unaggregated_receipts::UnaggregatedReceipts,
         },
-        tap::test_utils::{
+        test::{
             create_rav, create_received_receipt, store_invalid_receipt, store_rav, store_receipt,
             ALLOCATION_ID_0, INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
         },

@@ -1033,7 +1033,7 @@ pub mod tests {
     use crate::agent::sender_accounts_manager::NewReceiptNotification;
     use crate::agent::sender_allocation::SenderAllocationMessage;
     use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-    use crate::tap::test_utils::{
+    use crate::test::{
         create_rav, store_rav_with_options, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER,
         SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };

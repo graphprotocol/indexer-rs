@@ -193,7 +193,7 @@ impl ReceiptDelete for TapAgentContext {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::tap::test_utils::{
+    use crate::test::{
         create_received_receipt, store_receipt, wallet, ALLOCATION_ID_0, SENDER, SIGNER,
         TAP_EIP712_DOMAIN_SEPARATOR,
     };
