@@ -1544,7 +1544,7 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_remove_sender_account(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let (sender_account, notify, prefix, _) = create_sender_account(
+        let (sender_account, _, prefix, _) = create_sender_account(
             pgpool,
             vec![*ALLOCATION_ID_0].into_iter().collect(),
             TRIGGER_VALUE,
@@ -1554,8 +1554,6 @@ pub mod tests {
             RECEIPT_LIMIT,
         )
         .await;
-
-        notify.notified().await;
 
         // check if allocation exists
         let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
