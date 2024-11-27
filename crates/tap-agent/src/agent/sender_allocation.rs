@@ -875,9 +875,7 @@ pub mod tests {
     use futures::future::join_all;
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
     use jsonrpsee::http_client::HttpClientBuilder;
-    use ractor::{
-        call, cast, concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef, ActorStatus,
-    };
+    use ractor::{call, cast, Actor, ActorProcessingErr, ActorRef, ActorStatus};
     use ruint::aliases::U256;
     use serde_json::json;
     use sqlx::PgPool;
@@ -953,11 +951,10 @@ pub mod tests {
     async fn create_mock_sender_account() -> (
         mpsc::Receiver<SenderAccountMessage>,
         ActorRef<SenderAccountMessage>,
-        JoinHandle<()>,
     ) {
         let (last_message_emitted, rx) = mpsc::channel(64);
 
-        let (sender_account, join_handle) = MockSenderAccount::spawn(
+        let (sender_account, _) = MockSenderAccount::spawn(
             None,
             MockSenderAccount {
                 last_message_emitted: last_message_emitted.clone(),
@@ -966,7 +963,7 @@ pub mod tests {
         )
         .await
         .unwrap();
-        (rx, sender_account, join_handle)
+        (rx, sender_account)
     }
 
     async fn create_sender_allocation_args(
@@ -1040,8 +1037,7 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_update_unaggregated_fees_on_start(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let (mut last_message_emitted, sender_account, _join_handle) =
-            create_mock_sender_account().await;
+        let (mut last_message_emitted, sender_account) = create_mock_sender_account().await;
         // Add receipts to the database.
         for i in 1..=10 {
             let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
@@ -1084,8 +1080,7 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_invalid_receipts_on_startup(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let (mut message_receiver, sender_account, _join_handle) =
-            create_mock_sender_account().await;
+        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
         // Add receipts to the database.
         for i in 1..=10 {
             let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
@@ -1136,8 +1131,7 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_receive_new_receipt(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let (mut message_receiver, sender_account, _join_handle) =
-            create_mock_sender_account().await;
+        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
@@ -1243,8 +1237,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        let (mut message_receiver, sender_account, _join_handle) =
-            create_mock_sender_account().await;
+        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // Create a sender_allocation.
         let (sender_allocation, notify) = create_sender_allocation(
@@ -1308,8 +1301,7 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_close_allocation_no_pending_fees(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let (mut message_receiver, sender_account, _join_handle) =
-            create_mock_sender_account().await;
+        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // create allocation
         let (sender_allocation, _notify) = create_sender_allocation(
@@ -1399,7 +1391,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        let (_, sender_account, _) = create_mock_sender_account().await;
+        let (_, sender_account) = create_mock_sender_account().await;
 
         // create allocation
         let (sender_allocation, _notify) = create_sender_allocation(
@@ -1623,8 +1615,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        let (mut message_receiver, sender_account, _join_handle) =
-            create_mock_sender_account().await;
+        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // Create a sender_allocation.
         let (sender_allocation, notify) = create_sender_allocation(
@@ -1725,8 +1716,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        let (mut message_receiver, sender_account, _join_handle) =
-            create_mock_sender_account().await;
+        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
