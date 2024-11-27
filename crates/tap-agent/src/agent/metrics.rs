@@ -1,3 +1,6 @@
+// Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use prometheus::{
     register_counter_vec, register_gauge_vec, register_histogram_vec, register_int_gauge_vec,
     CounterVec, GaugeVec, HistogramVec, IntGaugeVec,
