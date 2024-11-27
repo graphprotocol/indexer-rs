@@ -183,7 +183,10 @@ pub async fn store_rav_with_options(
 }
 
 pub mod actors {
-    use std::{sync::{atomic::AtomicU32, Arc, Mutex}, time::Duration};
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
     use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
     use test_assets::{ALLOCATION_ID_0, TAP_SIGNER};
@@ -253,6 +256,24 @@ pub mod actors {
         }
     }
 
+    pub async fn assert_triggered(notify: &Notify) {
+        if tokio::time::timeout(Duration::from_millis(10), notify.notified())
+            .await
+            .is_err()
+        {
+            panic!("Should receive rav request");
+        }
+    }
+
+    pub async fn assert_not_triggered(notify: &Notify) {
+        if tokio::time::timeout(Duration::from_millis(10), notify.notified())
+            .await
+            .is_ok()
+        {
+            panic!("Should receive rav request");
+        }
+    }
+
     #[async_trait::async_trait()]
     impl<T> Actor for TestableActor<T>
     where
@@ -302,7 +323,7 @@ pub mod actors {
     }
 
     pub struct MockSenderAllocation {
-        triggered_rav_request: Arc<AtomicU32>,
+        triggered_rav_request: Arc<Notify>,
         next_rav_value: Arc<Mutex<u128>>,
         next_unaggregated_fees_value: Arc<Mutex<u128>>,
         sender_actor: Option<ActorRef<SenderAccountMessage>>,
@@ -312,8 +333,8 @@ pub mod actors {
     impl MockSenderAllocation {
         pub fn new_with_triggered_rav_request(
             sender_actor: ActorRef<SenderAccountMessage>,
-        ) -> (Self, Arc<AtomicU32>, Arc<Mutex<u128>>) {
-            let triggered_rav_request = Arc::new(AtomicU32::new(0));
+        ) -> (Self, Arc<Notify>, Arc<Mutex<u128>>) {
+            let triggered_rav_request = Arc::new(Notify::new());
             let unaggregated_fees = Arc::new(Mutex::new(0));
             (
                 Self {
@@ -335,7 +356,7 @@ pub mod actors {
             (
                 Self {
                     sender_actor: Some(sender_actor),
-                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
+                    triggered_rav_request: Arc::new(Notify::new()),
                     receipts: mpsc::channel(1).0,
                     next_rav_value: Arc::new(Mutex::new(0)),
                     next_unaggregated_fees_value: unaggregated_fees.clone(),
@@ -351,7 +372,7 @@ pub mod actors {
             (
                 Self {
                     sender_actor: Some(sender_actor),
-                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
+                    triggered_rav_request: Arc::new(Notify::new()),
                     receipts: mpsc::channel(1).0,
                     next_rav_value: next_rav_value.clone(),
                     next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
@@ -366,7 +387,7 @@ pub mod actors {
             (
                 Self {
                     sender_actor: None,
-                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
+                    triggered_rav_request: Arc::new(Notify::new()),
                     receipts: tx,
                     next_rav_value: Arc::new(Mutex::new(0)),
                     next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
@@ -398,15 +419,14 @@ pub mod actors {
         ) -> Result<(), ActorProcessingErr> {
             match message {
                 SenderAllocationMessage::TriggerRAVRequest => {
-                    self.triggered_rav_request
-                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    let signed_rav = create_rav(
-                        *ALLOCATION_ID_0,
-                        TAP_SIGNER.0.clone(),
-                        4,
-                        *self.next_rav_value.lock().unwrap(),
-                    );
+                    self.triggered_rav_request.notify_one();
                     if let Some(sender_account) = self.sender_actor.as_ref() {
+                        let signed_rav = create_rav(
+                            *ALLOCATION_ID_0,
+                            TAP_SIGNER.0.clone(),
+                            4,
+                            *self.next_rav_value.lock().unwrap(),
+                        );
                         sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
                             *ALLOCATION_ID_0,
                             ReceiptFees::RavRequestResponse((
@@ -435,7 +455,7 @@ pub mod actors {
         allocation: Address,
         sender_actor: ActorRef<SenderAccountMessage>,
     ) -> (
-        Arc<AtomicU32>,
+        Arc<Notify>,
         Arc<Mutex<u128>>,
         ActorRef<SenderAllocationMessage>,
     ) {
@@ -452,5 +472,52 @@ pub mod actors {
             next_unaggregated_fees,
             sender_account,
         )
+    }
+
+    pub struct MockSenderAccount {
+        pub last_message_emitted: tokio::sync::mpsc::Sender<SenderAccountMessage>,
+    }
+
+    #[async_trait::async_trait]
+    impl Actor for MockSenderAccount {
+        type Msg = SenderAccountMessage;
+        type State = ();
+        type Arguments = ();
+
+        async fn pre_start(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            _allocation_ids: Self::Arguments,
+        ) -> std::result::Result<Self::State, ActorProcessingErr> {
+            Ok(())
+        }
+
+        async fn handle(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            message: Self::Msg,
+            _state: &mut Self::State,
+        ) -> std::result::Result<(), ActorProcessingErr> {
+            self.last_message_emitted.send(message).await.unwrap();
+            Ok(())
+        }
+    }
+
+    pub async fn create_mock_sender_account() -> (
+        mpsc::Receiver<SenderAccountMessage>,
+        ActorRef<SenderAccountMessage>,
+    ) {
+        let (last_message_emitted, rx) = mpsc::channel(64);
+
+        let (sender_account, _) = MockSenderAccount::spawn(
+            None,
+            MockSenderAccount {
+                last_message_emitted: last_message_emitted.clone(),
+            },
+            (),
+        )
+        .await
+        .unwrap();
+        (rx, sender_account)
     }
 }

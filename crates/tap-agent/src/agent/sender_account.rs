@@ -1032,7 +1032,10 @@ pub mod tests {
     use crate::agent::sender_account::ReceiptFees;
     use crate::agent::sender_allocation::SenderAllocationMessage;
     use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-    use crate::test::actors::{create_mock_sender_allocation, MockSenderAllocation};
+    use crate::test::actors::{
+        assert_not_triggered, assert_triggered, create_mock_sender_allocation, flush_messages,
+        MockSenderAllocation, TestableActor,
+    };
     use crate::test::{create_rav, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR};
 
     use alloy::hex::ToHexExt;
@@ -1044,11 +1047,13 @@ pub mod tests {
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU32;
+    use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use test_assets::{
         ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
     use tokio::sync::watch::{self, Sender};
+    use tokio::sync::Notify;
     use wiremock::matchers::{body_string_contains, method};
     use wiremock::{Mock, MockGuard, MockServer, ResponseTemplate};
 
@@ -1102,6 +1107,7 @@ pub mod tests {
     const ESCROW_VALUE: u128 = 1000;
     const BUFFER_MS: u64 = 100;
     const RECEIPT_LIMIT: u64 = 10000;
+    const RETRY_DURATION: Duration = Duration::from_millis(10);
 
     async fn mock_escrow_subgraph() -> (MockServer, MockGuard) {
         let mock_ecrow_subgraph_server: MockServer = MockServer::start().await;
@@ -1130,7 +1136,7 @@ pub mod tests {
         rav_request_receipt_limit: u64,
     ) -> (
         ActorRef<SenderAccountMessage>,
-        tokio::task::JoinHandle<()>,
+        Arc<Notify>,
         String,
         Sender<EscrowAccounts>,
     ) {
@@ -1185,14 +1191,20 @@ pub mod tests {
             sender_aggregator_endpoint: Url::parse(DUMMY_URL).unwrap(),
             allocation_ids: HashSet::new(),
             prefix: Some(prefix.clone()),
-            retry_interval: Duration::from_millis(10),
+            retry_interval: RETRY_DURATION,
         };
 
-        let (sender, handle) = SenderAccount::spawn(Some(prefix.clone()), SenderAccount, args)
+        let actor = TestableActor::new(SenderAccount);
+        let notify = actor.notify.clone();
+
+        let (sender, _) = Actor::spawn(Some(prefix.clone()), actor, args)
             .await
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        (sender, handle, prefix, escrow_accounts_tx)
+
+        // flush all messages
+        flush_messages(&notify).await;
+
+        (sender, notify, prefix, escrow_accounts_tx)
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1220,7 +1232,7 @@ pub mod tests {
 
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
 
-        let (sender_account, handle, prefix, _) = create_sender_account(
+        let (sender_account, notify, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
@@ -1237,8 +1249,7 @@ pub mod tests {
                 vec![*ALLOCATION_ID_0].into_iter().collect(),
             ))
             .unwrap();
-
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        notify.notified().await;
 
         // verify if create sender account
         let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
@@ -1248,8 +1259,7 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        notify.notified().await;
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_some());
@@ -1279,16 +1289,10 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        notify.notified().await;
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_none());
-
-        // safely stop the manager
-        sender_account.stop_and_wait(None, None).await.unwrap();
-
-        handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1316,7 +1320,7 @@ pub mod tests {
 
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
 
-        let (sender_account, handle, prefix, _) = create_sender_account(
+        let (sender_account, notify, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
@@ -1332,7 +1336,7 @@ pub mod tests {
             .cast(SenderAccountMessage::NewAllocationId(*ALLOCATION_ID_0))
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        flush_messages(&notify).await;
 
         // verify if create sender account
         let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
@@ -1345,14 +1349,15 @@ pub mod tests {
                 vec![*ALLOCATION_ID_0].into_iter().collect(),
             ))
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        flush_messages(&notify).await;
 
         // try to delete sender allocation_id
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        flush_messages(&notify).await;
 
         // should not delete it because it was not in network subgraph
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
@@ -1386,15 +1391,13 @@ pub mod tests {
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        flush_messages(&notify).await;
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_none());
 
         // safely stop the manager
         sender_account.stop_and_wait(None, None).await.unwrap();
-
-        handle.await.unwrap();
     }
 
     fn get_current_timestamp_u64_ns() -> u64 {
@@ -1417,6 +1420,7 @@ pub mod tests {
         )
         .await;
 
+        // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
             prefix,
             SENDER.1,
@@ -1425,7 +1429,6 @@ pub mod tests {
         )
         .await;
 
-        // create a fake sender allocation
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
@@ -1433,17 +1436,15 @@ pub mod tests {
             ))
             .unwrap();
 
+        // wait the buffer
         tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
 
-        assert_eq!(
-            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
-            0
-        );
+        assert_not_triggered(&triggered_rav_request).await;
     }
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_receipt_fees_trigger_rav(pgpool: PgPool) {
-        let (sender_account, handle, prefix, _) = create_sender_account(
+        let (sender_account, notify, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
@@ -1454,6 +1455,7 @@ pub mod tests {
         )
         .await;
 
+        // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
             prefix,
             SENDER.1,
@@ -1462,7 +1464,6 @@ pub mod tests {
         )
         .await;
 
-        // create a fake sender allocation
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
@@ -1470,12 +1471,8 @@ pub mod tests {
             ))
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(20)).await;
-
-        assert_eq!(
-            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
-            0
-        );
+        flush_messages(&notify).await;
+        assert_not_triggered(&triggered_rav_request).await;
 
         // wait for it to be outside buffer
         tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
@@ -1486,21 +1483,14 @@ pub mod tests {
                 ReceiptFees::Retry,
             ))
             .unwrap();
+        flush_messages(&notify).await;
 
-        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
-
-        assert_eq!(
-            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
-            1
-        );
-
-        sender_account.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
+        assert_triggered(&triggered_rav_request).await;
     }
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_counter_greater_limit_trigger_rav(pgpool: PgPool) {
-        let (sender_account, handle, prefix, _) = create_sender_account(
+        let (sender_account, notify, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
@@ -1511,6 +1501,7 @@ pub mod tests {
         )
         .await;
 
+        // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
             prefix,
             SENDER.1,
@@ -1519,26 +1510,23 @@ pub mod tests {
         )
         .await;
 
-        // create a fake sender allocation
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
+        flush_messages(&notify).await;
 
-        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
+        assert_not_triggered(&triggered_rav_request).await;
 
-        assert_eq!(
-            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
-            0
-        );
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
+        flush_messages(&notify).await;
 
         // wait for it to be outside buffer
         tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
@@ -1549,22 +1537,15 @@ pub mod tests {
                 ReceiptFees::Retry,
             ))
             .unwrap();
+        flush_messages(&notify).await;
 
-        tokio::time::sleep(Duration::from_millis(20)).await;
-
-        assert_eq!(
-            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
-            1
-        );
-
-        sender_account.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
+        assert_triggered(&triggered_rav_request).await;
     }
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_remove_sender_account(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let (sender_account, handle, prefix, _) = create_sender_account(
+        let (sender_account, notify, prefix, _) = create_sender_account(
             pgpool,
             vec![*ALLOCATION_ID_0].into_iter().collect(),
             TRIGGER_VALUE,
@@ -1574,6 +1555,8 @@ pub mod tests {
             RECEIPT_LIMIT,
         )
         .await;
+
+        notify.notified().await;
 
         // check if allocation exists
         let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
@@ -1589,12 +1572,8 @@ pub mod tests {
         // check if sender_account is stopped
         assert_eq!(sender_account.get_status(), ActorStatus::Stopped);
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
-
         // check if sender_allocation is also stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
-
-        handle.await.unwrap();
     }
 
     /// Test that the deny status is correctly loaded from the DB at the start of the actor
@@ -1617,7 +1596,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, _handle, _, _) = create_sender_account(
+        let (sender_account, _notify, _, _) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
             TRIGGER_VALUE,
@@ -1637,7 +1616,7 @@ pub mod tests {
         // we set to zero to block the sender, no matter the fee
         let max_unaggregated_fees_per_sender: u128 = 0;
 
-        let (sender_account, handle, prefix, _) = create_sender_account(
+        let (sender_account, notify, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
@@ -1656,10 +1635,8 @@ pub mod tests {
         )
         .await;
 
-        assert_eq!(
-            triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
-            0
-        );
+        assert_not_triggered(&triggered_rav_request).await;
+
         *next_value.lock().unwrap() = TRIGGER_VALUE;
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
@@ -1667,18 +1644,12 @@ pub mod tests {
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        flush_messages(&notify).await;
 
-        let retry_value = triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst);
-        assert!(retry_value > 1, "It didn't retry more than once");
+        assert_triggered(&notify).await;
+        tokio::time::sleep(RETRY_DURATION).await;
 
-        tokio::time::sleep(Duration::from_millis(30)).await;
-
-        let new_value = triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst);
-        assert!(new_value > retry_value, "It didn't retry anymore");
-
-        sender_account.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
+        assert_triggered(&notify).await;
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1690,7 +1661,7 @@ pub mod tests {
         let max_unaggregated_fees_per_sender: u128 = 1000;
 
         // Making sure no RAV is gonna be triggered during the test
-        let (sender_account, handle, _, _) = create_sender_account(
+        let (sender_account, notify, _, _) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
             u128::MAX,
@@ -1714,7 +1685,7 @@ pub mod tests {
                     ))
                     .unwrap();
 
-                tokio::time::sleep(Duration::from_millis(20)).await;
+                flush_messages(&notify).await;
             };
         }
 
@@ -1731,7 +1702,7 @@ pub mod tests {
                     ))
                     .unwrap();
 
-                tokio::time::sleep(Duration::from_millis(20)).await;
+                flush_messages(&notify).await;
             };
         }
 
@@ -1778,7 +1749,6 @@ pub mod tests {
         assert!(!deny);
 
         sender_account.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1789,7 +1759,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, handle, _, _) = create_sender_account(
+        let (sender_account, _notify, _, _) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
             TRIGGER_VALUE,
@@ -1802,9 +1772,6 @@ pub mod tests {
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny);
-
-        sender_account.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1824,7 +1791,7 @@ pub mod tests {
         let trigger_rav_request = ESCROW_VALUE * 2;
 
         // initialize with no trigger value and no max receipt deny
-        let (sender_account, handle, prefix, _) = create_sender_account(
+        let (sender_account, notify, prefix, _) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
             trigger_rav_request,
@@ -1839,10 +1806,9 @@ pub mod tests {
             MockSenderAllocation::new_with_next_rav_value(sender_account.clone());
 
         let name = format!("{}:{}:{}", prefix, SENDER.1, *ALLOCATION_ID_0);
-        let (allocation, allocation_handle) =
-            MockSenderAllocation::spawn(Some(name), mock_sender_allocation, ())
-                .await
-                .unwrap();
+        let (allocation, _) = MockSenderAllocation::spawn(Some(name), mock_sender_allocation, ())
+            .await
+            .unwrap();
 
         async fn get_deny_status(sender_account: &ActorRef<SenderAccountMessage>) -> bool {
             call!(sender_account, SenderAccountMessage::GetDeny).unwrap()
@@ -1861,7 +1827,7 @@ pub mod tests {
                     ))
                     .unwrap();
 
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                flush_messages(&notify).await;
             };
         }
 
@@ -1897,10 +1863,8 @@ pub mod tests {
         assert!(deny);
 
         allocation.stop_and_wait(None, None).await.unwrap();
-        allocation_handle.await.unwrap();
 
         sender_account.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1932,7 +1896,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, handle, _, escrow_accounts_tx) = create_sender_account(
+        let (sender_account, notify, _, escrow_accounts_tx) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
             TRIGGER_VALUE,
@@ -1970,7 +1934,7 @@ pub mod tests {
             .unwrap();
 
         // wait the actor react to the messages
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        flush_messages(&notify).await;
 
         // should still be active with a 1 escrow available
 
@@ -1978,7 +1942,6 @@ pub mod tests {
         assert!(!deny, "should keep unblocked");
 
         sender_account.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1989,7 +1952,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, handle, _, escrow_accounts_tx) = create_sender_account(
+        let (sender_account, notify, _, escrow_accounts_tx) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
             TRIGGER_VALUE,
@@ -2011,7 +1974,7 @@ pub mod tests {
             ))
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        flush_messages(&notify).await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny, "should block the sender");
@@ -2024,13 +1987,12 @@ pub mod tests {
             ))
             .unwrap();
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        flush_messages(&notify).await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(!deny, "should unblock the sender");
 
         sender_account.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -2038,7 +2000,7 @@ pub mod tests {
         // we set to 1 to block the sender on a really low value
         let max_unaggregated_fees_per_sender: u128 = 1;
 
-        let (sender_account, handle, prefix, _) = create_sender_account(
+        let (sender_account, notify, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
@@ -2053,7 +2015,7 @@ pub mod tests {
             MockSenderAllocation::new_with_next_unaggregated_fees_value(sender_account.clone());
 
         let name = format!("{}:{}:{}", prefix, SENDER.1, *ALLOCATION_ID_0);
-        let (allocation, allocation_handle) = MockSenderAllocation::spawn_linked(
+        let (allocation, _) = MockSenderAllocation::spawn_linked(
             Some(name),
             mock_sender_allocation,
             (),
@@ -2070,7 +2032,7 @@ pub mod tests {
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        notify.notified().await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny, "should be blocked");
@@ -2081,9 +2043,6 @@ pub mod tests {
 
         // close the allocation and trigger
         allocation.stop_and_wait(None, None).await.unwrap();
-        allocation_handle.await.unwrap();
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // should remove the block and the retry
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
@@ -2094,6 +2053,5 @@ pub mod tests {
         assert!(!scheuduler_enabled, "should have an scheduler disabled");
 
         sender_account.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
     }
 }
