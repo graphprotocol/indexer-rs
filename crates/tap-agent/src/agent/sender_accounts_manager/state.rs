@@ -16,21 +16,27 @@ use reqwest::Url;
 use sqlx::PgPool;
 use tokio::sync::watch::Receiver;
 use tracing::{error, warn};
+use typed_builder::TypedBuilder;
 
+#[derive(TypedBuilder)]
 pub struct State {
-    pub(super) sender_ids: HashSet<Address>,
-    pub(super) new_receipts_watcher_handle: Option<tokio::task::JoinHandle<()>>,
-    pub(super) _eligible_allocations_senders_handle: JoinHandle<()>,
+    #[builder(default)]
+    pub sender_ids: HashSet<Address>,
 
-    pub(super) config: &'static SenderAccountConfig,
-    pub(super) domain_separator: Eip712Domain,
-    pub(super) pgpool: PgPool,
-    pub(super) indexer_allocations: Receiver<HashSet<Address>>,
-    pub(super) escrow_accounts: Receiver<EscrowAccounts>,
-    pub(super) escrow_subgraph: &'static SubgraphClient,
-    pub(super) network_subgraph: &'static SubgraphClient,
-    pub(super) sender_aggregator_endpoints: HashMap<Address, Url>,
-    pub(super) prefix: Option<String>,
+    #[builder(default)]
+    pub new_receipts_watcher_handle: Option<tokio::task::JoinHandle<()>>,
+    _eligible_allocations_senders_handle: JoinHandle<()>,
+
+    config: &'static SenderAccountConfig,
+    domain_separator: Eip712Domain,
+    pgpool: PgPool,
+    indexer_allocations: Receiver<HashSet<Address>>,
+    escrow_accounts: Receiver<EscrowAccounts>,
+    escrow_subgraph: &'static SubgraphClient,
+    network_subgraph: &'static SubgraphClient,
+    sender_aggregator_endpoints: HashMap<Address, Url>,
+    #[builder(default)]
+    prefix: Option<String>,
 }
 
 impl State {
@@ -201,26 +207,27 @@ impl State {
         sender_id: &Address,
         allocation_ids: HashSet<Address>,
     ) -> Result<SenderAccountArgs> {
-        Ok(SenderAccountArgs {
-            config: self.config,
-            pgpool: self.pgpool.clone(),
-            sender_id: *sender_id,
-            escrow_accounts: self.escrow_accounts.clone(),
-            indexer_allocations: self.indexer_allocations.clone(),
-            escrow_subgraph: self.escrow_subgraph,
-            network_subgraph: self.network_subgraph,
-            domain_separator: self.domain_separator.clone(),
-            sender_aggregator_endpoint: self
-                .sender_aggregator_endpoints
-                .get(sender_id)
-                .ok_or(anyhow!(
-                    "No sender_aggregator_endpoints found for sender {}",
-                    sender_id
-                ))?
-                .clone(),
-            allocation_ids,
-            prefix: self.prefix.clone(),
-            retry_interval: Duration::from_secs(30),
-        })
+        Ok(SenderAccountArgs::builder()
+            .config(self.config)
+            .pgpool(self.pgpool.clone())
+            .sender_id(*sender_id)
+            .escrow_accounts(self.escrow_accounts.clone())
+            .indexer_allocations(self.indexer_allocations.clone())
+            .escrow_subgraph(self.escrow_subgraph)
+            .network_subgraph(self.network_subgraph)
+            .domain_separator(self.domain_separator.clone())
+            .sender_aggregator_endpoint(
+                self.sender_aggregator_endpoints
+                    .get(sender_id)
+                    .ok_or(anyhow!(
+                        "No sender_aggregator_endpoints found for sender {}",
+                        sender_id
+                    ))?
+                    .clone(),
+            )
+            .allocation_ids(allocation_ids)
+            .prefix(self.prefix.clone())
+            .retry_interval(Duration::from_secs(30))
+            .build())
     }
 }

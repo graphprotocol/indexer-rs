@@ -23,6 +23,7 @@ use tap_core::{
 };
 use tokio::sync::watch::Receiver;
 use tracing::{debug, error, warn};
+use typed_builder::TypedBuilder;
 
 use crate::{
     agent::{
@@ -41,23 +42,26 @@ use crate::{
 
 use super::{RavError, SenderAllocationArgs, TapManager};
 
+#[derive(TypedBuilder)]
 pub struct SenderAllocationState {
+    #[builder(default)]
     pub(super) unaggregated_fees: UnaggregatedReceipts,
+    #[builder(default)]
     pub(super) invalid_receipts_fees: UnaggregatedReceipts,
     pub(super) latest_rav: Option<SignedRAV>,
-    pub(super) pgpool: PgPool,
-    pub(super) tap_manager: TapManager,
+    pgpool: PgPool,
+    tap_manager: TapManager,
     pub(super) allocation_id: Address,
     pub(super) sender: Address,
-    pub(super) escrow_accounts: Receiver<EscrowAccounts>,
-    pub(super) domain_separator: Eip712Domain,
+    escrow_accounts: Receiver<EscrowAccounts>,
+    domain_separator: Eip712Domain,
     pub(super) sender_account_ref: ActorRef<SenderAccountMessage>,
 
-    pub(super) sender_aggregator: jsonrpsee::http_client::HttpClient,
+    sender_aggregator: jsonrpsee::http_client::HttpClient,
 
     //config
-    pub(super) timestamp_buffer_ns: u64,
-    pub(super) rav_request_receipt_limit: u64,
+    timestamp_buffer_ns: u64,
+    rav_request_receipt_limit: u64,
 }
 
 impl SenderAllocationState {
@@ -103,22 +107,19 @@ impl SenderAllocationState {
             CheckList::new(required_checks),
         );
 
-        Ok(Self {
-            pgpool,
-            tap_manager,
-            allocation_id,
-            sender,
-            escrow_accounts,
-            domain_separator,
-
-            sender_account_ref: sender_account_ref.clone(),
-            unaggregated_fees: UnaggregatedReceipts::default(),
-            invalid_receipts_fees: UnaggregatedReceipts::default(),
-            latest_rav,
-            sender_aggregator,
-            rav_request_receipt_limit: config.rav_request_receipt_limit,
-            timestamp_buffer_ns: config.timestamp_buffer_ns,
-        })
+        Ok(Self::builder()
+            .pgpool(pgpool)
+            .tap_manager(tap_manager)
+            .allocation_id(allocation_id)
+            .sender(sender)
+            .escrow_accounts(escrow_accounts)
+            .domain_separator(domain_separator)
+            .sender_account_ref(sender_account_ref.clone())
+            .latest_rav(latest_rav)
+            .sender_aggregator(sender_aggregator)
+            .rav_request_receipt_limit(config.rav_request_receipt_limit)
+            .timestamp_buffer_ns(config.timestamp_buffer_ns)
+            .build())
     }
 
     pub async fn recalculate_all_unaggregated_fees(&self) -> Result<UnaggregatedReceipts> {

@@ -114,23 +114,21 @@ async fn create_state(pgpool: PgPool) -> (String, State) {
     );
     (
         prefix.clone(),
-        State {
-            config,
-            domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            sender_ids: HashSet::new(),
-            new_receipts_watcher_handle: None,
-            _eligible_allocations_senders_handle: tokio::spawn(async move {}),
-            pgpool,
-            indexer_allocations: watch::channel(HashSet::new()).1,
-            escrow_accounts: watch::channel(escrow_accounts).1,
-            escrow_subgraph: get_subgraph_client().await,
-            network_subgraph: get_subgraph_client().await,
-            sender_aggregator_endpoints: HashMap::from([
+        State::builder()
+            .config(config)
+            .domain_separator(TAP_EIP712_DOMAIN_SEPARATOR.clone())
+            ._eligible_allocations_senders_handle(tokio::spawn(async move {}))
+            .pgpool(pgpool)
+            .indexer_allocations(watch::channel(HashSet::new()).1)
+            .escrow_accounts(watch::channel(escrow_accounts).1)
+            .network_subgraph(get_subgraph_client().await)
+            .escrow_subgraph(get_subgraph_client().await)
+            .sender_aggregator_endpoints(HashMap::from([
                 (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
                 (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
-            ]),
-            prefix: Some(prefix),
-        },
+            ]))
+            .prefix(Some(prefix))
+            .build(),
     )
 }
 

@@ -24,6 +24,7 @@ use std::{
 use tap_core::rav::SignedRAV;
 use tokio::sync::watch::Receiver;
 use tracing::{error, warn, Level};
+use typed_builder::TypedBuilder;
 
 use crate::{
     adaptative_concurrency::AdaptiveLimiter,
@@ -35,8 +36,7 @@ use crate::{
         sender_allocation::SenderAllocationMessage,
         unaggregated_receipts::UnaggregatedReceipts,
     },
-    backoff::BackoffInfo,
-    tracker::{SenderFeeTracker, SimpleFeeTracker},
+    tracker::SenderFeeTracker,
 };
 
 mod state;
@@ -72,21 +72,22 @@ pub enum SenderAccountMessage {
     IsSchedulerEnabled(ractor::RpcReplyPort<bool>),
 }
 
+#[derive(TypedBuilder)]
 pub struct SenderAccountArgs {
-    pub config: &'static SenderAccountConfig,
+    config: &'static SenderAccountConfig,
 
-    pub pgpool: PgPool,
-    pub sender_id: Address,
-    pub escrow_accounts: Receiver<EscrowAccounts>,
-    pub indexer_allocations: Receiver<HashSet<Address>>,
-    pub escrow_subgraph: &'static SubgraphClient,
-    pub network_subgraph: &'static SubgraphClient,
-    pub domain_separator: Eip712Domain,
-    pub sender_aggregator_endpoint: Url,
-    pub allocation_ids: HashSet<Address>,
-    pub prefix: Option<String>,
+    pgpool: PgPool,
+    sender_id: Address,
+    escrow_accounts: Receiver<EscrowAccounts>,
+    indexer_allocations: Receiver<HashSet<Address>>,
+    escrow_subgraph: &'static SubgraphClient,
+    network_subgraph: &'static SubgraphClient,
+    domain_separator: Eip712Domain,
+    sender_aggregator_endpoint: Url,
+    allocation_ids: HashSet<Address>,
+    prefix: Option<String>,
 
-    pub retry_interval: Duration,
+    retry_interval: Duration,
 }
 
 pub struct SenderAccountConfig {
@@ -290,29 +291,25 @@ impl Actor for SenderAccount {
             .request_timeout(config.rav_request_timeout)
             .build(&sender_aggregator_endpoint)?;
 
-        let state = State {
-            prefix,
-            sender_fee_tracker: SenderFeeTracker::new(config.rav_request_buffer),
-            rav_tracker: SimpleFeeTracker::default(),
-            invalid_receipts_tracker: SimpleFeeTracker::default(),
-            allocation_ids: allocation_ids.clone(),
-            _indexer_allocations_handle,
-            _escrow_account_monitor,
-            scheduled_rav_request: None,
-            sender: sender_id,
-            denied,
-            sender_balance,
-            retry_interval,
-            adaptive_limiter: AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50),
-            escrow_accounts,
-            escrow_subgraph,
-            network_subgraph,
-            domain_separator,
-            pgpool,
-            sender_aggregator,
-            backoff_info: BackoffInfo::default(),
-            config,
-        };
+        let state = State::builder()
+            .prefix(prefix)
+            .sender_fee_tracker(SenderFeeTracker::new(config.rav_request_buffer))
+            .allocation_ids(allocation_ids.clone())
+            ._indexer_allocations_handle(_indexer_allocations_handle)
+            ._escrow_account_monitor(_escrow_account_monitor)
+            .sender(sender_id)
+            .denied(denied)
+            .sender_balance(sender_balance)
+            .retry_interval(retry_interval)
+            .adaptive_limiter(AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50))
+            .escrow_accounts(escrow_accounts)
+            .escrow_subgraph(escrow_subgraph)
+            .network_subgraph(network_subgraph)
+            .domain_separator(domain_separator)
+            .pgpool(pgpool)
+            .sender_aggregator(sender_aggregator)
+            .config(config)
+            .build();
 
         stream::iter(allocation_ids)
             // Create a sender allocation for each allocation

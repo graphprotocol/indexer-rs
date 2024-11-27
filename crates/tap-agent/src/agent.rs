@@ -76,17 +76,16 @@ pub async fn start_agent(
 
     let config = SenderAccountConfig::from_config(&config);
 
-    let args = SenderAccountsManagerArgs {
-        config,
-        domain_separator,
-        pgpool,
-        indexer_allocations,
-        escrow_accounts,
-        escrow_subgraph,
-        network_subgraph,
-        sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
-        prefix: None,
-    };
+    let args = SenderAccountsManagerArgs::builder()
+        .config(config)
+        .domain_separator(domain_separator)
+        .pgpool(pgpool)
+        .indexer_allocations(indexer_allocations)
+        .escrow_accounts(escrow_accounts)
+        .network_subgraph(network_subgraph)
+        .escrow_subgraph(escrow_subgraph)
+        .sender_aggregator_endpoints(sender_aggregator_endpoints.clone())
+        .build();
 
     SenderAccountsManager::spawn(None, SenderAccountsManager, args)
         .await

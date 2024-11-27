@@ -11,6 +11,7 @@ use sqlx::PgPool;
 use state::SenderAllocationState;
 use tokio::sync::watch::Receiver;
 use tracing::{error, warn};
+use typed_builder::TypedBuilder;
 
 use crate::{
     agent::{
@@ -70,18 +71,19 @@ impl AllocationConfig {
     }
 }
 
+#[derive(TypedBuilder)]
 pub struct SenderAllocationArgs {
-    pub pgpool: PgPool,
-    pub allocation_id: Address,
-    pub sender: Address,
-    pub escrow_accounts: Receiver<EscrowAccounts>,
-    pub escrow_subgraph: &'static SubgraphClient,
-    pub domain_separator: Eip712Domain,
-    pub sender_account_ref: ActorRef<SenderAccountMessage>,
-    pub sender_aggregator: jsonrpsee::http_client::HttpClient,
+    pgpool: PgPool,
+    allocation_id: Address,
+    sender: Address,
+    escrow_accounts: Receiver<EscrowAccounts>,
+    escrow_subgraph: &'static SubgraphClient,
+    domain_separator: Eip712Domain,
+    sender_account_ref: ActorRef<SenderAccountMessage>,
+    sender_aggregator: jsonrpsee::http_client::HttpClient,
 
     //config
-    pub config: AllocationConfig,
+    config: AllocationConfig,
 }
 
 #[derive(Debug)]

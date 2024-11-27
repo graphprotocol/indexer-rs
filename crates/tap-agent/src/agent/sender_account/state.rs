@@ -16,6 +16,7 @@ use std::{collections::HashSet, str::FromStr, time::Duration};
 use tap_core::rav::SignedRAV;
 use tokio::{sync::watch::Receiver, task::JoinHandle};
 use tracing::error;
+use typed_builder::TypedBuilder;
 
 use crate::{
     adaptative_concurrency::AdaptiveLimiter,
@@ -34,14 +35,18 @@ use super::{
     SenderAccountConfig, SenderAccountMessage, PENDING_RAV, SENDER_FEE_TRACKER, UNAGGREGATED_FEES,
 };
 
+#[derive(TypedBuilder)]
 pub struct State {
-    pub(super) prefix: Option<String>,
+    prefix: Option<String>,
     pub(super) sender_fee_tracker: SenderFeeTracker,
+    #[builder(default)]
     pub(super) rav_tracker: SimpleFeeTracker,
+    #[builder(default)]
     pub(super) invalid_receipts_tracker: SimpleFeeTracker,
     pub(super) allocation_ids: HashSet<Address>,
-    pub(super) _indexer_allocations_handle: JoinHandle<()>,
-    pub(super) _escrow_account_monitor: JoinHandle<()>,
+    _indexer_allocations_handle: JoinHandle<()>,
+    _escrow_account_monitor: JoinHandle<()>,
+    #[builder(default)]
     pub(super) scheduled_rav_request:
         Option<JoinHandle<Result<(), MessagingErr<SenderAccountMessage>>>>,
 
@@ -56,16 +61,17 @@ pub struct State {
     pub(super) adaptive_limiter: AdaptiveLimiter,
 
     // Receivers
-    pub(super) escrow_accounts: Receiver<EscrowAccounts>,
+    escrow_accounts: Receiver<EscrowAccounts>,
 
-    pub(super) escrow_subgraph: &'static SubgraphClient,
-    pub(super) network_subgraph: &'static SubgraphClient,
+    escrow_subgraph: &'static SubgraphClient,
+    network_subgraph: &'static SubgraphClient,
 
-    pub(super) domain_separator: Eip712Domain,
+    domain_separator: Eip712Domain,
     pub(super) pgpool: PgPool,
-    pub(super) sender_aggregator: jsonrpsee::http_client::HttpClient,
+    sender_aggregator: jsonrpsee::http_client::HttpClient,
 
     // Backoff info
+    #[builder(default)]
     pub(super) backoff_info: BackoffInfo,
 
     // Config
@@ -83,17 +89,17 @@ impl State {
             %allocation_id,
             "SenderAccount is creating allocation."
         );
-        let args = SenderAllocationArgs {
-            pgpool: self.pgpool.clone(),
-            allocation_id,
-            sender: self.sender,
-            escrow_accounts: self.escrow_accounts.clone(),
-            escrow_subgraph: self.escrow_subgraph,
-            domain_separator: self.domain_separator.clone(),
-            sender_account_ref: sender_account_ref.clone(),
-            sender_aggregator: self.sender_aggregator.clone(),
-            config: AllocationConfig::from_sender_config(self.config),
-        };
+        let args = SenderAllocationArgs::builder()
+            .pgpool(self.pgpool.clone())
+            .allocation_id(allocation_id)
+            .sender(self.sender)
+            .escrow_accounts(self.escrow_accounts.clone())
+            .escrow_subgraph(self.escrow_subgraph)
+            .domain_separator(self.domain_separator.clone())
+            .sender_account_ref(sender_account_ref.clone())
+            .sender_aggregator(self.sender_aggregator.clone())
+            .config(AllocationConfig::from_sender_config(self.config))
+            .build();
 
         SenderAllocation::spawn_linked(
             Some(self.format_sender_allocation(&allocation_id)),

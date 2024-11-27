@@ -20,6 +20,7 @@ use tokio::{
     sync::watch::{self, Receiver},
 };
 use tracing::error;
+use typed_builder::TypedBuilder;
 
 mod receipt_watcher;
 mod state;
@@ -42,19 +43,22 @@ pub enum SenderAccountsManagerMessage {
     UpdateSenderAccounts(HashSet<Address>),
 }
 
+#[derive(TypedBuilder)]
 pub struct SenderAccountsManagerArgs {
-    pub config: &'static SenderAccountConfig,
-    pub domain_separator: Eip712Domain,
+    config: &'static SenderAccountConfig,
+    domain_separator: Eip712Domain,
 
-    pub pgpool: PgPool,
-    pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
-    pub escrow_accounts: Receiver<EscrowAccounts>,
-    pub escrow_subgraph: &'static SubgraphClient,
-    pub network_subgraph: &'static SubgraphClient,
-    pub sender_aggregator_endpoints: HashMap<Address, Url>,
+    pgpool: PgPool,
+    indexer_allocations: Receiver<HashMap<Address, Allocation>>,
+    escrow_accounts: Receiver<EscrowAccounts>,
+    escrow_subgraph: &'static SubgraphClient,
+    network_subgraph: &'static SubgraphClient,
+    sender_aggregator_endpoints: HashMap<Address, Url>,
 
-    pub prefix: Option<String>,
+    #[builder(default)]
+    prefix: Option<String>,
 }
+
 #[async_trait::async_trait]
 impl Actor for SenderAccountsManager {
     type Msg = SenderAccountsManagerMessage;
@@ -105,20 +109,18 @@ impl Actor for SenderAccountsManager {
                 async {}
             });
 
-        let mut state = State {
-            config,
-            domain_separator,
-            sender_ids: HashSet::new(),
-            new_receipts_watcher_handle: None,
-            _eligible_allocations_senders_handle,
-            pgpool,
-            indexer_allocations: allocations_rx,
-            escrow_accounts: escrow_accounts.clone(),
-            escrow_subgraph,
-            network_subgraph,
-            sender_aggregator_endpoints,
-            prefix: prefix.clone(),
-        };
+        let mut state = State::builder()
+            .config(config)
+            .domain_separator(domain_separator)
+            .sender_aggregator_endpoints(sender_aggregator_endpoints)
+            .indexer_allocations(allocations_rx)
+            .pgpool(pgpool)
+            ._eligible_allocations_senders_handle(_eligible_allocations_senders_handle)
+            .escrow_subgraph(escrow_subgraph)
+            .network_subgraph(network_subgraph)
+            .escrow_accounts(escrow_accounts.clone())
+            .prefix(prefix.clone())
+            .build();
         let sender_allocation = select! {
             sender_allocation = state.get_pending_sender_allocation_id() => sender_allocation,
             _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
