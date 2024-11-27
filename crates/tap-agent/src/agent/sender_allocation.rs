@@ -867,7 +867,7 @@ pub mod tests {
             unaggregated_receipts::UnaggregatedReceipts,
         },
         test::{
-            actors::TestableActor, create_rav, create_received_receipt, store_invalid_receipt,
+            actors::{flush_messages, TestableActor}, create_rav, create_received_receipt, store_invalid_receipt,
             store_rav, store_receipt, INDEXER,
         },
     };
@@ -1171,7 +1171,7 @@ pub mod tests {
         )
         .unwrap();
 
-        notify.notified().await;
+        flush_messages(&notify).await;
 
         // should emit update aggregate fees message to sender account
         let expected_message = SenderAccountMessage::UpdateReceiptFees(
@@ -1253,7 +1253,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRAVRequest)
             .unwrap();
 
-        notify.notified().await;
+        flush_messages(&notify).await;
 
         let total_unaggregated_fees = call!(
             sender_allocation,
@@ -1632,7 +1632,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRAVRequest)
             .unwrap();
 
-        notify.notified().await;
+        flush_messages(&notify).await;
 
         // If it is an error then rav request failed
 
@@ -1732,7 +1732,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRAVRequest)
             .unwrap();
 
-        notify.notified().await;
+        flush_messages(&notify).await;
 
         // If it is an error then rav request failed
 

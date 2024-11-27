@@ -588,7 +588,7 @@ mod tests {
     use crate::agent::sender_account::{SenderAccountConfig, SenderAccountMessage};
     use crate::agent::sender_accounts_manager::{handle_notification, NewReceiptNotification};
     use crate::agent::sender_allocation::tests::MockSenderAccount;
-    use crate::test::actors::{DummyActor, MockSenderAllocation, TestableActor};
+    use crate::test::actors::{flush_messages, DummyActor, MockSenderAllocation, TestableActor};
     use crate::test::{
         create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
         ALLOCATION_ID_1, INDEXER, SENDER_2, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
@@ -747,7 +747,7 @@ mod tests {
             ))
             .unwrap();
 
-        notify.notified().await;
+        flush_messages(&notify).await;
 
         // verify if create sender account
         let actor_ref =
@@ -760,7 +760,7 @@ mod tests {
             ))
             .unwrap();
 
-        notify.notified().await;
+        flush_messages(&notify).await;
         // verify if it gets removed
         let actor_ref =
             ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER.1));
@@ -870,12 +870,9 @@ mod tests {
                 .await
                 .unwrap();
         }
-        println!("Awaiting to be notified");
-        notify.notified().await;
-        println!("Notified");
+        flush_messages(&notify).await;
 
         // check if receipt notification was sent to the allocation
-
         for i in 1..=receipts_count {
             let receipt = receipts.recv().await.unwrap();
 

@@ -183,7 +183,7 @@ pub async fn store_rav_with_options(
 }
 
 pub mod actors {
-    use std::sync::{atomic::AtomicU32, Arc, Mutex};
+    use std::{sync::{atomic::AtomicU32, Arc, Mutex}, time::Duration};
 
     use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
     use test_assets::{ALLOCATION_ID_0, TAP_SIGNER};
@@ -238,6 +238,17 @@ pub mod actors {
             Self {
                 inner,
                 notify: Arc::new(Notify::new()),
+            }
+        }
+    }
+
+    pub async fn flush_messages(notify: &Notify) {
+        loop {
+            if tokio::time::timeout(Duration::from_millis(10), notify.notified())
+                .await
+                .is_err()
+            {
+                break;
             }
         }
     }
