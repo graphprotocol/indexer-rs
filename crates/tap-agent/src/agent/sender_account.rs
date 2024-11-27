@@ -1030,25 +1030,24 @@ impl SenderAccount {
 pub mod tests {
     use super::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
     use crate::agent::sender_account::ReceiptFees;
-    use crate::agent::sender_accounts_manager::NewReceiptNotification;
     use crate::agent::sender_allocation::SenderAllocationMessage;
     use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-    use crate::test::{
-        create_rav, store_rav_with_options, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER,
-        SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
-    };
+    use crate::test::actors::{create_mock_sender_allocation, MockSenderAllocation};
+    use crate::test::{create_rav, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR};
+
     use alloy::hex::ToHexExt;
     use alloy::primitives::{Address, U256};
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
-    use ractor::concurrency::JoinHandle;
-    use ractor::{call, Actor, ActorProcessingErr, ActorRef, ActorStatus};
+    use ractor::{call, Actor, ActorRef, ActorStatus};
     use reqwest::Url;
     use serde_json::json;
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU32;
-    use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use test_assets::{
+        ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
+    };
     use tokio::sync::watch::{self, Sender};
     use wiremock::matchers::{body_string_contains, method};
     use wiremock::{Mock, MockGuard, MockServer, ResponseTemplate};
@@ -1398,160 +1397,6 @@ pub mod tests {
         handle.await.unwrap();
     }
 
-    pub struct MockSenderAllocation {
-        triggered_rav_request: Arc<AtomicU32>,
-        next_rav_value: Arc<Mutex<u128>>,
-        next_unaggregated_fees_value: Arc<Mutex<u128>>,
-        receipts: Arc<Mutex<Vec<NewReceiptNotification>>>,
-
-        sender_actor: Option<ActorRef<SenderAccountMessage>>,
-    }
-    impl MockSenderAllocation {
-        pub fn new_with_triggered_rav_request(
-            sender_actor: ActorRef<SenderAccountMessage>,
-        ) -> (Self, Arc<AtomicU32>, Arc<Mutex<u128>>) {
-            let triggered_rav_request = Arc::new(AtomicU32::new(0));
-            let unaggregated_fees = Arc::new(Mutex::new(0));
-            (
-                Self {
-                    sender_actor: Some(sender_actor),
-                    triggered_rav_request: triggered_rav_request.clone(),
-                    receipts: Arc::new(Mutex::new(Vec::new())),
-                    next_rav_value: Arc::new(Mutex::new(0)),
-                    next_unaggregated_fees_value: unaggregated_fees.clone(),
-                },
-                triggered_rav_request,
-                unaggregated_fees,
-            )
-        }
-
-        pub fn new_with_next_unaggregated_fees_value(
-            sender_actor: ActorRef<SenderAccountMessage>,
-        ) -> (Self, Arc<Mutex<u128>>) {
-            let unaggregated_fees = Arc::new(Mutex::new(0));
-            (
-                Self {
-                    sender_actor: Some(sender_actor),
-                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
-                    receipts: Arc::new(Mutex::new(Vec::new())),
-                    next_rav_value: Arc::new(Mutex::new(0)),
-                    next_unaggregated_fees_value: unaggregated_fees.clone(),
-                },
-                unaggregated_fees,
-            )
-        }
-
-        pub fn new_with_next_rav_value(
-            sender_actor: ActorRef<SenderAccountMessage>,
-        ) -> (Self, Arc<Mutex<u128>>) {
-            let next_rav_value = Arc::new(Mutex::new(0));
-            (
-                Self {
-                    sender_actor: Some(sender_actor),
-                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
-                    receipts: Arc::new(Mutex::new(Vec::new())),
-                    next_rav_value: next_rav_value.clone(),
-                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
-                },
-                next_rav_value,
-            )
-        }
-
-        pub fn new_with_receipts() -> (Self, Arc<Mutex<Vec<NewReceiptNotification>>>) {
-            let receipts = Arc::new(Mutex::new(Vec::new()));
-            (
-                Self {
-                    sender_actor: None,
-                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
-                    receipts: receipts.clone(),
-                    next_rav_value: Arc::new(Mutex::new(0)),
-                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
-                },
-                receipts,
-            )
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl Actor for MockSenderAllocation {
-        type Msg = SenderAllocationMessage;
-        type State = ();
-        type Arguments = ();
-
-        async fn pre_start(
-            &self,
-            _myself: ActorRef<Self::Msg>,
-            _allocation_ids: Self::Arguments,
-        ) -> Result<Self::State, ActorProcessingErr> {
-            Ok(())
-        }
-
-        async fn handle(
-            &self,
-            _myself: ActorRef<Self::Msg>,
-            message: Self::Msg,
-            _state: &mut Self::State,
-        ) -> Result<(), ActorProcessingErr> {
-            match message {
-                SenderAllocationMessage::TriggerRAVRequest => {
-                    self.triggered_rav_request
-                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    let signed_rav = create_rav(
-                        *ALLOCATION_ID_0,
-                        SIGNER.0.clone(),
-                        4,
-                        *self.next_rav_value.lock().unwrap(),
-                    );
-                    if let Some(sender_account) = self.sender_actor.as_ref() {
-                        sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
-                            *ALLOCATION_ID_0,
-                            ReceiptFees::RavRequestResponse((
-                                UnaggregatedReceipts {
-                                    value: *self.next_unaggregated_fees_value.lock().unwrap(),
-                                    last_id: 0,
-                                    counter: 0,
-                                },
-                                Ok(Some(signed_rav)),
-                            )),
-                        ))?;
-                    }
-                }
-                SenderAllocationMessage::NewReceipt(receipt) => {
-                    self.receipts.lock().unwrap().push(receipt);
-                }
-                _ => {}
-            }
-            Ok(())
-        }
-    }
-
-    async fn create_mock_sender_allocation(
-        prefix: String,
-        sender: Address,
-        allocation: Address,
-        sender_actor: ActorRef<SenderAccountMessage>,
-    ) -> (
-        Arc<AtomicU32>,
-        Arc<Mutex<u128>>,
-        ActorRef<SenderAllocationMessage>,
-        JoinHandle<()>,
-    ) {
-        let (mock_sender_allocation, triggered_rav_request, next_unaggregated_fees) =
-            MockSenderAllocation::new_with_triggered_rav_request(sender_actor);
-
-        let name = format!("{}:{}:{}", prefix, sender, allocation);
-        let (sender_account, join_handle) =
-            MockSenderAllocation::spawn(Some(name), mock_sender_allocation, ())
-                .await
-                .unwrap();
-        (
-            triggered_rav_request,
-            next_unaggregated_fees,
-            sender_account,
-            join_handle,
-        )
-    }
-
     fn get_current_timestamp_u64_ns() -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1561,7 +1406,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
-        let (sender_account, handle, prefix, _) = create_sender_account(
+        let (sender_account, _, prefix, _) = create_sender_account(
             pgpool,
             HashSet::new(),
             TRIGGER_VALUE,
@@ -1572,14 +1417,13 @@ pub mod tests {
         )
         .await;
 
-        let (triggered_rav_request, _, allocation, allocation_handle) =
-            create_mock_sender_allocation(
-                prefix,
-                SENDER.1,
-                *ALLOCATION_ID_0,
-                sender_account.clone(),
-            )
-            .await;
+        let (triggered_rav_request, _, _) = create_mock_sender_allocation(
+            prefix,
+            SENDER.1,
+            *ALLOCATION_ID_0,
+            sender_account.clone(),
+        )
+        .await;
 
         // create a fake sender allocation
         sender_account
@@ -1595,12 +1439,6 @@ pub mod tests {
             triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
             0
         );
-
-        allocation.stop_and_wait(None, None).await.unwrap();
-        allocation_handle.await.unwrap();
-
-        sender_account.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1616,14 +1454,13 @@ pub mod tests {
         )
         .await;
 
-        let (triggered_rav_request, _, allocation, allocation_handle) =
-            create_mock_sender_allocation(
-                prefix,
-                SENDER.1,
-                *ALLOCATION_ID_0,
-                sender_account.clone(),
-            )
-            .await;
+        let (triggered_rav_request, _, _) = create_mock_sender_allocation(
+            prefix,
+            SENDER.1,
+            *ALLOCATION_ID_0,
+            sender_account.clone(),
+        )
+        .await;
 
         // create a fake sender allocation
         sender_account
@@ -1657,9 +1494,6 @@ pub mod tests {
             1
         );
 
-        allocation.stop_and_wait(None, None).await.unwrap();
-        allocation_handle.await.unwrap();
-
         sender_account.stop_and_wait(None, None).await.unwrap();
         handle.await.unwrap();
     }
@@ -1677,14 +1511,13 @@ pub mod tests {
         )
         .await;
 
-        let (triggered_rav_request, _, allocation, allocation_handle) =
-            create_mock_sender_allocation(
-                prefix,
-                SENDER.1,
-                *ALLOCATION_ID_0,
-                sender_account.clone(),
-            )
-            .await;
+        let (triggered_rav_request, _, _) = create_mock_sender_allocation(
+            prefix,
+            SENDER.1,
+            *ALLOCATION_ID_0,
+            sender_account.clone(),
+        )
+        .await;
 
         // create a fake sender allocation
         sender_account
@@ -1723,9 +1556,6 @@ pub mod tests {
             triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
             1
         );
-
-        allocation.stop_and_wait(None, None).await.unwrap();
-        allocation_handle.await.unwrap();
 
         sender_account.stop_and_wait(None, None).await.unwrap();
         handle.await.unwrap();
@@ -1818,14 +1648,13 @@ pub mod tests {
         )
         .await;
 
-        let (triggered_rav_request, next_value, allocation, allocation_handle) =
-            create_mock_sender_allocation(
-                prefix,
-                SENDER.1,
-                *ALLOCATION_ID_0,
-                sender_account.clone(),
-            )
-            .await;
+        let (triggered_rav_request, next_value, _) = create_mock_sender_allocation(
+            prefix,
+            SENDER.1,
+            *ALLOCATION_ID_0,
+            sender_account.clone(),
+        )
+        .await;
 
         assert_eq!(
             triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst),
@@ -1847,9 +1676,6 @@ pub mod tests {
 
         let new_value = triggered_rav_request.load(std::sync::atomic::Ordering::SeqCst);
         assert!(new_value > retry_value, "It didn't retry anymore");
-
-        allocation.stop_and_wait(None, None).await.unwrap();
-        allocation_handle.await.unwrap();
 
         sender_account.stop_and_wait(None, None).await.unwrap();
         handle.await.unwrap();

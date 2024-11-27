@@ -27,9 +27,8 @@ lazy_static! {
         Address::from_str("0xabababababababababababababababababababab").unwrap();
     pub static ref ALLOCATION_ID_1: Address =
         Address::from_str("0xbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc").unwrap();
-    pub static ref SENDER: (PrivateKeySigner, Address) = wallet(0);
+    // pub static ref SENDER: (PrivateKeySigner, Address) = wallet(0);
     pub static ref SENDER_2: (PrivateKeySigner, Address) = wallet(1);
-    pub static ref SENDER_3: (PrivateKeySigner, Address) = wallet(4);
     pub static ref SIGNER: (PrivateKeySigner, Address) = wallet(2);
     pub static ref INDEXER: (PrivateKeySigner, Address) = wallet(3);
     pub static ref TAP_EIP712_DOMAIN_SEPARATOR: Eip712Domain =
@@ -181,4 +180,266 @@ pub async fn store_rav_with_options(
     .await?;
 
     Ok(())
+}
+
+pub mod actors {
+    use std::sync::{atomic::AtomicU32, Arc, Mutex};
+
+    use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+    use test_assets::{ALLOCATION_ID_0, TAP_SIGNER};
+    use thegraph_core::Address;
+    use tokio::sync::{mpsc, Notify};
+
+    use crate::agent::{
+        sender_account::{ReceiptFees, SenderAccountMessage},
+        sender_accounts_manager::NewReceiptNotification,
+        sender_allocation::SenderAllocationMessage,
+        unaggregated_receipts::UnaggregatedReceipts,
+    };
+
+    use super::create_rav;
+
+    pub struct DummyActor;
+
+    impl DummyActor {
+        pub async fn spawn() -> ActorRef<()> {
+            Actor::spawn(None, Self, ()).await.unwrap().0
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Actor for DummyActor {
+        type Msg = ();
+        type State = ();
+        type Arguments = ();
+
+        async fn pre_start(
+            &self,
+            _: ActorRef<Self::Msg>,
+            _: Self::Arguments,
+        ) -> Result<Self::State, ActorProcessingErr> {
+            Ok(())
+        }
+    }
+
+    pub struct TestableActor<T>
+    where
+        T: Actor,
+    {
+        inner: T,
+        pub notify: Arc<tokio::sync::Notify>,
+    }
+
+    impl<T> TestableActor<T>
+    where
+        T: Actor,
+    {
+        pub fn new(inner: T) -> Self {
+            Self {
+                inner,
+                notify: Arc::new(Notify::new()),
+            }
+        }
+    }
+
+    #[async_trait::async_trait()]
+    impl<T> Actor for TestableActor<T>
+    where
+        T: Actor,
+    {
+        type Msg = T::Msg;
+        type State = T::State;
+        type Arguments = T::Arguments;
+
+        async fn pre_start(
+            &self,
+            myself: ActorRef<Self::Msg>,
+            args: Self::Arguments,
+        ) -> Result<Self::State, ActorProcessingErr> {
+            self.inner.pre_start(myself, args).await
+        }
+
+        async fn post_stop(
+            &self,
+            myself: ActorRef<Self::Msg>,
+            state: &mut Self::State,
+        ) -> std::result::Result<(), ActorProcessingErr> {
+            self.inner.post_stop(myself, state).await
+        }
+
+        async fn handle(
+            &self,
+            myself: ActorRef<Self::Msg>,
+            msg: Self::Msg,
+            state: &mut Self::State,
+        ) -> std::result::Result<(), ActorProcessingErr> {
+            let result = self.inner.handle(myself, msg, state).await;
+            self.notify.notify_one();
+            result
+        }
+
+        async fn handle_supervisor_evt(
+            &self,
+            myself: ActorRef<Self::Msg>,
+            message: SupervisionEvent,
+            state: &mut Self::State,
+        ) -> std::result::Result<(), ActorProcessingErr> {
+            self.inner
+                .handle_supervisor_evt(myself, message, state)
+                .await
+        }
+    }
+
+    pub struct MockSenderAllocation {
+        triggered_rav_request: Arc<AtomicU32>,
+        next_rav_value: Arc<Mutex<u128>>,
+        next_unaggregated_fees_value: Arc<Mutex<u128>>,
+        sender_actor: Option<ActorRef<SenderAccountMessage>>,
+
+        receipts: mpsc::Sender<NewReceiptNotification>,
+    }
+    impl MockSenderAllocation {
+        pub fn new_with_triggered_rav_request(
+            sender_actor: ActorRef<SenderAccountMessage>,
+        ) -> (Self, Arc<AtomicU32>, Arc<Mutex<u128>>) {
+            let triggered_rav_request = Arc::new(AtomicU32::new(0));
+            let unaggregated_fees = Arc::new(Mutex::new(0));
+            (
+                Self {
+                    sender_actor: Some(sender_actor),
+                    triggered_rav_request: triggered_rav_request.clone(),
+                    receipts: mpsc::channel(1).0,
+                    next_rav_value: Arc::new(Mutex::new(0)),
+                    next_unaggregated_fees_value: unaggregated_fees.clone(),
+                },
+                triggered_rav_request,
+                unaggregated_fees,
+            )
+        }
+
+        pub fn new_with_next_unaggregated_fees_value(
+            sender_actor: ActorRef<SenderAccountMessage>,
+        ) -> (Self, Arc<Mutex<u128>>) {
+            let unaggregated_fees = Arc::new(Mutex::new(0));
+            (
+                Self {
+                    sender_actor: Some(sender_actor),
+                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
+                    receipts: mpsc::channel(1).0,
+                    next_rav_value: Arc::new(Mutex::new(0)),
+                    next_unaggregated_fees_value: unaggregated_fees.clone(),
+                },
+                unaggregated_fees,
+            )
+        }
+
+        pub fn new_with_next_rav_value(
+            sender_actor: ActorRef<SenderAccountMessage>,
+        ) -> (Self, Arc<Mutex<u128>>) {
+            let next_rav_value = Arc::new(Mutex::new(0));
+            (
+                Self {
+                    sender_actor: Some(sender_actor),
+                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
+                    receipts: mpsc::channel(1).0,
+                    next_rav_value: next_rav_value.clone(),
+                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
+                },
+                next_rav_value,
+            )
+        }
+
+        pub fn new_with_receipts() -> (Self, mpsc::Receiver<NewReceiptNotification>) {
+            let (tx, rx) = mpsc::channel(10);
+
+            (
+                Self {
+                    sender_actor: None,
+                    triggered_rav_request: Arc::new(AtomicU32::new(0)),
+                    receipts: tx,
+                    next_rav_value: Arc::new(Mutex::new(0)),
+                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
+                },
+                rx,
+            )
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Actor for MockSenderAllocation {
+        type Msg = SenderAllocationMessage;
+        type State = ();
+        type Arguments = ();
+
+        async fn pre_start(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            _allocation_ids: Self::Arguments,
+        ) -> Result<Self::State, ActorProcessingErr> {
+            Ok(())
+        }
+
+        async fn handle(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            message: Self::Msg,
+            _state: &mut Self::State,
+        ) -> Result<(), ActorProcessingErr> {
+            match message {
+                SenderAllocationMessage::TriggerRAVRequest => {
+                    self.triggered_rav_request
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let signed_rav = create_rav(
+                        *ALLOCATION_ID_0,
+                        TAP_SIGNER.0.clone(),
+                        4,
+                        *self.next_rav_value.lock().unwrap(),
+                    );
+                    if let Some(sender_account) = self.sender_actor.as_ref() {
+                        sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
+                            *ALLOCATION_ID_0,
+                            ReceiptFees::RavRequestResponse((
+                                UnaggregatedReceipts {
+                                    value: *self.next_unaggregated_fees_value.lock().unwrap(),
+                                    last_id: 0,
+                                    counter: 0,
+                                },
+                                Ok(Some(signed_rav)),
+                            )),
+                        ))?;
+                    }
+                }
+                SenderAllocationMessage::NewReceipt(receipt) => {
+                    self.receipts.send(receipt).await.unwrap();
+                }
+                _ => {}
+            }
+            Ok(())
+        }
+    }
+
+    pub async fn create_mock_sender_allocation(
+        prefix: String,
+        sender: Address,
+        allocation: Address,
+        sender_actor: ActorRef<SenderAccountMessage>,
+    ) -> (
+        Arc<AtomicU32>,
+        Arc<Mutex<u128>>,
+        ActorRef<SenderAllocationMessage>,
+    ) {
+        let (mock_sender_allocation, triggered_rav_request, next_unaggregated_fees) =
+            MockSenderAllocation::new_with_triggered_rav_request(sender_actor);
+
+        let name = format!("{}:{}:{}", prefix, sender, allocation);
+        let (sender_account, _) =
+            MockSenderAllocation::spawn(Some(name), mock_sender_allocation, ())
+                .await
+                .unwrap();
+        (
+            triggered_rav_request,
+            next_unaggregated_fees,
+            sender_account,
+        )
+    }
 }
