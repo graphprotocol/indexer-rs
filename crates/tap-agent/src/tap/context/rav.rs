@@ -133,7 +133,8 @@ mod test {
     use tokio::sync::watch;
 
     use super::*;
-    use crate::test::{create_rav, ALLOCATION_ID_0, SENDER, SIGNER};
+    use crate::test::{create_rav, ALLOCATION_ID_0, SIGNER};
+    use test_assets::TAP_SENDER as SENDER;
 
     #[derive(Debug)]
     struct TestableRav(SignedRAV);

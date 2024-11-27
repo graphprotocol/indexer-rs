@@ -868,9 +868,10 @@ pub mod tests {
         },
         test::{
             create_rav, create_received_receipt, store_invalid_receipt, store_rav, store_receipt,
-            ALLOCATION_ID_0, INDEXER, SENDER, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+            INDEXER,
         },
     };
+
     use futures::future::join_all;
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
     use jsonrpsee::http_client::HttpClientBuilder;
@@ -890,6 +891,10 @@ pub mod tests {
         checks::{Check, CheckError, CheckList, CheckResult},
         state::Checking,
         Context, ReceiptWithState,
+    };
+    use test_assets::{
+        ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR, TAP_SENDER as SENDER,
+        TAP_SIGNER as SIGNER,
     };
     use tokio::sync::{mpsc, watch};
     use wiremock::{

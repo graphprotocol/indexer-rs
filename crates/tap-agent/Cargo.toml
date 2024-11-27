@@ -49,3 +49,4 @@ futures = { version = "0.3.30", default-features = false }
 [dev-dependencies]
 tempfile = "3.8.0"
 wiremock.workspace = true
+test-assets = { path = "../test-assets" }

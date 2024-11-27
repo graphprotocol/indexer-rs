@@ -89,13 +89,28 @@ lazy_static! {
     pub static ref DISPUTE_MANAGER_ADDRESS: Address =
         Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap();
 
+
+    pub static ref ALLOCATION_ID_0: Address =
+        Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap();
+
+    pub static ref ALLOCATION_ID_1: Address =
+        Address::from_str("0xdd975e30aafebb143e54d215db8a3e8fd916a701").unwrap();
+
+    pub static ref ALLOCATION_ID_2: Address =
+        Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap();
+
+    pub static ref ALLOCATION_ID_3: Address =
+        Address::from_str("0x69f961358846fdb64b04e1fd7b2701237c13cd9a").unwrap();
+
+
+
     /// These are the expected json-serialized contents of the value returned by
     /// AllocationMonitor::current_eligible_allocations with the values above at epoch threshold 940.
     pub static ref INDEXER_ALLOCATIONS: HashMap<Address, Allocation> = HashMap::from([
         (
-            Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap(),
+            *ALLOCATION_ID_0,
             Allocation {
-                id: Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap(),
+                id: *ALLOCATION_ID_0,
                 indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
                 allocated_tokens: U256::from_str("5081382841000000014901161").unwrap(),
                 created_at_block_hash:
@@ -117,9 +132,9 @@ lazy_static! {
             },
         ),
         (
-            Address::from_str("0xdd975e30aafebb143e54d215db8a3e8fd916a701").unwrap(),
+            *ALLOCATION_ID_1,
             Allocation {
-                id: Address::from_str("0xdd975e30aafebb143e54d215db8a3e8fd916a701").unwrap(),
+                id: *ALLOCATION_ID_1,
                 indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
                 allocated_tokens: U256::from_str("601726452999999979510903").unwrap(),
                 created_at_block_hash:
@@ -141,9 +156,9 @@ lazy_static! {
             },
         ),
         (
-            Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap(),
+            *ALLOCATION_ID_2,
             Allocation {
-                id: Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap(),
+                id: *ALLOCATION_ID_2,
                 indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
                 allocated_tokens: U256::from_str("5247998688000000081956387").unwrap(),
                 created_at_block_hash:
@@ -165,9 +180,9 @@ lazy_static! {
             },
         ),
         (
-            Address::from_str("0x69f961358846fdb64b04e1fd7b2701237c13cd9a").unwrap(),
+            *ALLOCATION_ID_3,
             Allocation {
-                id: Address::from_str("0x69f961358846fdb64b04e1fd7b2701237c13cd9a").unwrap(),
+                id: *ALLOCATION_ID_3,
                 indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
                 allocated_tokens: U256::from_str("2502334654999999795109034").unwrap(),
                 created_at_block_hash:
