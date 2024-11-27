@@ -1032,9 +1032,9 @@ pub mod tests {
     use crate::agent::sender_account::ReceiptFees;
     use crate::agent::sender_allocation::SenderAllocationMessage;
     use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
+    use crate::{assert_not_triggered, assert_triggered};
     use crate::test::actors::{
-        assert_not_triggered, assert_triggered, create_mock_sender_allocation, flush_messages,
-        MockSenderAllocation, TestableActor,
+        create_mock_sender_allocation, flush_messages, MockSenderAllocation, TestableActor,
     };
     use crate::test::{create_rav, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR};
 
@@ -1439,7 +1439,7 @@ pub mod tests {
         // wait the buffer
         tokio::time::sleep(BUFFER_DURATION).await;
 
-        assert_not_triggered(&triggered_rav_request).await;
+        assert_not_triggered!(&triggered_rav_request);
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1472,7 +1472,7 @@ pub mod tests {
             .unwrap();
 
         flush_messages(&notify).await;
-        assert_not_triggered(&triggered_rav_request).await;
+        assert_not_triggered!(&triggered_rav_request);
 
         // wait for it to be outside buffer
         tokio::time::sleep(BUFFER_DURATION).await;
@@ -1485,7 +1485,7 @@ pub mod tests {
             .unwrap();
         flush_messages(&notify).await;
 
-        assert_triggered(&triggered_rav_request).await;
+        assert_triggered!(&triggered_rav_request);
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1518,7 +1518,7 @@ pub mod tests {
             .unwrap();
         flush_messages(&notify).await;
 
-        assert_not_triggered(&triggered_rav_request).await;
+        assert_not_triggered!(&triggered_rav_request);
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
@@ -1539,7 +1539,7 @@ pub mod tests {
             .unwrap();
         flush_messages(&notify).await;
 
-        assert_triggered(&triggered_rav_request).await;
+        assert_triggered!(&triggered_rav_request);
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1635,7 +1635,7 @@ pub mod tests {
         )
         .await;
 
-        assert_not_triggered(&triggered_rav_request).await;
+        assert_not_triggered!(&triggered_rav_request);
 
         next_value.send(TRIGGER_VALUE).unwrap();
 
@@ -1646,11 +1646,14 @@ pub mod tests {
             ))
             .unwrap();
         flush_messages(&notify).await;
-
-        assert_triggered(&notify).await;
+        
+        // wait to try again so it's outside the buffer
         tokio::time::sleep(RETRY_DURATION).await;
+        assert_triggered!(triggered_rav_request);
 
-        assert_triggered(&notify).await;
+        // wait to retry again
+        tokio::time::sleep(RETRY_DURATION).await;
+        assert_triggered!(triggered_rav_request);
     }
 
     #[sqlx::test(migrations = "../../migrations")]

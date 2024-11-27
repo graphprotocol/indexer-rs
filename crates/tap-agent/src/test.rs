@@ -253,22 +253,36 @@ pub mod actors {
         }
     }
 
-    pub async fn assert_triggered(notify: &Notify) {
-        if tokio::time::timeout(Duration::from_millis(10), notify.notified())
-            .await
-            .is_err()
-        {
-            panic!("Should receive rav request");
-        }
+    #[macro_export]
+    macro_rules! assert_triggered {
+        ($notify:expr) => {
+            assert_triggered!($notify, "Expected notify to be triggered");
+        };
+
+        ($notify:expr, $msg:expr) => {
+            if tokio::time::timeout(Duration::from_millis(10), $notify.notified())
+                .await
+                .is_err()
+            {
+                panic!($msg);
+            }
+        };
+
     }
 
-    pub async fn assert_not_triggered(notify: &Notify) {
-        if tokio::time::timeout(Duration::from_millis(10), notify.notified())
-            .await
-            .is_ok()
-        {
-            panic!("Should receive rav request");
-        }
+    #[macro_export]
+    macro_rules! assert_not_triggered {
+        ($notify:expr) => {
+            assert_not_triggered!($notify, "Expected notify to be not be triggered");
+        };
+        ($notify:expr, $msg:expr) => {
+            if tokio::time::timeout(Duration::from_millis(10), $notify.notified())
+                .await
+                .is_ok()
+            {
+                panic!($msg);
+            }
+        };
     }
 
     #[async_trait::async_trait()]
