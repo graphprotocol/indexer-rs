@@ -867,8 +867,8 @@ pub mod tests {
             unaggregated_receipts::UnaggregatedReceipts,
         },
         test::{
-            create_rav, create_received_receipt, store_invalid_receipt, store_rav, store_receipt,
-            INDEXER,
+            actors::TestableActor, create_rav, create_received_receipt, store_invalid_receipt,
+            store_rav, store_receipt, INDEXER,
         },
     };
 
@@ -896,7 +896,7 @@ pub mod tests {
         ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR, TAP_SENDER as SENDER,
         TAP_SIGNER as SIGNER,
     };
-    use tokio::sync::{mpsc, watch};
+    use tokio::sync::{mpsc, watch, Notify};
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockGuard, MockServer, Respond, ResponseTemplate,
@@ -1021,7 +1021,7 @@ pub mod tests {
         sender_aggregator_endpoint: String,
         escrow_subgraph_endpoint: &str,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
-    ) -> ActorRef<SenderAllocationMessage> {
+    ) -> (ActorRef<SenderAllocationMessage>, Arc<Notify>) {
         let args = create_sender_allocation_args(
             pgpool,
             sender_aggregator_endpoint,
@@ -1029,12 +1029,12 @@ pub mod tests {
             sender_account,
         )
         .await;
+        let actor = TestableActor::new(SenderAllocation);
+        let notify = actor.notify.clone();
 
-        let (allocation_ref, _join_handle) = SenderAllocation::spawn(None, SenderAllocation, args)
-            .await
-            .unwrap();
+        let (allocation_ref, _join_handle) = Actor::spawn(None, actor, args).await.unwrap();
 
-        allocation_ref
+        (allocation_ref, notify)
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1050,7 +1050,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        let sender_allocation = create_sender_allocation(
+        let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
             &mock_escrow_subgraph_server.uri(),
@@ -1094,7 +1094,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        let sender_allocation = create_sender_allocation(
+        let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
             &mock_escrow_subgraph_server.uri(),
@@ -1139,7 +1139,7 @@ pub mod tests {
         let (mut message_receiver, sender_account, _join_handle) =
             create_mock_sender_account().await;
 
-        let sender_allocation = create_sender_allocation(
+        let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
             &mock_escrow_subgraph_server.uri(),
@@ -1177,7 +1177,7 @@ pub mod tests {
         )
         .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        notify.notified().await;
 
         // should emit update aggregate fees message to sender account
         let expected_message = SenderAccountMessage::UpdateReceiptFees(
@@ -1247,7 +1247,7 @@ pub mod tests {
             create_mock_sender_account().await;
 
         // Create a sender_allocation.
-        let sender_allocation = create_sender_allocation(
+        let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
             "http://".to_owned() + &aggregator_endpoint.to_string(),
             &mock_server.uri(),
@@ -1260,7 +1260,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRAVRequest)
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        notify.notified().await;
 
         let total_unaggregated_fees = call!(
             sender_allocation,
@@ -1312,7 +1312,7 @@ pub mod tests {
             create_mock_sender_account().await;
 
         // create allocation
-        let sender_allocation = create_sender_allocation(
+        let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
             &mock_escrow_subgraph_server.uri(),
@@ -1321,7 +1321,6 @@ pub mod tests {
         .await;
 
         sender_allocation.stop_and_wait(None, None).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 
         // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
@@ -1400,11 +1399,10 @@ pub mod tests {
                 .unwrap();
         }
 
-        let (_last_message_emitted, sender_account, _join_handle) =
-            create_mock_sender_account().await;
+        let (_, sender_account, _) = create_mock_sender_account().await;
 
         // create allocation
-        let sender_allocation = create_sender_allocation(
+        let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
             aggregator_server.uri(),
             &mock_server.uri(),
@@ -1416,12 +1414,9 @@ pub mod tests {
 
         // should trigger rav request
         await_trigger.notified().await;
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         // check if rav request is made
         assert!(aggregator_server.received_requests().await.is_some());
-
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
@@ -1632,7 +1627,7 @@ pub mod tests {
             create_mock_sender_account().await;
 
         // Create a sender_allocation.
-        let sender_allocation = create_sender_allocation(
+        let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
             &mock_escrow_subgraph_server.uri(),
@@ -1646,7 +1641,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRAVRequest)
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        notify.notified().await;
 
         // If it is an error then rav request failed
 
@@ -1733,7 +1728,7 @@ pub mod tests {
         let (mut message_receiver, sender_account, _join_handle) =
             create_mock_sender_account().await;
 
-        let sender_allocation = create_sender_allocation(
+        let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
             "http://".to_owned() + &aggregator_endpoint.to_string(),
             &mock_server.uri(),
@@ -1741,14 +1736,13 @@ pub mod tests {
         )
         .await;
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         // Trigger a RAV request manually and wait for updated fees.
         // this should fail because there's no receipt with valid timestamp
         sender_allocation
             .cast(SenderAllocationMessage::TriggerRAVRequest)
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        notify.notified().await;
 
         // If it is an error then rav request failed
 
