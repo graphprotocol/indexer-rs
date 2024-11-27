@@ -183,15 +183,12 @@ pub async fn store_rav_with_options(
 }
 
 pub mod actors {
-    use std::{
-        sync::{Arc, Mutex},
-        time::Duration,
-    };
+    use std::{sync::Arc, time::Duration};
 
     use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
     use test_assets::{ALLOCATION_ID_0, TAP_SIGNER};
     use thegraph_core::Address;
-    use tokio::sync::{mpsc, Notify};
+    use tokio::sync::{mpsc, watch, Notify};
 
     use crate::agent::{
         sender_account::{ReceiptFees, SenderAccountMessage},
@@ -324,60 +321,45 @@ pub mod actors {
 
     pub struct MockSenderAllocation {
         triggered_rav_request: Arc<Notify>,
-        next_rav_value: Arc<Mutex<u128>>,
-        next_unaggregated_fees_value: Arc<Mutex<u128>>,
         sender_actor: Option<ActorRef<SenderAccountMessage>>,
 
+        next_rav_value: watch::Receiver<u128>,
+        next_unaggregated_fees_value: watch::Receiver<u128>,
         receipts: mpsc::Sender<NewReceiptNotification>,
     }
+
     impl MockSenderAllocation {
         pub fn new_with_triggered_rav_request(
             sender_actor: ActorRef<SenderAccountMessage>,
-        ) -> (Self, Arc<Notify>, Arc<Mutex<u128>>) {
+        ) -> (Self, Arc<Notify>, watch::Sender<u128>) {
             let triggered_rav_request = Arc::new(Notify::new());
-            let unaggregated_fees = Arc::new(Mutex::new(0));
+            let (unaggregated_fees, next_unaggregated_fees_value) = watch::channel(0);
             (
                 Self {
                     sender_actor: Some(sender_actor),
                     triggered_rav_request: triggered_rav_request.clone(),
                     receipts: mpsc::channel(1).0,
-                    next_rav_value: Arc::new(Mutex::new(0)),
-                    next_unaggregated_fees_value: unaggregated_fees.clone(),
+                    next_rav_value: watch::channel(0).1,
+                    next_unaggregated_fees_value,
                 },
                 triggered_rav_request,
                 unaggregated_fees,
             )
         }
 
-        pub fn new_with_next_unaggregated_fees_value(
-            sender_actor: ActorRef<SenderAccountMessage>,
-        ) -> (Self, Arc<Mutex<u128>>) {
-            let unaggregated_fees = Arc::new(Mutex::new(0));
-            (
-                Self {
-                    sender_actor: Some(sender_actor),
-                    triggered_rav_request: Arc::new(Notify::new()),
-                    receipts: mpsc::channel(1).0,
-                    next_rav_value: Arc::new(Mutex::new(0)),
-                    next_unaggregated_fees_value: unaggregated_fees.clone(),
-                },
-                unaggregated_fees,
-            )
-        }
-
         pub fn new_with_next_rav_value(
             sender_actor: ActorRef<SenderAccountMessage>,
-        ) -> (Self, Arc<Mutex<u128>>) {
-            let next_rav_value = Arc::new(Mutex::new(0));
+        ) -> (Self, watch::Sender<u128>) {
+            let (next_rav_value_sender, next_rav_value) = watch::channel(0);
             (
                 Self {
                     sender_actor: Some(sender_actor),
                     triggered_rav_request: Arc::new(Notify::new()),
                     receipts: mpsc::channel(1).0,
-                    next_rav_value: next_rav_value.clone(),
-                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
+                    next_rav_value,
+                    next_unaggregated_fees_value: watch::channel(0).1,
                 },
-                next_rav_value,
+                next_rav_value_sender,
             )
         }
 
@@ -389,8 +371,8 @@ pub mod actors {
                     sender_actor: None,
                     triggered_rav_request: Arc::new(Notify::new()),
                     receipts: tx,
-                    next_rav_value: Arc::new(Mutex::new(0)),
-                    next_unaggregated_fees_value: Arc::new(Mutex::new(0)),
+                    next_rav_value: watch::channel(0).1,
+                    next_unaggregated_fees_value: watch::channel(0).1,
                 },
                 rx,
             )
@@ -425,13 +407,13 @@ pub mod actors {
                             *ALLOCATION_ID_0,
                             TAP_SIGNER.0.clone(),
                             4,
-                            *self.next_rav_value.lock().unwrap(),
+                            *self.next_rav_value.borrow(),
                         );
                         sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
                             *ALLOCATION_ID_0,
                             ReceiptFees::RavRequestResponse((
                                 UnaggregatedReceipts {
-                                    value: *self.next_unaggregated_fees_value.lock().unwrap(),
+                                    value: *self.next_unaggregated_fees_value.borrow(),
                                     last_id: 0,
                                     counter: 0,
                                 },
@@ -456,7 +438,7 @@ pub mod actors {
         sender_actor: ActorRef<SenderAccountMessage>,
     ) -> (
         Arc<Notify>,
-        Arc<Mutex<u128>>,
+        watch::Sender<u128>,
         ActorRef<SenderAllocationMessage>,
     ) {
         let (mock_sender_allocation, triggered_rav_request, next_unaggregated_fees) =

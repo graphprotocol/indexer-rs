@@ -1105,9 +1105,9 @@ pub mod tests {
     const DUMMY_URL: &str = "http://localhost:1234";
     const TRIGGER_VALUE: u128 = 500;
     const ESCROW_VALUE: u128 = 1000;
-    const BUFFER_MS: u64 = 100;
+    const BUFFER_DURATION: Duration = Duration::from_millis(100);
     const RECEIPT_LIMIT: u64 = 10000;
-    const RETRY_DURATION: Duration = Duration::from_millis(10);
+    const RETRY_DURATION: Duration = Duration::from_millis(1000);
 
     async fn mock_escrow_subgraph() -> (MockServer, MockGuard) {
         let mock_ecrow_subgraph_server: MockServer = MockServer::start().await;
@@ -1141,7 +1141,7 @@ pub mod tests {
         Sender<EscrowAccounts>,
     ) {
         let config = Box::leak(Box::new(super::SenderAccountConfig {
-            rav_request_buffer: Duration::from_millis(BUFFER_MS),
+            rav_request_buffer: BUFFER_DURATION,
             max_amount_willing_to_lose_grt,
             trigger_value: rav_request_trigger_value,
             rav_request_timeout: Duration::default(),
@@ -1437,7 +1437,7 @@ pub mod tests {
             .unwrap();
 
         // wait the buffer
-        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
+        tokio::time::sleep(BUFFER_DURATION).await;
 
         assert_not_triggered(&triggered_rav_request).await;
     }
@@ -1475,7 +1475,7 @@ pub mod tests {
         assert_not_triggered(&triggered_rav_request).await;
 
         // wait for it to be outside buffer
-        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
+        tokio::time::sleep(BUFFER_DURATION).await;
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
@@ -1529,7 +1529,7 @@ pub mod tests {
         flush_messages(&notify).await;
 
         // wait for it to be outside buffer
-        tokio::time::sleep(Duration::from_millis(BUFFER_MS)).await;
+        tokio::time::sleep(BUFFER_DURATION).await;
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
@@ -1637,7 +1637,8 @@ pub mod tests {
 
         assert_not_triggered(&triggered_rav_request).await;
 
-        *next_value.lock().unwrap() = TRIGGER_VALUE;
+        next_value.send(TRIGGER_VALUE).unwrap();
+
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 *ALLOCATION_ID_0,
@@ -1850,9 +1851,11 @@ pub mod tests {
         update_receipt_fees!(half_escrow + 2);
         let deny = get_deny_status(&sender_account).await;
         assert!(deny);
+
         // trigger rav request
         // set the unnagregated fees to zero and the rav to the amount
-        *next_rav_value.lock().unwrap() = trigger_rav_request;
+        next_rav_value.send(trigger_rav_request).unwrap();
+
         update_receipt_fees!(trigger_rav_request);
 
         // receipt fees should already be 0, but we are setting to 0 again
@@ -2011,8 +2014,8 @@ pub mod tests {
         )
         .await;
 
-        let (mock_sender_allocation, next_unaggregated_fees) =
-            MockSenderAllocation::new_with_next_unaggregated_fees_value(sender_account.clone());
+        let (mock_sender_allocation, _, next_unaggregated_fees) =
+            MockSenderAllocation::new_with_triggered_rav_request(sender_account.clone());
 
         let name = format!("{}:{}:{}", prefix, SENDER.1, *ALLOCATION_ID_0);
         let (allocation, _) = MockSenderAllocation::spawn_linked(
@@ -2023,7 +2026,7 @@ pub mod tests {
         )
         .await
         .unwrap();
-        *next_unaggregated_fees.lock().unwrap() = TRIGGER_VALUE;
+        next_unaggregated_fees.send(TRIGGER_VALUE).unwrap();
 
         // set retry
         sender_account
