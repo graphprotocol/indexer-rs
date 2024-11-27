@@ -72,17 +72,6 @@ pub enum SenderAccountMessage {
     IsSchedulerEnabled(ractor::RpcReplyPort<bool>),
 }
 
-/// A SenderAccount manages the receipts accounting between the indexer and the sender across
-/// multiple allocations.
-///
-/// Manages the lifecycle of TAP for the SenderAccount, including:
-/// - Monitoring new receipts and keeping track of the cumulative unaggregated fees across
-///   allocations.
-/// - Requesting RAVs from the sender's TAP aggregator once the cumulative unaggregated fees reach a
-///   certain threshold.
-/// - Requesting the last RAV from the sender's TAP aggregator for all EOL allocations.
-pub struct SenderAccount;
-
 pub struct SenderAccountArgs {
     pub config: &'static SenderAccountConfig,
 
@@ -123,6 +112,32 @@ impl SenderAccountConfig {
             trigger_value: config.tap.get_trigger_value(),
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
         }
+    }
+}
+
+/// A SenderAccount manages the receipts accounting between the indexer and the sender across
+/// multiple allocations.
+///
+/// Manages the lifecycle of TAP for the SenderAccount, including:
+/// - Monitoring new receipts and keeping track of the cumulative unaggregated fees across
+///   allocations.
+/// - Requesting RAVs from the sender's TAP aggregator once the cumulative unaggregated fees reach a
+///   certain threshold.
+/// - Requesting the last RAV from the sender's TAP aggregator for all EOL allocations.
+pub struct SenderAccount;
+
+impl SenderAccount {
+    pub async fn deny_sender(pool: &sqlx::PgPool, sender: Address) {
+        sqlx::query!(
+            r#"
+                    INSERT INTO scalar_tap_denylist (sender_address)
+                    VALUES ($1) ON CONFLICT DO NOTHING
+                "#,
+            sender.encode_hex(),
+        )
+        .execute(pool)
+        .await
+        .expect("Should not fail to insert into denylist");
     }
 }
 
@@ -681,20 +696,5 @@ impl Actor for SenderAccount {
             _ => {}
         }
         Ok(())
-    }
-}
-
-impl SenderAccount {
-    pub async fn deny_sender(pool: &sqlx::PgPool, sender: Address) {
-        sqlx::query!(
-            r#"
-                    INSERT INTO scalar_tap_denylist (sender_address)
-                    VALUES ($1) ON CONFLICT DO NOTHING
-                "#,
-            sender.encode_hex(),
-        )
-        .execute(pool)
-        .await
-        .expect("Should not fail to insert into denylist");
     }
 }
