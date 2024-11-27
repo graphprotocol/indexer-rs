@@ -12,20 +12,20 @@ pub use tap::tap_receipt_authorize;
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::time::Duration;
 
     use axum::body::Body;
     use axum::http::{Request, Response};
     use reqwest::{header, StatusCode};
     use sqlx::PgPool;
     use tap_core::{manager::Manager, receipt::checks::CheckList};
-    use tokio::time::sleep;
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
     use crate::middleware::auth::{self, Bearer, OrExt};
     use crate::tap::IndexerTapContext;
-    use test_assets::{create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN};
+    use test_assets::{
+        assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
+    };
 
     const BEARER_TOKEN: &str = "test";
 
@@ -105,25 +105,13 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
 
         // verify receipts
-        if tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                let result = sqlx::query!("SELECT * FROM scalar_tap_receipts")
-                    .fetch_all(&pgpool)
-                    .await
-                    .unwrap();
-
-                if result.is_empty() {
-                    sleep(Duration::from_millis(50)).await;
-                } else {
-                    break;
-                }
-            }
-        })
-        .await
-        .is_err()
-        {
-            panic!("Timeout assertion");
-        }
+        assert_while_retry!({
+            let result = sqlx::query!("SELECT * FROM scalar_tap_receipts")
+                .fetch_all(&pgpool)
+                .await
+                .unwrap();
+            result.is_empty()
+        });
     }
 
     #[sqlx::test(migrations = "../../migrations")]

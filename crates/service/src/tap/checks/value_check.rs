@@ -53,6 +53,9 @@ pub struct MinimumValue {
     watcher_cancel_token: tokio_util::sync::CancellationToken,
     updated_at: GracePeriod,
     grace_period: Duration,
+
+    #[cfg(test)]
+    notify: std::sync::Arc<tokio::sync::Notify>,
 }
 
 struct CostModelWatcher {
@@ -61,6 +64,9 @@ struct CostModelWatcher {
     cost_models: CostModelMap,
     global_model: GlobalModel,
     updated_at: GracePeriod,
+
+    #[cfg(test)]
+    notify: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl CostModelWatcher {
@@ -71,12 +77,15 @@ impl CostModelWatcher {
         global_model: GlobalModel,
         cancel_token: tokio_util::sync::CancellationToken,
         grace_period: GracePeriod,
+        #[cfg(test)] notify: std::sync::Arc<tokio::sync::Notify>,
     ) {
         let cost_model_watcher = CostModelWatcher {
             pgpool,
             global_model,
             cost_models,
             updated_at: grace_period,
+            #[cfg(test)]
+            notify,
         };
 
         loop {
@@ -109,6 +118,8 @@ impl CostModelWatcher {
             // model cache.
             Err(_) => self.handle_unexpected_notification(payload).await,
         }
+        #[cfg(test)]
+        self.notify.notify_one();
     }
 
     fn handle_insert(&self, deployment: String, model: String, variables: String) {
@@ -200,6 +211,9 @@ impl MinimumValue {
                 'cost_models_update_notification'",
             );
 
+        #[cfg(test)]
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+
         let watcher_cancel_token = tokio_util::sync::CancellationToken::new();
         tokio::spawn(CostModelWatcher::cost_models_watcher(
             pgpool.clone(),
@@ -208,6 +222,8 @@ impl MinimumValue {
             global_model.clone(),
             watcher_cancel_token.clone(),
             updated_at.clone(),
+            #[cfg(test)]
+            notify.clone(),
         ));
         Self {
             global_model,
@@ -215,6 +231,8 @@ impl MinimumValue {
             watcher_cancel_token,
             updated_at,
             grace_period,
+            #[cfg(test)]
+            notify,
         }
     }
 
@@ -347,7 +365,7 @@ enum CostModelNotification {
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
-    use test_assets::{create_signed_receipt, SignedReceiptRequest};
+    use test_assets::{create_signed_receipt, flush_messages, SignedReceiptRequest};
 
     use sqlx::PgPool;
     use tap_core::receipt::{checks::Check, Context, ReceiptWithState};
@@ -388,7 +406,8 @@ mod tests {
         // insert 2 cost models for different deployment_id
         let test_models = test::test_data();
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
-        sleep(Duration::from_millis(200)).await;
+
+        flush_messages(&check.notify).await;
 
         assert_eq!(
             check.cost_model_map.read().unwrap().len(),
@@ -411,7 +430,7 @@ mod tests {
             .await
             .unwrap();
 
-        sleep(Duration::from_millis(200)).await;
+        check.notify.notified().await;
 
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
     }
@@ -431,7 +450,8 @@ mod tests {
 
         let global_model = global_cost_model();
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
-        sleep(Duration::from_millis(10)).await;
+
+        check.notify.notified().await;
 
         assert!(check.global_model.read().unwrap().is_some());
     }
@@ -449,7 +469,7 @@ mod tests {
             .await
             .unwrap();
 
-        sleep(Duration::from_millis(10)).await;
+        check.notify.notified().await;
 
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
     }
@@ -461,7 +481,9 @@ mod tests {
 
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
-        let check = MinimumValue::new(pgpool, Duration::from_secs(1)).await;
+        let grace_period = Duration::from_secs(1);
+
+        let check = MinimumValue::new(pgpool, grace_period).await;
 
         let deployment_id = test_models[0].deployment;
         let mut ctx = Context::new();
@@ -511,7 +533,7 @@ mod tests {
             "Should accept since its inside grace period "
         );
 
-        sleep(Duration::from_millis(1010)).await;
+        sleep(grace_period + Duration::from_millis(10)).await;
 
         assert!(
             check.check(&ctx, &receipt).await.is_err(),

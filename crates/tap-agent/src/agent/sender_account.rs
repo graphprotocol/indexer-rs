@@ -1032,9 +1032,7 @@ pub mod tests {
     use crate::agent::sender_account::ReceiptFees;
     use crate::agent::sender_allocation::SenderAllocationMessage;
     use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-    use crate::test::actors::{
-        create_mock_sender_allocation, flush_messages, MockSenderAllocation, TestableActor,
-    };
+    use crate::test::actors::{create_mock_sender_allocation, MockSenderAllocation, TestableActor};
     use crate::test::{create_rav, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR};
     use crate::{assert_not_triggered, assert_triggered};
 
@@ -1050,7 +1048,8 @@ pub mod tests {
     use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use test_assets::{
-        ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
+        flush_messages, ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER,
+        TAP_SIGNER as SIGNER,
     };
     use tokio::sync::watch::{self, Sender};
     use tokio::sync::Notify;

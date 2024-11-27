@@ -867,7 +867,7 @@ pub mod tests {
             unaggregated_receipts::UnaggregatedReceipts,
         },
         test::{
-            actors::{create_mock_sender_account, flush_messages, TestableActor},
+            actors::{create_mock_sender_account, TestableActor},
             create_rav, create_received_receipt, store_invalid_receipt, store_rav, store_receipt,
             INDEXER,
         },
@@ -892,8 +892,8 @@ pub mod tests {
         Context, ReceiptWithState,
     };
     use test_assets::{
-        ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR, TAP_SENDER as SENDER,
-        TAP_SIGNER as SIGNER,
+        flush_messages, ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
+        TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
     use tokio::sync::{watch, Notify};
     use wiremock::{

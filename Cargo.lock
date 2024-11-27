@@ -6806,6 +6806,7 @@ dependencies = [
  "lazy_static",
  "tap_core",
  "thegraph-core",
+ "tokio",
  "typed-builder",
 ]
 

@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, time::Duration};
 
 use alloy::{
     dyn_abi::Eip712Domain,
@@ -18,7 +18,42 @@ use tap_core::{
 use thegraph_core::{Address, DeploymentId};
 
 use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
+use tokio::sync::Notify;
 use typed_builder::TypedBuilder;
+
+/// Assert something is true while sleeping and retrying
+///
+/// This macro creates a loop that keeps retrying the expression
+/// by default every 50 milliseconds.
+/// In case, the assertion is not true after the timeout period
+/// (default to 1 second), this macro panics
+#[macro_export]
+macro_rules! assert_while_retry {
+    ($assertion:expr) => {
+        assert_while_retry!(
+            $assertion,
+            "Assertion was not true while retrying every 50 milliseconds up to 1 second.",
+            std::time::Duration::from_secs(1),
+            std::time::Duration::from_millis(50)
+        );
+    };
+    ($assertion:expr, $msg:expr, $timeout:expr, $sleep:expr) => {
+        if tokio::time::timeout($timeout, async {
+            loop {
+                if $assertion {
+                    tokio::time::sleep($sleep).await;
+                } else {
+                    break;
+                }
+            }
+        })
+        .await
+        .is_err()
+        {
+            panic!($msg);
+        }
+    };
+}
 
 /// The allocation IDs below are generated using the mnemonic
 /// "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
@@ -320,4 +355,15 @@ pub async fn create_signed_receipt(
         wallet,
     )
     .unwrap()
+}
+
+pub async fn flush_messages(notify: &Notify) {
+    loop {
+        if tokio::time::timeout(Duration::from_millis(10), notify.notified())
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
 }

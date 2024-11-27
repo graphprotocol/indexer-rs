@@ -77,8 +77,7 @@ mod tests {
 
     use core::panic;
     use rstest::*;
-    use std::{sync::Arc, time::Duration};
-    use tokio::time::sleep;
+    use std::sync::Arc;
     use tower::{Service, ServiceBuilder, ServiceExt};
 
     use axum::{
@@ -96,7 +95,9 @@ mod tests {
             ReceiptWithState,
         },
     };
-    use test_assets::{create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN};
+    use test_assets::{
+        assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
+    };
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
     use crate::{
@@ -181,25 +182,13 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
 
         // verify receipts
-        if tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                let result = sqlx::query!("SELECT * FROM scalar_tap_receipts")
-                    .fetch_all(&pgpool)
-                    .await
-                    .unwrap();
-
-                if result.is_empty() {
-                    sleep(Duration::from_millis(50)).await;
-                } else {
-                    break;
-                }
-            }
+        assert_while_retry!({
+            sqlx::query!("SELECT * FROM scalar_tap_receipts")
+                .fetch_all(&pgpool)
+                .await
+                .unwrap()
+                .is_empty()
         })
-        .await
-        .is_err()
-        {
-            panic!("Timeout assertion");
-        }
     }
 
     #[rstest]
