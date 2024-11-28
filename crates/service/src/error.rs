@@ -1,6 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::convert::Infallible;
+
 use anyhow::Error;
 use axum::{
     response::{IntoResponse, Response},
@@ -9,6 +11,8 @@ use axum::{
 use indexer_monitor::EscrowAccountsError;
 use reqwest::StatusCode;
 use serde::Serialize;
+use tap_core::receipt::ReceiptError;
+use tap_core::Error as TapError;
 use thegraph_core::DeploymentId;
 use thiserror::Error;
 
@@ -25,31 +29,37 @@ pub enum IndexerServiceError {
     SerializationError(#[from] serde_json::Error),
 
     #[error("Issues with provided receipt: {0}")]
-    ReceiptError(#[from] tap_core::Error),
-
+    TapCoreError(#[from] tap_core::Error),
     #[error("There was an error while accessing escrow account: {0}")]
     EscrowAccount(#[from] EscrowAccountsError),
 }
 
+impl StatusCodeExt for IndexerServiceError {
+    fn status_code(&self) -> StatusCode {
+        use IndexerServiceError as E;
+        match &self {
+            E::TapCoreError(ref error) => match error {
+                TapError::SignatureError(_)
+                | TapError::ReceiptError(ReceiptError::CheckFailure(_)) => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            },
+            E::EscrowAccount(_) | E::ReceiptNotFound => StatusCode::PAYMENT_REQUIRED,
+            E::DeploymentIdNotFound => StatusCode::INTERNAL_SERVER_ERROR,
+            E::AxumError(_) | E::SerializationError(_) => StatusCode::BAD_GATEWAY,
+        }
+    }
+}
+
 impl IntoResponse for IndexerServiceError {
     fn into_response(self) -> Response {
-        use IndexerServiceError::*;
-
         #[derive(Serialize)]
         struct ErrorResponse {
             message: String,
         }
 
-        let status = match self {
-            ReceiptError(_) | EscrowAccount(_) => StatusCode::BAD_REQUEST,
-            ReceiptNotFound => StatusCode::PAYMENT_REQUIRED,
-            DeploymentIdNotFound => StatusCode::INTERNAL_SERVER_ERROR,
-            AxumError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            SerializationError(_) => StatusCode::BAD_REQUEST,
-        };
         tracing::error!(%self, "An IndexerServiceError occoured.");
         (
-            status,
+            self.status_code(),
             Json(ErrorResponse {
                 message: self.to_string(),
             }),
@@ -72,15 +82,14 @@ pub enum SubgraphServiceError {
     QueryForwardingError(reqwest::Error),
 }
 
-impl From<&SubgraphServiceError> for StatusCode {
-    fn from(err: &SubgraphServiceError) -> Self {
+impl StatusCodeExt for SubgraphServiceError {
+    fn status_code(&self) -> StatusCode {
         use SubgraphServiceError::*;
-        match err {
-            InvalidStatusQuery(_) => StatusCode::BAD_REQUEST,
-            UnsupportedStatusQueryFields(_) => StatusCode::BAD_REQUEST,
-            StatusQueryError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            InvalidDeployment(_) => StatusCode::BAD_REQUEST,
-            QueryForwardingError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        match self {
+            InvalidStatusQuery(_) | UnsupportedStatusQueryFields(_) => StatusCode::BAD_REQUEST,
+            InvalidDeployment(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            StatusQueryError(_) => StatusCode::BAD_GATEWAY,
+            QueryForwardingError(_) => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 }
@@ -88,6 +97,35 @@ impl From<&SubgraphServiceError> for StatusCode {
 // Tell axum how to convert `SubgraphServiceError` into a response.
 impl IntoResponse for SubgraphServiceError {
     fn into_response(self) -> Response {
-        (StatusCode::from(&self), self.to_string()).into_response()
+        (self.status_code(), self.to_string()).into_response()
+    }
+}
+
+pub trait StatusCodeExt {
+    fn status_code(&self) -> StatusCode;
+}
+
+impl<T> StatusCodeExt for Response<T> {
+    fn status_code(&self) -> StatusCode {
+        self.status()
+    }
+}
+
+impl<T, E> StatusCodeExt for Result<T, E>
+where
+    T: StatusCodeExt,
+    E: StatusCodeExt,
+{
+    fn status_code(&self) -> StatusCode {
+        match self {
+            Ok(t) => t.status_code(),
+            Err(e) => e.status_code(),
+        }
+    }
+}
+
+impl StatusCodeExt for Infallible {
+    fn status_code(&self) -> StatusCode {
+        unreachable!()
     }
 }

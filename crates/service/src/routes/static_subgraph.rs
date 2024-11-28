@@ -33,11 +33,20 @@ pub enum StaticSubgraphError {
     FailedToParse(#[from] reqwest::Error),
 }
 
+impl From<&StaticSubgraphError> for StatusCode {
+    fn from(value: &StaticSubgraphError) -> Self {
+        match value {
+            StaticSubgraphError::FailedToQuery(_) => StatusCode::SERVICE_UNAVAILABLE,
+            StaticSubgraphError::FailedToParse(_) => StatusCode::BAD_GATEWAY,
+        }
+    }
+}
+
 impl IntoResponse for StaticSubgraphError {
     fn into_response(self) -> axum::response::Response {
         tracing::error!(%self, "StaticSubgraphError occoured.");
         (
-            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::from(&self),
             Json(json! {{
                 "message": self.to_string(),
             }}),

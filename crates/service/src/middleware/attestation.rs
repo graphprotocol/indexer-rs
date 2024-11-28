@@ -15,6 +15,8 @@ use thegraph_core::Attestation;
 
 use indexer_attestation::AttestationSigner;
 
+use crate::error::StatusCodeExt;
+
 #[derive(Clone)]
 pub enum AttestationInput {
     Attestable { req: String },
@@ -83,15 +85,20 @@ pub enum AttestationError {
     SerializationError(#[from] serde_json::Error),
 }
 
+impl StatusCodeExt for AttestationError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            AttestationError::CouldNotFindSigner => StatusCode::INTERNAL_SERVER_ERROR,
+            AttestationError::AxumError(_)
+            | AttestationError::FromUtf8Error(_)
+            | AttestationError::SerializationError(_) => StatusCode::BAD_GATEWAY,
+        }
+    }
+}
+
 impl IntoResponse for AttestationError {
     fn into_response(self) -> Response {
-        match self {
-            AttestationError::CouldNotFindSigner
-            | AttestationError::AxumError(_)
-            | AttestationError::FromUtf8Error(_)
-            | AttestationError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        }
-        .into_response()
+        self.status_code().into_response()
     }
 }
 
