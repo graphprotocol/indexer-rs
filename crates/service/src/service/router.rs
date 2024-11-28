@@ -295,7 +295,17 @@ impl ServiceRouter {
                 ))
             };
 
+            let attestation_state = AttestationState {
+                attestation_signers,
+            };
+
             let mut handler = post(request_handler);
+
+            handler = handler
+                // create attestation
+                .route_layer(from_fn(attestation_middleware))
+                // inject signer
+                .route_layer(from_fn_with_state(attestation_state, signer_middleware));
 
             // inject auth
             let failed_receipt_metric = Box::leak(Box::new(FAILED_RECEIPT.clone()));
@@ -319,9 +329,6 @@ impl ServiceRouter {
                 escrow_accounts,
                 domain_separator: self.domain_separator,
             };
-            let attestation_state = AttestationState {
-                attestation_signers,
-            };
 
             let service_builder = ServiceBuilder::new()
                 // inject deployment id
@@ -340,11 +347,7 @@ impl ServiceRouter {
                     HANDLER_FAILURE.clone(),
                 ))
                 // tap context
-                .layer(from_fn(context_middleware))
-                // inject signer
-                .layer(from_fn_with_state(attestation_state, signer_middleware))
-                // create attestation
-                .layer(from_fn(attestation_middleware));
+                .layer(from_fn(context_middleware));
 
             handler.route_layer(service_builder)
         };
