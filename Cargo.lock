@@ -3723,6 +3723,7 @@ dependencies = [
  "tap_core",
  "tempfile",
  "test-assets",
+ "test-log",
  "thegraph-core",
  "thiserror",
  "tokio",
