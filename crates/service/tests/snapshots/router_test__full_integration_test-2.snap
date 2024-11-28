@@ -1,0 +1,6 @@
+---
+source: crates/service/tests/router_test.rs
+expression: res
+snapshot_kind: text
+---
+{"message":"No Tap receipt was found in the request"}

@@ -18,7 +18,7 @@ use test_assets::{
     create_signed_receipt, SignedReceiptRequest, INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN,
 };
 use tokio::sync::watch;
-use tower::ServiceExt;
+use tower::Service;
 use wiremock::{
     matchers::{method, path},
     Mock, MockServer, ResponseTemplate,
@@ -95,7 +95,7 @@ async fn full_integration_test(database: PgPool) {
         .allocations(allocations)
         .build();
 
-    let app = router.create_router().await.unwrap();
+    let mut app = router.create_router().await.unwrap();
 
     let receipt = create_signed_receipt(
         SignedReceiptRequest::builder()
@@ -118,8 +118,25 @@ async fn full_integration_test(database: PgPool) {
         .unwrap();
 
     // with deployment
-    let res = app.oneshot(request).await.unwrap();
+    let res = app.call(request).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
+
+    let graphql_response = res.into_body();
+    let bytes = to_bytes(graphql_response, usize::MAX).await.unwrap();
+    let res = String::from_utf8(bytes.into()).unwrap();
+
+    insta::assert_snapshot!(res);
+
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/subgraphs/id/{deployment}"))
+        .body(serde_json::to_string(&query).unwrap())
+        .unwrap();
+
+    // without tap receipt
+    let res = app.call(request).await.unwrap();
+
+    assert_eq!(res.status(), StatusCode::PAYMENT_REQUIRED);
 
     let graphql_response = res.into_body();
     let bytes = to_bytes(graphql_response, usize::MAX).await.unwrap();
