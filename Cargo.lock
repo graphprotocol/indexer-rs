@@ -3722,6 +3722,7 @@ dependencies = [
  "tap_aggregator",
  "tap_core",
  "tempfile",
+ "test-assets",
  "thegraph-core",
  "thiserror",
  "tokio",
@@ -6805,6 +6806,7 @@ dependencies = [
  "lazy_static",
  "tap_core",
  "thegraph-core",
+ "tokio",
  "typed-builder",
 ]
 

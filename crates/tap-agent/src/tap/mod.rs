@@ -8,9 +8,6 @@ use tokio::sync::watch::Receiver;
 
 pub mod context;
 
-#[cfg(test)]
-pub mod test_utils;
-
 pub async fn signers_trimmed(
     escrow_accounts_rx: Receiver<EscrowAccounts>,
     sender: Address,

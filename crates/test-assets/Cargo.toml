@@ -11,3 +11,4 @@ lazy_static.workspace = true
 tap_core.workspace = true
 thegraph-core.workspace = true
 typed-builder.workspace = true
+tokio.workspace = true

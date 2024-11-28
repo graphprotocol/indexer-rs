@@ -584,25 +584,28 @@ mod tests {
         new_receipts_watcher, SenderAccountsManager, SenderAccountsManagerArgs,
         SenderAccountsManagerMessage, State,
     };
-    use crate::agent::sender_account::tests::{MockSenderAllocation, PREFIX_ID};
+    use crate::agent::sender_account::tests::PREFIX_ID;
     use crate::agent::sender_account::{SenderAccountConfig, SenderAccountMessage};
     use crate::agent::sender_accounts_manager::{handle_notification, NewReceiptNotification};
-    use crate::agent::sender_allocation::tests::MockSenderAccount;
-    use crate::tap::test_utils::{
+    use crate::test::actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor};
+    use crate::test::{
         create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
-        ALLOCATION_ID_1, INDEXER, SENDER, SENDER_2, SENDER_3, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+        ALLOCATION_ID_1, INDEXER, SENDER_2, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
     };
     use alloy::hex::ToHexExt;
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
     use ractor::concurrency::JoinHandle;
-    use ractor::{Actor, ActorProcessingErr, ActorRef};
+    use ractor::{Actor, ActorRef};
     use reqwest::Url;
     use ruint::aliases::U256;
     use sqlx::postgres::PgListener;
     use sqlx::PgPool;
     use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
     use std::time::Duration;
-    use tokio::sync::{mpsc, watch};
+    use test_assets::{flush_messages, TAP_SENDER as SENDER};
+    use tokio::sync::mpsc::error::TryRecvError;
+    use tokio::sync::{mpsc, watch, Notify};
 
     const DUMMY_URL: &str = "http://localhost:1234";
 
@@ -633,6 +636,7 @@ mod tests {
         pgpool: PgPool,
     ) -> (
         String,
+        Arc<Notify>,
         (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>),
     ) {
         let config = get_config();
@@ -661,17 +665,18 @@ mod tests {
             ]),
             prefix: Some(prefix.clone()),
         };
+        let actor = TestableActor::new(SenderAccountsManager);
+        let notify = actor.notify.clone();
         (
             prefix,
-            SenderAccountsManager::spawn(None, SenderAccountsManager, args)
-                .await
-                .unwrap(),
+            notify,
+            Actor::spawn(None, actor, args).await.unwrap(),
         )
     }
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_create_sender_accounts_manager(pgpool: PgPool) {
-        let (_, (actor, join_handle)) = create_sender_accounts_manager(pgpool).await;
+        let (_, _, (actor, join_handle)) = create_sender_accounts_manager(pgpool).await;
         actor.stop_and_wait(None, None).await.unwrap();
         join_handle.await.unwrap();
     }
@@ -733,7 +738,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_sender_allocation(pgpool: PgPool) {
-        let (prefix, (actor, join_handle)) = create_sender_accounts_manager(pgpool).await;
+        let (prefix, notify, (actor, join_handle)) = create_sender_accounts_manager(pgpool).await;
 
         actor
             .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
@@ -741,7 +746,7 @@ mod tests {
             ))
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        flush_messages(&notify).await;
 
         // verify if create sender account
         let actor_ref =
@@ -754,7 +759,7 @@ mod tests {
             ))
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        flush_messages(&notify).await;
         // verify if it gets removed
         let actor_ref =
             ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER.1));
@@ -767,72 +772,27 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_create_sender_account(pgpool: PgPool) {
-        struct DummyActor;
-        #[async_trait::async_trait]
-        impl Actor for DummyActor {
-            type Msg = ();
-            type State = ();
-            type Arguments = ();
-
-            async fn pre_start(
-                &self,
-                _: ActorRef<Self::Msg>,
-                _: Self::Arguments,
-            ) -> Result<Self::State, ActorProcessingErr> {
-                Ok(())
-            }
-        }
-
         let (prefix, state) = create_state(pgpool.clone()).await;
-        let (supervisor, handle) = DummyActor::spawn(None, DummyActor, ()).await.unwrap();
+        let supervisor = DummyActor::spawn().await;
         // we wait to check if the sender is created
-
         state
             .create_sender_account(supervisor.get_cell(), SENDER_2.1, HashSet::new())
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-
         let actor_ref =
             ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER_2.1));
         assert!(actor_ref.is_some());
-
-        supervisor.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_deny_sender_account_on_failure(pgpool: PgPool) {
-        struct DummyActor;
-        #[async_trait::async_trait]
-        impl Actor for DummyActor {
-            type Msg = ();
-            type State = ();
-            type Arguments = ();
-
-            async fn pre_start(
-                &self,
-                _: ActorRef<Self::Msg>,
-                _: Self::Arguments,
-            ) -> Result<Self::State, ActorProcessingErr> {
-                Ok(())
-            }
-        }
-
         let (_prefix, state) = create_state(pgpool.clone()).await;
-        let (supervisor, handle) = DummyActor::spawn(None, DummyActor, ()).await.unwrap();
-        // we wait to check if the sender is created
-
-        let sender_id = SENDER_3.1;
+        let supervisor = DummyActor::spawn().await;
 
         state
-            .create_or_deny_sender(supervisor.get_cell(), sender_id, HashSet::new())
+            .create_or_deny_sender(supervisor.get_cell(), INDEXER.1, HashSet::new())
             .await;
-
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-
-        // TODO check if sender is denied
 
         let denied = sqlx::query!(
             r#"
@@ -842,7 +802,7 @@ mod tests {
                     WHERE sender_address = $1
                 ) as denied
             "#,
-            sender_id.encode_hex(),
+            INDEXER.1.encode_hex(),
         )
         .fetch_one(&pgpool)
         .await
@@ -851,28 +811,27 @@ mod tests {
         .expect("Deny status cannot be null");
 
         assert!(denied, "Sender was not denied after failing.");
-
-        supervisor.stop_and_wait(None, None).await.unwrap();
-        handle.await.unwrap();
     }
 
     #[sqlx::test(migrations = "../../migrations")]
-    async fn test_receive_notifications_(pgpool: PgPool) {
+    async fn test_receive_notifications(pgpool: PgPool) {
         let prefix = format!(
             "test-{}",
             PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         );
         // create dummy allocation
 
-        let (mock_sender_allocation, receipts) = MockSenderAllocation::new_with_receipts();
-        let _ = MockSenderAllocation::spawn(
+        let (mock_sender_allocation, mut receipts) = MockSenderAllocation::new_with_receipts();
+        let actor = TestableActor::new(mock_sender_allocation);
+        let notify = actor.notify.clone();
+        let _ = Actor::spawn(
             Some(format!(
                 "{}:{}:{}",
                 prefix.clone(),
                 SENDER.1,
                 *ALLOCATION_ID_0
             )),
-            mock_sender_allocation,
+            actor,
             (),
         )
         .await
@@ -902,22 +861,23 @@ mod tests {
             Some(prefix.clone()),
         ));
 
+        let receipts_count = 10;
         // add receipts to the database
-        for i in 1..=10 {
+        for i in 1..=receipts_count {
             let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
             store_receipt(&pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
         }
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        flush_messages(&notify).await;
 
         // check if receipt notification was sent to the allocation
-        let receipts = receipts.lock().unwrap();
-        assert_eq!(receipts.len(), 10);
-        for (i, receipt) in receipts.iter().enumerate() {
-            assert_eq!((i + 1) as u64, receipt.id);
+        for i in 1..=receipts_count {
+            let receipt = receipts.recv().await.unwrap();
+
+            assert_eq!(i, receipt.id);
         }
+        assert_eq!(receipts.try_recv().unwrap_err(), TryRecvError::Empty);
 
         new_receipts_watcher_handle.abort();
     }
@@ -956,8 +916,6 @@ mod tests {
         handle_notification(new_receipt_notification, escrow_accounts, Some(&prefix))
             .await
             .unwrap();
-
-        tokio::time::sleep(Duration::from_millis(10)).await;
 
         assert_eq!(
             rx.recv().await.unwrap(),

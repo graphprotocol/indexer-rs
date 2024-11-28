@@ -22,3 +22,6 @@ pub mod database;
 pub mod metrics;
 pub mod tap;
 pub mod tracker;
+
+#[cfg(test)]
+pub mod test;

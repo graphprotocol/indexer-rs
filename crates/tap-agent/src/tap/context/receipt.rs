@@ -193,22 +193,22 @@ impl ReceiptDelete for TapAgentContext {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::tap::test_utils::{
-        create_received_receipt, store_receipt, wallet, ALLOCATION_ID_0, SENDER, SIGNER,
-        TAP_EIP712_DOMAIN_SEPARATOR,
-    };
+    use crate::test::{create_received_receipt, store_receipt, SENDER_2};
     use alloy::{primitives::U256, signers::local::PrivateKeySigner};
     use anyhow::Result;
     use indexer_monitor::EscrowAccounts;
     use lazy_static::lazy_static;
     use sqlx::PgPool;
     use std::collections::HashMap;
+    use test_assets::{
+        ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
+        TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
+    };
     use tokio::sync::watch::{self, Receiver};
 
     lazy_static! {
-        pub static ref SENDER_IRRELEVANT: (PrivateKeySigner, Address) = wallet(1);
-        pub static ref ALLOCATION_ID_IRRELEVANT: Address =
-            Address::from_str("0xbcdebcdebcdebcdebcdebcdebcdebcdebcdebcde").unwrap();
+        static ref SENDER_IRRELEVANT: (PrivateKeySigner, Address) = SENDER_2.clone();
+        static ref ALLOCATION_ID_IRRELEVANT: Address = *ALLOCATION_ID_1;
     }
 
     /// Insert a single receipt and retrieve it from the database using the adapter.

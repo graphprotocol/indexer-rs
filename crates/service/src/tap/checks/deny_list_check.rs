@@ -20,6 +20,9 @@ pub struct DenyListCheck {
     sender_denylist: Arc<RwLock<HashSet<Address>>>,
     _sender_denylist_watcher_handle: Arc<tokio::task::JoinHandle<()>>,
     sender_denylist_watcher_cancel_token: tokio_util::sync::CancellationToken,
+
+    #[cfg(test)]
+    notify: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl DenyListCheck {
@@ -41,17 +44,24 @@ impl DenyListCheck {
             .await
             .expect("should be able to fetch the sender_denylist from the DB on startup");
 
+        #[cfg(test)]
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+
         let sender_denylist_watcher_cancel_token = tokio_util::sync::CancellationToken::new();
         let sender_denylist_watcher_handle = Arc::new(tokio::spawn(Self::sender_denylist_watcher(
             pgpool.clone(),
             pglistener,
             sender_denylist.clone(),
             sender_denylist_watcher_cancel_token.clone(),
+            #[cfg(test)]
+            notify.clone(),
         )));
         Self {
             sender_denylist,
             _sender_denylist_watcher_handle: sender_denylist_watcher_handle,
             sender_denylist_watcher_cancel_token,
+            #[cfg(test)]
+            notify,
         }
     }
 
@@ -81,6 +91,7 @@ impl DenyListCheck {
         mut pglistener: PgListener,
         denylist: Arc<RwLock<HashSet<Address>>>,
         cancel_token: tokio_util::sync::CancellationToken,
+        #[cfg(test)] notify: std::sync::Arc<tokio::sync::Notify>,
     ) {
         #[derive(serde::Deserialize)]
         struct DenylistNotification {
@@ -132,6 +143,8 @@ impl DenyListCheck {
                                 .expect("should be able to reload the sender denylist")
                         }
                     }
+                    #[cfg(test)]
+                    notify.notify_one();
                 }
             }
         }
@@ -246,8 +259,9 @@ mod tests {
         .await
         .unwrap();
 
+        deny_list_check.notify.notified().await;
+
         // Check that the receipt is rejected
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(deny_list_check
             .check(&ctx, &checking_receipt)
             .await
@@ -265,11 +279,9 @@ mod tests {
         .await
         .unwrap();
 
+        deny_list_check.notify.notified().await;
+
         // Check that the receipt is valid again
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        deny_list_check
-            .check(&ctx, &checking_receipt)
-            .await
-            .unwrap();
+        assert!(deny_list_check.check(&ctx, &checking_receipt).await.is_ok());
     }
 }

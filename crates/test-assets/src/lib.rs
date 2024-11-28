@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, time::Duration};
 
 use alloy::{
     dyn_abi::Eip712Domain,
@@ -18,7 +18,42 @@ use tap_core::{
 use thegraph_core::{Address, DeploymentId};
 
 use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
+use tokio::sync::Notify;
 use typed_builder::TypedBuilder;
+
+/// Assert something is true while sleeping and retrying
+///
+/// This macro creates a loop that keeps retrying the expression
+/// by default every 50 milliseconds.
+/// In case, the assertion is not true after the timeout period
+/// (default to 1 second), this macro panics
+#[macro_export]
+macro_rules! assert_while_retry {
+    ($assertion:expr) => {
+        assert_while_retry!(
+            $assertion,
+            "Assertion was not true while retrying every 50 milliseconds up to 1 second.",
+            std::time::Duration::from_secs(1),
+            std::time::Duration::from_millis(50)
+        );
+    };
+    ($assertion:expr, $msg:expr, $timeout:expr, $sleep:expr) => {
+        if tokio::time::timeout($timeout, async {
+            loop {
+                if $assertion {
+                    tokio::time::sleep($sleep).await;
+                } else {
+                    break;
+                }
+            }
+        })
+        .await
+        .is_err()
+        {
+            panic!($msg);
+        }
+    };
+}
 
 /// The allocation IDs below are generated using the mnemonic
 /// "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
@@ -89,13 +124,28 @@ lazy_static! {
     pub static ref DISPUTE_MANAGER_ADDRESS: Address =
         Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap();
 
+
+    pub static ref ALLOCATION_ID_0: Address =
+        Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap();
+
+    pub static ref ALLOCATION_ID_1: Address =
+        Address::from_str("0xdd975e30aafebb143e54d215db8a3e8fd916a701").unwrap();
+
+    pub static ref ALLOCATION_ID_2: Address =
+        Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap();
+
+    pub static ref ALLOCATION_ID_3: Address =
+        Address::from_str("0x69f961358846fdb64b04e1fd7b2701237c13cd9a").unwrap();
+
+
+
     /// These are the expected json-serialized contents of the value returned by
     /// AllocationMonitor::current_eligible_allocations with the values above at epoch threshold 940.
     pub static ref INDEXER_ALLOCATIONS: HashMap<Address, Allocation> = HashMap::from([
         (
-            Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap(),
+            *ALLOCATION_ID_0,
             Allocation {
-                id: Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap(),
+                id: *ALLOCATION_ID_0,
                 indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
                 allocated_tokens: U256::from_str("5081382841000000014901161").unwrap(),
                 created_at_block_hash:
@@ -117,9 +167,9 @@ lazy_static! {
             },
         ),
         (
-            Address::from_str("0xdd975e30aafebb143e54d215db8a3e8fd916a701").unwrap(),
+            *ALLOCATION_ID_1,
             Allocation {
-                id: Address::from_str("0xdd975e30aafebb143e54d215db8a3e8fd916a701").unwrap(),
+                id: *ALLOCATION_ID_1,
                 indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
                 allocated_tokens: U256::from_str("601726452999999979510903").unwrap(),
                 created_at_block_hash:
@@ -141,9 +191,9 @@ lazy_static! {
             },
         ),
         (
-            Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap(),
+            *ALLOCATION_ID_2,
             Allocation {
-                id: Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap(),
+                id: *ALLOCATION_ID_2,
                 indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
                 allocated_tokens: U256::from_str("5247998688000000081956387").unwrap(),
                 created_at_block_hash:
@@ -165,9 +215,9 @@ lazy_static! {
             },
         ),
         (
-            Address::from_str("0x69f961358846fdb64b04e1fd7b2701237c13cd9a").unwrap(),
+            *ALLOCATION_ID_3,
             Allocation {
-                id: Address::from_str("0x69f961358846fdb64b04e1fd7b2701237c13cd9a").unwrap(),
+                id: *ALLOCATION_ID_3,
                 indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
                 allocated_tokens: U256::from_str("2502334654999999795109034").unwrap(),
                 created_at_block_hash:
@@ -305,4 +355,15 @@ pub async fn create_signed_receipt(
         wallet,
     )
     .unwrap()
+}
+
+pub async fn flush_messages(notify: &Notify) {
+    loop {
+        if tokio::time::timeout(Duration::from_millis(10), notify.notified())
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
 }
