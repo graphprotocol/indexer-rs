@@ -5,14 +5,16 @@
 
 use axum::http::Request;
 use pin_project::pin_project;
-use prometheus::HistogramTimer;
 use std::{
     future::Future,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
+    time::Instant,
 };
 use tower::{Layer, Service};
+
+use crate::error::StatusCodeExt;
 
 pub type MetricLabels = Arc<dyn MetricLabelProvider + 'static + Send + Sync>;
 
@@ -25,7 +27,6 @@ pub trait MetricLabelProvider {
 pub struct PrometheusMetricsMiddleware<S> {
     inner: S,
     histogram: prometheus::HistogramVec,
-    failure: prometheus::CounterVec,
 }
 
 /// MetricsMiddleware used in tower components
@@ -35,13 +36,11 @@ pub struct PrometheusMetricsMiddleware<S> {
 pub struct PrometheusMetricsMiddlewareLayer {
     /// Histogram used to register the processing timer
     histogram: prometheus::HistogramVec,
-    /// Counter metric in case of failure
-    failure: prometheus::CounterVec,
 }
 
 impl PrometheusMetricsMiddlewareLayer {
-    pub fn new(histogram: prometheus::HistogramVec, failure: prometheus::CounterVec) -> Self {
-        Self { histogram, failure }
+    pub fn new(histogram: prometheus::HistogramVec) -> Self {
+        Self { histogram }
     }
 }
 
@@ -52,7 +51,6 @@ impl<S> Layer<S> for PrometheusMetricsMiddlewareLayer {
         PrometheusMetricsMiddleware {
             inner,
             histogram: self.histogram.clone(),
-            failure: self.failure.clone(),
         }
     }
 }
@@ -61,6 +59,7 @@ impl<S, ReqBody> Service<Request<ReqBody>> for PrometheusMetricsMiddleware<S>
 where
     S: Service<Request<ReqBody>> + Clone + 'static,
     ReqBody: 'static,
+    Result<S::Response, S::Error>: StatusCodeExt,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -75,7 +74,6 @@ where
         PrometheusMetricsFuture {
             timer: None,
             histogram: self.histogram.clone(),
-            failure: self.failure.clone(),
             labels,
             fut: self.inner.call(request),
         }
@@ -85,46 +83,45 @@ where
 #[pin_project]
 pub struct PrometheusMetricsFuture<F> {
     /// Instant at which we started the requst.
-    timer: Option<HistogramTimer>,
+    timer: Option<Instant>,
 
     histogram: prometheus::HistogramVec,
-    failure: prometheus::CounterVec,
-
     labels: Option<MetricLabels>,
 
     #[pin]
     fut: F,
 }
 
-impl<F, R, E> Future for PrometheusMetricsFuture<F>
+impl<F, T> Future for PrometheusMetricsFuture<F>
 where
-    F: Future<Output = Result<R, E>>,
+    F: Future<Output = T>,
+    T: StatusCodeExt,
 {
     type Output = F::Output;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
-        let Some(labels) = &this.labels else {
+        let Some(labels) = this.labels else {
             return this.fut.poll(cx);
         };
 
         if this.timer.is_none() {
             // Start timer so we can track duration of request.
-            let duration_metric = this.histogram.with_label_values(&labels.get_labels());
-            *this.timer = Some(duration_metric.start_timer());
+            *this.timer = Some(Instant::now());
         }
 
         match this.fut.poll(cx) {
             Poll::Ready(result) => {
-                if result.is_err() {
-                    let _ = this
-                        .failure
-                        .get_metric_with_label_values(&labels.get_labels());
-                }
+                let status_code = result.status_code();
+                // add status code
+                let mut labels = labels.get_labels();
+                labels.push(status_code.as_str());
+                let duration_metric = this.histogram.with_label_values(&labels);
+
                 // Record the duration of this request.
-                if let Some(timer) = this.timer.take() {
-                    timer.observe_duration();
-                }
+                let timer = this.timer.take().expect("timer should exist");
+                duration_metric.observe(timer.elapsed().as_secs_f64());
+
                 Poll::Ready(result)
             }
             Poll::Pending => Poll::Pending,
@@ -141,9 +138,13 @@ mod tests {
         http::{Request, Response},
     };
     use prometheus::core::Collector;
+    use reqwest::StatusCode;
     use tower::{Service, ServiceBuilder, ServiceExt};
 
-    use crate::middleware::prometheus_metrics::{MetricLabels, PrometheusMetricsMiddlewareLayer};
+    use crate::{
+        error::StatusCodeExt,
+        middleware::prometheus_metrics::{MetricLabels, PrometheusMetricsMiddlewareLayer},
+    };
 
     use super::MetricLabelProvider;
 
@@ -153,12 +154,22 @@ mod tests {
             vec!["label1,", "label2", "label3"]
         }
     }
-    async fn handle(_: Request<Body>) -> anyhow::Result<Response<Body>> {
+
+    #[derive(Debug)]
+    struct ErrorResponse;
+
+    impl StatusCodeExt for ErrorResponse {
+        fn status_code(&self) -> StatusCode {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+
+    async fn handle(_: Request<Body>) -> Result<Response<Body>, ErrorResponse> {
         Ok(Response::new(Body::default()))
     }
 
-    async fn handle_err(_: Request<Body>) -> anyhow::Result<Response<Body>> {
-        Err(anyhow::anyhow!("Error"))
+    async fn handle_err(_: Request<Body>) -> Result<Response<Body>, ErrorResponse> {
+        Err(ErrorResponse)
     }
 
     #[tokio::test]
@@ -167,36 +178,20 @@ mod tests {
         let histogram_metric = prometheus::register_histogram_vec_with_registry!(
             "histogram_metric",
             "Test",
-            &["deployment", "sender", "allocation"],
-            registry,
-        )
-        .unwrap();
-
-        let failure_metric = prometheus::register_counter_vec_with_registry!(
-            "failure_metric",
-            "Test",
-            &["deployment", "sender", "allocation"],
+            &["deployment", "sender", "allocation", "status_code"],
             registry,
         )
         .unwrap();
 
         // check if everything is clean
-        assert_eq!(
-            histogram_metric
-                .collect()
-                .first()
-                .unwrap()
-                .get_metric()
-                .len(),
-            0
-        );
-        assert_eq!(
-            failure_metric.collect().first().unwrap().get_metric().len(),
-            0
-        );
+        assert!(histogram_metric
+            .collect()
+            .first()
+            .unwrap()
+            .get_metric()
+            .is_empty());
 
-        let metrics_layer =
-            PrometheusMetricsMiddlewareLayer::new(histogram_metric.clone(), failure_metric.clone());
+        let metrics_layer = PrometheusMetricsMiddlewareLayer::new(histogram_metric.clone());
         let mut service = ServiceBuilder::new()
             .layer(metrics_layer)
             .service_fn(handle);
@@ -209,23 +204,21 @@ mod tests {
         req.extensions_mut().insert(labels.clone());
         let _ = handle.call(req).await;
 
-        assert_eq!(
+        let how_many_metrics = |status: u32| {
             histogram_metric
                 .collect()
                 .first()
                 .unwrap()
                 .get_metric()
-                .len(),
-            1
-        );
+                .iter()
+                .filter(|a| a.get_label()[3].get_value() == status.to_string())
+                .count()
+        };
 
-        assert_eq!(
-            failure_metric.collect().first().unwrap().get_metric().len(),
-            0
-        );
+        assert_eq!(how_many_metrics(200), 1);
+        assert_eq!(how_many_metrics(500), 0);
 
-        let metrics_layer =
-            PrometheusMetricsMiddlewareLayer::new(histogram_metric.clone(), failure_metric.clone());
+        let metrics_layer = PrometheusMetricsMiddlewareLayer::new(histogram_metric.clone());
         let mut service = ServiceBuilder::new()
             .layer(metrics_layer)
             .service_fn(handle_err);
@@ -236,20 +229,7 @@ mod tests {
         let _ = handle.call(req).await;
 
         // it's using the same labels, should have only one metric
-        assert_eq!(
-            histogram_metric
-                .collect()
-                .first()
-                .unwrap()
-                .get_metric()
-                .len(),
-            1
-        );
-
-        // new failture
-        assert_eq!(
-            failure_metric.collect().first().unwrap().get_metric().len(),
-            1
-        );
+        assert_eq!(how_many_metrics(200), 1);
+        assert_eq!(how_many_metrics(500), 1);
     }
 }

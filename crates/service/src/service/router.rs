@@ -39,7 +39,7 @@ use typed_builder::TypedBuilder;
 
 use crate::{
     database::dips::{AgreementStore, InMemoryAgreementStore},
-    metrics::{FAILED_RECEIPT, HANDLER_FAILURE, HANDLER_HISTOGRAM},
+    metrics::{FAILED_RECEIPT, HANDLER_HISTOGRAM},
     middleware::{
         allocation_middleware, attestation_middleware,
         auth::{self, Bearer, OrExt},
@@ -344,7 +344,6 @@ impl ServiceRouter {
                 // metrics for histogram and failure
                 .layer(PrometheusMetricsMiddlewareLayer::new(
                     HANDLER_HISTOGRAM.clone(),
-                    HANDLER_FAILURE.clone(),
                 ))
                 // tap context
                 .layer(from_fn(context_middleware));

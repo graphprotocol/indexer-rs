@@ -20,17 +20,7 @@ lazy_static! {
     pub static ref HANDLER_HISTOGRAM: HistogramVec = register_histogram_vec!(
         "indexer_query_handler_seconds",
         "Histogram for default indexer query handler",
-        &["deployment", "allocation", "sender"]
-    ).unwrap();
-
-    /// Metric registered in global registry for
-    /// Failed queries to handler
-    ///
-    /// Labels: "deployment"
-    pub static ref HANDLER_FAILURE: CounterVec = register_counter_vec!(
-        "indexer_query_handler_failed_total",
-        "Failed queries to handler",
-        &["deployment"]
+        &["deployment", "allocation", "sender", "status_code"]
     ).unwrap();
 
     /// Metric registered in global registry for
