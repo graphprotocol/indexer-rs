@@ -71,8 +71,9 @@ pub async fn labels_middleware(mut request: Request, next: Next) -> Response {
     let labels: MetricLabels = Arc::new(SenderAllocationDeploymentLabels {
         sender,
         allocation,
-        deployment_id,
+        deployment_id: deployment_id.clone(),
     });
+
     request.extensions_mut().insert(labels);
 
     next.run(request).await
