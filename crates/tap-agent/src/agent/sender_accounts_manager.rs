@@ -112,14 +112,7 @@ impl Actor for SenderAccountsManager {
                 .expect("Failed to update indexer_allocations_set channel");
             async {}
         });
-        let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
-        pglistener
-            .listen("scalar_tap_receipt_notification")
-            .await
-            .expect(
-                "should be able to subscribe to Postgres Notify events on the channel \
-                'scalar_tap_receipt_notification'",
-            );
+        let pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
         let myself_clone = myself.clone();
         let accounts_clone = escrow_accounts.clone();
         let _eligible_allocations_senders_handle =
@@ -475,6 +468,13 @@ async fn new_receipts_watcher(
     escrow_accounts_rx: Receiver<EscrowAccounts>,
     prefix: Option<String>,
 ) {
+    pglistener
+        .listen("scalar_tap_receipt_notification")
+        .await
+        .expect(
+            "should be able to subscribe to Postgres Notify events on the channel \
+                'scalar_tap_receipt_notification'",
+        );
     loop {
         // TODO: recover from errors or shutdown the whole program?
         let pg_notification = pglistener.recv().await.expect(
