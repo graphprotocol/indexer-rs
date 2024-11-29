@@ -1,348 +1,255 @@
-# indexer-service-rs
+# indexer-rs
 
-## Introduction
+[![Build Status](https://github.com/graphprotocol/indexer-rs/actions/workflows/containers.yml/badge.svg)](https://github.com/graphprotocol/indexer-rs/actions)
+[![Coverage Status](https://coveralls.io/repos/github/graphprotocol/indexer-rs/badge.svg?branch=main)](https://coveralls.io/github/graphprotocol/indexer-rs?branch=main)
+[![License](https://img.shields.io/github/license/graphprotocol/indexer-rs)](https://github.com/graphprotocol/indexer-rs/blob/main/LICENSE)
+[![Contributing](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](./CONTRIBUTORS.md)
+[![GitHub Release](https://img.shields.io/github/v/release/graphprotocol/indexer-rs?filter=indexer-service-rs-*)](https://github.com/graphprotocol/indexer-rs/releases?q=indexer-service-rs)
+[![GitHub Release](https://img.shields.io/github/v/release/graphprotocol/indexer-rs?filter=indexer-tap-agent-*)](https://github.com/graphprotocol/indexer-rs/releases?q=indexer-tap-agent)
 
-A Rust impl for The Graph [indexer service](https://github.com/graphprotocol/indexer/tree/main/packages/indexer-service) to provide data services as an Indexer, integrated with [TAP](https://github.com/semiotic-ai/timeline-aggregation-protocol) which is a fast, efficient, and trustless unidirectional micro-payments system.
+A Rust implementation for The Graph 
+[indexer-service-ts](https://github.com/graphprotocol/indexer/tree/main/packages/indexer-service) 
+to provide subgraph service as an Indexer, 
+integrated with [TAP](https://github.com/semiotic-ai/timeline-aggregation-protocol) 
+which is a fast, efficient, and trustless unidirectional micro-payments system.
 
-## Features
+--- 
+## Getting Started
 
-- Receive paid or free query requests and route to graph node
-- Route "meta" queries on indexing statuses and deployment health
-- Serve indexer information such as health, indexer version, and operator address
-- Monitor allocations, attestation signers, and manage receipts using TAP, store receipts in the indexer database
-- Record performance and service metrics
+This section provides guidance for building, configuring, and running `indexer-service-rs` and `indexer-tap-agent`.
 
-## Quick start
+### Docker Images
 
-```txt
-$ cargo run -p indexer-service-rs -- --help
+Pre-built Docker images are available for both `indexer-service-rs` and `indexer-tap-agent`. You can pull these images using the following commands:
 
-Usage: indexer-service-rs --config <FILE>
+- **Indexer Service:**
 
-Options:
-      --config <FILE>  Path to the configuration file.
-                       See https://github.com/graphprotocol/indexer-rs/tree/main/config for examples.
-  -h, --help           Print help
+```bash
+docker pull ghcr.io/graphprotocol/indexer-service-rs:<tag>
 ```
 
-All the configuration is done through a TOML file. Please see up-to-date TOML configuration templates:
+- **TAP Agent:**
 
-- [Minimal configuration template (recommended)](config/minimal-config-example.toml)
-- [Maximal configuration template (not recommended, dangerous settings)](config/maximal-config-example.toml)
+```bash
+docker pull ghcr.io/graphprotocol/indexer-tap-agent:<tag>
+```
+
+The `<tag>` corresponds to the current release version, which can be found in the [Releases Page](https://github.com/graphprotocol/indexer-rs/releases).
+
+#### Tag Examples for Version X.Y.Z
+
+For version `X.Y.Z`, the available tags include:
+- `latest`
+- `vX.Y.Z`
+- `X.Y.Z`
+- `vX.Y`
+- `X.Y`
+- `vX`
+
+Refer to the following badges for the latest release versions:
+| indexer-service-rs | [![GitHub Release](https://img.shields.io/github/v/release/graphprotocol/indexer-rs?filter=indexer-service-rs-*)](https://github.com/graphprotocol/indexer-rs/releases?q=indexer-service-rs) |
+|---------------------|---------------------------------------------------------------------------------------------------------------------------|
+| indexer-tap-agent   | [![GitHub Release](https://img.shields.io/github/v/release/graphprotocol/indexer-rs?filter=indexer-tap-agent-*)](https://github.com/graphprotocol/indexer-rs/releases?q=indexer-tap-agent) |
+
+---
+
+### Building Locally
+
+To build the services locally, ensure you have the latest version of Rust installed. No additional plugins are required.
+
+#### Steps:
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/graphprotocol/indexer-rs.git && cd indexer-rs
+```
+
+2. Build the binaries:
+- **Indexer Service:**
+
+  ```
+  cargo build --release -p indexer-service-rs
+  ```
+
+- **TAP Agent:**
+
+  ```
+  cargo build --release -p indexer-tap-agent
+  ```
+
+3. The compiled binaries can be found in the `target/release/` directory:
+- `target/release/indexer-service-rs`
+- `target/release/indexer-tap-agent`
+
+---
+
+### Configuration
+
+The services require a configuration file provided through the `--config` flag during startup. A minimal example configuration is available at:
+- [Minimal Configuration Template](config/minimal-config-example.toml)
+
+#### Steps:
+1. **Edit the Configuration:**
+Open the `minimal-config-example.toml` file and populate the required fields. Some fields must be configured with values from [this table](https://thegraph.com/docs/en/tap/#blockchain-addresses).
+
+2. **Override with Environment Variables (Optional):**
+You can override configuration fields using environment variables. Use the prefix `INDEXER_`, and for nested fields, use double underscores `__`. For example:
+
+```bash
+export INDEXER_SERVICE_SUBGRAPHS__NETWORK__QUERY_URL=<value>
+```
+
+3. **Start the Service:**
+- **Indexer Service:**
+
+  ```bash
+  target/release/indexer-service-rs --config config/minimal-config-example.toml
+  ```
+
+- **TAP Agent:**
+
+  ```bash
+  target/release/indexer-tap-agent --config config/minimal-config-example.toml
+  ```
+
+## Configuration
+
+All configuration is managed through a TOML file. Below are examples of configuration templates to help you get started:
+
+- [Minimal Configuration Template (Recommended)](config/minimal-config-example.toml): A minimal setup with only the essential configuration options.
+- [Maximal Configuration Template (Not Recommended)](config/maximal-config-example.toml): Includes all possible options, but some settings may be dangerous or unsuitable for production.
+
+If you are migrating from an older stack, use the [Migration Configuration Guide](./docs/migration-config/README.md) for detailed instructions.
+
+### Key Notes:
+
+- Ensure your configuration is tailored to your deployment environment.
+- Validate the configuration file syntax before starting the service.
+- Use environment variables to override sensitive settings like database credentials or API tokens where applicable.
+
+
+### Migrations
+
+- `postgres_url` is required to be set to the same database as `indexer-agent`;
+- No migrations are run in `indexer-rs` stack, since it could cause conflicts;
+- `indexer-agent` is solely responsible for database management;
+- `/migrations` folder is used **ONLY** for development purposes.
+
 
 ## Upgrading
 
-We follow conventional semantics for package versioning. An indexer may set a minor version specification for automatic patch updates while preventing breaking changes. To safely upgrading the package, we recommend the following steps:
+We follow semantic versioning to ensure backward compatibility and minimize breaking changes. To upgrade safely, follow these steps:
 
-1. **Review Release Notes**: Before upgrading, check the release notes for the new version to understand what changes, fixes, or new features are included.
-2. **Review Documentation**: Check the up-to-date documentation for an accurate reflection of the changes made during the upgrade.
-3. **Backup Configuration**: Save your current configuration files and any local modifications you've made to the existing codebase.
-4. **Deploy**: Replace the old executable or docker image with the new one and restart the service to apply the upgrade.
-5. **Monitor and Validate**: After the upgrade, monitor system behavior and performance metrics to validate that the service is running as expected.
+1. **Review Release Notes:** Check the release notes for details about changes, fixes, and new features included in the updated version.
+2. **Review Documentation:** Refer to the latest documentation to understand any modifications in behavior or configuration.
+3. **Backup Configuration:** Save your existing configuration files and any local changes for easy recovery if needed.
+4. **Deploy:** Replace the old executable or Docker image with the new version. Restart the service to apply the changes.
+5. **Monitor and Validate:** After upgrading, monitor metrics and logs to ensure the service is running as expected and validate critical functionality.
 
-These steps should ensure a smooth transition to the latest version of `indexer-service-rs`, harnessing new capabilities while maintaining system integrity.
+By following these steps, you can take advantage of new features and improvements while maintaining the stability of your system.
 
 ## Contributing
 
-[Contributions guide](/contributing.md)
+We welcome contributions to `indexer-rs`! 
 
-## Supported request and response format examples
+### How to Contribute
+- Read the [Contributions Guide](./CONTRIBUTORS.md) for detailed guidelines.
+- Follow coding standards and ensure your changes align with the project structure.
+- Write tests to validate your contributions and maintain project integrity.
+- Submit a pull request with a clear description of your changes and their purpose.
 
-```bash
-curl http://localhost:7600/
-```
-```
-Service is up and running
-```
+Contributions can include:
+- Bug fixes
+- New features
+- Documentation improvements
+- Performance optimizations
 
-```bash
-curl http://localhost:7600/version
-```
-```json
-{ "version":"0.1.0", "dependencies": {..} }
-```
-
-```bash
-curl http://localhost:7600/info
-```
-```json
-{ "publicKey": "0xacb05407d78129b5717bb51712d3e23a78a10929" }
-```
-
-# Subgraph queries
-## Checks for receipts and authorization
-```bash
-curl -X POST \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer token-for-graph-node-query-endpoint' \
-  --data '{"query": "{_meta{block{number}}}"}' \
-  http://localhost:7600/subgraphs/id/QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB
-```
-```json
-{
-    "attestable": true,
-    "graphQLResponse": "{\"data\":{\"_meta\":{\"block\":{\"number\":10666745}}}}"
-}
-```
-## Takes hex representation for subgraphs deployment id aside from IPFS hash representation
-```bash
-curl -X POST \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer token-for-graph-node-query-endpoint' \
-  --data '{"query": "{_meta{block{number}}}"}' \
-  http://localhost:7600/subgraphs/id/0xb655ca6f49e73728a102219726ff678d61d8fb792874792e9f0d9887dc616600
-```
-```json
-{
-    "attestable": true,
-    "graphQLResponse": "{\"data\":{\"_meta\":{\"block\":{\"number\":10666745}}}}"
-}
-```
-
-## Free query auth token check failed
-```bash
-curl -X POST \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: blah' \
-  --data '{"query": "{_meta{block{number}}}"}' \
-  http://localhost:7600/subgraphs/id/0xb655ca6f49e73728a102219726ff678d61d8fb792874792e9f0d9887dc616600
-```
-```json
-{
-  "message":"No valid receipt or free query auth token provided"
-}
-```
-
-## Subgraph health check
-```bash
-curl http://localhost:7600/subgraphs/health/QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj
-```
-```json
-{
-    "health": "healthy"
-}
-```
-## Unfound subgraph
-```bash
-curl http://localhost:7600/subgraphs/health/QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB
-```
-```json
-{
-    "error": "Deployment not found"
-}
-```
-## Failed Subgraph
-```bash
-curl http://localhost:7600/subgraphs/health/QmVGSJyvjEjkk5U9EdxyyB78NCXK3EAoFhrzm6LV7SxxAm
-```
-```json
-{
-    "fatalError": "transaction 21e77ed08fbc9df7be81101e9b03c2616494cee7cac2f6ad4f1ee387cf799e0c: error while executing at wasm backtrace:\t    0: 0x5972 - <unknown>!mappings/core/handleSwap: Mapping aborted at mappings/core.ts, line 73, column 16, with message: unexpected null in handler `handleSwap` at block #36654250 (5ab4d80c8e2cd628d5bf03abab4c302fd21d25d734e66afddff7a706b804fe13)",
-    "health": "failed"
-}
-```
-
-# Network queries
-## Checks for auth and configuration to serve-network-subgraph
-
-```bash
-curl -X POST \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: token-for-network-subgraph' \
-  --data '{"query": "{_meta{block{number}}}"}' \
-  http://localhost:7600/network
-```
-```json
-{ 
-  "message":"No valid receipt or free query auth token provided" 
-}
-```
-
-## Indexing status resolver - Route supported root field queries to graph node status endpoint
-```bash
-curl -X POST \
-  -H 'Content-Type: application/json' \
-  --data '{"query": "{blockHashFromNumber(network:\"mainnet\", blockNumber: 21033)}"}' \
-  http://localhost:7600/status
-```
-```json
-{
-  "data": {
-    "blockHashFromNumber": "0x6d8daae97a562b1fff22162515452acdd817c3d3c5cde1497b7d9eb6666a957e"
-  }
-}
-```
-
-## Indexing status resolver
-```bash
-curl -X POST \
-  -H 'Content-Type: application/json' \
-  --data '{"query": "{indexingStatuses {subgraph health}}"}' \
-  http://localhost:7600/status
-```
-```json
-{
-  "data": {
-    "indexingStatuses": [
-      {
-        "subgraph": "QmVhiE4nax9i86UBnBmQCYDzvjWuwHShYh7aspGPQhU5Sj",
-        "health": "healthy"
-      },
-      {
-        "subgraph": "QmWVtsWk8Pqn3zY3czDjyoVreshRLmoz9jko3mQ4uvxQDj",
-        "health": "healthy"
-      },
-      {
-        "subgraph": "QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB",
-        "health": "healthy"
-      }
-    ]
-  }
-}
-```
-
-## Indexing status resolver - Filter out the unsupported queries
-```bash
-curl -X POST \
-  -H 'Content-Type: application/json' \
-  --data '{"query": "{_meta{block{number}}}"}' \
-  http://localhost:7600/status
-```
-```json
-{
-  "errors": [
-    {
-      "locations": [
-        {
-          "line": 1,
-          "column": 2
-        }
-      ],
-      "message": "Type `Query` has no field `_meta`"
-    }
-  ]
-}
-```
-
-## Cost server - read-only graphql query
-
-```bash
-curl -X GET \
-  -H 'Content-Type: application/json' \
-  --data '{"query": "{ costModels(deployments: [\"Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss\"]) { deployment model variables }} "}' \
-  http://localhost:7300/cost
-```
-```json
-{
-  "data": {
-    "costModels": [
-      {
-        "deployment": "0xbd499f7673ca32ef4a642207a8bebdd0fb03888cf2678b298438e3a1ae5206ea",
-        "model": "default => 0.00025;",
-        "variables": null
-      }
-    ]
-  }
-}
-```
+Feel free to suggest enhancements or report issues in the project repository. 
 
 
+## Implementation Details
 
-## Dependency choices
+### indexer-service-rs
 
-- switching from actix-web to `axum` for the service server
-- App profiling should utilize `perf`, flamegraphs or cpu profilers, and benches to track and collect performance data. The typescript implementation uses `gcloud-profile`
-- Consider replacing and adding parts from TAP manager
-- `postgres` database connection required to indexer management server database, shared with the indexer agent
-- No migration in indexer service as it might introduce conflicts to the database; indexer agent is solely responsible for database management.
+The Subgraph Service is an [axum](https://crates.io/crates/axum)-based web server that serves as a router to [graph-node](https://github.com/graphprotocol/graph-node). It is designed for extensibility, granularity, and testability.
 
-### Indexer common components
+#### Key Features
+- **Middleware-Based Checks:** All validation and processing are performed through middleware, enabling modular and reusable components.
+- **TAP Integration:** 
+  - TAP receipts are processed by the `tap-middleware`, where they undergo various [checks](./crates/service/src/tap/checks/).
+  - Valid receipts are stored in the database, later aggregated into RAVs (Redeemable Aggregate Values) by the [tap-agent](#indexer-tap-agent).
+- **Router Implementation:**
+  - Built using the builder pattern for compile-time validation of required components.
+  - Routes are well-defined and documented. For a complete list, refer to the [Routes Documentation](./docs/Routes.md).
+- **Query Examples:** Examples of queries that can be sent to `indexer-service-rs` are available in the [Queries Documentation](./docs/Queries.md).
+- **Prometheus Metrics:**
+  - The service is instrumented to expose metrics in Prometheus format.
+  - Metrics are accessible via the `/metrics` endpoint on `<metric_port>` (default: `7300`).
+  - A detailed list of metrics is available in the [Metrics Documentation](/docs/Metrics.md#indexer-service-metrics).
 
-Temporarily live inside the indexer-service package under `src/common`.
+### indexer-tap-agent
 
-Simple indexer management client to track NetworkSubgraph and postgres connection.
+The TAP Agent is an actor-based system powered by [ractor](https://crates.io/crates/ractor). It processes receipts into RAVs (Receipt Aggregate Vouchers) and prepares them for redemption by the `indexer-agent`.
 
-- NetworkSubgraph instance track both remote API endpoint and local deployment query endpoint.
-  - TODO: query indexing status of local deployment, only use remote API as fallback.
-- Keeps cost model schema and resolvers with postgres and graphQL types: `costModel(deployment)` and `costModels(deployments)`. If deployments is empty, all cost models are returned.
-  - Global cost model fallback used when specific deployments are queried
-- No database migration in indexer service as it might introduce schema conflicts; indexer agent is solely responsible for database management.
+#### Key Features
+1. **Receipt Processing:**
+   - Receipts are fetched from the `receipts` table in the database using `pglisten`.
+   - The actor system validates and processes receipts before aggregating them into RAVs.
+   - Debug logs can be activated using `RUST_LOG=debug` to provide additional insights during the receipt lifecycle.
 
-### Indexer native dependency
+2. **Actor System:**
+   - The TAP Agent operates using three main actor groups:
+     - **SenderAccountManager:** 
+       - Monitors the indexer's escrow accounts.
+       - Handles receipt routing to the appropriate `SenderAllocation`.
+       - Kills the application if the database connection is lost.
+     - **SenderAccount:**
+       - Tracks receipts, pending RAVs, and invalid receipts across allocations.
+       - Ensures the escrow account has sufficient funds to cover outstanding obligations.
+       - Selects the next allocation for creating a RAV request and manages `SenderAllocation` actors.
+     - **SenderAllocation:**
+       - Represents a `(sender, allocation)` tuple.
+       - Processes receipts and sends updated values to the `SenderAccount`.
+       - Handles `TriggerRequest` messages to initiate RAV creation.
 
-Linked dependency could not be linked directly with git url "https://github.com/graphprotocol/indexer" and path "packages/indexer-native/native" at the same time, and could not access it on crates.io. So copid the folder to local repo with the version at https://github.com/graphprotocol/indexer/blob/972658b3ce8c512ad7b4dc575d29cd9d5377e3fe/packages/indexer-native/native.
+3. **RAV Workflow:**
+   - Valid receipts are aggregated into RAVs, which replace older RAVs in the database.
+   - Once an allocation is closed, the system creates a **Last RAV**, aggregating all receipts. This final RAV is marked as "Last" and prepared for redemption by the `indexer-agent`.
 
-Since indexer-service will be written in Rust and no need for typescript, indexer-native's neon build and util has been removed.
+4. **Metrics and Monitoring:**
+   - The TAP Agent exposes detailed metrics to monitor system behavior. Key metrics include:
+     - **Unaggregated Receipts:** Ensure unaggregated receipts remain below the `max_willing_to_lose` value to prevent the sender from being denied.
+     - **RAV Request Failures:** Monitor the rate of failed RAV requests, as repeated failures can disrupt aggregation.
+   - Full details of all metrics can be found in the [Metrics Documentation](https://github.com/graphprotocol/indexer-rs/blob/gustavo/rebuild-documentation/docs/Metrics.md#tap-agent-metrics).
+   - A Grafana dashboard is available to visualize system metrics and provide a clear overview of the TAP Agent's performance:
+     - [Download Dashboard JSON](https://github.com/graphprotocol/indexer-rs/blob/gustavo/rebuild-documentation/docs/dashboard.json).
 
-Component `NativeSignatureVerifier` renamed to `SignatureVerifier`.
+5. **Troubleshooting:**
+   - If RAV requests fail or unaggregated receipts exceed the `max_willing_to_lose` limit:
+     - Check the **RAV failure metrics**.
+     - Review debug logs (`RUST_LOG=debug`) for additional context.
+     - Use the Grafana dashboard to identify bottlenecks or failures in the actor system.
 
-Separate package in the workspace under 'native'.
 
-### common-ts components
+## Crates
 
-Temporarily live inside the indexer-service package under `src/types`
+| Crate Name               | Description                                                                                  |
+|--------------------------|----------------------------------------------------------------------------------------------|
+| `indexer-allocation`     | Shared structs and logic related to subgraph allocations in The Graph.                       |
+| `indexer-attestation`    | Provides tools for generating and verifying attestations for requests and responses.         |
+| `indexer-config`         | Parses shared configuration used by both `indexer-service-rs` and `indexer-tap-agent`.       |
+| `indexer-dips`           | (WIP) Library for managing DIPS (Distributed Indexing Payment System).                       |
+| `indexer-monitor`        | Monitors subgraphs through polling and updates shared state with reactive components.        |
+| `indexer-query`          | Type-safe GraphQL queries, leveraging [graphql-client](https://github.com/graphql-rust/graphql-client). |
+| `indexer-service-rs`     | Subgraph service application that handles payments, routes queries to graph-node, and creates attestations. |
+| `indexer-tap-agent`      | Processes receipts into RAVs (Redeemable Aggregate Values) and marks them as ready for redemption. |
+| `indexer-watcher`        | An alternative to [eventuals](https://github.com/edgeandnode/eventuals), built on `tokio::sync::watch`. |
+| `test-assets`            | Provides assets for testing, such as generating allocations, wallets, and receipts.          |
 
-- Address
-- readNumber
 
-## Components checklist (basic, not extensive)
+## Additional Documentation
 
-- [x] Server path routing
-  - [x] basic structure
-  - [x] CORS
-  - [x] timeouts
-  - [x] Rate limiting levels
-  - [x] Logger stream
-- [ ] Query processor
-  - [x] graph node query endpoint at specific subgraph path
-  - [x] wrap request to and response from graph node
-  - [x] extract receipt header
-  - [x] Free query
-    - [x] Query struct
-    - [x] Free query auth token check
-    - [x] Query routes + responses
-    - [x] set `graph-attestable` in response header to `true`
-  - [x] Network subgraph query
-    - [x] Query struct
-    - [x] serve network subgraph boolean + auth token check
-    - [x] Query routes + responses
-    - [x] set `graph-attestable` in response header to `false`
-  - [ ] Paid query
-    - [ ] receipts graphQL schema
-    - [ ] [TAP](https://github.com/semiotic-ai/timeline-aggregation-protocol/) manager to handle receipts logic
-      - [ ] derive, cache, and look up attestation signers
-        - [ ] contracts - connect by network chain id
-          - [ ] network provider
-      - [x] validate receipt format (need unit tests)
-      - [x] parse receipt (need unit tests)
-      - [x] validate signature (need unit tests)
-      - [ ] store
-    - [ ] extract graph-attestable from graph node response header
-    - [ ] monitor eligible allocations
-      - [ ] network subgraph
-      - [ ] operator wallet -> indexer address
-  - [ ] subgraph health check
-  - [ ] query timing logs
-- [x] Deployment health server
-  - [x] query status endpoint and process result
-- [ ] Status server
-  - [x] indexing status resolver - to query indexingStatuses
-  - [ ] Filter for unsupported queries
-- [x] Cost server
-  - [x] Simple indexer management client to track postgres connection and network subgraph endpoint.
-  - [x] serve queries with defined graphQL schema and psql resolvers to database: `costModel(deployment)` and `costModels(deployments)`. If deployments is empty, all cost models are returned.
-  - [x] Global cost model fallback used when specific deployments are queried
-- [x] Constant service paths
-  - [x] health
-  - [x] ready to roll
-  - [x] versions
-  - [x] operator public key
-    - [x] validate mnemonics to public key
-- [x] Import indexer native
-- [ ] Metrics
-  - [x] Metrics setup
-  - [x] serve basic indexer service metrics
-  - [ ] Add cost model metrics
-- [x] CLI args
-- [ ] App profiling
-  - [ ] No gcloud profiling, can use `perf` to collect performance data.
+- [Routes Documentation](./docs/Routes.md): Comprehensive list of available routes and their descriptions.
+- [Queries Documentation](./docs/Queries.md): Examples of queries you can perform with `indexer-service-rs`.
+- [Metrics Documentation](./docs/Metrics.md): Detailed documentation of all Prometheus metrics exposed by the service.
