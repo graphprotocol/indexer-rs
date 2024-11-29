@@ -32,7 +32,7 @@ INDEXER_SUBGRAPHS__ESCROW__DEPLOYMENT_ID=<escrow deployment id>
 ```
 
 Users typically have an easier time using the config over 
-environment variables, we recomment moving your environment 
+environment variables, we recommend moving your environment 
 variables to plain text inside the config over time.
 
 ## Booleans inside config

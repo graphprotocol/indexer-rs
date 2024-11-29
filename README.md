@@ -23,11 +23,13 @@ This section provides guidance for building, configuring, and running `indexer-s
 Pre-built Docker images are available for both `indexer-service-rs` and `indexer-tap-agent`. You can pull these images using the following commands:
 
 - **Indexer Service:**
+
 ```bash
 docker pull ghcr.io/graphprotocol/indexer-service-rs:<tag>
 ```
 
 - **TAP Agent:**
+
 ```bash
 docker pull ghcr.io/graphprotocol/indexer-tap-agent:<tag>
 ```
@@ -35,6 +37,7 @@ docker pull ghcr.io/graphprotocol/indexer-tap-agent:<tag>
 The `<tag>` corresponds to the current release version, which can be found in the [Releases Page](https://github.com/graphprotocol/indexer-rs/releases).
 
 #### Tag Examples for Version X.Y.Z
+
 For version `X.Y.Z`, the available tags include:
 - `latest`
 - `vX.Y.Z`
@@ -55,17 +58,22 @@ Refer to the following badges for the latest release versions:
 To build the services locally, ensure you have the latest version of Rust installed. No additional plugins are required.
 
 #### Steps:
+
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/graphprotocol/indexer-rs.git && cd indexer-rs
 ```
 
 2. Build the binaries:
 - **Indexer Service:**
+
   ```
   cargo build --release -p indexer-service-rs
   ```
+
 - **TAP Agent:**
+
   ```
   cargo build --release -p indexer-tap-agent
   ```
@@ -94,10 +102,13 @@ export INDEXER_SERVICE_SUBGRAPHS__NETWORK__QUERY_URL=<value>
 
 3. **Start the Service:**
 - **Indexer Service:**
+
   ```bash
   target/release/indexer-service-rs --config config/minimal-config-example.toml
   ```
+
 - **TAP Agent:**
+
   ```bash
   target/release/indexer-tap-agent --config config/minimal-config-example.toml
   ```
@@ -112,6 +123,7 @@ All configuration is managed through a TOML file. Below are examples of configur
 If you are migrating from an older stack, use the [Migration Configuration Guide](./docs/migration-config/README.md) for detailed instructions.
 
 ### Key Notes:
+
 - Ensure your configuration is tailored to your deployment environment.
 - Validate the configuration file syntax before starting the service.
 - Use environment variables to override sensitive settings like database credentials or API tokens where applicable.
