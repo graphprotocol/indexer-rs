@@ -41,5 +41,5 @@ This section lists the routes currently exposed by the Subgraph Service. Each ro
 
 ## Note
 
-If this documentation is outdated or incomplete, you can view the complete and up-to-date list of routes in the source code:  
+You can always view the latest complete and up-to-date list of routes in the source code:  
 [Service Router Implementation](./crates/service/src/service/router.rs)

@@ -1,6 +1,6 @@
 # Query examples
 
-These are a (non-exhaustive) list of possible queries 
+This is a (non-exhaustive) list of possible queries 
 and their responses for `indexer-service-rs`.
 
 ## Supported request and response format examples
@@ -8,6 +8,7 @@ and their responses for `indexer-service-rs`.
 ```bash
 curl http://localhost:7600/
 ```
+
 ```
 Service is up and running
 ```
@@ -15,6 +16,7 @@ Service is up and running
 ```bash
 curl http://localhost:7600/version
 ```
+
 ```json
 { "version":"0.1.0", "dependencies": {..} }
 ```
@@ -22,11 +24,13 @@ curl http://localhost:7600/version
 ```bash
 curl http://localhost:7600/info
 ```
+
 ```json
 { "publicKey": "0xacb05407d78129b5717bb51712d3e23a78a10929" }
 ```
 
 # Subgraph queries
+
 ## Checks for receipts and authorization
 ```bash
 curl -X POST \
@@ -57,6 +61,7 @@ curl -X POST \
 ```
 
 ## Free query auth token check failed
+
 ```bash
 curl -X POST \
   -H 'Content-Type: application/json' \
@@ -64,6 +69,7 @@ curl -X POST \
   --data '{"query": "{_meta{block{number}}}"}' \
   http://localhost:7600/subgraphs/id/0xb655ca6f49e73728a102219726ff678d61d8fb792874792e9f0d9887dc616600
 ```
+
 ```json
 {
   "message":"No valid receipt or free query auth token provided"
@@ -100,6 +106,7 @@ curl http://localhost:7600/subgraphs/health/QmVGSJyvjEjkk5U9EdxyyB78NCXK3EAoFhrz
 ```
 
 # Network queries
+
 ## Checks for auth and configuration to serve-network-subgraph
 
 ```bash
@@ -109,6 +116,7 @@ curl -X POST \
   --data '{"query": "{_meta{block{number}}}"}' \
   http://localhost:7600/network
 ```
+
 ```json
 { 
   "message":"No valid receipt or free query auth token provided" 
@@ -116,12 +124,14 @@ curl -X POST \
 ```
 
 ## Indexing status resolver - Route supported root field queries to graph node status endpoint
+
 ```bash
 curl -X POST \
   -H 'Content-Type: application/json' \
   --data '{"query": "{blockHashFromNumber(network:\"mainnet\", blockNumber: 21033)}"}' \
   http://localhost:7600/status
 ```
+
 ```json
 {
   "data": {
@@ -131,6 +141,7 @@ curl -X POST \
 ```
 
 ## Indexing status resolver
+
 ```bash
 curl -X POST \
   -H 'Content-Type: application/json' \
