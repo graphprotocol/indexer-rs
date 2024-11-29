@@ -31,10 +31,9 @@ INDEXER_SUBGRAPHS__ESCROW__QUERY_URL=<escrow subgraph query url>
 INDEXER_SUBGRAPHS__ESCROW__DEPLOYMENT_ID=<escrow deployment id>
 ```
 
-We recommend you migrate over time to be fully in the
-configuration and don't need to provide multiple environment
-variables that can stay in plaintext, this will make your work
-easier.
+Users typically have an easier time using the config over 
+environment variables, we recomment moving your environment 
+variables to plain text inside the config over time.
 
 ## Booleans inside config
 
