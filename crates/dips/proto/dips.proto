@@ -1,0 +1,59 @@
+// Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+ 
+syntax = "proto3";
+
+package graphprotocol.indexer.dips;
+
+service AgreementService {
+  rpc CreateAgreement(CreateAgreementRequest) returns (CreateAgreementResponse);
+  rpc CancelAgreement(CancelAgreementRequest) returns (AgreementCanellationResponse);
+  rpc GetAgreementById(GetAgreementByIdRequest) returns (GetAgreementByIdResponse);
+  rpc GetPrice(PriceRequest) returns (PriceResponse);
+}
+
+message GetAgreementByIdRequest {
+
+}
+
+message GetAgreementByIdResponse {
+
+}
+
+message CreateAgreementRequest {
+  string id = 1;
+  bytes signed_voucher = 2;
+}
+
+message CancelAgreementRequest {
+  string id = 1;
+  bytes signed_voucher = 2;
+}
+
+message CreateAgreementResponse {
+  string uuid = 1;
+}
+
+message AgreementCanellationResponse {
+  string uuid = 1;
+}
+
+message PriceRequest {
+ ProtocolNetwork protocol = 1;
+ string chain_id = 2;
+} 
+
+message PriceResponse {
+  optional Price price = 1;
+}
+
+message Price {
+  string price_per_block = 1;
+  string chain_id = 2;
+  ProtocolNetwork protocol = 3;
+}
+
+enum ProtocolNetwork {
+  UNKNOWN = 0;
+  EVM = 1;
+}

@@ -1,11 +1,18 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
+use core::time;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use axum::{extract::Request, serve, ServiceExt};
-use indexer_config::{Config, GraphNodeConfig, SubgraphConfig};
+use indexer_config::{Config, DipsConfig, GraphNodeConfig, SubgraphConfig};
+use indexer_dips::{
+    proto::graphprotocol::indexer::dips::agreement_service_server::{
+        AgreementService, AgreementServiceServer,
+    },
+    server::DipsServer,
+};
 use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
 use reqwest::Url;
@@ -13,7 +20,11 @@ use tap_core::tap_eip712_domain;
 use tokio::{net::TcpListener, signal};
 use tower_http::normalize_path::NormalizePath;
 
-use crate::{cli::Cli, database, metrics::serve_metrics};
+use crate::{
+    cli::Cli,
+    database::{self, dips::PsqlAgreementStore},
+    metrics::serve_metrics,
+};
 use clap::Parser;
 use tracing::{error, info};
 
@@ -92,14 +103,13 @@ pub async fn run() -> anyhow::Result<()> {
     let host_and_port = config.service.host_and_port;
 
     let router = ServiceRouter::builder()
-        .database(database)
-        .domain_separator(domain_separator)
+        .database(database.clone())
+        .domain_separator(domain_separator.clone())
         .graph_node(config.graph_node)
         .http_client(http_client)
         .release(release)
         .indexer(config.indexer)
         .service(config.service)
-        .dips(config.dips)
         .blockchain(config.blockchain)
         .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
         .network_subgraph(network_subgraph, config.subgraphs.network)
@@ -107,6 +117,37 @@ pub async fn run() -> anyhow::Result<()> {
         .build();
 
     serve_metrics(config.metrics.get_socket_addr());
+
+    if let Some(dips) = config.dips.as_ref() {
+        let DipsConfig {
+            host,
+            port,
+            allowed_payers,
+            cancellation_time_tolerance,
+            expected_payee,
+        } = dips;
+
+        let addr = format!("{}:{}", host, port)
+            .parse()
+            .expect("invalid dips host port");
+
+        let dips = DipsServer {
+            agreement_store: Arc::new(PsqlAgreementStore { pool: database }),
+            expected_payee: *expected_payee,
+            allowed_payers: allowed_payers.clone(),
+            domain: domain_separator,
+            cancel_voucher_time_tolerance: cancellation_time_tolerance
+                .unwrap_or(time::Duration::from_secs(60 * 5)),
+        };
+
+        info!("starting dips grpc server on {}", addr);
+
+        tokio::spawn(async move {
+            info!("starting dips grpc server on {}", addr);
+
+            start_dips_server(addr, dips).await;
+        });
+    }
 
     info!(
         address = %host_and_port,
@@ -123,6 +164,13 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(serve(listener, service)
         .with_graceful_shutdown(shutdown_handler())
         .await?)
+}
+async fn start_dips_server(addr: SocketAddr, service: impl AgreementService) {
+    tonic::transport::Server::builder()
+        .add_service(AgreementServiceServer::new(service))
+        .serve(addr)
+        .await
+        .expect("unable to start dips grpc");
 }
 
 async fn create_subgraph_client(
