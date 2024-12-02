@@ -70,7 +70,6 @@ macro_rules! assert_while_retry {
 // - (createdAtEpoch-1, 1)
 //
 // Using https://github.com/graphprotocol/indexer/blob/f8786c979a8ed0fae93202e499f5ce25773af473/packages/indexer-common/src/allocations/keys.ts#L41-L71
-
 pub const ESCROW_QUERY_RESPONSE: &str = r#"
     {
         "data": {

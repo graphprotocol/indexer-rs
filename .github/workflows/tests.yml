@@ -50,6 +50,8 @@ jobs:
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@054db53350805f83040bf3e6e9b8cf5a139aa7c9 # v0.0.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
+      - name: Install protobuf compiler
+        run: apt-get update && apt-get install protobuf-compiler -y
       - name: Install sqlx
         run: cargo install sqlx-cli --no-default-features --features postgres
       - name: Run the test sqlx migrations
@@ -78,6 +80,8 @@ jobs:
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@054db53350805f83040bf3e6e9b8cf5a139aa7c9 # v0.0.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
+      - name: Install protobuf compiler
+        run: apt-get update && apt-get install protobuf-compiler -y
       - run: |
           rustup component add clippy
           # Temporarily allowing dead-code, while denying all other warnings
@@ -116,6 +120,8 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
+      - name: Install protobuf compiler
+        run: apt-get update && apt-get install protobuf-compiler -y
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@054db53350805f83040bf3e6e9b8cf5a139aa7c9 # v0.0.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -166,6 +172,8 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
+      - name: Install protobuf compiler
+        run: apt-get update && apt-get install protobuf-compiler -y
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@054db53350805f83040bf3e6e9b8cf5a139aa7c9 # v0.0.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}

@@ -8,3 +8,13 @@ thiserror.workspace = true
 anyhow.workspace = true
 alloy-rlp = "0.3.10"
 thegraph-core.workspace = true
+tonic.workspace = true 
+async-trait.workspace = true 
+prost.workspace = true 
+prost-types.workspace = true 
+uuid.workspace = true
+base64.workspace = true
+tokio.workspace = true
+
+[build-dependencies]
+tonic-build = { workspace = true }

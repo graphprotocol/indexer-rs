@@ -387,8 +387,21 @@ pub struct TapConfig {
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DipsConfig {
+    pub host: String,
+    pub port: String,
     pub allowed_payers: Vec<Address>,
     pub cancellation_time_tolerance: Option<Duration>,
+}
+
+impl Default for DipsConfig {
+    fn default() -> Self {
+        DipsConfig {
+            host: "0.0.0.0".to_string(),
+            port: "7601".to_string(),
+            allowed_payers: vec![],
+            cancellation_time_tolerance: None,
+        }
+    }
 }
 
 impl TapConfig {
@@ -420,11 +433,11 @@ pub struct RavRequestConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, fs, path::PathBuf};
+    use std::{env, fs, path::PathBuf, str::FromStr};
 
     use figment::value::Uncased;
     use sealed_test::prelude::*;
-    use thegraph_core::alloy::primitives::address;
+    use thegraph_core::alloy::primitives::{Address, FixedBytes};
     use tracing_test::traced_test;
 
     use super::{DatabaseConfig, SHARED_PREFIX};
@@ -448,8 +461,10 @@ mod tests {
         )
         .unwrap();
         max_config.dips = Some(crate::DipsConfig {
-            allowed_payers: vec![address!("3333333333333333333333333333333333333333")],
-            cancellation_time_tolerance: None,
+            allowed_payers: vec![Address(
+                FixedBytes::<20>::from_str("0x3333333333333333333333333333333333333333").unwrap(),
+            )],
+            ..Default::default()
         });
 
         let max_config_file: Config = toml::from_str(
