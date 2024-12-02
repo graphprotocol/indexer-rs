@@ -28,6 +28,7 @@ lazy_static::lazy_static! {
             "cachedEthereumCalls",
             "subgraphFeatures",
             "apiVersions",
+            "version"
         ].into_iter().collect();
 }
 
