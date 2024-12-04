@@ -42,6 +42,7 @@ pub async fn request_handler(
             value.to_str().map(|value| value == "true").unwrap_or(false)
         });
 
+    let graph_indexed = response.headers().get(GRAPH_INDEXED).cloned();
     let body = response
         .text()
         .await
@@ -55,7 +56,6 @@ pub async fn request_handler(
     let mut response = Response::new(body);
     response.extensions_mut().insert(attestation_input);
 
-    let graph_indexed = response.headers().get(GRAPH_INDEXED).cloned();
     if let Some(graph_indexed) = graph_indexed {
         response.headers_mut().append(GRAPH_INDEXED, graph_indexed);
     }
