@@ -7,13 +7,13 @@
 [![GitHub Release](https://img.shields.io/github/v/release/graphprotocol/indexer-rs?filter=indexer-service-rs-*)](https://github.com/graphprotocol/indexer-rs/releases?q=indexer-service-rs)
 [![GitHub Release](https://img.shields.io/github/v/release/graphprotocol/indexer-rs?filter=indexer-tap-agent-*)](https://github.com/graphprotocol/indexer-rs/releases?q=indexer-tap-agent)
 
-A Rust implementation for The Graph 
-[indexer-service-ts](https://github.com/graphprotocol/indexer/tree/main/packages/indexer-service) 
-to provide subgraph service as an Indexer, 
-integrated with [TAP](https://github.com/semiotic-ai/timeline-aggregation-protocol) 
+A Rust implementation for The Graph
+[indexer-service-ts](https://github.com/graphprotocol/indexer/tree/main/packages/indexer-service)
+to provide subgraph service as an Indexer,
+integrated with [TAP](https://github.com/semiotic-ai/timeline-aggregation-protocol)
 which is a fast, efficient, and trustless unidirectional micro-payments system.
 
---- 
+---
 ## Getting Started
 
 This section provides guidance for building, configuring, and running `indexer-service-rs` and `indexer-tap-agent`.
@@ -87,7 +87,7 @@ git clone https://github.com/graphprotocol/indexer-rs.git && cd indexer-rs
 ### Configuration
 
 The services require a configuration file provided through the `--config` flag during startup. A minimal example configuration is available at:
-- [Minimal Configuration Template](config/minimal-config-example.toml)
+- [Minimal Configuration Template](crates/config/minimal-config-example.toml)
 
 #### Steps:
 1. **Edit the Configuration:**
@@ -104,21 +104,21 @@ export INDEXER_SERVICE_SUBGRAPHS__NETWORK__QUERY_URL=<value>
 - **Indexer Service:**
 
   ```bash
-  target/release/indexer-service-rs --config config/minimal-config-example.toml
+  target/release/indexer-service-rs --config crates/config/minimal-config-example.toml
   ```
 
 - **TAP Agent:**
 
   ```bash
-  target/release/indexer-tap-agent --config config/minimal-config-example.toml
+  target/release/indexer-tap-agent --config crates/config/minimal-config-example.toml
   ```
 
 ## Configuration
 
 All configuration is managed through a TOML file. Below are examples of configuration templates to help you get started:
 
-- [Minimal Configuration Template (Recommended)](config/minimal-config-example.toml): A minimal setup with only the essential configuration options.
-- [Maximal Configuration Template (Not Recommended)](config/maximal-config-example.toml): Includes all possible options, but some settings may be dangerous or unsuitable for production.
+- [Minimal Configuration Template (Recommended)](crates/config/minimal-config-example.toml): A minimal setup with only the essential configuration options.
+- [Maximal Configuration Template (Not Recommended)](crates/config/maximal-config-example.toml): Includes all possible options, but some settings may be dangerous or unsuitable for production.
 
 If you are migrating from an older stack, use the [Migration Configuration Guide](./docs/migration-config/README.md) for detailed instructions.
 
@@ -151,7 +151,7 @@ By following these steps, you can take advantage of new features and improvement
 
 ## Contributing
 
-We welcome contributions to `indexer-rs`! 
+We welcome contributions to `indexer-rs`!
 
 ### How to Contribute
 - Read the [Contributions Guide](./CONTRIBUTORS.md) for detailed guidelines.
@@ -165,7 +165,7 @@ Contributions can include:
 - Documentation improvements
 - Performance optimizations
 
-Feel free to suggest enhancements or report issues in the project repository. 
+Feel free to suggest enhancements or report issues in the project repository.
 
 
 ## Implementation Details
@@ -176,7 +176,7 @@ The Subgraph Service is an [axum](https://crates.io/crates/axum)-based web serve
 
 #### Key Features
 - **Middleware-Based Checks:** All validation and processing are performed through middleware, enabling modular and reusable components.
-- **TAP Integration:** 
+- **TAP Integration:**
   - TAP receipts are processed by the `tap-middleware`, where they undergo various [checks](./crates/service/src/tap/checks/).
   - Valid receipts are stored in the database, later aggregated into RAVs (Redeemable Aggregate Values) by the [tap-agent](#indexer-tap-agent).
 - **Router Implementation:**
@@ -200,7 +200,7 @@ The TAP Agent is an actor-based system powered by [ractor](https://crates.io/cra
 
 2. **Actor System:**
    - The TAP Agent operates using three main actor groups:
-     - **SenderAccountManager:** 
+     - **SenderAccountManager:**
        - Monitors the indexer's escrow accounts.
        - Handles receipt routing to the appropriate `SenderAllocation`.
        - Kills the application if the database connection is lost.
