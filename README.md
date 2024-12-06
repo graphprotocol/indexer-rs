@@ -221,9 +221,9 @@ The TAP Agent is an actor-based system powered by [ractor](https://crates.io/cra
    - The TAP Agent exposes detailed metrics to monitor system behavior. Key metrics include:
      - **Unaggregated Receipts:** Ensure unaggregated receipts remain below the `max_willing_to_lose` value to prevent the sender from being denied.
      - **RAV Request Failures:** Monitor the rate of failed RAV requests, as repeated failures can disrupt aggregation.
-   - Full details of all metrics can be found in the [Metrics Documentation](https://github.com/graphprotocol/indexer-rs/blob/gustavo/rebuild-documentation/docs/Metrics.md#tap-agent-metrics).
+   - Full details of all metrics can be found in the [Metrics Documentation](https://github.com/graphprotocol/indexer-rs/blob/main/docs/Metrics.md#tap-agent-metrics).
    - A Grafana dashboard is available to visualize system metrics and provide a clear overview of the TAP Agent's performance:
-     - [Download Dashboard JSON](https://github.com/graphprotocol/indexer-rs/blob/gustavo/rebuild-documentation/docs/dashboard.json).
+     - [Download Dashboard JSON](https://github.com/graphprotocol/indexer-rs/blob/main/docs/dashboard.json).
 
 5. **Troubleshooting:**
    - If RAV requests fail or unaggregated receipts exceed the `max_willing_to_lose` limit:
