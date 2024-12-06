@@ -386,8 +386,23 @@ pub struct TapConfig {
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DipsConfig {
+    pub host: String,
+    pub port: String,
+    pub expected_payee: Address,
     pub allowed_payers: Vec<Address>,
     pub cancellation_time_tolerance: Option<Duration>,
+}
+
+impl Default for DipsConfig {
+    fn default() -> Self {
+        DipsConfig {
+            host: "0.0.0.0".to_string(),
+            port: "7601".to_string(),
+            expected_payee: Address::ZERO,
+            allowed_payers: vec![],
+            cancellation_time_tolerance: None,
+        }
+    }
 }
 
 impl TapConfig {
@@ -450,7 +465,8 @@ mod tests {
             allowed_payers: vec![thegraph_core::Address(
                 FixedBytes::<20>::from_str("0x3333333333333333333333333333333333333333").unwrap(),
             )],
-            cancellation_time_tolerance: None,
+            expected_payee: thegraph_core::Address::ZERO,
+            ..Default::default()
         });
 
         let max_config_file: Config = toml::from_str(
