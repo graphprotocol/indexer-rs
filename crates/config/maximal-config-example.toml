@@ -124,6 +124,9 @@ max_receipt_value_grt = "0.001" # 0.001 GRT. We use strings to prevent rounding 
 # max_amount_willing_to_lose_grt = "0.1"
 max_amount_willing_to_lose_grt = 20
 
+# Receipts query timeout
+sender_timeout_secs = 30
+
 [tap.rav_request]
 # Trigger value is the amount used to trigger a rav request
 # The dividor is used to define the trigger value of a RAV request using
@@ -148,3 +151,4 @@ max_receipts_per_request = 10000
 
 [dips]
 allowed_payers = ["0x3333333333333333333333333333333333333333"]
+
