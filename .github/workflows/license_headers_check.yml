@@ -29,4 +29,5 @@ jobs:
             -ignore '.github/workflows/*.yaml' \
             -ignore '.github/*.yaml' \
             -ignore 'migrations/*.sql' \
+            -ignore 'crates/dips/src/proto/*' \
             .
