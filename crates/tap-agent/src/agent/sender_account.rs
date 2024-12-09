@@ -1149,7 +1149,7 @@ pub mod tests {
             rav_request_receipt_limit,
             indexer_address: INDEXER.1,
             escrow_polling_interval: Duration::default(),
-            tap_sender_timeout: Duration::default(),
+            tap_sender_timeout: Duration::from_secs(30),
         }));
 
         let network_subgraph = Box::leak(Box::new(
@@ -2061,4 +2061,3 @@ pub mod tests {
         sender_account.stop_and_wait(None, None).await.unwrap();
     }
 }
-

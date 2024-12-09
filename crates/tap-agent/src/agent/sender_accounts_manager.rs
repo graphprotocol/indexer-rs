@@ -142,7 +142,7 @@ impl Actor for SenderAccountsManager {
         };
         let sender_allocation = select! {
             sender_allocation = state.get_pending_sender_allocation_id() => sender_allocation,
-            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
+            _ = tokio::time::sleep(state.config.tap_sender_timeout) => {
                 panic!("Timeout while getting pending sender allocation ids");
             }
         };
@@ -252,7 +252,7 @@ impl Actor for SenderAccountsManager {
 
                 let mut sender_allocation = select! {
                     sender_allocation = state.get_pending_sender_allocation_id() => sender_allocation,
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
+                    _ = tokio::time::sleep(state.config.tap_sender_timeout) => {
                         tracing::error!("Timeout while getting pending sender allocation ids");
                         return Ok(());
                     }
@@ -643,7 +643,7 @@ mod tests {
             rav_request_receipt_limit: 1000,
             indexer_address: INDEXER.1,
             escrow_polling_interval: Duration::default(),
-            tap_sender_timeout: Duration::default(),
+            tap_sender_timeout: Duration::from_secs(30),
         }))
     }
 
@@ -969,4 +969,3 @@ mod tests {
         join_handle.await.unwrap();
     }
 }
-
