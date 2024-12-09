@@ -260,6 +260,10 @@ impl SubgraphClient {
         // Try the local client first; if that fails, log the error and move on
         // to the remote client
         if let Some(ref local_client) = self.local_client {
+            debug!(
+                "Info for local subgraph deployment `{}` status is: `{:#?}` and client is `{:#?}`",
+                local_client.query_url, local_client.status, local_client.http_client
+            );
             match local_client.query::<Q>(variables.clone()).await {
                 Ok(response) => return Ok(response),
                 Err(err) => warn!(
