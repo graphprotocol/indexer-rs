@@ -643,6 +643,7 @@ mod tests {
             rav_request_receipt_limit: 1000,
             indexer_address: INDEXER.1,
             escrow_polling_interval: Duration::default(),
+            tap_sender_timeout: Duration::default(),
         }))
     }
 
@@ -968,3 +969,4 @@ mod tests {
         join_handle.await.unwrap();
     }
 }
+
