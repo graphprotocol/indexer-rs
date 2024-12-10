@@ -19,9 +19,11 @@ max_receipt_value_grt = "0.001" # We use strings to prevent rounding errors
 
 [tap]
 max_amount_willing_to_lose_grt = 20
+sender_timeout_secs = 30
 
 [tap.rav_request]
 trigger_value_divisor = 10
 timestamp_buffer_secs = 60
 request_timeout_secs = 5
 max_receipts_per_request = 10000
+

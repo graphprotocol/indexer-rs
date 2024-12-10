@@ -373,12 +373,16 @@ pub struct ServiceTapConfig {
     pub max_receipt_value_grt: NonZeroGRT,
 }
 
+#[serde_as]
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct TapConfig {
     /// what is the maximum amount the indexer is willing to lose in grt
     pub max_amount_willing_to_lose_grt: NonZeroGRT,
     pub rav_request: RavRequestConfig,
+
+    #[serde_as(as = "DurationSecondsWithFrac<f64>")]
+    pub sender_timeout_secs: Duration,
 
     pub sender_aggregator_endpoints: HashMap<Address, Url>,
 }
@@ -578,7 +582,7 @@ mod tests {
             key1 = "${TEST_VAR1}"
             key2 = "${TEST_VAR-default}"
             key3 = "{{TEST_VAR3}}"
-            
+
             [section2]
             key4 = "prefix_${TEST_VAR1}_${TEST_VAR-default}_suffix"
             key5 = "a_key_without_substitution"
@@ -590,7 +594,7 @@ mod tests {
             key1 = "changed_value_1"
             key2 = "${TEST_VAR-default}"
             key3 = "{{TEST_VAR3}}"
-            
+
             [section2]
             key4 = "prefix_changed_value_1_${TEST_VAR-default}_suffix"
             key5 = "a_key_without_substitution"
