@@ -190,6 +190,7 @@ pub struct SenderAccountConfig {
     pub rav_request_receipt_limit: u64,
     pub indexer_address: Address,
     pub escrow_polling_interval: Duration,
+    pub tap_sender_timeout: Duration,
 }
 
 impl SenderAccountConfig {
@@ -202,6 +203,7 @@ impl SenderAccountConfig {
             max_amount_willing_to_lose_grt: config.tap.max_amount_willing_to_lose_grt.get_value(),
             trigger_value: config.tap.get_trigger_value(),
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
+            tap_sender_timeout: config.tap.sender_timeout_secs,
         }
     }
 }
@@ -1147,6 +1149,7 @@ pub mod tests {
             rav_request_receipt_limit,
             indexer_address: INDEXER.1,
             escrow_polling_interval: Duration::default(),
+            tap_sender_timeout: Duration::from_secs(30),
         }));
 
         let network_subgraph = Box::leak(Box::new(
