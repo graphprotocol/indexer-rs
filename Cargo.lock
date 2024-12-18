@@ -3772,12 +3772,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "indoc"
-version = "2.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b248f5224d1d606005e02c97f5aa4e88eeb230488bcc03bc9ca4d7991399f2b5"
-
-[[package]]
 name = "inlinable_string"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6831,22 +6825,17 @@ dependencies = [
  "alloy-signer",
  "alloy-sol-types",
  "bs58",
- "indoc",
- "reqwest 0.12.9",
  "serde",
- "serde_json",
  "serde_with",
- "thegraph-graphql-http",
  "thiserror 1.0.69",
- "tracing",
  "url",
 ]
 
 [[package]]
 name = "thegraph-graphql-http"
-version = "0.2.4"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae3b675ae2fd6e213fa1b428ba44009b309338b6e9b7e6205a674ccecd5d67d4"
+checksum = "80bff1bad9a7c3b210876b5601460cab05d8fa6e8f52481472427ed18bc33975"
 dependencies = [
  "async-trait",
  "reqwest 0.12.9",
