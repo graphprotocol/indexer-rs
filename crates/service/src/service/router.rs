@@ -26,7 +26,7 @@ use reqwest::Method;
 use tap_core::{manager::Manager, receipt::checks::CheckList};
 use tower::ServiceBuilder;
 use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor, GovernorLayer,
+    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
 };
 use tower_http::{
     auth::AsyncRequireAuthorizationLayer,
@@ -434,12 +434,13 @@ impl ServiceRouter {
 fn create_rate_limiter(
     burst_per_millisecond: u64,
     burst_size: u32,
-) -> GovernorLayer<PeerIpKeyExtractor, NoOpMiddleware<QuantaInstant>> {
+) -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware<QuantaInstant>> {
     GovernorLayer {
         config: Arc::new(
             GovernorConfigBuilder::default()
                 .per_millisecond(burst_per_millisecond)
                 .burst_size(burst_size)
+                .key_extractor(SmartIpKeyExtractor)
                 .finish()
                 .expect("Failed to set up rate limiting"),
         ),

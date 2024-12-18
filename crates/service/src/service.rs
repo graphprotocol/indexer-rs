@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
 use anyhow::anyhow;
 use axum::{extract::Request, serve, ServiceExt};
@@ -119,7 +119,7 @@ pub async fn run() -> anyhow::Result<()> {
     let app = router.create_router().await?;
     let router = NormalizePath::trim_trailing_slash(app);
     //
-    let service = ServiceExt::<Request>::into_make_service(router);
+    let service = ServiceExt::<Request>::into_make_service_with_connect_info::<SocketAddr>(router);
     Ok(serve(listener, service)
         .with_graceful_shutdown(shutdown_handler())
         .await?)
