@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.2.1...indexer-config-v1.2.2) (2024-12-18)
+
+
+### Bug Fixes
+
+* add receipts timeout config ([#537](https://github.com/graphprotocol/indexer-rs/issues/537)) ([2438895](https://github.com/graphprotocol/indexer-rs/commit/243889570d2a2146816a23dab3bfe39e79e5e010))
+
 ## [1.2.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.2.0...indexer-config-v1.2.1) (2024-11-08)
 
 

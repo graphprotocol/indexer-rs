@@ -6,6 +6,20 @@
 
 
 
+## [1.4.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.3.2...indexer-service-rs-v1.4.0) (2024-12-18)
+
+
+### Features
+
+* add graph-indexed header in subgraph query response ([#522](https://github.com/graphprotocol/indexer-rs/issues/522)) ([a0d719f](https://github.com/graphprotocol/indexer-rs/commit/a0d719f1a0834ff5ba99522fadd6b52c079425d3)), closes [#494](https://github.com/graphprotocol/indexer-rs/issues/494)
+* add request status code for handler metric ([59eed9f](https://github.com/graphprotocol/indexer-rs/commit/59eed9f347458fdae0798f12e500533c302a9c40))
+
+
+### Bug Fixes
+
+* error in order for middleware router ([12dc95c](https://github.com/graphprotocol/indexer-rs/commit/12dc95c11fe0b6f8e82bfc7604f8079a5010e414))
+* update status code for errors ([4e05c90](https://github.com/graphprotocol/indexer-rs/commit/4e05c90537ffd35656a10a652b2ae5678ed026d8))
+
 ## [1.3.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.3.0...indexer-service-rs-v1.3.1) (2024-11-06)
 
 

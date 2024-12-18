@@ -4,6 +4,15 @@
 
 
 
+## [1.7.4](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.7.3...indexer-tap-agent-v1.7.4) (2024-12-18)
+
+
+### Bug Fixes
+
+* add receipts timeout config ([#537](https://github.com/graphprotocol/indexer-rs/issues/537)) ([2438895](https://github.com/graphprotocol/indexer-rs/commit/243889570d2a2146816a23dab3bfe39e79e5e010))
+* shutdown tap-agent if db connection lost ([#520](https://github.com/graphprotocol/indexer-rs/issues/520)) ([16b42e2](https://github.com/graphprotocol/indexer-rs/commit/16b42e2c41d9c0bbe5d6e187eea49c79cdeac8d9))
+* start listening to messages after start up ([#518](https://github.com/graphprotocol/indexer-rs/issues/518)) ([7e5d280](https://github.com/graphprotocol/indexer-rs/commit/7e5d28085402fdd9110ab61e4fc4b6d767ab9fff))
+
 ## [1.7.3](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.7.2...indexer-tap-agent-v1.7.3) (2024-11-13)
 
 
