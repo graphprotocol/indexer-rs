@@ -3,4 +3,4 @@ source: crates/service/tests/router_test.rs
 expression: res
 snapshot_kind: text
 ---
-Service is up and running
+{"message":"No Tap receipt was found in the request"}

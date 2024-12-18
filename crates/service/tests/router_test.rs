@@ -1,10 +1,10 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
 use alloy::primitives::Address;
-use axum::{body::to_bytes, http::Request};
+use axum::{body::to_bytes, extract::ConnectInfo, http::Request, Extension};
 use axum_extra::headers::Header;
 use indexer_config::{BlockchainConfig, GraphNodeConfig, IndexerConfig, NonZeroGRT};
 use indexer_monitor::EscrowAccounts;
@@ -95,7 +95,20 @@ async fn full_integration_test(database: PgPool) {
         .allocations(allocations)
         .build();
 
-    let mut app = router.create_router().await.unwrap();
+    let socket_info = Extension(ConnectInfo(SocketAddr::from(([0, 0, 0, 0], 1337))));
+    let mut app = router.create_router().await.unwrap().layer(socket_info);
+
+    let res = app
+        .call(Request::get("/").body(String::new()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let graphql_response = res.into_body();
+    let bytes = to_bytes(graphql_response, usize::MAX).await.unwrap();
+    let res = String::from_utf8(bytes.into()).unwrap();
+    insta::assert_snapshot!(res);
 
     let receipt = create_signed_receipt(
         SignedReceiptRequest::builder()
