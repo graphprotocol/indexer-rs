@@ -4,6 +4,7 @@
 use std::str::FromStr;
 
 use super::{error::AdapterError, TapAgentContext};
+#[allow(deprecated)]
 use alloy::signers::Signature;
 use alloy::{hex::ToHexExt, primitives::Address};
 use bigdecimal::num_bigint::{BigInt, ToBigInt};
@@ -36,6 +37,7 @@ impl RAVRead for TapAgentContext {
 
         match row {
             Some(row) => {
+                #[allow(deprecated)]
                 let signature: Signature =
                     row.signature
                         .as_slice()
