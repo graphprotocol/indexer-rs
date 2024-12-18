@@ -9,7 +9,7 @@ pub use alloy_rlp;
 
 use alloy::core::primitives::Address;
 use alloy::rlp::{RlpDecodable, RlpEncodable};
-use alloy::signers::{Signature, SignerSync};
+use alloy::{primitives::PrimitiveSignature as Signature, signers::SignerSync};
 use alloy_rlp::Encodable;
 use thegraph_core::alloy_sol_types::{sol, Eip712Domain, SolStruct};
 use thiserror::Error;
