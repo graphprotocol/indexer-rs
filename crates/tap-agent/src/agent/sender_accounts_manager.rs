@@ -598,109 +598,49 @@ async fn handle_notification(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{HashMap, HashSet},
-        sync::Arc,
-        time::Duration,
-    };
+    use std::collections::{HashMap, HashSet};
 
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
-    use ractor::{concurrency::JoinHandle, Actor, ActorRef, ActorStatus};
+    use ractor::{Actor, ActorRef, ActorStatus};
     use reqwest::Url;
     use ruint::aliases::U256;
     use sqlx::{postgres::PgListener, PgPool};
     use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
     use thegraph_core::alloy::hex::ToHexExt;
-    use tokio::sync::{mpsc, mpsc::error::TryRecvError, watch, Notify};
-
-    use super::{
-        new_receipts_watcher, SenderAccountsManager, SenderAccountsManagerArgs,
-        SenderAccountsManagerMessage, State,
+    use tokio::sync::{
+        mpsc::{self, error::TryRecvError},
+        watch,
     };
+
+    use super::{new_receipts_watcher, SenderAccountsManagerMessage, State};
     use crate::{
         agent::{
-            sender_account::{tests::PREFIX_ID, SenderAccountConfig, SenderAccountMessage},
+            sender_account::{tests::PREFIX_ID, SenderAccountMessage},
             sender_accounts_manager::{handle_notification, NewReceiptNotification},
         },
         test::{
             actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor},
-            create_rav, create_received_receipt, get_grpc_url, store_rav, store_receipt,
-            ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER_2, TAP_EIP712_DOMAIN_SEPARATOR,
+            create_rav, create_received_receipt, create_sender_accounts_manager, get_config,
+            get_grpc_url, store_rav, store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER,
+            SENDER_2, TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
-
-    const DUMMY_URL: &str = "http://localhost:1234";
 
     async fn get_subgraph_client() -> &'static SubgraphClient {
         Box::leak(Box::new(
             SubgraphClient::new(
                 reqwest::Client::new(),
                 None,
-                DeploymentDetails::for_query_url(DUMMY_URL).unwrap(),
+                DeploymentDetails::for_query_url(&get_grpc_url().await).unwrap(),
             )
             .await,
         ))
     }
 
-    fn get_config() -> &'static SenderAccountConfig {
-        Box::leak(Box::new(SenderAccountConfig {
-            rav_request_buffer: Duration::from_millis(1),
-            max_amount_willing_to_lose_grt: 0,
-            trigger_value: 100,
-            rav_request_timeout: Duration::from_millis(1),
-            rav_request_receipt_limit: 1000,
-            indexer_address: INDEXER.1,
-            escrow_polling_interval: Duration::default(),
-            tap_sender_timeout: Duration::from_secs(30),
-        }))
-    }
-
-    async fn create_sender_accounts_manager(
-        pgpool: PgPool,
-    ) -> (
-        String,
-        Arc<Notify>,
-        (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>),
-    ) {
-        let config = get_config();
-
-        let (_allocations_tx, allocations_rx) = watch::channel(HashMap::new());
-        let escrow_subgraph = get_subgraph_client().await;
-        let network_subgraph = get_subgraph_client().await;
-
-        let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
-
-        // Start a new mock aggregator server for this test
-        let prefix = format!(
-            "test-{}",
-            PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        );
-        let args = SenderAccountsManagerArgs {
-            config,
-            domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            pgpool,
-            indexer_allocations: allocations_rx,
-            escrow_accounts: escrow_accounts_rx,
-            escrow_subgraph,
-            network_subgraph,
-            sender_aggregator_endpoints: HashMap::from([
-                (SENDER.1, Url::parse(&get_grpc_url().await).unwrap()),
-                (SENDER_2.1, Url::parse(&get_grpc_url().await).unwrap()),
-            ]),
-            prefix: Some(prefix.clone()),
-        };
-        let actor = TestableActor::new(SenderAccountsManager);
-        let notify = actor.notify.clone();
-        (
-            prefix,
-            notify,
-            Actor::spawn(None, actor, args).await.unwrap(),
-        )
-    }
-
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_create_sender_accounts_manager(pgpool: PgPool) {
-        let (_, _, (actor, join_handle)) = create_sender_accounts_manager(pgpool).await;
+        let (_, _, (actor, join_handle)) =
+            create_sender_accounts_manager().pgpool(pgpool).call().await;
         actor.stop_and_wait(None, None).await.unwrap();
         join_handle.await.unwrap();
     }
@@ -762,7 +702,8 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_sender_allocation(pgpool: PgPool) {
-        let (prefix, notify, (actor, join_handle)) = create_sender_accounts_manager(pgpool).await;
+        let (prefix, notify, (actor, join_handle)) =
+            create_sender_accounts_manager().pgpool(pgpool).call().await;
 
         actor
             .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
