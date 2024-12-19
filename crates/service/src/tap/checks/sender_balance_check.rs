@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::primitives::U256;
 use anyhow::anyhow;
 use indexer_monitor::EscrowAccounts;
 use tap_core::receipt::{
@@ -9,6 +8,7 @@ use tap_core::receipt::{
     state::Checking,
     ReceiptWithState,
 };
+use thegraph_core::alloy::primitives::U256;
 use tokio::sync::watch::Receiver;
 
 use crate::middleware::Sender;

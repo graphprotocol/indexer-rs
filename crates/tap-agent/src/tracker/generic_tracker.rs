@@ -1,17 +1,18 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-
-use super::{
-    global_tracker::GlobalTracker, AllocationStats, DefaultFromExtra, DurationInfo, SenderFeeStats,
-};
-use alloy::primitives::Address;
 use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
     time::Duration,
 };
+
+use thegraph_core::alloy::primitives::Address;
+
+use super::{
+    global_tracker::GlobalTracker, AllocationStats, DefaultFromExtra, DurationInfo, SenderFeeStats,
+};
+use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct GlobalFeeTracker {

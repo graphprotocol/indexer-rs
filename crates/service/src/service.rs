@@ -5,6 +5,7 @@ use std::{net::SocketAddr, time::Duration};
 
 use anyhow::anyhow;
 use axum::{extract::Request, serve, ServiceExt};
+use clap::Parser;
 use indexer_config::{Config, GraphNodeConfig, SubgraphConfig};
 use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
@@ -14,8 +15,6 @@ use tokio::{net::TcpListener, signal};
 use tower_http::normalize_path::NormalizePath;
 
 use crate::{cli::Cli, database, metrics::serve_metrics};
-use clap::Parser;
-use tracing::{error, info};
 
 mod release;
 mod router;
@@ -41,7 +40,7 @@ pub async fn run() -> anyhow::Result<()> {
     // Load the service configuration
     let config = Config::parse(indexer_config::ConfigPrefix::Service, cli.config.as_ref())
         .map_err(|e| {
-            error!(
+            tracing::error!(
                 "Invalid configuration file `{}`: {}, if a value is missing you can also use \
                 --config to fill the rest of the values",
                 cli.config.unwrap_or_default().display(),
@@ -108,7 +107,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     serve_metrics(config.metrics.get_socket_addr());
 
-    info!(
+    tracing::info!(
         address = %host_and_port,
         "Serving requests",
     );
@@ -169,5 +168,5 @@ async fn shutdown_handler() {
         _ = terminate => {},
     }
 
-    info!("Signal received, starting graceful shutdown");
+    tracing::info!("Signal received, starting graceful shutdown");
 }

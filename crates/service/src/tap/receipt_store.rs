@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::{dyn_abi::Eip712Domain, hex::ToHexExt};
 use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
 use sqlx::{types::BigDecimal, PgPool};
@@ -9,9 +8,9 @@ use tap_core::{
     manager::adapters::ReceiptStore,
     receipt::{state::Checking, ReceiptWithState},
 };
-use tokio::{select, sync::mpsc::Receiver, task::JoinHandle};
+use thegraph_core::alloy::{hex::ToHexExt, sol_types::Eip712Domain};
+use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use tracing::error;
 
 use super::{AdapterError, IndexerTapContext};
 
@@ -64,7 +63,7 @@ impl InnerContext {
         .execute(&self.pgpool)
         .await
         .map_err(|e| {
-            error!("Failed to store receipt: {}", e);
+            tracing::error!("Failed to store receipt: {}", e);
             anyhow!(e)
         })?;
 
@@ -82,11 +81,11 @@ impl IndexerTapContext {
         tokio::spawn(async move {
             loop {
                 let mut buffer = Vec::with_capacity(BUFFER_SIZE);
-                select! {
+                tokio::select! {
                     biased;
                     _ = receiver.recv_many(&mut buffer, BUFFER_SIZE) => {
                         if let Err(e) = inner_context.store_receipts(buffer).await {
-                            error!("Failed to store receipts: {}", e);
+                            tracing::error!("Failed to store receipts: {}", e);
                         }
                     }
                     _ = cancelation_token.cancelled() => { break },
@@ -106,7 +105,7 @@ impl ReceiptStore for IndexerTapContext {
     ) -> Result<u64, Self::AdapterError> {
         let db_receipt = DatabaseReceipt::from_receipt(receipt, &self.domain_separator)?;
         self.receipt_producer.send(db_receipt).await.map_err(|e| {
-            error!("Failed to queue receipt for storage: {}", e);
+            tracing::error!("Failed to queue receipt for storage: {}", e);
             anyhow!(e)
         })?;
 
@@ -136,7 +135,7 @@ impl DatabaseReceipt {
         let signer_address = receipt
             .recover_signer(separator)
             .map_err(|e| {
-                error!("Failed to recover receipt signer: {}", e);
+                tracing::error!("Failed to recover receipt signer: {}", e);
                 anyhow!(e)
             })?
             .encode_hex();

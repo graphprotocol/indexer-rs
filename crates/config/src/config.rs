@@ -1,29 +1,26 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use bigdecimal::{BigDecimal, FromPrimitive, ToPrimitive};
-use figment::{
-    providers::{Env, Format, Toml},
-    Figment,
-};
-use serde_repr::Deserialize_repr;
-use serde_with::DurationSecondsWithFrac;
 use std::{
     collections::HashMap,
+    env,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::PathBuf,
     str::FromStr,
     time::Duration,
 };
-use tracing::warn;
 
-use alloy::primitives::Address;
+use bigdecimal::{BigDecimal, FromPrimitive, ToPrimitive};
 use bip39::Mnemonic;
+use figment::{
+    providers::{Env, Format, Toml},
+    Figment,
+};
 use regex::Regex;
 use serde::Deserialize;
-use serde_with::serde_as;
-use std::env;
-use thegraph_core::DeploymentId;
+use serde_repr::Deserialize_repr;
+use serde_with::{serde_as, DurationSecondsWithFrac};
+use thegraph_core::{alloy::primitives::Address, DeploymentId};
 use url::Url;
 
 use crate::NonZeroGRT;
@@ -57,7 +54,7 @@ impl<'de> Deserialize<'de> for ConfigWrapper {
         D: serde::Deserializer<'de>,
     {
         let config: Config = serde_ignored::deserialize(deserializer, |path| {
-            warn!("Ignoring unknown configuration field: {}", path);
+            tracing::warn!("Ignoring unknown configuration field: {}", path);
         })?;
 
         Ok(ConfigWrapper(config))
@@ -158,7 +155,7 @@ impl Config {
             x if *x <= 1.into() => {
                 return Err("trigger_value_divisor must be greater than 1".to_string())
             }
-            x if *x > 1.into() && *x < 10.into() => warn!(
+            x if *x > 1.into() && *x < 10.into() => tracing::warn!(
                 "It's recommended that trigger_value_divisor \
                 be a value greater than 10."
             ),
@@ -176,7 +173,7 @@ impl Config {
                 .to_u128()
                 .unwrap()
         {
-            warn!(
+            tracing::warn!(
                 "Trigger value is too low, currently below 0.1 GRT. \
                 Please modify `max_amount_willing_to_lose_grt` or `trigger_value_divisor`. \
                 It is best to have a higher trigger value, ideally above 1 GRT. \
@@ -190,7 +187,7 @@ impl Config {
         let usual_grt_price = BigDecimal::from_str("0.0001").unwrap() * ten;
         if self.tap.max_amount_willing_to_lose_grt.get_value() < usual_grt_price.to_u128().unwrap()
         {
-            warn!(
+            tracing::warn!(
                 "Your `max_amount_willing_to_lose_grt` value is too close to zero. \
                 This may deny the sender too often or even break the whole system. \
                 It's recommended it to be a value greater than 100x an usual query price."
@@ -200,7 +197,7 @@ impl Config {
         if self.subgraphs.escrow.config.syncing_interval_secs < Duration::from_secs(10)
             || self.subgraphs.network.config.syncing_interval_secs < Duration::from_secs(10)
         {
-            warn!(
+            tracing::warn!(
                 "Your `syncing_interval_secs` value it too low. \
                 This may overload your graph-node instance, \
                 a recommended value is about 60 seconds."
@@ -210,7 +207,7 @@ impl Config {
         if self.subgraphs.escrow.config.syncing_interval_secs > Duration::from_secs(600)
             || self.subgraphs.network.config.syncing_interval_secs > Duration::from_secs(600)
         {
-            warn!(
+            tracing::warn!(
                 "Your `syncing_interval_secs` value it too high. \
                 This may cause issues while reacting to updates in the blockchain. \
                 a recommended value is about 60 seconds."
@@ -218,7 +215,7 @@ impl Config {
         }
 
         if self.tap.rav_request.timestamp_buffer_secs < Duration::from_secs(10) {
-            warn!(
+            tracing::warn!(
                 "Your `tap.rav_request.timestamp_buffer_secs` value it too low. \
                 You may discart receipts in case of any synchronization issues, \
                 a recommended value is about 30 seconds."
@@ -423,15 +420,15 @@ pub struct RavRequestConfig {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::FixedBytes;
+    use std::{env, fs, path::PathBuf};
+
     use figment::value::Uncased;
     use sealed_test::prelude::*;
-    use std::{env, fs, path::PathBuf, str::FromStr};
+    use thegraph_core::alloy::primitives::address;
     use tracing_test::traced_test;
 
-    use crate::{Config, ConfigPrefix};
-
     use super::{DatabaseConfig, SHARED_PREFIX};
+    use crate::{Config, ConfigPrefix};
 
     #[test]
     fn test_minimal_config() {
@@ -451,9 +448,7 @@ mod tests {
         )
         .unwrap();
         max_config.dips = Some(crate::DipsConfig {
-            allowed_payers: vec![thegraph_core::Address(
-                FixedBytes::<20>::from_str("0x3333333333333333333333333333333333333333").unwrap(),
-            )],
+            allowed_payers: vec![address!("3333333333333333333333333333333333333333")],
             cancellation_time_tolerance: None,
         });
 

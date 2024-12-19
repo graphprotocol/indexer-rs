@@ -3,13 +3,12 @@
 
 use std::collections::HashMap;
 
-use alloy::rlp::Decodable;
 use anyhow::bail;
 use axum::async_trait;
 use build_info::chrono::Utc;
-
 use indexer_dips::{SignedCancellationRequest, SignedIndexingAgreementVoucher};
 use sqlx::PgPool;
+use thegraph_core::alloy::rlp::Decodable;
 use uuid::Uuid;
 
 #[async_trait]

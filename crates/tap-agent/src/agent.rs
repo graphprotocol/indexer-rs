@@ -6,15 +6,14 @@ use indexer_config::{
     SubgraphConfig, SubgraphsConfig, TapConfig,
 };
 use indexer_monitor::{escrow_accounts, indexer_allocations, DeploymentDetails, SubgraphClient};
-use ractor::concurrency::JoinHandle;
-use ractor::{Actor, ActorRef};
+use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use sender_account::SenderAccountConfig;
-
-use crate::agent::sender_accounts_manager::{
-    SenderAccountsManagerArgs, SenderAccountsManagerMessage,
-};
-use crate::{database, CONFIG, EIP_712_DOMAIN};
 use sender_accounts_manager::SenderAccountsManager;
+
+use crate::{
+    agent::sender_accounts_manager::{SenderAccountsManagerArgs, SenderAccountsManagerMessage},
+    database, CONFIG, EIP_712_DOMAIN,
+};
 
 pub mod sender_account;
 pub mod sender_accounts_manager;

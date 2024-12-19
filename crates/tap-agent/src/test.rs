@@ -1,32 +1,25 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::str::FromStr;
-
-use alloy::{
-    primitives::hex::ToHexExt,
-    signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
-};
 use bigdecimal::num_bigint::BigInt;
-
-use sqlx::types::BigDecimal;
-
-use alloy::dyn_abi::Eip712Domain;
-use alloy::primitives::Address;
 use lazy_static::lazy_static;
-use sqlx::PgPool;
+use sqlx::{types::BigDecimal, PgPool};
 use tap_core::{
     rav::{ReceiptAggregateVoucher, SignedRAV},
     receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
     signed_message::EIP712SignedMessage,
     tap_eip712_domain,
 };
+use thegraph_core::alloy::{
+    primitives::{address, hex::ToHexExt, Address},
+    signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
+    sol_types::Eip712Domain,
+};
+
+pub const ALLOCATION_ID_0: Address = address!("abababababababababababababababababababab");
+pub const ALLOCATION_ID_1: Address = address!("bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc");
 
 lazy_static! {
-    pub static ref ALLOCATION_ID_0: Address =
-        Address::from_str("0xabababababababababababababababababababab").unwrap();
-    pub static ref ALLOCATION_ID_1: Address =
-        Address::from_str("0xbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc").unwrap();
     // pub static ref SENDER: (PrivateKeySigner, Address) = wallet(0);
     pub static ref SENDER_2: (PrivateKeySigner, Address) = wallet(1);
     pub static ref SIGNER: (PrivateKeySigner, Address) = wallet(2);
@@ -187,17 +180,16 @@ pub mod actors {
 
     use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
     use test_assets::{ALLOCATION_ID_0, TAP_SIGNER};
-    use thegraph_core::Address;
+    use thegraph_core::alloy::primitives::Address;
     use tokio::sync::{mpsc, watch, Notify};
 
+    use super::create_rav;
     use crate::agent::{
         sender_account::{ReceiptFees, SenderAccountMessage},
         sender_accounts_manager::NewReceiptNotification,
         sender_allocation::SenderAllocationMessage,
         unaggregated_receipts::UnaggregatedReceipts,
     };
-
-    use super::create_rav;
 
     pub struct DummyActor;
 
@@ -227,7 +219,7 @@ pub mod actors {
         T: Actor,
     {
         inner: T,
-        pub notify: Arc<tokio::sync::Notify>,
+        pub notify: Arc<Notify>,
     }
 
     impl<T> TestableActor<T>
@@ -294,7 +286,7 @@ pub mod actors {
             &self,
             myself: ActorRef<Self::Msg>,
             state: &mut Self::State,
-        ) -> std::result::Result<(), ActorProcessingErr> {
+        ) -> Result<(), ActorProcessingErr> {
             self.inner.post_stop(myself, state).await
         }
 
@@ -303,7 +295,7 @@ pub mod actors {
             myself: ActorRef<Self::Msg>,
             msg: Self::Msg,
             state: &mut Self::State,
-        ) -> std::result::Result<(), ActorProcessingErr> {
+        ) -> Result<(), ActorProcessingErr> {
             let result = self.inner.handle(myself, msg, state).await;
             self.notify.notify_one();
             result
@@ -314,7 +306,7 @@ pub mod actors {
             myself: ActorRef<Self::Msg>,
             message: SupervisionEvent,
             state: &mut Self::State,
-        ) -> std::result::Result<(), ActorProcessingErr> {
+        ) -> Result<(), ActorProcessingErr> {
             self.inner
                 .handle_supervisor_evt(myself, message, state)
                 .await
@@ -406,13 +398,13 @@ pub mod actors {
                     self.triggered_rav_request.notify_one();
                     if let Some(sender_account) = self.sender_actor.as_ref() {
                         let signed_rav = create_rav(
-                            *ALLOCATION_ID_0,
+                            ALLOCATION_ID_0,
                             TAP_SIGNER.0.clone(),
                             4,
                             *self.next_rav_value.borrow(),
                         );
                         sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
-                            *ALLOCATION_ID_0,
+                            ALLOCATION_ID_0,
                             ReceiptFees::RavRequestResponse((
                                 UnaggregatedReceipts {
                                     value: *self.next_unaggregated_fees_value.borrow(),
@@ -459,7 +451,7 @@ pub mod actors {
     }
 
     pub struct MockSenderAccount {
-        pub last_message_emitted: tokio::sync::mpsc::Sender<SenderAccountMessage>,
+        pub last_message_emitted: mpsc::Sender<SenderAccountMessage>,
     }
 
     #[async_trait::async_trait]
@@ -472,7 +464,7 @@ pub mod actors {
             &self,
             _myself: ActorRef<Self::Msg>,
             _allocation_ids: Self::Arguments,
-        ) -> std::result::Result<Self::State, ActorProcessingErr> {
+        ) -> Result<Self::State, ActorProcessingErr> {
             Ok(())
         }
 
@@ -481,7 +473,7 @@ pub mod actors {
             _myself: ActorRef<Self::Msg>,
             message: Self::Msg,
             _state: &mut Self::State,
-        ) -> std::result::Result<(), ActorProcessingErr> {
+        ) -> Result<(), ActorProcessingErr> {
             self.last_message_emitted.send(message).await.unwrap();
             Ok(())
         }

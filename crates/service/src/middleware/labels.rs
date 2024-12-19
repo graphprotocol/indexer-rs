@@ -81,16 +81,6 @@ pub async fn labels_middleware(mut request: Request, next: Next) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use crate::middleware::{
-        allocation::Allocation,
-        labels::{NO_ALLOCATION, NO_DEPLOYMENT_ID, NO_SENDER},
-        prometheus_metrics::MetricLabels,
-        sender::Sender,
-    };
-
-    use super::labels_middleware;
-
-    use alloy::primitives::Address;
     use axum::{
         body::Body,
         http::{Extensions, Request},
@@ -100,13 +90,22 @@ mod tests {
     };
     use reqwest::StatusCode;
     use test_assets::ESCROW_SUBGRAPH_DEPLOYMENT;
+    use thegraph_core::alloy::primitives::Address;
     use tower::ServiceExt;
+
+    use super::labels_middleware;
+    use crate::middleware::{
+        allocation::Allocation,
+        labels::{NO_ALLOCATION, NO_DEPLOYMENT_ID, NO_SENDER},
+        prometheus_metrics::MetricLabels,
+        sender::Sender,
+    };
 
     #[tokio::test]
     async fn test_label_middleware() {
         let middleware = from_fn(labels_middleware);
 
-        let deployment = *ESCROW_SUBGRAPH_DEPLOYMENT;
+        let deployment = ESCROW_SUBGRAPH_DEPLOYMENT;
         let sender = Address::ZERO;
         let allocation = Address::ZERO;
 

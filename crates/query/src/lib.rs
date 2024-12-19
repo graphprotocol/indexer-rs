@@ -4,8 +4,8 @@
 use graphql_client::GraphQLQuery;
 
 pub mod dispute_manager {
-    use alloy::primitives::Address;
     use graphql_client::GraphQLQuery;
+    use thegraph_core::alloy::primitives::Address;
     type Bytes = Address;
 
     #[derive(GraphQLQuery)]
@@ -37,8 +37,8 @@ pub mod escrow_account {
 }
 
 pub mod allocations_query {
-    use alloy::primitives::{B256, U256};
     use graphql_client::GraphQLQuery;
+    use thegraph_core::alloy::primitives::{B256, U256};
     type BigInt = U256;
     type Bytes = B256;
 

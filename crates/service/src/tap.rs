@@ -1,26 +1,25 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::tap::checks::allocation_eligible::AllocationEligible;
-use crate::tap::checks::deny_list_check::DenyListCheck;
-use crate::tap::checks::receipt_max_val_check::ReceiptMaxValueCheck;
-use crate::tap::checks::sender_balance_check::SenderBalanceCheck;
-use crate::tap::checks::timestamp_check::TimestampCheck;
-use crate::tap::checks::value_check::MinimumValue;
-use alloy::dyn_abi::Eip712Domain;
-use alloy::primitives::Address;
+use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
+
 use indexer_allocation::Allocation;
 use indexer_monitor::EscrowAccounts;
 use receipt_store::{DatabaseReceipt, InnerContext};
 use sqlx::PgPool;
-use std::fmt::Debug;
-use std::time::Duration;
-use std::{collections::HashMap, sync::Arc};
 use tap_core::receipt::checks::ReceiptCheck;
-use tokio::sync::mpsc::{self, Sender};
-use tokio::sync::watch::Receiver;
+use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
+use tokio::sync::{
+    mpsc::{self, Sender},
+    watch::Receiver,
+};
 use tokio_util::sync::CancellationToken;
-use tracing::error;
+
+use crate::tap::checks::{
+    allocation_eligible::AllocationEligible, deny_list_check::DenyListCheck,
+    receipt_max_val_check::ReceiptMaxValueCheck, sender_balance_check::SenderBalanceCheck,
+    timestamp_check::TimestampCheck, value_check::MinimumValue,
+};
 
 mod checks;
 mod receipt_store;

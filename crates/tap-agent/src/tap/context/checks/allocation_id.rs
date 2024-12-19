@@ -3,7 +3,6 @@
 
 use std::time::Duration;
 
-use alloy::primitives::Address;
 use anyhow::anyhow;
 use indexer_monitor::SubgraphClient;
 use indexer_query::{tap_transactions, TapTransactions};
@@ -13,6 +12,7 @@ use tap_core::receipt::{
     state::Checking,
     ReceiptWithState,
 };
+use thegraph_core::alloy::primitives::Address;
 use tokio::sync::watch::Receiver;
 
 pub struct AllocationId {
