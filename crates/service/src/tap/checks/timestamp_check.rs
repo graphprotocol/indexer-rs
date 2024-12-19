@@ -1,7 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
-use anyhow::anyhow;
 use std::time::{Duration, SystemTime};
+
+use anyhow::anyhow;
 
 pub struct TimestampCheck {
     timestamp_error_tolerance: Duration,
@@ -48,20 +49,20 @@ impl Check for TimestampCheck {
 }
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::time::{Duration, SystemTime};
 
-    use alloy::{
-        primitives::Address,
-        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
-    };
-
-    use super::*;
-    use crate::tap::Eip712Domain;
     use tap_core::{
         receipt::{checks::Check, state::Checking, Context, Receipt, ReceiptWithState},
         signed_message::EIP712SignedMessage,
         tap_eip712_domain,
     };
+    use thegraph_core::alloy::{
+        primitives::{address, Address},
+        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
+    };
+
+    use super::TimestampCheck;
+    use crate::tap::Eip712Domain;
 
     fn create_signed_receipt_with_custom_timestamp(
         timestamp_ns: u64,
@@ -80,8 +81,7 @@ mod tests {
         let receipt = EIP712SignedMessage::new(
             &eip712_domain_separator,
             Receipt {
-                allocation_id: Address::from_str("0xabababababababababababababababababababab")
-                    .unwrap(),
+                allocation_id: address!("abababababababababababababababababababab"),
                 nonce,
                 timestamp_ns,
                 value,

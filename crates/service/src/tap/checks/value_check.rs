@@ -1,6 +1,13 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{
+    collections::HashMap,
+    str::FromStr,
+    sync::{Arc, RwLock},
+    time::{Duration, Instant},
+};
+
 use ::cost_model::CostModel;
 use anyhow::anyhow;
 use bigdecimal::ToPrimitive;
@@ -8,21 +15,12 @@ use sqlx::{
     postgres::{PgListener, PgNotification},
     PgPool,
 };
-use std::time::Duration;
-use std::{
-    collections::HashMap,
-    str::FromStr,
-    sync::{Arc, RwLock},
-    time::Instant,
-};
-use thegraph_core::DeploymentId;
-use tracing::error;
-
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
     Context, ReceiptWithState,
 };
+use thegraph_core::DeploymentId;
 
 use crate::database::cost_model;
 
@@ -135,7 +133,7 @@ impl CostModelWatcher {
                     cost_model_write.insert(deployment_id, model);
                 }
                 Err(_) => {
-                    error!(
+                    tracing::error!(
                         "Received insert request for an invalid deployment_id: {}",
                         deployment_id
                     )
@@ -156,7 +154,7 @@ impl CostModelWatcher {
                     self.cost_models.write().unwrap().remove(&deployment_id);
                 }
                 Err(_) => {
-                    error!(
+                    tracing::error!(
                         "Received delete request for an invalid deployment_id: {}",
                         deployment_id
                     )
@@ -167,7 +165,7 @@ impl CostModelWatcher {
     }
 
     async fn handle_unexpected_notification(&self, payload: &str) {
-        error!(
+        tracing::error!(
             "Received an unexpected cost model table notification: {}. Reloading entire \
                                 cost model.",
             payload
@@ -365,18 +363,16 @@ enum CostModelNotification {
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
-    use test_assets::{create_signed_receipt, flush_messages, SignedReceiptRequest};
 
     use sqlx::PgPool;
     use tap_core::receipt::{checks::Check, Context, ReceiptWithState};
+    use test_assets::{create_signed_receipt, flush_messages, SignedReceiptRequest};
     use tokio::time::sleep;
 
-    use super::AgoraQuery;
+    use super::{AgoraQuery, MinimumValue};
     use crate::database::cost_model::test::{
         self, add_cost_models, global_cost_model, to_db_models,
     };
-
-    use super::MinimumValue;
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn initialize_check(pgpool: PgPool) {

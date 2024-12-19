@@ -14,7 +14,6 @@ use tokio::{
     task::JoinHandle,
     time::{self, sleep},
 };
-use tracing::{error, warn};
 
 /// Creates a new watcher that auto initializes it with initial_value
 /// and updates it given an interval
@@ -41,7 +40,7 @@ where
                 Ok(value) => tx.send(value).expect("Failed to update channel"),
                 Err(err) => {
                     // TODO mark it as delayed
-                    warn!(error = %err, "There was an error while updating watcher");
+                    tracing::warn!(error = %err, "There was an error while updating watcher");
                     // Sleep for a bit before we retry
                     sleep(interval.div_f32(2.0)).await;
                 }
@@ -106,7 +105,7 @@ where
                     function(value).await;
                 }
                 Err(err) => {
-                    error!("There was an error piping the watcher results: {err}");
+                    tracing::error!("There was an error piping the watcher results: {err}");
                     break;
                 }
             };

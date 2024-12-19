@@ -4,8 +4,7 @@
 use std::process::ExitCode;
 
 use indexer_service_rs::service::run;
-use tracing::level_filters::LevelFilter;
-use tracing::subscriber::set_global_default;
+use tracing::{level_filters::LevelFilter, subscriber::set_global_default};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 #[tokio::main]

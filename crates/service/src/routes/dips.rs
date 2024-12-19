@@ -1,20 +1,19 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use async_graphql::{Context, EmptySubscription, FieldResult, Object, Schema, SimpleObject};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use indexer_config::{BlockchainConfig, DipsConfig};
-use indexer_dips::alloy::dyn_abi::Eip712Domain;
-use indexer_dips::SignedCancellationRequest;
 use indexer_dips::{
-    alloy::core::primitives::Address, alloy_rlp::Decodable, SignedIndexingAgreementVoucher,
-    SubgraphIndexingVoucherMetadata,
+    SignedCancellationRequest, SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
 };
-use thegraph_core::attestation::eip712_domain;
+use thegraph_core::{
+    alloy::{primitives::Address, rlp::Decodable, sol_types::Eip712Domain},
+    attestation::eip712_domain,
+};
 use uuid::Uuid;
 
 use crate::database::dips::AgreementStore;
@@ -266,14 +265,16 @@ async fn validate_and_cancel_agreement(
 mod test {
     use std::sync::Arc;
 
-    use alloy::signers::local::PrivateKeySigner;
     use base64::{engine::general_purpose::STANDARD, Engine};
-    use indexer_dips::{
-        alloy::core::primitives::{Address, FixedBytes, U256},
-        alloy_rlp::{self},
-        IndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
+    use indexer_dips::{IndexingAgreementVoucher, SubgraphIndexingVoucherMetadata};
+    use thegraph_core::{
+        alloy::{
+            primitives::{Address, FixedBytes, U256},
+            rlp,
+            signers::local::PrivateKeySigner,
+        },
+        attestation::eip712_domain,
     };
-    use thegraph_core::attestation::eip712_domain;
     use uuid::Uuid;
 
     use crate::database::dips::{AgreementStore, InMemoryAgreementStore};
@@ -303,12 +304,12 @@ mod test {
             maxEpochsPerCollection: 1000,
             minEpochsPerCollection: 1000,
             durationEpochs: 1000,
-            metadata: alloy_rlp::encode(metadata).into(),
+            metadata: rlp::encode(metadata).into(),
         };
         let domain = eip712_domain(0, Address::ZERO);
 
         let voucher = voucher.sign(&domain, payer)?;
-        let rlp_voucher = alloy_rlp::encode(voucher.clone());
+        let rlp_voucher = rlp::encode(voucher.clone());
         let b64 = STANDARD.encode(rlp_voucher);
         let id = Uuid::now_v7();
 

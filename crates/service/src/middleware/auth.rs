@@ -13,18 +13,22 @@ pub use tap::tap_receipt_authorize;
 mod tests {
     use std::sync::Arc;
 
-    use axum::body::Body;
-    use axum::http::{Request, Response};
+    use axum::{
+        body::Body,
+        http::{Request, Response},
+    };
     use reqwest::{header, StatusCode};
     use sqlx::PgPool;
     use tap_core::{manager::Manager, receipt::checks::CheckList};
+    use test_assets::{
+        assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
+    };
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
-    use crate::middleware::auth::{self, Bearer, OrExt};
-    use crate::tap::IndexerTapContext;
-    use test_assets::{
-        assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
+    use crate::{
+        middleware::auth::{self, Bearer, OrExt},
+        tap::IndexerTapContext,
     };
 
     const BEARER_TOKEN: &str = "test";

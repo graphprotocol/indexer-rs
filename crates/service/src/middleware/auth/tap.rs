@@ -76,9 +76,7 @@ where
 mod tests {
 
     use core::panic;
-    use rstest::*;
     use std::sync::Arc;
-    use tower::{Service, ServiceBuilder, ServiceExt};
 
     use axum::{
         body::Body,
@@ -86,6 +84,7 @@ mod tests {
     };
     use prometheus::core::Collector;
     use reqwest::StatusCode;
+    use rstest::*;
     use sqlx::PgPool;
     use tap_core::{
         manager::Manager,
@@ -98,6 +97,7 @@ mod tests {
     use test_assets::{
         assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
     };
+    use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
     use crate::{

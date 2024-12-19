@@ -7,13 +7,12 @@ pub mod dips;
 use std::time::Duration;
 
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use tracing::debug;
 
 const DATABASE_TIMEOUT: Duration = Duration::from_secs(30);
 const DATABASE_MAX_CONNECTIONS: u32 = 50;
 
 pub async fn connect(url: &str) -> PgPool {
-    debug!("Connecting to database");
+    tracing::debug!("Connecting to database");
 
     PgPoolOptions::new()
         .max_connections(DATABASE_MAX_CONNECTIONS)

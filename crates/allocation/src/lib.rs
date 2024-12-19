@@ -3,10 +3,12 @@
 
 use std::str::FromStr;
 
-use alloy::primitives::U256;
 use indexer_query::allocations_query;
 use serde::{Deserialize, Deserializer};
-use thegraph_core::{Address, DeploymentId};
+use thegraph_core::{
+    alloy::primitives::{Address, U256},
+    DeploymentId,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Allocation {

@@ -17,16 +17,6 @@ resolver = "2"
 opt-level = 3
 
 [workspace.dependencies]
-alloy = { version = "=0.5.4", features = [
-    "kzg",
-    "signer-mnemonic",
-    "dyn-abi",
-    "sol-types",
-    "signer-local",
-    "eip712",
-    "rlp",
-    "signers",
-], default-features = false }
 clap = "4.4.3"
 lazy_static = "1.4.0"
 axum = { version = "0.7.9", default-features = false, features = [
@@ -62,14 +52,23 @@ uuid = { version = "1.11.0", features = ["v7"] }
 tracing = { version = "0.1.40", default-features = false }
 bigdecimal = "0.4.3"
 build-info = "0.0.39"
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "61b47b3", default-features = false }
-tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "61b47b3", default-features = false }
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "1c6e29f", default-features = false }
+tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "1c6e29f", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
     "json",
     "env-filter",
     "ansi",
 ], default-features = false }
-thegraph-core = { git = "https://github.com/edgeandnode/toolshed", rev = "1663534fc1738e2db1b11cb54b5bb478ee970d40" }
+thegraph-core = { version = "0.9.6", features = [
+    "attestation",
+    "alloy-eip712",
+    "alloy-sol-types",
+    "alloy-rlp",
+    "alloy-signers",
+    "alloy-signer-local",
+    "alloy-signer-mnemonic",
+    "serde"
+] }
 thegraph-graphql-http = { version = "0.3.2", features = ["reqwest"] }
 graphql_client = { version = "0.14.0", features = ["reqwest-rustls"] }
 bip39 = "2.0.0"

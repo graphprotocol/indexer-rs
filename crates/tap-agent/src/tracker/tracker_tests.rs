@@ -1,14 +1,15 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{agent::unaggregated_receipts::UnaggregatedReceipts, tracker::SenderFeeTracker};
-
-use super::SimpleFeeTracker;
-use alloy::primitives::address;
 use std::{
     thread::sleep,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+use thegraph_core::alloy::primitives::address;
+
+use super::SimpleFeeTracker;
+use crate::{agent::unaggregated_receipts::UnaggregatedReceipts, tracker::SenderFeeTracker};
 
 #[test]
 fn test_allocation_id_tracker() {

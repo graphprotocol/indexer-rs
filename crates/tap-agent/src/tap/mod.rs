@@ -1,9 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::hex::ToHexExt;
-use alloy::primitives::Address;
 use indexer_monitor::EscrowAccounts;
+use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
 use tokio::sync::watch::Receiver;
 
 pub mod context;

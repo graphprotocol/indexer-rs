@@ -5,7 +5,6 @@
 //!
 //! Requires Deployment Id extension to available
 
-use serde_json::value::RawValue;
 use std::sync::Arc;
 
 use axum::{
@@ -15,12 +14,12 @@ use axum::{
     response::Response,
     RequestExt,
 };
+use serde_json::value::RawValue;
 use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
 
-use crate::{error::IndexerServiceError, tap::AgoraQuery};
-
 use super::sender::Sender;
+use crate::{error::IndexerServiceError, tap::AgoraQuery};
 
 /// Graphql query body to be decoded and passed to agora context
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -92,7 +91,7 @@ mod tests {
     #[tokio::test]
     async fn test_context_middleware() {
         let middleware = from_fn(context_middleware);
-        let deployment = *ESCROW_SUBGRAPH_DEPLOYMENT;
+        let deployment = ESCROW_SUBGRAPH_DEPLOYMENT;
         let query_body = QueryBody {
             query: "hello".to_string(),
             variables: None,

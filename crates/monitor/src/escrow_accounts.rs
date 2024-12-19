@@ -7,12 +7,11 @@ use std::{
     time::Duration,
 };
 
-use alloy::primitives::{Address, U256};
 use anyhow::{anyhow, Result};
 use indexer_query::escrow_account::{self, EscrowAccountQuery};
+use thegraph_core::alloy::primitives::{Address, U256};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
-use tracing::{error, warn};
 
 use crate::client::SubgraphClient;
 
@@ -133,7 +132,7 @@ async fn get_escrow_accounts(
                 U256::from_str(&account.total_amount_thawing)?,
             )
             .unwrap_or_else(|| {
-                warn!(
+                tracing::warn!(
                     "Balance minus total amount thawing underflowed for account {}. \
                                  Setting balance to 0, no queries will be served for this sender.",
                     account.sender.id
@@ -166,17 +165,20 @@ async fn get_escrow_accounts(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use test_assets::{
         ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
         ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS,
     };
     use test_log::test;
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
 
-    use crate::client::DeploymentDetails;
-
-    use super::*;
+    use super::{escrow_accounts, EscrowAccounts};
+    use crate::client::{DeploymentDetails, SubgraphClient};
 
     #[test]
     fn test_new_escrow_accounts() {
@@ -222,7 +224,7 @@ mod tests {
 
         let mut accounts = escrow_accounts(
             escrow_subgraph,
-            *test_assets::INDEXER_ADDRESS,
+            test_assets::INDEXER_ADDRESS,
             Duration::from_secs(60),
             true,
         )
