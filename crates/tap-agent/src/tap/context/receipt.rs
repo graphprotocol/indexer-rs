@@ -7,18 +7,16 @@ use std::{
     str::FromStr,
 };
 
-use alloy::hex::ToHexExt;
-use alloy::primitives::Address;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use sqlx::{postgres::types::PgRange, types::BigDecimal};
 use tap_core::{
     manager::adapters::{safe_truncate_receipts, ReceiptDelete, ReceiptRead},
     receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
 };
-
-use crate::tap::signers_trimmed;
+use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
 
 use super::{error::AdapterError, TapAgentContext};
+use crate::tap::signers_trimmed;
 impl From<TryFromIntError> for AdapterError {
     fn from(error: TryFromIntError) -> Self {
         AdapterError::ReceiptRead {
@@ -192,23 +190,37 @@ impl ReceiptDelete for TapAgentContext {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::test::{create_received_receipt, store_receipt, SENDER_2};
-    use alloy::{primitives::U256, signers::local::PrivateKeySigner};
-    use anyhow::Result;
+    use std::{
+        collections::{Bound, HashMap},
+        ops::RangeBounds,
+        str::FromStr,
+    };
+
+    use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
     use indexer_monitor::EscrowAccounts;
     use lazy_static::lazy_static;
     use sqlx::PgPool;
-    use std::collections::HashMap;
+    use tap_core::{
+        manager::adapters::{ReceiptDelete, ReceiptRead},
+        receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
+    };
     use test_assets::{
         ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
+    use thegraph_core::alloy::{
+        primitives::{Address, U256},
+        signers::local::PrivateKeySigner,
+    };
     use tokio::sync::watch::{self, Receiver};
+
+    use super::*;
+    use crate::test::{create_received_receipt, store_receipt, SENDER_2};
+
+    const ALLOCATION_ID_IRRELEVANT: Address = ALLOCATION_ID_1;
 
     lazy_static! {
         static ref SENDER_IRRELEVANT: (PrivateKeySigner, Address) = SENDER_2.clone();
-        static ref ALLOCATION_ID_IRRELEVANT: Address = *ALLOCATION_ID_1;
     }
 
     /// Insert a single receipt and retrieve it from the database using the adapter.
@@ -222,7 +234,7 @@ mod test {
         .1;
 
         let storage_adapter =
-            TapAgentContext::new(pgpool, *ALLOCATION_ID_0, SENDER.1, escrow_accounts.clone());
+            TapAgentContext::new(pgpool, ALLOCATION_ID_0, SENDER.1, escrow_accounts.clone());
 
         let received_receipt =
             create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX);
@@ -252,7 +264,7 @@ mod test {
         escrow_accounts: Receiver<EscrowAccounts>,
         received_receipt_vec: &[ReceiptWithState<Checking>],
         range: R,
-    ) -> Result<()> {
+    ) -> anyhow::Result<()> {
         let escrow_accounts_snapshot = escrow_accounts.borrow();
 
         // Filtering the received receipts by timestamp range
@@ -302,7 +314,7 @@ mod test {
         escrow_accounts: Receiver<EscrowAccounts>,
         received_receipt_vec: &[ReceiptWithState<Checking>],
         range: R,
-    ) -> Result<()> {
+    ) -> anyhow::Result<()> {
         let escrow_accounts_snapshot = escrow_accounts.borrow();
 
         // Storing the receipts
@@ -434,7 +446,7 @@ mod test {
 
         let storage_adapter = TapAgentContext::new(
             pgpool.clone(),
-            *ALLOCATION_ID_0,
+            ALLOCATION_ID_0,
             SENDER.1,
             escrow_accounts.clone(),
         );
@@ -502,7 +514,7 @@ mod test {
 
         let storage_adapter = TapAgentContext::new(
             pgpool.clone(),
-            *ALLOCATION_ID_0,
+            ALLOCATION_ID_0,
             SENDER.1,
             escrow_accounts.clone(),
         );
@@ -629,7 +641,7 @@ mod test {
         .1;
 
         let storage_adapter =
-            TapAgentContext::new(pgpool, *ALLOCATION_ID_0, SENDER.1, escrow_accounts.clone());
+            TapAgentContext::new(pgpool, ALLOCATION_ID_0, SENDER.1, escrow_accounts.clone());
 
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();

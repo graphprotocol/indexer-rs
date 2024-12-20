@@ -1,9 +1,9 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::primitives::Address;
 use async_trait::async_trait;
 use tap_core::manager::adapters::EscrowHandler as EscrowAdapterTrait;
+use thegraph_core::alloy::primitives::Address;
 
 use super::{error::AdapterError, TapAgentContext};
 

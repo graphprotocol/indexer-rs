@@ -1,20 +1,21 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::middleware::Sender;
-use alloy::primitives::Address;
-use sqlx::postgres::PgListener;
-use sqlx::PgPool;
-use std::collections::HashSet;
-use std::sync::RwLock;
-use std::{str::FromStr, sync::Arc};
-use tap_core::receipt::checks::CheckError;
+use std::{
+    collections::HashSet,
+    str::FromStr,
+    sync::{Arc, RwLock},
+};
+
+use sqlx::{postgres::PgListener, PgPool};
 use tap_core::receipt::{
-    checks::{Check, CheckResult},
+    checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
 };
-use tracing::error;
+use thegraph_core::alloy::primitives::Address;
+
+use crate::middleware::Sender;
 
 pub struct DenyListCheck {
     sender_denylist: Arc<RwLock<HashSet<Address>>>,
@@ -132,7 +133,7 @@ impl DenyListCheck {
                         }
                         // UPDATE and TRUNCATE are not expected to happen. Reload the entire denylist.
                         _ => {
-                            error!(
+                            tracing::error!(
                                 "Received an unexpected denylist table notification: {}. Reloading entire \
                                 denylist.",
                                 denylist_notification.tg_op
@@ -189,10 +190,10 @@ impl Drop for DenyListCheck {
 
 #[cfg(test)]
 mod tests {
-    use alloy::hex::ToHexExt;
-    use tap_core::receipt::{Context, ReceiptWithState};
-
+    use sqlx::PgPool;
+    use tap_core::receipt::{checks::Check, Context, ReceiptWithState};
     use test_assets::{self, create_signed_receipt, SignedReceiptRequest, TAP_SENDER};
+    use thegraph_core::alloy::hex::ToHexExt;
 
     use super::*;
 

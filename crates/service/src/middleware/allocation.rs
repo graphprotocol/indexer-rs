@@ -3,17 +3,17 @@
 
 use std::collections::HashMap;
 
-use alloy::primitives::Address;
 use axum::{
     extract::{Request, State},
     middleware::Next,
     response::Response,
 };
 use tap_core::receipt::SignedReceipt;
-use thegraph_core::DeploymentId;
+use thegraph_core::{alloy::primitives::Address, DeploymentId};
 use tokio::sync::watch;
 
-/// The current query Allocation Id address
+/// The current query Allocation ID address
+// TODO: Use thegraph-core::AllocationId instead
 #[derive(Clone)]
 pub struct Allocation(pub Address);
 
@@ -58,11 +58,6 @@ pub async fn allocation_middleware(
 
 #[cfg(test)]
 mod tests {
-    use crate::middleware::allocation::Allocation;
-
-    use super::{allocation_middleware, AllocationState};
-
-    use alloy::primitives::Address;
     use axum::{
         body::Body,
         http::{Extensions, Request},
@@ -72,14 +67,17 @@ mod tests {
     };
     use reqwest::StatusCode;
     use test_assets::{create_signed_receipt, SignedReceiptRequest, ESCROW_SUBGRAPH_DEPLOYMENT};
+    use thegraph_core::alloy::primitives::Address;
     use tokio::sync::watch;
     use tower::ServiceExt;
 
+    use super::{allocation_middleware, Allocation, AllocationState};
+
     #[tokio::test]
     async fn test_allocation_middleware() {
-        let deployment = *ESCROW_SUBGRAPH_DEPLOYMENT;
-        let deployment_to_allocation =
-            watch::channel(vec![(deployment, Address::ZERO)].into_iter().collect()).1;
+        let deployment = ESCROW_SUBGRAPH_DEPLOYMENT;
+        let (_, deployment_to_allocation) =
+            watch::channel(vec![(deployment, Address::ZERO)].into_iter().collect());
         let state = AllocationState {
             deployment_to_allocation,
         };

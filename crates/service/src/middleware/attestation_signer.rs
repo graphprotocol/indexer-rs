@@ -1,14 +1,15 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::primitives::Address;
+use std::collections::HashMap;
+
 use axum::{
     extract::{Request, State},
     middleware::Next,
     response::Response,
 };
 use indexer_attestation::AttestationSigner;
-use std::collections::HashMap;
+use thegraph_core::alloy::primitives::Address;
 use tokio::sync::watch;
 
 use super::Allocation;
@@ -37,8 +38,6 @@ pub async fn signer_middleware(
 
 #[cfg(test)]
 mod tests {
-    use crate::middleware::{allocation::Allocation, signer_middleware, AttestationState};
-
     use axum::{body::Body, http::Request, middleware::from_fn_with_state, routing::get, Router};
     use indexer_attestation::AttestationSigner;
     use indexer_monitor::attestation_signers;
@@ -47,6 +46,8 @@ mod tests {
     use tokio::sync::{mpsc::channel, watch};
     use tower::Service;
 
+    use crate::middleware::{allocation::Allocation, signer_middleware, AttestationState};
+
     #[tokio::test]
     async fn test_attestation_signer_middleware() {
         let allocations = (*INDEXER_ALLOCATIONS).clone();
@@ -54,7 +55,7 @@ mod tests {
         let allocation = **allocations.keys().collect::<Vec<_>>().first().unwrap();
 
         let (_, allocations_rx) = watch::channel(allocations);
-        let (_, dispute_manager_rx) = watch::channel(*DISPUTE_MANAGER_ADDRESS);
+        let (_, dispute_manager_rx) = watch::channel(DISPUTE_MANAGER_ADDRESS);
         let attestation_signers = attestation_signers(
             allocations_rx,
             INDEXER_MNEMONIC.clone(),

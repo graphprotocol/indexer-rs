@@ -1,13 +1,15 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::client::SubgraphClient;
-use alloy::primitives::Address;
+use std::time::Duration;
+
 use anyhow::Error;
 use indexer_query::dispute_manager::{self, DisputeManager};
 use indexer_watcher::new_watcher;
-use std::time::Duration;
+use thegraph_core::alloy::primitives::Address;
 use tokio::sync::watch::Receiver;
+
+use crate::client::SubgraphClient;
 
 /// Watcher for Dispute Manager Address
 pub type DisputeManagerWatcher = Receiver<Address>;
@@ -31,6 +33,8 @@ pub async fn dispute_manager(
 
 #[cfg(test)]
 mod test {
+    use std::time::Duration;
+
     use serde_json::json;
     use test_assets::DISPUTE_MANAGER_ADDRESS;
     use tokio::time::sleep;
@@ -39,9 +43,8 @@ mod test {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use crate::{client::DeploymentDetails, client::SubgraphClient};
-
     use super::*;
+    use crate::client::{DeploymentDetails, SubgraphClient};
 
     async fn setup_mock_network_subgraph() -> (&'static SubgraphClient, MockServer) {
         // Set up a mock network subgraph
@@ -52,7 +55,7 @@ mod test {
             DeploymentDetails::for_query_url(&format!(
                 "{}/subgraphs/id/{}",
                 &mock_server.uri(),
-                *test_assets::NETWORK_SUBGRAPH_DEPLOYMENT
+                test_assets::NETWORK_SUBGRAPH_DEPLOYMENT
             ))
             .unwrap(),
         )
@@ -64,10 +67,10 @@ mod test {
                 Mock::given(method("POST"))
                     .and(path(format!(
                         "/subgraphs/id/{}",
-                        *test_assets::NETWORK_SUBGRAPH_DEPLOYMENT
+                        test_assets::NETWORK_SUBGRAPH_DEPLOYMENT
                     )))
                     .respond_with(ResponseTemplate::new(200).set_body_json(
-                        json!({ "data": { "graphNetwork": { "disputeManager": *DISPUTE_MANAGER_ADDRESS }}}),
+                        json!({ "data": { "graphNetwork": { "disputeManager": DISPUTE_MANAGER_ADDRESS }}}),
                     )),
             )
             .await;
@@ -84,6 +87,6 @@ mod test {
             .unwrap();
         sleep(Duration::from_millis(50)).await;
         let result = *dispute_manager.borrow();
-        assert_eq!(result, *DISPUTE_MANAGER_ADDRESS);
+        assert_eq!(result, DISPUTE_MANAGER_ADDRESS);
     }
 }

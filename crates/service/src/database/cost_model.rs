@@ -1,10 +1,11 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{collections::HashSet, str::FromStr};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
-use std::{collections::HashSet, str::FromStr};
 use thegraph_core::{DeploymentId, ParseDeploymentIdError};
 
 /// Internal cost model representation as stored in the database.
@@ -189,10 +190,10 @@ fn merge_global(model: CostModel, global_model: &DbCostModel) -> CostModel {
 
 #[cfg(test)]
 pub(crate) mod test {
-
-    use std::str::FromStr;
+    use std::{collections::HashSet, str::FromStr};
 
     use sqlx::PgPool;
+    use thegraph_core::{deployment_id, DeploymentId};
 
     use super::*;
 
@@ -293,7 +294,7 @@ pub(crate) mod test {
             .await
             .expect("cost models query with deployment filter");
 
-        // Expect two cost mdoels to be returned
+        // Expect two cost models to be returned
         assert_eq!(models.len(), sample_deployments.len());
 
         // Expect both returned deployments to be identical to the test data
@@ -388,8 +389,7 @@ pub(crate) mod test {
         }
 
         // Third test: query for missing cost model
-        let missing_deployment =
-            DeploymentId::from_str("Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
+        let missing_deployment = deployment_id!("Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         let models = cost_models(&pool, &[missing_deployment])
             .await
             .expect("cost models query for missing deployment");
@@ -412,7 +412,7 @@ pub(crate) mod test {
         )
         .unwrap();
         let deployment_id_from_hash =
-            DeploymentId::from_str("Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss").unwrap();
+            deployment_id!("Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss");
 
         assert_eq!(deployment_id_from_bytes, deployment_id_from_hash);
 
@@ -453,8 +453,7 @@ pub(crate) mod test {
         }
 
         // Test that querying a non-existing deployment returns the default cost model
-        let missing_deployment =
-            DeploymentId::from_str("Qmnononononononononononononononononononononono").unwrap();
+        let missing_deployment = deployment_id!("Qmnononononononononononononononononononononono");
         let model = cost_model(&pool, &missing_deployment)
             .await
             .expect("cost model query")

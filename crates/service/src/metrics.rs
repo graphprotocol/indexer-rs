@@ -10,7 +10,6 @@ use prometheus::{
 };
 use reqwest::StatusCode;
 use tokio::net::TcpListener;
-use tracing::{error, info};
 
 lazy_static! {
     /// Metric registered in global registry for
@@ -37,7 +36,7 @@ lazy_static! {
 }
 
 pub fn serve_metrics(host_and_port: SocketAddr) {
-    info!(address = %host_and_port, "Serving prometheus metrics");
+    tracing::info!(address = %host_and_port, "Serving prometheus metrics");
 
     tokio::spawn(async move {
         let router = Router::new().route(
@@ -49,7 +48,7 @@ pub fn serve_metrics(host_and_port: SocketAddr) {
                 match encoder.encode_to_string(&metric_families) {
                     Ok(s) => (StatusCode::OK, s),
                     Err(e) => {
-                        error!("Error encoding metrics: {}", e);
+                        tracing::error!("Error encoding metrics: {}", e);
                         (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             format!("Error encoding metrics: {}", e),

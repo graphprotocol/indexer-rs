@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 indexer-allocation = { path = "../allocation" }
-alloy.workspace = true
 bip39 = "2.0.0"
 lazy_static.workspace = true
 tap_core.workspace = true

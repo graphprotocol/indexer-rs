@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
-use thegraph_core::{Address, DeploymentId};
-use tokio::sync::watch::Receiver;
 
 use indexer_watcher::map_watcher;
+use thegraph_core::{alloy::primitives::Address, DeploymentId};
+use tokio::sync::watch::Receiver;
 
 use crate::AllocationWatcher;
 

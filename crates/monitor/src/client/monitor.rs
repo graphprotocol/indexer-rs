@@ -8,12 +8,11 @@ use indexer_query::{
     deployment_status_query::{self, Health},
     DeploymentStatusQuery,
 };
+use indexer_watcher::new_watcher;
 use reqwest::Url;
 use serde::Deserialize;
 use thegraph_core::DeploymentId;
 use tokio::sync::watch::Receiver;
-
-use indexer_watcher::new_watcher;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct DeploymentStatus {
@@ -63,11 +62,13 @@ pub async fn check_deployment_status(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
+    use reqwest::Url;
     use serde_json::json;
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use thegraph_core::deployment_id;
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
 
     use super::*;
 
@@ -80,8 +81,7 @@ mod tests {
             .unwrap()
             .join("/status")
             .unwrap();
-        let deployment =
-            DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
         Mock::given(method("POST"))
             .and(path("/status"))
@@ -120,8 +120,7 @@ mod tests {
             .unwrap()
             .join("/status")
             .unwrap();
-        let deployment =
-            DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
         Mock::given(method("POST"))
             .and(path("/status"))
@@ -160,8 +159,7 @@ mod tests {
             .unwrap()
             .join("/status")
             .unwrap();
-        let deployment =
-            DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
         Mock::given(method("POST"))
             .and(path("/status"))
@@ -200,8 +198,7 @@ mod tests {
             .unwrap()
             .join("/status")
             .unwrap();
-        let deployment =
-            DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
         Mock::given(method("POST"))
             .and(path("/status"))

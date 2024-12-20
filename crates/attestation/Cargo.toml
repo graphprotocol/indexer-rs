@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 indexer-allocation = { path = "../allocation" }
-alloy.workspace = true
 thegraph-core.workspace = true
 anyhow.workspace = true
 

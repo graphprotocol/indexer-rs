@@ -1,23 +1,28 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, str::FromStr, time::Duration};
-
-use alloy::{
-    dyn_abi::Eip712Domain,
-    primitives::U256,
-    signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
+use std::{
+    collections::HashMap,
+    str::FromStr,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
 use bip39::Mnemonic;
+use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
 use lazy_static::lazy_static;
 use tap_core::{
     receipt::{Receipt, SignedReceipt},
     signed_message::EIP712SignedMessage,
     tap_eip712_domain,
 };
-use thegraph_core::{Address, DeploymentId};
-
-use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
+use thegraph_core::{
+    alloy::{
+        primitives::{address, Address, U256},
+        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
+        sol_types::Eip712Domain,
+    },
+    deployment_id, DeploymentId,
+};
 use tokio::sync::Notify;
 use typed_builder::TypedBuilder;
 
@@ -55,16 +60,16 @@ macro_rules! assert_while_retry {
     };
 }
 
-/// The allocation IDs below are generated using the mnemonic
-/// "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-/// and the following epoch and index:
-///
-/// - (createdAtEpoch, 0)
-/// - (createdAtEpoch-1, 0)
-/// - (createdAtEpoch, 2)
-/// - (createdAtEpoch-1, 1)
-///
-/// Using https://github.com/graphprotocol/indexer/blob/f8786c979a8ed0fae93202e499f5ce25773af473/packages/indexer-common/src/allocations/keys.ts#L41-L71
+// The allocation IDs below are generated using the mnemonic
+// "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+// and the following epoch and index:
+//
+// - (createdAtEpoch, 0)
+// - (createdAtEpoch-1, 0)
+// - (createdAtEpoch, 2)
+// - (createdAtEpoch-1, 1)
+//
+// Using https://github.com/graphprotocol/indexer/blob/f8786c979a8ed0fae93202e499f5ce25773af473/packages/indexer-common/src/allocations/keys.ts#L41-L71
 
 pub const ESCROW_QUERY_RESPONSE: &str = r#"
     {
@@ -110,43 +115,39 @@ pub const ESCROW_QUERY_RESPONSE: &str = r#"
     }
 "#;
 
-lazy_static! {
-    pub static ref NETWORK_SUBGRAPH_DEPLOYMENT: DeploymentId = DeploymentId::from_str("QmU7zqJyHSyUP3yFii8sBtHT8FaJn2WmUnRvwjAUTjwMBP").unwrap();
-    pub static ref ESCROW_SUBGRAPH_DEPLOYMENT: DeploymentId = DeploymentId::from_str("Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss").unwrap();
+pub const NETWORK_SUBGRAPH_DEPLOYMENT: DeploymentId =
+    deployment_id!("QmU7zqJyHSyUP3yFii8sBtHT8FaJn2WmUnRvwjAUTjwMBP");
 
+pub const ESCROW_SUBGRAPH_DEPLOYMENT: DeploymentId =
+    deployment_id!("Qmb5Ysp5oCUXhLA8NmxmYKDAX2nCMnh7Vvb5uffb9n5vss");
+
+pub const INDEXER_ADDRESS: Address = address!("d75c4dbcb215a6cf9097cfbcc70aab2596b96a9c");
+
+pub const DISPUTE_MANAGER_ADDRESS: Address = address!("deadbeefcafebabedeadbeefcafebabedeadbeef");
+
+pub const ALLOCATION_ID_0: Address = address!("fa44c72b753a66591f241c7dc04e8178c30e13af");
+
+pub const ALLOCATION_ID_1: Address = address!("dd975e30aafebb143e54d215db8a3e8fd916a701");
+
+pub const ALLOCATION_ID_2: Address = address!("a171cd12c3dde7eb8fe7717a0bcd06f3ffa65658");
+
+pub const ALLOCATION_ID_3: Address = address!("69f961358846fdb64b04e1fd7b2701237c13cd9a");
+
+pub const VERIFIER_ADDRESS: Address = address!("1111111111111111111111111111111111111111");
+
+lazy_static! {
     pub static ref INDEXER_MNEMONIC: Mnemonic = Mnemonic::from_str(
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
     ).unwrap();
-
-    pub static ref INDEXER_ADDRESS: Address =
-        Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap();
-
-    pub static ref DISPUTE_MANAGER_ADDRESS: Address =
-        Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap();
-
-
-    pub static ref ALLOCATION_ID_0: Address =
-        Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap();
-
-    pub static ref ALLOCATION_ID_1: Address =
-        Address::from_str("0xdd975e30aafebb143e54d215db8a3e8fd916a701").unwrap();
-
-    pub static ref ALLOCATION_ID_2: Address =
-        Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap();
-
-    pub static ref ALLOCATION_ID_3: Address =
-        Address::from_str("0x69f961358846fdb64b04e1fd7b2701237c13cd9a").unwrap();
-
-
 
     /// These are the expected json-serialized contents of the value returned by
     /// AllocationMonitor::current_eligible_allocations with the values above at epoch threshold 940.
     pub static ref INDEXER_ALLOCATIONS: HashMap<Address, Allocation> = HashMap::from([
         (
-            *ALLOCATION_ID_0,
+            ALLOCATION_ID_0,
             Allocation {
-                id: *ALLOCATION_ID_0,
-                indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
+                id: ALLOCATION_ID_0,
+                indexer: address!("d75c4dbcb215a6cf9097cfbcc70aab2596b96a9c"),
                 allocated_tokens: U256::from_str("5081382841000000014901161").unwrap(),
                 created_at_block_hash:
                     "0x99d3fbdc0105f7ccc0cd5bb287b82657fe92db4ea8fb58242dafb90b1c6e2adf".to_string(),
@@ -167,10 +168,10 @@ lazy_static! {
             },
         ),
         (
-            *ALLOCATION_ID_1,
+            ALLOCATION_ID_1,
             Allocation {
-                id: *ALLOCATION_ID_1,
-                indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
+                id: ALLOCATION_ID_1,
+                indexer: address!("d75c4dbcb215a6cf9097cfbcc70aab2596b96a9c"),
                 allocated_tokens: U256::from_str("601726452999999979510903").unwrap(),
                 created_at_block_hash:
                     "0x99d3fbdc0105f7ccc0cd5bb287b82657fe92db4ea8fb58242dafb90b1c6e2adf".to_string(),
@@ -191,10 +192,10 @@ lazy_static! {
             },
         ),
         (
-            *ALLOCATION_ID_2,
+            ALLOCATION_ID_2,
             Allocation {
-                id: *ALLOCATION_ID_2,
-                indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
+                id: ALLOCATION_ID_2,
+                indexer: address!("d75c4dbcb215a6cf9097cfbcc70aab2596b96a9c"),
                 allocated_tokens: U256::from_str("5247998688000000081956387").unwrap(),
                 created_at_block_hash:
                     "0x6e7b7100c37f659236a029f87ce18914643995120f55ab5d01631f11f40fd887".to_string(),
@@ -215,10 +216,10 @@ lazy_static! {
             },
         ),
         (
-            *ALLOCATION_ID_3,
+            ALLOCATION_ID_3,
             Allocation {
-                id: *ALLOCATION_ID_3,
-                indexer: Address::from_str("0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c").unwrap(),
+                id: ALLOCATION_ID_3,
+                indexer: address!("d75c4dbcb215a6cf9097cfbcc70aab2596b96a9c"),
                 allocated_tokens: U256::from_str("2502334654999999795109034").unwrap(),
                 created_at_block_hash:
                     "0x6e7b7100c37f659236a029f87ce18914643995120f55ab5d01631f11f40fd887".to_string(),
@@ -241,43 +242,43 @@ lazy_static! {
     ]);
 
     pub static ref ESCROW_ACCOUNTS_BALANCES: HashMap<Address, U256> = HashMap::from([
-        (Address::from_str("0x9858EfFD232B4033E47d90003D41EC34EcaEda94").unwrap(), U256::from(24)), // TAP_SENDER
-        (Address::from_str("0x22d491bde2303f2f43325b2108d26f1eaba1e32b").unwrap(), U256::from(42)),
-        (Address::from_str("0x192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002").unwrap(), U256::from(2975)),
+        (address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), U256::from(24)), // TAP_SENDER
+        (address!("22d491bde2303f2f43325b2108d26f1eaba1e32b"), U256::from(42)),
+        (address!("192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002"), U256::from(2975)),
     ]);
 
 
     /// Maps signers back to their senders
     pub static ref ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS: HashMap<Address, Address> = HashMap::from([
         (
-            Address::from_str("0x533661F0fb14d2E8B26223C86a610Dd7D2260892").unwrap(), // TAP_SIGNER
-            Address::from_str("0x9858EfFD232B4033E47d90003D41EC34EcaEda94").unwrap(), // TAP_SENDER
+            address!("533661F0fb14d2E8B26223C86a610Dd7D2260892"), // TAP_SIGNER
+            address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
         ),
         (
-            Address::from_str("0x2740f6fA9188cF53ffB6729DDD21575721dE92ce").unwrap(),
-            Address::from_str("0x9858EfFD232B4033E47d90003D41EC34EcaEda94").unwrap(), // TAP_SENDER
+            address!("2740f6fA9188cF53ffB6729DDD21575721dE92ce"),
+            address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
         ),
         (
-            Address::from_str("0x245059163ff6ee14279aa7b35ea8f0fdb967df6e").unwrap(),
-            Address::from_str("0x22d491bde2303f2f43325b2108d26f1eaba1e32b").unwrap(),
+            address!("245059163ff6ee14279aa7b35ea8f0fdb967df6e"),
+            address!("22d491bde2303f2f43325b2108d26f1eaba1e32b"),
         ),
     ]);
 
 
     pub static ref ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS: HashMap<Address, Vec<Address>> = HashMap::from([
         (
-            Address::from_str("0x9858EfFD232B4033E47d90003D41EC34EcaEda94").unwrap(), // TAP_SENDER
+            address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
             vec![
-                Address::from_str("0x533661F0fb14d2E8B26223C86a610Dd7D2260892").unwrap(), // TAP_SIGNER
-                Address::from_str("0x2740f6fA9188cF53ffB6729DDD21575721dE92ce").unwrap(),
+                address!("533661F0fb14d2E8B26223C86a610Dd7D2260892"), // TAP_SIGNER
+                address!("2740f6fA9188cF53ffB6729DDD21575721dE92ce"),
             ],
         ),
         (
-            Address::from_str("0x22d491bde2303f2f43325b2108d26f1eaba1e32b").unwrap(),
-            vec![Address::from_str("0x245059163ff6ee14279aa7b35ea8f0fdb967df6e").unwrap()],
+            address!("22d491bde2303f2f43325b2108d26f1eaba1e32b"),
+            vec![address!("245059163ff6ee14279aa7b35ea8f0fdb967df6e")],
         ),
         (
-            Address::from_str("0x192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002").unwrap(),
+            address!("192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002"),
             vec![],
         ),
     ]);
@@ -307,16 +308,11 @@ lazy_static! {
         (wallet, address)
     };
 
-    pub static ref VERIFIER_ADDRESS: Address = Address::from([0x11u8; 20]);
-
-
     pub static ref TAP_EIP712_DOMAIN: Eip712Domain = tap_eip712_domain(
         1,
-        *VERIFIER_ADDRESS
+        VERIFIER_ADDRESS
     );
 }
-
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(TypedBuilder)]
 pub struct SignedReceiptRequest {

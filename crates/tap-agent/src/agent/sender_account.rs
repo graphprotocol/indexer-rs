@@ -1,44 +1,44 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::hex::ToHexExt;
-use alloy::primitives::U256;
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+    time::Duration,
+};
 
-use bigdecimal::num_bigint::ToBigInt;
-use bigdecimal::ToPrimitive;
-
+use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use futures::{stream, StreamExt};
-use indexer_query::unfinalized_transactions;
+use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use indexer_query::{
     closed_allocations::{self, ClosedAllocations},
-    UnfinalizedTransactions,
+    unfinalized_transactions, UnfinalizedTransactions,
 };
 use indexer_watcher::watch_pipe;
 use jsonrpsee::http_client::HttpClientBuilder;
+use lazy_static::lazy_static;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
-use reqwest::Url;
-use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
-use std::time::Duration;
-use tokio::sync::watch::Receiver;
-use tokio::task::JoinHandle;
-
-use alloy::dyn_abi::Eip712Domain;
-use alloy::primitives::Address;
-use anyhow::Result;
-use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
+use reqwest::Url;
 use sqlx::PgPool;
 use tap_core::rav::SignedRAV;
-use tracing::{error, warn, Level};
+use thegraph_core::alloy::{
+    hex::ToHexExt,
+    primitives::{Address, U256},
+    sol_types::Eip712Domain,
+};
+use tokio::{sync::watch::Receiver, task::JoinHandle};
+use tracing::Level;
 
-use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
-use crate::adaptative_concurrency::AdaptiveLimiter;
-use crate::agent::sender_allocation::{AllocationConfig, SenderAllocationMessage};
-use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-use crate::backoff::BackoffInfo;
-use crate::tracker::{SenderFeeTracker, SimpleFeeTracker};
-use lazy_static::lazy_static;
+use super::sender_allocation::{
+    AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
+};
+use crate::{
+    adaptative_concurrency::AdaptiveLimiter,
+    agent::unaggregated_receipts::UnaggregatedReceipts,
+    backoff::BackoffInfo,
+    tracker::{SenderFeeTracker, SimpleFeeTracker},
+};
 
 lazy_static! {
     static ref SENDER_DENIED: IntGaugeVec =
@@ -213,7 +213,7 @@ impl State {
         &self,
         sender_account_ref: ActorRef<SenderAccountMessage>,
         allocation_id: Address,
-    ) -> Result<()> {
+    ) -> anyhow::Result<()> {
         tracing::trace!(
             %self.sender,
             %allocation_id,
@@ -250,7 +250,7 @@ impl State {
         sender_allocation_id
     }
 
-    async fn rav_request_for_heaviest_allocation(&mut self) -> Result<()> {
+    async fn rav_request_for_heaviest_allocation(&mut self) -> anyhow::Result<()> {
         let allocation_id = self
             .sender_fee_tracker
             .get_heaviest_allocation_id()
@@ -270,7 +270,7 @@ impl State {
         self.rav_request_for_allocation(allocation_id).await
     }
 
-    async fn rav_request_for_allocation(&mut self, allocation_id: Address) -> Result<()> {
+    async fn rav_request_for_allocation(&mut self, allocation_id: Address) -> anyhow::Result<()> {
         let sender_allocation_id = self.format_sender_allocation(&allocation_id);
         let allocation = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id);
 
@@ -308,9 +308,11 @@ impl State {
             Err(err) => {
                 self.sender_fee_tracker.failed_rav_backoff(allocation_id);
                 self.adaptive_limiter.on_failure();
-                error!(
+                tracing::error!(
                     "Error while requesting RAV for sender {} and allocation {}: {}",
-                    self.sender, allocation_id, err
+                    self.sender,
+                    allocation_id,
+                    err
                 );
             }
         };
@@ -478,7 +480,7 @@ impl Actor for SenderAccount {
             prefix,
             retry_interval,
         }: Self::Arguments,
-    ) -> std::result::Result<Self::State, ActorProcessingErr> {
+    ) -> Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
         let _indexer_allocations_handle = watch_pipe(indexer_allocations, move |allocation_ids| {
             let allocation_ids = allocation_ids.clone();
@@ -486,7 +488,7 @@ impl Actor for SenderAccount {
             myself_clone
                 .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
                 .unwrap_or_else(|e| {
-                    error!("Error while updating allocation_ids: {:?}", e);
+                    tracing::error!("Error while updating allocation_ids: {:?}", e);
                 });
             async {}
         });
@@ -559,9 +561,10 @@ impl Actor for SenderAccount {
                         non_redeemed_ravs,
                     ))
                     .unwrap_or_else(|e| {
-                        error!(
+                        tracing::error!(
                             "Error while updating balance for sender {}: {:?}",
-                            sender_id, e
+                            sender_id,
+                            e
                         );
                     });
             }
@@ -646,7 +649,7 @@ impl Actor for SenderAccount {
         myself: ActorRef<Self::Msg>,
         message: Self::Msg,
         state: &mut Self::State,
-    ) -> std::result::Result<(), ActorProcessingErr> {
+    ) -> Result<(), ActorProcessingErr> {
         tracing::span!(
             Level::TRACE,
             "SenderAccount handle()",
@@ -806,7 +809,7 @@ impl Actor for SenderAccount {
                         .create_sender_allocation(myself.clone(), *allocation_id)
                         .await
                     {
-                        error!(
+                        tracing::error!(
                             %error,
                             %allocation_id,
                             "There was an error while creating Sender Allocation."
@@ -824,7 +827,7 @@ impl Actor for SenderAccount {
                 let really_closed = state
                     .check_closed_allocations(possibly_closed_allocations.clone())
                     .await
-                    .inspect_err(|err| error!(error = %err, "There was an error while querying the subgraph for closed allocations"))
+                    .inspect_err(|err| tracing::error!(error = %err, "There was an error while querying the subgraph for closed allocations"))
                     .unwrap_or_default();
 
                 // Remove sender allocations
@@ -841,7 +844,7 @@ impl Actor for SenderAccount {
                             new_allocation_ids.remove(allocation_id);
                         }
                     } else {
-                        warn!(%allocation_id, "Missing allocation was not closed yet");
+                        tracing::warn!(%allocation_id, "Missing allocation was not closed yet");
                     }
                 }
 
@@ -857,7 +860,7 @@ impl Actor for SenderAccount {
                     .create_sender_allocation(myself.clone(), allocation_id)
                     .await
                 {
-                    error!(
+                    tracing::error!(
                         %error,
                         %allocation_id,
                         "There was an error while creating Sender Allocation."
@@ -932,7 +935,7 @@ impl Actor for SenderAccount {
         myself: ActorRef<Self::Msg>,
         message: SupervisionEvent,
         state: &mut Self::State,
-    ) -> std::result::Result<(), ActorProcessingErr> {
+    ) -> Result<(), ActorProcessingErr> {
         tracing::trace!(
             sender = %state.sender,
             message = ?message,
@@ -1000,7 +1003,7 @@ impl Actor for SenderAccount {
                     .create_sender_allocation(myself.clone(), allocation_id)
                     .await
                 {
-                    error!(
+                    tracing::error!(
                         %error,
                         %allocation_id,
                         "Error while recreating Sender Allocation."
@@ -1014,7 +1017,7 @@ impl Actor for SenderAccount {
 }
 
 impl SenderAccount {
-    pub async fn deny_sender(pool: &sqlx::PgPool, sender: Address) {
+    pub async fn deny_sender(pool: &PgPool, sender: Address) {
         sqlx::query!(
             r#"
                     INSERT INTO scalar_tap_denylist (sender_address)
@@ -1030,33 +1033,46 @@ impl SenderAccount {
 
 #[cfg(test)]
 pub mod tests {
-    use super::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
-    use crate::agent::sender_account::ReceiptFees;
-    use crate::agent::sender_allocation::SenderAllocationMessage;
-    use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-    use crate::test::actors::{create_mock_sender_allocation, MockSenderAllocation, TestableActor};
-    use crate::test::{create_rav, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR};
-    use crate::{assert_not_triggered, assert_triggered};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::{atomic::AtomicU32, Arc},
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
 
-    use alloy::hex::ToHexExt;
-    use alloy::primitives::{Address, U256};
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
     use ractor::{call, Actor, ActorRef, ActorStatus};
     use reqwest::Url;
     use serde_json::json;
     use sqlx::PgPool;
-    use std::collections::{HashMap, HashSet};
-    use std::sync::atomic::AtomicU32;
-    use std::sync::Arc;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use test_assets::{
         flush_messages, ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER,
         TAP_SIGNER as SIGNER,
     };
-    use tokio::sync::watch::{self, Sender};
-    use tokio::sync::Notify;
-    use wiremock::matchers::{body_string_contains, method};
-    use wiremock::{Mock, MockGuard, MockServer, ResponseTemplate};
+    use thegraph_core::alloy::{
+        hex::ToHexExt,
+        primitives::{Address, U256},
+    };
+    use tokio::sync::{
+        watch::{self, Sender},
+        Notify,
+    };
+    use wiremock::{
+        matchers::{body_string_contains, method},
+        Mock, MockGuard, MockServer, ResponseTemplate,
+    };
+
+    use super::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
+    use crate::{
+        agent::{
+            sender_account::ReceiptFees, sender_allocation::SenderAllocationMessage,
+            unaggregated_receipts::UnaggregatedReceipts,
+        },
+        assert_not_triggered, assert_triggered,
+        test::{
+            actors::{create_mock_sender_allocation, MockSenderAllocation, TestableActor},
+            create_rav, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR,
+        },
+    };
 
     // we implement the PartialEq and Eq traits for SenderAccountMessage to be able to compare
     impl Eq for SenderAccountMessage {}
@@ -1248,13 +1264,13 @@ pub mod tests {
         // we expect it to create a sender allocation
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(
-                vec![*ALLOCATION_ID_0].into_iter().collect(),
+                vec![ALLOCATION_ID_0].into_iter().collect(),
             ))
             .unwrap();
         notify.notified().await;
 
         // verify if create sender account
-        let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
+        let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, ALLOCATION_ID_0);
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_some());
 
@@ -1280,7 +1296,7 @@ pub mod tests {
                                 }
                             },
                             "allocations": [
-                                {"id": *ALLOCATION_ID_0 }
+                                {"id": ALLOCATION_ID_0 }
                             ]
                         }
                     }))),
@@ -1335,20 +1351,20 @@ pub mod tests {
 
         // we expect it to create a sender allocation
         sender_account
-            .cast(SenderAccountMessage::NewAllocationId(*ALLOCATION_ID_0))
+            .cast(SenderAccountMessage::NewAllocationId(ALLOCATION_ID_0))
             .unwrap();
 
         flush_messages(&notify).await;
 
         // verify if create sender account
-        let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
+        let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, ALLOCATION_ID_0);
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_some());
 
         // nothing should change because we already created
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(
-                vec![*ALLOCATION_ID_0].into_iter().collect(),
+                vec![ALLOCATION_ID_0].into_iter().collect(),
             ))
             .unwrap();
 
@@ -1381,7 +1397,7 @@ pub mod tests {
                                 }
                             },
                             "allocations": [
-                                {"id": *ALLOCATION_ID_0 }
+                                {"id": ALLOCATION_ID_0 }
                             ]
                         }
                     }))),
@@ -1426,14 +1442,14 @@ pub mod tests {
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
             prefix,
             SENDER.1,
-            *ALLOCATION_ID_0,
+            ALLOCATION_ID_0,
             sender_account.clone(),
         )
         .await;
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
+                ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(TRIGGER_VALUE - 1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -1461,14 +1477,14 @@ pub mod tests {
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
             prefix,
             SENDER.1,
-            *ALLOCATION_ID_0,
+            ALLOCATION_ID_0,
             sender_account.clone(),
         )
         .await;
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
+                ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -1481,7 +1497,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
+                ALLOCATION_ID_0,
                 ReceiptFees::Retry,
             ))
             .unwrap();
@@ -1507,14 +1523,14 @@ pub mod tests {
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
             prefix,
             SENDER.1,
-            *ALLOCATION_ID_0,
+            ALLOCATION_ID_0,
             sender_account.clone(),
         )
         .await;
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
+                ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -1524,7 +1540,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
+                ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -1535,7 +1551,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
+                ALLOCATION_ID_0,
                 ReceiptFees::Retry,
             ))
             .unwrap();
@@ -1549,7 +1565,7 @@ pub mod tests {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (sender_account, _, prefix, _) = create_sender_account(
             pgpool,
-            vec![*ALLOCATION_ID_0].into_iter().collect(),
+            vec![ALLOCATION_ID_0].into_iter().collect(),
             TRIGGER_VALUE,
             TRIGGER_VALUE,
             &mock_escrow_subgraph_server.uri(),
@@ -1559,7 +1575,7 @@ pub mod tests {
         .await;
 
         // check if allocation exists
-        let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, *ALLOCATION_ID_0);
+        let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, ALLOCATION_ID_0);
         let Some(sender_allocation) =
             ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone())
         else {
@@ -1591,7 +1607,7 @@ pub mod tests {
         .expect("Should not fail to insert into denylist");
 
         // make sure there's a reason to keep denied
-        let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
+        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
         store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
             .await
             .unwrap();
@@ -1630,7 +1646,7 @@ pub mod tests {
         let (triggered_rav_request, next_value, _) = create_mock_sender_allocation(
             prefix,
             SENDER.1,
-            *ALLOCATION_ID_0,
+            ALLOCATION_ID_0,
             sender_account.clone(),
         )
         .await;
@@ -1641,7 +1657,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
+                ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -1664,7 +1680,7 @@ pub mod tests {
 
         let max_unaggregated_fees_per_sender: u128 = 1000;
 
-        // Making sure no RAV is gonna be triggered during the test
+        // Making sure no RAV is going to be triggered during the test
         let (sender_account, notify, _, _) = create_sender_account(
             pgpool.clone(),
             HashSet::new(),
@@ -1680,7 +1696,7 @@ pub mod tests {
             ($value:expr) => {
                 sender_account
                     .cast(SenderAccountMessage::UpdateReceiptFees(
-                        *ALLOCATION_ID_0,
+                        ALLOCATION_ID_0,
                         ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
@@ -1697,7 +1713,7 @@ pub mod tests {
             ($value:expr) => {
                 sender_account
                     .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
-                        *ALLOCATION_ID_0,
+                        ALLOCATION_ID_0,
                         UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
@@ -1758,7 +1774,7 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_initialization_with_pending_ravs_over_the_limit(pgpool: PgPool) {
         // add last non-final ravs
-        let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
+        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
         store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
             .await
             .unwrap();
@@ -1781,13 +1797,13 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_unaggregated_fees_over_balance(pgpool: PgPool) {
         // add last non-final ravs
-        let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
+        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
         store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
             .await
             .unwrap();
 
         // other rav final, should not be taken into account
-        let signed_rav = create_rav(*ALLOCATION_ID_1, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
+        let signed_rav = create_rav(ALLOCATION_ID_1, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
         store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, true)
             .await
             .unwrap();
@@ -1809,7 +1825,7 @@ pub mod tests {
         let (mock_sender_allocation, next_rav_value) =
             MockSenderAllocation::new_with_next_rav_value(sender_account.clone());
 
-        let name = format!("{}:{}:{}", prefix, SENDER.1, *ALLOCATION_ID_0);
+        let name = format!("{}:{}:{}", prefix, SENDER.1, ALLOCATION_ID_0);
         let (allocation, _) = MockSenderAllocation::spawn(Some(name), mock_sender_allocation, ())
             .await
             .unwrap();
@@ -1822,7 +1838,7 @@ pub mod tests {
             ($value:expr) => {
                 sender_account
                     .cast(SenderAccountMessage::UpdateReceiptFees(
-                        *ALLOCATION_ID_0,
+                        ALLOCATION_ID_0,
                         ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
@@ -1885,19 +1901,19 @@ pub mod tests {
                     .and(body_string_contains("transactions"))
                     .respond_with(ResponseTemplate::new(200).set_body_json(
                         json!({ "data": { "transactions": [
-                            {"allocationID": *ALLOCATION_ID_0 }
+                            {"allocationID": ALLOCATION_ID_0 }
                         ]}}),
                     )),
             )
             .await;
 
         // redeemed
-        let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
+        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
         store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
             .await
             .unwrap();
 
-        let signed_rav = create_rav(*ALLOCATION_ID_1, SIGNER.0.clone(), 4, ESCROW_VALUE - 1);
+        let signed_rav = create_rav(ALLOCATION_ID_1, SIGNER.0.clone(), 4, ESCROW_VALUE - 1);
         store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
             .await
             .unwrap();
@@ -1925,8 +1941,8 @@ pub mod tests {
                     .and(body_string_contains("transactions"))
                     .respond_with(ResponseTemplate::new(200).set_body_json(
                         json!({ "data": { "transactions": [
-                            {"allocationID": *ALLOCATION_ID_0 },
-                            {"allocationID": *ALLOCATION_ID_1 }
+                            {"allocationID": ALLOCATION_ID_0 },
+                            {"allocationID": ALLOCATION_ID_1 }
                         ]}}),
                     )),
             )
@@ -1953,7 +1969,7 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_thawing_deposit_process(pgpool: PgPool) {
         // add last non-final ravs
-        let signed_rav = create_rav(*ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
+        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
         store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
             .await
             .unwrap();
@@ -2020,7 +2036,7 @@ pub mod tests {
         let (mock_sender_allocation, _, next_unaggregated_fees) =
             MockSenderAllocation::new_with_triggered_rav_request(sender_account.clone());
 
-        let name = format!("{}:{}:{}", prefix, SENDER.1, *ALLOCATION_ID_0);
+        let name = format!("{}:{}:{}", prefix, SENDER.1, ALLOCATION_ID_0);
         let (allocation, _) = MockSenderAllocation::spawn_linked(
             Some(name),
             mock_sender_allocation,
@@ -2034,7 +2050,7 @@ pub mod tests {
         // set retry
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                *ALLOCATION_ID_0,
+                ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();

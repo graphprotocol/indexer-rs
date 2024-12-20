@@ -9,11 +9,10 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use indexer_attestation::AttestationSigner;
 use reqwest::StatusCode;
 use serde::Serialize;
-use thegraph_core::Attestation;
-
-use indexer_attestation::AttestationSigner;
+use thegraph_core::attestation::Attestation;
 
 use crate::error::StatusCodeExt;
 
@@ -104,7 +103,6 @@ impl IntoResponse for AttestationError {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::Address;
     use axum::{
         body::{to_bytes, Body},
         http::{Request, Response},
@@ -116,6 +114,7 @@ mod tests {
     use indexer_attestation::AttestationSigner;
     use reqwest::StatusCode;
     use test_assets::{INDEXER_ALLOCATIONS, INDEXER_MNEMONIC};
+    use thegraph_core::alloy::primitives::Address;
     use tower::ServiceExt;
 
     use crate::middleware::{

@@ -4,11 +4,10 @@
 use std::time::Duration;
 
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use tracing::debug;
 
 pub async fn connect(config: indexer_config::DatabaseConfig) -> PgPool {
     let url = &config.get_formated_postgres_url();
-    debug!(
+    tracing::debug!(
         postgres_host = tracing::field::debug(&url.host()),
         postgres_port = tracing::field::debug(&url.port()),
         postgres_database = tracing::field::debug(&url.path()),

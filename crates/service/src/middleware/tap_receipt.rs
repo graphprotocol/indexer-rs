@@ -24,8 +24,6 @@ pub async fn receipt_middleware(mut request: Request, next: Next) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use crate::{middleware::tap_receipt::receipt_middleware, service::TapReceipt};
-
     use axum::{
         body::Body,
         http::{Extensions, Request},
@@ -38,6 +36,8 @@ mod tests {
     use tap_core::receipt::SignedReceipt;
     use test_assets::{create_signed_receipt, SignedReceiptRequest};
     use tower::ServiceExt;
+
+    use crate::{middleware::tap_receipt::receipt_middleware, service::TapReceipt};
 
     #[tokio::test]
     async fn test_receipt_middleware() {

@@ -3,15 +3,14 @@
 
 use std::collections::HashMap;
 
-use alloy::primitives::Address;
 use anyhow::anyhow;
-
 use indexer_allocation::Allocation;
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
 };
+use thegraph_core::alloy::primitives::Address;
 use tokio::sync::watch::Receiver;
 
 pub struct AllocationEligible {

@@ -3,7 +3,6 @@
 
 use std::str::FromStr;
 
-use crate::database::cost_model::{self, CostModel};
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 use lazy_static::lazy_static;
 use prometheus::{
@@ -14,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use thegraph_core::DeploymentId;
+
+use crate::database::cost_model::{self, CostModel};
 
 lazy_static! {
     pub static ref COST_MODEL_METRIC: HistogramVec = register_histogram_vec!(

@@ -1,10 +1,10 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::dyn_abi::Eip712Domain;
 use indexer_config::Config;
 use lazy_static::lazy_static;
 use tap_core::tap_eip712_domain;
+use thegraph_core::alloy::sol_types::Eip712Domain;
 
 lazy_static! {
     pub static ref CONFIG: Config = cli::get_config().expect("Failed to load configuration");

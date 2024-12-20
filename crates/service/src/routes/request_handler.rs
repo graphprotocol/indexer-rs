@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{error::SubgraphServiceError, middleware::AttestationInput, service::GraphNodeState};
 use axum::{
     extract::{Path, State},
     http::{HeaderValue, Response},
@@ -9,7 +8,8 @@ use axum::{
 };
 use reqwest::header::CONTENT_TYPE;
 use thegraph_core::DeploymentId;
-use tracing::trace;
+
+use crate::{error::SubgraphServiceError, middleware::AttestationInput, service::GraphNodeState};
 
 const GRAPH_ATTESTABLE: &str = "graph-attestable";
 const GRAPH_INDEXED: &str = "graph-indexed";
@@ -19,7 +19,7 @@ pub async fn request_handler(
     State(state): State<GraphNodeState>,
     req: String,
 ) -> Result<impl IntoResponse, SubgraphServiceError> {
-    trace!("Handling request for deployment `{deployment}`");
+    tracing::trace!("Handling request for deployment `{deployment}`");
 
     let deployment_url = state
         .graph_node_query_base_url

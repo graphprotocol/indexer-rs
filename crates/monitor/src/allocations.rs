@@ -1,16 +1,18 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::client::SubgraphClient;
-use alloy::{primitives::Address, primitives::TxHash};
-use indexer_allocation::Allocation;
-use indexer_query::allocations_query::{self, AllocationsQuery};
-use indexer_watcher::new_watcher;
 use std::{
     collections::HashMap,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+use indexer_allocation::Allocation;
+use indexer_query::allocations_query::{self, AllocationsQuery};
+use indexer_watcher::new_watcher;
+use thegraph_core::alloy::primitives::{Address, TxHash};
 use tokio::sync::watch::Receiver;
+
+use crate::client::SubgraphClient;
 
 /// Receiver of Map between allocation id and allocation struct
 pub type AllocationWatcher = Receiver<HashMap<Address, Allocation>>;
@@ -88,13 +90,15 @@ pub async fn get_allocations(
 
 #[cfg(test)]
 mod test {
-    const NETWORK_SUBGRAPH_URL: &str =
-        "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-arbitrum";
-    use std::str::FromStr;
+    use std::time::Duration;
 
-    use crate::client::{DeploymentDetails, SubgraphClient};
+    use thegraph_core::alloy::primitives::address;
 
     use super::*;
+    use crate::client::{DeploymentDetails, SubgraphClient};
+
+    const NETWORK_SUBGRAPH_URL: &str =
+        "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-arbitrum";
 
     async fn network_subgraph_client() -> &'static SubgraphClient {
         Box::leak(Box::new(
@@ -112,7 +116,7 @@ mod test {
     async fn test_network_query() {
         let result = get_allocations(
             network_subgraph_client().await,
-            Address::from_str("0x326c584e0f0eab1f1f83c93cc6ae1acc0feba0bc").unwrap(),
+            address!("326c584e0f0eab1f1f83c93cc6ae1acc0feba0bc"),
             Duration::from_secs(1712448507),
         )
         .await;
@@ -124,7 +128,7 @@ mod test {
     async fn test_network_query_empty_response() {
         let result = get_allocations(
             network_subgraph_client().await,
-            Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
+            address!("deadbeefcafebabedeadbeefcafebabedeadbeef"),
             Duration::from_secs(1712448507),
         )
         .await

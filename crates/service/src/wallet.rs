@@ -1,10 +1,10 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::signers::local::{
+use bip39::Mnemonic;
+use thegraph_core::alloy::signers::local::{
     coins_bip39::English, LocalSignerError, MnemonicBuilder, PrivateKeySigner,
 };
-use bip39::Mnemonic;
 
 /// Build Wallet from Private key or Mnemonic
 pub fn build_wallet(value: &str) -> Result<PrivateKeySigner, LocalSignerError> {

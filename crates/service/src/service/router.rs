@@ -3,7 +3,6 @@
 
 use std::{sync::Arc, time::Duration};
 
-use alloy::dyn_abi::Eip712Domain;
 use async_graphql_axum::GraphQL;
 use axum::{
     extract::MatchedPath,
@@ -24,6 +23,7 @@ use indexer_monitor::{
 };
 use reqwest::Method;
 use tap_core::{manager::Manager, receipt::checks::CheckList};
+use thegraph_core::alloy::sol_types::Eip712Domain;
 use tower::ServiceBuilder;
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
@@ -34,9 +34,9 @@ use tower_http::{
     trace::TraceLayer,
     validate_request::ValidateRequestHeaderLayer,
 };
-use tracing::{info, info_span, warn};
 use typed_builder::TypedBuilder;
 
+use super::{release::IndexerServiceRelease, GraphNodeState};
 use crate::{
     database::dips::{AgreementStore, InMemoryAgreementStore},
     metrics::{FAILED_RECEIPT, HANDLER_HISTOGRAM},
@@ -55,8 +55,6 @@ use crate::{
     tap::IndexerTapContext,
     wallet::public_key,
 };
-
-use super::{release::IndexerServiceRelease, GraphNodeState};
 
 #[derive(TypedBuilder)]
 pub struct ServiceRouter {
@@ -222,7 +220,7 @@ impl ServiceRouter {
             self.network_subgraph.as_ref(),
         ) {
             (Some(free_auth_token), true, Some((network_subgraph, _))) => {
-                info!("Serving network subgraph at /network");
+                tracing::info!("Serving network subgraph at /network");
 
                 let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
 
@@ -235,7 +233,7 @@ impl ServiceRouter {
                 )
             }
             (_, true, _) => {
-                warn!("`serve_network_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
+                tracing::warn!("`serve_network_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
                 Router::new()
             }
             _ => Router::new(),
@@ -248,7 +246,7 @@ impl ServiceRouter {
             self.escrow_subgraph,
         ) {
             (Some(free_auth_token), true, Some((escrow_subgraph, _))) => {
-                info!("Serving escrow subgraph at /escrow");
+                tracing::info!("Serving escrow subgraph at /escrow");
 
                 let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
 
@@ -261,7 +259,7 @@ impl ServiceRouter {
                 )
             }
             (_, true, _) => {
-                warn!("`serve_escrow_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
+                tracing::warn!("`serve_escrow_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
                 Router::new()
             }
             _ => Router::new(),
@@ -367,14 +365,14 @@ impl ServiceRouter {
                     .get::<MatchedPath>()
                     .map(MatchedPath::as_str);
 
-                info_span!(
+                tracing::info_span!(
                     "http_request",
                     %method,
                     %uri,
                     matched_path,
                 )
             })
-            // we disable failures here because we doing our own error logging
+            // we disable failures here because we are doing our own error logging
             .on_failure(
                 |_error: tower_http::classify::ServerErrorsFailureClass,
                  _latency: Duration,
@@ -389,7 +387,7 @@ impl ServiceRouter {
         let operator_address =
             Json(serde_json::json!({ "publicKey": public_key(&operator_mnemonic)?}));
 
-        // Graphnode state
+        // Graph node state
         let graphnode_state = GraphNodeState {
             graph_node_client: self.http_client,
             graph_node_status_url: self.graph_node.status_url,

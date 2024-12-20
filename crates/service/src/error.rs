@@ -11,8 +11,7 @@ use axum::{
 use indexer_monitor::EscrowAccountsError;
 use reqwest::StatusCode;
 use serde::Serialize;
-use tap_core::receipt::ReceiptError;
-use tap_core::Error as TapError;
+use tap_core::{receipt::ReceiptError, Error as TapError};
 use thegraph_core::DeploymentId;
 use thiserror::Error;
 
