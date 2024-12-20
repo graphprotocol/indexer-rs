@@ -1,9 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
-
 use super::GlobalFeeTracker;
+use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 
 pub trait GlobalTracker<T>: Sized {
     fn get_total_fee(&self) -> u128;

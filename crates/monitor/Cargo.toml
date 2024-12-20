@@ -9,7 +9,6 @@ indexer-allocation = { path = "../allocation" }
 indexer-attestation = { path = "../attestation" }
 indexer-watcher = { path = "../watcher" }
 thiserror.workspace = true
-alloy.workspace = true
 anyhow.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 tracing.workspace = true

@@ -7,5 +7,4 @@ edition = "2021"
 graphql_client.workspace = true
 thegraph-core.workspace = true
 serde.workspace = true
-alloy.workspace = true
 anyhow.workspace = true

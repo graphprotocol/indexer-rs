@@ -3,17 +3,20 @@
 
 use std::str::FromStr;
 
-use super::{error::AdapterError, TapAgentContext};
-#[allow(deprecated)]
-use alloy::signers::Signature;
-use alloy::{hex::ToHexExt, primitives::Address};
-use bigdecimal::num_bigint::{BigInt, ToBigInt};
-use bigdecimal::ToPrimitive;
+use bigdecimal::{
+    num_bigint::{BigInt, ToBigInt},
+    ToPrimitive,
+};
 use sqlx::types::{chrono, BigDecimal};
 use tap_core::{
     manager::adapters::{RAVRead, RAVStore},
     rav::{ReceiptAggregateVoucher, SignedRAV},
 };
+#[allow(deprecated)]
+use thegraph_core::alloy::signers::Signature;
+use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
+
+use super::{error::AdapterError, TapAgentContext};
 
 #[async_trait::async_trait]
 impl RAVRead for TapAgentContext {
@@ -132,11 +135,11 @@ impl RAVStore for TapAgentContext {
 mod test {
     use indexer_monitor::EscrowAccounts;
     use sqlx::PgPool;
+    use test_assets::TAP_SENDER as SENDER;
     use tokio::sync::watch;
 
     use super::*;
     use crate::test::{create_rav, ALLOCATION_ID_0, SIGNER};
-    use test_assets::TAP_SENDER as SENDER;
 
     #[derive(Debug)]
     struct TestableRav(SignedRAV);
@@ -156,14 +159,14 @@ mod test {
         let value_aggregate = u128::MAX;
         let context = TapAgentContext::new(
             pool.clone(),
-            *ALLOCATION_ID_0,
+            ALLOCATION_ID_0,
             SENDER.1,
             watch::channel(EscrowAccounts::default()).1,
         );
 
         // Insert a rav
         let mut new_rav = create_rav(
-            *ALLOCATION_ID_0,
+            ALLOCATION_ID_0,
             SIGNER.0.clone(),
             timestamp_ns,
             value_aggregate,
@@ -179,7 +182,7 @@ mod test {
         // Update the RAV 3 times in quick succession
         for i in 0..3 {
             new_rav = create_rav(
-                *ALLOCATION_ID_0,
+                ALLOCATION_ID_0,
                 SIGNER.0.clone(),
                 timestamp_ns + i,
                 value_aggregate - (i as u128),

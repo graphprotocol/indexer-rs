@@ -1,12 +1,14 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::Result;
+use std::path::PathBuf;
+
 use clap::Parser;
 use indexer_config::{Config as IndexerConfig, ConfigPrefix};
-use std::path::PathBuf;
-use tracing::subscriber::{set_global_default, SetGlobalDefaultError};
-use tracing::{error, level_filters::LevelFilter};
+use tracing::{
+    level_filters::LevelFilter,
+    subscriber::{set_global_default, SetGlobalDefaultError},
+};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 #[derive(Parser)]
@@ -36,10 +38,10 @@ fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
     }
 }
 
-pub fn get_config() -> Result<IndexerConfig> {
+pub fn get_config() -> anyhow::Result<IndexerConfig> {
     let cli = Cli::parse();
     let config = IndexerConfig::parse(ConfigPrefix::Tap, cli.config.as_ref()).map_err(|e| {
-        error!(
+        tracing::error!(
             "Invalid configuration file `{}`: {}, if a value is missing you can also use \
                 --config to fill the rest of the values",
             cli.config.unwrap_or_default().display(),

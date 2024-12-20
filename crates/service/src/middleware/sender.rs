@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::{dyn_abi::Eip712Domain, primitives::Address};
 use axum::{
     extract::{Request, State},
     middleware::Next,
@@ -9,6 +8,7 @@ use axum::{
 };
 use indexer_monitor::EscrowAccounts;
 use tap_core::receipt::SignedReceipt;
+use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
 use tokio::sync::watch;
 
 use crate::error::IndexerServiceError;
@@ -58,9 +58,6 @@ pub async fn sender_middleware(
 
 #[cfg(test)]
 mod tests {
-    use crate::middleware::sender::SenderState;
-
-    use super::{sender_middleware, Sender};
     use axum::{
         body::Body,
         http::{Extensions, Request},
@@ -76,6 +73,9 @@ mod tests {
     };
     use tokio::sync::watch;
     use tower::ServiceExt;
+
+    use super::{sender_middleware, Sender};
+    use crate::middleware::sender::SenderState;
 
     #[tokio::test]
     async fn test_sender_middleware() {

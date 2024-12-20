@@ -6,7 +6,6 @@ use std::{net::SocketAddr, panic};
 use axum::{http::StatusCode, response::IntoResponse, routing::get, Router};
 use futures_util::FutureExt;
 use prometheus::TextEncoder;
-use tracing::{debug, error, info};
 
 async fn handler_metrics() -> (StatusCode, String) {
     let metric_families = prometheus::gather();
@@ -15,7 +14,7 @@ async fn handler_metrics() -> (StatusCode, String) {
     match encoder.encode_to_string(&metric_families) {
         Ok(s) => (StatusCode::OK, s),
         Err(e) => {
-            error!("Error encoding metrics: {}", e);
+            tracing::error!("Error encoding metrics: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Error encoding metrics: {}", e),
@@ -38,11 +37,11 @@ async fn _run_server(port: u16) {
         .expect("Failed to Bind metrics address`");
     let server = axum::serve(listener, app.into_make_service());
 
-    info!("Metrics server listening on {}", addr);
+    tracing::info!("Metrics server listening on {}", addr);
 
     let res = server.await;
 
-    debug!("Metrics server stopped");
+    tracing::debug!("Metrics server stopped");
 
     if let Err(err) = res {
         panic!("Metrics server error: {:#?}", err);

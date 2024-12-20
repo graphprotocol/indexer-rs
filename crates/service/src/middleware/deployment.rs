@@ -20,7 +20,6 @@ pub async fn deployment_middleware(mut request: Request, next: Next) -> Response
 
 #[cfg(test)]
 mod tests {
-    use super::deployment_middleware;
     use axum::{
         body::Body,
         http::{Extensions, Request},
@@ -33,11 +32,13 @@ mod tests {
     use thegraph_core::DeploymentId;
     use tower::ServiceExt;
 
+    use super::deployment_middleware;
+
     #[tokio::test]
     async fn test_deployment_middleware() {
         let middleware = from_fn(deployment_middleware);
 
-        let deployment = *ESCROW_SUBGRAPH_DEPLOYMENT;
+        let deployment = ESCROW_SUBGRAPH_DEPLOYMENT;
 
         let handle = move |extensions: Extensions| async move {
             let received_deployment = extensions

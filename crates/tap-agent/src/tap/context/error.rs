@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::primitives::Address;
+use thegraph_core::alloy::primitives::Address;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AdapterError {

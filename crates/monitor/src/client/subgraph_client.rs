@@ -1,14 +1,14 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::monitor::{monitor_deployment_status, DeploymentStatus};
 use anyhow::anyhow;
 use axum::body::Bytes;
 use graphql_client::GraphQLQuery;
 use reqwest::{header, Url};
 use thegraph_core::DeploymentId;
 use tokio::sync::watch::Receiver;
-use tracing::warn;
+
+use super::monitor::{monitor_deployment_status, DeploymentStatus};
 
 pub type ResponseResult<T> = Result<T, anyhow::Error>;
 
@@ -201,7 +201,7 @@ impl SubgraphClient {
         if let Some(ref local_client) = self.local_client {
             match local_client.query::<Q>(variables.clone()).await {
                 Ok(response) => return Ok(response),
-                Err(err) => warn!(
+                Err(err) => tracing::warn!(
                     "Failed to query local subgraph deployment `{}`, trying remote deployment next: {}",
                     local_client.query_url, err
                 ),
@@ -213,9 +213,10 @@ impl SubgraphClient {
             .query::<Q>(variables)
             .await
             .map_err(|err| {
-                warn!(
+                tracing::warn!(
                     "Failed to query remote subgraph deployment `{}`: {}",
-                    self.remote_client.query_url, err
+                    self.remote_client.query_url,
+                    err
                 );
 
                 err
@@ -228,7 +229,7 @@ impl SubgraphClient {
         if let Some(ref local_client) = self.local_client {
             match local_client.query_raw(query.clone()).await {
                 Ok(response) => return Ok(response),
-                Err(err) => warn!(
+                Err(err) => tracing::warn!(
                     "Failed to query local subgraph deployment `{}`, trying remote deployment next: {}",
                     local_client.query_url, err
                 ),
@@ -237,9 +238,10 @@ impl SubgraphClient {
 
         // Try the remote client
         self.remote_client.query_raw(query).await.map_err(|err| {
-            warn!(
+            tracing::warn!(
                 "Failed to query remote subgraph deployment `{}`: {}",
-                self.remote_client.query_url, err
+                self.remote_client.query_url,
+                err
             );
 
             err
@@ -249,12 +251,14 @@ impl SubgraphClient {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
 
     use indexer_query::{current_epoch, user_query, CurrentEpoch, UserQuery};
     use serde_json::json;
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use thegraph_core::deployment_id;
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
 
     use super::*;
 
@@ -266,7 +270,7 @@ mod test {
         let mock = Mock::given(method("POST"))
             .and(path(format!(
                 "/subgraphs/id/{}",
-                *test_assets::NETWORK_SUBGRAPH_DEPLOYMENT
+                test_assets::NETWORK_SUBGRAPH_DEPLOYMENT
             )))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
                 r#"
@@ -311,8 +315,7 @@ mod test {
 
     #[tokio::test]
     async fn test_uses_local_deployment_if_healthy_and_synced() {
-        let deployment =
-            DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
         let mock_server_status = MockServer::start().await;
         mock_server_status
@@ -392,8 +395,7 @@ mod test {
 
     #[tokio::test]
     async fn test_uses_query_url_if_local_deployment_is_unhealthy() {
-        let deployment =
-            DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
         let mock_server_status = MockServer::start().await;
         mock_server_status
@@ -473,8 +475,7 @@ mod test {
 
     #[tokio::test]
     async fn test_uses_query_url_if_local_deployment_is_not_synced() {
-        let deployment =
-            DeploymentId::from_str("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
         let mock_server_status = MockServer::start().await;
         mock_server_status

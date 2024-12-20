@@ -39,22 +39,20 @@ impl Check for ReceiptMaxValueCheck {
 }
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::Address;
-    use alloy::signers::local::coins_bip39::English;
-    use alloy::signers::local::MnemonicBuilder;
-    use alloy::signers::local::PrivateKeySigner;
-    use std::str::FromStr;
-    use std::time::Duration;
-    use std::time::SystemTime;
-    use tap_core::receipt::Context;
+    use std::time::{Duration, SystemTime};
 
-    use super::*;
-    use crate::tap::Eip712Domain;
     use tap_core::{
-        receipt::{checks::Check, state::Checking, Receipt, ReceiptWithState},
+        receipt::{checks::Check, state::Checking, Context, Receipt, ReceiptWithState},
         signed_message::EIP712SignedMessage,
         tap_eip712_domain,
     };
+    use thegraph_core::alloy::{
+        primitives::{address, Address},
+        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
+    };
+
+    use super::*;
+    use crate::tap::Eip712Domain;
 
     fn create_signed_receipt_with_custom_value(value: u128) -> ReceiptWithState<Checking> {
         let index: u32 = 0;
@@ -80,8 +78,7 @@ mod tests {
         let receipt = EIP712SignedMessage::new(
             &eip712_domain_separator,
             Receipt {
-                allocation_id: Address::from_str("0xabababababababababababababababababababab")
-                    .unwrap(),
+                allocation_id: address!("abababababababababababababababababababab"),
                 nonce,
                 timestamp_ns,
                 value,

@@ -2,11 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use axum::{body::Bytes, extract::State, response::IntoResponse, Json};
+use indexer_monitor::SubgraphClient;
 use reqwest::StatusCode;
 use serde_json::json;
-use tracing::warn;
-
-use indexer_monitor::SubgraphClient;
 
 #[autometrics::autometrics]
 pub async fn static_subgraph_request_handler(
@@ -19,7 +17,7 @@ pub async fn static_subgraph_request_handler(
         response.status(),
         response.headers().to_owned(),
         response.text().await.inspect_err(|e| {
-            warn!("Failed to read response body: {}", e);
+            tracing::warn!("Failed to read response body: {}", e);
         })?,
     ))
 }

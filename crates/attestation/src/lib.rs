@@ -1,16 +1,20 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy::{
-    dyn_abi::Eip712Domain,
-    signers::{
-        k256,
-        local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
-    },
-};
-use thegraph_core::{attestation, Address, Attestation, ChainId, DeploymentId};
-
 use indexer_allocation::Allocation;
+use thegraph_core::{
+    alloy::{
+        primitives::{Address, ChainId},
+        signers::{
+            k256,
+            local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
+        },
+        sol_types::Eip712Domain,
+    },
+    attestation,
+    attestation::Attestation,
+    DeploymentId,
+};
 
 pub fn derive_key_pair(
     indexer_mnemonic: &str,
@@ -92,7 +96,7 @@ fn wallet_for_allocation(
     // range [0, 100] and checking for a match
     for i in 0..100 {
         // The allocation was either created at the epoch it intended to or one
-        // epoch later. So try both both.
+        // epoch later. So try both.
         for created_at_epoch in [allocation.created_at_epoch, allocation.created_at_epoch - 1] {
             // The allocation ID is the address of a unique key pair, we just
             // need to find the right one by enumerating them all
@@ -117,12 +121,18 @@ fn wallet_for_allocation(
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::U256;
     use std::str::FromStr;
-    use test_log::test;
 
     use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
     use test_assets::DISPUTE_MANAGER_ADDRESS;
+    use test_log::test;
+    use thegraph_core::{
+        alloy::{
+            primitives::{address, Address, U256},
+            signers::local::PrivateKeySigner,
+        },
+        DeploymentId,
+    };
 
     use super::*;
 
@@ -142,7 +152,7 @@ mod tests {
             )
             .unwrap()
             .address(),
-            Address::from_str("0xfa44c72b753a66591f241c7dc04e8178c30e13af").unwrap()
+            address!("fa44c72b753a66591f241c7dc04e8178c30e13af")
         );
 
         assert_eq!(
@@ -157,7 +167,7 @@ mod tests {
             )
             .unwrap()
             .address(),
-            Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap()
+            address!("a171cd12c3dde7eb8fe7717a0bcd06f3ffa65658")
         );
     }
 
@@ -166,7 +176,7 @@ mod tests {
         // Note that we use `derive_key_pair` to derive the private key
 
         let allocation = Allocation {
-            id: Address::from_str("0xa171cd12c3dde7eb8fe7717a0bcd06f3ffa65658").unwrap(),
+            id: address!("a171cd12c3dde7eb8fe7717a0bcd06f3ffa65658"),
             status: AllocationStatus::Null,
             subgraph_deployment: SubgraphDeployment {
                 id: DeploymentId::from_str(
@@ -192,7 +202,7 @@ mod tests {
                     INDEXER_OPERATOR_MNEMONIC,
                     &allocation,
                     1,
-                    *DISPUTE_MANAGER_ADDRESS
+                    DISPUTE_MANAGER_ADDRESS
                 )
                 .unwrap()
                 .signer
@@ -213,7 +223,7 @@ mod tests {
 
         let allocation = Allocation {
             // Purposefully wrong address
-            id: Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
+            id: address!("deadbeefcafebabedeadbeefcafebabedeadbeef"),
             status: AllocationStatus::Null,
             subgraph_deployment: SubgraphDeployment {
                 id: DeploymentId::from_str(
@@ -237,7 +247,7 @@ mod tests {
             INDEXER_OPERATOR_MNEMONIC,
             &allocation,
             1,
-            *DISPUTE_MANAGER_ADDRESS
+            DISPUTE_MANAGER_ADDRESS
         )
         .is_err());
     }

@@ -3,8 +3,6 @@
 
 //! update metrics in case it succeeds or fails
 
-use axum::http::Request;
-use pin_project::pin_project;
 use std::{
     future::Future,
     pin::Pin,
@@ -12,6 +10,9 @@ use std::{
     task::{Context, Poll},
     time::Instant,
 };
+
+use axum::http::Request;
+use pin_project::pin_project;
 use tower::{Layer, Service};
 
 use crate::error::StatusCodeExt;
@@ -141,12 +142,11 @@ mod tests {
     use reqwest::StatusCode;
     use tower::{Service, ServiceBuilder, ServiceExt};
 
+    use super::MetricLabelProvider;
     use crate::{
         error::StatusCodeExt,
         middleware::prometheus_metrics::{MetricLabels, PrometheusMetricsMiddlewareLayer},
     };
-
-    use super::MetricLabelProvider;
 
     struct TestLabel;
     impl MetricLabelProvider for TestLabel {

@@ -1,32 +1,34 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
-use std::time::Duration;
-use std::{collections::HashMap, str::FromStr};
-
-use super::sender_account::{
-    SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+    time::Duration,
 };
-use crate::agent::sender_allocation::SenderAllocationMessage;
-use crate::lazy_static;
-use alloy::dyn_abi::Eip712Domain;
-use alloy::primitives::Address;
-use anyhow::Result;
+
 use anyhow::{anyhow, bail};
 use futures::{stream, StreamExt};
 use indexer_allocation::Allocation;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use indexer_watcher::watch_pipe;
 use prometheus::{register_counter_vec, CounterVec};
-use ractor::concurrency::JoinHandle;
-use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{
+    concurrency::JoinHandle, Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
+};
 use reqwest::Url;
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
-use tokio::select;
-use tokio::sync::watch::{self, Receiver};
-use tracing::{error, warn};
+use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
+use tokio::{
+    select,
+    sync::watch::{self, Receiver},
+};
+
+use super::sender_account::{
+    SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
+};
+use crate::{agent::sender_allocation::SenderAllocationMessage, lazy_static};
 
 lazy_static! {
     static ref RECEIPTS_CREATED: CounterVec = register_counter_vec!(
@@ -103,7 +105,7 @@ impl Actor for SenderAccountsManager {
             sender_aggregator_endpoints,
             prefix,
         }: Self::Arguments,
-    ) -> std::result::Result<Self::State, ActorProcessingErr> {
+    ) -> Result<Self::State, ActorProcessingErr> {
         let (allocations_tx, allocations_rx) = watch::channel(HashSet::<Address>::new());
         watch_pipe(indexer_allocations.clone(), move |allocation_id| {
             let allocation_set = allocation_id.keys().cloned().collect::<HashSet<Address>>();
@@ -121,7 +123,7 @@ impl Actor for SenderAccountsManager {
                 myself_clone
                     .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(senders))
                     .unwrap_or_else(|e| {
-                        error!("Error while updating sender_accounts: {:?}", e);
+                        tracing::error!("Error while updating sender_accounts: {:?}", e);
                     });
                 async {}
             });
@@ -173,7 +175,7 @@ impl Actor for SenderAccountsManager {
         &self,
         _: ActorRef<Self::Msg>,
         state: &mut Self::State,
-    ) -> std::result::Result<(), ActorProcessingErr> {
+    ) -> Result<(), ActorProcessingErr> {
         // Abort the notification watcher on drop. Otherwise it may panic because the PgPool could
         // get dropped before. (Observed in tests)
         if let Some(handle) = &state.new_receipts_watcher_handle {
@@ -187,7 +189,7 @@ impl Actor for SenderAccountsManager {
         myself: ActorRef<Self::Msg>,
         msg: Self::Msg,
         state: &mut Self::State,
-    ) -> std::result::Result<(), ActorProcessingErr> {
+    ) -> Result<(), ActorProcessingErr> {
         tracing::trace!(
             message = ?msg,
             "New SenderAccountManager message"
@@ -224,7 +226,7 @@ impl Actor for SenderAccountsManager {
         myself: ActorRef<Self::Msg>,
         message: SupervisionEvent,
         state: &mut Self::State,
-    ) -> std::result::Result<(), ActorProcessingErr> {
+    ) -> Result<(), ActorProcessingErr> {
         match message {
             SupervisionEvent::ActorTerminated(cell, _, reason) => {
                 let sender_id = cell.get_name();
@@ -293,9 +295,10 @@ impl State {
             .create_sender_account(supervisor, sender_id, allocation_ids)
             .await
         {
-            error!(
+            tracing::error!(
                 "There was an error while starting the sender {}, denying it. Error: {:?}",
-                sender_id, e
+                sender_id,
+                e
             );
             SenderAccount::deny_sender(&self.pgpool, sender_id).await;
         }
@@ -308,7 +311,7 @@ impl State {
         allocation_ids: HashSet<Address>,
     ) -> anyhow::Result<()> {
         let Ok(args) = self.new_sender_account_args(&sender_id, allocation_ids) else {
-            warn!(
+            tracing::warn!(
                 "Sender {} is not on your [tap.sender_aggregator_endpoints] list. \
                         \
                         This means that you don't recognize this sender and don't want to \
@@ -437,7 +440,7 @@ impl State {
         &self,
         sender_id: &Address,
         allocation_ids: HashSet<Address>,
-    ) -> Result<SenderAccountArgs> {
+    ) -> anyhow::Result<SenderAccountArgs> {
         Ok(SenderAccountArgs {
             config: self.config,
             pgpool: self.pgpool.clone(),
@@ -479,7 +482,7 @@ async fn new_receipts_watcher(
         );
     loop {
         let Ok(pg_notification) = pglistener.recv().await else {
-            error!(
+            tracing::error!(
                 "should be able to receive Postgres Notify events on the channel \
                 'scalar_tap_receipt_notification'"
             );
@@ -488,7 +491,7 @@ async fn new_receipts_watcher(
         let Ok(new_receipt_notification) =
             serde_json::from_str::<NewReceiptNotification>(pg_notification.payload())
         else {
-            error!(
+            tracing::error!(
                 "should be able to deserialize the Postgres Notify event payload as a \
                         NewReceiptNotification",
             );
@@ -501,7 +504,7 @@ async fn new_receipts_watcher(
         )
         .await
         {
-            error!("{}", e);
+            tracing::error!("{}", e);
         }
     }
     // shutdown the whole system
@@ -509,14 +512,14 @@ async fn new_receipts_watcher(
         .kill_and_wait(None)
         .await
         .expect("Failed to kill manager.");
-    error!("Manager killed");
+    tracing::error!("Manager killed");
 }
 
 async fn handle_notification(
     new_receipt_notification: NewReceiptNotification,
     escrow_accounts_rx: Receiver<EscrowAccounts>,
     prefix: Option<&str>,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     tracing::trace!(
         notification = ?new_receipt_notification,
         "New receipt notification detected!"
@@ -545,10 +548,11 @@ async fn handle_notification(
     );
 
     let Some(sender_allocation) = ActorRef::<SenderAllocationMessage>::where_is(actor_name) else {
-        warn!(
+        tracing::warn!(
             "No sender_allocation found for sender_address {}, allocation_id {} to process new \
                 receipt notification. Starting a new sender_allocation.",
-            sender_address, allocation_id
+            sender_address,
+            allocation_id
         );
         let sender_account_name = format!(
             "{}{sender_address}",
@@ -594,32 +598,36 @@ async fn handle_notification(
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+        time::Duration,
+    };
+
+    use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
+    use ractor::{concurrency::JoinHandle, Actor, ActorRef, ActorStatus};
+    use reqwest::Url;
+    use ruint::aliases::U256;
+    use sqlx::{postgres::PgListener, PgPool};
+    use test_assets::{flush_messages, TAP_SENDER as SENDER};
+    use thegraph_core::alloy::hex::ToHexExt;
+    use tokio::sync::{mpsc, mpsc::error::TryRecvError, watch, Notify};
+
     use super::{
         new_receipts_watcher, SenderAccountsManager, SenderAccountsManagerArgs,
         SenderAccountsManagerMessage, State,
     };
-    use crate::agent::sender_account::tests::PREFIX_ID;
-    use crate::agent::sender_account::{SenderAccountConfig, SenderAccountMessage};
-    use crate::agent::sender_accounts_manager::{handle_notification, NewReceiptNotification};
-    use crate::test::actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor};
-    use crate::test::{
-        create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
-        ALLOCATION_ID_1, INDEXER, SENDER_2, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+    use crate::{
+        agent::{
+            sender_account::{tests::PREFIX_ID, SenderAccountConfig, SenderAccountMessage},
+            sender_accounts_manager::{handle_notification, NewReceiptNotification},
+        },
+        test::{
+            actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor},
+            create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
+            ALLOCATION_ID_1, INDEXER, SENDER_2, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+        },
     };
-    use alloy::hex::ToHexExt;
-    use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
-    use ractor::concurrency::JoinHandle;
-    use ractor::{Actor, ActorRef, ActorStatus};
-    use reqwest::Url;
-    use ruint::aliases::U256;
-    use sqlx::postgres::PgListener;
-    use sqlx::PgPool;
-    use std::collections::{HashMap, HashSet};
-    use std::sync::Arc;
-    use std::time::Duration;
-    use test_assets::{flush_messages, TAP_SENDER as SENDER};
-    use tokio::sync::mpsc::error::TryRecvError;
-    use tokio::sync::{mpsc, watch, Notify};
 
     const DUMMY_URL: &str = "http://localhost:1234";
 
@@ -634,7 +642,7 @@ mod tests {
         ))
     }
 
-    fn get_config() -> &'static super::SenderAccountConfig {
+    fn get_config() -> &'static SenderAccountConfig {
         Box::leak(Box::new(SenderAccountConfig {
             rav_request_buffer: Duration::from_millis(1),
             max_amount_willing_to_lose_grt: 0,
@@ -740,7 +748,7 @@ mod tests {
         }
 
         // add non-final ravs
-        let signed_rav = create_rav(*ALLOCATION_ID_1, SIGNER.0.clone(), 4, 10);
+        let signed_rav = create_rav(ALLOCATION_ID_1, SIGNER.0.clone(), 4, 10);
         store_rav(&pgpool, signed_rav, SENDER.1).await.unwrap();
 
         let pending_allocation_id = state.get_pending_sender_allocation_id().await;
@@ -844,7 +852,7 @@ mod tests {
                 "{}:{}:{}",
                 prefix.clone(),
                 SENDER.1,
-                *ALLOCATION_ID_0
+                ALLOCATION_ID_0
             )),
             actor,
             (),
@@ -951,7 +959,7 @@ mod tests {
 
         let new_receipt_notification = NewReceiptNotification {
             id: 1,
-            allocation_id: *ALLOCATION_ID_0,
+            allocation_id: ALLOCATION_ID_0,
             signer_address: SIGNER.1,
             timestamp_ns: 1,
             value: 1,
@@ -963,7 +971,7 @@ mod tests {
 
         assert_eq!(
             rx.recv().await.unwrap(),
-            SenderAccountMessage::NewAllocationId(*ALLOCATION_ID_0)
+            SenderAccountMessage::NewAllocationId(ALLOCATION_ID_0)
         );
         sender_account.stop_and_wait(None, None).await.unwrap();
         join_handle.await.unwrap();

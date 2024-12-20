@@ -6,9 +6,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use crate::{agent::unaggregated_receipts::UnaggregatedReceipts, backoff::BackoffInfo};
-
 use super::{AllocationStats, DefaultFromExtra, DurationInfo};
+use crate::{agent::unaggregated_receipts::UnaggregatedReceipts, backoff::BackoffInfo};
 
 #[derive(Debug, Clone, Default)]
 pub struct SenderFeeStats {

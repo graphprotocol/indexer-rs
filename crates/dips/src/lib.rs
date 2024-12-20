@@ -1,17 +1,19 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::str::FromStr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    str::FromStr,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-pub use alloy;
-pub use alloy_rlp;
-
-use alloy::core::primitives::Address;
-use alloy::rlp::{RlpDecodable, RlpEncodable};
-use alloy::{primitives::PrimitiveSignature as Signature, signers::SignerSync};
-use alloy_rlp::Encodable;
-use thegraph_core::alloy_sol_types::{sol, Eip712Domain, SolStruct};
+use thegraph_core::alloy::{
+    core::primitives::Address,
+    primitives::PrimitiveSignature as Signature,
+    rlp::{Encodable, RlpDecodable, RlpEncodable},
+    signers::SignerSync,
+    sol,
+    sol_types::{Eip712Domain, SolStruct},
+};
 use thiserror::Error;
 
 sol! {
@@ -212,10 +214,14 @@ impl SignedCancellationRequest {
 mod test {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use alloy::primitives::{Address, FixedBytes, U256};
-    use alloy::signers::local::PrivateKeySigner;
-    use alloy::sol_types::SolStruct;
-    use thegraph_core::attestation::eip712_domain;
+    use thegraph_core::{
+        alloy::{
+            primitives::{Address, FixedBytes, U256},
+            signers::local::PrivateKeySigner,
+            sol_types::SolStruct,
+        },
+        attestation::eip712_domain,
+    };
 
     use crate::{
         AgreementVoucherValidationError, CancellationRequest, CancellationRequestValidationError,

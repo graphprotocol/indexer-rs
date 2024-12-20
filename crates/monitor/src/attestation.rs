@@ -1,15 +1,17 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
 use bip39::Mnemonic;
 use indexer_allocation::Allocation;
 use indexer_attestation::AttestationSigner;
 use indexer_watcher::join_and_map_watcher;
-use std::sync::Arc;
-use std::{collections::HashMap, sync::Mutex};
-use thegraph_core::{Address, ChainId};
+use thegraph_core::alloy::primitives::{Address, ChainId};
 use tokio::sync::watch::Receiver;
-use tracing::warn;
 
 use crate::{AllocationWatcher, DisputeManagerWatcher};
 
@@ -48,7 +50,7 @@ fn modify_sigers(
     attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>>,
     allocations: &HashMap<Address, Allocation>,
     dispute_manager: &Address,
-) -> HashMap<thegraph_core::Address, AttestationSigner> {
+) -> HashMap<Address, AttestationSigner> {
     let mut signers = attestation_signers_map.lock().unwrap();
     // Remove signers for allocations that are no longer active or recently closed
     signers.retain(|id, _| allocations.contains_key(id));
@@ -63,7 +65,7 @@ fn modify_sigers(
                     signers.insert(*id, signer);
                 }
                 Err(e) => {
-                    warn!(
+                    tracing::warn!(
                         "Failed to establish signer for allocation {}, deployment {}, createdAtEpoch {}: {}",
                         allocation.id, allocation.subgraph_deployment.id,
                         allocation.created_at_epoch, e
@@ -78,16 +80,17 @@ fn modify_sigers(
 
 #[cfg(test)]
 mod tests {
-    use tokio::sync::watch;
+    use std::collections::HashMap;
 
     use test_assets::{DISPUTE_MANAGER_ADDRESS, INDEXER_ALLOCATIONS, INDEXER_MNEMONIC};
+    use tokio::sync::watch;
 
     use super::*;
 
     #[tokio::test]
     async fn test_attestation_signers_update_with_allocations() {
         let (allocations_tx, allocations_rx) = watch::channel(HashMap::new());
-        let (_, dispute_manager_rx) = watch::channel(*DISPUTE_MANAGER_ADDRESS);
+        let (_, dispute_manager_rx) = watch::channel(DISPUTE_MANAGER_ADDRESS);
         let mut signers = attestation_signers(
             allocations_rx,
             INDEXER_MNEMONIC.clone(),

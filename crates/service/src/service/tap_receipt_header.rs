@@ -49,7 +49,6 @@ impl Header for TapReceipt {
 mod test {
     use axum::http::HeaderValue;
     use axum_extra::headers::Header;
-
     use test_assets::{create_signed_receipt, SignedReceiptRequest};
 
     use super::TapReceipt;

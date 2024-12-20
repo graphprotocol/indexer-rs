@@ -3,7 +3,6 @@
 
 use std::{net::SocketAddr, time::Duration};
 
-use alloy::primitives::Address;
 use axum::{body::to_bytes, extract::ConnectInfo, http::Request, Extension};
 use axum_extra::headers::Header;
 use indexer_config::{BlockchainConfig, GraphNodeConfig, IndexerConfig, NonZeroGRT};
@@ -17,6 +16,7 @@ use sqlx::PgPool;
 use test_assets::{
     create_signed_receipt, SignedReceiptRequest, INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN,
 };
+use thegraph_core::alloy::primitives::Address;
 use tokio::sync::watch;
 use tower::Service;
 use wiremock::{
@@ -71,7 +71,7 @@ async fn full_integration_test(database: PgPool) {
             status_url: graph_node_url.clone(),
         })
         .indexer(IndexerConfig {
-            indexer_address: *test_assets::INDEXER_ADDRESS,
+            indexer_address: test_assets::INDEXER_ADDRESS,
             operator_mnemonic: test_assets::INDEXER_MNEMONIC.clone(),
         })
         .service(indexer_config::ServiceConfig {
@@ -87,7 +87,7 @@ async fn full_integration_test(database: PgPool) {
         })
         .blockchain(BlockchainConfig {
             chain_id: indexer_config::TheGraphChainId::Test,
-            receipts_verifier_address: *test_assets::VERIFIER_ADDRESS,
+            receipts_verifier_address: test_assets::VERIFIER_ADDRESS,
         })
         .timestamp_buffer_secs(Duration::from_secs(10))
         .escrow_accounts(escrow_accounts)
