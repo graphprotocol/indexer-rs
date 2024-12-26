@@ -97,22 +97,20 @@ mod test {
     use super::*;
     use crate::client::{DeploymentDetails, SubgraphClient};
 
-    const NETWORK_SUBGRAPH_URL: &str =
-        "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-arbitrum";
-
     async fn network_subgraph_client() -> &'static SubgraphClient {
+        let url = std::env::var("NETWORK_SUBGRAPH_URL").unwrap();
         Box::leak(Box::new(
             SubgraphClient::new(
                 reqwest::Client::new(),
                 None,
-                DeploymentDetails::for_query_url(NETWORK_SUBGRAPH_URL).unwrap(),
+                DeploymentDetails::for_query_url(&url).unwrap(),
             )
             .await,
         ))
     }
 
     #[tokio::test]
-    #[ignore = "depends on the defunct hosted-service"]
+    #[test_with::env(NETWORK_SUBGRAPH_URL)]
     async fn test_network_query() {
         let result = get_allocations(
             network_subgraph_client().await,
@@ -124,7 +122,7 @@ mod test {
     }
 
     #[tokio::test]
-    #[ignore = "depends on the defunct hosted-service"]
+    #[test_with::env(NETWORK_SUBGRAPH_URL)]
     async fn test_network_query_empty_response() {
         let result = get_allocations(
             network_subgraph_client().await,
