@@ -262,9 +262,6 @@ mod test {
 
     use super::*;
 
-    const NETWORK_SUBGRAPH_URL: &str =
-        "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
-
     async fn mock_graph_node_server() -> MockServer {
         let mock_server = MockServer::start().await;
         let mock = Mock::given(method("POST"))
@@ -290,16 +287,17 @@ mod test {
     }
 
     async fn network_subgraph_client() -> SubgraphClient {
+        let url = std::env::var("NETWORK_SUBGRAPH_URL").unwrap();
         SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(NETWORK_SUBGRAPH_URL).unwrap(),
+            DeploymentDetails::for_query_url(&url).unwrap(),
         )
         .await
     }
 
     #[tokio::test]
-    #[ignore = "depends on the defunct hosted-service"]
+    #[test_with::env(NETWORK_SUBGRAPH_URL)]
     async fn test_network_query() {
         let _mock_server = mock_graph_node_server().await;
 

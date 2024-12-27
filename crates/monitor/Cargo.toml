@@ -25,3 +25,4 @@ env_logger = { version = "0.11.0", default-features = false }
 test-log = { version = "0.2.12", default-features = false }
 wiremock.workspace = true
 test-assets = { path = "../test-assets" }
+test-with = "0.14.6"
