@@ -14,10 +14,15 @@ use crate::service::TapReceipt;
 ///
 /// This is useful to not deserialize multiple times the same receipt
 pub async fn receipt_middleware(mut request: Request, next: Next) -> Response {
-    if let Ok(TypedHeader(TapReceipt(receipt))) =
-        request.extract_parts::<TypedHeader<TapReceipt>>().await
-    {
-        request.extensions_mut().insert(receipt);
+    if let Ok(TypedHeader(receipt)) = request.extract_parts::<TypedHeader<TapReceipt>>().await {
+        match receipt {
+            TapReceipt::V1(receipt) => {
+                request.extensions_mut().insert(receipt);
+            }
+            TapReceipt::V2(receipt) => {
+                request.extensions_mut().insert(receipt);
+            }
+        }
     }
     next.run(request).await
 }

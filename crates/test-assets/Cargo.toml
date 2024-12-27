@@ -8,6 +8,7 @@ indexer-allocation = { path = "../allocation" }
 bip39 = "2.0.0"
 lazy_static.workspace = true
 tap_core.workspace = true
+tap_core_v2.workspace = true
 thegraph-core.workspace = true
 typed-builder.workspace = true
 tokio.workspace = true

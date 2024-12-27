@@ -15,6 +15,11 @@ use tap_core::{
     signed_message::EIP712SignedMessage,
     tap_eip712_domain,
 };
+use tap_core_v2::{
+    receipt::{Receipt as ReceiptV2, SignedReceipt as SignedReceiptV2},
+    signed_message::EIP712SignedMessage as EIP712SignedMessageV2,
+    // tap_eip712_domain as tap_eip712_domain_v2,
+};
 use thegraph_core::{
     alloy::{
         primitives::{address, Address, U256},
@@ -344,6 +349,52 @@ pub async fn create_signed_receipt(
         &self::TAP_EIP712_DOMAIN,
         Receipt {
             allocation_id,
+            nonce,
+            timestamp_ns,
+            value,
+        },
+        wallet,
+    )
+    .unwrap()
+}
+
+#[derive(TypedBuilder)]
+pub struct SignedReceiptV2Request {
+    #[builder(default = Address::ZERO)]
+    payer: Address,
+    #[builder(default = Address::ZERO)]
+    data_service: Address,
+    #[builder(default = Address::ZERO)]
+    service_provider: Address,
+    #[builder(default)]
+    nonce: u64,
+    #[builder(default_code = r#"SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64"#)]
+    timestamp_ns: u64,
+    #[builder(default = 1)]
+    value: u128,
+}
+
+pub async fn create_signed_receipt_v2(
+    SignedReceiptV2Request {
+        payer,
+        data_service,
+        service_provider,
+        nonce,
+        timestamp_ns,
+        value,
+    }: SignedReceiptV2Request,
+) -> SignedReceiptV2 {
+    let (wallet, _) = &*self::TAP_SIGNER;
+
+    EIP712SignedMessageV2::new(
+        &self::TAP_EIP712_DOMAIN,
+        ReceiptV2 {
+            payer,
+            data_service,
+            service_provider,
             nonce,
             timestamp_ns,
             value,
