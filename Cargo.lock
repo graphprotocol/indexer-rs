@@ -364,7 +364,7 @@ dependencies = [
  "lru",
  "parking_lot",
  "pin-project 1.1.7",
- "reqwest 0.12.9",
+ "reqwest 0.12.11",
  "schnellru",
  "serde",
  "serde_json",
@@ -431,7 +431,7 @@ dependencies = [
  "alloy-transport-ws",
  "futures",
  "pin-project 1.1.7",
- "reqwest 0.12.9",
+ "reqwest 0.12.11",
  "serde",
  "serde_json",
  "tokio",
@@ -704,7 +704,7 @@ checksum = "2e02ffd5d93ffc51d72786e607c97de3b60736ca3e636ead0ec1f7dce68ea3fd"
 dependencies = [
  "alloy-json-rpc",
  "alloy-transport",
- "reqwest 0.12.9",
+ "reqwest 0.12.11",
  "serde_json",
  "tower 0.5.2",
  "tracing",
@@ -2895,7 +2895,7 @@ dependencies = [
  "once_cell",
  "prost",
  "prost-types",
- "reqwest 0.12.9",
+ "reqwest 0.12.11",
  "secret-vault-value",
  "serde",
  "serde_json",
@@ -3329,7 +3329,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.8",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -3692,7 +3692,7 @@ dependencies = [
  "indexer-attestation",
  "indexer-query",
  "indexer-watcher",
- "reqwest 0.12.9",
+ "reqwest 0.12.11",
  "serde",
  "serde_json",
  "test-assets",
@@ -3747,7 +3747,7 @@ dependencies = [
  "lazy_static",
  "pin-project 1.1.7",
  "prometheus",
- "reqwest 0.12.9",
+ "reqwest 0.12.11",
  "rstest",
  "serde",
  "serde_json",
@@ -3794,7 +3794,7 @@ dependencies = [
  "lazy_static",
  "prometheus",
  "ractor",
- "reqwest 0.12.9",
+ "reqwest 0.12.11",
  "ruint",
  "serde",
  "serde_json",
@@ -5537,9 +5537,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.9"
+version = "0.12.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a77c62af46e79de0a562e1a9849205ffcb7fc1238876e9bd743357570e04046f"
+checksum = "7fe060fe50f524be480214aba758c71f99f90ee8c83c5a36b5e9e1d568eb4eb3"
 dependencies = [
  "async-compression",
  "base64 0.22.1",
@@ -5579,6 +5579,7 @@ dependencies = [
  "tokio-native-tls",
  "tokio-rustls 0.26.0",
  "tokio-util",
+ "tower 0.5.2",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -6981,7 +6982,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "reqwest 0.12.9",
+ "reqwest 0.12.11",
  "syn 2.0.90",
  "sysinfo",
  "uzers",
@@ -7008,7 +7009,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80bff1bad9a7c3b210876b5601460cab05d8fa6e8f52481472427ed18bc33975"
 dependencies = [
  "async-trait",
- "reqwest 0.12.9",
+ "reqwest 0.12.11",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -7986,7 +7987,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
