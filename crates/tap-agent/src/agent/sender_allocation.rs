@@ -1258,8 +1258,7 @@ pub mod tests {
         ));
 
         // Stop the TAP aggregator server.
-        handle.stop().unwrap();
-        handle.stopped().await;
+        handle.abort();
     }
 
     #[sqlx::test(migrations = "../../migrations")]
