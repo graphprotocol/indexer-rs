@@ -28,7 +28,7 @@ mod tests {
 
     use crate::{
         middleware::auth::{self, Bearer, OrExt},
-        tap::IndexerTapContext,
+        tap_v1::IndexerTapContext,
     };
 
     const BEARER_TOKEN: &str = "test";

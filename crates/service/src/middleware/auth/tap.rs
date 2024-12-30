@@ -105,7 +105,7 @@ mod tests {
             auth::tap_receipt_authorize,
             prometheus_metrics::{MetricLabelProvider, MetricLabels},
         },
-        tap::IndexerTapContext,
+        tap_v1::IndexerTapContext,
     };
 
     #[fixture]

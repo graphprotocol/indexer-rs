@@ -8,7 +8,7 @@ mod metrics;
 mod middleware;
 mod routes;
 pub mod service;
-mod tap;
+mod tap_v1;
 mod wallet;
 
 pub use middleware::QueryBody;

@@ -19,7 +19,7 @@ use tap_core::receipt::Context;
 use thegraph_core::DeploymentId;
 
 use super::sender::Sender;
-use crate::{error::IndexerServiceError, tap::AgoraQuery};
+use crate::{error::IndexerServiceError, tap_v1::AgoraQuery};
 
 /// Graphql query body to be decoded and passed to agora context
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -85,7 +85,7 @@ mod tests {
 
     use crate::{
         middleware::tap_context::{context_middleware, QueryBody},
-        tap::AgoraQuery,
+        tap_v1::AgoraQuery,
     };
 
     #[tokio::test]

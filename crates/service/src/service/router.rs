@@ -52,7 +52,7 @@ use crate::{
         dips::{self, Price},
         health, request_handler, static_subgraph_request_handler,
     },
-    tap::IndexerTapContext,
+    tap_v1::IndexerTapContext,
     wallet::public_key,
 };
 

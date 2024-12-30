@@ -62,7 +62,7 @@ mod tests {
     };
 
     use super::TimestampCheck;
-    use crate::tap::Eip712Domain;
+    use crate::tap_v1::Eip712Domain;
 
     fn create_signed_receipt_with_custom_timestamp(
         timestamp_ns: u64,

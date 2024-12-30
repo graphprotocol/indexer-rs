@@ -52,7 +52,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::tap::Eip712Domain;
+    use crate::tap_v1::Eip712Domain;
 
     fn create_signed_receipt_with_custom_value(value: u128) -> ReceiptWithState<Checking> {
         let index: u32 = 0;
