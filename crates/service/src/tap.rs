@@ -10,7 +10,7 @@ use sqlx::PgPool;
 use tap_core::receipt::checks::ReceiptCheck;
 use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
 use tokio::sync::{
-    mpsc::{self, Sender},
+    mpsc::{self, UnboundedSender},
     watch::Receiver,
 };
 use tokio_util::sync::CancellationToken;
@@ -31,7 +31,7 @@ const GRACE_PERIOD: u64 = 60;
 #[derive(Clone)]
 pub struct IndexerTapContext {
     domain_separator: Arc<Eip712Domain>,
-    receipt_producer: Sender<DatabaseReceipt>,
+    receipt_producer: UnboundedSender<DatabaseReceipt>,
     cancelation_token: CancellationToken,
 }
 
@@ -60,8 +60,9 @@ impl IndexerTapContext {
     }
 
     pub async fn new(pgpool: PgPool, domain_separator: Eip712Domain) -> Self {
-        const MAX_RECEIPT_QUEUE_SIZE: usize = 1000;
-        let (tx, rx) = mpsc::channel(MAX_RECEIPT_QUEUE_SIZE);
+        // const MAX_RECEIPT_QUEUE_SIZE: usize = 1000;
+        // let (tx, rx) = mpsc::channel(MAX_RECEIPT_QUEUE_SIZE);
+        let (tx, rx) = mpsc::unbounded_channel();
         let cancelation_token = CancellationToken::new();
         let inner = InnerContext { pgpool };
         Self::spawn_store_receipt_task(inner, rx, cancelation_token.clone());

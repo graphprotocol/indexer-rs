@@ -3,16 +3,26 @@
 
 use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
+use lazy_static::lazy_static;
+use prometheus::{register_gauge, Gauge};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_core::{
     manager::adapters::ReceiptStore,
     receipt::{state::Checking, ReceiptWithState},
 };
 use thegraph_core::alloy::{hex::ToHexExt, sol_types::Eip712Domain};
-use tokio::{sync::mpsc::Receiver, task::JoinHandle};
+use tokio::{sync::mpsc::UnboundedReceiver, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use super::{AdapterError, IndexerTapContext};
+
+lazy_static! {
+    pub static ref RECEIPTS_IN_QUEUE: Gauge = register_gauge!(
+        "indexer_receipts_in_queue_total",
+        "Total receipts waiting to be stored",
+    )
+    .unwrap();
+}
 
 #[derive(Clone)]
 pub struct InnerContext {
@@ -74,7 +84,7 @@ impl InnerContext {
 impl IndexerTapContext {
     pub fn spawn_store_receipt_task(
         inner_context: InnerContext,
-        mut receiver: Receiver<DatabaseReceipt>,
+        mut receiver: UnboundedReceiver<DatabaseReceipt>,
         cancelation_token: CancellationToken,
     ) -> JoinHandle<()> {
         const BUFFER_SIZE: usize = 100;
@@ -83,7 +93,8 @@ impl IndexerTapContext {
                 let mut buffer = Vec::with_capacity(BUFFER_SIZE);
                 tokio::select! {
                     biased;
-                    _ = receiver.recv_many(&mut buffer, BUFFER_SIZE) => {
+                    size = receiver.recv_many(&mut buffer, BUFFER_SIZE) => {
+                        RECEIPTS_IN_QUEUE.sub(size as f64);
                         if let Err(e) = inner_context.store_receipts(buffer).await {
                             tracing::error!("Failed to store receipts: {}", e);
                         }
@@ -104,10 +115,11 @@ impl ReceiptStore for IndexerTapContext {
         receipt: ReceiptWithState<Checking>,
     ) -> Result<u64, Self::AdapterError> {
         let db_receipt = DatabaseReceipt::from_receipt(receipt, &self.domain_separator)?;
-        self.receipt_producer.send(db_receipt).await.map_err(|e| {
+        self.receipt_producer.send(db_receipt).map_err(|e| {
             tracing::error!("Failed to queue receipt for storage: {}", e);
             anyhow!(e)
         })?;
+        RECEIPTS_IN_QUEUE.inc();
 
         // We don't need receipt_ids
         Ok(0)
