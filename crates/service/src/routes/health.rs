@@ -36,7 +36,7 @@ impl IntoResponse for CheckHealthError {
             CheckHealthError::RequestFailed => StatusCode::BAD_GATEWAY,
         };
         let body = serde_json::json!({
-            "error": self.to_string(),
+            "errors": [self.to_string()],
         });
         (status, Json(body)).into_response()
     }

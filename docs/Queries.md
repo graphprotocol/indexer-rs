@@ -98,7 +98,7 @@ curl http://localhost:7600/subgraphs/health/QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZU
 
 ```json
 {
-    "error": "Deployment not found"
+    "errors": ["Deployment not found"]
 }
 ```
 
