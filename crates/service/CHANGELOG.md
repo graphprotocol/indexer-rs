@@ -6,6 +6,13 @@
 
 
 
+## [1.4.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.4.0...indexer-service-rs-v1.4.1) (2025-01-02)
+
+
+### Bug Fixes
+
+* invalid serialization of CheckHealthError ([#565](https://github.com/graphprotocol/indexer-rs/issues/565)) ([73fdc95](https://github.com/graphprotocol/indexer-rs/commit/73fdc958aa93d89b8f58f3a93d859236d59ba20e))
+
 ## [1.4.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.3.2...indexer-service-rs-v1.4.0) (2024-12-18)
 
 
