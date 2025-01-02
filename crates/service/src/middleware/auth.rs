@@ -3,11 +3,13 @@
 
 mod bearer;
 mod or;
-mod tap;
+mod tap_v1;
+mod tap_v2;
 
 pub use bearer::Bearer;
 pub use or::OrExt;
-pub use tap::tap_receipt_authorize;
+pub use tap_v1::tap_receipt_authorize as tap_receipt_authorize_v1;
+pub use tap_v2::tap_receipt_authorize as tap_receipt_authorize_v2;
 
 #[cfg(test)]
 mod tests {
@@ -54,7 +56,7 @@ mod tests {
             .unwrap(),
         ));
         let free_query = Bearer::new(BEARER_TOKEN);
-        let tap_auth = auth::tap_receipt_authorize(tap_manager, metric);
+        let tap_auth = auth::tap_receipt_authorize_v1(tap_manager, metric);
         let authorize_requests = free_query.or(tap_auth);
 
         let authorization_middleware = AsyncRequireAuthorizationLayer::new(authorize_requests);

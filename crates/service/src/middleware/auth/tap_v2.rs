@@ -16,7 +16,7 @@ use axum::{
     http::{Request, Response},
     response::IntoResponse,
 };
-use tap_core::{
+use tap_core_v2::{
     manager::{adapters::ReceiptStore, Manager},
     receipt::{Context, SignedReceipt},
 };
@@ -86,7 +86,7 @@ mod tests {
     use reqwest::StatusCode;
     use rstest::*;
     use sqlx::PgPool;
-    use tap_core::{
+    use tap_core_v2::{
         manager::Manager,
         receipt::{
             checks::{Check, CheckError, CheckList, CheckResult},
@@ -102,10 +102,10 @@ mod tests {
 
     use crate::{
         middleware::{
-            auth::tap_receipt_authorize,
+            auth::tap_receipt_authorize_v2,
             prometheus_metrics::{MetricLabelProvider, MetricLabels},
         },
-        tap_v1::IndexerTapContext,
+        tap_v2::IndexerTapContext,
     };
 
     #[fixture]
@@ -152,7 +152,7 @@ mod tests {
             context,
             CheckList::new(vec![Arc::new(MyCheck)]),
         ));
-        let tap_auth = tap_receipt_authorize(manager, metric);
+        let tap_auth = tap_receipt_authorize_v2(manager, metric);
         let authorization_middleware = AsyncRequireAuthorizationLayer::new(tap_auth);
 
         let mut service = ServiceBuilder::new()

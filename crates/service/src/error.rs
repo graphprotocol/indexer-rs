@@ -28,7 +28,11 @@ pub enum IndexerServiceError {
     SerializationError(#[from] serde_json::Error),
 
     #[error("Issues with provided receipt: {0}")]
-    TapCoreError(#[from] tap_core::Error),
+    TapCoreErrorV1(#[from] tap_core::Error),
+
+    #[error("Issues with provided receipt: {0}")]
+    TapCoreErrorV2(#[from] tap_core_v2::Error),
+
     #[error("There was an error while accessing escrow account: {0}")]
     EscrowAccount(#[from] EscrowAccountsError),
 }
@@ -37,9 +41,16 @@ impl StatusCodeExt for IndexerServiceError {
     fn status_code(&self) -> StatusCode {
         use IndexerServiceError as E;
         match &self {
-            E::TapCoreError(ref error) => match error {
+            E::TapCoreErrorV1(ref error) => match error {
                 TapError::SignatureError(_)
                 | TapError::ReceiptError(ReceiptError::CheckFailure(_)) => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            },
+            E::TapCoreErrorV2(ref error) => match error {
+                tap_core_v2::Error::SignatureError(_)
+                | tap_core_v2::Error::ReceiptError(
+                    tap_core_v2::receipt::ReceiptError::CheckFailure(_),
+                ) => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             },
             E::EscrowAccount(_) | E::ReceiptNotFound => StatusCode::PAYMENT_REQUIRED,

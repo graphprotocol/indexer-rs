@@ -78,10 +78,12 @@ mod tests {
         let receipt = EIP712SignedMessage::new(
             &eip712_domain_separator,
             Receipt {
-                allocation_id: address!("abababababababababababababababababababab"),
                 nonce,
                 timestamp_ns,
                 value,
+                payer: address!("abababababababababababababababababababab"),
+                data_service: address!("abababababababababababababababababababab"),
+                service_provider: address!("abababababababababababababababababababab"),
             },
             &wallet,
         )

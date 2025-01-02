@@ -24,7 +24,9 @@ impl InnerContext {
         let receipts_len = receipts.len();
         let mut signers = Vec::with_capacity(receipts_len);
         let mut signatures = Vec::with_capacity(receipts_len);
-        let mut allocation_ids = Vec::with_capacity(receipts_len);
+        let mut payers = Vec::with_capacity(receipts_len);
+        let mut data_services = Vec::with_capacity(receipts_len);
+        let mut service_providers = Vec::with_capacity(receipts_len);
         let mut timestamps = Vec::with_capacity(receipts_len);
         let mut nonces = Vec::with_capacity(receipts_len);
         let mut values = Vec::with_capacity(receipts_len);
@@ -32,16 +34,20 @@ impl InnerContext {
         for receipt in receipts {
             signers.push(receipt.signer_address);
             signatures.push(receipt.signature);
-            allocation_ids.push(receipt.allocation_id);
+            payers.push(receipt.payer);
+            data_services.push(receipt.data_service);
+            service_providers.push(receipt.service_provider);
             timestamps.push(receipt.timestamp_ns);
             nonces.push(receipt.nonce);
             values.push(receipt.value);
         }
         sqlx::query!(
-            r#"INSERT INTO scalar_tap_receipts (
+            r#"INSERT INTO scalar_tap_receipts_v2 (
                 signer_address,
                 signature,
-                allocation_id,
+                payer,
+                data_service,
+                service_provider,
                 timestamp_ns,
                 nonce,
                 value
@@ -49,13 +55,17 @@ impl InnerContext {
                 $1::CHAR(40)[],
                 $2::BYTEA[],
                 $3::CHAR(40)[],
-                $4::NUMERIC(20)[],
-                $5::NUMERIC(20)[],
-                $6::NUMERIC(40)[]
+                $4::CHAR(40)[],
+                $5::CHAR(40)[],
+                $6::NUMERIC(20)[],
+                $7::NUMERIC(20)[],
+                $8::NUMERIC(40)[]
             )"#,
             &signers,
             &signatures,
-            &allocation_ids,
+            &payers,
+            &data_services,
+            &service_providers,
             &timestamps,
             &nonces,
             &values,
@@ -117,7 +127,9 @@ impl ReceiptStore for IndexerTapContext {
 pub struct DatabaseReceipt {
     signer_address: String,
     signature: Vec<u8>,
-    allocation_id: String,
+    payer: String,
+    data_service: String,
+    service_provider: String,
     timestamp_ns: BigDecimal,
     nonce: BigDecimal,
     value: BigDecimal,
@@ -129,7 +141,9 @@ impl DatabaseReceipt {
         separator: &Eip712Domain,
     ) -> anyhow::Result<Self> {
         let receipt = receipt.signed_receipt();
-        let allocation_id = receipt.message.allocation_id.encode_hex();
+        let payer = receipt.message.payer.encode_hex();
+        let data_service = receipt.message.data_service.encode_hex();
+        let service_provider = receipt.message.service_provider.encode_hex();
         let signature = receipt.signature.as_bytes().to_vec();
 
         let signer_address = receipt
@@ -144,12 +158,14 @@ impl DatabaseReceipt {
         let nonce = BigDecimal::from(receipt.message.nonce);
         let value = BigDecimal::from(BigInt::from(receipt.message.value));
         Ok(Self {
-            allocation_id,
             nonce,
             signature,
             signer_address,
             timestamp_ns,
             value,
+            payer,
+            data_service,
+            service_provider,
         })
     }
 }

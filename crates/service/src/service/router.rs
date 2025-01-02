@@ -307,7 +307,7 @@ impl ServiceRouter {
 
             // inject auth
             let failed_receipt_metric = Box::leak(Box::new(FAILED_RECEIPT.clone()));
-            let tap_auth = auth::tap_receipt_authorize(tap_manager, failed_receipt_metric);
+            let tap_auth = auth::tap_receipt_authorize_v1(tap_manager, failed_receipt_metric);
 
             if let Some(free_auth_token) = &free_query_auth_token {
                 let free_query = Bearer::new(free_auth_token);
