@@ -13,8 +13,8 @@ use axum::{
 };
 use governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
 use indexer_config::{
-    BlockchainConfig, DipsConfig, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig,
-    NetworkSubgraphConfig, ServiceConfig, ServiceTapConfig,
+    BlockchainConfig, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
+    ServiceConfig, ServiceTapConfig,
 };
 use indexer_monitor::{
     attestation_signers, deployment_to_allocation, dispute_manager, escrow_accounts,
@@ -38,7 +38,6 @@ use typed_builder::TypedBuilder;
 
 use super::{release::IndexerServiceRelease, GraphNodeState};
 use crate::{
-    database::dips::{AgreementStore, InMemoryAgreementStore},
     metrics::{FAILED_RECEIPT, HANDLER_HISTOGRAM},
     middleware::{
         allocation_middleware, attestation_middleware,
@@ -47,11 +46,7 @@ use crate::{
         sender_middleware, signer_middleware, AllocationState, AttestationState,
         PrometheusMetricsMiddlewareLayer, SenderState,
     },
-    routes::{
-        self,
-        dips::{self, Price},
-        health, request_handler, static_subgraph_request_handler,
-    },
+    routes::{self, health, request_handler, static_subgraph_request_handler},
     tap::IndexerTapContext,
     wallet::public_key,
 };
@@ -74,8 +69,6 @@ pub struct ServiceRouter {
     service: ServiceConfig,
     blockchain: BlockchainConfig,
     timestamp_buffer_secs: Duration,
-    #[builder(default)]
-    dips: Option<DipsConfig>,
 
     // either provide subgraph or watcher
     #[builder(default, setter(transform =
@@ -132,24 +125,6 @@ impl ServiceRouter {
 
         // STATUS
         let post_status = post(routes::status);
-
-        // DIPS
-        let agreement_store: Arc<dyn AgreementStore> = Arc::new(InMemoryAgreementStore::default());
-        let prices: Vec<Price> = vec![];
-
-        let dips = match self.dips.as_ref() {
-            Some(dips_config) => {
-                let schema = dips::build_schema(
-                    indexer_address,
-                    dips_config,
-                    &self.blockchain,
-                    agreement_store,
-                    prices,
-                );
-                Router::new().route(DEFAULT_ROUTE, post_service(GraphQL::new(schema)))
-            }
-            None => Router::new(),
-        };
 
         // Monitor the indexer's own allocations
         // if not provided, create monitor from subgraph
@@ -407,7 +382,6 @@ impl ServiceRouter {
             .nest("/version", version)
             .nest("/escrow", serve_escrow_subgraph)
             .nest("/network", serve_network_subgraph)
-            .nest("/dips", dips)
             .route(
                 "/subgraph/health/:deployment_id",
                 get(health).with_state(graphnode_state.clone()),

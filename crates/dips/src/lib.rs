@@ -3,9 +3,11 @@
 
 use std::{
     str::FromStr,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use alloy_rlp::Decodable;
 use thegraph_core::alloy::{
     core::primitives::Address,
     primitives::PrimitiveSignature as Signature,
@@ -14,6 +16,14 @@ use thegraph_core::alloy::{
     sol,
     sol_types::{Eip712Domain, SolStruct},
 };
+
+pub mod proto;
+pub mod server;
+pub mod store;
+
+use store::AgreementStore;
+use uuid::Uuid;
+
 use thiserror::Error;
 
 sol! {
@@ -77,14 +87,34 @@ sol! {
     }
 }
 
-#[derive(Error, Debug, PartialEq)]
-pub enum AgreementVoucherValidationError {
+#[derive(Error, Debug)]
+pub enum DipsError {
+    // agreement cration
     #[error("signature is not valid, error: {0}")]
     InvalidSignature(String),
     #[error("payer {0} not authorised")]
     PayerNotAuthorised(Address),
     #[error("voucher payee {actual} does not match the expected address {expected}")]
     UnexpectedPayee { expected: Address, actual: Address },
+    // cancellation
+    #[error("cancelled_by is expected to match the signer")]
+    UnexpectedSigner,
+    #[error("signer {0} not authorised")]
+    SignerNotAuthorised(Address),
+    #[error("cancellation request has expired")]
+    ExpiredRequest,
+    // misc
+    #[error("rlp (de)serialisation failed")]
+    RlpSerializationError(#[from] alloy_rlp::Error),
+    #[error("unknown error: {0}")]
+    UnknownError(#[from] anyhow::Error),
+}
+
+// TODO: send back messages
+impl From<DipsError> for tonic::Status {
+    fn from(_val: DipsError) -> Self {
+        tonic::Status::internal("unknown errr")
+    }
 }
 
 impl IndexingAgreementVoucher {
@@ -109,22 +139,22 @@ impl SignedIndexingAgreementVoucher {
         domain: &Eip712Domain,
         expected_payee: &Address,
         allowed_payers: impl AsRef<[Address]>,
-    ) -> Result<(), AgreementVoucherValidationError> {
+    ) -> Result<(), DipsError> {
         let sig = Signature::from_str(&self.signature.to_string())
-            .map_err(|err| AgreementVoucherValidationError::InvalidSignature(err.to_string()))?;
+            .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
 
         let payer = sig
             .recover_address_from_prehash(&self.voucher.eip712_signing_hash(domain))
-            .map_err(|err| AgreementVoucherValidationError::InvalidSignature(err.to_string()))?;
+            .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
 
         if allowed_payers.as_ref().is_empty()
             || !allowed_payers.as_ref().iter().any(|addr| addr.eq(&payer))
         {
-            return Err(AgreementVoucherValidationError::PayerNotAuthorised(payer));
+            return Err(DipsError::PayerNotAuthorised(payer));
         }
 
         if !self.voucher.payee.eq(expected_payee) {
-            return Err(AgreementVoucherValidationError::UnexpectedPayee {
+            return Err(DipsError::UnexpectedPayee {
                 expected: *expected_payee,
                 actual: self.voucher.payee,
             });
@@ -139,18 +169,6 @@ impl SignedIndexingAgreementVoucher {
 
         out
     }
-}
-
-#[derive(Error, Debug, PartialEq)]
-pub enum CancellationRequestValidationError {
-    #[error("signature is not valid, error: {0}")]
-    InvalidSignature(String),
-    #[error("cancelled_by is expected to match the signer")]
-    UnexpectedSigner,
-    #[error("signer {0} not authorised")]
-    SignerNotAuthorised(Address),
-    #[error("cancellation request has expired")]
-    ExpiredRequest,
 }
 
 impl CancellationRequest {
@@ -174,30 +192,28 @@ impl SignedCancellationRequest {
         &self,
         domain: &Eip712Domain,
         time_tolerance: Duration,
-    ) -> Result<(), CancellationRequestValidationError> {
+    ) -> Result<(), DipsError> {
         let sig = Signature::from_str(&self.signature.to_string())
-            .map_err(|err| CancellationRequestValidationError::InvalidSignature(err.to_string()))?;
+            .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
 
         let signer = sig
             .recover_address_from_prehash(&self.request.eip712_signing_hash(domain))
-            .map_err(|err| CancellationRequestValidationError::InvalidSignature(err.to_string()))?;
+            .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
 
         if signer.ne(&self.request.cancellled_by) {
-            return Err(CancellationRequestValidationError::UnexpectedSigner);
+            return Err(DipsError::UnexpectedSigner);
         }
 
         if signer.ne(&self.request.payer) && signer.ne(&self.request.payee) {
-            return Err(CancellationRequestValidationError::SignerNotAuthorised(
-                signer,
-            ));
+            return Err(DipsError::SignerNotAuthorised(signer));
         }
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|_| CancellationRequestValidationError::ExpiredRequest)?
+            .map_err(|_| DipsError::ExpiredRequest)?
             .as_secs();
         if now - self.request.timestamp >= time_tolerance.as_secs() {
-            return Err(CancellationRequestValidationError::ExpiredRequest);
+            return Err(DipsError::ExpiredRequest);
         }
 
         Ok(())
@@ -210,8 +226,46 @@ impl SignedCancellationRequest {
     }
 }
 
+pub async fn validate_and_create_agreement(
+    store: Arc<dyn AgreementStore>,
+    domain: &Eip712Domain,
+    id: Uuid,
+    expected_payee: &Address,
+    allowed_payers: impl AsRef<[Address]>,
+    voucher: Vec<u8>,
+) -> Result<Uuid, DipsError> {
+    let voucher = SignedIndexingAgreementVoucher::decode(&mut voucher.as_ref())?;
+    let metadata = SubgraphIndexingVoucherMetadata::decode(&mut voucher.voucher.metadata.as_ref())?;
+
+    voucher.validate(domain, expected_payee, allowed_payers)?;
+
+    store
+        .create_agreement(id, voucher, metadata.protocolNetwork.to_string())
+        .await?;
+
+    Ok(id)
+}
+
+pub async fn validate_and_cancel_agreement(
+    store: Arc<dyn AgreementStore>,
+    domain: &Eip712Domain,
+    id: Uuid,
+    agreement: Vec<u8>,
+    time_tolerance: Duration,
+) -> Result<Uuid, DipsError> {
+    let voucher = SignedCancellationRequest::decode(&mut agreement.as_ref())?;
+
+    voucher.validate(domain, time_tolerance)?;
+
+    store.cancel_agreement(id, voucher).await?;
+
+    Ok(id)
+}
+
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use thegraph_core::{
@@ -223,10 +277,64 @@ mod test {
         attestation::eip712_domain,
     };
 
-    use crate::{
-        AgreementVoucherValidationError, CancellationRequest, CancellationRequestValidationError,
-        IndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
-    };
+    use crate::{CancellationRequest, DipsError};
+    use crate::{IndexingAgreementVoucher, SubgraphIndexingVoucherMetadata};
+    use uuid::Uuid;
+
+    pub use crate::store::{AgreementStore, InMemoryAgreementStore};
+
+    #[tokio::test]
+    async fn test_validate_and_create_agreement() -> anyhow::Result<()> {
+        let deployment_id = "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f".to_string();
+        let payee = PrivateKeySigner::random();
+        let payee_addr = payee.address();
+        let payer = PrivateKeySigner::random();
+        let payer_addr = payer.address();
+
+        let metadata = SubgraphIndexingVoucherMetadata {
+            pricePerBlock: U256::from(10000_u64),
+            protocolNetwork: FixedBytes::left_padding_from("arbitrum-one".as_bytes()),
+            chainId: FixedBytes::left_padding_from("mainnet".as_bytes()),
+            deployment_ipfs_hash: deployment_id,
+        };
+
+        let voucher = IndexingAgreementVoucher {
+            payer: payer_addr,
+            payee: payee_addr,
+            service: Address(FixedBytes::ZERO),
+            maxInitialAmount: U256::from(10000_u64),
+            maxOngoingAmountPerEpoch: U256::from(10000_u64),
+            deadline: 1000,
+            maxEpochsPerCollection: 1000,
+            minEpochsPerCollection: 1000,
+            durationEpochs: 1000,
+            metadata: alloy_rlp::encode(metadata).into(),
+        };
+        let domain = eip712_domain(0, Address::ZERO);
+
+        let voucher = voucher.sign(&domain, payer)?;
+        let rlp_voucher = alloy_rlp::encode(voucher.clone());
+        let id = Uuid::now_v7();
+
+        let store = Arc::new(InMemoryAgreementStore::default());
+
+        let actual_id = super::validate_and_create_agreement(
+            store.clone(),
+            &domain,
+            id,
+            &payee_addr,
+            vec![payer_addr],
+            rlp_voucher,
+        )
+        .await
+        .unwrap();
+
+        let actual = store.get_by_id(actual_id).await.unwrap();
+
+        let actual_voucher = actual.unwrap();
+        assert_eq!(voucher, actual_voucher);
+        Ok(())
+    }
 
     #[test]
     fn voucher_signature_verification() {
@@ -259,8 +367,11 @@ mod test {
         let domain = eip712_domain(0, Address::ZERO);
         let signed = voucher.sign(&domain, payer).unwrap();
         assert_eq!(
-            signed.validate(&domain, &payee_addr, vec![]).unwrap_err(),
-            AgreementVoucherValidationError::PayerNotAuthorised(voucher.payer)
+            signed
+                .validate(&domain, &payee_addr, vec![])
+                .unwrap_err()
+                .to_string(),
+            DipsError::PayerNotAuthorised(voucher.payer).to_string()
         );
         assert!(signed
             .validate(&domain, &payee_addr, vec![payer_addr])
@@ -303,7 +414,7 @@ mod test {
             signed
                 .validate(&domain, &payee_addr, vec![payer_addr])
                 .unwrap_err(),
-            AgreementVoucherValidationError::PayerNotAuthorised(_)
+            DipsError::PayerNotAuthorised(_)
         ));
     }
 
@@ -331,7 +442,7 @@ mod test {
             name: &'a str,
             signer: PrivateKeySigner,
             timestamp: u64,
-            error: Option<CancellationRequestValidationError>,
+            error: Option<DipsError>,
         }
 
         let cases: Vec<Case> = vec![
@@ -351,17 +462,13 @@ mod test {
                 name: "invalid signer",
                 signer: other_signer.clone(),
                 timestamp: now,
-                error: Some(CancellationRequestValidationError::SignerNotAuthorised(
-                    other_signer.address(),
-                )),
+                error: Some(DipsError::SignerNotAuthorised(other_signer.address())),
             },
             Case {
                 name: "expired timestamp",
                 signer: payee,
                 timestamp: 100,
-                error: Some(CancellationRequestValidationError::SignerNotAuthorised(
-                    other_signer.address(),
-                )),
+                error: Some(DipsError::SignerNotAuthorised(other_signer.address())),
             },
         ];
 

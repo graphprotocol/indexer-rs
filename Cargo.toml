@@ -28,7 +28,7 @@ tokio = "1.40"
 prometheus = "0.13.3"
 anyhow = { version = "1.0.72" }
 thiserror = "1.0.49"
-async-trait = "0.1.72"
+async-trait = "0.1.83"
 eventuals = "0.6.7"
 base64 = "0.22.1"
 reqwest = { version = "0.12", features = [
@@ -75,3 +75,7 @@ bip39 = "2.0.0"
 rstest = "0.23.0"
 wiremock = "0.6.1"
 typed-builder = "0.20.0"
+tonic = { version = "0.12.3", features = ["tls-roots", "gzip"] }
+tonic-build = { version = "0.12.3", features = ["prost"] }
+prost = "0.13.3"
+prost-types = "0.13.3"
