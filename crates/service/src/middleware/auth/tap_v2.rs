@@ -9,46 +9,36 @@
 //! This also uses MetricLabels injected in the receipts to provide
 //! metrics related to receipt check failure
 
-use std::{future::Future, sync::Arc};
+use std::sync::Arc;
 
-use axum::{
-    body::Body,
-    http::{Request, Response},
-    response::IntoResponse,
-};
+use axum::{body::Body, http::request::Parts, response::IntoResponse};
 use tap_core_v2::{
     manager::{adapters::ReceiptStore, Manager},
     receipt::{Context, SignedReceipt},
 };
-use tower_http::auth::AsyncAuthorizeRequest;
 
 use crate::{error::IndexerServiceError, middleware::prometheus_metrics::MetricLabels};
+
+use super::async_validate::AsyncAuthorizeRequestExt;
 
 /// Middleware to verify and store TAP receipts
 ///
 /// It also optionally updates a failed receipt metric if Labels are provided
 ///
 /// Requires SignedReceipt, MetricLabels and Arc<Context> extensions
-pub fn tap_receipt_authorize<T, B>(
+pub fn tap_receipt_authorize<T>(
     tap_manager: Arc<Manager<T>>,
     failed_receipt_metric: &'static prometheus::CounterVec,
-) -> impl AsyncAuthorizeRequest<
-    B,
-    RequestBody = B,
-    ResponseBody = Body,
-    Future = impl Future<Output = Result<Request<B>, Response<Body>>> + Send,
-> + Clone
-       + Send
+) -> impl AsyncAuthorizeRequestExt<ResponseBody = Body> + Clone + Send
 where
     T: ReceiptStore + Sync + Send + 'static,
-    B: Send,
 {
-    move |request: Request<B>| {
-        let receipt = request.extensions().get::<SignedReceipt>().cloned();
+    move |request: &mut Parts| {
+        let receipt = request.extensions.remove::<SignedReceipt>();
         // load labels from previous middlewares
-        let labels = request.extensions().get::<MetricLabels>().cloned();
+        let labels = request.extensions.get::<MetricLabels>().cloned();
         // load context from previous middlewares
-        let ctx = request.extensions().get::<Arc<Context>>().cloned();
+        let ctx = request.extensions.get::<Arc<Context>>().cloned();
         let tap_manager = tap_manager.clone();
 
         async move {
@@ -65,7 +55,7 @@ where
                                 .inc()
                         }
                     })?;
-                Ok::<_, IndexerServiceError>(request)
+                Ok::<_, IndexerServiceError>(())
             };
             execute().await.map_err(|error| error.into_response())
         }
@@ -95,17 +85,17 @@ mod tests {
         },
     };
     use test_assets::{
-        assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
+        assert_while_retry, create_signed_receipt_v2, SignedReceiptV2Request, TAP_EIP712_DOMAIN,
     };
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
     use crate::{
         middleware::{
-            auth::tap_receipt_authorize_v2,
+            auth::{self, tap_receipt_authorize_v2},
             prometheus_metrics::{MetricLabelProvider, MetricLabels},
         },
-        tap_v2::IndexerTapContext,
+        tap::IndexerTapContextV2,
     };
 
     #[fixture]
@@ -129,7 +119,7 @@ mod tests {
         metric: &'static prometheus::CounterVec,
         pgpool: PgPool,
     ) -> impl Service<Request<Body>, Response = Response<Body>, Error = impl std::fmt::Debug> {
-        let context = IndexerTapContext::new(pgpool, TAP_EIP712_DOMAIN.clone()).await;
+        let context = IndexerTapContextV2::new(pgpool, TAP_EIP712_DOMAIN.clone()).await;
 
         struct MyCheck;
         #[async_trait::async_trait]
@@ -153,7 +143,7 @@ mod tests {
             CheckList::new(vec![Arc::new(MyCheck)]),
         ));
         let tap_auth = tap_receipt_authorize_v2(manager, metric);
-        let authorization_middleware = AsyncRequireAuthorizationLayer::new(tap_auth);
+        let authorization_middleware = AsyncRequireAuthorizationLayer::new(auth::wrap(tap_auth));
 
         let mut service = ServiceBuilder::new()
             .layer(authorization_middleware)
@@ -173,7 +163,7 @@ mod tests {
     ) {
         let mut service = service(metric, pgpool.clone()).await;
 
-        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let receipt = create_signed_receipt_v2(SignedReceiptV2Request::builder().build()).await;
 
         // check with receipt
         let mut req = Request::new(Body::default());
@@ -183,7 +173,7 @@ mod tests {
 
         // verify receipts
         assert_while_retry!({
-            sqlx::query!("SELECT * FROM scalar_tap_receipts")
+            sqlx::query!("SELECT * FROM scalar_tap_receipts_v2")
                 .fetch_all(&pgpool)
                 .await
                 .unwrap()
@@ -212,7 +202,7 @@ mod tests {
         // default labels, all empty
         let labels: MetricLabels = Arc::new(TestLabel);
 
-        let mut receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let mut receipt = create_signed_receipt_v2(SignedReceiptV2Request::builder().build()).await;
         // change the nonce to make the receipt invalid
         receipt.message.nonce = FAILED_NONCE;
         let mut req = Request::new(Body::default());

@@ -8,9 +8,10 @@
 
 use std::{fmt, marker::PhantomData};
 
-use axum::http::{HeaderValue, Request, Response};
+use axum::http::{request::Parts, HeaderValue, Response};
 use reqwest::{header, StatusCode};
-use tower_http::validate_request::ValidateRequest;
+
+use super::async_validate::AsyncAuthorizeRequestExt;
 
 pub struct Bearer<ResBody> {
     header_value: HeaderValue,
@@ -48,14 +49,14 @@ impl<ResBody> fmt::Debug for Bearer<ResBody> {
     }
 }
 
-impl<B, ResBody> ValidateRequest<B> for Bearer<ResBody>
+impl<ResBody> AsyncAuthorizeRequestExt for Bearer<ResBody>
 where
     ResBody: Default,
 {
     type ResponseBody = ResBody;
 
-    fn validate(&mut self, request: &mut Request<B>) -> Result<(), Response<Self::ResponseBody>> {
-        match request.headers().get(header::AUTHORIZATION) {
+    async fn authorize(&self, request: &mut Parts) -> Result<(), Response<ResBody>> {
+        match request.headers.get(header::AUTHORIZATION) {
             Some(actual) if actual == self.header_value => Ok(()),
             _ => {
                 let mut res = Response::new(ResBody::default());

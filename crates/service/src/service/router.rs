@@ -52,7 +52,7 @@ use crate::{
         dips::{self, Price},
         health, request_handler, static_subgraph_request_handler,
     },
-    tap_v1::IndexerTapContext,
+    tap::{IndexerTapContextV1, IndexerTapContextV2},
     wallet::public_key,
 };
 
@@ -267,18 +267,18 @@ impl ServiceRouter {
 
         let post_request_handler = {
             // Create tap manager to validate receipts
-            let tap_manager = {
+            let tap_manager_v1 = {
                 // Create context
                 let indexer_context =
-                    IndexerTapContext::new(self.database.clone(), self.domain_separator.clone())
+                    IndexerTapContextV1::new(self.database.clone(), self.domain_separator.clone())
                         .await;
 
                 let timestamp_error_tolerance = self.timestamp_buffer_secs;
                 let receipt_max_value = max_receipt_value_grt.get_value();
 
                 // Create checks
-                let checks = IndexerTapContext::get_checks(
-                    self.database,
+                let checks = IndexerTapContextV1::get_checks(
+                    self.database.clone(),
                     allocations.clone(),
                     escrow_accounts.clone(),
                     timestamp_error_tolerance,
@@ -290,6 +290,31 @@ impl ServiceRouter {
                     self.domain_separator.clone(),
                     indexer_context,
                     CheckList::new(checks),
+                ))
+            };
+
+            let tap_manager_v2 = {
+                // Create context
+                let indexer_context =
+                    IndexerTapContextV2::new(self.database.clone(), self.domain_separator.clone())
+                        .await;
+
+                let timestamp_error_tolerance = self.timestamp_buffer_secs;
+                let receipt_max_value = max_receipt_value_grt.get_value();
+
+                // Create checks
+                let checks = IndexerTapContextV2::get_checks(
+                    self.database,
+                    escrow_accounts.clone(),
+                    timestamp_error_tolerance,
+                    receipt_max_value,
+                )
+                .await;
+                // Returned static Manager
+                Arc::new(tap_core_v2::manager::Manager::new(
+                    self.domain_separator.clone(),
+                    indexer_context,
+                    tap_core_v2::receipt::checks::CheckList::new(checks),
                 ))
             };
 
@@ -307,8 +332,9 @@ impl ServiceRouter {
 
             // inject auth
             let failed_receipt_metric = Box::leak(Box::new(FAILED_RECEIPT.clone()));
-            let tap_auth = auth::tap_receipt_authorize_v1(tap_manager, failed_receipt_metric);
-
+            let tap_auth_v1 = auth::tap_receipt_authorize_v1(tap_manager_v1, failed_receipt_metric);
+            let tap_auth_v2 = auth::tap_receipt_authorize_v2(tap_manager_v2, failed_receipt_metric);
+            let tap_auth = tap_auth_v1.or(tap_auth_v2);
             if let Some(free_auth_token) = &free_query_auth_token {
                 let free_query = Bearer::new(free_auth_token);
                 let result = free_query.or(tap_auth);

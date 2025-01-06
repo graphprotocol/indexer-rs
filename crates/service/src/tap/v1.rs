@@ -15,7 +15,7 @@ use tokio::sync::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::tap_v1::checks::{
+use crate::tap::v1::checks::{
     allocation_eligible::AllocationEligible, deny_list_check::DenyListCheck,
     receipt_max_val_check::ReceiptMaxValueCheck, sender_balance_check::SenderBalanceCheck,
     timestamp_check::TimestampCheck, value_check::MinimumValue,

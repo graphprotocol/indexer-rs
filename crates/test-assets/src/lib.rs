@@ -361,8 +361,6 @@ pub async fn create_signed_receipt(
 #[derive(TypedBuilder)]
 pub struct SignedReceiptV2Request {
     #[builder(default = Address::ZERO)]
-    payer: Address,
-    #[builder(default = Address::ZERO)]
     data_service: Address,
     #[builder(default = Address::ZERO)]
     service_provider: Address,
@@ -379,7 +377,6 @@ pub struct SignedReceiptV2Request {
 
 pub async fn create_signed_receipt_v2(
     SignedReceiptV2Request {
-        payer,
         data_service,
         service_provider,
         nonce,
@@ -387,12 +384,12 @@ pub async fn create_signed_receipt_v2(
         value,
     }: SignedReceiptV2Request,
 ) -> SignedReceiptV2 {
-    let (wallet, _) = &*self::TAP_SIGNER;
+    let (wallet, payer) = &*self::TAP_SIGNER;
 
     EIP712SignedMessageV2::new(
         &self::TAP_EIP712_DOMAIN,
         ReceiptV2 {
-            payer,
+            payer: *payer,
             data_service,
             service_provider,
             nonce,

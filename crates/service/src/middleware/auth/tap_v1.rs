@@ -9,46 +9,36 @@
 //! This also uses MetricLabels injected in the receipts to provide
 //! metrics related to receipt check failure
 
-use std::{future::Future, sync::Arc};
+use std::sync::Arc;
 
-use axum::{
-    body::Body,
-    http::{Request, Response},
-    response::IntoResponse,
-};
+use axum::{body::Body, http::request::Parts, response::IntoResponse};
 use tap_core::{
     manager::{adapters::ReceiptStore, Manager},
     receipt::{Context, SignedReceipt},
 };
-use tower_http::auth::AsyncAuthorizeRequest;
 
 use crate::{error::IndexerServiceError, middleware::prometheus_metrics::MetricLabels};
+
+use super::async_validate::AsyncAuthorizeRequestExt;
 
 /// Middleware to verify and store TAP receipts
 ///
 /// It also optionally updates a failed receipt metric if Labels are provided
 ///
 /// Requires SignedReceipt, MetricLabels and Arc<Context> extensions
-pub fn tap_receipt_authorize<T, B>(
+pub fn tap_receipt_authorize<T>(
     tap_manager: Arc<Manager<T>>,
     failed_receipt_metric: &'static prometheus::CounterVec,
-) -> impl AsyncAuthorizeRequest<
-    B,
-    RequestBody = B,
-    ResponseBody = Body,
-    Future = impl Future<Output = Result<Request<B>, Response<Body>>> + Send,
-> + Clone
-       + Send
+) -> impl AsyncAuthorizeRequestExt<ResponseBody = Body> + Clone + Send
 where
     T: ReceiptStore + Sync + Send + 'static,
-    B: Send,
 {
-    move |request: Request<B>| {
-        let receipt = request.extensions().get::<SignedReceipt>().cloned();
+    move |request: &mut Parts| {
+        let receipt = request.extensions.remove::<SignedReceipt>();
         // load labels from previous middlewares
-        let labels = request.extensions().get::<MetricLabels>().cloned();
+        let labels = request.extensions.get::<MetricLabels>().cloned();
         // load context from previous middlewares
-        let ctx = request.extensions().get::<Arc<Context>>().cloned();
+        let ctx = request.extensions.get::<Arc<Context>>().cloned();
         let tap_manager = tap_manager.clone();
 
         async move {
@@ -65,7 +55,7 @@ where
                                 .inc()
                         }
                     })?;
-                Ok::<_, IndexerServiceError>(request)
+                Ok::<_, IndexerServiceError>(())
             };
             execute().await.map_err(|error| error.into_response())
         }
@@ -102,10 +92,10 @@ mod tests {
 
     use crate::{
         middleware::{
-            auth::tap_receipt_authorize_v1,
+            auth::{self, tap_receipt_authorize_v1},
             prometheus_metrics::{MetricLabelProvider, MetricLabels},
         },
-        tap_v1::IndexerTapContext,
+        tap::IndexerTapContextV1,
     };
 
     #[fixture]
@@ -129,7 +119,7 @@ mod tests {
         metric: &'static prometheus::CounterVec,
         pgpool: PgPool,
     ) -> impl Service<Request<Body>, Response = Response<Body>, Error = impl std::fmt::Debug> {
-        let context = IndexerTapContext::new(pgpool, TAP_EIP712_DOMAIN.clone()).await;
+        let context = IndexerTapContextV1::new(pgpool, TAP_EIP712_DOMAIN.clone()).await;
 
         struct MyCheck;
         #[async_trait::async_trait]
@@ -153,7 +143,7 @@ mod tests {
             CheckList::new(vec![Arc::new(MyCheck)]),
         ));
         let tap_auth = tap_receipt_authorize_v1(manager, metric);
-        let authorization_middleware = AsyncRequireAuthorizationLayer::new(tap_auth);
+        let authorization_middleware = AsyncRequireAuthorizationLayer::new(auth::wrap(tap_auth));
 
         let mut service = ServiceBuilder::new()
             .layer(authorization_middleware)

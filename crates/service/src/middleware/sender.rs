@@ -53,6 +53,18 @@ pub async fn sender_middleware(
         request.extensions_mut().insert(Sender(sender));
     }
 
+    if let Some(receipt) = request
+        .extensions()
+        .get::<tap_core_v2::receipt::SignedReceipt>()
+    {
+        let signer = receipt.recover_signer(&state.domain_separator)?;
+        let sender = state
+            .escrow_accounts
+            .borrow()
+            .get_sender_for_signer(&signer)?;
+        request.extensions_mut().insert(Sender(sender));
+    }
+
     Ok(next.run(request).await)
 }
 

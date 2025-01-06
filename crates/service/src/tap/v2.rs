@@ -14,7 +14,7 @@ use tokio::sync::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::tap_v2::checks::{
+use checks::{
     deny_list_check::DenyListCheck, receipt_max_val_check::ReceiptMaxValueCheck,
     sender_balance_check::SenderBalanceCheck, timestamp_check::TimestampCheck,
     value_check::MinimumValue,
@@ -22,8 +22,6 @@ use crate::tap_v2::checks::{
 
 mod checks;
 mod receipt_store;
-
-pub use checks::value_check::AgoraQuery;
 
 const GRACE_PERIOD: u64 = 60;
 

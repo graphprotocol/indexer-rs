@@ -1,11 +1,14 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+mod async_validate;
 mod bearer;
 mod or;
 mod tap_v1;
 mod tap_v2;
 
+#[cfg(test)]
+pub use async_validate::wrap;
 pub use bearer::Bearer;
 pub use or::OrExt;
 pub use tap_v1::tap_receipt_authorize as tap_receipt_authorize_v1;
@@ -30,7 +33,7 @@ mod tests {
 
     use crate::{
         middleware::auth::{self, Bearer, OrExt},
-        tap_v1::IndexerTapContext,
+        tap::IndexerTapContextV1,
     };
 
     const BEARER_TOKEN: &str = "test";
@@ -38,7 +41,7 @@ mod tests {
     async fn service(
         pgpool: PgPool,
     ) -> impl Service<Request<Body>, Response = Response<Body>, Error = impl std::fmt::Debug> {
-        let context = IndexerTapContext::new(pgpool.clone(), TAP_EIP712_DOMAIN.clone()).await;
+        let context = IndexerTapContextV1::new(pgpool.clone(), TAP_EIP712_DOMAIN.clone()).await;
         let tap_manager = Arc::new(Manager::new(
             TAP_EIP712_DOMAIN.clone(),
             context,

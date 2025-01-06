@@ -14,7 +14,7 @@ use indexer_service_rs::{
 use reqwest::{Method, StatusCode, Url};
 use sqlx::PgPool;
 use test_assets::{
-    create_signed_receipt, SignedReceiptRequest, INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN,
+    create_signed_receipt, create_signed_receipt_v2, SignedReceiptRequest, SignedReceiptV2Request, INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN
 };
 use thegraph_core::alloy::primitives::Address;
 use tokio::sync::watch;
@@ -110,6 +110,7 @@ async fn full_integration_test(database: PgPool) {
     let res = String::from_utf8(bytes.into()).unwrap();
     insta::assert_snapshot!(res);
 
+    // v1 receipt 
     let receipt = create_signed_receipt(
         SignedReceiptRequest::builder()
             .allocation_id(allocation.id)
@@ -139,6 +140,38 @@ async fn full_integration_test(database: PgPool) {
     let res = String::from_utf8(bytes.into()).unwrap();
 
     insta::assert_snapshot!(res);
+
+    // v2 receipt 
+    let receipt = create_signed_receipt_v2(
+        SignedReceiptV2Request::builder()
+            .value(100)
+            .build(),
+    )
+    .await;
+
+    let query = QueryBody {
+        query: "query".into(),
+        variables: None,
+    };
+
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/subgraphs/id/{deployment}"))
+        .header(TapReceipt::name(), serde_json::to_string(&receipt).unwrap())
+        .body(serde_json::to_string(&query).unwrap())
+        .unwrap();
+
+    // with deployment
+    let res = app.call(request).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let graphql_response = res.into_body();
+    let bytes = to_bytes(graphql_response, usize::MAX).await.unwrap();
+    let res = String::from_utf8(bytes.into()).unwrap();
+
+    insta::assert_snapshot!(res);
+
+
 
     let request = Request::builder()
         .method(Method::POST)

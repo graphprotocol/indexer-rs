@@ -22,20 +22,10 @@ use tap_core_v2::receipt::{
 };
 use thegraph_core::DeploymentId;
 
-use crate::database::cost_model;
+use crate::{database::cost_model, tap::AgoraQuery};
 
 // we only accept receipts with minimal 1 wei grt
 const MINIMAL_VALUE: u128 = 1;
-
-/// Represents a query that can be checked against an agora model
-///
-/// It contains the deployment_id to check which agora model evaluate
-/// and also the query and variables to perform the evaluation
-pub struct AgoraQuery {
-    pub deployment_id: DeploymentId,
-    pub query: String,
-    pub variables: String,
-}
 
 type CostModelMap = Arc<RwLock<HashMap<DeploymentId, CostModel>>>;
 type GlobalModel = Arc<RwLock<Option<CostModel>>>;

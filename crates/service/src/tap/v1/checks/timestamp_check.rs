@@ -57,12 +57,12 @@ mod tests {
         tap_eip712_domain,
     };
     use thegraph_core::alloy::{
+        dyn_abi::Eip712Domain,
         primitives::{address, Address},
         signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     };
 
     use super::TimestampCheck;
-    use crate::tap_v1::Eip712Domain;
 
     fn create_signed_receipt_with_custom_timestamp(
         timestamp_ns: u64,

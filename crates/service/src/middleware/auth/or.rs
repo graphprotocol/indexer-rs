@@ -6,28 +6,25 @@
 //! executes a ValidateRequest returning the request if it succeeds
 //! or else, executes the future and return it
 
-use std::{future::Future, marker::PhantomData, pin::Pin, task::Poll};
+use std::marker::PhantomData;
 
-use axum::http::{Request, Response};
-use pin_project::pin_project;
+use axum::http::{request::Parts, Request, Response};
 use thegraph_core::alloy::transports::BoxFuture;
-use tower_http::{auth::AsyncAuthorizeRequest, validate_request::ValidateRequest};
+use tower_http::auth::AsyncAuthorizeRequest;
+
+use super::async_validate::AsyncAuthorizeRequestExt;
 
 /// Extension that allows using a simple .or() function and return an Or struct
 pub trait OrExt<T, B, Resp>: Sized {
     fn or(self, other: T) -> Or<Self, T, B, Resp>;
 }
 
-impl<T, A, B, Resp, Fut> OrExt<A, B, Resp> for T
+impl<T, A, B, Resp> OrExt<A, B, Resp> for T
 where
     B: 'static + Send,
     Resp: 'static + Send,
-    T: ValidateRequest<B, ResponseBody = Resp>,
-    A: AsyncAuthorizeRequest<B, RequestBody = B, ResponseBody = Resp, Future = Fut>
-        + Clone
-        + 'static
-        + Send,
-    Fut: Future<Output = Result<Request<B>, Response<Resp>>> + Send,
+    T: AsyncAuthorizeRequestExt<ResponseBody = Resp> + Clone + 'static + Send,
+    A: AsyncAuthorizeRequestExt<ResponseBody = Resp> + Clone + 'static + Send,
 {
     fn or(self, other: A) -> Or<Self, A, B, Resp> {
         Or(self, other, PhantomData)
@@ -50,108 +47,43 @@ where
         Self(self.0.clone(), self.1.clone(), self.2)
     }
 }
-//
-//impl<T, E, Req, Resp, Fut> AsyncAuthorizeRequest<Req> for Or<T, E, Req, Resp>
-//where
-//    Req: 'static + Send,
-//    Resp: 'static + Send,
-//    T: ValidateRequest<Req, ResponseBody = Resp>,
-//    E: AsyncAuthorizeRequest<Req, RequestBody = Req, ResponseBody = Resp, Future = Fut>
-//        + Clone
-//        + 'static
-//        + Send,
-//    Fut: Future<Output = Result<Request<Req>, Response<Resp>>> + Send,
-//{
-//    type RequestBody = Req;
-//    type ResponseBody = Resp;
-//
-//    type Future = OrFuture<Fut, Req, Resp>;
-//
-//    fn authorize(&mut self, mut request: axum::http::Request<Req>) -> Self::Future {
-//        let mut this = self.1.clone();
-//        if self.0.validate(&mut request).is_ok() {
-//            return OrFuture::with_result(Ok(request));
-//        }
-//        OrFuture::with_future(this.authorize(request))
-//    }
-//}
+
+impl<T, E, B, Resp> AsyncAuthorizeRequestExt for Or<T, E, B, Resp>
+where
+    T: AsyncAuthorizeRequestExt<ResponseBody = Resp> + Clone + 'static + Send + Sync,
+    E: AsyncAuthorizeRequestExt<ResponseBody = Resp> + Clone + 'static + Send + Sync,
+{
+    type ResponseBody = Resp;
+
+    async fn authorize(&self, parts: &mut Parts) -> Result<(), Response<Resp>> {
+        if self.0.authorize(parts).await.is_err() {
+            self.1.authorize(parts).await?;
+        }
+        Ok(())
+    }
+}
 
 impl<T, E, Req, Resp> AsyncAuthorizeRequest<Req> for Or<T, E, Req, Resp>
 where
     Req: 'static + Send,
     Resp: 'static + Send,
-    T: AsyncAuthorizeRequest<Req, RequestBody = Req, ResponseBody = Resp, Future = impl Send>
-        + Clone
-        + 'static
-        + Send,
-    E: AsyncAuthorizeRequest<Req, RequestBody = Req, ResponseBody = Resp, Future = impl Send>
-        + Clone
-        + 'static
-        + Send,
+    T: AsyncAuthorizeRequestExt<ResponseBody = Resp> + Clone + 'static + Send,
+    E: AsyncAuthorizeRequestExt<ResponseBody = Resp> + Clone + 'static + Send,
 {
     type RequestBody = Req;
     type ResponseBody = Resp;
 
     type Future = BoxFuture<'static, Result<Request<Req>, Response<Resp>>>;
 
-    fn authorize(&mut self, request: axum::http::Request<Req>) -> Self::Future {
+    fn authorize(&mut self, req: axum::http::Request<Req>) -> Self::Future {
+        let this = self.clone();
         Box::pin(async move {
-            match self.0.authorize(request).await {
-                Ok(req) => Ok(req),
-                Err(_) => self.1.authorize(request).await,
+            let (mut parts, body) = req.into_parts();
+            if this.0.authorize(&mut parts).await.is_err() {
+                this.1.authorize(&mut parts).await?;
             }
+            let req = Request::from_parts(parts, body);
+            Ok(req)
         })
-    }
-}
-
-#[pin_project::pin_project(project = KindProj)]
-pub enum Kind<Fut, Req, Resp> {
-    QueryResult {
-        #[pin]
-        fut: Fut,
-    },
-    ReturnResult {
-        validation_result: Option<Result<Request<Req>, Response<Resp>>>,
-    },
-}
-
-#[pin_project]
-pub struct OrFuture<Fut, Req, Resp> {
-    #[pin]
-    kind: Kind<Fut, Req, Resp>,
-}
-
-impl<Fut, Req, Resp> OrFuture<Fut, Req, Resp> {
-    fn with_result(validation_result: Result<Request<Req>, Response<Resp>>) -> Self {
-        let validation_result = Some(validation_result);
-        Self {
-            kind: Kind::ReturnResult { validation_result },
-        }
-    }
-
-    fn with_future(fut: Fut) -> Self {
-        Self {
-            kind: Kind::QueryResult { fut },
-        }
-    }
-}
-
-impl<Fut, Req, Resp> Future for OrFuture<Fut, Req, Resp>
-where
-    Fut: Future<Output = Result<Request<Req>, Response<Resp>>>,
-{
-    type Output = Result<Request<Req>, Response<Resp>>;
-
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        let this = self.project();
-        match this.kind.project() {
-            KindProj::QueryResult { fut } => fut.poll(cx),
-            KindProj::ReturnResult { validation_result } => {
-                Poll::Ready(validation_result.take().expect("cannot poll twice"))
-            }
-        }
     }
 }

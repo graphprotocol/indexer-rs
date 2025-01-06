@@ -6,7 +6,7 @@ pub struct ReceiptMaxValueCheck {
     receipt_max_value: u128,
 }
 
-use tap_core::receipt::{
+use tap_core_v2::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
     ReceiptWithState,
@@ -41,18 +41,18 @@ impl Check for ReceiptMaxValueCheck {
 mod tests {
     use std::time::{Duration, SystemTime};
 
-    use tap_core::{
+    use tap_core_v2::{
         receipt::{checks::Check, state::Checking, Context, Receipt, ReceiptWithState},
         signed_message::EIP712SignedMessage,
         tap_eip712_domain,
     };
     use thegraph_core::alloy::{
+        dyn_abi::Eip712Domain,
         primitives::{address, Address},
         signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     };
 
     use super::*;
-    use crate::tap_v1::Eip712Domain;
 
     fn create_signed_receipt_with_custom_value(value: u128) -> ReceiptWithState<Checking> {
         let index: u32 = 0;
@@ -78,10 +78,12 @@ mod tests {
         let receipt = EIP712SignedMessage::new(
             &eip712_domain_separator,
             Receipt {
-                allocation_id: address!("abababababababababababababababababababab"),
                 nonce,
                 timestamp_ns,
                 value,
+                payer: address!("abababababababababababababababababababab"),
+                data_service: address!("abababababababababababababababababababab"),
+                service_provider: address!("abababababababababababababababababababab"),
             },
             &wallet,
         )
