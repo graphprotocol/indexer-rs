@@ -31,6 +31,7 @@ lazy_static.workspace = true
 thegraph-core.workspace = true
 clap.workspace = true
 tracing-subscriber.workspace = true
+tonic.workspace = true 
 bigdecimal = { workspace = true, features = ["serde"] }
 graphql_client.workspace = true
 
