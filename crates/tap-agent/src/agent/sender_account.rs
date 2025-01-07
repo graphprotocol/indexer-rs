@@ -15,12 +15,12 @@ use indexer_query::{
     unfinalized_transactions, UnfinalizedTransactions,
 };
 use indexer_watcher::watch_pipe;
-use jsonrpsee::http_client::HttpClientBuilder;
 use lazy_static::lazy_static;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use reqwest::Url;
 use sqlx::PgPool;
+use tap_aggregator::grpc::tap_aggregator_client::TapAggregatorClient;
 use tap_core::rav::SignedRAV;
 use thegraph_core::alloy::{
     hex::ToHexExt,
@@ -28,6 +28,7 @@ use thegraph_core::alloy::{
     sol_types::Eip712Domain,
 };
 use tokio::{sync::watch::Receiver, task::JoinHandle};
+use tonic::transport::{Channel, Endpoint};
 use tracing::Level;
 
 use super::sender_allocation::{
@@ -171,7 +172,7 @@ pub struct State {
 
     domain_separator: Eip712Domain,
     pgpool: PgPool,
-    sender_aggregator: jsonrpsee::http_client::HttpClient,
+    sender_aggregator: TapAggregatorClient<Channel>,
 
     // Backoff info
     backoff_info: BackoffInfo,
@@ -603,9 +604,14 @@ impl Actor for SenderAccount {
             .with_label_values(&[&sender_id.to_string()])
             .set(config.trigger_value as f64);
 
-        let sender_aggregator = HttpClientBuilder::default()
-            .request_timeout(config.rav_request_timeout)
-            .build(&sender_aggregator_endpoint)?;
+        let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
+            .unwrap()
+            .connect_timeout(config.rav_request_timeout);
+
+        let sender_aggregator = TapAggregatorClient::connect(endpoint)
+            .await
+            .unwrap()
+            .send_compressed(tonic::codec::CompressionEncoding::Zstd);
 
         let state = State {
             prefix,

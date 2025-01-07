@@ -9,11 +9,10 @@ use std::{
 use anyhow::{anyhow, ensure};
 use bigdecimal::{num_bigint::BigInt, ToPrimitive};
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
-use jsonrpsee::{core::client::ClientT, rpc_params};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use sqlx::{types::BigDecimal, PgPool};
-use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
+use tap_aggregator::grpc::{tap_aggregator_client::TapAggregatorClient, RavRequest};
 use tap_core::{
     manager::adapters::RAVRead,
     rav::{RAVRequest, ReceiptAggregateVoucher, SignedRAV},
@@ -27,6 +26,7 @@ use tap_core::{
 use thegraph_core::alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
+use tonic::{transport::Channel, Code, Status};
 
 use super::sender_account::SenderAccountConfig;
 use crate::{
@@ -81,7 +81,7 @@ pub enum RavError {
     TapCore(#[from] tap_core::Error),
 
     #[error(transparent)]
-    JsonRpsee(#[from] jsonrpsee::core::ClientError),
+    Grpc(#[from] tonic::Status),
 
     #[error("All receipts are invalid")]
     AllReceiptsInvalid,
@@ -106,9 +106,7 @@ pub struct SenderAllocationState {
     escrow_accounts: Receiver<EscrowAccounts>,
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
-
-    sender_aggregator: jsonrpsee::http_client::HttpClient,
-
+    sender_aggregator: TapAggregatorClient<Channel>,
     //config
     timestamp_buffer_ns: u64,
     rav_request_receipt_limit: u64,
@@ -141,7 +139,7 @@ pub struct SenderAllocationArgs {
     pub escrow_subgraph: &'static SubgraphClient,
     pub domain_separator: Eip712Domain,
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
-    pub sender_aggregator: jsonrpsee::http_client::HttpClient,
+    pub sender_aggregator: TapAggregatorClient<Channel>,
 
     //config
     pub config: AllocationConfig,
@@ -383,7 +381,6 @@ impl SenderAllocationState {
             sender,
             escrow_accounts,
             domain_separator,
-
             sender_account_ref: sender_account_ref.clone(),
             unaggregated_fees: UnaggregatedReceipts::default(),
             invalid_receipts_fees: UnaggregatedReceipts::default(),
@@ -592,20 +589,25 @@ impl SenderAllocationState {
                     .into_iter()
                     .map(|r| r.signed_receipt().clone())
                     .collect();
+
+                let rav_request = RavRequest::new(valid_receipts, previous_rav);
+
                 let rav_response_time_start = Instant::now();
-                let response: JsonRpcResponse<EIP712SignedMessage<ReceiptAggregateVoucher>> = self
+
+                let response = self
                     .sender_aggregator
-                    .request(
-                        "aggregate_receipts",
-                        rpc_params!(
-                            "0.0", // TODO: Set the version in a smarter place.
-                            valid_receipts,
-                            previous_rav
-                        ),
-                    )
+                    .aggregate_receipts(rav_request)
+                    // .request(
+                    //     "aggregate_receipts",
+                    //     rpc_params!(
+                    //         "0.0", // TODO: Set the version in a smarter place.
+                    //         valid_receipts,
+                    //         previous_rav
+                    //     ),
+                    // )
                     .await
-                    .inspect_err(|err| {
-                        if let jsonrpsee::core::ClientError::RequestTimeout = &err {
+                    .inspect_err(|status: &Status| {
+                        if status.code() == Code::DeadlineExceeded {
                             tracing::warn!(
                                 "Rav request is timing out, maybe request_timeout_secs is too \
                                 low in your config file, try adding more secs to the value. \
@@ -634,13 +636,11 @@ impl SenderAllocationState {
                     self.store_invalid_receipts(invalid_receipts.as_slice())
                         .await?;
                 }
+                let signed_rav = response.into_inner().signed_rav()?;
 
-                if let Some(warnings) = response.warnings {
-                    tracing::warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
-                }
                 match self
                     .tap_manager
-                    .verify_and_store_rav(expected_rav.clone(), response.data.clone())
+                    .verify_and_store_rav(expected_rav.clone(), signed_rav.clone())
                     .await
                 {
                     Ok(_) => {}
@@ -662,7 +662,7 @@ impl SenderAllocationState {
                         | e @ tap_core::Error::SignatureError(_)
                         | e @ tap_core::Error::InvalidRecoveredSigner { address: _ },
                     ) => {
-                        Self::store_failed_rav(self, &expected_rav, &response.data, &e.to_string())
+                        Self::store_failed_rav(self, &expected_rav, &signed_rav, &e.to_string())
                             .await?;
                         return Err(anyhow::anyhow!(
                             "Invalid RAV, sender could be malicious: {:?}.",
@@ -681,7 +681,7 @@ impl SenderAllocationState {
                         .into());
                     }
                 }
-                Ok(response.data)
+                Ok(signed_rav)
             }
             (Err(tap_core::Error::NoValidReceiptsForRAVRequest), true, true) => Err(anyhow!(
                 "It looks like there are no valid receipts for the RAV request.\
