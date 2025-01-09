@@ -22,6 +22,7 @@ pub mod database;
 pub mod metrics;
 pub mod tap;
 pub mod tracker;
+pub mod unaggregated_receipts;
 
 #[cfg(test)]
 pub mod test;

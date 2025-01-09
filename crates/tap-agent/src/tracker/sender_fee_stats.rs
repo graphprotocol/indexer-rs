@@ -7,7 +7,7 @@ use std::{
 };
 
 use super::{AllocationStats, DefaultFromExtra, DurationInfo};
-use crate::{agent::unaggregated_receipts::UnaggregatedReceipts, backoff::BackoffInfo};
+use crate::{backoff::BackoffInfo, unaggregated_receipts::UnaggregatedReceipts};
 
 #[derive(Debug, Clone, Default)]
 pub struct SenderFeeStats {

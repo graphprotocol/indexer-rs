@@ -28,7 +28,7 @@ use tokio::{
 use super::sender_account::{
     SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
 };
-use crate::{agent::sender_allocation::SenderAllocationMessage, lazy_static};
+use crate::{agent::v1::sender_allocation::SenderAllocationMessage, lazy_static};
 
 lazy_static! {
     static ref RECEIPTS_CREATED: CounterVec = register_counter_vec!(
@@ -618,7 +618,7 @@ mod tests {
         SenderAccountsManagerMessage, State,
     };
     use crate::{
-        agent::{
+        agent::v1::{
             sender_account::{tests::PREFIX_ID, SenderAccountConfig, SenderAccountMessage},
             sender_accounts_manager::{handle_notification, NewReceiptNotification},
         },

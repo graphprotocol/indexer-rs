@@ -30,10 +30,9 @@ use tokio::sync::watch::Receiver;
 
 use super::sender_account::SenderAccountConfig;
 use crate::{
-    agent::{
+    agent::v1::{
         sender_account::{ReceiptFees, SenderAccountMessage},
         sender_accounts_manager::NewReceiptNotification,
-        unaggregated_receipts::UnaggregatedReceipts,
     },
     lazy_static,
     tap::{
@@ -43,6 +42,7 @@ use crate::{
         },
         signers_trimmed,
     },
+    unaggregated_receipts::UnaggregatedReceipts,
 };
 
 lazy_static! {
@@ -899,16 +899,16 @@ pub mod tests {
         SenderAllocation, SenderAllocationArgs, SenderAllocationMessage, SenderAllocationState,
     };
     use crate::{
-        agent::{
+        agent::v1::{
             sender_account::{ReceiptFees, SenderAccountMessage},
             sender_accounts_manager::NewReceiptNotification,
-            unaggregated_receipts::UnaggregatedReceipts,
         },
         test::{
             actors::{create_mock_sender_account, TestableActor},
             create_rav, create_received_receipt, store_invalid_receipt, store_rav, store_receipt,
             INDEXER,
         },
+        unaggregated_receipts::UnaggregatedReceipts,
     };
 
     const DUMMY_URL: &str = "http://localhost:1234";

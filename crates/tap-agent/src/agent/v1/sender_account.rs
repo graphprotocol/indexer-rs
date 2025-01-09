@@ -35,9 +35,9 @@ use super::sender_allocation::{
 };
 use crate::{
     adaptative_concurrency::AdaptiveLimiter,
-    agent::unaggregated_receipts::UnaggregatedReceipts,
     backoff::BackoffInfo,
     tracker::{SenderFeeTracker, SimpleFeeTracker},
+    unaggregated_receipts::UnaggregatedReceipts,
 };
 
 lazy_static! {
@@ -1063,15 +1063,13 @@ pub mod tests {
 
     use super::{SenderAccount, SenderAccountArgs, SenderAccountMessage};
     use crate::{
-        agent::{
-            sender_account::ReceiptFees, sender_allocation::SenderAllocationMessage,
-            unaggregated_receipts::UnaggregatedReceipts,
-        },
+        agent::v1::{sender_account::ReceiptFees, sender_allocation::SenderAllocationMessage},
         assert_not_triggered, assert_triggered,
         test::{
             actors::{create_mock_sender_allocation, MockSenderAllocation, TestableActor},
             create_rav, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR,
         },
+        unaggregated_receipts::UnaggregatedReceipts,
     };
 
     // we implement the PartialEq and Eq traits for SenderAccountMessage to be able to compare

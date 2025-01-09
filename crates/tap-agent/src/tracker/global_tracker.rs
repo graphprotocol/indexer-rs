@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::GlobalFeeTracker;
-use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
+use crate::unaggregated_receipts::UnaggregatedReceipts;
 
 pub trait GlobalTracker<T>: Sized {
     fn get_total_fee(&self) -> u128;

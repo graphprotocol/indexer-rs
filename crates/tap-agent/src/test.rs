@@ -184,10 +184,12 @@ pub mod actors {
     use tokio::sync::{mpsc, watch, Notify};
 
     use super::create_rav;
-    use crate::agent::{
-        sender_account::{ReceiptFees, SenderAccountMessage},
-        sender_accounts_manager::NewReceiptNotification,
-        sender_allocation::SenderAllocationMessage,
+    use crate::{
+        agent::v1::{
+            sender_account::{ReceiptFees, SenderAccountMessage},
+            sender_accounts_manager::NewReceiptNotification,
+            sender_allocation::SenderAllocationMessage,
+        },
         unaggregated_receipts::UnaggregatedReceipts,
     };
 

@@ -12,7 +12,7 @@ use thegraph_core::alloy::primitives::Address;
 use super::{
     global_tracker::GlobalTracker, AllocationStats, DefaultFromExtra, DurationInfo, SenderFeeStats,
 };
-use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
+use crate::unaggregated_receipts::UnaggregatedReceipts;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct GlobalFeeTracker {

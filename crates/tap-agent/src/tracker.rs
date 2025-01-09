@@ -14,7 +14,7 @@ mod tracker_tests;
 
 pub use generic_tracker::GlobalFeeTracker;
 
-use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
+use crate::unaggregated_receipts::UnaggregatedReceipts;
 
 pub type SimpleFeeTracker = GenericTracker<u128, u128, NoExtraData, u128>;
 pub type SenderFeeTracker =

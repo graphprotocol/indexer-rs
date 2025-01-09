@@ -9,7 +9,7 @@ use std::{
 use thegraph_core::alloy::primitives::address;
 
 use super::SimpleFeeTracker;
-use crate::{agent::unaggregated_receipts::UnaggregatedReceipts, tracker::SenderFeeTracker};
+use crate::{tracker::SenderFeeTracker, unaggregated_receipts::UnaggregatedReceipts};
 
 #[test]
 fn test_allocation_id_tracker() {

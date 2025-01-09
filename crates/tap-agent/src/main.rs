@@ -10,7 +10,7 @@ async fn main() -> anyhow::Result<()> {
     // Parse basic configurations, also initializes logging.
     lazy_static::initialize(&CONFIG);
 
-    let (manager, handler) = agent::start_agent().await;
+    let (manager, handler) = agent::v1::start_agent().await;
     tracing::info!("TAP Agent started.");
 
     tokio::spawn(metrics::run_server(CONFIG.metrics.port));
