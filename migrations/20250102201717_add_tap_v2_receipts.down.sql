@@ -1,2 +1,2 @@
 -- Add down migration script here
-DROP TABLE IF EXISTS scalar_tap_receipts_v2 CASCADE;
+DROP TABLE IF EXISTS tap_v2_receipts CASCADE;

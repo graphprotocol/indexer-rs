@@ -1,6 +1,6 @@
 -- Add up migration script here
 
-CREATE TABLE IF NOT EXISTS scalar_tap_receipts_v2 (
+CREATE TABLE IF NOT EXISTS tap_v2_receipts (
     id BIGSERIAL PRIMARY KEY, -- id being SERIAL is important for the function of tap-agent
     signer_address CHAR(40) NOT NULL,
 

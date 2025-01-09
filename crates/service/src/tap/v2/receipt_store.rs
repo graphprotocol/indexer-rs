@@ -42,7 +42,7 @@ impl InnerContext {
             values.push(receipt.value);
         }
         sqlx::query!(
-            r#"INSERT INTO scalar_tap_receipts_v2 (
+            r#"INSERT INTO tap_v2_receipts (
                 signer_address,
                 signature,
                 payer,

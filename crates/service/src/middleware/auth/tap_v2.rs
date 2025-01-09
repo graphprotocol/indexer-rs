@@ -173,7 +173,7 @@ mod tests {
 
         // verify receipts
         assert_while_retry!({
-            sqlx::query!("SELECT * FROM scalar_tap_receipts_v2")
+            sqlx::query!("SELECT * FROM tap_v2_receipts")
                 .fetch_all(&pgpool)
                 .await
                 .unwrap()
