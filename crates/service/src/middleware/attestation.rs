@@ -66,7 +66,9 @@ pub async fn attestation_middleware(
         attestation,
     })?;
 
-    Ok(Response::new(response.into()))
+    let mut response = Response::new(response.into());
+    *response.headers_mut() = parts.headers;
+    Ok(response)
 }
 
 #[derive(thiserror::Error, Debug)]
