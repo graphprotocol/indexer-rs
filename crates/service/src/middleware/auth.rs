@@ -20,9 +20,7 @@ mod tests {
     use reqwest::{header, StatusCode};
     use sqlx::PgPool;
     use tap_core::{manager::Manager, receipt::checks::CheckList};
-    use test_assets::{
-        assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
-    };
+    use test_assets::{assert_while_retry, create_signed_receipt, TAP_EIP712_DOMAIN};
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
@@ -100,7 +98,7 @@ mod tests {
     async fn test_composition_with_receipt(pgpool: PgPool) {
         let mut service = service(pgpool.clone()).await;
 
-        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let receipt = create_signed_receipt().call().await;
 
         // check with receipt
         let mut req = Request::new(Default::default());

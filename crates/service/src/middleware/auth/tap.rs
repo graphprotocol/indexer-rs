@@ -94,9 +94,7 @@ mod tests {
             ReceiptWithState,
         },
     };
-    use test_assets::{
-        assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
-    };
+    use test_assets::{assert_while_retry, create_signed_receipt, TAP_EIP712_DOMAIN};
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
@@ -173,7 +171,7 @@ mod tests {
     ) {
         let mut service = service(metric, pgpool.clone()).await;
 
-        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let receipt = create_signed_receipt().call().await;
 
         // check with receipt
         let mut req = Request::new(Body::default());
@@ -212,7 +210,7 @@ mod tests {
         // default labels, all empty
         let labels: MetricLabels = Arc::new(TestLabel);
 
-        let mut receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let mut receipt = create_signed_receipt().call().await;
         // change the nonce to make the receipt invalid
         receipt.message.nonce = FAILED_NONCE;
         let mut req = Request::new(Body::default());

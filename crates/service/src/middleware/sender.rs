@@ -68,8 +68,7 @@ mod tests {
     use indexer_monitor::EscrowAccounts;
     use reqwest::StatusCode;
     use test_assets::{
-        create_signed_receipt, SignedReceiptRequest, ESCROW_ACCOUNTS_BALANCES,
-        ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
+        create_signed_receipt, ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
     };
     use tokio::sync::watch;
     use tower::ServiceExt;
@@ -99,7 +98,7 @@ mod tests {
 
         let app = Router::new().route("/", get(handle)).layer(middleware);
 
-        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let receipt = create_signed_receipt().call().await;
 
         let res = app
             .oneshot(

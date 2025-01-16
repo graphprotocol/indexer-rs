@@ -11,6 +11,7 @@ use axum::{
     routing::{get, post, post_service},
     Json, Router,
 };
+use bon::Builder;
 use governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
 use indexer_config::{
     BlockchainConfig, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
@@ -34,7 +35,6 @@ use tower_http::{
     trace::TraceLayer,
     validate_request::ValidateRequestHeaderLayer,
 };
-use typed_builder::TypedBuilder;
 
 use super::{release::IndexerServiceRelease, GraphNodeState};
 use crate::{
@@ -51,7 +51,7 @@ use crate::{
     wallet::public_key,
 };
 
-#[derive(TypedBuilder)]
+#[derive(Builder)]
 pub struct ServiceRouter {
     // database
     database: sqlx::PgPool,
@@ -60,7 +60,6 @@ pub struct ServiceRouter {
     // graphnode client
     http_client: reqwest::Client,
     // release info
-    #[builder(default, setter(strip_option))]
     release: Option<IndexerServiceRelease>,
 
     // configuration
@@ -71,23 +70,19 @@ pub struct ServiceRouter {
     timestamp_buffer_secs: Duration,
 
     // either provide subgraph or watcher
-    #[builder(default, setter(transform =
+    #[builder(with =
         |subgraph: &'static SubgraphClient,
-            config: EscrowSubgraphConfig|
-        Some((subgraph, config))))]
+        config: EscrowSubgraphConfig|
+        (subgraph, config))]
     escrow_subgraph: Option<(&'static SubgraphClient, EscrowSubgraphConfig)>,
-    #[builder(default, setter(strip_option))]
     escrow_accounts: Option<EscrowAccountsWatcher>,
 
     // provide network subgraph or allocations + dispute manager
-    #[builder(default, setter(transform =
-        |subgraph: &'static SubgraphClient,
-            config: NetworkSubgraphConfig|
-        Some((subgraph, config))))]
+    #[builder(with = |subgraph: &'static SubgraphClient,
+        config: NetworkSubgraphConfig|
+        (subgraph, config))]
     network_subgraph: Option<(&'static SubgraphClient, NetworkSubgraphConfig)>,
-    #[builder(default, setter(strip_option))]
     allocations: Option<AllocationWatcher>,
-    #[builder(default, setter(strip_option))]
     dispute_manager: Option<DisputeManagerWatcher>,
 }
 

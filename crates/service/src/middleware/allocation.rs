@@ -66,7 +66,7 @@ mod tests {
         Router,
     };
     use reqwest::StatusCode;
-    use test_assets::{create_signed_receipt, SignedReceiptRequest, ESCROW_SUBGRAPH_DEPLOYMENT};
+    use test_assets::{create_signed_receipt, ESCROW_SUBGRAPH_DEPLOYMENT};
     use thegraph_core::alloy::primitives::Address;
     use tokio::sync::watch;
     use tower::ServiceExt;
@@ -94,7 +94,7 @@ mod tests {
 
         let app = Router::new().route("/", get(handle)).layer(middleware);
 
-        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let receipt = create_signed_receipt().call().await;
 
         // with receipt
         let res = app

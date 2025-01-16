@@ -49,13 +49,13 @@ impl Header for TapReceipt {
 mod test {
     use axum::http::HeaderValue;
     use axum_extra::headers::Header;
-    use test_assets::{create_signed_receipt, SignedReceiptRequest};
+    use test_assets::create_signed_receipt;
 
     use super::TapReceipt;
 
     #[tokio::test]
     async fn test_decode_valid_tap_receipt_header() {
-        let original_receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let original_receipt = create_signed_receipt().call().await;
         let serialized_receipt = serde_json::to_string(&original_receipt).unwrap();
         let header_value = HeaderValue::from_str(&serialized_receipt).unwrap();
         let header_values = vec![&header_value];

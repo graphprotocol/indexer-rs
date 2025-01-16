@@ -13,9 +13,7 @@ use indexer_service_rs::{
 };
 use reqwest::{Method, StatusCode, Url};
 use sqlx::PgPool;
-use test_assets::{
-    create_signed_receipt, SignedReceiptRequest, INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN,
-};
+use test_assets::{create_signed_receipt, INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN};
 use thegraph_core::alloy::primitives::Address;
 use tokio::sync::watch;
 use tower::Service;
@@ -110,13 +108,11 @@ async fn full_integration_test(database: PgPool) {
     let res = String::from_utf8(bytes.into()).unwrap();
     insta::assert_snapshot!(res);
 
-    let receipt = create_signed_receipt(
-        SignedReceiptRequest::builder()
-            .allocation_id(allocation.id)
-            .value(100)
-            .build(),
-    )
-    .await;
+    let receipt = create_signed_receipt()
+        .allocation_id(allocation.id)
+        .value(100)
+        .call()
+        .await;
 
     let query = QueryBody {
         query: "query".into(),

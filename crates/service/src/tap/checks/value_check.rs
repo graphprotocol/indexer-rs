@@ -366,7 +366,7 @@ mod tests {
 
     use sqlx::PgPool;
     use tap_core::receipt::{checks::Check, Context, ReceiptWithState};
-    use test_assets::{create_signed_receipt, flush_messages, SignedReceiptRequest};
+    use test_assets::{create_signed_receipt, flush_messages};
     use tokio::time::sleep;
 
     use super::{AgoraQuery, MinimumValue};
@@ -489,8 +489,7 @@ mod tests {
             variables: "".into(),
         });
 
-        let signed_receipt =
-            create_signed_receipt(SignedReceiptRequest::builder().value(0).build()).await;
+        let signed_receipt = create_signed_receipt().value(0).call().await;
         let receipt = ReceiptWithState::new(signed_receipt);
 
         assert!(
@@ -498,8 +497,7 @@ mod tests {
             "Should deny if value is 0 for any query"
         );
 
-        let signed_receipt =
-            create_signed_receipt(SignedReceiptRequest::builder().value(1).build()).await;
+        let signed_receipt = create_signed_receipt().value(1).call().await;
         let receipt = ReceiptWithState::new(signed_receipt);
         assert!(
             check.check(&ctx, &receipt).await.is_ok(),
@@ -515,12 +513,10 @@ mod tests {
         });
         let minimal_value = 500000000000000;
 
-        let signed_receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .value(minimal_value - 1)
-                .build(),
-        )
-        .await;
+        let signed_receipt = create_signed_receipt()
+            .value(minimal_value - 1)
+            .call()
+            .await;
 
         let receipt = ReceiptWithState::new(signed_receipt);
 
@@ -536,9 +532,7 @@ mod tests {
             "Should require minimal value"
         );
 
-        let signed_receipt =
-            create_signed_receipt(SignedReceiptRequest::builder().value(minimal_value).build())
-                .await;
+        let signed_receipt = create_signed_receipt().value(minimal_value).call().await;
 
         let receipt = ReceiptWithState::new(signed_receipt);
         check
@@ -546,12 +540,10 @@ mod tests {
             .await
             .expect("should accept equals minimal");
 
-        let signed_receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .value(minimal_value + 1)
-                .build(),
-        )
-        .await;
+        let signed_receipt = create_signed_receipt()
+            .value(minimal_value + 1)
+            .call()
+            .await;
 
         let receipt = ReceiptWithState::new(signed_receipt);
         check
@@ -581,12 +573,10 @@ mod tests {
 
         let minimal_global_value = 20000000000000;
 
-        let signed_receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .value(minimal_global_value - 1)
-                .build(),
-        )
-        .await;
+        let signed_receipt = create_signed_receipt()
+            .value(minimal_global_value - 1)
+            .call()
+            .await;
 
         let receipt = ReceiptWithState::new(signed_receipt);
 
@@ -595,24 +585,20 @@ mod tests {
             "Should deny less than global"
         );
 
-        let signed_receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .value(minimal_global_value)
-                .build(),
-        )
-        .await;
+        let signed_receipt = create_signed_receipt()
+            .value(minimal_global_value)
+            .call()
+            .await;
         let receipt = ReceiptWithState::new(signed_receipt);
         check
             .check(&ctx, &receipt)
             .await
             .expect("should accept equals global");
 
-        let signed_receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .value(minimal_global_value + 1)
-                .build(),
-        )
-        .await;
+        let signed_receipt = create_signed_receipt()
+            .value(minimal_global_value + 1)
+            .call()
+            .await;
         let receipt = ReceiptWithState::new(signed_receipt);
         check
             .check(&ctx, &receipt)

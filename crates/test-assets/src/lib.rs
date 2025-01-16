@@ -24,7 +24,6 @@ use thegraph_core::{
     deployment_id, DeploymentId,
 };
 use tokio::sync::Notify;
-use typed_builder::TypedBuilder;
 
 /// Assert something is true while sleeping and retrying
 ///
@@ -313,29 +312,32 @@ lazy_static! {
     );
 }
 
-#[derive(TypedBuilder)]
-pub struct SignedReceiptRequest {
-    #[builder(default = Address::ZERO)]
-    allocation_id: Address,
-    #[builder(default)]
-    nonce: u64,
-    #[builder(default_code = r#"SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64"#)]
-    timestamp_ns: u64,
-    #[builder(default = 1)]
-    value: u128,
-}
+//#[derive(TypedBuilder)]
+//pub struct SignedReceiptRequest {
+//    #[builder(default = Address::ZERO)]
+//    allocation_id: Address,
+//    #[builder(default)]
+//    nonce: u64,
+//    #[builder(default_code = r#"SystemTime::now()
+//            .duration_since(UNIX_EPOCH)
+//            .unwrap()
+//            .as_nanos() as u64"#)]
+//    timestamp_ns: u64,
+//    #[builder(default = 1)]
+//    value: u128,
+//}
 
 /// Function to generate a signed receipt using the TAP_SIGNER wallet.
+#[bon::builder]
 pub async fn create_signed_receipt(
-    SignedReceiptRequest {
-        allocation_id,
-        nonce,
-        timestamp_ns,
-        value,
-    }: SignedReceiptRequest,
+    #[builder(default = Address::ZERO)] allocation_id: Address,
+    #[builder(default)] nonce: u64,
+    #[builder(default = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64)]
+    timestamp_ns: u64,
+    #[builder(default = 1)] value: u128,
 ) -> SignedReceipt {
     let (wallet, _) = &*self::TAP_SIGNER;
 

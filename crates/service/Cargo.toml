@@ -38,7 +38,7 @@ base64.workspace = true
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0" }
 tap_core.workspace = true
 uuid.workspace = true
-typed-builder.workspace = true
+bon.workspace = true
 tower_governor = { version = "0.5.0", features = ["axum"] }
 governor = "0.8.0"
 tower-http = { version = "0.6.2", features = [

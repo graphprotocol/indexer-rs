@@ -192,7 +192,7 @@ impl Drop for DenyListCheck {
 mod tests {
     use sqlx::PgPool;
     use tap_core::receipt::{checks::Check, Context, ReceiptWithState};
-    use test_assets::{self, create_signed_receipt, SignedReceiptRequest, TAP_SENDER};
+    use test_assets::{self, create_signed_receipt, TAP_SENDER};
     use thegraph_core::alloy::hex::ToHexExt;
 
     use super::*;
@@ -216,7 +216,7 @@ mod tests {
         .await
         .unwrap();
 
-        let signed_receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let signed_receipt = create_signed_receipt().call().await;
 
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
@@ -234,7 +234,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_sender_denylist_updates(pgpool: PgPool) {
-        let signed_receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let signed_receipt = create_signed_receipt().call().await;
 
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
