@@ -874,7 +874,7 @@ pub mod tests {
 
     use futures::future::join_all;
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
-    use jsonrpsee::http_client::HttpClientBuilder;
+    use tap_aggregator::grpc::tap_aggregator_client::TapAggregatorClient;
     use ractor::{call, cast, Actor, ActorRef, ActorStatus};
     use ruint::aliases::U256;
     use serde_json::json;
@@ -890,6 +890,7 @@ pub mod tests {
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
     use tokio::sync::{watch, Notify};
+    use tonic::transport::Endpoint;
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockGuard, MockServer, Respond, ResponseTemplate,
@@ -956,9 +957,14 @@ pub mod tests {
             None => create_mock_sender_account().await.1,
         };
 
-        let sender_aggregator = HttpClientBuilder::default()
-            .build(&sender_aggregator_endpoint)
-            .unwrap();
+        let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
+        .unwrap()
+        .connect_timeout(Duration::default());
+
+    let sender_aggregator = TapAggregatorClient::connect(endpoint)
+        .await
+        .unwrap()
+        .send_compressed(tonic::codec::CompressionEncoding::Zstd);
         SenderAllocationArgs {
             pgpool: pgpool.clone(),
             allocation_id: ALLOCATION_ID_0,
@@ -1257,9 +1263,11 @@ pub mod tests {
             SenderAccountMessage::UpdateReceiptFees(_, ReceiptFees::RavRequestResponse(_))
         ));
 
-        // Stop the TAP aggregator server.
-        handle.stop().unwrap();
-        handle.stopped().await;
+    // Stop the TAP aggregator server.
+        handle.abort();
+
+        // Optionally, check if the task has been stopped
+        assert!(handle.is_finished());
     }
 
     #[sqlx::test(migrations = "../../migrations")]
