@@ -6,6 +6,14 @@
 
 
 
+## [1.4.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.4.0...indexer-service-rs-v1.4.1) (2025-01-16)
+
+
+### Bug Fixes
+
+* invalid serialization of CheckHealthError ([#565](https://github.com/graphprotocol/indexer-rs/issues/565)) ([73fdc95](https://github.com/graphprotocol/indexer-rs/commit/73fdc958aa93d89b8f58f3a93d859236d59ba20e))
+* retain headers in attestation middleware ([#577](https://github.com/graphprotocol/indexer-rs/issues/577)) ([0d76f35](https://github.com/graphprotocol/indexer-rs/commit/0d76f35c70b252f0df34d919a43785f3c860dc01))
+
 ## [1.4.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.3.2...indexer-service-rs-v1.4.0) (2024-12-18)
 
 
