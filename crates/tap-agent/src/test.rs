@@ -181,7 +181,10 @@ pub mod actors {
     use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
     use test_assets::{ALLOCATION_ID_0, TAP_SIGNER};
     use thegraph_core::alloy::primitives::Address;
-    use tokio::sync::{mpsc, watch, Notify};
+    use tokio::sync::{
+        mpsc::{self, Sender},
+        watch, Notify,
+    };
 
     use super::create_rav;
     use crate::agent::{
@@ -190,6 +193,16 @@ pub mod actors {
         sender_allocation::SenderAllocationMessage,
         unaggregated_receipts::UnaggregatedReceipts,
     };
+
+    #[cfg(test)]
+    pub fn clone_rpc_reply<T>(_: &ractor::RpcReplyPort<T>) -> ractor::RpcReplyPort<T> {
+        new_rpc_reply()
+    }
+
+    #[cfg(test)]
+    pub fn new_rpc_reply<T>() -> ractor::RpcReplyPort<T> {
+        ractor::concurrency::oneshot().0.into()
+    }
 
     pub struct DummyActor;
 
@@ -219,18 +232,15 @@ pub mod actors {
         T: Actor,
     {
         inner: T,
-        pub notify: Arc<Notify>,
+        sender: Sender<T::Msg>,
     }
 
     impl<T> TestableActor<T>
     where
         T: Actor,
     {
-        pub fn new(inner: T) -> Self {
-            Self {
-                inner,
-                notify: Arc::new(Notify::new()),
-            }
+        pub fn new(inner: T, sender: Sender<T::Msg>) -> Self {
+            Self { inner, sender }
         }
     }
 
@@ -269,6 +279,7 @@ pub mod actors {
     impl<T> Actor for TestableActor<T>
     where
         T: Actor,
+        T::Msg: std::fmt::Debug + Clone,
     {
         type Msg = T::Msg;
         type State = T::State;
@@ -296,8 +307,9 @@ pub mod actors {
             msg: Self::Msg,
             state: &mut Self::State,
         ) -> Result<(), ActorProcessingErr> {
+            let cloned_msg = msg.clone();
             let result = self.inner.handle(myself, msg, state).await;
-            self.notify.notify_one();
+            self.sender.send(cloned_msg).await.unwrap();
             result
         }
 

@@ -893,7 +893,7 @@ pub mod tests {
         flush_messages, ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
-    use tokio::sync::{watch, Notify};
+    use tokio::sync::{mpsc, watch};
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockGuard, MockServer, Respond, ResponseTemplate,
@@ -986,7 +986,10 @@ pub mod tests {
         sender_aggregator_endpoint: String,
         escrow_subgraph_endpoint: &str,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
-    ) -> (ActorRef<SenderAllocationMessage>, Arc<Notify>) {
+    ) -> (
+        ActorRef<SenderAllocationMessage>,
+        mpsc::Receiver<SenderAllocationMessage>,
+    ) {
         let args = create_sender_allocation_args(
             pgpool,
             sender_aggregator_endpoint,
@@ -994,12 +997,12 @@ pub mod tests {
             sender_account,
         )
         .await;
-        let actor = TestableActor::new(SenderAllocation);
-        let notify = actor.notify.clone();
+        let (sender, receiver) = mpsc::channel(10);
+        let actor = TestableActor::new(SenderAllocation, sender);
 
         let (allocation_ref, _join_handle) = Actor::spawn(None, actor, args).await.unwrap();
 
-        (allocation_ref, notify)
+        (allocation_ref, receiver)
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1101,7 +1104,7 @@ pub mod tests {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
-        let (sender_allocation, notify) = create_sender_allocation(
+        let (sender_allocation, mut receiver) = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
             &mock_escrow_subgraph_server.uri(),
@@ -1139,7 +1142,7 @@ pub mod tests {
         )
         .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut receiver).await;
 
         // should emit update aggregate fees message to sender account
         let expected_message = SenderAccountMessage::UpdateReceiptFees(
@@ -1208,7 +1211,7 @@ pub mod tests {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // Create a sender_allocation.
-        let (sender_allocation, notify) = create_sender_allocation(
+        let (sender_allocation, mut receiver) = create_sender_allocation(
             pgpool.clone(),
             "http://".to_owned() + &aggregator_endpoint.to_string(),
             &mock_server.uri(),
@@ -1221,7 +1224,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRAVRequest)
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut receiver).await;
 
         let total_unaggregated_fees = call!(
             sender_allocation,
@@ -1586,7 +1589,7 @@ pub mod tests {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // Create a sender_allocation.
-        let (sender_allocation, notify) = create_sender_allocation(
+        let (sender_allocation, mut receiver) = create_sender_allocation(
             pgpool.clone(),
             DUMMY_URL.to_string(),
             &mock_escrow_subgraph_server.uri(),
@@ -1600,7 +1603,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRAVRequest)
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut receiver).await;
 
         // If it is an error then rav request failed
 
@@ -1686,7 +1689,7 @@ pub mod tests {
 
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
-        let (sender_allocation, notify) = create_sender_allocation(
+        let (sender_allocation, mut receiver) = create_sender_allocation(
             pgpool.clone(),
             "http://".to_owned() + &aggregator_endpoint.to_string(),
             &mock_server.uri(),
@@ -1700,7 +1703,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRAVRequest)
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut receiver).await;
 
         // If it is an error then rav request failed
 

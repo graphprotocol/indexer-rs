@@ -23,7 +23,7 @@ use thegraph_core::{
     },
     deployment_id, DeploymentId,
 };
-use tokio::sync::Notify;
+use tokio::sync::mpsc;
 
 /// Assert something is true while sleeping and retrying
 ///
@@ -354,9 +354,9 @@ pub async fn create_signed_receipt(
     .unwrap()
 }
 
-pub async fn flush_messages(notify: &Notify) {
+pub async fn flush_messages<T>(notify: &mut mpsc::Receiver<T>) {
     loop {
-        if tokio::time::timeout(Duration::from_millis(10), notify.notified())
+        if tokio::time::timeout(Duration::from_millis(10), notify.recv())
             .await
             .is_err()
         {

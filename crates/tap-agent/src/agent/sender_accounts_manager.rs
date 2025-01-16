@@ -39,7 +39,7 @@ lazy_static! {
     .unwrap();
 }
 
-#[derive(Deserialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct NewReceiptNotification {
     pub id: u64,
     pub allocation_id: Address,
@@ -51,6 +51,7 @@ pub struct NewReceiptNotification {
 pub struct SenderAccountsManager;
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(Clone))]
 pub enum SenderAccountsManagerMessage {
     UpdateSenderAccounts(HashSet<Address>),
 }
@@ -600,7 +601,6 @@ async fn handle_notification(
 mod tests {
     use std::{
         collections::{HashMap, HashSet},
-        sync::Arc,
         time::Duration,
     };
 
@@ -611,7 +611,7 @@ mod tests {
     use sqlx::{postgres::PgListener, PgPool};
     use test_assets::{flush_messages, TAP_SENDER as SENDER};
     use thegraph_core::alloy::hex::ToHexExt;
-    use tokio::sync::{mpsc, mpsc::error::TryRecvError, watch, Notify};
+    use tokio::sync::{mpsc, mpsc::error::TryRecvError, watch};
 
     use super::{
         new_receipts_watcher, SenderAccountsManager, SenderAccountsManagerArgs,
@@ -659,7 +659,7 @@ mod tests {
         pgpool: PgPool,
     ) -> (
         String,
-        Arc<Notify>,
+        mpsc::Receiver<SenderAccountsManagerMessage>,
         (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>),
     ) {
         let config = get_config();
@@ -688,11 +688,11 @@ mod tests {
             ]),
             prefix: Some(prefix.clone()),
         };
-        let actor = TestableActor::new(SenderAccountsManager);
-        let notify = actor.notify.clone();
+        let (sender, receiver) = mpsc::channel(10);
+        let actor = TestableActor::new(SenderAccountsManager, sender);
         (
             prefix,
-            notify,
+            receiver,
             Actor::spawn(None, actor, args).await.unwrap(),
         )
     }
@@ -761,7 +761,8 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_sender_allocation(pgpool: PgPool) {
-        let (prefix, notify, (actor, join_handle)) = create_sender_accounts_manager(pgpool).await;
+        let (prefix, mut receiver, (actor, join_handle)) =
+            create_sender_accounts_manager(pgpool).await;
 
         actor
             .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
@@ -769,7 +770,7 @@ mod tests {
             ))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut receiver).await;
 
         // verify if create sender account
         let actor_ref =
@@ -782,7 +783,7 @@ mod tests {
             ))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut receiver).await;
         // verify if it gets removed
         let actor_ref =
             ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER.1));
@@ -845,8 +846,8 @@ mod tests {
         // create dummy allocation
 
         let (mock_sender_allocation, mut receipts) = MockSenderAllocation::new_with_receipts();
-        let actor = TestableActor::new(mock_sender_allocation);
-        let notify = actor.notify.clone();
+        let (sender, mut receiver) = mpsc::channel(10);
+        let actor = TestableActor::new(mock_sender_allocation, sender);
         let _ = Actor::spawn(
             Some(format!(
                 "{}:{}:{}",
@@ -894,7 +895,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        flush_messages(&notify).await;
+        flush_messages(&mut receiver).await;
 
         // check if receipt notification was sent to the allocation
         for i in 1..=receipts_count {

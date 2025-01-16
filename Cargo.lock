@@ -3848,6 +3848,7 @@ dependencies = [
  "async-trait",
  "axum",
  "bigdecimal",
+ "bon 3.3.2",
  "clap",
  "educe",
  "eventuals",

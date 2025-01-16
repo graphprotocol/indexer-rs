@@ -1060,7 +1060,7 @@ impl SenderAccount {
 pub mod tests {
     use std::{
         collections::{HashMap, HashSet},
-        sync::{atomic::AtomicU32, Arc},
+        sync::atomic::AtomicU32,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
@@ -1078,8 +1078,8 @@ pub mod tests {
         primitives::{Address, U256},
     };
     use tokio::sync::{
+        mpsc,
         watch::{self, Sender},
-        Notify,
     };
     use wiremock::{
         matchers::{body_string_contains, method},
@@ -1124,17 +1124,18 @@ pub mod tests {
         (mock_ecrow_subgraph_server, _mock_ecrow_subgraph)
     }
 
+    #[bon::builder]
     async fn create_sender_account(
         pgpool: PgPool,
-        initial_allocation: HashSet<Address>,
-        rav_request_trigger_value: u128,
-        max_amount_willing_to_lose_grt: u128,
-        escrow_subgraph_endpoint: &str,
-        network_subgraph_endpoint: &str,
-        rav_request_receipt_limit: u64,
+        #[builder(default)] initial_allocation: HashSet<Address>,
+        #[builder(default = TRIGGER_VALUE)] rav_request_trigger_value: u128,
+        #[builder(default = u128::MAX)] max_amount_willing_to_lose_grt: u128,
+        #[builder(default = DUMMY_URL)] escrow_subgraph_endpoint: &str,
+        #[builder(default = DUMMY_URL)] network_subgraph_endpoint: &str,
+        #[builder(default = RECEIPT_LIMIT)] rav_request_receipt_limit: u64,
     ) -> (
         ActorRef<SenderAccountMessage>,
-        Arc<Notify>,
+        mpsc::Receiver<SenderAccountMessage>,
         String,
         Sender<EscrowAccounts>,
     ) {
@@ -1193,17 +1194,17 @@ pub mod tests {
             retry_interval: RETRY_DURATION,
         };
 
-        let actor = TestableActor::new(SenderAccount);
-        let notify = actor.notify.clone();
+        let (sender, mut receiver) = mpsc::channel(10);
+        let actor = TestableActor::new(SenderAccount, sender);
 
         let (sender, _) = Actor::spawn(Some(prefix.clone()), actor, args)
             .await
             .unwrap();
 
         // flush all messages
-        flush_messages(&notify).await;
+        flush_messages(&mut receiver).await;
 
-        (sender, notify, prefix, escrow_accounts_tx)
+        (sender, receiver, prefix, escrow_accounts_tx)
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1231,34 +1232,30 @@ pub mod tests {
 
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
 
-        let (sender_account, notify, prefix, _) = create_sender_account(
-            pgpool,
-            HashSet::new(),
-            TRIGGER_VALUE,
-            TRIGGER_VALUE,
-            &mock_escrow_subgraph_server.uri(),
-            &mock_server.uri(),
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, mut notify, prefix, _) = create_sender_account()
+            .pgpool(pgpool)
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .network_subgraph_endpoint(&mock_server.uri())
+            .call()
+            .await;
 
+        let msg =
+            SenderAccountMessage::UpdateAllocationIds(vec![ALLOCATION_ID_0].into_iter().collect());
         // we expect it to create a sender allocation
-        sender_account
-            .cast(SenderAccountMessage::UpdateAllocationIds(
-                vec![ALLOCATION_ID_0].into_iter().collect(),
-            ))
-            .unwrap();
-        notify.notified().await;
+        sender_account.cast(msg.clone()).unwrap();
+        let received_msg = notify.recv().await.unwrap();
+        assert_eq!(msg, received_msg);
 
         // verify if create sender account
         let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, ALLOCATION_ID_0);
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_some());
 
-        sender_account
-            .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
-            .unwrap();
-        notify.notified().await;
+        let msg = SenderAccountMessage::UpdateAllocationIds(HashSet::new());
+        sender_account.cast(msg.clone()).unwrap();
+        let received_msg = notify.recv().await.unwrap();
+
+        assert_eq!(msg, received_msg);
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_some());
@@ -1284,11 +1281,12 @@ pub mod tests {
             )
             .await;
 
+        let msg = SenderAccountMessage::UpdateAllocationIds(HashSet::new());
         // try to delete sender allocation_id
-        sender_account
-            .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
-            .unwrap();
-        notify.notified().await;
+        sender_account.cast(msg.clone()).unwrap();
+
+        let received_msg = notify.recv().await.unwrap();
+        assert_eq!(msg, received_msg);
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_none());
@@ -1319,23 +1317,19 @@ pub mod tests {
 
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
 
-        let (sender_account, notify, prefix, _) = create_sender_account(
-            pgpool,
-            HashSet::new(),
-            TRIGGER_VALUE,
-            TRIGGER_VALUE,
-            &mock_escrow_subgraph_server.uri(),
-            &mock_server.uri(),
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, mut notify, prefix, _) = create_sender_account()
+            .pgpool(pgpool)
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .network_subgraph_endpoint(&mock_server.uri())
+            .call()
+            .await;
 
         // we expect it to create a sender allocation
         sender_account
             .cast(SenderAccountMessage::NewAllocationId(ALLOCATION_ID_0))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         // verify if create sender account
         let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, ALLOCATION_ID_0);
@@ -1349,14 +1343,14 @@ pub mod tests {
             ))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         // try to delete sender allocation_id
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         // should not delete it because it was not in network subgraph
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
@@ -1390,7 +1384,7 @@ pub mod tests {
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_none());
@@ -1408,16 +1402,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
-        let (sender_account, _, prefix, _) = create_sender_account(
-            pgpool,
-            HashSet::new(),
-            TRIGGER_VALUE,
-            TRIGGER_VALUE,
-            DUMMY_URL,
-            DUMMY_URL,
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, _, prefix, _) = create_sender_account().pgpool(pgpool).call().await;
 
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
@@ -1443,16 +1428,8 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_receipt_fees_trigger_rav(pgpool: PgPool) {
-        let (sender_account, notify, prefix, _) = create_sender_account(
-            pgpool,
-            HashSet::new(),
-            TRIGGER_VALUE,
-            TRIGGER_VALUE,
-            DUMMY_URL,
-            DUMMY_URL,
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, mut notify, prefix, _) =
+            create_sender_account().pgpool(pgpool).call().await;
 
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
@@ -1470,7 +1447,7 @@ pub mod tests {
             ))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
         assert_not_triggered!(&triggered_rav_request);
 
         // wait for it to be outside buffer
@@ -1482,23 +1459,18 @@ pub mod tests {
                 ReceiptFees::Retry,
             ))
             .unwrap();
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         assert_triggered!(&triggered_rav_request);
     }
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_counter_greater_limit_trigger_rav(pgpool: PgPool) {
-        let (sender_account, notify, prefix, _) = create_sender_account(
-            pgpool,
-            HashSet::new(),
-            TRIGGER_VALUE,
-            TRIGGER_VALUE,
-            DUMMY_URL,
-            DUMMY_URL,
-            2,
-        )
-        .await;
+        let (sender_account, mut notify, prefix, _) = create_sender_account()
+            .pgpool(pgpool)
+            .rav_request_receipt_limit(2)
+            .call()
+            .await;
 
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
@@ -1515,7 +1487,7 @@ pub mod tests {
                 ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         assert_not_triggered!(&triggered_rav_request);
 
@@ -1525,7 +1497,7 @@ pub mod tests {
                 ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         // wait for it to be outside buffer
         tokio::time::sleep(BUFFER_DURATION).await;
@@ -1536,7 +1508,7 @@ pub mod tests {
                 ReceiptFees::Retry,
             ))
             .unwrap();
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         assert_triggered!(&triggered_rav_request);
     }
@@ -1544,16 +1516,12 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_remove_sender_account(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let (sender_account, _, prefix, _) = create_sender_account(
-            pgpool,
-            vec![ALLOCATION_ID_0].into_iter().collect(),
-            TRIGGER_VALUE,
-            TRIGGER_VALUE,
-            &mock_escrow_subgraph_server.uri(),
-            DUMMY_URL,
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, _, prefix, _) = create_sender_account()
+            .pgpool(pgpool)
+            .initial_allocation(vec![ALLOCATION_ID_0].into_iter().collect())
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .call()
+            .await;
 
         // check if allocation exists
         let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, ALLOCATION_ID_0);
@@ -1593,16 +1561,8 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, _notify, _, _) = create_sender_account(
-            pgpool.clone(),
-            HashSet::new(),
-            TRIGGER_VALUE,
-            TRIGGER_VALUE,
-            DUMMY_URL,
-            DUMMY_URL,
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, _notify, _, _) =
+            create_sender_account().pgpool(pgpool.clone()).call().await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny);
@@ -1613,16 +1573,11 @@ pub mod tests {
         // we set to zero to block the sender, no matter the fee
         let max_unaggregated_fees_per_sender: u128 = 0;
 
-        let (sender_account, notify, prefix, _) = create_sender_account(
-            pgpool,
-            HashSet::new(),
-            TRIGGER_VALUE,
-            max_unaggregated_fees_per_sender,
-            DUMMY_URL,
-            DUMMY_URL,
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, mut notify, prefix, _) = create_sender_account()
+            .pgpool(pgpool)
+            .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
+            .call()
+            .await;
 
         let (triggered_rav_request, next_value, _) = create_mock_sender_allocation(
             prefix,
@@ -1642,7 +1597,7 @@ pub mod tests {
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         // wait to try again so it's outside the buffer
         tokio::time::sleep(RETRY_DURATION).await;
@@ -1662,16 +1617,11 @@ pub mod tests {
         let max_unaggregated_fees_per_sender: u128 = 1000;
 
         // Making sure no RAV is going to be triggered during the test
-        let (sender_account, notify, _, _) = create_sender_account(
-            pgpool.clone(),
-            HashSet::new(),
-            u128::MAX,
-            max_unaggregated_fees_per_sender,
-            DUMMY_URL,
-            DUMMY_URL,
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, mut notify, _, _) = create_sender_account()
+            .pgpool(pgpool.clone())
+            .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
+            .call()
+            .await;
 
         macro_rules! update_receipt_fees {
             ($value:expr) => {
@@ -1686,7 +1636,7 @@ pub mod tests {
                     ))
                     .unwrap();
 
-                flush_messages(&notify).await;
+                flush_messages(&mut notify).await;
             };
         }
 
@@ -1703,7 +1653,7 @@ pub mod tests {
                     ))
                     .unwrap();
 
-                flush_messages(&notify).await;
+                flush_messages(&mut notify).await;
             };
         }
 
@@ -1760,16 +1710,8 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, _notify, _, _) = create_sender_account(
-            pgpool.clone(),
-            HashSet::new(),
-            TRIGGER_VALUE,
-            u128::MAX,
-            DUMMY_URL,
-            DUMMY_URL,
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, _notify, _, _) =
+            create_sender_account().pgpool(pgpool.clone()).call().await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny);
@@ -1792,16 +1734,11 @@ pub mod tests {
         let trigger_rav_request = ESCROW_VALUE * 2;
 
         // initialize with no trigger value and no max receipt deny
-        let (sender_account, notify, prefix, _) = create_sender_account(
-            pgpool.clone(),
-            HashSet::new(),
-            trigger_rav_request,
-            u128::MAX,
-            DUMMY_URL,
-            DUMMY_URL,
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, mut notify, prefix, _) = create_sender_account()
+            .pgpool(pgpool.clone())
+            .rav_request_trigger_value(trigger_rav_request)
+            .call()
+            .await;
 
         let (mock_sender_allocation, next_rav_value) =
             MockSenderAllocation::new_with_next_rav_value(sender_account.clone());
@@ -1828,7 +1765,7 @@ pub mod tests {
                     ))
                     .unwrap();
 
-                flush_messages(&notify).await;
+                flush_messages(&mut notify).await;
             };
         }
 
@@ -1899,16 +1836,11 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, notify, _, escrow_accounts_tx) = create_sender_account(
-            pgpool.clone(),
-            HashSet::new(),
-            TRIGGER_VALUE,
-            u128::MAX,
-            &mock_server.uri(),
-            DUMMY_URL,
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, mut notify, _, escrow_accounts_tx) = create_sender_account()
+            .pgpool(pgpool.clone())
+            .escrow_subgraph_endpoint(&mock_server.uri())
+            .call()
+            .await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(!deny, "should start unblocked");
@@ -1937,7 +1869,7 @@ pub mod tests {
             .unwrap();
 
         // wait the actor react to the messages
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         // should still be active with a 1 escrow available
 
@@ -1955,16 +1887,8 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, notify, _, escrow_accounts_tx) = create_sender_account(
-            pgpool.clone(),
-            HashSet::new(),
-            TRIGGER_VALUE,
-            u128::MAX,
-            DUMMY_URL,
-            DUMMY_URL,
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, mut notify, _, escrow_accounts_tx) =
+            create_sender_account().pgpool(pgpool.clone()).call().await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(!deny, "should start unblocked");
@@ -1977,7 +1901,7 @@ pub mod tests {
             ))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny, "should block the sender");
@@ -1990,7 +1914,7 @@ pub mod tests {
             ))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(!deny, "should unblock the sender");
@@ -2003,16 +1927,11 @@ pub mod tests {
         // we set to 1 to block the sender on a really low value
         let max_unaggregated_fees_per_sender: u128 = 1;
 
-        let (sender_account, notify, prefix, _) = create_sender_account(
-            pgpool,
-            HashSet::new(),
-            TRIGGER_VALUE,
-            max_unaggregated_fees_per_sender,
-            DUMMY_URL,
-            DUMMY_URL,
-            RECEIPT_LIMIT,
-        )
-        .await;
+        let (sender_account, mut notify, prefix, _) = create_sender_account()
+            .pgpool(pgpool)
+            .rav_request_trigger_value(max_unaggregated_fees_per_sender)
+            .call()
+            .await;
 
         let (mock_sender_allocation, _, next_unaggregated_fees) =
             MockSenderAllocation::new_with_triggered_rav_request(sender_account.clone());
@@ -2035,7 +1954,7 @@ pub mod tests {
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
-        notify.notified().await;
+        notify.recv().await.unwrap();
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny, "should be blocked");
