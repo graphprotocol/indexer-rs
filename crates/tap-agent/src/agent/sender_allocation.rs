@@ -874,11 +874,11 @@ pub mod tests {
 
     use futures::future::join_all;
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
-    use tap_aggregator::grpc::tap_aggregator_client::TapAggregatorClient;
     use ractor::{call, cast, Actor, ActorRef, ActorStatus};
     use ruint::aliases::U256;
     use serde_json::json;
     use sqlx::PgPool;
+    use tap_aggregator::grpc::tap_aggregator_client::TapAggregatorClient;
     use tap_aggregator::{jsonrpsee_helpers::JsonRpcResponse, server::run_server};
     use tap_core::receipt::{
         checks::{Check, CheckError, CheckList, CheckResult},
@@ -958,13 +958,13 @@ pub mod tests {
         };
 
         let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
-        .unwrap()
-        .connect_timeout(Duration::default());
+            .unwrap()
+            .connect_timeout(Duration::default());
 
-    let sender_aggregator = TapAggregatorClient::connect(endpoint)
-        .await
-        .unwrap()
-        .send_compressed(tonic::codec::CompressionEncoding::Zstd);
+        let sender_aggregator = TapAggregatorClient::connect(endpoint)
+            .await
+            .unwrap()
+            .send_compressed(tonic::codec::CompressionEncoding::Zstd);
         SenderAllocationArgs {
             pgpool: pgpool.clone(),
             allocation_id: ALLOCATION_ID_0,
@@ -1263,7 +1263,7 @@ pub mod tests {
             SenderAccountMessage::UpdateReceiptFees(_, ReceiptFees::RavRequestResponse(_))
         ));
 
-    // Stop the TAP aggregator server.
+        // Stop the TAP aggregator server.
         handle.abort();
 
         // Optionally, check if the task has been stopped
