@@ -148,11 +148,16 @@ pub struct SenderAllocationArgs {
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(educe::Educe))]
+#[cfg_attr(test, educe(Clone))]
 pub enum SenderAllocationMessage {
     NewReceipt(NewReceiptNotification),
     TriggerRAVRequest,
     #[cfg(test)]
-    GetUnaggregatedReceipts(ractor::RpcReplyPort<UnaggregatedReceipts>),
+    GetUnaggregatedReceipts(
+        #[educe(Clone(method(crate::test::actors::clone_rpc_reply)))]
+        ractor::RpcReplyPort<UnaggregatedReceipts>,
+    ),
 }
 
 #[async_trait::async_trait]
@@ -312,13 +317,12 @@ impl Actor for SenderAllocation {
                 } else {
                     Err(anyhow!("Unaggregated fee equals zero"))
                 };
-                let rav_response = (state.unaggregated_fees, rav_result);
                 // encapsulate inanother okay, unwrap after and send the result over here
                 state
                     .sender_account_ref
                     .cast(SenderAccountMessage::UpdateReceiptFees(
                         state.allocation_id,
-                        ReceiptFees::RavRequestResponse(rav_response),
+                        ReceiptFees::RavRequestResponse(state.unaggregated_fees, rav_result),
                     ))?;
             }
             #[cfg(test)]
@@ -1254,7 +1258,7 @@ pub mod tests {
 
         assert!(matches!(
             message_receiver.recv().await.unwrap(),
-            SenderAccountMessage::UpdateReceiptFees(_, ReceiptFees::RavRequestResponse(_))
+            SenderAccountMessage::UpdateReceiptFees(_, ReceiptFees::RavRequestResponse(..))
         ));
 
         // Stop the TAP aggregator server.
@@ -1616,9 +1620,9 @@ pub mod tests {
         match rav_response_message {
             SenderAccountMessage::UpdateReceiptFees(
                 _,
-                ReceiptFees::RavRequestResponse(rav_response),
+                ReceiptFees::RavRequestResponse(_, rav_response),
             ) => {
-                assert!(rav_response.1.is_err());
+                assert!(rav_response.is_err());
             }
             v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
         }
@@ -1731,9 +1735,9 @@ pub mod tests {
         match rav_response_message {
             SenderAccountMessage::UpdateReceiptFees(
                 _,
-                ReceiptFees::RavRequestResponse(rav_response),
+                ReceiptFees::RavRequestResponse(_, rav_response),
             ) => {
-                assert!(rav_response.1.is_err());
+                assert!(rav_response.is_err());
             }
             v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
         }

@@ -405,14 +405,14 @@ pub mod actors {
                         );
                         sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
                             ALLOCATION_ID_0,
-                            ReceiptFees::RavRequestResponse((
+                            ReceiptFees::RavRequestResponse(
                                 UnaggregatedReceipts {
                                     value: *self.next_unaggregated_fees_value.borrow(),
                                     last_id: 0,
                                     counter: 0,
                                 },
                                 Ok(Some(signed_rav)),
-                            )),
+                            ),
                         ))?;
                     }
                 }
