@@ -363,7 +363,7 @@ dependencies = [
  "futures-utils-wasm",
  "lru",
  "parking_lot",
- "pin-project 1.1.7",
+ "pin-project 1.1.8",
  "reqwest 0.12.12",
  "schnellru",
  "serde",
@@ -430,7 +430,7 @@ dependencies = [
  "alloy-transport-ipc",
  "alloy-transport-ws",
  "futures",
- "pin-project 1.1.7",
+ "pin-project 1.1.8",
  "reqwest 0.12.12",
  "serde",
  "serde_json",
@@ -723,7 +723,7 @@ dependencies = [
  "bytes",
  "futures",
  "interprocess",
- "pin-project 1.1.7",
+ "pin-project 1.1.8",
  "serde_json",
  "tokio",
  "tokio-util",
@@ -3755,7 +3755,7 @@ dependencies = [
  "indexer-query",
  "insta",
  "lazy_static",
- "pin-project 1.1.7",
+ "pin-project 1.1.8",
  "prometheus",
  "reqwest 0.12.12",
  "rstest",
@@ -4061,7 +4061,7 @@ dependencies = [
  "hyper-util",
  "jsonrpsee-core",
  "jsonrpsee-types",
- "pin-project 1.1.7",
+ "pin-project 1.1.8",
  "route-recognizer",
  "serde",
  "serde_json",
@@ -4936,11 +4936,11 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
-version = "1.1.7"
+version = "1.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be57f64e946e500c8ee36ef6331845d40a93055567ec57e8fae13efd33759b95"
+checksum = "1e2ec53ad785f4d35dac0adea7f7dc6f1bb277ad84a680c7afefeae05d1f5916"
 dependencies = [
- "pin-project-internal 1.1.7",
+ "pin-project-internal 1.1.8",
 ]
 
 [[package]]
@@ -4956,9 +4956,9 @@ dependencies = [
 
 [[package]]
 name = "pin-project-internal"
-version = "1.1.7"
+version = "1.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c0f5fad0874fc7abcd4d750e76917eaebbecaa2c20bde22e1dbeeba8beb758c"
+checksum = "d56a66c0c55993aa927429d0f8a0abfd74f084e4d9c192cffed01e418d83eefb"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7332,7 +7332,7 @@ dependencies = [
  "hyper-timeout",
  "hyper-util",
  "percent-encoding",
- "pin-project 1.1.7",
+ "pin-project 1.1.8",
  "prost",
  "rustls-native-certs 0.8.1",
  "rustls-pemfile 2.2.0",
@@ -7369,7 +7369,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "indexmap 1.9.3",
- "pin-project 1.1.7",
+ "pin-project 1.1.8",
  "pin-project-lite",
  "rand",
  "slab",
@@ -7433,7 +7433,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4546773ffeab9e4ea02b8872faa49bb616a80a7da66afc2f32688943f97efa7"
 dependencies = [
  "futures-util",
- "pin-project 1.1.7",
+ "pin-project 1.1.8",
  "tokio",
  "tokio-test",
  "tower-layer",
@@ -7462,7 +7462,7 @@ dependencies = [
  "forwarded-header-value",
  "governor",
  "http 1.1.0",
- "pin-project 1.1.7",
+ "pin-project 1.1.8",
  "thiserror 2.0.3",
  "tower 0.5.2",
  "tracing",
