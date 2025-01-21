@@ -597,14 +597,6 @@ impl SenderAllocationState {
                 let response = self
                     .sender_aggregator
                     .aggregate_receipts(rav_request)
-                    // .request(
-                    //     "aggregate_receipts",
-                    //     rpc_params!(
-                    //         "0.0", // TODO: Set the version in a smarter place.
-                    //         valid_receipts,
-                    //         previous_rav
-                    //     ),
-                    // )
                     .await
                     .inspect_err(|status: &Status| {
                         if status.code() == Code::DeadlineExceeded {
@@ -1167,7 +1159,7 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_trigger_rav_request(pgpool: PgPool) {
         // Start a TAP aggregator server.
-        let (handle, aggregator_endpoint) = run_server(
+        let (_handle, aggregator_endpoint) = run_server(
             0,
             SIGNER.0.clone(),
             vec![SIGNER.1].into_iter().collect(),
@@ -1264,10 +1256,6 @@ pub mod tests {
         ));
 
         // Stop the TAP aggregator server.
-        handle.abort();
-
-        // Optionally, check if the task has been stopped
-        assert!(handle.is_finished());
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1325,7 +1313,6 @@ pub mod tests {
                 ))
             }
         }
-
         let await_trigger = Arc::new(tokio::sync::Notify::new());
         // Start a TAP aggregator server.
         let aggregator_server = MockServer::start().await;

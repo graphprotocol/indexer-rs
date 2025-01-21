@@ -605,12 +605,12 @@ impl Actor for SenderAccount {
             .set(config.trigger_value as f64);
 
         let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
-            .unwrap()
+            .expect("Failed to create an endpoint for the sender aggregator")
             .connect_timeout(config.rav_request_timeout);
 
         let sender_aggregator = TapAggregatorClient::connect(endpoint)
             .await
-            .unwrap()
+            .expect("Failed to connect to the TapAggregator endpoint")
             .send_compressed(tonic::codec::CompressionEncoding::Zstd);
 
         let state = State {
