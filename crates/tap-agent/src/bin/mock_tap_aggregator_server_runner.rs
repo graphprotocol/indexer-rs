@@ -1,6 +1,9 @@
 use std::net::SocketAddr;
 
-use tap_aggregator::grpc::{tap_aggregator_server::{TapAggregator, TapAggregatorServer}, RavRequest, RavResponse};
+use tap_aggregator::grpc::{
+    tap_aggregator_server::{TapAggregator, TapAggregatorServer},
+    RavRequest, RavResponse,
+};
 use tokio::sync::oneshot;
 use tonic::{transport::Server, Request, Response, Status};
 
@@ -18,10 +21,10 @@ impl TapAggregator for MockTapAggregatorService {
     }
 }
 
-
 const DUMMY_ADDR: &str = "127.0.0.1:1234"; // Correct format for SocketAddr
 /// Starts a mock TapAggregatorServer for testing purposes and returns a shutdown handle
-pub async fn mock_tap_aggregator_server() -> Result<oneshot::Sender<()>, Box<dyn std::error::Error>> {
+pub async fn mock_tap_aggregator_server() -> Result<oneshot::Sender<()>, Box<dyn std::error::Error>>
+{
     let address: SocketAddr = DUMMY_ADDR
         .parse()
         .expect("Failed to parse DUMMY_ADDR as SocketAddr");
@@ -50,7 +53,6 @@ pub async fn mock_tap_aggregator_server() -> Result<oneshot::Sender<()>, Box<dyn
     Ok(shutdown_tx)
 }
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start the mock server
@@ -60,7 +62,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Mock  server running. Press Ctrl+C to stop.");
 
     // Wait until the user decides to terminate the process
-    tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to listen for Ctrl+C");
 
     // Shut down the server gracefully
     shutdown_tx.send(()).ok();
