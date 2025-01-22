@@ -953,10 +953,12 @@ pub mod tests {
             .unwrap()
             .connect_timeout(Duration::default());
 
+      
         let sender_aggregator = TapAggregatorClient::connect(endpoint)
             .await
-            .unwrap()
-            .send_compressed(tonic::codec::CompressionEncoding::Zstd);
+            .expect("Failed to connect to the TapAggregator endpoint")
+     .send_compressed(tonic::codec::CompressionEncoding::Zstd);
+        
         SenderAllocationArgs {
             pgpool: pgpool.clone(),
             allocation_id: ALLOCATION_ID_0,
@@ -1255,7 +1257,6 @@ pub mod tests {
             SenderAccountMessage::UpdateReceiptFees(_, ReceiptFees::RavRequestResponse(_))
         ));
 
-        // Stop the TAP aggregator server.
     }
 
     #[sqlx::test(migrations = "../../migrations")]
