@@ -655,6 +655,8 @@ mod tests {
         }))
     }
 
+
+    const DUMMY_ADDR: &str = "http://localhost:1234";
     async fn create_sender_accounts_manager(
         pgpool: PgPool,
     ) -> (
@@ -683,8 +685,8 @@ mod tests {
             escrow_subgraph,
             network_subgraph,
             sender_aggregator_endpoints: HashMap::from([
-                (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
-                (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
+                (SENDER.1, Url::parse(DUMMY_ADDR).unwrap()),
+                (SENDER_2.1, Url::parse(DUMMY_ADDR).unwrap()),
             ]),
             prefix: Some(prefix.clone()),
         };
@@ -704,6 +706,7 @@ mod tests {
         join_handle.await.unwrap();
     }
 
+    const SENDER_DUMMY_ADDR: &str = "http://localhost:1234";
     async fn create_state(pgpool: PgPool) -> (String, State) {
         let config = get_config();
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
@@ -727,8 +730,8 @@ mod tests {
                 escrow_subgraph: get_subgraph_client().await,
                 network_subgraph: get_subgraph_client().await,
                 sender_aggregator_endpoints: HashMap::from([
-                    (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
-                    (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
+                    (SENDER.1, Url::parse(SENDER_DUMMY_ADDR).unwrap()),
+                    (SENDER_2.1, Url::parse(SENDER_DUMMY_ADDR).unwrap()),
                 ]),
                 prefix: Some(prefix),
             },

@@ -953,10 +953,13 @@ pub mod tests {
             .unwrap()
             .connect_timeout(Duration::default());
 
-      
-        let sender_aggregator = TapAggregatorClient::connect(endpoint)
+
+            let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
             .await
-            .expect("Failed to connect to the TapAggregator endpoint")
+            .expect(&format!(
+                "Failed to connect to the TapAggregator endpoint '{}'",
+                endpoint.uri()
+            ))
      .send_compressed(tonic::codec::CompressionEncoding::Zstd);
         
         SenderAllocationArgs {
@@ -1373,7 +1376,7 @@ pub mod tests {
         // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
     }
-
+ 
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_unaggregated_fees_without_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
