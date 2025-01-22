@@ -54,9 +54,10 @@ pub async fn mock_tap_aggregator_server() -> Result<oneshot::Sender<()>, Box<dyn
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start the mock server
+
     let shutdown_tx = mock_tap_aggregator_server().await?;
 
-    println!("Mock server running. Press Ctrl+C to stop.");
+    println!("Mock  server running. Press Ctrl+C to stop.");
 
     // Wait until the user decides to terminate the process
     tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
