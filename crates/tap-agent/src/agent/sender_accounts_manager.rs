@@ -655,7 +655,6 @@ mod tests {
         }))
     }
 
-
     const DUMMY_ADDR: &str = "http://localhost:1234";
     async fn create_sender_accounts_manager(
         pgpool: PgPool,
