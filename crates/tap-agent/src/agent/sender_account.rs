@@ -608,9 +608,12 @@ impl Actor for SenderAccount {
             .expect("Failed to create an endpoint for the sender aggregator")
             .connect_timeout(config.rav_request_timeout);
 
-        let sender_aggregator = TapAggregatorClient::connect(endpoint)
+            let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
             .await
-            .expect("Failed to connect to the TapAggregator endpoint")
+            .expect(&format!(
+                "Failed to connect to the TapAggregator endpoint '{}'",
+                endpoint.uri()
+            ))
             .send_compressed(tonic::codec::CompressionEncoding::Zstd);
 
         let state = State {
@@ -1040,9 +1043,7 @@ impl SenderAccount {
 #[cfg(test)]
 pub mod tests {
     use std::{
-        collections::{HashMap, HashSet},
-        sync::{atomic::AtomicU32, Arc},
-        time::{Duration, SystemTime, UNIX_EPOCH},
+        collections::{HashMap, HashSet},  sync::{atomic::AtomicU32, Arc}, time::{Duration, SystemTime, UNIX_EPOCH}
     };
 
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
@@ -1123,7 +1124,7 @@ pub mod tests {
             }
         }
     }
-
+    
     pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
     const DUMMY_URL: &str = "http://localhost:1234";
     const TRIGGER_VALUE: u128 = 500;
