@@ -608,7 +608,7 @@ mod tests {
     use ractor::{concurrency::JoinHandle, Actor, ActorRef, ActorStatus};
     use reqwest::Url;
     use ruint::aliases::U256;
-    use sqlx::{postgres::PgListener, PgPool};
+    use sqlx::{migrate, postgres::PgListener, PgPool, Postgres};
     use test_assets::{flush_messages, TAP_SENDER as SENDER};
     use thegraph_core::alloy::hex::ToHexExt;
     use tokio::sync::{mpsc, mpsc::error::TryRecvError, watch};
@@ -906,6 +906,118 @@ mod tests {
         assert_eq!(receipts.try_recv().unwrap_err(), TryRecvError::Empty);
 
         new_receipts_watcher_handle.abort();
+    }
+
+    //struct MyDatabase {
+    //    pgpool: PgPool,
+    //    test_path: &'static str,
+    //}
+    //
+    //impl std::ops::Deref for MyDatabase {
+    //    type Target = PgPool;
+    //
+    //    fn deref(&self) -> &Self::Target {
+    //        &self.pgpool
+    //    }
+    //}
+    //
+    //impl Drop for MyDatabase {
+    //    fn drop(&mut self) {
+    //        let pool = self.pgpool.clone();
+    //        let test_path = self.test_path;
+    //        pool.clone_to_uninit
+    //        let rt = tokio::runtime::Runtime::new().unwrap();
+    //
+    //        rt.block_on(async move {
+    //            let close_timed_out = tokio::time::timeout(Duration::from_secs(10), pool.close())
+    //                .await
+    //                .is_err();
+    //
+    //            if close_timed_out {
+    //                eprintln!("test {} held onto Pool after exiting", test_path);
+    //            }
+    //
+    //            eprintln!("test {} test!!", test_path);
+    //        });
+    //
+    //        println!("Testtt");
+    //    }
+    //}
+    
+
+    #[rstest::fixture]
+    #[once]
+    fn postgres() {
+
+        // implement test containers here
+    }
+
+    #[rstest::fixture]
+    async fn pgpool() -> PgPool {
+        use sqlx::{
+            testing::{TestArgs, TestSupport},
+            ConnectOptions, Connection,
+        };
+        let args = TestArgs {
+            test_path: stdext::function_name!(),
+            migrator: Some(&migrate!("../../migrations")),
+            fixtures: &[],
+        };
+
+        let test_context = Postgres::test_context(&args)
+            .await
+            .expect("failed to connect to setup test database");
+
+        let mut conn = test_context
+            .connect_opts
+            .connect()
+            .await
+            .expect("failed to connect to test database");
+
+        if let Some(migrator) = args.migrator {
+            migrator
+                .run_direct(&mut conn)
+                .await
+                .expect("failed to apply migrations");
+        }
+
+        conn.close()
+            .await
+            .expect("failed to close setup connection");
+
+        test_context
+            .pool_opts
+            .connect_with(test_context.connect_opts)
+            .await
+            .expect("failed to connect test pool")
+    }
+
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn test_my_database_check(#[future(awt)] pgpool: PgPool) {
+        let mut pglistener = PgListener::connect_with(&pgpool).await.unwrap();
+        pglistener
+            .listen("scalar_tap_receipt_notification")
+            .await
+            .expect(
+                "should be able to subscribe to Postgres Notify events on the channel \
+                'scalar_tap_receipt_notification'",
+            );
+
+        let escrow_accounts_rx = watch::channel(EscrowAccounts::default()).1;
+        let dummy_actor = DummyActor::spawn().await;
+
+        // Start the new_receipts_watcher task that will consume from the `pglistener`
+        let new_receipts_watcher_handle = tokio::spawn(new_receipts_watcher(
+            dummy_actor.get_cell(),
+            pglistener,
+            escrow_accounts_rx,
+            None,
+        ));
+        //pgpool.close().await;
+        //new_receipts_watcher_handle.await.unwrap();
+
+        //assert_eq!(dummy_actor.get_status(), ActorStatus::Stopped)
     }
 
     #[test_log::test(sqlx::test(migrations = "../../migrations"))]

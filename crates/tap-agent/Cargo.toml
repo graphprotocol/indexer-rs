@@ -52,3 +52,5 @@ tempfile = "3.8.0"
 wiremock.workspace = true
 test-assets = { path = "../test-assets" }
 test-log = { version = "0.2.12", default-features = false }
+stdext = "0.3.3"
+rstest.workspace = true
