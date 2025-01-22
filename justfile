@@ -11,6 +11,9 @@ deps:
 url:
     @echo export DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432
 
+test: 
+    cargo run --bin mock_tap_aggregator_server_runner & cargo test
+
 clippy:
     cargo clippy --all-targets --all-features
 
