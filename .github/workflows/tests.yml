@@ -58,8 +58,10 @@ jobs:
         run: cargo sqlx migrate run
       - name: Check that the sqlx prepared query metadata is up-to-date
         run: cargo sqlx prepare --workspace --check -- --all-targets --all-features
-
-  clippy:
+      - name: Start mock server
+      run: |
+            cargo run --bin mock_tap_aggregator_server_runner &
+    clippy:
     name: cargo clippy
     runs-on: ubuntu-latest
     container:
