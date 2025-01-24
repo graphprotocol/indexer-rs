@@ -606,8 +606,7 @@ impl Actor for SenderAccount {
             .set(config.trigger_value as f64);
 
         let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
-            .context("Failed to create an endpoint for the sender aggregator")?
-            .connect_timeout(config.rav_request_timeout);
+            .context("Failed to create an endpoint for the sender aggregator")?;
 
         let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
             .await
@@ -616,8 +615,10 @@ impl Actor for SenderAccount {
                     "Failed to connect to the TapAggregator endpoint '{}'",
                     endpoint.uri()
                 )
-            })?
-            .send_compressed(tonic::codec::CompressionEncoding::Zstd);
+            })?;
+        #[cfg(not(test))]
+        let sender_aggregator =
+            sender_aggregator.send_compressed(tonic::codec::CompressionEncoding::Zstd);
         let state = State {
             prefix,
             sender_fee_tracker: SenderFeeTracker::new(config.rav_request_buffer),
@@ -1081,8 +1082,7 @@ pub mod tests {
         assert_not_triggered, assert_triggered,
         test::{
             actors::{create_mock_sender_allocation, MockSenderAllocation, TestableActor},
-            create_rav, start_test_aggregator_server, store_rav_with_options, INDEXER,
-            TAP_EIP712_DOMAIN_SEPARATOR,
+            create_rav, get_grpc_url, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
 
@@ -1205,16 +1205,13 @@ pub mod tests {
             .expect("Failed to update escrow_accounts channel");
 
         // Start a new mock aggregator server for this test
-        let (_server_handle, server_addr) = start_test_aggregator_server()
-            .await
-            .expect("Failed to start mock aggregator server");
-        let server_url = format!("http://{}", server_addr);
 
         let prefix = format!(
             "test-{}",
             PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         );
 
+        let server_url = get_grpc_url().await;
         let args = SenderAccountArgs {
             config,
             pgpool,

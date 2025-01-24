@@ -4,8 +4,9 @@
 use bigdecimal::num_bigint::BigInt;
 use lazy_static::lazy_static;
 use sqlx::{types::BigDecimal, PgPool};
-use std::collections::HashSet;
 use std::net::SocketAddr;
+use std::u32;
+use std::{collections::HashSet, time::Duration};
 use tap_aggregator::server::run_server;
 use tap_core::{
     rav::{ReceiptAggregateVoucher, SignedRAV},
@@ -151,22 +152,14 @@ pub async fn store_rav(
     store_rav_with_options(pgpool, signed_rav, sender, false, false).await
 }
 
-static SERVER: OnceCell<(JoinHandle<()>, SocketAddr)> = OnceCell::const_new();
-
-pub async fn get_or_init() -> &'static (JoinHandle<()>, SocketAddr) {
-    SERVER
-        .get_or_try_init(|| async {
-            start_test_aggregator_server().await.map_err(|e| {
-                eprintln!("Failed to start server: {:?}", e);
-                e
-            })
-        })
-        .await
-        .expect("Failed to initialize server")
+// TODO use static and check for possible errors with connection refused
+pub async fn get_grpc_url() -> String {
+    let (_, addr) = create_grpc_aggregator().await;
+    format!("http://{}", addr)
 }
 
 /// Function to start a aggregator server for testing
-pub async fn start_test_aggregator_server() -> Result<(JoinHandle<()>, SocketAddr), anyhow::Error> {
+async fn create_grpc_aggregator() -> (JoinHandle<()>, SocketAddr) {
     let wallet = PrivateKeySigner::random();
     let address = wallet.address();
     let accepted_addresses = HashSet::from([address]);
@@ -187,6 +180,7 @@ pub async fn start_test_aggregator_server() -> Result<(JoinHandle<()>, SocketAdd
         max_concurrent_connections,
     )
     .await
+    .unwrap()
 }
 
 pub async fn store_rav_with_options(
