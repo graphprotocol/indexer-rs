@@ -624,7 +624,7 @@ mod tests {
         },
         test::{
             actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor},
-            create_rav, create_received_receipt, start_test_aggregatorr_server, store_rav,
+            create_rav, create_received_receipt, start_test_aggregator_server, store_rav,
             store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER_2, SIGNER,
             TAP_EIP712_DOMAIN_SEPARATOR,
         },
@@ -673,12 +673,12 @@ mod tests {
 
         // Start a new mock aggregator server for this test
         let (server1_url, server2_url) = {
-            let (_server1_handle, server1_addr) = start_test_aggregatorr_server()
+            let (_server1_handle, server1_addr) = start_test_aggregator_server()
                 .await
                 .expect("Failed to start the first mock aggregator server");
             let server1_url = format!("http://{}", server1_addr);
 
-            let (_server2_handle, server2_addr) = start_test_aggregatorr_server()
+            let (_server2_handle, server2_addr) = start_test_aggregator_server()
                 .await
                 .expect("Failed to start the second mock aggregator server");
             let server2_url = format!("http://{}", server2_addr);
@@ -726,12 +726,12 @@ mod tests {
 
         // Start a new mock aggregator server for this test
         let (server1_url, server2_url) = {
-            let (_server1_handle, server1_addr) = start_test_aggregatorr_server()
+            let (_server1_handle, server1_addr) = start_test_aggregator_server()
                 .await
                 .expect("Failed to start the first mock aggregator server");
             let server1_url = format!("http://{}", server1_addr);
 
-            let (_server2_handle, server2_addr) = start_test_aggregatorr_server()
+            let (_server2_handle, server2_addr) = start_test_aggregator_server()
                 .await
                 .expect("Failed to start the second mock aggregator server");
             let server2_url = format!("http://{}", server2_addr);

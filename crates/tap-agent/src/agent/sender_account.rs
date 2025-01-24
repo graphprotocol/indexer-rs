@@ -1081,7 +1081,7 @@ pub mod tests {
         assert_not_triggered, assert_triggered,
         test::{
             actors::{create_mock_sender_allocation, MockSenderAllocation, TestableActor},
-            create_rav, start_test_aggregatorr_server, store_rav_with_options, INDEXER,
+            create_rav, start_test_aggregator_server, store_rav_with_options, INDEXER,
             TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
@@ -1205,7 +1205,7 @@ pub mod tests {
             .expect("Failed to update escrow_accounts channel");
 
         // Start a new mock aggregator server for this test
-        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+        let (_server_handle, server_addr) = start_test_aggregator_server()
             .await
             .expect("Failed to start mock aggregator server");
         let server_url = format!("http://{}", server_addr);
