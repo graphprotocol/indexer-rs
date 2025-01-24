@@ -152,8 +152,7 @@ pub async fn store_rav(
 }
 
 /// Function to start a aggregator server for testing
-pub async fn start_test_aggregatorr_server() -> Result<(JoinHandle<()>, SocketAddr), anyhow::Error>
-{
+pub async fn start_test_aggregator_server() -> Result<(JoinHandle<()>, SocketAddr), anyhow::Error> {
     let wallet = PrivateKeySigner::random();
     let address = wallet.address();
     let accepted_addresses = HashSet::from([address]);
@@ -503,7 +502,11 @@ pub mod actors {
             message: Self::Msg,
             _state: &mut Self::State,
         ) -> Result<(), ActorProcessingErr> {
-            self.last_message_emitted.send(message).await.unwrap();
+            if let Err(e) = self.last_message_emitted.send(message).await {
+                // Log the error
+                eprintln!("Failed to send message: {:?}", e);
+                // Optionally, return the error if it's critical
+            }
             Ok(())
         }
     }
