@@ -1391,6 +1391,7 @@ pub mod tests {
         // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
     }
+
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_unaggregated_fees_without_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
