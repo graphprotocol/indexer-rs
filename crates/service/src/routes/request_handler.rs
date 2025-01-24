@@ -37,9 +37,8 @@ pub async fn request_handler(
 
     let attestable = response
         .headers()
-        .get(GRAPH_ATTESTABLE).is_some_and(|value| {
-            value.to_str().map(|value| value == "true").unwrap_or(false)
-        });
+        .get(GRAPH_ATTESTABLE)
+        .is_some_and(|value| value.to_str().map(|value| value == "true").unwrap_or(false));
 
     let graph_indexed = response.headers().get(GRAPH_INDEXED).cloned();
     let body = response

@@ -280,7 +280,8 @@ mod test {
                                 .signed_receipt()
                                 .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
                                 .unwrap(),
-                        ).is_ok_and(|v| v == storage_adapter.sender)
+                        )
+                        .is_ok_and(|v| v == storage_adapter.sender)
             })
             .cloned()
             .collect();
@@ -345,7 +346,8 @@ mod test {
                                 .signed_receipt()
                                 .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
                                 .unwrap(),
-                        ).is_ok_and(|v| v == storage_adapter.sender)
+                        )
+                        .is_ok_and(|v| v == storage_adapter.sender)
                 {
                     !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
                 } else {
