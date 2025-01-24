@@ -4,6 +4,9 @@
 use bigdecimal::num_bigint::BigInt;
 use lazy_static::lazy_static;
 use sqlx::{types::BigDecimal, PgPool};
+use std::collections::HashSet;
+use std::net::SocketAddr;
+use tap_aggregator::server::run_server;
 use tap_core::{
     rav::{ReceiptAggregateVoucher, SignedRAV},
     receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
@@ -15,6 +18,7 @@ use thegraph_core::alloy::{
     signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     sol_types::Eip712Domain,
 };
+use tokio::task::JoinHandle;
 
 pub const ALLOCATION_ID_0: Address = address!("abababababababababababababababababababab");
 pub const ALLOCATION_ID_1: Address = address!("bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc");
@@ -145,6 +149,31 @@ pub async fn store_rav(
     sender: Address,
 ) -> anyhow::Result<()> {
     store_rav_with_options(pgpool, signed_rav, sender, false, false).await
+}
+
+/// Function to start a aggregator server for testing
+pub async fn start_test_aggregatorr_server() -> Result<(JoinHandle<()>, SocketAddr), anyhow::Error>
+{
+    let wallet = PrivateKeySigner::random();
+    let address = wallet.address();
+    let accepted_addresses = HashSet::from([address]);
+    let domain_separator = tap_eip712_domain(1, Address::from([0x11u8; 20]));
+    let max_request_body_size = 1024 * 1024; // 1 MB
+    let max_response_body_size = 1024 * 1024; // 1 MB
+    let max_concurrent_connections = 10;
+    // Use port `1234` as it is the default being used in tests
+    let port = 0;
+
+    run_server(
+        port,
+        wallet,
+        accepted_addresses,
+        domain_separator,
+        max_request_body_size,
+        max_response_body_size,
+        max_concurrent_connections,
+    )
+    .await
 }
 
 pub async fn store_rav_with_options(
