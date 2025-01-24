@@ -18,7 +18,7 @@ use thegraph_core::alloy::{
     signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     sol_types::Eip712Domain,
 };
-use tokio::task::JoinHandle;
+use tokio::{sync::OnceCell, task::JoinHandle};
 
 pub const ALLOCATION_ID_0: Address = address!("abababababababababababababababababababab");
 pub const ALLOCATION_ID_1: Address = address!("bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc");
@@ -149,6 +149,20 @@ pub async fn store_rav(
     sender: Address,
 ) -> anyhow::Result<()> {
     store_rav_with_options(pgpool, signed_rav, sender, false, false).await
+}
+
+static SERVER: OnceCell<(JoinHandle<()>, SocketAddr)> = OnceCell::const_new();
+
+pub async fn get_or_init() -> &'static (JoinHandle<()>, SocketAddr) {
+    SERVER
+        .get_or_try_init(|| async {
+            start_test_aggregator_server().await.map_err(|e| {
+                eprintln!("Failed to start server: {:?}", e);
+                e
+            })
+        })
+        .await
+        .expect("Failed to initialize server")
 }
 
 /// Function to start a aggregator server for testing

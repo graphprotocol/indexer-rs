@@ -3822,6 +3822,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wiremock",
+ "wiremock-grpc",
 ]
 
 [[package]]
@@ -8323,6 +8324,20 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "wiremock-grpc"
+version = "0.0.3-alpha3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ba47a86473b3cf4c25d09048bc65ecc26b24d921fb927708b66169dff92dd3a"
+dependencies = [
+ "http-body 1.0.1",
+ "log",
+ "prost",
+ "rand",
+ "tokio",
+ "tonic",
 ]
 
 [[package]]

@@ -870,8 +870,8 @@ pub mod tests {
     use ruint::aliases::U256;
     use serde_json::json;
     use sqlx::PgPool;
-    use tap_aggregator::grpc::tap_aggregator_client::TapAggregatorClient;
-    use tap_aggregator::{jsonrpsee_helpers::JsonRpcResponse, server::run_server};
+    use tap_aggregator::grpc::{tap_aggregator_client::TapAggregatorClient, RavResponse};
+    use tap_aggregator::server::run_server;
     use tap_core::receipt::{
         checks::{Check, CheckError, CheckList, CheckResult},
         state::Checking,
@@ -882,11 +882,12 @@ pub mod tests {
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
     use tokio::sync::{watch, Notify};
-    use tonic::transport::Endpoint;
+    use tonic::{transport::Endpoint, Code};
     use wiremock::{
         matchers::{body_string_contains, method},
-        Mock, MockGuard, MockServer, Respond, ResponseTemplate,
+        Mock, MockGuard, MockServer, ResponseTemplate,
     };
+    use wiremock_grpc::{MockBuilder, Then};
 
     use super::{
         SenderAllocation, SenderAllocationArgs, SenderAllocationMessage, SenderAllocationState,
@@ -953,11 +954,15 @@ pub mod tests {
 
         let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
             .await
-            .expect(&format!(
-                "Failed to connect to the TapAggregator endpoint '{}'",
-                endpoint.uri()
-            ))
-            .send_compressed(tonic::codec::CompressionEncoding::Zstd);
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Failed to connect to the TapAggregator endpoint '{}'",
+                    endpoint.uri()
+                )
+            });
+        #[cfg(not(test))]
+        let sender_aggregator =
+            sender_aggregator.send_compressed(tonic::codec::CompressionEncoding::Zstd);
 
         SenderAllocationArgs {
             pgpool: pgpool.clone(),
@@ -1306,45 +1311,29 @@ pub mod tests {
         );
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    // used for test_close_allocation_with_pending_fees(pgpool:
+    mod wiremock_gen {
+        wiremock_grpc::generate!("tap_aggregator.v1.TapAggregator", MockTapAggregator);
+    }
+
+    #[test_log::test(sqlx::test(migrations = "../../migrations"))]
     async fn test_close_allocation_with_pending_fees(pgpool: PgPool) {
-        struct Response {
-            data: Arc<tokio::sync::Notify>,
-        }
+        use wiremock_gen::MockTapAggregator;
+        let mut mock_aggregator = MockTapAggregator::start_default().await;
 
-        impl Respond for Response {
-            fn respond(&self, _request: &wiremock::Request) -> wiremock::ResponseTemplate {
-                self.data.notify_one();
-
-                let mock_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 10, 45);
-
-                let json_response = JsonRpcResponse {
-                    data: mock_rav,
-                    warnings: None,
-                };
-
-                ResponseTemplate::new(200).set_body_json(json! (
-                    {
-                        "id": 0,
-                        "jsonrpc": "2.0",
-                        "result": json_response
+        let request1 = mock_aggregator.setup(
+            MockBuilder::when()
+                //    👇 RPC prefix
+                .path("/tap_aggregator.v1.TapAggregator/AggregateReceipts")
+                .then()
+                .return_status(Code::Ok)
+                .return_body(|| {
+                    let mock_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 10, 45);
+                    RavResponse {
+                        rav: Some(mock_rav.into()),
                     }
-                ))
-            }
-        }
-        let await_trigger = Arc::new(tokio::sync::Notify::new());
-        // Start a TAP aggregator server.
-        let aggregator_server = MockServer::start().await;
-
-        aggregator_server
-            .register(
-                Mock::given(method("POST"))
-                    .and(body_string_contains("aggregate_receipts"))
-                    .respond_with(Response {
-                        data: await_trigger.clone(),
-                    }),
-            )
-            .await;
+                }),
+        );
 
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
@@ -1374,7 +1363,7 @@ pub mod tests {
         // create allocation
         let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
-            aggregator_server.uri(),
+            format!("http://[::1]:{}", mock_aggregator.address().port()),
             &mock_server.uri(),
             Some(sender_account),
         )
@@ -1382,11 +1371,9 @@ pub mod tests {
 
         sender_allocation.stop_and_wait(None, None).await.unwrap();
 
-        // should trigger rav request
-        await_trigger.notified().await;
-
-        // check if rav request is made
-        assert!(aggregator_server.received_requests().await.is_some());
+        // check if rav request was made
+        assert!(mock_aggregator.find_request_count() > 0);
+        assert!(mock_aggregator.find(&request1).is_some());
 
         // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
