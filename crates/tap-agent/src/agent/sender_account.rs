@@ -616,6 +616,7 @@ impl Actor for SenderAccount {
                     endpoint.uri()
                 )
             })?;
+        // wiremock_grpc used for tests doesn't support Zstd compression
         #[cfg(not(test))]
         let sender_aggregator =
             sender_aggregator.send_compressed(tonic::codec::CompressionEncoding::Zstd);
