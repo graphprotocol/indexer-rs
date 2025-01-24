@@ -609,7 +609,7 @@ mod tests {
     use reqwest::Url;
     use ruint::aliases::U256;
     use sqlx::{postgres::PgListener, PgPool};
-    use test_assets::{flush_messages, TAP_SENDER as SENDER};
+    use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
     use thegraph_core::alloy::hex::ToHexExt;
     use tokio::sync::{mpsc, mpsc::error::TryRecvError, watch, Notify};
 
@@ -624,8 +624,8 @@ mod tests {
         },
         test::{
             actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor},
-            create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
-            ALLOCATION_ID_1, INDEXER, SENDER_2, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+            create_rav, create_received_receipt, get_grpc_url, store_rav, store_receipt,
+            ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER_2, TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
 
@@ -670,6 +670,7 @@ mod tests {
 
         let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
 
+        // Start a new mock aggregator server for this test
         let prefix = format!(
             "test-{}",
             PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -683,8 +684,8 @@ mod tests {
             escrow_subgraph,
             network_subgraph,
             sender_aggregator_endpoints: HashMap::from([
-                (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
-                (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
+                (SENDER.1, Url::parse(&get_grpc_url().await).unwrap()),
+                (SENDER_2.1, Url::parse(&get_grpc_url().await).unwrap()),
             ]),
             prefix: Some(prefix.clone()),
         };
@@ -727,8 +728,8 @@ mod tests {
                 escrow_subgraph: get_subgraph_client().await,
                 network_subgraph: get_subgraph_client().await,
                 sender_aggregator_endpoints: HashMap::from([
-                    (SENDER.1, Url::parse("http://localhost:8000").unwrap()),
-                    (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
+                    (SENDER.1, Url::parse(&get_grpc_url().await).unwrap()),
+                    (SENDER_2.1, Url::parse(&get_grpc_url().await).unwrap()),
                 ]),
                 prefix: Some(prefix),
             },

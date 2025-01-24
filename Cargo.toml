@@ -52,14 +52,14 @@ uuid = { version = "1.11.0", features = ["v7"] }
 tracing = { version = "0.1.40", default-features = false }
 bigdecimal = "0.4.3"
 build-info = "0.0.39"
-tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "1c6e29f", default-features = false }
-tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "1c6e29f", default-features = false }
+tap_core = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "6af1add", default-features = false }
+tap_aggregator = { git = "https://github.com/semiotic-ai/timeline-aggregation-protocol", rev = "6af1add", default-features = false }
 tracing-subscriber = { version = "0.3", features = [
     "json",
     "env-filter",
     "ansi",
 ], default-features = false }
-thegraph-core = { version = "0.9.6", features = [
+thegraph-core = { version = "0.10.0", features = [
     "attestation",
     "alloy-eip712",
     "alloy-sol-types",

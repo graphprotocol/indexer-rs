@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::Context;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use futures::{stream, StreamExt};
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
@@ -15,12 +16,12 @@ use indexer_query::{
     unfinalized_transactions, UnfinalizedTransactions,
 };
 use indexer_watcher::watch_pipe;
-use jsonrpsee::http_client::HttpClientBuilder;
 use lazy_static::lazy_static;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use reqwest::Url;
 use sqlx::PgPool;
+use tap_aggregator::grpc::tap_aggregator_client::TapAggregatorClient;
 use tap_core::rav::SignedRAV;
 use thegraph_core::alloy::{
     hex::ToHexExt,
@@ -28,6 +29,7 @@ use thegraph_core::alloy::{
     sol_types::Eip712Domain,
 };
 use tokio::{sync::watch::Receiver, task::JoinHandle};
+use tonic::transport::{Channel, Endpoint};
 use tracing::Level;
 
 use super::sender_allocation::{
@@ -171,7 +173,7 @@ pub struct State {
 
     domain_separator: Eip712Domain,
     pgpool: PgPool,
-    sender_aggregator: jsonrpsee::http_client::HttpClient,
+    sender_aggregator: TapAggregatorClient<Channel>,
 
     // Backoff info
     backoff_info: BackoffInfo,
@@ -603,10 +605,21 @@ impl Actor for SenderAccount {
             .with_label_values(&[&sender_id.to_string()])
             .set(config.trigger_value as f64);
 
-        let sender_aggregator = HttpClientBuilder::default()
-            .request_timeout(config.rav_request_timeout)
-            .build(&sender_aggregator_endpoint)?;
+        let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
+            .context("Failed to create an endpoint for the sender aggregator")?;
 
+        let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to connect to the TapAggregator endpoint '{}'",
+                    endpoint.uri()
+                )
+            })?;
+        // wiremock_grpc used for tests doesn't support Zstd compression
+        #[cfg(not(test))]
+        let sender_aggregator =
+            sender_aggregator.send_compressed(tonic::codec::CompressionEncoding::Zstd);
         let state = State {
             prefix,
             sender_fee_tracker: SenderFeeTracker::new(config.rav_request_buffer),
@@ -1070,7 +1083,7 @@ pub mod tests {
         assert_not_triggered, assert_triggered,
         test::{
             actors::{create_mock_sender_allocation, MockSenderAllocation, TestableActor},
-            create_rav, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR,
+            create_rav, get_grpc_url, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
 
@@ -1192,6 +1205,8 @@ pub mod tests {
             ))
             .expect("Failed to update escrow_accounts channel");
 
+        // Start a new mock aggregator server for this test
+
         let prefix = format!(
             "test-{}",
             PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -1206,7 +1221,7 @@ pub mod tests {
             escrow_subgraph,
             network_subgraph,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            sender_aggregator_endpoint: Url::parse(DUMMY_URL).unwrap(),
+            sender_aggregator_endpoint: Url::parse(&get_grpc_url().await).unwrap(),
             allocation_ids: HashSet::new(),
             prefix: Some(prefix.clone()),
             retry_interval: RETRY_DURATION,

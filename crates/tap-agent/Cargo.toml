@@ -31,6 +31,7 @@ lazy_static.workspace = true
 thegraph-core.workspace = true
 clap.workspace = true
 tracing-subscriber.workspace = true
+tonic.workspace = true 
 bigdecimal = { workspace = true, features = ["serde"] }
 graphql_client.workspace = true
 
@@ -48,5 +49,6 @@ futures = { version = "0.3.30", default-features = false }
 [dev-dependencies]
 tempfile = "3.8.0"
 wiremock.workspace = true
+wiremock-grpc = "0.0.3-alpha3"
 test-assets = { path = "../test-assets" }
 test-log = { version = "0.2.12", default-features = false }

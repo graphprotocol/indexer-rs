@@ -9,11 +9,10 @@ use std::{
 use anyhow::{anyhow, ensure};
 use bigdecimal::{num_bigint::BigInt, ToPrimitive};
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
-use jsonrpsee::{core::client::ClientT, rpc_params};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use sqlx::{types::BigDecimal, PgPool};
-use tap_aggregator::jsonrpsee_helpers::JsonRpcResponse;
+use tap_aggregator::grpc::{tap_aggregator_client::TapAggregatorClient, RavRequest};
 use tap_core::{
     manager::adapters::RAVRead,
     rav::{RAVRequest, ReceiptAggregateVoucher, SignedRAV},
@@ -27,6 +26,7 @@ use tap_core::{
 use thegraph_core::alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
+use tonic::{transport::Channel, Code, Status};
 
 use super::sender_account::SenderAccountConfig;
 use crate::{
@@ -81,7 +81,7 @@ pub enum RavError {
     TapCore(#[from] tap_core::Error),
 
     #[error(transparent)]
-    JsonRpsee(#[from] jsonrpsee::core::ClientError),
+    Grpc(#[from] tonic::Status),
 
     #[error("All receipts are invalid")]
     AllReceiptsInvalid,
@@ -106,9 +106,7 @@ pub struct SenderAllocationState {
     escrow_accounts: Receiver<EscrowAccounts>,
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
-
-    sender_aggregator: jsonrpsee::http_client::HttpClient,
-
+    sender_aggregator: TapAggregatorClient<Channel>,
     //config
     timestamp_buffer_ns: u64,
     rav_request_receipt_limit: u64,
@@ -141,7 +139,7 @@ pub struct SenderAllocationArgs {
     pub escrow_subgraph: &'static SubgraphClient,
     pub domain_separator: Eip712Domain,
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
-    pub sender_aggregator: jsonrpsee::http_client::HttpClient,
+    pub sender_aggregator: TapAggregatorClient<Channel>,
 
     //config
     pub config: AllocationConfig,
@@ -383,7 +381,6 @@ impl SenderAllocationState {
             sender,
             escrow_accounts,
             domain_separator,
-
             sender_account_ref: sender_account_ref.clone(),
             unaggregated_fees: UnaggregatedReceipts::default(),
             invalid_receipts_fees: UnaggregatedReceipts::default(),
@@ -592,20 +589,17 @@ impl SenderAllocationState {
                     .into_iter()
                     .map(|r| r.signed_receipt().clone())
                     .collect();
+
+                let rav_request = RavRequest::new(valid_receipts, previous_rav);
+
                 let rav_response_time_start = Instant::now();
-                let response: JsonRpcResponse<EIP712SignedMessage<ReceiptAggregateVoucher>> = self
+
+                let response = self
                     .sender_aggregator
-                    .request(
-                        "aggregate_receipts",
-                        rpc_params!(
-                            "0.0", // TODO: Set the version in a smarter place.
-                            valid_receipts,
-                            previous_rav
-                        ),
-                    )
+                    .aggregate_receipts(rav_request)
                     .await
-                    .inspect_err(|err| {
-                        if let jsonrpsee::core::ClientError::RequestTimeout = &err {
+                    .inspect_err(|status: &Status| {
+                        if status.code() == Code::DeadlineExceeded {
                             tracing::warn!(
                                 "Rav request is timing out, maybe request_timeout_secs is too \
                                 low in your config file, try adding more secs to the value. \
@@ -634,13 +628,11 @@ impl SenderAllocationState {
                     self.store_invalid_receipts(invalid_receipts.as_slice())
                         .await?;
                 }
+                let signed_rav = response.into_inner().signed_rav()?;
 
-                if let Some(warnings) = response.warnings {
-                    tracing::warn!("Warnings from sender's TAP aggregator: {:?}", warnings);
-                }
                 match self
                     .tap_manager
-                    .verify_and_store_rav(expected_rav.clone(), response.data.clone())
+                    .verify_and_store_rav(expected_rav.clone(), signed_rav.clone())
                     .await
                 {
                     Ok(_) => {}
@@ -662,7 +654,7 @@ impl SenderAllocationState {
                         | e @ tap_core::Error::SignatureError(_)
                         | e @ tap_core::Error::InvalidRecoveredSigner { address: _ },
                     ) => {
-                        Self::store_failed_rav(self, &expected_rav, &response.data, &e.to_string())
+                        Self::store_failed_rav(self, &expected_rav, &signed_rav, &e.to_string())
                             .await?;
                         return Err(anyhow::anyhow!(
                             "Invalid RAV, sender could be malicious: {:?}.",
@@ -681,7 +673,7 @@ impl SenderAllocationState {
                         .into());
                     }
                 }
-                Ok(response.data)
+                Ok(signed_rav)
             }
             (Err(tap_core::Error::NoValidReceiptsForRAVRequest), true, true) => Err(anyhow!(
                 "It looks like there are no valid receipts for the RAV request.\
@@ -874,12 +866,11 @@ pub mod tests {
 
     use futures::future::join_all;
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
-    use jsonrpsee::http_client::HttpClientBuilder;
     use ractor::{call, cast, Actor, ActorRef, ActorStatus};
     use ruint::aliases::U256;
     use serde_json::json;
     use sqlx::PgPool;
-    use tap_aggregator::{jsonrpsee_helpers::JsonRpcResponse, server::run_server};
+    use tap_aggregator::grpc::{tap_aggregator_client::TapAggregatorClient, RavResponse};
     use tap_core::receipt::{
         checks::{Check, CheckError, CheckList, CheckResult},
         state::Checking,
@@ -890,10 +881,12 @@ pub mod tests {
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
     use tokio::sync::{watch, Notify};
+    use tonic::{transport::Endpoint, Code};
     use wiremock::{
         matchers::{body_string_contains, method},
-        Mock, MockGuard, MockServer, Respond, ResponseTemplate,
+        Mock, MockGuard, MockServer, ResponseTemplate,
     };
+    use wiremock_grpc::{MockBuilder, Then};
 
     use super::{
         SenderAllocation, SenderAllocationArgs, SenderAllocationMessage, SenderAllocationState,
@@ -906,12 +899,10 @@ pub mod tests {
         },
         test::{
             actors::{create_mock_sender_account, TestableActor},
-            create_rav, create_received_receipt, store_invalid_receipt, store_rav, store_receipt,
-            INDEXER,
+            create_rav, create_received_receipt, get_grpc_url, store_invalid_receipt, store_rav,
+            store_receipt, INDEXER,
         },
     };
-
-    const DUMMY_URL: &str = "http://localhost:1234";
 
     async fn mock_escrow_subgraph() -> (MockServer, MockGuard) {
         let mock_ecrow_subgraph_server: MockServer = MockServer::start().await;
@@ -956,9 +947,17 @@ pub mod tests {
             None => create_mock_sender_account().await.1,
         };
 
-        let sender_aggregator = HttpClientBuilder::default()
-            .build(&sender_aggregator_endpoint)
-            .unwrap();
+        let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string()).unwrap();
+
+        let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
+            .await
+            .unwrap_or_else(|err| {
+                panic!(
+                    "Failed to connect to the TapAggregator endpoint '{}': Err: {err:?}",
+                    endpoint.uri()
+                )
+            });
+
         SenderAllocationArgs {
             pgpool: pgpool.clone(),
             allocation_id: ALLOCATION_ID_0,
@@ -1012,7 +1011,7 @@ pub mod tests {
 
         let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1055,7 +1054,7 @@ pub mod tests {
 
         let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1091,15 +1090,15 @@ pub mod tests {
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 0u128);
     }
-
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_receive_new_receipt(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1160,19 +1159,6 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_trigger_rav_request(pgpool: PgPool) {
-        // Start a TAP aggregator server.
-        let (handle, aggregator_endpoint) = run_server(
-            0,
-            SIGNER.0.clone(),
-            vec![SIGNER.1].into_iter().collect(),
-            TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            100 * 1024,
-            100 * 1024,
-            1,
-        )
-        .await
-        .unwrap();
-
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
 
@@ -1206,7 +1192,7 @@ pub mod tests {
         // Create a sender_allocation.
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
-            "http://".to_owned() + &aggregator_endpoint.to_string(),
+            get_grpc_url().await,
             &mock_server.uri(),
             Some(sender_account),
         )
@@ -1256,10 +1242,6 @@ pub mod tests {
             message_receiver.recv().await.unwrap(),
             SenderAccountMessage::UpdateReceiptFees(_, ReceiptFees::RavRequestResponse(_))
         ));
-
-        // Stop the TAP aggregator server.
-        handle.stop().unwrap();
-        handle.stopped().await;
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1270,7 +1252,7 @@ pub mod tests {
         // create allocation
         let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1291,46 +1273,29 @@ pub mod tests {
         );
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    // used for test_close_allocation_with_pending_fees(pgpool:
+    mod wiremock_gen {
+        wiremock_grpc::generate!("tap_aggregator.v1.TapAggregator", MockTapAggregator);
+    }
+
+    #[test_log::test(sqlx::test(migrations = "../../migrations"))]
     async fn test_close_allocation_with_pending_fees(pgpool: PgPool) {
-        struct Response {
-            data: Arc<tokio::sync::Notify>,
-        }
+        use wiremock_gen::MockTapAggregator;
+        let mut mock_aggregator = MockTapAggregator::start_default().await;
 
-        impl Respond for Response {
-            fn respond(&self, _request: &wiremock::Request) -> wiremock::ResponseTemplate {
-                self.data.notify_one();
-
-                let mock_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 10, 45);
-
-                let json_response = JsonRpcResponse {
-                    data: mock_rav,
-                    warnings: None,
-                };
-
-                ResponseTemplate::new(200).set_body_json(json! (
-                    {
-                        "id": 0,
-                        "jsonrpc": "2.0",
-                        "result": json_response
+        let request1 = mock_aggregator.setup(
+            MockBuilder::when()
+                //    👇 RPC prefix
+                .path("/tap_aggregator.v1.TapAggregator/AggregateReceipts")
+                .then()
+                .return_status(Code::Ok)
+                .return_body(|| {
+                    let mock_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 10, 45);
+                    RavResponse {
+                        rav: Some(mock_rav.into()),
                     }
-                ))
-            }
-        }
-
-        let await_trigger = Arc::new(tokio::sync::Notify::new());
-        // Start a TAP aggregator server.
-        let aggregator_server = MockServer::start().await;
-
-        aggregator_server
-            .register(
-                Mock::given(method("POST"))
-                    .and(body_string_contains("aggregate_receipts"))
-                    .respond_with(Response {
-                        data: await_trigger.clone(),
-                    }),
-            )
-            .await;
+                }),
+        );
 
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
@@ -1360,7 +1325,7 @@ pub mod tests {
         // create allocation
         let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
-            aggregator_server.uri(),
+            format!("http://[::1]:{}", mock_aggregator.address().port()),
             &mock_server.uri(),
             Some(sender_account),
         )
@@ -1368,11 +1333,9 @@ pub mod tests {
 
         sender_allocation.stop_and_wait(None, None).await.unwrap();
 
-        // should trigger rav request
-        await_trigger.notified().await;
-
-        // check if rav request is made
-        assert!(aggregator_server.received_requests().await.is_some());
+        // check if rav request was made
+        assert!(mock_aggregator.find_request_count() > 0);
+        assert!(mock_aggregator.find(&request1).is_some());
 
         // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
@@ -1381,9 +1344,10 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_unaggregated_fees_without_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1410,7 +1374,7 @@ pub mod tests {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1443,7 +1407,7 @@ pub mod tests {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1473,9 +1437,10 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_store_failed_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1510,7 +1475,7 @@ pub mod tests {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1552,7 +1517,7 @@ pub mod tests {
 
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1584,7 +1549,7 @@ pub mod tests {
         // Create a sender_allocation.
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1633,19 +1598,6 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_rav_request_when_all_receipts_invalid(pgpool: PgPool) {
-        // Start a TAP aggregator server.
-        let (_handle, aggregator_endpoint) = run_server(
-            0,
-            SIGNER.0.clone(),
-            vec![SIGNER.1].into_iter().collect(),
-            TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            100 * 1024,
-            100 * 1024,
-            1,
-        )
-        .await
-        .unwrap();
-
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
 
@@ -1684,7 +1636,7 @@ pub mod tests {
 
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
-            "http://".to_owned() + &aggregator_endpoint.to_string(),
+            get_grpc_url().await,
             &mock_server.uri(),
             Some(sender_account),
         )
