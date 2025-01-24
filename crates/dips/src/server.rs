@@ -3,14 +3,15 @@
 
 use std::{str::FromStr, sync::Arc, time::Duration};
 
+use anyhow::anyhow;
+use async_trait::async_trait;
+use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
+use uuid::Uuid;
+
 use crate::{
     proto::graphprotocol::indexer::dips::*, store::AgreementStore, validate_and_cancel_agreement,
     validate_and_create_agreement, DipsError,
 };
-use anyhow::anyhow;
-use async_trait::async_trait;
-use thegraph_core::alloy::{dyn_abi::Eip712Domain, primitives::Address};
-use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct DipsServer {

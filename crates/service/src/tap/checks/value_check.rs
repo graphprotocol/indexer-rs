@@ -18,7 +18,7 @@ use sqlx::{
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
-    Context, ReceiptWithState,
+    Context, ReceiptWithState, SignedReceipt,
 };
 use thegraph_core::DeploymentId;
 
@@ -303,8 +303,12 @@ impl MinimumValue {
 }
 
 #[async_trait::async_trait]
-impl Check for MinimumValue {
-    async fn check(&self, ctx: &Context, receipt: &ReceiptWithState<Checking>) -> CheckResult {
+impl Check<SignedReceipt> for MinimumValue {
+    async fn check(
+        &self,
+        ctx: &Context,
+        receipt: &ReceiptWithState<Checking, SignedReceipt>,
+    ) -> CheckResult {
         let agora_query = ctx
             .get()
             .ok_or(CheckError::Failed(anyhow!("Could not find agora query")))?;

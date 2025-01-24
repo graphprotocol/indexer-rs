@@ -11,7 +11,7 @@ use sqlx::{postgres::PgListener, PgPool};
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
-    ReceiptWithState,
+    ReceiptWithState, SignedReceipt,
 };
 use thegraph_core::alloy::primitives::Address;
 
@@ -153,11 +153,11 @@ impl DenyListCheck {
 }
 
 #[async_trait::async_trait]
-impl Check for DenyListCheck {
+impl Check<SignedReceipt> for DenyListCheck {
     async fn check(
         &self,
         ctx: &tap_core::receipt::Context,
-        _: &ReceiptWithState<Checking>,
+        _: &ReceiptWithState<Checking, SignedReceipt>,
     ) -> CheckResult {
         let Sender(receipt_sender) = ctx
             .get::<Sender>()

@@ -18,6 +18,7 @@ use axum::{
 };
 use tap_core::{
     manager::{adapters::ReceiptStore, Manager},
+    rav::ReceiptAggregateVoucher,
     receipt::{Context, SignedReceipt},
 };
 use tower_http::auth::AsyncAuthorizeRequest;
@@ -30,7 +31,7 @@ use crate::{error::IndexerServiceError, middleware::prometheus_metrics::MetricLa
 ///
 /// Requires SignedReceipt, MetricLabels and Arc<Context> extensions
 pub fn tap_receipt_authorize<T, B>(
-    tap_manager: Arc<Manager<T>>,
+    tap_manager: Arc<Manager<T, SignedReceipt, ReceiptAggregateVoucher>>,
     failed_receipt_metric: &'static prometheus::CounterVec,
 ) -> impl AsyncAuthorizeRequest<
     B,
@@ -40,7 +41,7 @@ pub fn tap_receipt_authorize<T, B>(
 > + Clone
        + Send
 where
-    T: ReceiptStore + Sync + Send + 'static,
+    T: ReceiptStore<SignedReceipt> + Sync + Send + 'static,
     B: Send,
 {
     move |request: Request<B>| {
@@ -91,7 +92,7 @@ mod tests {
         receipt::{
             checks::{Check, CheckError, CheckList, CheckResult},
             state::Checking,
-            ReceiptWithState,
+            ReceiptWithState, SignedReceipt,
         },
     };
     use test_assets::{
@@ -133,11 +134,11 @@ mod tests {
 
         struct MyCheck;
         #[async_trait::async_trait]
-        impl Check for MyCheck {
+        impl Check<SignedReceipt> for MyCheck {
             async fn check(
                 &self,
                 _: &tap_core::receipt::Context,
-                receipt: &ReceiptWithState<Checking>,
+                receipt: &ReceiptWithState<Checking, SignedReceipt>,
             ) -> CheckResult {
                 if receipt.signed_receipt().message.nonce == FAILED_NONCE {
                     Err(CheckError::Failed(anyhow::anyhow!("Failed")))

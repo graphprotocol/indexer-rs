@@ -6,6 +6,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use axum::{extract::Request, serve, ServiceExt};
+use clap::Parser;
 use indexer_config::{Config, DipsConfig, GraphNodeConfig, SubgraphConfig};
 use indexer_dips::{
     proto::graphprotocol::indexer::dips::agreement_service_server::{
@@ -19,14 +20,13 @@ use reqwest::Url;
 use tap_core::tap_eip712_domain;
 use tokio::{net::TcpListener, signal};
 use tower_http::normalize_path::NormalizePath;
+use tracing::info;
 
 use crate::{
     cli::Cli,
     database::{self, dips::PsqlAgreementStore},
     metrics::serve_metrics,
 };
-use clap::Parser;
-use tracing::info;
 
 mod release;
 mod router;

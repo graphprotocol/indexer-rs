@@ -22,9 +22,8 @@ pub mod server;
 pub mod store;
 
 use store::AgreementStore;
-use uuid::Uuid;
-
 use thiserror::Error;
+use uuid::Uuid;
 
 sol! {
     // EIP712 encoded bytes, ABI - ethers
@@ -264,9 +263,10 @@ pub async fn validate_and_cancel_agreement(
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::Arc,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
 
     use thegraph_core::{
         alloy::{
@@ -276,12 +276,12 @@ mod test {
         },
         attestation::eip712_domain,
     };
-
-    use crate::{CancellationRequest, DipsError};
-    use crate::{IndexingAgreementVoucher, SubgraphIndexingVoucherMetadata};
     use uuid::Uuid;
 
     pub use crate::store::{AgreementStore, InMemoryAgreementStore};
+    use crate::{
+        CancellationRequest, DipsError, IndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
+    };
 
     #[tokio::test]
     async fn test_validate_and_create_agreement() -> anyhow::Result<()> {
