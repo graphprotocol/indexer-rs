@@ -168,7 +168,7 @@ async fn test_start_tap_agent(pgpool: PgPool) {
         // This would select the 3 defined allocations in order
         let allocation_selected = (i % 3) as usize;
         let receipt = create_received_receipt(
-            &allocations.get(allocation_selected).unwrap(),
+            allocations.get(allocation_selected).unwrap(),
             &TAP_SIGNER.0,
             i,
             i + 1,

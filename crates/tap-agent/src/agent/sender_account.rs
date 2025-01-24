@@ -965,7 +965,7 @@ impl Actor for SenderAccount {
                     tracing::error!("SenderAllocation doesn't have a name");
                     return Ok(());
                 };
-                let Some(allocation_id) = allocation_id.split(':').last() else {
+                let Some(allocation_id) = allocation_id.split(':').next_back() else {
                     tracing::error!(%allocation_id, "Could not extract allocation_id from name");
                     return Ok(());
                 };
@@ -1003,7 +1003,7 @@ impl Actor for SenderAccount {
                     tracing::error!("SenderAllocation doesn't have a name");
                     return Ok(());
                 };
-                let Some(allocation_id) = allocation_id.split(':').last() else {
+                let Some(allocation_id) = allocation_id.split(':').next_back() else {
                     tracing::error!(%allocation_id, "Could not extract allocation_id from name");
                     return Ok(());
                 };

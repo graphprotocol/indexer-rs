@@ -243,7 +243,7 @@ impl Actor for SenderAccountsManager {
                     tracing::error!("SenderAllocation doesn't have a name");
                     return Ok(());
                 };
-                let Some(sender_id) = sender_id.split(':').last() else {
+                let Some(sender_id) = sender_id.split(':').next_back() else {
                     tracing::error!(%sender_id, "Could not extract sender_id from name");
                     return Ok(());
                 };

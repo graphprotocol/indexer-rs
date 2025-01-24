@@ -37,8 +37,7 @@ pub async fn request_handler(
 
     let attestable = response
         .headers()
-        .get(GRAPH_ATTESTABLE)
-        .map_or(false, |value| {
+        .get(GRAPH_ATTESTABLE).is_some_and(|value| {
             value.to_str().map(|value| value == "true").unwrap_or(false)
         });
 
