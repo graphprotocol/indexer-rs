@@ -606,7 +606,7 @@ impl Actor for SenderAccount {
             .set(config.trigger_value as f64);
 
         let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
-            .expect("Failed to create an endpoint for the sender aggregator")
+            .context("Failed to create an endpoint for the sender aggregator")?
             .connect_timeout(config.rav_request_timeout);
 
         let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
