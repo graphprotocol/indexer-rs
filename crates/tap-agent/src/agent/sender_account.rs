@@ -1211,7 +1211,6 @@ pub mod tests {
             PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         );
 
-        let server_url = get_grpc_url().await;
         let args = SenderAccountArgs {
             config,
             pgpool,
@@ -1221,7 +1220,7 @@ pub mod tests {
             escrow_subgraph,
             network_subgraph,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            sender_aggregator_endpoint: Url::parse(&server_url).unwrap(),
+            sender_aggregator_endpoint: Url::parse(&get_grpc_url().await).unwrap(),
             allocation_ids: HashSet::new(),
             prefix: Some(prefix.clone()),
             retry_interval: RETRY_DURATION,

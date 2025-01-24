@@ -1012,10 +1012,9 @@ pub mod tests {
                 .unwrap();
         }
 
-        let server_url = get_grpc_url().await;
         let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
-            server_url,
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1056,10 +1055,9 @@ pub mod tests {
                 .unwrap();
         }
 
-        let server_url = get_grpc_url().await;
         let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
-            server_url,
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1101,10 +1099,9 @@ pub mod tests {
 
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
-        let server_url = get_grpc_url().await;
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
-            server_url,
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1267,12 +1264,11 @@ pub mod tests {
     async fn test_close_allocation_no_pending_fees(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
-        let server_url = get_grpc_url().await;
 
         // create allocation
         let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
-            server_url,
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1365,10 +1361,9 @@ pub mod tests {
     async fn should_return_unaggregated_fees_without_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
 
-        let server_url = get_grpc_url().await;
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            server_url,
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1393,10 +1388,9 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_calculate_invalid_receipts_fee(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let server_url = get_grpc_url().await;
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            server_url,
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1427,10 +1421,9 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_unaggregated_fees_with_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let server_url = get_grpc_url().await;
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            server_url,
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1461,10 +1454,9 @@ pub mod tests {
     async fn test_store_failed_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
 
-        let server_url = get_grpc_url().await;
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            server_url,
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1496,11 +1488,10 @@ pub mod tests {
             }
         }
 
-        let server_url = get_grpc_url().await;
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            server_url,
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1540,10 +1531,9 @@ pub mod tests {
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
         store_rav(&pgpool, signed_rav, SENDER.1).await.unwrap();
 
-        let server_url = get_grpc_url().await;
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            server_url,
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1573,10 +1563,9 @@ pub mod tests {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // Create a sender_allocation.
-        let server_url = get_grpc_url().await;
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
-            server_url,
+            get_grpc_url().await,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
