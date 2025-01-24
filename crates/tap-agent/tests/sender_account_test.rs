@@ -1,3 +1,6 @@
+// Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{collections::HashSet, str::FromStr, sync::atomic::AtomicU32};
 
 use indexer_tap_agent::{
