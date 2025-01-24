@@ -135,11 +135,11 @@ impl RAVStore for TapAgentContext {
 mod test {
     use indexer_monitor::EscrowAccounts;
     use sqlx::PgPool;
-    use test_assets::TAP_SENDER as SENDER;
+    use test_assets::{TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
     use tokio::sync::watch;
 
     use super::*;
-    use crate::test::{create_rav, ALLOCATION_ID_0, SIGNER};
+    use crate::test::{create_rav, ALLOCATION_ID_0};
 
     #[derive(Debug)]
     struct TestableRav(SignedRAV);

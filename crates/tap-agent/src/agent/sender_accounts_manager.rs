@@ -609,7 +609,7 @@ mod tests {
     use reqwest::Url;
     use ruint::aliases::U256;
     use sqlx::{postgres::PgListener, PgPool};
-    use test_assets::{flush_messages, TAP_SENDER as SENDER};
+    use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
     use thegraph_core::alloy::hex::ToHexExt;
     use tokio::sync::{mpsc, mpsc::error::TryRecvError, watch, Notify};
 
@@ -625,8 +625,7 @@ mod tests {
         test::{
             actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor},
             create_rav, create_received_receipt, get_grpc_url, store_rav, store_receipt,
-            ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER_2, SIGNER,
-            TAP_EIP712_DOMAIN_SEPARATOR,
+            ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER_2, TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
 

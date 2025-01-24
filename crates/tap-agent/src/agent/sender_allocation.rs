@@ -871,7 +871,6 @@ pub mod tests {
     use serde_json::json;
     use sqlx::PgPool;
     use tap_aggregator::grpc::{tap_aggregator_client::TapAggregatorClient, RavResponse};
-    use tap_aggregator::server::run_server;
     use tap_core::receipt::{
         checks::{Check, CheckError, CheckList, CheckResult},
         state::Checking,
@@ -948,9 +947,7 @@ pub mod tests {
             None => create_mock_sender_account().await.1,
         };
 
-        let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
-            .unwrap()
-            .connect_timeout(Duration::default());
+        let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string()).unwrap();
 
         let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
             .await
@@ -1162,19 +1159,6 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_trigger_rav_request(pgpool: PgPool) {
-        // Start a TAP aggregator server.
-        let (_handle, aggregator_endpoint) = run_server(
-            0,
-            SIGNER.0.clone(),
-            vec![SIGNER.1].into_iter().collect(),
-            TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            100 * 1024,
-            100 * 1024,
-            1,
-        )
-        .await
-        .unwrap();
-
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
 
@@ -1208,7 +1192,7 @@ pub mod tests {
         // Create a sender_allocation.
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
-            "http://".to_owned() + &aggregator_endpoint.to_string(),
+            get_grpc_url().await,
             &mock_server.uri(),
             Some(sender_account),
         )
@@ -1614,19 +1598,6 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_rav_request_when_all_receipts_invalid(pgpool: PgPool) {
-        // Start a TAP aggregator server.
-        let (_handle, aggregator_endpoint) = run_server(
-            0,
-            SIGNER.0.clone(),
-            vec![SIGNER.1].into_iter().collect(),
-            TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            100 * 1024,
-            100 * 1024,
-            1,
-        )
-        .await
-        .unwrap();
-
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
 
@@ -1665,7 +1636,7 @@ pub mod tests {
 
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
-            "http://".to_owned() + &aggregator_endpoint.to_string(),
+            get_grpc_url().await,
             &mock_server.uri(),
             Some(sender_account),
         )
