@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::Context;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use futures::{stream, StreamExt};
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
@@ -610,12 +611,13 @@ impl Actor for SenderAccount {
 
         let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
             .await
-            .expect(&format!(
-                "Failed to connect to the TapAggregator endpoint '{}'",
-                endpoint.uri()
-            ))
+            .with_context(|| {
+                format!(
+                    "Failed to connect to the TapAggregator endpoint '{}'",
+                    endpoint.uri()
+                )
+            })?
             .send_compressed(tonic::codec::CompressionEncoding::Zstd);
-
         let state = State {
             prefix,
             sender_fee_tracker: SenderFeeTracker::new(config.rav_request_buffer),
@@ -1079,7 +1081,8 @@ pub mod tests {
         assert_not_triggered, assert_triggered,
         test::{
             actors::{create_mock_sender_allocation, MockSenderAllocation, TestableActor},
-            create_rav, store_rav_with_options, INDEXER, TAP_EIP712_DOMAIN_SEPARATOR,
+            create_rav, start_test_aggregatorr_server, store_rav_with_options, INDEXER,
+            TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
 
@@ -1201,6 +1204,12 @@ pub mod tests {
             ))
             .expect("Failed to update escrow_accounts channel");
 
+        // Start a new mock aggregator server for this test
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
+
         let prefix = format!(
             "test-{}",
             PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -1215,7 +1224,7 @@ pub mod tests {
             escrow_subgraph,
             network_subgraph,
             domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            sender_aggregator_endpoint: Url::parse(DUMMY_URL).unwrap(),
+            sender_aggregator_endpoint: Url::parse(&server_url).unwrap(),
             allocation_ids: HashSet::new(),
             prefix: Some(prefix.clone()),
             retry_interval: RETRY_DURATION,

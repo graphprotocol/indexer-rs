@@ -899,12 +899,10 @@ pub mod tests {
         },
         test::{
             actors::{create_mock_sender_account, TestableActor},
-            create_rav, create_received_receipt, store_invalid_receipt, store_rav, store_receipt,
-            INDEXER,
+            create_rav, create_received_receipt, start_test_aggregatorr_server,
+            store_invalid_receipt, store_rav, store_receipt, INDEXER,
         },
     };
-
-    const DUMMY_URL: &str = "http://localhost:1234";
 
     async fn mock_escrow_subgraph() -> (MockServer, MockGuard) {
         let mock_ecrow_subgraph_server: MockServer = MockServer::start().await;
@@ -1011,10 +1009,14 @@ pub mod tests {
                 .await
                 .unwrap();
         }
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
 
         let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            server_url,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1046,6 +1048,10 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_invalid_receipts_on_startup(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
         // Add receipts to the database.
         for i in 1..=10 {
@@ -1054,10 +1060,14 @@ pub mod tests {
                 .await
                 .unwrap();
         }
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
 
         let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            server_url,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1097,11 +1107,16 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_receive_new_receipt(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
+
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            server_url,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1264,11 +1279,15 @@ pub mod tests {
     async fn test_close_allocation_no_pending_fees(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
 
         // create allocation
         let (sender_allocation, _notify) = create_sender_allocation(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            server_url,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )
@@ -1378,9 +1397,14 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_unaggregated_fees_without_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            server_url,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1405,9 +1429,13 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_calculate_invalid_receipts_fee(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            server_url,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1438,9 +1466,13 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_unaggregated_fees_with_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            server_url,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1470,9 +1502,14 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_store_failed_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
+
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            server_url,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1504,10 +1541,14 @@ pub mod tests {
             }
         }
 
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            server_url,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1547,9 +1588,13 @@ pub mod tests {
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
         store_rav(&pgpool, signed_rav, SENDER.1).await.unwrap();
 
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
         let args = create_sender_allocation_args(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            server_url,
             &mock_escrow_subgraph_server.uri(),
             None,
         )
@@ -1579,9 +1624,13 @@ pub mod tests {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // Create a sender_allocation.
+        let (_server_handle, server_addr) = start_test_aggregatorr_server()
+            .await
+            .expect("Failed to start mock aggregator server");
+        let server_url = format!("http://{}", server_addr);
         let (sender_allocation, notify) = create_sender_allocation(
             pgpool.clone(),
-            DUMMY_URL.to_string(),
+            server_url,
             &mock_escrow_subgraph_server.uri(),
             Some(sender_account),
         )

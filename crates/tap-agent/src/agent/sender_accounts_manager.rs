@@ -624,8 +624,9 @@ mod tests {
         },
         test::{
             actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor},
-            create_rav, create_received_receipt, store_rav, store_receipt, ALLOCATION_ID_0,
-            ALLOCATION_ID_1, INDEXER, SENDER_2, SIGNER, TAP_EIP712_DOMAIN_SEPARATOR,
+            create_rav, create_received_receipt, start_test_aggregatorr_server, store_rav,
+            store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER_2, SIGNER,
+            TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
 
@@ -655,7 +656,6 @@ mod tests {
         }))
     }
 
-    const DUMMY_ADDR: &str = "http://localhost:1234";
     async fn create_sender_accounts_manager(
         pgpool: PgPool,
     ) -> (
@@ -671,6 +671,20 @@ mod tests {
 
         let (_, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
 
+        // Start a new mock aggregator server for this test
+        let (server1_url, server2_url) = {
+            let (_server1_handle, server1_addr) = start_test_aggregatorr_server()
+                .await
+                .expect("Failed to start the first mock aggregator server");
+            let server1_url = format!("http://{}", server1_addr);
+
+            let (_server2_handle, server2_addr) = start_test_aggregatorr_server()
+                .await
+                .expect("Failed to start the second mock aggregator server");
+            let server2_url = format!("http://{}", server2_addr);
+
+            (server1_url, server2_url)
+        };
         let prefix = format!(
             "test-{}",
             PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -684,8 +698,8 @@ mod tests {
             escrow_subgraph,
             network_subgraph,
             sender_aggregator_endpoints: HashMap::from([
-                (SENDER.1, Url::parse(DUMMY_ADDR).unwrap()),
-                (SENDER_2.1, Url::parse(DUMMY_ADDR).unwrap()),
+                (SENDER.1, Url::parse(&server1_url).unwrap()),
+                (SENDER_2.1, Url::parse(&server2_url).unwrap()),
             ]),
             prefix: Some(prefix.clone()),
         };
@@ -705,11 +719,25 @@ mod tests {
         join_handle.await.unwrap();
     }
 
-    const SENDER_DUMMY_ADDR: &str = "http://localhost:1234";
     async fn create_state(pgpool: PgPool) -> (String, State) {
         let config = get_config();
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
         let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
+
+        // Start a new mock aggregator server for this test
+        let (server1_url, server2_url) = {
+            let (_server1_handle, server1_addr) = start_test_aggregatorr_server()
+                .await
+                .expect("Failed to start the first mock aggregator server");
+            let server1_url = format!("http://{}", server1_addr);
+
+            let (_server2_handle, server2_addr) = start_test_aggregatorr_server()
+                .await
+                .expect("Failed to start the second mock aggregator server");
+            let server2_url = format!("http://{}", server2_addr);
+
+            (server1_url, server2_url)
+        };
 
         let prefix = format!(
             "test-{}",
@@ -729,8 +757,8 @@ mod tests {
                 escrow_subgraph: get_subgraph_client().await,
                 network_subgraph: get_subgraph_client().await,
                 sender_aggregator_endpoints: HashMap::from([
-                    (SENDER.1, Url::parse(SENDER_DUMMY_ADDR).unwrap()),
-                    (SENDER_2.1, Url::parse(SENDER_DUMMY_ADDR).unwrap()),
+                    (SENDER.1, Url::parse(&server1_url).unwrap()),
+                    (SENDER_2.1, Url::parse(&server2_url).unwrap()),
                 ]),
                 prefix: Some(prefix),
             },
