@@ -502,11 +502,7 @@ pub mod actors {
             message: Self::Msg,
             _state: &mut Self::State,
         ) -> Result<(), ActorProcessingErr> {
-            if let Err(e) = self.last_message_emitted.send(message).await {
-                // Log the error
-                eprintln!("Failed to send message: {:?}", e);
-                // Optionally, return the error if it's critical
-            }
+            self.last_message_emitted.send(message).await.unwrap();
             Ok(())
         }
     }
