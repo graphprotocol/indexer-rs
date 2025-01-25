@@ -70,7 +70,7 @@ const TAP_SENDER_TIMEOUT: Duration = Duration::from_secs(30);
 const RAV_REQUEST_BUFFER: Duration = Duration::from_secs(60);
 const ESCROW_POLLING_INTERVAL: Duration = Duration::from_secs(30);
 
-pub fn get_config() -> &'static SenderAccountConfig {
+pub fn get_sender_account_config() -> &'static SenderAccountConfig {
     Box::leak(Box::new(SenderAccountConfig {
         rav_request_buffer: RAV_REQUEST_BUFFER,
         max_amount_willing_to_lose_grt: TRIGGER_VALUE + 100,
@@ -186,7 +186,7 @@ pub async fn create_sender_accounts_manager(
     Arc<Notify>,
     (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>),
 ) {
-    let config = get_config();
+    let config = get_sender_account_config();
     let (_allocations_tx, allocations_rx) = watch::channel(HashMap::new());
     let escrow_subgraph = Box::leak(Box::new(
         SubgraphClient::new(

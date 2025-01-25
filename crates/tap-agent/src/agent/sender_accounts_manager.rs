@@ -620,9 +620,9 @@ mod tests {
         },
         test::{
             actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor},
-            create_rav, create_received_receipt, create_sender_accounts_manager, get_config,
-            get_grpc_url, store_rav, store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER,
-            SENDER_2, TAP_EIP712_DOMAIN_SEPARATOR,
+            create_rav, create_received_receipt, create_sender_accounts_manager, get_grpc_url,
+            get_sender_account_config, store_rav, store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_1,
+            INDEXER, SENDER_2, TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
 
@@ -646,7 +646,7 @@ mod tests {
     }
 
     async fn create_state(pgpool: PgPool) -> (String, State) {
-        let config = get_config();
+        let config = get_sender_account_config();
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
         let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
 

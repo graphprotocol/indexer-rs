@@ -17,13 +17,12 @@ use indexer_tap_agent::{
         },
         sender_allocation::SenderAllocationMessage,
     },
-    test::{actors::TestableActor, create_received_receipt, store_batch_receipts},
+    test::{actors::TestableActor, create_received_receipt, get_grpc_url, store_batch_receipts},
 };
 use ractor::{call, concurrency::JoinHandle, Actor, ActorRef};
 use reqwest::Url;
 use serde_json::json;
 use sqlx::PgPool;
-use tap_aggregator::server::run_server;
 use tap_core::receipt::{state::Checking, ReceiptWithState};
 use test_assets::{
     assert_while_retry, flush_messages, ALLOCATION_ID_0, ALLOCATION_ID_1, ALLOCATION_ID_2,
@@ -34,9 +33,15 @@ use thegraph_core::alloy::primitives::Address;
 use tokio::sync::{watch, Notify};
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
-async fn mock_escrow_subgraph_empty_response() -> MockServer {
-    let mock_ecrow_subgraph_server: MockServer = MockServer::start().await;
-    let _mock_ecrow_subgraph = mock_ecrow_subgraph_server
+pub async fn start_agent(
+    pgpool: PgPool,
+) -> (
+    String,
+    Arc<Notify>,
+    (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>),
+) {
+    let escrow_subgraph_mock_server: MockServer = MockServer::start().await;
+    escrow_subgraph_mock_server
         .register(Mock::given(method("POST")).respond_with(
             ResponseTemplate::new(200).set_body_json(json!({ "data": {
                     "transactions": [],
@@ -44,31 +49,8 @@ async fn mock_escrow_subgraph_empty_response() -> MockServer {
             })),
         ))
         .await;
-    mock_ecrow_subgraph_server
-}
-pub async fn start_agent(
-    pgpool: PgPool,
-) -> (
-    String,
-    Arc<Notify>,
-    (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>),
-    JoinHandle<()>,
-) {
-    let escrow_subgraph_mock_server = mock_escrow_subgraph_empty_response().await;
 
     let network_subgraph_mock_server = MockServer::start().await;
-    // Start a TAP aggregator server.
-    let (handle_aggregator, aggregator_endpoint) = run_server(
-        0,
-        TAP_SIGNER.0.clone(),
-        vec![TAP_SIGNER.1].into_iter().collect(),
-        TAP_EIP712_DOMAIN.clone(),
-        100 * 1024,
-        100 * 1024,
-        1,
-    )
-    .await
-    .unwrap();
 
     let (_escrow_tx, escrow_accounts) = watch::channel(EscrowAccounts::new(
         ESCROW_ACCOUNTS_BALANCES.clone(),
@@ -78,12 +60,10 @@ pub async fn start_agent(
 
     let (_allocations_tx, indexer_allocations1) = watch::channel(INDEXER_ALLOCATIONS.clone());
 
-    let sender_aggregator_endpoints: HashMap<_, _> = vec![(
-        TAP_SENDER.1,
-        Url::from_str(&format!("http://{}", aggregator_endpoint)).unwrap(),
-    )]
-    .into_iter()
-    .collect();
+    let sender_aggregator_endpoints: HashMap<_, _> =
+        vec![(TAP_SENDER.1, Url::from_str(&get_grpc_url().await).unwrap())]
+            .into_iter()
+            .collect();
 
     let http_client = reqwest::Client::new();
 
@@ -132,25 +112,18 @@ pub async fn start_agent(
         prefix: Some(prefix.clone()),
     };
 
-    // let actorr = SenderAccountsManager::spawn(None, SenderAccountsManager, args)
-    //     .await
-    //     .expect("Failed to start sender accounts manager actor.");
-    // actorr
-
     let actor = TestableActor::new(SenderAccountsManager);
     let notify = actor.notify.clone();
     (
         prefix,
         notify,
         Actor::spawn(None, actor, args).await.unwrap(),
-        handle_aggregator,
     )
 }
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn test_start_tap_agent(pgpool: PgPool) {
-    let (prefix, notify, (_actor_ref, _handle), _aggregator_handle) =
-        start_agent(pgpool.clone()).await;
+    let (prefix, notify, (_actor_ref, _handle)) = start_agent(pgpool.clone()).await;
     flush_messages(&notify).await;
 
     // verify if create sender account

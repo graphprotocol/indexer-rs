@@ -8,15 +8,14 @@ use indexer_tap_agent::{
         sender_account::SenderAccountMessage, sender_accounts_manager::SenderAccountsManagerMessage,
     },
     test::{
-        create_received_receipt, create_sender_accounts_manager, store_receipt, ALLOCATION_ID_0,
-        TAP_EIP712_DOMAIN_SEPARATOR,
+        create_received_receipt, create_sender_accounts_manager, get_grpc_url, store_receipt,
+        ALLOCATION_ID_0,
     },
 };
 use ractor::ActorRef;
 use reqwest::Url;
 use serde_json::json;
 use sqlx::PgPool;
-use tap_aggregator::server::run_server;
 use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
 use wiremock::{
     matchers::{body_string_contains, method},
@@ -25,27 +24,11 @@ use wiremock::{
 
 const TRIGGER_VALUE: u128 = 100;
 
+// This test should ensure the full flow starting from
+// sender account manager layer to work, up to closing an allocation
 #[sqlx::test(migrations = "../../migrations")]
-async fn test_account_manger_to_sender_allocation_closing(pgpool: PgPool) {
-    let (handle, aggregator_endpoint) = run_server(
-        0,
-        SIGNER.0.clone(),
-        vec![SIGNER.1].into_iter().collect(),
-        TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-        100 * 1024,
-        100 * 1024,
-        1,
-    )
-    .await
-    .unwrap();
-
-    let aggregator_endpoint = Some(
-        Url::from_str(&("http://".to_owned() + &aggregator_endpoint.to_string()))
-            .expect("This shouldn't fail"),
-    );
-
+async fn sender_account_manager_layer_test(pgpool: PgPool) {
     let mock_network_subgraph_server: MockServer = MockServer::start().await;
-
     mock_network_subgraph_server
         .register(
             Mock::given(method("POST"))
@@ -68,19 +51,17 @@ async fn test_account_manger_to_sender_allocation_closing(pgpool: PgPool) {
 
     let mock_escrow_subgraph_server: MockServer = MockServer::start().await;
     mock_escrow_subgraph_server
-        .register(
-            Mock::given(method("POST"))
-                //.and(body_string_contains("TapTransactions"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
-                        "transactions": [],
-                    }
-                }))),
-        )
+        .register(Mock::given(method("POST")).respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "data": {
+                    "transactions": [],
+                }
+            })),
+        ))
         .await;
 
     let (prefix, notify, (actor, join_handle)) = create_sender_accounts_manager()
         .pgpool(pgpool.clone())
-        .aggregator_endpoint(aggregator_endpoint.expect("should be valid"))
+        .aggregator_endpoint(Url::from_str(&get_grpc_url().await).unwrap())
         .network_subgraph(&mock_network_subgraph_server.uri())
         .escrow_subgraph(&mock_escrow_subgraph_server.uri())
         .call()
@@ -93,7 +74,7 @@ async fn test_account_manger_to_sender_allocation_closing(pgpool: PgPool) {
         .unwrap();
     flush_messages(&notify).await;
 
-    // // verify if create sender account
+    // verify if create sender account
     let actor_ref =
         ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix.clone(), SENDER.1));
     assert!(actor_ref.is_some());
@@ -103,9 +84,7 @@ async fn test_account_manger_to_sender_allocation_closing(pgpool: PgPool) {
         .await
         .unwrap();
 
-    // Create a sender allocation inside sender account
-
-    // // we expect it to create a sender allocation
+    // we expect it to create a sender allocation
     actor_ref
         .clone()
         .unwrap()
@@ -151,9 +130,4 @@ async fn test_account_manger_to_sender_allocation_closing(pgpool: PgPool) {
     // safely stop the manager
     actor.stop_and_wait(None, None).await.unwrap();
     join_handle.await.unwrap();
-
-    // Stop the TAP aggregator server.
-    handle.abort();
-    // handle.stop().unwrap();
-    // handle.stopped().await;
 }

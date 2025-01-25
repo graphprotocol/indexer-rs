@@ -5,15 +5,12 @@ use std::{collections::HashSet, str::FromStr, sync::atomic::AtomicU32};
 
 use indexer_tap_agent::{
     agent::sender_account::SenderAccountMessage,
-    test::{
-        create_received_receipt, create_sender_account, store_receipt, TAP_EIP712_DOMAIN_SEPARATOR,
-    },
+    test::{create_received_receipt, create_sender_account, get_grpc_url, store_receipt},
 };
 use ractor::concurrency::Duration;
 use reqwest::Url;
 use serde_json::json;
 use sqlx::PgPool;
-use tap_aggregator::server::run_server;
 use test_assets::{ALLOCATION_ID_0, TAP_SIGNER as SIGNER};
 use wiremock::{
     matchers::{body_string_contains, method},
@@ -24,51 +21,19 @@ pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
 const TRIGGER_VALUE: u128 = 500;
 const RECEIPT_LIMIT: u64 = 10000;
 
+// This test should ensure the full flow starting from
+// sender account layer to work, up to closing an allocation
 #[sqlx::test(migrations = "../../migrations")]
-async fn test_rav_marked_as_last_closing_sender_allocation(pgpool: PgPool) {
-    // Start a TAP aggregator server.
-    let (handle, aggregator_endpoint) = run_server(
-        0,
-        SIGNER.0.clone(),
-        vec![SIGNER.1].into_iter().collect(),
-        TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-        100 * 1024,
-        100 * 1024,
-        1,
-    )
-    .await
-    .unwrap();
-
+async fn sender_account_layer_test(pgpool: PgPool) {
     let mock_server = MockServer::start().await;
-
-    let no_allocations_closed_guard = mock_server
-        .register_as_scoped(
-            Mock::given(method("POST"))
-                .and(body_string_contains("ClosedAllocations"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
-                    "meta": {
-                        "block": {
-                            "number": 1,
-                            "hash": "hash",
-                            "timestamp": 1
-                        }
-                    },
-                    "allocations": []
-                }
-                }))),
-        )
-        .await;
-
     let mock_escrow_subgraph_server: MockServer = MockServer::start().await;
     mock_escrow_subgraph_server
-        .register(
-            Mock::given(method("POST"))
-                // .and(body_string_contains("TapTransactions"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
-                    "transactions": [],
-                }
-                }))),
-        )
+        .register(Mock::given(method("POST")).respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "data": {
+                "transactions": [],
+            }
+            })),
+        ))
         .await;
 
     let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 100);
@@ -84,10 +49,7 @@ async fn test_rav_marked_as_last_closing_sender_allocation(pgpool: PgPool) {
         .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
         .network_subgraph_endpoint(&mock_server.uri())
         .rav_request_receipt_limit(RECEIPT_LIMIT)
-        .aggregator_endpoint(
-            Url::from_str(&("http://".to_owned() + &aggregator_endpoint.to_string()))
-                .expect("This shouldnt fail"),
-        )
+        .aggregator_endpoint(Url::from_str(&get_grpc_url().await).unwrap())
         .call()
         .await;
 
@@ -99,7 +61,6 @@ async fn test_rav_marked_as_last_closing_sender_allocation(pgpool: PgPool) {
         .unwrap();
     notify.notified().await;
 
-    drop(no_allocations_closed_guard);
     mock_server
         .register(
             Mock::given(method("POST"))
@@ -138,8 +99,4 @@ async fn test_rav_marked_as_last_closing_sender_allocation(pgpool: PgPool) {
     .await
     .expect("Should not fail to fetch from scalar_tap_ravs");
     assert!(!rav_marked_as_last.is_empty());
-    // Stop the TAP aggregator server.
-    handle.abort();
-    // handle.stop().unwrap();
-    // handle.stopped().await;
 }

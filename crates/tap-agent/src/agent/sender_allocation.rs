@@ -410,11 +410,6 @@ impl SenderAllocationState {
         self.tap_manager.remove_obsolete_receipts().await?;
 
         let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
-        println!(
-            "Allocation that will look for {:#?} and signer {:#?}",
-            self.allocation_id.encode_hex(),
-            signers
-        );
         let res = sqlx::query!(
             r#"
             SELECT
