@@ -907,7 +907,6 @@ pub mod tests {
         },
     };
 
-    const DUMMY_URL: &str = "http://localhost:1234";
     const RECEIPT_LIMIT: u64 = 1000;
 
     async fn mock_escrow_subgraph() -> (MockServer, MockGuard) {
@@ -986,14 +985,14 @@ pub mod tests {
     #[bon::builder]
     async fn create_sender_allocation(
         pgpool: PgPool,
-        #[builder(default = DUMMY_URL.to_string())] sender_aggregator_endpoint: String,
+        sender_aggregator_endpoint: Option<String>,
         escrow_subgraph_endpoint: &str,
         #[builder(default = 1000)] rav_request_receipt_limit: u64,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
     ) -> (ActorRef<SenderAllocationMessage>, Arc<Notify>) {
         let args = create_sender_allocation_args(
             pgpool,
-            sender_aggregator_endpoint,
+            sender_aggregator_endpoint.unwrap_or(get_grpc_url().await),
             escrow_subgraph_endpoint,
             rav_request_receipt_limit,
             sender_account,
