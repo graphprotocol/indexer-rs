@@ -5,7 +5,9 @@ use std::{collections::HashSet, str::FromStr};
 
 use indexer_tap_agent::{
     agent::{
-        sender_account::SenderAccountMessage, sender_accounts_manager::SenderAccountsManagerMessage,
+        sender_account::SenderAccountMessage,
+        sender_accounts_manager::SenderAccountsManagerMessage,
+        sender_allocation::SenderAllocationMessage,
     },
     test::{
         create_received_receipt, create_sender_accounts_manager, get_grpc_url, store_receipt,
@@ -100,8 +102,13 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
         .unwrap()
         .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
         .unwrap();
+    flush_messages(&notify).await;
 
-    actor_ref.unwrap().stop_children_and_wait(None, None).await;
+    assert!(ActorRef::<SenderAllocationMessage>::where_is(format!(
+        "{}:{}:{}",
+        prefix, SENDER.1, ALLOCATION_ID_0,
+    ))
+    .is_none());
 
     // this calls and closes acounts manager sender accounts
     actor

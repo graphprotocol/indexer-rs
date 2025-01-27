@@ -60,7 +60,8 @@ lazy_static! {
 
 pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
 
-const TRIGGER_VALUE: u128 = 500;
+pub const TRIGGER_VALUE: u128 = 500;
+pub const RECEIPT_LIMIT: u64 = 10000;
 const ESCROW_VALUE: u128 = 1000;
 const BUFFER_DURATION: Duration = Duration::from_millis(100);
 const RETRY_DURATION: Duration = Duration::from_millis(1000);
@@ -87,12 +88,12 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
 #[bon::builder]
 pub async fn create_sender_account(
     pgpool: PgPool,
-    initial_allocation: HashSet<Address>,
-    rav_request_trigger_value: u128,
-    max_amount_willing_to_lose_grt: u128,
+    #[builder(default = HashSet::new())] initial_allocation: HashSet<Address>,
+    #[builder(default = TRIGGER_VALUE)] rav_request_trigger_value: u128,
+    #[builder(default = TRIGGER_VALUE)] max_amount_willing_to_lose_grt: u128,
     escrow_subgraph_endpoint: Option<&str>,
     network_subgraph_endpoint: Option<&str>,
-    rav_request_receipt_limit: u64,
+    #[builder(default = RECEIPT_LIMIT)] rav_request_receipt_limit: u64,
     aggregator_endpoint: Option<Url>,
 ) -> (
     ActorRef<SenderAccountMessage>,

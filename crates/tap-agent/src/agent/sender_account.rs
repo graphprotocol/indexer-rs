@@ -1075,7 +1075,7 @@ pub mod tests {
         assert_not_triggered, assert_triggered,
         test::{
             actors::{create_mock_sender_allocation, MockSenderAllocation},
-            create_rav, create_sender_account, store_rav_with_options,
+            create_rav, create_sender_account, store_rav_with_options, TRIGGER_VALUE,
         },
     };
 
@@ -1124,10 +1124,8 @@ pub mod tests {
     }
 
     pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
-    const TRIGGER_VALUE: u128 = 500;
     const ESCROW_VALUE: u128 = 1000;
     const BUFFER_DURATION: Duration = Duration::from_millis(100);
-    const RECEIPT_LIMIT: u64 = 10000;
     const RETRY_DURATION: Duration = Duration::from_millis(1000);
 
     #[rstest::fixture]
@@ -1177,12 +1175,8 @@ pub mod tests {
 
         let (sender_account, notify, prefix, _) = create_sender_account()
             .pgpool(pgpool)
-            .initial_allocation(HashSet::new())
-            .rav_request_trigger_value(TRIGGER_VALUE)
-            .max_amount_willing_to_lose_grt(TRIGGER_VALUE)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
             .call()
             .await;
 
@@ -1267,12 +1261,8 @@ pub mod tests {
 
         let (sender_account, notify, prefix, _) = create_sender_account()
             .pgpool(pgpool)
-            .initial_allocation(HashSet::new())
-            .rav_request_trigger_value(TRIGGER_VALUE)
-            .max_amount_willing_to_lose_grt(TRIGGER_VALUE)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
             .call()
             .await;
 
@@ -1354,14 +1344,7 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
-        let (sender_account, _, prefix, _) = create_sender_account()
-            .pgpool(pgpool)
-            .initial_allocation(HashSet::new())
-            .rav_request_trigger_value(TRIGGER_VALUE)
-            .max_amount_willing_to_lose_grt(TRIGGER_VALUE)
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
-            .call()
-            .await;
+        let (sender_account, _, prefix, _) = create_sender_account().pgpool(pgpool).call().await;
 
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
@@ -1387,14 +1370,8 @@ pub mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_receipt_fees_trigger_rav(pgpool: PgPool) {
-        let (sender_account, notify, prefix, _) = create_sender_account()
-            .pgpool(pgpool)
-            .initial_allocation(HashSet::new())
-            .rav_request_trigger_value(TRIGGER_VALUE)
-            .max_amount_willing_to_lose_grt(TRIGGER_VALUE)
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
-            .call()
-            .await;
+        let (sender_account, notify, prefix, _) =
+            create_sender_account().pgpool(pgpool).call().await;
 
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
@@ -1433,9 +1410,6 @@ pub mod tests {
     async fn test_counter_greater_limit_trigger_rav(pgpool: PgPool) {
         let (sender_account, notify, prefix, _) = create_sender_account()
             .pgpool(pgpool.clone())
-            .initial_allocation(HashSet::new())
-            .rav_request_trigger_value(TRIGGER_VALUE)
-            .max_amount_willing_to_lose_grt(TRIGGER_VALUE)
             .rav_request_receipt_limit(2)
             .call()
             .await;
@@ -1490,10 +1464,8 @@ pub mod tests {
         let (sender_account, _, prefix, _) = create_sender_account()
             .pgpool(pgpool)
             .initial_allocation(vec![ALLOCATION_ID_0].into_iter().collect())
-            .rav_request_trigger_value(TRIGGER_VALUE)
             .max_amount_willing_to_lose_grt(TRIGGER_VALUE + 1000)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
             .call()
             .await;
 
@@ -1537,10 +1509,7 @@ pub mod tests {
 
         let (sender_account, _notify, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
-            .initial_allocation(HashSet::new())
-            .rav_request_trigger_value(TRIGGER_VALUE)
             .max_amount_willing_to_lose_grt(TRIGGER_VALUE + 1000)
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
             .call()
             .await;
 
@@ -1555,10 +1524,7 @@ pub mod tests {
 
         let (sender_account, notify, prefix, _) = create_sender_account()
             .pgpool(pgpool)
-            .initial_allocation(HashSet::new())
-            .rav_request_trigger_value(TRIGGER_VALUE)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
             .call()
             .await;
 
@@ -1602,10 +1568,8 @@ pub mod tests {
         // Making sure no RAV is going to be triggered during the test
         let (sender_account, notify, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
-            .initial_allocation(HashSet::new())
             .rav_request_trigger_value(u128::MAX)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
             .call()
             .await;
 
@@ -1698,10 +1662,7 @@ pub mod tests {
 
         let (sender_account, _notify, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
-            .initial_allocation(HashSet::new())
-            .rav_request_trigger_value(TRIGGER_VALUE)
             .max_amount_willing_to_lose_grt(u128::MAX)
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
             .call()
             .await;
 
@@ -1728,10 +1689,8 @@ pub mod tests {
         // initialize with no trigger value and no max receipt deny
         let (sender_account, notify, prefix, _) = create_sender_account()
             .pgpool(pgpool.clone())
-            .initial_allocation(HashSet::new())
             .rav_request_trigger_value(trigger_rav_request)
             .max_amount_willing_to_lose_grt(u128::MAX)
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
             .call()
             .await;
 
@@ -1833,11 +1792,8 @@ pub mod tests {
 
         let (sender_account, notify, _, escrow_accounts_tx) = create_sender_account()
             .pgpool(pgpool.clone())
-            .initial_allocation(HashSet::new())
-            .rav_request_trigger_value(TRIGGER_VALUE)
             .max_amount_willing_to_lose_grt(u128::MAX)
             .escrow_subgraph_endpoint(&mock_server.uri())
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
             .call()
             .await;
 
@@ -1888,10 +1844,7 @@ pub mod tests {
 
         let (sender_account, notify, _, escrow_accounts_tx) = create_sender_account()
             .pgpool(pgpool.clone())
-            .initial_allocation(HashSet::new())
-            .rav_request_trigger_value(TRIGGER_VALUE)
             .max_amount_willing_to_lose_grt(u128::MAX)
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
             .call()
             .await;
 
@@ -1934,10 +1887,7 @@ pub mod tests {
 
         let (sender_account, notify, prefix, _) = create_sender_account()
             .pgpool(pgpool)
-            .initial_allocation(HashSet::new())
-            .rav_request_trigger_value(TRIGGER_VALUE)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
-            .rav_request_receipt_limit(RECEIPT_LIMIT)
             .call()
             .await;
 

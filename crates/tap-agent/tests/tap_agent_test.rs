@@ -1,12 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::HashMap,
-    str::FromStr,
-    sync::{atomic::AtomicU32, Arc},
-    time::Duration,
-};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use indexer_tap_agent::{
@@ -36,7 +31,6 @@ use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 pub async fn start_agent(
     pgpool: PgPool,
 ) -> (
-    String,
     Arc<Notify>,
     (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>),
 ) {
@@ -95,11 +89,7 @@ pub async fn start_agent(
         escrow_polling_interval: Duration::from_secs(10),
         tap_sender_timeout: Duration::from_secs(30),
     }));
-    pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
-    let prefix = format!(
-        "test-{}",
-        PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-    );
+
     let args = SenderAccountsManagerArgs {
         config,
         domain_separator: TAP_EIP712_DOMAIN.clone(),
@@ -109,26 +99,21 @@ pub async fn start_agent(
         escrow_subgraph,
         network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
-        prefix: Some(prefix.clone()),
+        prefix: None,
     };
 
     let actor = TestableActor::new(SenderAccountsManager);
     let notify = actor.notify.clone();
-    (
-        prefix,
-        notify,
-        Actor::spawn(None, actor, args).await.unwrap(),
-    )
+    (notify, Actor::spawn(None, actor, args).await.unwrap())
 }
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn test_start_tap_agent(pgpool: PgPool) {
-    let (prefix, notify, (_actor_ref, _handle)) = start_agent(pgpool.clone()).await;
+    let (notify, (_actor_ref, _handle)) = start_agent(pgpool.clone()).await;
     flush_messages(&notify).await;
 
     // verify if create sender account
-    let actor_ref =
-        ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix.clone(), TAP_SENDER.1));
+    let actor_ref = ActorRef::<SenderAccountMessage>::where_is(format!("{}", TAP_SENDER.1));
 
     assert!(actor_ref.is_some());
 
@@ -152,10 +137,8 @@ async fn test_start_tap_agent(pgpool: PgPool) {
     let res = store_batch_receipts(&pgpool, receipts).await;
     assert!(res.is_ok());
     let sender_allocation_ref = ActorRef::<SenderAllocationMessage>::where_is(format!(
-        "{}:{}:{}",
-        prefix.clone(),
-        TAP_SENDER.1,
-        ALLOCATION_ID_0,
+        "{}:{}",
+        TAP_SENDER.1, ALLOCATION_ID_0,
     ))
     .unwrap();
 

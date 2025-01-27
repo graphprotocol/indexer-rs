@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT * FROM scalar_tap_ravs WHERE last = true;\n            ",
+  "query": "\n                SELECT * FROM scalar_tap_ravs WHERE last = true AND allocation_id = $1;\n            ",
   "describe": {
     "columns": [
       {
@@ -50,7 +50,9 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Bpchar"
+      ]
     },
     "nullable": [
       false,
@@ -64,5 +66,5 @@
       true
     ]
   },
-  "hash": "4c857a980b1eddc4fa85ccad223762d85614c249e06180e0b8dda8e14eff93f4"
+  "hash": "6fc518e6b980f6dcc160d8310fc7e761625a862578b61ce925910c351edbbda8"
 }

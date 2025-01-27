@@ -870,10 +870,7 @@ pub mod tests {
     use ruint::aliases::U256;
     use serde_json::json;
     use sqlx::PgPool;
-    use tap_aggregator::{
-        grpc::{tap_aggregator_client::TapAggregatorClient, RavResponse},
-        server::run_server,
-    };
+    use tap_aggregator::grpc::{tap_aggregator_client::TapAggregatorClient, RavResponse};
     use tap_core::receipt::{
         checks::{Check, CheckError, CheckList, CheckResult},
         state::Checking,
@@ -907,8 +904,6 @@ pub mod tests {
         },
     };
 
-    const RECEIPT_LIMIT: u64 = 1000;
-
     async fn mock_escrow_subgraph() -> (MockServer, MockGuard) {
         let mock_ecrow_subgraph_server: MockServer = MockServer::start().await;
         let _mock_ecrow_subgraph = mock_ecrow_subgraph_server
@@ -925,12 +920,12 @@ pub mod tests {
                 .await;
         (mock_ecrow_subgraph_server, _mock_ecrow_subgraph)
     }
-
+    #[bon::builder]
     async fn create_sender_allocation_args(
         pgpool: PgPool,
         sender_aggregator_endpoint: String,
         escrow_subgraph_endpoint: &str,
-        rav_request_receipt_limit: u64,
+        #[builder(default = 1000)] rav_request_receipt_limit: u64,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
     ) -> SenderAllocationArgs {
         let escrow_subgraph = Box::leak(Box::new(
@@ -990,14 +985,14 @@ pub mod tests {
         #[builder(default = 1000)] rav_request_receipt_limit: u64,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
     ) -> (ActorRef<SenderAllocationMessage>, Arc<Notify>) {
-        let args = create_sender_allocation_args(
-            pgpool,
-            sender_aggregator_endpoint.unwrap_or(get_grpc_url().await),
-            escrow_subgraph_endpoint,
-            rav_request_receipt_limit,
-            sender_account,
-        )
-        .await;
+        let args = create_sender_allocation_args()
+            .pgpool(pgpool)
+            .sender_aggregator_endpoint(sender_aggregator_endpoint.unwrap_or(get_grpc_url().await))
+            .escrow_subgraph_endpoint(escrow_subgraph_endpoint)
+            .sender_account(sender_account.unwrap())
+            .rav_request_receipt_limit(rav_request_receipt_limit)
+            .call()
+            .await;
         let actor = TestableActor::new(SenderAllocation);
         let notify = actor.notify.clone();
 
@@ -1022,7 +1017,6 @@ pub mod tests {
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .sender_account(sender_account)
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .call()
             .await;
 
@@ -1065,7 +1059,6 @@ pub mod tests {
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .sender_account(sender_account)
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .call()
             .await;
 
@@ -1109,7 +1102,6 @@ pub mod tests {
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .sender_account(sender_account)
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .call()
             .await;
 
@@ -1203,7 +1195,6 @@ pub mod tests {
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_server.uri())
             .sender_account(sender_account)
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .call()
             .await;
 
@@ -1260,19 +1251,6 @@ pub mod tests {
     ) where
         Fut: Future<Output = ()>,
     {
-        // Start a TAP aggregator server.
-        let (handle, aggregator_endpoint) = run_server(
-            0,
-            SIGNER.0.clone(),
-            vec![SIGNER.1].into_iter().collect(),
-            TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            1000 * 1024,
-            1000 * 1024,
-            1,
-        )
-        .await
-        .unwrap();
-
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
 
@@ -1295,7 +1273,6 @@ pub mod tests {
         // Create a sender_allocation.
         let (sender_allocation, notify) = create_sender_allocation()
             .pgpool(pgpool.clone())
-            .sender_aggregator_endpoint("http://".to_owned() + &aggregator_endpoint.to_string())
             .escrow_subgraph_endpoint(&mock_server.uri())
             .rav_request_receipt_limit(2000)
             .sender_account(sender_account)
@@ -1334,11 +1311,6 @@ pub mod tests {
                 })
             )
         );
-
-        // Stop the TAP aggregator server.
-        handle.abort();
-        // handle.stop().unwrap();
-        // handle.stopped().await;
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1386,7 +1358,6 @@ pub mod tests {
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .sender_account(sender_account)
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .call()
             .await;
 
@@ -1480,14 +1451,12 @@ pub mod tests {
     async fn should_return_unaggregated_fees_without_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
 
-        let args = create_sender_allocation_args(
-            pgpool.clone(),
-            get_grpc_url().await,
-            &mock_escrow_subgraph_server.uri(),
-            RECEIPT_LIMIT,
-            None,
-        )
-        .await;
+        let args = create_sender_allocation_args()
+            .pgpool(pgpool.clone())
+            .sender_aggregator_endpoint(get_grpc_url().await)
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .call()
+            .await;
         let state = SenderAllocationState::new(args).await.unwrap();
 
         // Add receipts to the database.
@@ -1508,14 +1477,12 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_calculate_invalid_receipts_fee(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let args = create_sender_allocation_args(
-            pgpool.clone(),
-            get_grpc_url().await,
-            &mock_escrow_subgraph_server.uri(),
-            RECEIPT_LIMIT,
-            None,
-        )
-        .await;
+        let args = create_sender_allocation_args()
+            .pgpool(pgpool.clone())
+            .sender_aggregator_endpoint(get_grpc_url().await)
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .call()
+            .await;
         let state = SenderAllocationState::new(args).await.unwrap();
 
         // Add receipts to the database.
@@ -1542,14 +1509,12 @@ pub mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_return_unaggregated_fees_with_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let args = create_sender_allocation_args(
-            pgpool.clone(),
-            get_grpc_url().await,
-            &mock_escrow_subgraph_server.uri(),
-            RECEIPT_LIMIT,
-            None,
-        )
-        .await;
+        let args = create_sender_allocation_args()
+            .pgpool(pgpool.clone())
+            .sender_aggregator_endpoint(get_grpc_url().await)
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .call()
+            .await;
         let state = SenderAllocationState::new(args).await.unwrap();
 
         // Add the RAV to the database.
@@ -1576,14 +1541,12 @@ pub mod tests {
     async fn test_store_failed_rav(pgpool: PgPool) {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
 
-        let args = create_sender_allocation_args(
-            pgpool.clone(),
-            get_grpc_url().await,
-            &mock_escrow_subgraph_server.uri(),
-            RECEIPT_LIMIT,
-            None,
-        )
-        .await;
+        let args = create_sender_allocation_args()
+            .pgpool(pgpool.clone())
+            .sender_aggregator_endpoint(get_grpc_url().await)
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .call()
+            .await;
         let state = SenderAllocationState::new(args).await.unwrap();
 
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
@@ -1612,14 +1575,12 @@ pub mod tests {
         }
 
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        let args = create_sender_allocation_args(
-            pgpool.clone(),
-            get_grpc_url().await,
-            &mock_escrow_subgraph_server.uri(),
-            RECEIPT_LIMIT,
-            None,
-        )
-        .await;
+        let args = create_sender_allocation_args()
+            .pgpool(pgpool.clone())
+            .sender_aggregator_endpoint(get_grpc_url().await)
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .call()
+            .await;
         let mut state = SenderAllocationState::new(args).await.unwrap();
 
         let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
@@ -1655,14 +1616,12 @@ pub mod tests {
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
         store_rav(&pgpool, signed_rav, SENDER.1).await.unwrap();
 
-        let args = create_sender_allocation_args(
-            pgpool.clone(),
-            get_grpc_url().await,
-            &mock_escrow_subgraph_server.uri(),
-            RECEIPT_LIMIT,
-            None,
-        )
-        .await;
+        let args = create_sender_allocation_args()
+            .pgpool(pgpool.clone())
+            .sender_aggregator_endpoint(get_grpc_url().await)
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .call()
+            .await;
         let state = SenderAllocationState::new(args).await.unwrap();
 
         // mark rav as final

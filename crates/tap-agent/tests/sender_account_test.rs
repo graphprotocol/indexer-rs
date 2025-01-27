@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, str::FromStr, sync::atomic::AtomicU32};
+use std::{collections::HashSet, str::FromStr};
 
 use indexer_tap_agent::{
     agent::sender_account::SenderAccountMessage,
@@ -12,12 +12,12 @@ use reqwest::Url;
 use serde_json::json;
 use sqlx::PgPool;
 use test_assets::{ALLOCATION_ID_0, TAP_SIGNER as SIGNER};
+use thegraph_core::alloy::hex::ToHexExt;
 use wiremock::{
     matchers::{body_string_contains, method},
     Mock, MockServer, ResponseTemplate,
 };
 
-pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
 const TRIGGER_VALUE: u128 = 500;
 const RECEIPT_LIMIT: u64 = 10000;
 
@@ -43,7 +43,6 @@ async fn sender_account_layer_test(pgpool: PgPool) {
 
     let (sender_account, notify, _, _) = create_sender_account()
         .pgpool(pgpool.clone())
-        .initial_allocation(HashSet::new())
         .rav_request_trigger_value(TRIGGER_VALUE)
         .max_amount_willing_to_lose_grt(TRIGGER_VALUE + 1000)
         .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
@@ -92,8 +91,9 @@ async fn sender_account_layer_test(pgpool: PgPool) {
 
     let rav_marked_as_last = sqlx::query!(
         r#"
-                SELECT * FROM scalar_tap_ravs WHERE last = true;
+                SELECT * FROM scalar_tap_ravs WHERE last = true AND allocation_id = $1;
             "#,
+        ALLOCATION_ID_0.encode_hex()
     )
     .fetch_all(&pgpool)
     .await
