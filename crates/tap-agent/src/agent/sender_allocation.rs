@@ -923,7 +923,7 @@ pub mod tests {
     #[bon::builder]
     async fn create_sender_allocation_args(
         pgpool: PgPool,
-        sender_aggregator_endpoint: String,
+        sender_aggregator_endpoint: Option<String>,
         escrow_subgraph_endpoint: &str,
         #[builder(default = 1000)] rav_request_receipt_limit: u64,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
@@ -948,7 +948,8 @@ pub mod tests {
             None => create_mock_sender_account().await.1,
         };
 
-        let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string()).unwrap();
+        let endpoint =
+            Endpoint::new(sender_aggregator_endpoint.unwrap_or(get_grpc_url().await)).unwrap();
 
         let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
             .await
@@ -987,7 +988,7 @@ pub mod tests {
     ) -> (ActorRef<SenderAllocationMessage>, Arc<Notify>) {
         let args = create_sender_allocation_args()
             .pgpool(pgpool)
-            .sender_aggregator_endpoint(sender_aggregator_endpoint.unwrap_or(get_grpc_url().await))
+            .maybe_sender_aggregator_endpoint(sender_aggregator_endpoint)
             .escrow_subgraph_endpoint(escrow_subgraph_endpoint)
             .sender_account(sender_account.unwrap())
             .rav_request_receipt_limit(rav_request_receipt_limit)
@@ -1453,7 +1454,6 @@ pub mod tests {
 
         let args = create_sender_allocation_args()
             .pgpool(pgpool.clone())
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .call()
             .await;
@@ -1479,7 +1479,6 @@ pub mod tests {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args()
             .pgpool(pgpool.clone())
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .call()
             .await;
@@ -1511,7 +1510,6 @@ pub mod tests {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args()
             .pgpool(pgpool.clone())
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .call()
             .await;
@@ -1543,7 +1541,6 @@ pub mod tests {
 
         let args = create_sender_allocation_args()
             .pgpool(pgpool.clone())
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .call()
             .await;
@@ -1577,7 +1574,6 @@ pub mod tests {
         let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
         let args = create_sender_allocation_args()
             .pgpool(pgpool.clone())
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .call()
             .await;
@@ -1618,7 +1614,6 @@ pub mod tests {
 
         let args = create_sender_allocation_args()
             .pgpool(pgpool.clone())
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .call()
             .await;
@@ -1649,7 +1644,6 @@ pub mod tests {
         // Create a sender_allocation.
         let (sender_allocation, notify) = create_sender_allocation()
             .pgpool(pgpool.clone())
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .sender_account(sender_account)
             .call()
@@ -1736,7 +1730,6 @@ pub mod tests {
 
         let (sender_allocation, notify) = create_sender_allocation()
             .pgpool(pgpool.clone())
-            .sender_aggregator_endpoint(get_grpc_url().await)
             .escrow_subgraph_endpoint(&mock_server.uri())
             .sender_account(sender_account)
             .call()
