@@ -1464,7 +1464,6 @@ pub mod tests {
         let (sender_account, _, prefix, _) = create_sender_account()
             .pgpool(pgpool)
             .initial_allocation(vec![ALLOCATION_ID_0].into_iter().collect())
-            .max_amount_willing_to_lose_grt(TRIGGER_VALUE)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .call()
             .await;
@@ -1507,11 +1506,8 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, _notify, _, _) = create_sender_account()
-            .pgpool(pgpool.clone())
-            .max_amount_willing_to_lose_grt(TRIGGER_VALUE)
-            .call()
-            .await;
+        let (sender_account, _notify, _, _) =
+            create_sender_account().pgpool(pgpool.clone()).call().await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny);
