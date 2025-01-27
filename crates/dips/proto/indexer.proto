@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package graphprotocol.indexer.dips;
+
+service DipsService {
+  /**
+   * Propose a new _indexing agreement_ to an _indexer_.
+   *
+   * The _indexer_ can `ACCEPT` or `REJECT` the agreement.
+   */
+  rpc SubmitAgreementProposal(SubmitAgreementProposalRequest) returns (SubmitAgreementProposalResponse);
+
+  /**
+   * Request to cancel an existing _indexing agreement_.
+   */
+  rpc CancelAgreement(CancelAgreementRequest) returns (CancelAgreementResponse);
+}
+
+/**
+ * A request to propose a new _indexing agreement_ to an _indexer_.
+ *
+ * See the `DipsService.SubmitAgreementProposal` method.
+ */
+message SubmitAgreementProposalRequest {
+  bytes agreementId = 1; /// The ID of the agreement to register.
+  reserved 2 to 19;      /// Reserved for future use.
+
+  bytes signed_voucher = 20;    /// The voucher of the agreement.
+}
+
+/**
+ * A response to a request to propose a new _indexing agreement_ to an _indexer_.
+ *
+ * See the `DipsService.SubmitAgreementProposal` method.
+ */
+message SubmitAgreementProposalResponse {
+  ProposalResponse response = 1; /// The response to the agreement proposal.
+}
+
+/**
+ * The response to an _indexing agreement_ proposal.
+ */
+enum ProposalResponse {
+  ACCEPT = 0; /// The agreement proposal was accepted.
+  REJECT = 1; /// The agreement proposal was rejected.
+}
+
+/**
+ * A request to cancel an existing _indexing agreement_.
+ *
+ * See the `DipsService.CancelAgreement` method.
+ */
+message CancelAgreementRequest {
+  bytes agreementId = 1; /// The ID of the agreement to cancel.
+  reserved 2 to 20;      /// Reserved for future use.
+
+  bytes signature = 99; /// The signature of the message.
+}
+
+/**
+ * A response to a request to cancel an existing _indexing agreement_.
+ *
+ * See the `DipsService.CancelAgreement` method.
+ */
+message CancelAgreementResponse {
+  // Empty message
+}

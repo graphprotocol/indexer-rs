@@ -30,4 +30,5 @@ jobs:
             -ignore '.github/*.yaml' \
             -ignore 'migrations/*.sql' \
             -ignore 'crates/dips/src/proto/*' \
+            -ignore 'crates/dips/proto/*' \
             .

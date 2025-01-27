@@ -9,8 +9,8 @@ use axum::{extract::Request, serve, ServiceExt};
 use clap::Parser;
 use indexer_config::{Config, DipsConfig, GraphNodeConfig, SubgraphConfig};
 use indexer_dips::{
-    proto::graphprotocol::indexer::dips::agreement_service_server::{
-        AgreementService, AgreementServiceServer,
+    proto::indexer::graphprotocol::indexer::dips::dips_service_server::{
+        DipsService, DipsServiceServer,
     },
     server::DipsServer,
 };
@@ -165,9 +165,9 @@ pub async fn run() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_handler())
         .await?)
 }
-async fn start_dips_server(addr: SocketAddr, service: impl AgreementService) {
+async fn start_dips_server(addr: SocketAddr, service: impl DipsService) {
     tonic::transport::Server::builder()
-        .add_service(AgreementServiceServer::new(service))
+        .add_service(DipsServiceServer::new(service))
         .serve(addr)
         .await
         .expect("unable to start dips grpc");
