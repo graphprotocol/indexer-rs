@@ -52,6 +52,9 @@ bon = "3.3"
 test-assets = { path = "../test-assets", optional = true }
 
 [dev-dependencies]
+# Release-please breaks with cyclical dependencies if dev-dependencies
+# import the current crate. For testing we import the current crate with the `test`
+# feature enabled in order to enable test-only infrastructure within our app when running tests.
 my-crate = { package = "indexer-tap-agent", path = ".", features = ["test"] }
 tempfile = "3.8.0"
 wiremock.workspace = true
