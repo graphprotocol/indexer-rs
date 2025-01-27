@@ -144,6 +144,11 @@ pub async fn create_sender_account(
         PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     );
 
+    let aggregator_url = match aggregator_endpoint {
+        Some(url) => url,
+        None => Url::parse(&get_grpc_url().await).unwrap(),
+    };
+
     let args = SenderAccountArgs {
         config,
         pgpool,
@@ -153,8 +158,7 @@ pub async fn create_sender_account(
         escrow_subgraph,
         network_subgraph,
         domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-        sender_aggregator_endpoint: aggregator_endpoint
-            .unwrap_or(Url::parse(&get_grpc_url().await).unwrap()),
+        sender_aggregator_endpoint: aggregator_url,
         allocation_ids: HashSet::new(),
         prefix: Some(prefix.clone()),
         retry_interval: RETRY_DURATION,

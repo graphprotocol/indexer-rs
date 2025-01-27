@@ -948,8 +948,12 @@ pub mod tests {
             None => create_mock_sender_account().await.1,
         };
 
-        let endpoint =
-            Endpoint::new(sender_aggregator_endpoint.unwrap_or(get_grpc_url().await)).unwrap();
+        let aggregator_url = match sender_aggregator_endpoint {
+            Some(url) => url,
+            None => get_grpc_url().await,
+        };
+
+        let endpoint = Endpoint::new(aggregator_url).unwrap();
 
         let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
             .await
