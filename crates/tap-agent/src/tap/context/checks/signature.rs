@@ -6,7 +6,7 @@ use indexer_monitor::EscrowAccounts;
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
-    ReceiptWithState,
+    ReceiptWithState, SignedReceipt,
 };
 use thegraph_core::alloy::{primitives::U256, sol_types::Eip712Domain};
 use tokio::sync::watch::Receiver;
@@ -26,11 +26,11 @@ impl Signature {
 }
 
 #[async_trait::async_trait]
-impl Check for Signature {
+impl Check<SignedReceipt> for Signature {
     async fn check(
         &self,
         _: &tap_core::receipt::Context,
-        receipt: &ReceiptWithState<Checking>,
+        receipt: &ReceiptWithState<Checking, SignedReceipt>,
     ) -> CheckResult {
         let signer = receipt
             .signed_receipt()

@@ -71,14 +71,14 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
 }
 
 #[async_trait::async_trait]
-impl ReceiptRead for TapAgentContext {
+impl ReceiptRead<SignedReceipt> for TapAgentContext {
     type AdapterError = AdapterError;
 
     async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
         &self,
         timestamp_range_ns: R,
         receipts_limit: Option<u64>,
-    ) -> Result<Vec<ReceiptWithState<Checking>>, Self::AdapterError> {
+    ) -> Result<Vec<ReceiptWithState<Checking, SignedReceipt>>, Self::AdapterError> {
         let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
             .await
             .map_err(|e| AdapterError::ReceiptRead {
@@ -150,7 +150,7 @@ impl ReceiptRead for TapAgentContext {
                 Ok(ReceiptWithState::new(signed_receipt))
 
             })
-            .collect::<Result<Vec<ReceiptWithState<Checking>>, AdapterError>>()?;
+            .collect::<Result<Vec<ReceiptWithState<Checking, SignedReceipt>>, AdapterError>>()?;
 
         safe_truncate_receipts(&mut receipts, receipts_limit);
 
@@ -262,29 +262,30 @@ mod test {
     async fn retrieve_range_and_check<R: RangeBounds<u64> + Send>(
         storage_adapter: &TapAgentContext,
         escrow_accounts: Receiver<EscrowAccounts>,
-        received_receipt_vec: &[ReceiptWithState<Checking>],
+        received_receipt_vec: &[ReceiptWithState<Checking, SignedReceipt>],
         range: R,
     ) -> anyhow::Result<()> {
         let escrow_accounts_snapshot = escrow_accounts.borrow();
 
         // Filtering the received receipts by timestamp range
-        let received_receipt_vec: Vec<ReceiptWithState<Checking>> = received_receipt_vec
-            .iter()
-            .filter(|received_receipt| {
-                range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
-                    && (received_receipt.signed_receipt().message.allocation_id
-                        == storage_adapter.allocation_id)
-                    && (escrow_accounts_snapshot
-                        .get_sender_for_signer(
-                            &received_receipt
-                                .signed_receipt()
-                                .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
-                                .unwrap(),
-                        )
-                        .map_or(false, |v| v == storage_adapter.sender))
-            })
-            .cloned()
-            .collect();
+        let received_receipt_vec: Vec<ReceiptWithState<Checking, SignedReceipt>> =
+            received_receipt_vec
+                .iter()
+                .filter(|received_receipt| {
+                    range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
+                        && (received_receipt.signed_receipt().message.allocation_id
+                            == storage_adapter.allocation_id)
+                        && (escrow_accounts_snapshot
+                            .get_sender_for_signer(
+                                &received_receipt
+                                    .signed_receipt()
+                                    .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                                    .unwrap(),
+                            )
+                            .map_or(false, |v| v == storage_adapter.sender))
+                })
+                .cloned()
+                .collect();
 
         // Retrieving receipts in timestamp range from the database, convert to json Value
         let recovered_received_receipt_vec = storage_adapter
@@ -312,7 +313,7 @@ mod test {
     async fn remove_range_and_check<R: RangeBounds<u64> + Send>(
         storage_adapter: &TapAgentContext,
         escrow_accounts: Receiver<EscrowAccounts>,
-        received_receipt_vec: &[ReceiptWithState<Checking>],
+        received_receipt_vec: &[ReceiptWithState<Checking, SignedReceipt>],
         range: R,
     ) -> anyhow::Result<()> {
         let escrow_accounts_snapshot = escrow_accounts.borrow();
@@ -335,28 +336,29 @@ mod test {
 
         // Remove the received receipts by timestamp range for the correct (allocation_id,
         // sender)
-        let received_receipt_vec: Vec<(u64, &ReceiptWithState<Checking>)> = received_receipt_vec
-            .iter()
-            .filter(|(_, received_receipt)| {
-                if (received_receipt.signed_receipt().message.allocation_id
-                    == storage_adapter.allocation_id)
-                    && (escrow_accounts_snapshot
-                        .get_sender_for_signer(
-                            &received_receipt
-                                .signed_receipt()
-                                .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
-                                .unwrap(),
-                        )
-                        .map_or(false, |v| v == storage_adapter.sender))
-                {
-                    !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
-                } else {
-                    true
-                }
-                // !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
-            })
-            .cloned()
-            .collect();
+        let received_receipt_vec: Vec<(u64, &ReceiptWithState<Checking, SignedReceipt>)> =
+            received_receipt_vec
+                .iter()
+                .filter(|(_, received_receipt)| {
+                    if (received_receipt.signed_receipt().message.allocation_id
+                        == storage_adapter.allocation_id)
+                        && (escrow_accounts_snapshot
+                            .get_sender_for_signer(
+                                &received_receipt
+                                    .signed_receipt()
+                                    .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                                    .unwrap(),
+                            )
+                            .map_or(false, |v| v == storage_adapter.sender))
+                    {
+                        !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
+                    } else {
+                        true
+                    }
+                    // !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
+                })
+                .cloned()
+                .collect();
 
         // Removing the received receipts in timestamp range from the database
         storage_adapter

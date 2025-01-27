@@ -6,7 +6,7 @@ use indexer_monitor::EscrowAccounts;
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
-    ReceiptWithState,
+    ReceiptWithState, SignedReceipt,
 };
 use thegraph_core::alloy::primitives::U256;
 use tokio::sync::watch::Receiver;
@@ -24,11 +24,11 @@ impl SenderBalanceCheck {
 }
 
 #[async_trait::async_trait]
-impl Check for SenderBalanceCheck {
+impl Check<SignedReceipt> for SenderBalanceCheck {
     async fn check(
         &self,
         ctx: &tap_core::receipt::Context,
-        _: &ReceiptWithState<Checking>,
+        _: &ReceiptWithState<Checking, SignedReceipt>,
     ) -> CheckResult {
         let escrow_accounts_snapshot = self.escrow_accounts.borrow();
 

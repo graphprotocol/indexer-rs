@@ -11,7 +11,7 @@ use tap_core::{
     receipt::{
         checks::{Check, CheckError, CheckResult},
         state::Checking,
-        ReceiptWithState,
+        ReceiptWithState, SignedReceipt,
     },
     signed_message::MessageId,
 };
@@ -23,11 +23,11 @@ pub struct Value {
 }
 
 #[async_trait::async_trait]
-impl Check for Value {
+impl Check<SignedReceipt> for Value {
     async fn check(
         &self,
         _: &tap_core::receipt::Context,
-        receipt: &ReceiptWithState<Checking>,
+        receipt: &ReceiptWithState<Checking, SignedReceipt>,
     ) -> CheckResult {
         let value = receipt.signed_receipt().message.value;
         let query_id = receipt.signed_receipt().unique_hash();

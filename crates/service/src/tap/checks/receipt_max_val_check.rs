@@ -9,7 +9,7 @@ pub struct ReceiptMaxValueCheck {
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
-    ReceiptWithState,
+    ReceiptWithState, SignedReceipt,
 };
 
 impl ReceiptMaxValueCheck {
@@ -19,11 +19,11 @@ impl ReceiptMaxValueCheck {
 }
 
 #[async_trait::async_trait]
-impl Check for ReceiptMaxValueCheck {
+impl Check<SignedReceipt> for ReceiptMaxValueCheck {
     async fn check(
         &self,
         _: &tap_core::receipt::Context,
-        receipt: &ReceiptWithState<Checking>,
+        receipt: &ReceiptWithState<Checking, SignedReceipt>,
     ) -> CheckResult {
         let receipt_value = receipt.signed_receipt().message.value;
 
@@ -54,7 +54,9 @@ mod tests {
     use super::*;
     use crate::tap::Eip712Domain;
 
-    fn create_signed_receipt_with_custom_value(value: u128) -> ReceiptWithState<Checking> {
+    fn create_signed_receipt_with_custom_value(
+        value: u128,
+    ) -> ReceiptWithState<Checking, SignedReceipt> {
         let index: u32 = 0;
         let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
             .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
@@ -86,7 +88,7 @@ mod tests {
             &wallet,
         )
         .unwrap();
-        ReceiptWithState::<Checking>::new(receipt)
+        ReceiptWithState::new(receipt)
     }
 
     const RECEIPT_LIMIT: u128 = 10;

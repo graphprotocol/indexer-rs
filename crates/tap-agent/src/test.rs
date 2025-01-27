@@ -1,13 +1,14 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::net::SocketAddr;
+
 use bigdecimal::num_bigint::BigInt;
 use lazy_static::lazy_static;
 use sqlx::{types::BigDecimal, PgPool};
-use std::net::SocketAddr;
 use tap_aggregator::server::run_server;
 use tap_core::{
-    rav::{ReceiptAggregateVoucher, SignedRAV},
+    rav::{ReceiptAggregateVoucher, SignedRav},
     receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
     signed_message::EIP712SignedMessage,
     tap_eip712_domain,
@@ -37,7 +38,7 @@ pub fn create_rav(
     signer_wallet: PrivateKeySigner,
     timestamp_ns: u64,
     value_aggregate: u128,
-) -> SignedRAV {
+) -> SignedRav {
     EIP712SignedMessage::new(
         &TAP_EIP712_DOMAIN_SEPARATOR,
         ReceiptAggregateVoucher {
@@ -58,7 +59,7 @@ pub fn create_received_receipt(
     nonce: u64,
     timestamp_ns: u64,
     value: u128,
-) -> ReceiptWithState<Checking> {
+) -> ReceiptWithState<Checking, SignedReceipt> {
     let receipt = EIP712SignedMessage::new(
         &TAP_EIP712_DOMAIN_SEPARATOR,
         Receipt {
@@ -144,7 +145,7 @@ pub fn wallet(index: u32) -> (PrivateKeySigner, Address) {
 
 pub async fn store_rav(
     pgpool: &PgPool,
-    signed_rav: SignedRAV,
+    signed_rav: SignedRav,
     sender: Address,
 ) -> anyhow::Result<()> {
     store_rav_with_options(pgpool, signed_rav, sender, false, false).await
@@ -181,7 +182,7 @@ async fn create_grpc_aggregator() -> (JoinHandle<()>, SocketAddr) {
 
 pub async fn store_rav_with_options(
     pgpool: &PgPool,
-    signed_rav: SignedRAV,
+    signed_rav: SignedRav,
     sender: Address,
     last: bool,
     final_rav: bool,
@@ -426,7 +427,7 @@ pub mod actors {
             _state: &mut Self::State,
         ) -> Result<(), ActorProcessingErr> {
             match message {
-                SenderAllocationMessage::TriggerRAVRequest => {
+                SenderAllocationMessage::TriggerRavRequest => {
                     self.triggered_rav_request.notify_one();
                     if let Some(sender_account) = self.sender_actor.as_ref() {
                         let signed_rav = create_rav(

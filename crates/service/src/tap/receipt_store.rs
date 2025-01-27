@@ -6,7 +6,7 @@ use bigdecimal::num_bigint::BigInt;
 use sqlx::{types::BigDecimal, PgPool};
 use tap_core::{
     manager::adapters::ReceiptStore,
-    receipt::{state::Checking, ReceiptWithState},
+    receipt::{state::Checking, ReceiptWithState, SignedReceipt},
 };
 use thegraph_core::alloy::{hex::ToHexExt, sol_types::Eip712Domain};
 use tokio::{sync::mpsc::Receiver, task::JoinHandle};
@@ -96,12 +96,12 @@ impl IndexerTapContext {
 }
 
 #[async_trait::async_trait]
-impl ReceiptStore for IndexerTapContext {
+impl ReceiptStore<SignedReceipt> for IndexerTapContext {
     type AdapterError = AdapterError;
 
     async fn store_receipt(
         &self,
-        receipt: ReceiptWithState<Checking>,
+        receipt: ReceiptWithState<Checking, SignedReceipt>,
     ) -> Result<u64, Self::AdapterError> {
         let db_receipt = DatabaseReceipt::from_receipt(receipt, &self.domain_separator)?;
         self.receipt_producer.send(db_receipt).await.map_err(|e| {
@@ -125,7 +125,7 @@ pub struct DatabaseReceipt {
 
 impl DatabaseReceipt {
     fn from_receipt(
-        receipt: ReceiptWithState<Checking>,
+        receipt: ReceiptWithState<Checking, SignedReceipt>,
         separator: &Eip712Domain,
     ) -> anyhow::Result<Self> {
         let receipt = receipt.signed_receipt();

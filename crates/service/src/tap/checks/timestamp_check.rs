@@ -11,7 +11,7 @@ pub struct TimestampCheck {
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
     state::Checking,
-    ReceiptWithState,
+    ReceiptWithState, SignedReceipt,
 };
 
 impl TimestampCheck {
@@ -23,11 +23,11 @@ impl TimestampCheck {
 }
 
 #[async_trait::async_trait]
-impl Check for TimestampCheck {
+impl Check<SignedReceipt> for TimestampCheck {
     async fn check(
         &self,
         _: &tap_core::receipt::Context,
-        receipt: &ReceiptWithState<Checking>,
+        receipt: &ReceiptWithState<Checking, SignedReceipt>,
     ) -> CheckResult {
         let timestamp_now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -52,7 +52,9 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use tap_core::{
-        receipt::{checks::Check, state::Checking, Context, Receipt, ReceiptWithState},
+        receipt::{
+            checks::Check, state::Checking, Context, Receipt, ReceiptWithState, SignedReceipt,
+        },
         signed_message::EIP712SignedMessage,
         tap_eip712_domain,
     };
@@ -66,7 +68,7 @@ mod tests {
 
     fn create_signed_receipt_with_custom_timestamp(
         timestamp_ns: u64,
-    ) -> ReceiptWithState<Checking> {
+    ) -> ReceiptWithState<Checking, SignedReceipt> {
         let index: u32 = 0;
         let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
             .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
@@ -89,7 +91,7 @@ mod tests {
             &wallet,
         )
         .unwrap();
-        ReceiptWithState::<Checking>::new(receipt)
+        ReceiptWithState::new(receipt)
     }
 
     #[tokio::test]

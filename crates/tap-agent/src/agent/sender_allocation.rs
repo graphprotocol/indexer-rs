@@ -14,12 +14,12 @@ use ractor::{Actor, ActorProcessingErr, ActorRef};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::grpc::{tap_aggregator_client::TapAggregatorClient, RavRequest};
 use tap_core::{
-    manager::adapters::RAVRead,
-    rav::{RAVRequest, ReceiptAggregateVoucher, SignedRAV},
+    manager::adapters::RavRead,
+    rav::{ReceiptAggregateVoucher, SignedRav},
     receipt::{
         checks::{Check, CheckList},
         state::Failed,
-        Context, ReceiptWithState,
+        Context, ReceiptWithState, SignedReceipt,
     },
     signed_message::EIP712SignedMessage,
 };
@@ -90,7 +90,8 @@ pub enum RavError {
     Other(#[from] anyhow::Error),
 }
 
-type TapManager = tap_core::manager::Manager<TapAgentContext>;
+type TapManager =
+    tap_core::manager::Manager<TapAgentContext, SignedReceipt, ReceiptAggregateVoucher>;
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 pub struct SenderAllocation;
@@ -98,7 +99,7 @@ pub struct SenderAllocation;
 pub struct SenderAllocationState {
     unaggregated_fees: UnaggregatedReceipts,
     invalid_receipts_fees: UnaggregatedReceipts,
-    latest_rav: Option<SignedRAV>,
+    latest_rav: Option<SignedRav>,
     pgpool: PgPool,
     tap_manager: TapManager,
     allocation_id: Address,
@@ -148,7 +149,7 @@ pub struct SenderAllocationArgs {
 #[derive(Debug)]
 pub enum SenderAllocationMessage {
     NewReceipt(NewReceiptNotification),
-    TriggerRAVRequest,
+    TriggerRavRequest,
     #[cfg(test)]
     GetUnaggregatedReceipts(ractor::RpcReplyPort<UnaggregatedReceipts>),
 }
@@ -304,7 +305,7 @@ impl Actor for SenderAllocation {
                         ReceiptFees::NewReceipt(fees, timestamp_ns),
                     ))?;
             }
-            SenderAllocationMessage::TriggerRAVRequest => {
+            SenderAllocationMessage::TriggerRavRequest => {
                 let rav_result = if state.unaggregated_fees.value > 0 {
                     state.request_rav().await.map(|_| state.latest_rav.clone())
                 } else {
@@ -345,7 +346,7 @@ impl SenderAllocationState {
             config,
         }: SenderAllocationArgs,
     ) -> anyhow::Result<Self> {
-        let required_checks: Vec<Arc<dyn Check + Send + Sync>> = vec![
+        let required_checks: Vec<Arc<dyn Check<SignedReceipt> + Send + Sync>> = vec![
             Arc::new(
                 AllocationId::new(
                     config.indexer_address,
@@ -525,9 +526,9 @@ impl SenderAllocationState {
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
-    async fn rav_requester_single(&mut self) -> Result<SignedRAV, RavError> {
+    async fn rav_requester_single(&mut self) -> Result<SignedRav, RavError> {
         tracing::trace!("rav_requester_single()");
-        let RAVRequest {
+        let tap_core::rav::RavRequest {
             valid_receipts,
             previous_rav,
             invalid_receipts,
@@ -546,7 +547,7 @@ impl SenderAllocationState {
             invalid_receipts.is_empty(),
         ) {
             // All receipts are invalid
-            (Err(tap_core::Error::NoValidReceiptsForRAVRequest), true, false) => {
+            (Err(tap_core::Error::NoValidReceiptsForRavRequest), true, false) => {
                 tracing::warn!(
                     "Found {} invalid receipts for allocation {} and sender {}.",
                     invalid_receipts.len(),
@@ -647,7 +648,7 @@ impl SenderAllocationState {
                     // The 3 errors below signal an invalid RAV, which should be about problems with the
                     // sender. The sender could be malicious.
                     Err(
-                        e @ tap_core::Error::InvalidReceivedRAV {
+                        e @ tap_core::Error::InvalidReceivedRav {
                             expected_rav: _,
                             received_rav: _,
                         }
@@ -675,7 +676,7 @@ impl SenderAllocationState {
                 }
                 Ok(signed_rav)
             }
-            (Err(tap_core::Error::NoValidReceiptsForRAVRequest), true, true) => Err(anyhow!(
+            (Err(tap_core::Error::NoValidReceiptsForRavRequest), true, true) => Err(anyhow!(
                 "It looks like there are no valid receipts for the RAV request.\
                 This may happen if your `rav_request_trigger_value` is too low \
                 and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
@@ -725,7 +726,7 @@ impl SenderAllocationState {
 
     async fn store_invalid_receipts(
         &mut self,
-        receipts: &[ReceiptWithState<Failed>],
+        receipts: &[ReceiptWithState<Failed, SignedReceipt>],
     ) -> anyhow::Result<()> {
         let reciepts_len = receipts.len();
         let mut reciepts_signers = Vec::with_capacity(reciepts_len);
@@ -874,7 +875,7 @@ pub mod tests {
     use tap_core::receipt::{
         checks::{Check, CheckError, CheckList, CheckResult},
         state::Checking,
-        Context, ReceiptWithState,
+        Context, ReceiptWithState, SignedReceipt,
     };
     use test_assets::{
         flush_messages, ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
@@ -1200,7 +1201,7 @@ pub mod tests {
 
         // Trigger a RAV request manually and wait for updated fees.
         sender_allocation
-            .cast(SenderAllocationMessage::TriggerRAVRequest)
+            .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
         flush_messages(&notify).await;
@@ -1462,11 +1463,11 @@ pub mod tests {
         struct FailingCheck;
 
         #[async_trait::async_trait]
-        impl Check for FailingCheck {
+        impl Check<SignedReceipt> for FailingCheck {
             async fn check(
                 &self,
                 _: &tap_core::receipt::Context,
-                _receipt: &ReceiptWithState<Checking>,
+                _receipt: &ReceiptWithState<Checking, SignedReceipt>,
             ) -> CheckResult {
                 Err(CheckError::Failed(anyhow::anyhow!("Failing check")))
             }
@@ -1558,7 +1559,7 @@ pub mod tests {
         // Trigger a RAV request manually and wait for updated fees.
         // this should fail because there's no receipt with valid timestamp
         sender_allocation
-            .cast(SenderAllocationMessage::TriggerRAVRequest)
+            .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
         flush_messages(&notify).await;
@@ -1645,7 +1646,7 @@ pub mod tests {
         // Trigger a RAV request manually and wait for updated fees.
         // this should fail because there's no receipt with valid timestamp
         sender_allocation
-            .cast(SenderAllocationMessage::TriggerRAVRequest)
+            .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
         flush_messages(&notify).await;

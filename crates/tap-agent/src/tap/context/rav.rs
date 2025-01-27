@@ -9,8 +9,8 @@ use bigdecimal::{
 };
 use sqlx::types::{chrono, BigDecimal};
 use tap_core::{
-    manager::adapters::{RAVRead, RAVStore},
-    rav::{ReceiptAggregateVoucher, SignedRAV},
+    manager::adapters::{RavRead, RavStore},
+    rav::{ReceiptAggregateVoucher, SignedRav},
 };
 #[allow(deprecated)]
 use thegraph_core::alloy::signers::Signature;
@@ -19,10 +19,10 @@ use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
 use super::{error::AdapterError, TapAgentContext};
 
 #[async_trait::async_trait]
-impl RAVRead for TapAgentContext {
+impl RavRead<ReceiptAggregateVoucher> for TapAgentContext {
     type AdapterError = AdapterError;
 
-    async fn last_rav(&self) -> Result<Option<SignedRAV>, Self::AdapterError> {
+    async fn last_rav(&self) -> Result<Option<SignedRav>, Self::AdapterError> {
         let row = sqlx::query!(
             r#"
                 SELECT signature, allocation_id, timestamp_ns, value_aggregate
@@ -78,7 +78,7 @@ impl RAVRead for TapAgentContext {
                     timestampNs: timestamp_ns,
                     valueAggregate: value_aggregate,
                 };
-                Ok(Some(SignedRAV {
+                Ok(Some(SignedRav {
                     message: rav,
                     signature,
                 }))
@@ -89,10 +89,10 @@ impl RAVRead for TapAgentContext {
 }
 
 #[async_trait::async_trait]
-impl RAVStore for TapAgentContext {
+impl RavStore<ReceiptAggregateVoucher> for TapAgentContext {
     type AdapterError = AdapterError;
 
-    async fn update_last_rav(&self, rav: SignedRAV) -> Result<(), Self::AdapterError> {
+    async fn update_last_rav(&self, rav: SignedRav) -> Result<(), Self::AdapterError> {
         let signature_bytes: Vec<u8> = rav.signature.as_bytes().to_vec();
 
         let _fut = sqlx::query!(
@@ -142,7 +142,7 @@ mod test {
     use crate::test::{create_rav, ALLOCATION_ID_0};
 
     #[derive(Debug)]
-    struct TestableRav(SignedRAV);
+    struct TestableRav(SignedRav);
 
     impl Eq for TestableRav {}
 
