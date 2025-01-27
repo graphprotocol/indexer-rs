@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package graphprotocol.indexer.dips;
+
+service DipsService {
+  /**
+   * Propose a new _indexing agreement_ to an _indexer_.
+   *
+   * The _indexer_ can `ACCEPT` or `REJECT` the agreement.
+   */
+  rpc SubmitAgreementProposal(SubmitAgreementProposalRequest) returns (SubmitAgreementProposalResponse);
+
+  /**
+   * Request to cancel an existing _indexing agreement_.
+   */
+  rpc CancelAgreement(CancelAgreementRequest) returns (CancelAgreementResponse);
+}
+
+/**
+ * A request to propose a new _indexing agreement_ to an _indexer_.
+ *
+ * See the `DipsService.SubmitAgreementProposal` method.
+ */
+message SubmitAgreementProposalRequest {
+  bytes agreementId = 1; /// The ID of the agreement to register.
+  reserved 2 to 19;      /// Reserved for future use.
+
+  Voucher voucher = 20;    /// The voucher of the agreement.
+
+  bytes signature = 99; /// The signature of the message.
+}
+
+/**
+ * A voucher of an _indexing agreement_.
+ */
+message Voucher {
+  bytes payer = 1;     /// The agreement payer.
+  bytes recipient = 2; /// The voucher recipient address.
+  bytes service = 3;   /// Service address that will initiate the payment collection.
+  reserved 4 to 9;     /// Reserved for future use.
+
+  uint32 durationEpochs = 10; /// The duration of the agreement in epochs.
+  reserved 11 to 19;          /// Reserved for future use.
+
+  bytes maxInitialAmount = 20;         /// The maximum amount, in _wei GRT_, that can be collected for the initial subgraph sync.
+  bytes minOngoingAmountPerEpoch = 21; /// The maximum amount, in _wei GRT_, that can be collected per epoch (after the initial sync).
+  reserved 22 to 29;                   /// Reserved for future use.
+
+  uint32 maxEpochsPerCollection = 30; /// The maximum number of epochs that can be collected at once.
+  uint32 minEpochsPerCollection = 31; /// The minimum number of epochs that can be collected at once.
+  reserved 32 to 39;                  /// Reserved for future use.
+
+  VoucherMetadata metadata = 50; /// The voucher metadata.
+}
+
+
+/**
+ * The indexing agreement voucher metadata.
+ */
+message VoucherMetadata {
+  bytes deploymentId = 1; /// The Subgraph deployment ID to index.
+  reserved 2 to 19;       /// Reserved for future use.
+
+  bytes pricePerBlock = 20;          /// The amount to pay per indexed block in _wei GRT per block_.
+  bytes pricePerEntityPerEpoch = 21; /// The amount to pay per indexed and stored entity in _wei GRT per entity per epoch_.
+}
+
+/**
+ * A response to a request to propose a new _indexing agreement_ to an _indexer_.
+ *
+ * See the `DipsService.SubmitAgreementProposal` method.
+ */
+message SubmitAgreementProposalResponse {
+  ProposalResponse response = 1; /// The response to the agreement proposal.
+}
+
+/**
+ * The response to an _indexing agreement_ proposal.
+ */
+enum ProposalResponse {
+  ACCEPT = 0; /// The agreement proposal was accepted.
+  REJECT = 1; /// The agreement proposal was rejected.
+}
+
+/**
+ * A request to cancel an existing _indexing agreement_.
+ *
+ * See the `DipsService.CancelAgreement` method.
+ */
+message CancelAgreementRequest {
+  bytes agreementId = 1; /// The ID of the agreement to cancel.
+  reserved 2 to 20;      /// Reserved for future use.
+
+  bytes signature = 99; /// The signature of the message.
+}
+
+/**
+ * A response to a request to cancel an existing _indexing agreement_.
+ *
+ * See the `DipsService.CancelAgreement` method.
+ */
+message CancelAgreementResponse {
+  // Empty message
+}
