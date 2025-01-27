@@ -62,6 +62,7 @@ pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
 
 pub const TRIGGER_VALUE: u128 = 500;
 pub const RECEIPT_LIMIT: u64 = 10000;
+pub const DUMMY_URL: &str = "http://localhost:1234";
 const ESCROW_VALUE: u128 = 1000;
 const BUFFER_DURATION: Duration = Duration::from_millis(100);
 const RETRY_DURATION: Duration = Duration::from_millis(1000);
@@ -116,10 +117,8 @@ pub async fn create_sender_account(
         SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(
-                network_subgraph_endpoint.unwrap_or(&get_grpc_url().await),
-            )
-            .unwrap(),
+            DeploymentDetails::for_query_url(network_subgraph_endpoint.unwrap_or(DUMMY_URL))
+                .unwrap(),
         )
         .await,
     ));
@@ -127,10 +126,8 @@ pub async fn create_sender_account(
         SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(
-                escrow_subgraph_endpoint.unwrap_or(&get_grpc_url().await),
-            )
-            .unwrap(),
+            DeploymentDetails::for_query_url(escrow_subgraph_endpoint.unwrap_or(DUMMY_URL))
+                .unwrap(),
         )
         .await,
     ));
@@ -193,8 +190,7 @@ pub async fn create_sender_accounts_manager(
         SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(escrow_subgraph.unwrap_or(&get_grpc_url().await))
-                .unwrap(),
+            DeploymentDetails::for_query_url(escrow_subgraph.unwrap_or(DUMMY_URL)).unwrap(),
         )
         .await,
     ));
@@ -202,8 +198,7 @@ pub async fn create_sender_accounts_manager(
         SubgraphClient::new(
             reqwest::Client::new(),
             None,
-            DeploymentDetails::for_query_url(network_subgraph.unwrap_or(&get_grpc_url().await))
-                .unwrap(),
+            DeploymentDetails::for_query_url(network_subgraph.unwrap_or(DUMMY_URL)).unwrap(),
         )
         .await,
     ));

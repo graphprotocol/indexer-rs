@@ -625,13 +625,14 @@ mod tests {
             INDEXER, SENDER_2, TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
+    const DUMMY_URL: &str = "http://localhost:1234";
 
     async fn get_subgraph_client() -> &'static SubgraphClient {
         Box::leak(Box::new(
             SubgraphClient::new(
                 reqwest::Client::new(),
                 None,
-                DeploymentDetails::for_query_url(&get_grpc_url().await).unwrap(),
+                DeploymentDetails::for_query_url(DUMMY_URL).unwrap(),
             )
             .await,
         ))
