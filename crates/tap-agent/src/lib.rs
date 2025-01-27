@@ -21,7 +21,6 @@ pub mod cli;
 pub mod database;
 pub mod metrics;
 pub mod tap;
-pub mod tracker;
-
-#[cfg(test)]
+#[cfg(any(test, feature = "test"))]
 pub mod test;
+pub mod tracker;

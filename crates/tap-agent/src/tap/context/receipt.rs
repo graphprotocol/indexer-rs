@@ -274,14 +274,14 @@ mod test {
                 range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
                     && (received_receipt.signed_receipt().message.allocation_id
                         == storage_adapter.allocation_id)
-                    && (escrow_accounts_snapshot
+                    && escrow_accounts_snapshot
                         .get_sender_for_signer(
                             &received_receipt
                                 .signed_receipt()
                                 .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
                                 .unwrap(),
                         )
-                        .map_or(false, |v| v == storage_adapter.sender))
+                        .is_ok_and(|v| v == storage_adapter.sender)
             })
             .cloned()
             .collect();
@@ -340,14 +340,14 @@ mod test {
             .filter(|(_, received_receipt)| {
                 if (received_receipt.signed_receipt().message.allocation_id
                     == storage_adapter.allocation_id)
-                    && (escrow_accounts_snapshot
+                    && escrow_accounts_snapshot
                         .get_sender_for_signer(
                             &received_receipt
                                 .signed_receipt()
                                 .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
                                 .unwrap(),
                         )
-                        .map_or(false, |v| v == storage_adapter.sender))
+                        .is_ok_and(|v| v == storage_adapter.sender)
                 {
                     !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
                 } else {

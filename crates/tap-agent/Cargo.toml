@@ -8,6 +8,9 @@ publish = false
 name = "indexer-tap-agent"
 path = "src/main.rs"
 
+[features]
+test = ["dep:test-assets"]
+
 [dependencies]
 indexer-monitor = { path = "../monitor" }
 indexer-watcher = { path = "../watcher" }
@@ -45,6 +48,8 @@ ractor = { version = "0.14", features = [
 ], default-features = false }
 tap_aggregator.workspace = true
 futures = { version = "0.3.30", default-features = false }
+bon = "3.3"
+test-assets = { path = "../test-assets" , optional=true}
 
 [dev-dependencies]
 tempfile = "3.8.0"
@@ -52,3 +57,6 @@ wiremock.workspace = true
 wiremock-grpc = "0.0.3-alpha3"
 test-assets = { path = "../test-assets" }
 test-log = { version = "0.2.12", default-features = false }
+bon = "3.3"
+rstest = "0.24.0"
+indexer-tap-agent = { path = ".", features = ["test"] }

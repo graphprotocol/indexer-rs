@@ -40,7 +40,7 @@ impl Check for SenderBalanceCheck {
         // `tap-agent`.
         if !escrow_accounts_snapshot
             .get_balance_for_sender(receipt_sender)
-            .map_or(false, |balance| balance > U256::ZERO)
+            .is_ok_and(|balance| balance > U256::ZERO)
         {
             return Err(CheckError::Failed(anyhow!(
                 "Receipt sender `{}` does not have a sufficient balance",

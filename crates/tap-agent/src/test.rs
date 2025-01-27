@@ -1,10 +1,21 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    sync::{atomic::AtomicU32, Arc},
+    time::Duration,
+};
+
+use actors::TestableActor;
+use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
+use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use lazy_static::lazy_static;
+use ractor::{concurrency::JoinHandle, Actor, ActorRef};
+use reqwest::Url;
 use sqlx::{types::BigDecimal, PgPool};
-use std::net::SocketAddr;
 use tap_aggregator::server::run_server;
 use tap_core::{
     rav::{ReceiptAggregateVoucher, SignedRAV},
@@ -12,16 +23,32 @@ use tap_core::{
     signed_message::EIP712SignedMessage,
     tap_eip712_domain,
 };
-use test_assets::TAP_SIGNER as SIGNER;
+use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
 use thegraph_core::alloy::{
-    primitives::{address, hex::ToHexExt, Address},
+    primitives::{address, hex::ToHexExt, Address, U256},
     signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     sol_types::Eip712Domain,
 };
-use tokio::task::JoinHandle;
 
 pub const ALLOCATION_ID_0: Address = address!("abababababababababababababababababababab");
 pub const ALLOCATION_ID_1: Address = address!("bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc");
+use tokio::sync::{
+    watch::{self, Sender},
+    Notify,
+};
+use tracing::error;
+
+use crate::{
+    agent::{
+        sender_account::{
+            SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
+        },
+        sender_accounts_manager::{
+            SenderAccountsManager, SenderAccountsManagerArgs, SenderAccountsManagerMessage,
+        },
+    },
+    tap::context::AdapterError,
+};
 
 lazy_static! {
     // pub static ref SENDER: (PrivateKeySigner, Address) = wallet(0);
@@ -29,6 +56,188 @@ lazy_static! {
     pub static ref INDEXER: (PrivateKeySigner, Address) = wallet(3);
     pub static ref TAP_EIP712_DOMAIN_SEPARATOR: Eip712Domain =
         tap_eip712_domain(1, Address::from([0x11u8; 20]),);
+}
+
+pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
+
+pub const TRIGGER_VALUE: u128 = 500;
+pub const RECEIPT_LIMIT: u64 = 10000;
+pub const DUMMY_URL: &str = "http://localhost:1234";
+const ESCROW_VALUE: u128 = 1000;
+const BUFFER_DURATION: Duration = Duration::from_millis(100);
+const RETRY_DURATION: Duration = Duration::from_millis(1000);
+const RAV_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const TAP_SENDER_TIMEOUT: Duration = Duration::from_secs(30);
+
+const RAV_REQUEST_BUFFER: Duration = Duration::from_secs(60);
+const ESCROW_POLLING_INTERVAL: Duration = Duration::from_secs(30);
+
+pub fn get_sender_account_config() -> &'static SenderAccountConfig {
+    Box::leak(Box::new(SenderAccountConfig {
+        rav_request_buffer: RAV_REQUEST_BUFFER,
+        max_amount_willing_to_lose_grt: TRIGGER_VALUE + 100,
+        trigger_value: TRIGGER_VALUE,
+        rav_request_timeout: Duration::from_secs(30),
+        rav_request_receipt_limit: 1000,
+        indexer_address: INDEXER.1,
+        escrow_polling_interval: ESCROW_POLLING_INTERVAL,
+        tap_sender_timeout: Duration::from_secs(63),
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
+#[bon::builder]
+pub async fn create_sender_account(
+    pgpool: PgPool,
+    #[builder(default = HashSet::new())] initial_allocation: HashSet<Address>,
+    #[builder(default = TRIGGER_VALUE)] rav_request_trigger_value: u128,
+    #[builder(default = TRIGGER_VALUE)] max_amount_willing_to_lose_grt: u128,
+    escrow_subgraph_endpoint: Option<&str>,
+    network_subgraph_endpoint: Option<&str>,
+    #[builder(default = RECEIPT_LIMIT)] rav_request_receipt_limit: u64,
+    aggregator_endpoint: Option<Url>,
+) -> (
+    ActorRef<SenderAccountMessage>,
+    Arc<Notify>,
+    String,
+    Sender<EscrowAccounts>,
+) {
+    let config = Box::leak(Box::new(SenderAccountConfig {
+        rav_request_buffer: BUFFER_DURATION,
+        max_amount_willing_to_lose_grt,
+        trigger_value: rav_request_trigger_value,
+        rav_request_timeout: RAV_REQUEST_TIMEOUT,
+        rav_request_receipt_limit,
+        indexer_address: INDEXER.1,
+        escrow_polling_interval: Duration::default(),
+        tap_sender_timeout: TAP_SENDER_TIMEOUT,
+    }));
+
+    let network_subgraph = Box::leak(Box::new(
+        SubgraphClient::new(
+            reqwest::Client::new(),
+            None,
+            DeploymentDetails::for_query_url(network_subgraph_endpoint.unwrap_or(DUMMY_URL))
+                .unwrap(),
+        )
+        .await,
+    ));
+    let escrow_subgraph = Box::leak(Box::new(
+        SubgraphClient::new(
+            reqwest::Client::new(),
+            None,
+            DeploymentDetails::for_query_url(escrow_subgraph_endpoint.unwrap_or(DUMMY_URL))
+                .unwrap(),
+        )
+        .await,
+    ));
+    let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
+    escrow_accounts_tx
+        .send(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ))
+        .expect("Failed to update escrow_accounts channel");
+
+    let prefix = format!(
+        "test-{}",
+        PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    );
+
+    let aggregator_url = match aggregator_endpoint {
+        Some(url) => url,
+        None => Url::parse(&get_grpc_url().await).unwrap(),
+    };
+
+    let args = SenderAccountArgs {
+        config,
+        pgpool,
+        sender_id: SENDER.1,
+        escrow_accounts: escrow_accounts_rx,
+        indexer_allocations: watch::channel(initial_allocation).1,
+        escrow_subgraph,
+        network_subgraph,
+        domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+        sender_aggregator_endpoint: aggregator_url,
+        allocation_ids: HashSet::new(),
+        prefix: Some(prefix.clone()),
+        retry_interval: RETRY_DURATION,
+    };
+
+    let actor = TestableActor::new(SenderAccount);
+    let notify = actor.notify.clone();
+
+    let (sender, _) = Actor::spawn(Some(prefix.clone()), actor, args)
+        .await
+        .unwrap();
+
+    // flush all messages
+    flush_messages(&notify).await;
+
+    (sender, notify, prefix, escrow_accounts_tx)
+}
+
+#[bon::builder]
+pub async fn create_sender_accounts_manager(
+    pgpool: PgPool,
+    network_subgraph: Option<&str>,
+    escrow_subgraph: Option<&str>,
+) -> (
+    String,
+    Arc<Notify>,
+    (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>),
+) {
+    let config = get_sender_account_config();
+    let (_allocations_tx, allocations_rx) = watch::channel(HashMap::new());
+    let escrow_subgraph = Box::leak(Box::new(
+        SubgraphClient::new(
+            reqwest::Client::new(),
+            None,
+            DeploymentDetails::for_query_url(escrow_subgraph.unwrap_or(DUMMY_URL)).unwrap(),
+        )
+        .await,
+    ));
+    let network_subgraph = Box::leak(Box::new(
+        SubgraphClient::new(
+            reqwest::Client::new(),
+            None,
+            DeploymentDetails::for_query_url(network_subgraph.unwrap_or(DUMMY_URL)).unwrap(),
+        )
+        .await,
+    ));
+    let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
+    escrow_accounts_tx
+        .send(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ))
+        .expect("Failed to update escrow_accounts channel");
+
+    let prefix = format!(
+        "test-{}",
+        PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    );
+    let args = SenderAccountsManagerArgs {
+        config,
+        domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+        pgpool,
+        indexer_allocations: allocations_rx,
+        escrow_accounts: escrow_accounts_rx,
+        escrow_subgraph,
+        network_subgraph,
+        sender_aggregator_endpoints: HashMap::from([
+            (SENDER.1, Url::parse(&get_grpc_url().await).unwrap()),
+            (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
+        ]),
+        prefix: Some(prefix.clone()),
+    };
+    let actor = TestableActor::new(SenderAccountsManager);
+    let notify = actor.notify.clone();
+    (
+        prefix,
+        notify,
+        Actor::spawn(None, actor, args).await.unwrap(),
+    )
 }
 
 /// Fixture to generate a RAV using the wallet from `keys()`
@@ -98,6 +307,64 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> a
     // id is BIGSERIAL, so it should be safe to cast to u64.
     let id: u64 = record.id.try_into()?;
     Ok(id)
+}
+
+pub async fn store_batch_receipts(
+    pgpool: &PgPool,
+    receipts: Vec<ReceiptWithState<Checking>>,
+) -> Result<(), AdapterError> {
+    let receipts_len = receipts.len();
+    let mut signers = Vec::with_capacity(receipts_len);
+    let mut signatures = Vec::with_capacity(receipts_len);
+    let mut allocation_ids = Vec::with_capacity(receipts_len);
+    let mut timestamps = Vec::with_capacity(receipts_len);
+    let mut nonces = Vec::with_capacity(receipts_len);
+    let mut values = Vec::with_capacity(receipts_len);
+
+    for receipt in receipts {
+        let receipt = receipt.signed_receipt();
+        signers.push(
+            receipt
+                .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                .unwrap()
+                .encode_hex(),
+        );
+        signatures.push(receipt.signature.as_bytes().to_vec());
+        allocation_ids.push(receipt.message.allocation_id.encode_hex().to_string());
+        timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
+        nonces.push(BigDecimal::from(receipt.message.nonce));
+        values.push(BigDecimal::from(receipt.message.value));
+    }
+    let _ = sqlx::query!(
+        r#"INSERT INTO scalar_tap_receipts (
+                signer_address,
+                signature,
+                allocation_id,
+                timestamp_ns,
+                nonce,
+                value
+            ) SELECT * FROM UNNEST(
+                $1::CHAR(40)[],
+                $2::BYTEA[],
+                $3::CHAR(40)[],
+                $4::NUMERIC(20)[],
+                $5::NUMERIC(20)[],
+                $6::NUMERIC(40)[]
+            )"#,
+        &signers,
+        &signatures,
+        &allocation_ids,
+        &timestamps,
+        &nonces,
+        &values,
+    )
+    .execute(pgpool)
+    .await
+    .map_err(|e| {
+        error!("Failed to store receipt: {}", e);
+        anyhow!(e)
+    });
+    Ok(())
 }
 
 pub async fn store_invalid_receipt(
