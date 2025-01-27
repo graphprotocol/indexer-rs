@@ -176,7 +176,6 @@ pub async fn create_sender_account(
 #[bon::builder]
 pub async fn create_sender_accounts_manager(
     pgpool: PgPool,
-    aggregator_endpoint: Option<Url>,
     network_subgraph: Option<&str>,
     escrow_subgraph: Option<&str>,
 ) -> (
@@ -223,10 +222,7 @@ pub async fn create_sender_accounts_manager(
         escrow_subgraph,
         network_subgraph,
         sender_aggregator_endpoints: HashMap::from([
-            (
-                SENDER.1,
-                aggregator_endpoint.unwrap_or(Url::parse(&get_grpc_url().await).unwrap()),
-            ),
+            (SENDER.1, Url::parse(&get_grpc_url().await).unwrap()),
             (SENDER_2.1, Url::parse("http://localhost:8000").unwrap()),
         ]),
         prefix: Some(prefix.clone()),
