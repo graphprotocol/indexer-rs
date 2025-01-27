@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, str::FromStr};
+use std::collections::HashSet;
 
 use indexer_tap_agent::{
     agent::{
@@ -10,12 +10,10 @@ use indexer_tap_agent::{
         sender_allocation::SenderAllocationMessage,
     },
     test::{
-        create_received_receipt, create_sender_accounts_manager, get_grpc_url, store_receipt,
-        ALLOCATION_ID_0,
+        create_received_receipt, create_sender_accounts_manager, store_receipt, ALLOCATION_ID_0,
     },
 };
 use ractor::ActorRef;
-use reqwest::Url;
 use serde_json::json;
 use sqlx::PgPool;
 use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
@@ -63,7 +61,6 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
 
     let (prefix, notify, (actor, join_handle)) = create_sender_accounts_manager()
         .pgpool(pgpool.clone())
-        .aggregator_endpoint(Url::from_str(&get_grpc_url().await).unwrap())
         .network_subgraph(&mock_network_subgraph_server.uri())
         .escrow_subgraph(&mock_escrow_subgraph_server.uri())
         .call()
