@@ -9,14 +9,12 @@ use std::{
 
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use sqlx::{postgres::types::PgRange, types::BigDecimal};
-use tap_core::{
-    manager::adapters::{safe_truncate_receipts, ReceiptDelete, ReceiptRead},
-    receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
-};
+use tap_core::manager::adapters::{safe_truncate_receipts, ReceiptDelete, ReceiptRead};
+use tap_graph::{Receipt, SignedReceipt};
 use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
 
 use super::{error::AdapterError, TapAgentContext};
-use crate::tap::signers_trimmed;
+use crate::tap::{signers_trimmed, CheckingReceipt};
 impl From<TryFromIntError> for AdapterError {
     fn from(error: TryFromIntError) -> Self {
         AdapterError::ReceiptRead {
@@ -71,14 +69,14 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
 }
 
 #[async_trait::async_trait]
-impl ReceiptRead for TapAgentContext {
+impl ReceiptRead<SignedReceipt> for TapAgentContext {
     type AdapterError = AdapterError;
 
     async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
         &self,
         timestamp_range_ns: R,
         receipts_limit: Option<u64>,
-    ) -> Result<Vec<ReceiptWithState<Checking>>, Self::AdapterError> {
+    ) -> Result<Vec<CheckingReceipt>, Self::AdapterError> {
         let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
             .await
             .map_err(|e| AdapterError::ReceiptRead {
@@ -147,10 +145,10 @@ impl ReceiptRead for TapAgentContext {
                     signature,
                 };
 
-                Ok(ReceiptWithState::new(signed_receipt))
+                Ok(CheckingReceipt::new(signed_receipt))
 
             })
-            .collect::<Result<Vec<ReceiptWithState<Checking>>, AdapterError>>()?;
+            .collect::<Result<Vec<_>, AdapterError>>()?;
 
         safe_truncate_receipts(&mut receipts, receipts_limit);
 
@@ -200,10 +198,7 @@ mod test {
     use indexer_monitor::EscrowAccounts;
     use lazy_static::lazy_static;
     use sqlx::PgPool;
-    use tap_core::{
-        manager::adapters::{ReceiptDelete, ReceiptRead},
-        receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
-    };
+    use tap_core::manager::adapters::{ReceiptDelete, ReceiptRead};
     use test_assets::{
         ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
@@ -262,13 +257,13 @@ mod test {
     async fn retrieve_range_and_check<R: RangeBounds<u64> + Send>(
         storage_adapter: &TapAgentContext,
         escrow_accounts: Receiver<EscrowAccounts>,
-        received_receipt_vec: &[ReceiptWithState<Checking>],
+        received_receipt_vec: &[CheckingReceipt],
         range: R,
     ) -> anyhow::Result<()> {
         let escrow_accounts_snapshot = escrow_accounts.borrow();
 
         // Filtering the received receipts by timestamp range
-        let received_receipt_vec: Vec<ReceiptWithState<Checking>> = received_receipt_vec
+        let received_receipt_vec: Vec<_> = received_receipt_vec
             .iter()
             .filter(|received_receipt| {
                 range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
@@ -312,7 +307,7 @@ mod test {
     async fn remove_range_and_check<R: RangeBounds<u64> + Send>(
         storage_adapter: &TapAgentContext,
         escrow_accounts: Receiver<EscrowAccounts>,
-        received_receipt_vec: &[ReceiptWithState<Checking>],
+        received_receipt_vec: &[CheckingReceipt],
         range: R,
     ) -> anyhow::Result<()> {
         let escrow_accounts_snapshot = escrow_accounts.borrow();
@@ -335,7 +330,7 @@ mod test {
 
         // Remove the received receipts by timestamp range for the correct (allocation_id,
         // sender)
-        let received_receipt_vec: Vec<(u64, &ReceiptWithState<Checking>)> = received_receipt_vec
+        let received_receipt_vec: Vec<_> = received_receipt_vec
             .iter()
             .filter(|(_, received_receipt)| {
                 if (received_receipt.signed_receipt().message.allocation_id

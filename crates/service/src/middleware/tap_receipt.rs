@@ -33,7 +33,7 @@ mod tests {
     };
     use axum_extra::headers::Header;
     use reqwest::StatusCode;
-    use tap_core::receipt::SignedReceipt;
+    use tap_graph::SignedReceipt;
     use test_assets::{create_signed_receipt, SignedReceiptRequest};
     use tower::ServiceExt;
 

@@ -17,12 +17,8 @@ use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use reqwest::Url;
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::server::run_server;
-use tap_core::{
-    rav::{ReceiptAggregateVoucher, SignedRAV},
-    receipt::{state::Checking, Receipt, ReceiptWithState, SignedReceipt},
-    signed_message::EIP712SignedMessage,
-    tap_eip712_domain,
-};
+use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
+use tap_graph::{Receipt, ReceiptAggregateVoucher, SignedRav, SignedReceipt};
 use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
 use thegraph_core::alloy::{
     primitives::{address, hex::ToHexExt, Address, U256},
@@ -47,7 +43,7 @@ use crate::{
             SenderAccountsManager, SenderAccountsManagerArgs, SenderAccountsManagerMessage,
         },
     },
-    tap::context::AdapterError,
+    tap::{context::AdapterError, CheckingReceipt},
 };
 
 lazy_static! {
@@ -246,8 +242,8 @@ pub fn create_rav(
     signer_wallet: PrivateKeySigner,
     timestamp_ns: u64,
     value_aggregate: u128,
-) -> SignedRAV {
-    EIP712SignedMessage::new(
+) -> SignedRav {
+    Eip712SignedMessage::new(
         &TAP_EIP712_DOMAIN_SEPARATOR,
         ReceiptAggregateVoucher {
             allocationId: allocation_id,
@@ -267,8 +263,8 @@ pub fn create_received_receipt(
     nonce: u64,
     timestamp_ns: u64,
     value: u128,
-) -> ReceiptWithState<Checking> {
-    let receipt = EIP712SignedMessage::new(
+) -> CheckingReceipt {
+    let receipt = Eip712SignedMessage::new(
         &TAP_EIP712_DOMAIN_SEPARATOR,
         Receipt {
             allocation_id: *allocation_id,
@@ -279,7 +275,7 @@ pub fn create_received_receipt(
         signer_wallet,
     )
     .unwrap();
-    ReceiptWithState::new(receipt)
+    CheckingReceipt::new(receipt)
 }
 
 pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> anyhow::Result<u64> {
@@ -311,7 +307,7 @@ pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> a
 
 pub async fn store_batch_receipts(
     pgpool: &PgPool,
-    receipts: Vec<ReceiptWithState<Checking>>,
+    receipts: Vec<CheckingReceipt>,
 ) -> Result<(), AdapterError> {
     let receipts_len = receipts.len();
     let mut signers = Vec::with_capacity(receipts_len);
@@ -411,7 +407,7 @@ pub fn wallet(index: u32) -> (PrivateKeySigner, Address) {
 
 pub async fn store_rav(
     pgpool: &PgPool,
-    signed_rav: SignedRAV,
+    signed_rav: SignedRav,
     sender: Address,
 ) -> anyhow::Result<()> {
     store_rav_with_options(pgpool, signed_rav, sender, false, false).await
@@ -448,7 +444,7 @@ async fn create_grpc_aggregator() -> (JoinHandle<()>, SocketAddr) {
 
 pub async fn store_rav_with_options(
     pgpool: &PgPool,
-    signed_rav: SignedRAV,
+    signed_rav: SignedRav,
     sender: Address,
     last: bool,
     final_rav: bool,
@@ -693,7 +689,7 @@ pub mod actors {
             _state: &mut Self::State,
         ) -> Result<(), ActorProcessingErr> {
             match message {
-                SenderAllocationMessage::TriggerRAVRequest => {
+                SenderAllocationMessage::TriggerRavRequest => {
                     self.triggered_rav_request.notify_one();
                     if let Some(sender_account) = self.sender_actor.as_ref() {
                         let signed_rav = create_rav(

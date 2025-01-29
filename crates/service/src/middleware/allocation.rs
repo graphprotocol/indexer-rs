@@ -8,7 +8,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use tap_core::receipt::SignedReceipt;
+use tap_graph::SignedReceipt;
 use thegraph_core::{alloy::primitives::Address, DeploymentId};
 use tokio::sync::watch;
 
