@@ -4,6 +4,13 @@
 
 
 
+## [1.8.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.7.4...indexer-tap-agent-v1.8.0) (2025-01-29)
+
+
+### Features
+
+* grpc client for tap aggregator ([#583](https://github.com/graphprotocol/indexer-rs/issues/583)) ([c3ede8f](https://github.com/graphprotocol/indexer-rs/commit/c3ede8f8bfe1820dd0bdc8876af083a8971d39ff))
+
 ## [1.7.4](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.7.3...indexer-tap-agent-v1.7.4) (2024-12-18)
 
 
