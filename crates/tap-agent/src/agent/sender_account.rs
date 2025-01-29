@@ -281,7 +281,7 @@ impl State {
         };
 
         allocation
-            .cast(SenderAllocationMessage::TriggerRAVRequest)
+            .cast(SenderAllocationMessage::TriggerRavRequest)
             .map_err(|e| {
                 anyhow::anyhow!(
                     "Error while sending and waiting message for actor {allocation_id}. Error: {e}"

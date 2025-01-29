@@ -689,7 +689,7 @@ pub mod actors {
             _state: &mut Self::State,
         ) -> Result<(), ActorProcessingErr> {
             match message {
-                SenderAllocationMessage::TriggerRAVRequest => {
+                SenderAllocationMessage::TriggerRavRequest => {
                     self.triggered_rav_request.notify_one();
                     if let Some(sender_account) = self.sender_actor.as_ref() {
                         let signed_rav = create_rav(

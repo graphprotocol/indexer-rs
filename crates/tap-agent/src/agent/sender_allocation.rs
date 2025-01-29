@@ -156,7 +156,7 @@ pub struct SenderAllocationArgs {
 #[derive(Debug)]
 pub enum SenderAllocationMessage {
     NewReceipt(NewReceiptNotification),
-    TriggerRAVRequest,
+    TriggerRavRequest,
     #[cfg(any(test, feature = "test"))]
     GetUnaggregatedReceipts(ractor::RpcReplyPort<UnaggregatedReceipts>),
 }
@@ -313,7 +313,7 @@ impl Actor for SenderAllocation {
                         ReceiptFees::NewReceipt(fees, timestamp_ns),
                     ))?;
             }
-            SenderAllocationMessage::TriggerRAVRequest => {
+            SenderAllocationMessage::TriggerRavRequest => {
                 let rav_result = if state.unaggregated_fees.value > 0 {
                     state.request_rav().await.map(|_| state.latest_rav.clone())
                 } else {
@@ -1214,7 +1214,7 @@ pub mod tests {
 
         // Trigger a RAV request manually and wait for updated fees.
         sender_allocation
-            .cast(SenderAllocationMessage::TriggerRAVRequest)
+            .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
         flush_messages(&notify).await;
@@ -1295,7 +1295,7 @@ pub mod tests {
 
         // Trigger a RAV request manually and wait for updated fees.
         sender_allocation
-            .cast(SenderAllocationMessage::TriggerRAVRequest)
+            .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
         flush_messages(&notify).await;
@@ -1665,7 +1665,7 @@ pub mod tests {
         // Trigger a RAV request manually and wait for updated fees.
         // this should fail because there's no receipt with valid timestamp
         sender_allocation
-            .cast(SenderAllocationMessage::TriggerRAVRequest)
+            .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
         flush_messages(&notify).await;
@@ -1751,7 +1751,7 @@ pub mod tests {
         // Trigger a RAV request manually and wait for updated fees.
         // this should fail because there's no receipt with valid timestamp
         sender_allocation
-            .cast(SenderAllocationMessage::TriggerRAVRequest)
+            .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
         flush_messages(&notify).await;
