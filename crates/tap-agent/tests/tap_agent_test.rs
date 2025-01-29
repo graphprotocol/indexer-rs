@@ -18,7 +18,6 @@ use ractor::{call, concurrency::JoinHandle, Actor, ActorRef};
 use reqwest::Url;
 use serde_json::json;
 use sqlx::PgPool;
-use tap_core::receipt::{state::Checking, ReceiptWithState};
 use test_assets::{
     assert_while_retry, flush_messages, ALLOCATION_ID_0, ALLOCATION_ID_1, ALLOCATION_ID_2,
     ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS, INDEXER_ADDRESS,
@@ -120,8 +119,7 @@ async fn test_start_tap_agent(pgpool: PgPool) {
     // Add batch receits to the database.
     const AMOUNT_OF_RECEIPTS: u64 = 3000;
     let allocations = [ALLOCATION_ID_0, ALLOCATION_ID_1, ALLOCATION_ID_2];
-    let mut receipts: Vec<ReceiptWithState<Checking>> =
-        Vec::with_capacity(AMOUNT_OF_RECEIPTS as usize);
+    let mut receipts = Vec::with_capacity(AMOUNT_OF_RECEIPTS as usize);
     for i in 0..AMOUNT_OF_RECEIPTS {
         // This would select the 3 defined allocations in order
         let allocation_selected = (i % 3) as usize;

@@ -6,11 +6,10 @@ pub struct ReceiptMaxValueCheck {
     receipt_max_value: u128,
 }
 
-use tap_core::receipt::{
-    checks::{Check, CheckError, CheckResult},
-    state::Checking,
-    ReceiptWithState,
-};
+use tap_core::receipt::checks::{Check, CheckError, CheckResult};
+use tap_graph::SignedReceipt;
+
+use crate::tap::CheckingReceipt;
 
 impl ReceiptMaxValueCheck {
     pub fn new(receipt_max_value: u128) -> Self {
@@ -19,11 +18,11 @@ impl ReceiptMaxValueCheck {
 }
 
 #[async_trait::async_trait]
-impl Check for ReceiptMaxValueCheck {
+impl Check<SignedReceipt> for ReceiptMaxValueCheck {
     async fn check(
         &self,
         _: &tap_core::receipt::Context,
-        receipt: &ReceiptWithState<Checking>,
+        receipt: &CheckingReceipt,
     ) -> CheckResult {
         let receipt_value = receipt.signed_receipt().message.value;
 
@@ -42,19 +41,20 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use tap_core::{
-        receipt::{checks::Check, state::Checking, Context, Receipt, ReceiptWithState},
-        signed_message::EIP712SignedMessage,
+        receipt::{checks::Check, Context},
+        signed_message::Eip712SignedMessage,
         tap_eip712_domain,
     };
+    use tap_graph::Receipt;
     use thegraph_core::alloy::{
         primitives::{address, Address},
         signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     };
 
     use super::*;
-    use crate::tap::Eip712Domain;
+    use crate::tap::{CheckingReceipt, Eip712Domain};
 
-    fn create_signed_receipt_with_custom_value(value: u128) -> ReceiptWithState<Checking> {
+    fn create_signed_receipt_with_custom_value(value: u128) -> CheckingReceipt {
         let index: u32 = 0;
         let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
             .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
@@ -75,7 +75,7 @@ mod tests {
 
         let value: u128 = value;
         let nonce: u64 = 10;
-        let receipt = EIP712SignedMessage::new(
+        let receipt = Eip712SignedMessage::new(
             &eip712_domain_separator,
             Receipt {
                 allocation_id: address!("abababababababababababababababababababab"),
@@ -86,7 +86,7 @@ mod tests {
             &wallet,
         )
         .unwrap();
-        ReceiptWithState::<Checking>::new(receipt)
+        CheckingReceipt::new(receipt)
     }
 
     const RECEIPT_LIMIT: u128 = 10;

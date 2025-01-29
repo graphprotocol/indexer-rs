@@ -7,7 +7,7 @@ use axum::{
     response::Response,
 };
 use indexer_monitor::EscrowAccounts;
-use tap_core::receipt::SignedReceipt;
+use tap_graph::SignedReceipt;
 use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
 use tokio::sync::watch;
 

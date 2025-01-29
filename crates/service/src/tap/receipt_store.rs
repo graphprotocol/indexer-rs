@@ -4,15 +4,13 @@
 use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
 use sqlx::{types::BigDecimal, PgPool};
-use tap_core::{
-    manager::adapters::ReceiptStore,
-    receipt::{state::Checking, ReceiptWithState},
-};
+use tap_core::manager::adapters::ReceiptStore;
+use tap_graph::SignedReceipt;
 use thegraph_core::alloy::{hex::ToHexExt, sol_types::Eip712Domain};
 use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
-use super::{AdapterError, IndexerTapContext};
+use super::{AdapterError, CheckingReceipt, IndexerTapContext};
 
 #[derive(Clone)]
 pub struct InnerContext {
@@ -96,13 +94,10 @@ impl IndexerTapContext {
 }
 
 #[async_trait::async_trait]
-impl ReceiptStore for IndexerTapContext {
+impl ReceiptStore<SignedReceipt> for IndexerTapContext {
     type AdapterError = AdapterError;
 
-    async fn store_receipt(
-        &self,
-        receipt: ReceiptWithState<Checking>,
-    ) -> Result<u64, Self::AdapterError> {
+    async fn store_receipt(&self, receipt: CheckingReceipt) -> Result<u64, Self::AdapterError> {
         let db_receipt = DatabaseReceipt::from_receipt(receipt, &self.domain_separator)?;
         self.receipt_producer.send(db_receipt).await.map_err(|e| {
             tracing::error!("Failed to queue receipt for storage: {}", e);
@@ -124,10 +119,7 @@ pub struct DatabaseReceipt {
 }
 
 impl DatabaseReceipt {
-    fn from_receipt(
-        receipt: ReceiptWithState<Checking>,
-        separator: &Eip712Domain,
-    ) -> anyhow::Result<Self> {
+    fn from_receipt(receipt: CheckingReceipt, separator: &Eip712Domain) -> anyhow::Result<Self> {
         let receipt = receipt.signed_receipt();
         let allocation_id = receipt.message.allocation_id.encode_hex();
         let signature = receipt.signature.as_bytes().to_vec();

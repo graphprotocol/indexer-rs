@@ -22,7 +22,7 @@ use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent
 use reqwest::Url;
 use sqlx::PgPool;
 use tap_aggregator::grpc::tap_aggregator_client::TapAggregatorClient;
-use tap_core::rav::SignedRAV;
+use tap_graph::SignedRav;
 use thegraph_core::alloy::{
     hex::ToHexExt,
     primitives::{Address, U256},
@@ -98,7 +98,7 @@ type Balance = U256;
 pub enum ReceiptFees {
     NewReceipt(u128, u64),
     UpdateValue(UnaggregatedReceipts),
-    RavRequestResponse((UnaggregatedReceipts, anyhow::Result<Option<SignedRAV>>)),
+    RavRequestResponse((UnaggregatedReceipts, anyhow::Result<Option<SignedRav>>)),
     Retry,
 }
 
@@ -109,7 +109,7 @@ pub enum SenderAccountMessage {
     NewAllocationId(Address),
     UpdateReceiptFees(Address, ReceiptFees),
     UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
-    UpdateRav(SignedRAV),
+    UpdateRav(SignedRav),
     #[cfg(test)]
     GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
     #[cfg(test)]
@@ -296,7 +296,7 @@ impl State {
     fn finalize_rav_request(
         &mut self,
         allocation_id: Address,
-        rav_response: (UnaggregatedReceipts, anyhow::Result<Option<SignedRAV>>),
+        rav_response: (UnaggregatedReceipts, anyhow::Result<Option<SignedRav>>),
     ) {
         self.sender_fee_tracker.finish_rav_request(allocation_id);
         let (fees, rav_result) = rav_response;

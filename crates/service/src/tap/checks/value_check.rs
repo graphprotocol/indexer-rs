@@ -17,12 +17,12 @@ use sqlx::{
 };
 use tap_core::receipt::{
     checks::{Check, CheckError, CheckResult},
-    state::Checking,
-    Context, ReceiptWithState,
+    Context,
 };
+use tap_graph::SignedReceipt;
 use thegraph_core::DeploymentId;
 
-use crate::database::cost_model;
+use crate::{database::cost_model, tap::CheckingReceipt};
 
 // we only accept receipts with minimal 1 wei grt
 const MINIMAL_VALUE: u128 = 1;
@@ -303,8 +303,8 @@ impl MinimumValue {
 }
 
 #[async_trait::async_trait]
-impl Check for MinimumValue {
-    async fn check(&self, ctx: &Context, receipt: &ReceiptWithState<Checking>) -> CheckResult {
+impl Check<SignedReceipt> for MinimumValue {
+    async fn check(&self, ctx: &Context, receipt: &CheckingReceipt) -> CheckResult {
         let agora_query = ctx
             .get()
             .ok_or(CheckError::Failed(anyhow!("Could not find agora query")))?;
@@ -365,13 +365,14 @@ mod tests {
     use std::time::Duration;
 
     use sqlx::PgPool;
-    use tap_core::receipt::{checks::Check, Context, ReceiptWithState};
+    use tap_core::receipt::{checks::Check, Context};
     use test_assets::{create_signed_receipt, flush_messages, SignedReceiptRequest};
     use tokio::time::sleep;
 
     use super::{AgoraQuery, MinimumValue};
-    use crate::database::cost_model::test::{
-        self, add_cost_models, global_cost_model, to_db_models,
+    use crate::{
+        database::cost_model::test::{self, add_cost_models, global_cost_model, to_db_models},
+        tap::CheckingReceipt,
     };
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -491,7 +492,7 @@ mod tests {
 
         let signed_receipt =
             create_signed_receipt(SignedReceiptRequest::builder().value(0).build()).await;
-        let receipt = ReceiptWithState::new(signed_receipt);
+        let receipt = CheckingReceipt::new(signed_receipt);
 
         assert!(
             check.check(&ctx, &receipt).await.is_err(),
@@ -500,7 +501,7 @@ mod tests {
 
         let signed_receipt =
             create_signed_receipt(SignedReceiptRequest::builder().value(1).build()).await;
-        let receipt = ReceiptWithState::new(signed_receipt);
+        let receipt = CheckingReceipt::new(signed_receipt);
         assert!(
             check.check(&ctx, &receipt).await.is_ok(),
             "Should accept if value is more than 0 for any query"
@@ -522,7 +523,7 @@ mod tests {
         )
         .await;
 
-        let receipt = ReceiptWithState::new(signed_receipt);
+        let receipt = CheckingReceipt::new(signed_receipt);
 
         assert!(
             check.check(&ctx, &receipt).await.is_ok(),
@@ -540,7 +541,7 @@ mod tests {
             create_signed_receipt(SignedReceiptRequest::builder().value(minimal_value).build())
                 .await;
 
-        let receipt = ReceiptWithState::new(signed_receipt);
+        let receipt = CheckingReceipt::new(signed_receipt);
         check
             .check(&ctx, &receipt)
             .await
@@ -553,7 +554,7 @@ mod tests {
         )
         .await;
 
-        let receipt = ReceiptWithState::new(signed_receipt);
+        let receipt = CheckingReceipt::new(signed_receipt);
         check
             .check(&ctx, &receipt)
             .await
@@ -588,7 +589,7 @@ mod tests {
         )
         .await;
 
-        let receipt = ReceiptWithState::new(signed_receipt);
+        let receipt = CheckingReceipt::new(signed_receipt);
 
         assert!(
             check.check(&ctx, &receipt).await.is_err(),
@@ -601,7 +602,7 @@ mod tests {
                 .build(),
         )
         .await;
-        let receipt = ReceiptWithState::new(signed_receipt);
+        let receipt = CheckingReceipt::new(signed_receipt);
         check
             .check(&ctx, &receipt)
             .await
@@ -613,7 +614,7 @@ mod tests {
                 .build(),
         )
         .await;
-        let receipt = ReceiptWithState::new(signed_receipt);
+        let receipt = CheckingReceipt::new(signed_receipt);
         check
             .check(&ctx, &receipt)
             .await

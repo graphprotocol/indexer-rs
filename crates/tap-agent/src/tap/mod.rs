@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use indexer_monitor::EscrowAccounts;
+use tap_core::receipt::{state::Checking, ReceiptWithState};
+use tap_graph::SignedReceipt;
 use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
 use tokio::sync::watch::Receiver;
+
+pub type CheckingReceipt = ReceiptWithState<Checking, SignedReceipt>;
 
 pub mod context;
 

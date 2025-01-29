@@ -4,7 +4,7 @@
 use axum_extra::headers::{self, Header, HeaderName, HeaderValue};
 use lazy_static::lazy_static;
 use prometheus::{register_counter, Counter};
-use tap_core::receipt::SignedReceipt;
+use tap_graph::SignedReceipt;
 
 #[derive(Debug, PartialEq)]
 pub struct TapReceipt(pub SignedReceipt);
