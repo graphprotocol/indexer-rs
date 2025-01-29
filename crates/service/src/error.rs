@@ -29,6 +29,10 @@ pub enum IndexerServiceError {
 
     #[error("Issues with provided receipt: {0}")]
     TapCoreError(#[from] tap_core::Error),
+
+    #[error("Issues with provided receipt: {0}")]
+    Eip712Error(#[from] tap_core::signed_message::Eip712Error),
+
     #[error("There was an error while accessing escrow account: {0}")]
     EscrowAccount(#[from] EscrowAccountsError),
 }
@@ -38,13 +42,13 @@ impl StatusCodeExt for IndexerServiceError {
         use IndexerServiceError as E;
         match &self {
             E::TapCoreError(ref error) => match error {
-                TapError::SignatureError(_)
-                | TapError::ReceiptError(ReceiptError::CheckFailure(_)) => StatusCode::BAD_REQUEST,
+                TapError::ReceiptError(ReceiptError::CheckFailure(_)) => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             },
             E::EscrowAccount(_) | E::ReceiptNotFound => StatusCode::PAYMENT_REQUIRED,
             E::DeploymentIdNotFound => StatusCode::INTERNAL_SERVER_ERROR,
             E::AxumError(_) | E::SerializationError(_) => StatusCode::BAD_GATEWAY,
+            E::Eip712Error(_) => StatusCode::BAD_REQUEST,
         }
     }
 }

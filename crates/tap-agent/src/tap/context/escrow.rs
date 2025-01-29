@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use async_trait::async_trait;
-use tap_core::manager::adapters::EscrowHandler as EscrowAdapterTrait;
+use tap_core::manager::adapters::SignatureChecker;
 use thegraph_core::alloy::primitives::Address;
 
 use super::{error::AdapterError, TapAgentContext};
@@ -22,16 +22,8 @@ impl From<eventuals::error::Closed> for AdapterError {
 // In any case, we don't want to fail a receipt because of this.
 // The receipt is fine, just the escrow account that is not.
 #[async_trait]
-impl EscrowAdapterTrait for TapAgentContext {
+impl SignatureChecker for TapAgentContext {
     type AdapterError = AdapterError;
-
-    async fn get_available_escrow(&self, _signer: Address) -> Result<u128, AdapterError> {
-        Ok(0)
-    }
-
-    async fn subtract_escrow(&self, _signer: Address, _value: u128) -> Result<(), AdapterError> {
-        Ok(())
-    }
 
     async fn verify_signer(&self, signer: Address) -> Result<bool, Self::AdapterError> {
         let escrow_accounts = self.escrow_accounts.borrow();

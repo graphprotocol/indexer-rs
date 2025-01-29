@@ -8,11 +8,10 @@ pub struct TimestampCheck {
     timestamp_error_tolerance: Duration,
 }
 
-use tap_core::receipt::{
-    checks::{Check, CheckError, CheckResult},
-    state::Checking,
-    ReceiptWithState,
-};
+use tap_core::receipt::checks::{Check, CheckError, CheckResult};
+use tap_graph::SignedReceipt;
+
+use crate::tap::CheckingReceipt;
 
 impl TimestampCheck {
     pub fn new(timestamp_error_tolerance: Duration) -> Self {
@@ -23,11 +22,11 @@ impl TimestampCheck {
 }
 
 #[async_trait::async_trait]
-impl Check for TimestampCheck {
+impl Check<SignedReceipt> for TimestampCheck {
     async fn check(
         &self,
         _: &tap_core::receipt::Context,
-        receipt: &ReceiptWithState<Checking>,
+        receipt: &CheckingReceipt,
     ) -> CheckResult {
         let timestamp_now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -52,21 +51,20 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use tap_core::{
-        receipt::{checks::Check, state::Checking, Context, Receipt, ReceiptWithState},
-        signed_message::EIP712SignedMessage,
+        receipt::{checks::Check, Context},
+        signed_message::Eip712SignedMessage,
         tap_eip712_domain,
     };
+    use tap_graph::Receipt;
     use thegraph_core::alloy::{
         primitives::{address, Address},
         signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     };
 
     use super::TimestampCheck;
-    use crate::tap::Eip712Domain;
+    use crate::tap::{CheckingReceipt, Eip712Domain};
 
-    fn create_signed_receipt_with_custom_timestamp(
-        timestamp_ns: u64,
-    ) -> ReceiptWithState<Checking> {
+    fn create_signed_receipt_with_custom_timestamp(timestamp_ns: u64) -> CheckingReceipt {
         let index: u32 = 0;
         let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
             .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
@@ -78,7 +76,7 @@ mod tests {
             tap_eip712_domain(1, Address::from([0x11u8; 20]));
         let value: u128 = 1234;
         let nonce: u64 = 10;
-        let receipt = EIP712SignedMessage::new(
+        let receipt = Eip712SignedMessage::new(
             &eip712_domain_separator,
             Receipt {
                 allocation_id: address!("abababababababababababababababababababab"),
@@ -89,7 +87,7 @@ mod tests {
             &wallet,
         )
         .unwrap();
-        ReceiptWithState::<Checking>::new(receipt)
+        CheckingReceipt::new(receipt)
     }
 
     #[tokio::test]

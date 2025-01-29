@@ -10,11 +10,8 @@ use std::{
 use bip39::Mnemonic;
 use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
 use lazy_static::lazy_static;
-use tap_core::{
-    receipt::{Receipt, SignedReceipt},
-    signed_message::EIP712SignedMessage,
-    tap_eip712_domain,
-};
+use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
+use tap_graph::{Receipt, SignedReceipt};
 use thegraph_core::{
     alloy::{
         primitives::{address, Address, U256},
@@ -339,7 +336,7 @@ pub async fn create_signed_receipt(
 ) -> SignedReceipt {
     let (wallet, _) = &*self::TAP_SIGNER;
 
-    EIP712SignedMessage::new(
+    Eip712SignedMessage::new(
         &self::TAP_EIP712_DOMAIN,
         Receipt {
             allocation_id,
