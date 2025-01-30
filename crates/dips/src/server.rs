@@ -3,6 +3,12 @@
 
 use std::{sync::Arc, time::Duration};
 
+use anyhow::anyhow;
+use async_trait::async_trait;
+use thegraph_core::alloy::{dyn_abi::Eip712Domain, primitives::Address};
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
+
 use crate::{
     proto::indexer::graphprotocol::indexer::dips::{
         dips_service_server::DipsService, CancelAgreementRequest, CancelAgreementResponse,
@@ -11,11 +17,6 @@ use crate::{
     store::AgreementStore,
     validate_and_cancel_agreement, validate_and_create_agreement, DipsError,
 };
-use anyhow::anyhow;
-use async_trait::async_trait;
-use thegraph_core::alloy::{dyn_abi::Eip712Domain, primitives::Address};
-use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct DipsServer {
