@@ -9,7 +9,7 @@ use thegraph_core::alloy::{hex::ToHexExt, sol_types::Eip712Domain};
 use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
-use super::{receipt::TapReceipt, AdapterError, CheckingReceipt, IndexerTapContext};
+use super::{AdapterError, CheckingReceipt, IndexerTapContext, TapReceipt};
 
 #[derive(Clone)]
 pub struct InnerContext {
@@ -119,28 +119,32 @@ pub struct DatabaseReceipt {
 
 impl DatabaseReceipt {
     fn from_receipt(receipt: CheckingReceipt, separator: &Eip712Domain) -> anyhow::Result<Self> {
-        let receipt = receipt.signed_receipt();
-        let allocation_id = receipt.allocation_id().encode_hex();
-        let signature = receipt.signature().as_bytes().to_vec();
+        match receipt.signed_receipt() {
+            TapReceipt::V1(receipt) => {
+                let allocation_id = receipt.message.allocation_id.encode_hex();
+                let signature = receipt.signature.as_bytes().to_vec();
 
-        let signer_address = receipt
-            .recover_signer(separator)
-            .map_err(|e| {
-                tracing::error!("Failed to recover receipt signer: {}", e);
-                anyhow!(e)
-            })?
-            .encode_hex();
+                let signer_address = receipt
+                    .recover_signer(separator)
+                    .map_err(|e| {
+                        tracing::error!("Failed to recover receipt signer: {}", e);
+                        anyhow!(e)
+                    })?
+                    .encode_hex();
 
-        let timestamp_ns = BigDecimal::from(receipt.timestamp_ns());
-        let nonce = BigDecimal::from(receipt.nonce());
-        let value = BigDecimal::from(BigInt::from(receipt.value()));
-        Ok(Self {
-            allocation_id,
-            nonce,
-            signature,
-            signer_address,
-            timestamp_ns,
-            value,
-        })
+                let timestamp_ns = BigDecimal::from(receipt.timestamp_ns());
+                let nonce = BigDecimal::from(receipt.message.nonce);
+                let value = BigDecimal::from(BigInt::from(receipt.value()));
+                Ok(Self {
+                    allocation_id,
+                    nonce,
+                    signature,
+                    signer_address,
+                    timestamp_ns,
+                    value,
+                })
+            }
+            TapReceipt::V2(_) => unimplemented!("Horizon Receipts are not supported yet."),
+        }
     }
 }
