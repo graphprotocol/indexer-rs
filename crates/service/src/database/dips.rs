@@ -49,7 +49,7 @@ impl AgreementStore for PsqlAgreementStore {
             bs,
             protocol,
             agreement.voucher.service.as_slice(),
-            agreement.voucher.payee.as_slice(),
+            agreement.voucher.recipient.as_slice(),
             agreement.voucher.payer.as_slice(),
             now,
             now,

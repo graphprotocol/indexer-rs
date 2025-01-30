@@ -38,19 +38,17 @@ sol! {
       // should coincide with signer
         address payer;
         // should coincide with indexer
-        address payee;
+        address recipient;
          // data service that will initiate payment collection
         address service;
-        // initial indexing amount max
+
+        uint32 durationEpochs;
+
         uint256 maxInitialAmount;
-        uint256 maxOngoingAmountPerEpoch;
-        // time to accept the agreement, intended to be on the order
-        // of hours or mins
-        uint64 deadline;
+        uint256 minOngoingAmountPerEpoch;
+
         uint32 maxEpochsPerCollection;
         uint32 minEpochsPerCollection;
-        // after which the agreement is complete
-        uint32 durationEpochs;
         bytes metadata;
     }
 
@@ -152,10 +150,10 @@ impl SignedIndexingAgreementVoucher {
             return Err(DipsError::PayerNotAuthorised(payer));
         }
 
-        if !self.voucher.payee.eq(expected_payee) {
+        if !self.voucher.recipient.eq(expected_payee) {
             return Err(DipsError::UnexpectedPayee {
                 expected: *expected_payee,
-                actual: self.voucher.payee,
+                actual: self.voucher.recipient,
             });
         }
 
@@ -300,11 +298,10 @@ mod test {
 
         let voucher = IndexingAgreementVoucher {
             payer: payer_addr,
-            payee: payee_addr,
+            recipient: payee_addr,
             service: Address(FixedBytes::ZERO),
             maxInitialAmount: U256::from(10000_u64),
-            maxOngoingAmountPerEpoch: U256::from(10000_u64),
-            deadline: 1000,
+            minOngoingAmountPerEpoch: U256::from(10000_u64),
             maxEpochsPerCollection: 1000,
             minEpochsPerCollection: 1000,
             durationEpochs: 1000,
@@ -353,11 +350,10 @@ mod test {
 
         let voucher = IndexingAgreementVoucher {
             payer: payer_addr,
-            payee: payee.address(),
+            recipient: payee.address(),
             service: Address(FixedBytes::ZERO),
             maxInitialAmount: U256::from(10000_u64),
-            maxOngoingAmountPerEpoch: U256::from(10000_u64),
-            deadline: 1000,
+            minOngoingAmountPerEpoch: U256::from(10000_u64),
             maxEpochsPerCollection: 1000,
             minEpochsPerCollection: 1000,
             durationEpochs: 1000,
@@ -395,11 +391,10 @@ mod test {
 
         let voucher = IndexingAgreementVoucher {
             payer: payer_addr,
-            payee: payee_addr,
+            recipient: payee_addr,
             service: Address(FixedBytes::ZERO),
             maxInitialAmount: U256::from(10000_u64),
-            maxOngoingAmountPerEpoch: U256::from(10000_u64),
-            deadline: 1000,
+            minOngoingAmountPerEpoch: U256::from(10000_u64),
             maxEpochsPerCollection: 1000,
             minEpochsPerCollection: 1000,
             durationEpochs: 1000,
