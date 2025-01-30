@@ -54,7 +54,7 @@ bigdecimal = "0.4.3"
 build-info = "0.0.39"
 tap_core = { version = "3.0.0", default-features = false }
 tap_aggregator = { version = "0.4.0", default-features = false }
-tap_graph = { version = "0.1.0", default-features = false }
+tap_graph = { version = "0.2.0", features = ["v2"] }
 tracing-subscriber = { version = "0.3", features = [
     "json",
     "env-filter",
@@ -81,3 +81,15 @@ prost = "0.13.4"
 prost-types = "0.13.3"
 dipper-rpc = { git = "https://github.com/edgeandnode/dipper/", rev = "c8700e2", default-features = false }
 tonic-build = "0.12.3"
+
+[patch.crates-io.tap_core]
+git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
+rev = "dbae001"
+
+[patch.crates-io.tap_aggregator]
+git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
+rev = "dbae001"
+
+[patch.crates-io.tap_graph]
+git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
+rev = "dbae001"

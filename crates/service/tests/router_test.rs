@@ -8,7 +8,7 @@ use axum_extra::headers::Header;
 use indexer_config::{BlockchainConfig, GraphNodeConfig, IndexerConfig, NonZeroGRT};
 use indexer_monitor::EscrowAccounts;
 use indexer_service_rs::{
-    service::{ServiceRouter, TapReceipt},
+    service::{ServiceRouter, TapHeader},
     QueryBody,
 };
 use reqwest::{Method, StatusCode, Url};
@@ -126,12 +126,13 @@ async fn full_integration_test(database: PgPool) {
     let request = Request::builder()
         .method(Method::POST)
         .uri(format!("/subgraphs/id/{deployment}"))
-        .header(TapReceipt::name(), serde_json::to_string(&receipt).unwrap())
+        .header(TapHeader::name(), serde_json::to_string(&receipt).unwrap())
         .body(serde_json::to_string(&query).unwrap())
         .unwrap();
 
     // with deployment
     let res = app.call(request).await.unwrap();
+
     assert_eq!(res.status(), StatusCode::OK);
 
     let graphql_response = res.into_body();

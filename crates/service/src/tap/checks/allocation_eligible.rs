@@ -6,11 +6,10 @@ use std::collections::HashMap;
 use anyhow::anyhow;
 use indexer_allocation::Allocation;
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
-use tap_graph::SignedReceipt;
 use thegraph_core::alloy::primitives::Address;
 use tokio::sync::watch::Receiver;
 
-use crate::tap::CheckingReceipt;
+use crate::tap::{CheckingReceipt, TapReceipt};
 
 pub struct AllocationEligible {
     indexer_allocations: Receiver<HashMap<Address, Allocation>>,
@@ -24,13 +23,13 @@ impl AllocationEligible {
     }
 }
 #[async_trait::async_trait]
-impl Check<SignedReceipt> for AllocationEligible {
+impl Check<TapReceipt> for AllocationEligible {
     async fn check(
         &self,
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let allocation_id = receipt.signed_receipt().message.allocation_id;
+        let allocation_id = receipt.signed_receipt().allocation_id();
         if !self
             .indexer_allocations
             .borrow()

@@ -6,8 +6,10 @@ use lazy_static::lazy_static;
 use prometheus::{register_counter, Counter};
 use tap_graph::SignedReceipt;
 
+use crate::tap::TapReceipt;
+
 #[derive(Debug, PartialEq)]
-pub struct TapReceipt(pub SignedReceipt);
+pub struct TapHeader(pub TapReceipt);
 
 lazy_static! {
     static ref TAP_RECEIPT: HeaderName = HeaderName::from_static("tap-receipt");
@@ -15,7 +17,7 @@ lazy_static! {
         register_counter!("indexer_tap_invalid_total", "Invalid tap receipt decode",).unwrap();
 }
 
-impl Header for TapReceipt {
+impl Header for TapHeader {
     fn name() -> &'static HeaderName {
         &TAP_RECEIPT
     }
@@ -30,9 +32,9 @@ impl Header for TapReceipt {
             let raw_receipt = raw_receipt
                 .to_str()
                 .map_err(|_| headers::Error::invalid())?;
-            let parsed_receipt =
+            let parsed_receipt: SignedReceipt =
                 serde_json::from_str(raw_receipt).map_err(|_| headers::Error::invalid())?;
-            Ok(TapReceipt(parsed_receipt))
+            Ok(TapHeader(crate::tap::TapReceipt::V1(parsed_receipt)))
         };
         execute().inspect_err(|_| TAP_RECEIPT_INVALID.inc())
     }
@@ -51,7 +53,8 @@ mod test {
     use axum_extra::headers::Header;
     use test_assets::{create_signed_receipt, SignedReceiptRequest};
 
-    use super::TapReceipt;
+    use super::TapHeader;
+    use crate::tap::TapReceipt;
 
     #[tokio::test]
     async fn test_decode_valid_tap_receipt_header() {
@@ -59,17 +62,17 @@ mod test {
         let serialized_receipt = serde_json::to_string(&original_receipt).unwrap();
         let header_value = HeaderValue::from_str(&serialized_receipt).unwrap();
         let header_values = vec![&header_value];
-        let decoded_receipt = TapReceipt::decode(&mut header_values.into_iter())
+        let decoded_receipt = TapHeader::decode(&mut header_values.into_iter())
             .expect("tap receipt header value should be valid");
 
-        assert_eq!(decoded_receipt, TapReceipt(original_receipt));
+        assert_eq!(decoded_receipt, TapHeader(TapReceipt::V1(original_receipt)));
     }
 
     #[test]
     fn test_decode_non_string_tap_receipt_header() {
         let header_value = HeaderValue::from_static("123");
         let header_values = vec![&header_value];
-        let result = TapReceipt::decode(&mut header_values.into_iter());
+        let result = TapHeader::decode(&mut header_values.into_iter());
 
         assert!(result.is_err());
     }
@@ -78,7 +81,7 @@ mod test {
     fn test_decode_invalid_tap_receipt_header() {
         let header_value = HeaderValue::from_bytes(b"invalid").unwrap();
         let header_values = vec![&header_value];
-        let result = TapReceipt::decode(&mut header_values.into_iter());
+        let result = TapHeader::decode(&mut header_values.into_iter());
 
         assert!(result.is_err());
     }

@@ -20,18 +20,20 @@ use tap_core::{
     manager::{adapters::ReceiptStore, Manager},
     receipt::Context,
 };
-use tap_graph::{ReceiptAggregateVoucher, SignedReceipt};
+use tap_graph::ReceiptAggregateVoucher;
 use tower_http::auth::AsyncAuthorizeRequest;
 
-use crate::{error::IndexerServiceError, middleware::prometheus_metrics::MetricLabels};
+use crate::{
+    error::IndexerServiceError, middleware::prometheus_metrics::MetricLabels, tap::TapReceipt,
+};
 
 /// Middleware to verify and store TAP receipts
 ///
 /// It also optionally updates a failed receipt metric if Labels are provided
 ///
-/// Requires SignedReceipt, MetricLabels and Arc<Context> extensions
+/// Requires TapReceipt, MetricLabels and Arc<Context> extensions
 pub fn tap_receipt_authorize<T, B>(
-    tap_manager: Arc<Manager<T, SignedReceipt, ReceiptAggregateVoucher>>,
+    tap_manager: Arc<Manager<T, TapReceipt, ReceiptAggregateVoucher>>,
     failed_receipt_metric: &'static prometheus::CounterVec,
 ) -> impl AsyncAuthorizeRequest<
     B,
@@ -41,11 +43,11 @@ pub fn tap_receipt_authorize<T, B>(
 > + Clone
        + Send
 where
-    T: ReceiptStore<SignedReceipt> + Sync + Send + 'static,
+    T: ReceiptStore<TapReceipt> + Sync + Send + 'static,
     B: Send,
 {
-    move |request: Request<B>| {
-        let receipt = request.extensions().get::<SignedReceipt>().cloned();
+    move |mut request: Request<B>| {
+        let receipt = request.extensions_mut().remove::<TapReceipt>();
         // load labels from previous middlewares
         let labels = request.extensions().get::<MetricLabels>().cloned();
         // load context from previous middlewares
@@ -91,7 +93,6 @@ mod tests {
         manager::Manager,
         receipt::checks::{Check, CheckError, CheckList, CheckResult},
     };
-    use tap_graph::SignedReceipt;
     use test_assets::{
         assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
     };
@@ -103,7 +104,7 @@ mod tests {
             auth::tap_receipt_authorize,
             prometheus_metrics::{MetricLabelProvider, MetricLabels},
         },
-        tap::{CheckingReceipt, IndexerTapContext},
+        tap::{CheckingReceipt, IndexerTapContext, TapReceipt},
     };
 
     #[fixture]
@@ -131,13 +132,13 @@ mod tests {
 
         struct MyCheck;
         #[async_trait::async_trait]
-        impl Check<SignedReceipt> for MyCheck {
+        impl Check<TapReceipt> for MyCheck {
             async fn check(
                 &self,
                 _: &tap_core::receipt::Context,
                 receipt: &CheckingReceipt,
             ) -> CheckResult {
-                if receipt.signed_receipt().message.nonce == FAILED_NONCE {
+                if receipt.signed_receipt().nonce() == FAILED_NONCE {
                     Err(CheckError::Failed(anyhow::anyhow!("Failed")))
                 } else {
                     Ok(())
@@ -175,7 +176,7 @@ mod tests {
 
         // check with receipt
         let mut req = Request::new(Body::default());
-        req.extensions_mut().insert(receipt);
+        req.extensions_mut().insert(TapReceipt::V1(receipt));
         let res = service.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -214,7 +215,7 @@ mod tests {
         // change the nonce to make the receipt invalid
         receipt.message.nonce = FAILED_NONCE;
         let mut req = Request::new(Body::default());
-        req.extensions_mut().insert(receipt);
+        req.extensions_mut().insert(TapReceipt::V1(receipt));
         req.extensions_mut().insert(labels);
         let response = service.call(req);
 

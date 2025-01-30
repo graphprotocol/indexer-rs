@@ -6996,9 +6996,8 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tap_aggregator"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b452be9e6ab589ec37982decd29619385fa9d92e7da0e8bbcf4e1acc1fa4e3e2"
+version = "0.4.1"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=dbae001#dbae001f55e48d95a7298417c366f69a711fa1b7"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7026,9 +7025,8 @@ dependencies = [
 
 [[package]]
 name = "tap_core"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b19dbe7a2fc8d7fb77d0a5ba62de024011962697635d7318b8d794fc5d600263"
+version = "3.0.1"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=dbae001#dbae001f55e48d95a7298417c366f69a711fa1b7"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7045,8 +7043,7 @@ dependencies = [
 [[package]]
 name = "tap_eip712_message"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9eec2bd0598536230f5da725915e984755f88f54c8b08c9de8d4b1697b0928fb"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=dbae001#dbae001f55e48d95a7298417c366f69a711fa1b7"
 dependencies = [
  "alloy",
  "serde",
@@ -7055,9 +7052,8 @@ dependencies = [
 
 [[package]]
 name = "tap_graph"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d4584a4d91845f691bcd928a442808a6df7ca2d55614f671065d4511f33d604"
+version = "0.2.0"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=dbae001#dbae001f55e48d95a7298417c366f69a711fa1b7"
 dependencies = [
  "alloy",
  "rand",
@@ -7070,8 +7066,7 @@ dependencies = [
 [[package]]
 name = "tap_receipt"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b52f4b3fead95af86139e5857f1b5c674bab824848be4edafe4ddbc6b6db8e9a"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=dbae001#dbae001f55e48d95a7298417c366f69a711fa1b7"
 dependencies = [
  "alloy",
  "anyhow",

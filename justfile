@@ -12,7 +12,13 @@ url:
     @echo export DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432
 
 clippy:
-    cargo clippy --all-targets --all-features
+    cargo +nightly clippy --all-targets --all-features
+
+test:
+    cargo nextest run
+
+fmt:
+    cargo +nightly fmt
 
 sqlx-prepare:
     cargo sqlx prepare --workspace  -- --all-targets --all-features

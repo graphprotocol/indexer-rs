@@ -8,7 +8,6 @@ use indexer_monitor::EscrowAccounts;
 use receipt_store::{DatabaseReceipt, InnerContext};
 use sqlx::PgPool;
 use tap_core::receipt::{checks::ReceiptCheck, state::Checking, ReceiptWithState};
-use tap_graph::SignedReceipt;
 use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
 use tokio::sync::{
     mpsc::{self, Sender},
@@ -23,11 +22,13 @@ use crate::tap::checks::{
 };
 
 mod checks;
+mod receipt;
 mod receipt_store;
 
 pub use checks::value_check::AgoraQuery;
+pub use receipt::TapReceipt;
 
-pub type CheckingReceipt = ReceiptWithState<Checking, SignedReceipt>;
+pub type CheckingReceipt = ReceiptWithState<Checking, TapReceipt>;
 
 const GRACE_PERIOD: u64 = 60;
 
@@ -51,7 +52,7 @@ impl IndexerTapContext {
         escrow_accounts: Receiver<EscrowAccounts>,
         timestamp_error_tolerance: Duration,
         receipt_max_value: u128,
-    ) -> Vec<ReceiptCheck<SignedReceipt>> {
+    ) -> Vec<ReceiptCheck<TapReceipt>> {
         vec![
             Arc::new(AllocationEligible::new(indexer_allocations)),
             Arc::new(SenderBalanceCheck::new(escrow_accounts)),
