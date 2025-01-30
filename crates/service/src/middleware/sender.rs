@@ -7,11 +7,10 @@ use axum::{
     response::Response,
 };
 use indexer_monitor::EscrowAccounts;
-use tap_graph::SignedReceipt;
 use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
 use tokio::sync::watch;
 
-use crate::error::IndexerServiceError;
+use crate::{error::IndexerServiceError, tap::TapReceipt};
 
 /// Stated used by sender middleware
 #[derive(Clone)]
@@ -44,7 +43,7 @@ pub async fn sender_middleware(
     mut request: Request,
     next: Next,
 ) -> Result<Response, IndexerServiceError> {
-    if let Some(receipt) = request.extensions().get::<SignedReceipt>() {
+    if let Some(receipt) = request.extensions().get::<TapReceipt>() {
         let signer = receipt.recover_signer(&state.domain_separator)?;
         let sender = state
             .escrow_accounts
@@ -75,7 +74,7 @@ mod tests {
     use tower::ServiceExt;
 
     use super::{sender_middleware, Sender};
-    use crate::middleware::sender::SenderState;
+    use crate::{middleware::sender::SenderState, tap::TapReceipt};
 
     #[tokio::test]
     async fn test_sender_middleware() {
@@ -105,7 +104,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/")
-                    .extension(receipt)
+                    .extension(TapReceipt::V1(receipt))
                     .body(Body::empty())
                     .unwrap(),
             )

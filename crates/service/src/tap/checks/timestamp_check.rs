@@ -8,10 +8,12 @@ pub struct TimestampCheck {
     timestamp_error_tolerance: Duration,
 }
 
-use tap_core::receipt::checks::{Check, CheckError, CheckResult};
-use tap_graph::SignedReceipt;
+use tap_core::receipt::{
+    checks::{Check, CheckError, CheckResult},
+    WithValueAndTimestamp,
+};
 
-use crate::tap::CheckingReceipt;
+use crate::tap::{receipt::TapReceipt, CheckingReceipt};
 
 impl TimestampCheck {
     pub fn new(timestamp_error_tolerance: Duration) -> Self {
@@ -22,7 +24,7 @@ impl TimestampCheck {
 }
 
 #[async_trait::async_trait]
-impl Check<SignedReceipt> for TimestampCheck {
+impl Check<TapReceipt> for TimestampCheck {
     async fn check(
         &self,
         _: &tap_core::receipt::Context,
@@ -34,7 +36,7 @@ impl Check<SignedReceipt> for TimestampCheck {
         let min_timestamp = timestamp_now - self.timestamp_error_tolerance;
         let max_timestamp = timestamp_now + self.timestamp_error_tolerance;
 
-        let receipt_timestamp = Duration::from_nanos(receipt.signed_receipt().message.timestamp_ns);
+        let receipt_timestamp = Duration::from_nanos(receipt.signed_receipt().timestamp_ns());
 
         if receipt_timestamp < max_timestamp && receipt_timestamp > min_timestamp {
             Ok(())
@@ -62,7 +64,7 @@ mod tests {
     };
 
     use super::TimestampCheck;
-    use crate::tap::{CheckingReceipt, Eip712Domain};
+    use crate::tap::{receipt::TapReceipt, CheckingReceipt, Eip712Domain};
 
     fn create_signed_receipt_with_custom_timestamp(timestamp_ns: u64) -> CheckingReceipt {
         let index: u32 = 0;
@@ -87,7 +89,7 @@ mod tests {
             &wallet,
         )
         .unwrap();
-        CheckingReceipt::new(receipt)
+        CheckingReceipt::new(TapReceipt::V1(receipt))
     }
 
     #[tokio::test]

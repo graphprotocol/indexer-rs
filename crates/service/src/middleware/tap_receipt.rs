@@ -4,7 +4,7 @@
 use axum::{extract::Request, middleware::Next, response::Response, RequestExt};
 use axum_extra::TypedHeader;
 
-use crate::service::TapReceipt;
+use crate::service::TapHeader;
 
 /// Injects tap receipts in the extensions
 ///
@@ -14,8 +14,8 @@ use crate::service::TapReceipt;
 ///
 /// This is useful to not deserialize multiple times the same receipt
 pub async fn receipt_middleware(mut request: Request, next: Next) -> Response {
-    if let Ok(TypedHeader(TapReceipt(receipt))) =
-        request.extract_parts::<TypedHeader<TapReceipt>>().await
+    if let Ok(TypedHeader(TapHeader(receipt))) =
+        request.extract_parts::<TypedHeader<TapHeader>>().await
     {
         request.extensions_mut().insert(receipt);
     }
@@ -33,11 +33,10 @@ mod tests {
     };
     use axum_extra::headers::Header;
     use reqwest::StatusCode;
-    use tap_graph::SignedReceipt;
     use test_assets::{create_signed_receipt, SignedReceiptRequest};
     use tower::ServiceExt;
 
-    use crate::{middleware::tap_receipt::receipt_middleware, service::TapReceipt};
+    use crate::{middleware::tap_receipt::receipt_middleware, service::TapHeader, tap::TapReceipt};
 
     #[tokio::test]
     async fn test_receipt_middleware() {
@@ -46,12 +45,13 @@ mod tests {
         let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
         let receipt_json = serde_json::to_string(&receipt).unwrap();
 
+        let receipt = TapReceipt::V1(receipt);
+
         let handle = move |extensions: Extensions| async move {
             let received_receipt = extensions
-                .get::<SignedReceipt>()
+                .get::<TapReceipt>()
                 .expect("Should decode tap receipt");
-            assert_eq!(received_receipt.message, receipt.message);
-            assert_eq!(received_receipt.signature, receipt.signature);
+            assert_eq!(*received_receipt, receipt);
             Body::empty()
         };
 
@@ -61,7 +61,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/")
-                    .header(TapReceipt::name(), receipt_json)
+                    .header(TapHeader::name(), receipt_json)
                     .body(Body::empty())
                     .unwrap(),
             )

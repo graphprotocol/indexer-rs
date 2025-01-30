@@ -28,7 +28,7 @@ mod tests {
 
     use crate::{
         middleware::auth::{self, Bearer, OrExt},
-        tap::IndexerTapContext,
+        tap::{IndexerTapContext, TapReceipt},
     };
 
     const BEARER_TOKEN: &str = "test";
@@ -104,7 +104,7 @@ mod tests {
 
         // check with receipt
         let mut req = Request::new(Default::default());
-        req.extensions_mut().insert(receipt);
+        req.extensions_mut().insert(TapReceipt::V1(receipt));
         let res = service.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 

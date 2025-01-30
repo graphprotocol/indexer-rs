@@ -9,10 +9,12 @@ use std::{
 
 use sqlx::{postgres::PgListener, PgPool};
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
-use tap_graph::SignedReceipt;
 use thegraph_core::alloy::primitives::Address;
 
-use crate::{middleware::Sender, tap::CheckingReceipt};
+use crate::{
+    middleware::Sender,
+    tap::{receipt::TapReceipt, CheckingReceipt},
+};
 
 pub struct DenyListCheck {
     sender_denylist: Arc<RwLock<HashSet<Address>>>,
@@ -150,7 +152,7 @@ impl DenyListCheck {
 }
 
 #[async_trait::async_trait]
-impl Check<SignedReceipt> for DenyListCheck {
+impl Check<TapReceipt> for DenyListCheck {
     async fn check(&self, ctx: &tap_core::receipt::Context, _: &CheckingReceipt) -> CheckResult {
         let Sender(receipt_sender) = ctx
             .get::<Sender>()
@@ -213,7 +215,7 @@ mod tests {
 
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
-        let checking_receipt = CheckingReceipt::new(signed_receipt);
+        let checking_receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
 
         let mut ctx = Context::new();
         ctx.insert(Sender(TAP_SENDER.1));
@@ -232,7 +234,7 @@ mod tests {
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
         // Check that the receipt is valid
-        let checking_receipt = CheckingReceipt::new(signed_receipt);
+        let checking_receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
 
         let mut ctx = Context::new();
         ctx.insert(Sender(TAP_SENDER.1));

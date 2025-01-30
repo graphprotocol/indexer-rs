@@ -33,7 +33,7 @@ mod router;
 mod tap_receipt_header;
 
 pub use router::ServiceRouter;
-pub use tap_receipt_header::TapReceipt;
+pub use tap_receipt_header::TapHeader;
 
 #[derive(Clone)]
 pub struct GraphNodeState {

@@ -4,13 +4,12 @@
 use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
 use sqlx::{types::BigDecimal, PgPool};
-use tap_core::manager::adapters::ReceiptStore;
-use tap_graph::SignedReceipt;
+use tap_core::{manager::adapters::ReceiptStore, receipt::WithValueAndTimestamp};
 use thegraph_core::alloy::{hex::ToHexExt, sol_types::Eip712Domain};
 use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
-use super::{AdapterError, CheckingReceipt, IndexerTapContext};
+use super::{receipt::TapReceipt, AdapterError, CheckingReceipt, IndexerTapContext};
 
 #[derive(Clone)]
 pub struct InnerContext {
@@ -94,7 +93,7 @@ impl IndexerTapContext {
 }
 
 #[async_trait::async_trait]
-impl ReceiptStore<SignedReceipt> for IndexerTapContext {
+impl ReceiptStore<TapReceipt> for IndexerTapContext {
     type AdapterError = AdapterError;
 
     async fn store_receipt(&self, receipt: CheckingReceipt) -> Result<u64, Self::AdapterError> {
@@ -121,8 +120,8 @@ pub struct DatabaseReceipt {
 impl DatabaseReceipt {
     fn from_receipt(receipt: CheckingReceipt, separator: &Eip712Domain) -> anyhow::Result<Self> {
         let receipt = receipt.signed_receipt();
-        let allocation_id = receipt.message.allocation_id.encode_hex();
-        let signature = receipt.signature.as_bytes().to_vec();
+        let allocation_id = receipt.allocation_id().encode_hex();
+        let signature = receipt.signature().as_bytes().to_vec();
 
         let signer_address = receipt
             .recover_signer(separator)
@@ -132,9 +131,9 @@ impl DatabaseReceipt {
             })?
             .encode_hex();
 
-        let timestamp_ns = BigDecimal::from(receipt.message.timestamp_ns);
-        let nonce = BigDecimal::from(receipt.message.nonce);
-        let value = BigDecimal::from(BigInt::from(receipt.message.value));
+        let timestamp_ns = BigDecimal::from(receipt.timestamp_ns());
+        let nonce = BigDecimal::from(receipt.nonce());
+        let value = BigDecimal::from(BigInt::from(receipt.value()));
         Ok(Self {
             allocation_id,
             nonce,
