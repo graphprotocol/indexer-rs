@@ -8,11 +8,10 @@ use indexer_monitor::SubgraphClient;
 use indexer_query::{tap_transactions, TapTransactions};
 use indexer_watcher::new_watcher;
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
-use tap_graph::SignedReceipt;
 use thegraph_core::alloy::primitives::Address;
 use tokio::sync::watch::Receiver;
 
-use crate::tap::CheckingReceipt;
+use crate::tap::{CheckingReceipt, TapReceipt};
 
 pub struct AllocationId {
     tap_allocation_redeemed: Receiver<bool>,
@@ -45,13 +44,13 @@ impl AllocationId {
 }
 
 #[async_trait::async_trait]
-impl Check<SignedReceipt> for AllocationId {
+impl Check<TapReceipt> for AllocationId {
     async fn check(
         &self,
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let allocation_id = receipt.signed_receipt().message.allocation_id;
+        let allocation_id = receipt.signed_receipt().allocation_id();
         // TODO: Remove the if block below? Each TAP Monitor is specific to an allocation
         // ID. So the receipts that are received here should already have been filtered by
         // allocation ID.

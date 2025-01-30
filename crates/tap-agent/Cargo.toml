@@ -17,6 +17,7 @@ indexer-watcher = { path = "../watcher" }
 indexer-allocation = { path = "../allocation" }
 indexer-config = { path = "../config" }
 indexer-query = { path = "../query" }
+indexer-receipt = { path = "../indexer-receipt" }
 anyhow.workspace = true
 async-trait.workspace = true
 sqlx.workspace = true

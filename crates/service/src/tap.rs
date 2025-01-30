@@ -22,11 +22,10 @@ use crate::tap::checks::{
 };
 
 mod checks;
-mod receipt;
 mod receipt_store;
 
+pub use ::indexer_receipt::TapReceipt;
 pub use checks::value_check::AgoraQuery;
-pub use receipt::TapReceipt;
 
 pub type CheckingReceipt = ReceiptWithState<Checking, TapReceipt>;
 

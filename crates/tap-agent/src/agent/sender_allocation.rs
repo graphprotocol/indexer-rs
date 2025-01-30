@@ -22,11 +22,11 @@ use tap_core::{
         checks::{Check, CheckList},
         rav::AggregationError,
         state::Failed,
-        Context, ReceiptWithState,
+        Context, ReceiptWithState, WithValueAndTimestamp,
     },
     signed_message::Eip712SignedMessage,
 };
-use tap_graph::{ReceiptAggregateVoucher, SignedRav, SignedReceipt};
+use tap_graph::{ReceiptAggregateVoucher, SignedRav};
 use thegraph_core::alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
@@ -45,7 +45,7 @@ use crate::{
             checks::{AllocationId, Signature},
             TapAgentContext,
         },
-        signers_trimmed,
+        signers_trimmed, TapReceipt,
     },
 };
 
@@ -93,12 +93,14 @@ pub enum RavError {
     #[error("All receipts are invalid")]
     AllReceiptsInvalid,
 
+    #[error("Receipt is not legacy")]
+    ReceiptNotCompatible,
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
-type TapManager =
-    tap_core::manager::Manager<TapAgentContext, SignedReceipt, ReceiptAggregateVoucher>;
+type TapManager = tap_core::manager::Manager<TapAgentContext, TapReceipt>;
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 pub struct SenderAllocation;
@@ -353,7 +355,7 @@ impl SenderAllocationState {
             config,
         }: SenderAllocationArgs,
     ) -> anyhow::Result<Self> {
-        let required_checks: Vec<Arc<dyn Check<SignedReceipt> + Send + Sync>> = vec![
+        let required_checks: Vec<Arc<dyn Check<TapReceipt> + Send + Sync>> = vec![
             Arc::new(
                 AllocationId::new(
                     config.indexer_address,
@@ -565,12 +567,12 @@ impl SenderAllocationState {
                 // Obtain min/max timestamps to define query
                 let min_timestamp = invalid_receipts
                     .iter()
-                    .map(|receipt| receipt.signed_receipt().message.timestamp_ns)
+                    .map(|receipt| receipt.signed_receipt().timestamp_ns())
                     .min()
                     .expect("invalid receipts should not be empty");
                 let max_timestamp = invalid_receipts
                     .iter()
-                    .map(|receipt| receipt.signed_receipt().message.timestamp_ns)
+                    .map(|receipt| receipt.signed_receipt().timestamp_ns())
                     .max()
                     .expect("invalid receipts should not be empty");
                 let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
@@ -594,8 +596,13 @@ impl SenderAllocationState {
             (Ok(expected_rav), ..) => {
                 let valid_receipts: Vec<_> = valid_receipts
                     .into_iter()
-                    .map(|r| r.signed_receipt().clone())
-                    .collect();
+                    .map(|r| {
+                        r.signed_receipt()
+                            .clone()
+                            .as_v1()
+                            .ok_or(RavError::ReceiptNotCompatible)
+                    })
+                    .collect::<Result<_, _>>()?;
 
                 let rav_request = AggregatorRequest::new(valid_receipts, previous_rav);
 
@@ -731,7 +738,7 @@ impl SenderAllocationState {
 
     async fn store_invalid_receipts(
         &mut self,
-        receipts: &[ReceiptWithState<Failed, SignedReceipt>],
+        receipts: &[ReceiptWithState<Failed, TapReceipt>],
     ) -> anyhow::Result<()> {
         let reciepts_len = receipts.len();
         let mut reciepts_signers = Vec::with_capacity(reciepts_len);
@@ -743,7 +750,10 @@ impl SenderAllocationState {
         let mut error_logs = Vec::with_capacity(reciepts_len);
 
         for received_receipt in receipts.iter() {
-            let receipt = received_receipt.signed_receipt();
+            let receipt = match received_receipt.signed_receipt() {
+                TapReceipt::V1(receipt) => receipt,
+                TapReceipt::V2(_) => unimplemented!("V2 not supported"),
+            };
             let allocation_id = receipt.message.allocation_id;
             let encoded_signature = receipt.signature.as_bytes().to_vec();
             let receipt_error = received_receipt.clone().error().to_string();
@@ -802,7 +812,7 @@ impl SenderAllocationState {
 
         let fees = receipts
             .iter()
-            .map(|receipt| receipt.signed_receipt().message.value)
+            .map(|receipt| receipt.signed_receipt().value())
             .sum();
 
         self.invalid_receipts_fees.value = self
@@ -874,6 +884,7 @@ pub mod tests {
     use bigdecimal::ToPrimitive;
     use futures::future::join_all;
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
+    use indexer_receipt::TapReceipt;
     use ractor::{call, cast, Actor, ActorRef, ActorStatus};
     use ruint::aliases::U256;
     use serde_json::json;
@@ -883,7 +894,6 @@ pub mod tests {
         checks::{Check, CheckError, CheckList, CheckResult},
         Context,
     };
-    use tap_graph::SignedReceipt;
     use test_assets::{
         flush_messages, ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
@@ -1574,7 +1584,7 @@ pub mod tests {
         struct FailingCheck;
 
         #[async_trait::async_trait]
-        impl Check<SignedReceipt> for FailingCheck {
+        impl Check<TapReceipt> for FailingCheck {
             async fn check(
                 &self,
                 _: &tap_core::receipt::Context,

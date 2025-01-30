@@ -13,6 +13,7 @@ indexer-allocation = { path = "../allocation" }
 indexer-config = { path = "../config" }
 indexer-dips = { path = "../dips" }
 indexer-query = { path = "../query" }
+indexer-receipt = { path = "../indexer-receipt" }
 anyhow = { workspace = true }
 prometheus = { workspace = true }
 reqwest = { workspace = true }

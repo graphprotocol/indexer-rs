@@ -12,6 +12,7 @@ use actors::TestableActor;
 use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
+use indexer_receipt::TapReceipt;
 use lazy_static::lazy_static;
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use reqwest::Url;
@@ -275,10 +276,20 @@ pub fn create_received_receipt(
         signer_wallet,
     )
     .unwrap();
-    CheckingReceipt::new(receipt)
+    CheckingReceipt::new(indexer_receipt::TapReceipt::V1(receipt))
 }
 
-pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &SignedReceipt) -> anyhow::Result<u64> {
+pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &TapReceipt) -> anyhow::Result<u64> {
+    match signed_receipt {
+        TapReceipt::V1(signed_receipt) => store_receipt_v1(pgpool, signed_receipt).await,
+        TapReceipt::V2(_) => unimplemented!("V2 not supported"),
+    }
+}
+
+pub async fn store_receipt_v1(
+    pgpool: &PgPool,
+    signed_receipt: &SignedReceipt,
+) -> anyhow::Result<u64> {
     let encoded_signature = signed_receipt.signature.as_bytes().to_vec();
 
     let record = sqlx::query!(
@@ -318,7 +329,10 @@ pub async fn store_batch_receipts(
     let mut values = Vec::with_capacity(receipts_len);
 
     for receipt in receipts {
-        let receipt = receipt.signed_receipt();
+        let receipt = match receipt.signed_receipt() {
+            TapReceipt::V1(receipt) => receipt,
+            TapReceipt::V2(_) => unimplemented!("V2 receipts not supported"),
+        };
         signers.push(
             receipt
                 .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
@@ -364,6 +378,16 @@ pub async fn store_batch_receipts(
 }
 
 pub async fn store_invalid_receipt(
+    pgpool: &PgPool,
+    signed_receipt: &TapReceipt,
+) -> anyhow::Result<u64> {
+    match signed_receipt {
+        TapReceipt::V1(signed_receipt) => store_invalid_receipt_v1(pgpool, signed_receipt).await,
+        TapReceipt::V2(_) => unimplemented!("V2 not supported"),
+    }
+}
+
+pub async fn store_invalid_receipt_v1(
     pgpool: &PgPool,
     signed_receipt: &SignedReceipt,
 ) -> anyhow::Result<u64> {
