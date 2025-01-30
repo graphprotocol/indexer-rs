@@ -13,7 +13,7 @@ use thegraph_core::alloy::primitives::Address;
 
 use crate::{
     middleware::Sender,
-    tap::{receipt::TapReceipt, CheckingReceipt},
+    tap::{CheckingReceipt, TapReceipt},
 };
 
 pub struct DenyListCheck {

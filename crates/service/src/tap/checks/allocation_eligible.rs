@@ -9,7 +9,7 @@ use tap_core::receipt::checks::{Check, CheckError, CheckResult};
 use thegraph_core::alloy::primitives::Address;
 use tokio::sync::watch::Receiver;
 
-use crate::tap::{receipt::TapReceipt, CheckingReceipt};
+use crate::tap::{CheckingReceipt, TapReceipt};
 
 pub struct AllocationEligible {
     indexer_allocations: Receiver<HashMap<Address, Allocation>>,

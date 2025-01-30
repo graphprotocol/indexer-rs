@@ -23,7 +23,7 @@ use thegraph_core::DeploymentId;
 
 use crate::{
     database::cost_model,
-    tap::{receipt::TapReceipt, CheckingReceipt},
+    tap::{CheckingReceipt, TapReceipt},
 };
 
 // we only accept receipts with minimal 1 wei grt
@@ -374,7 +374,7 @@ mod tests {
     use super::{AgoraQuery, MinimumValue};
     use crate::{
         database::cost_model::test::{self, add_cost_models, global_cost_model, to_db_models},
-        tap::{receipt::TapReceipt, CheckingReceipt},
+        tap::{CheckingReceipt, TapReceipt},
     };
 
     #[sqlx::test(migrations = "../../migrations")]

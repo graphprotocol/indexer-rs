@@ -11,7 +11,7 @@ use tap_core::receipt::{
     WithValueAndTimestamp,
 };
 
-use crate::tap::{receipt::TapReceipt, CheckingReceipt};
+use crate::tap::{CheckingReceipt, TapReceipt};
 
 impl ReceiptMaxValueCheck {
     pub fn new(receipt_max_value: u128) -> Self {

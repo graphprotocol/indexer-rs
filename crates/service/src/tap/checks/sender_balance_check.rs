@@ -9,7 +9,7 @@ use tokio::sync::watch::Receiver;
 
 use crate::{
     middleware::Sender,
-    tap::{receipt::TapReceipt, CheckingReceipt},
+    tap::{CheckingReceipt, TapReceipt},
 };
 
 pub struct SenderBalanceCheck {

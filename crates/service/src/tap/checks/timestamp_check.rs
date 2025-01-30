@@ -13,7 +13,7 @@ use tap_core::receipt::{
     WithValueAndTimestamp,
 };
 
-use crate::tap::{receipt::TapReceipt, CheckingReceipt};
+use crate::tap::{CheckingReceipt, TapReceipt};
 
 impl TimestampCheck {
     pub fn new(timestamp_error_tolerance: Duration) -> Self {
@@ -64,7 +64,7 @@ mod tests {
     };
 
     use super::TimestampCheck;
-    use crate::tap::{receipt::TapReceipt, CheckingReceipt, Eip712Domain};
+    use crate::tap::{CheckingReceipt, Eip712Domain, TapReceipt};
 
     fn create_signed_receipt_with_custom_timestamp(timestamp_ns: u64) -> CheckingReceipt {
         let index: u32 = 0;
