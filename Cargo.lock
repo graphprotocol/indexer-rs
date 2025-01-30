@@ -3745,6 +3745,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexer-receipt"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tap_core",
+ "tap_graph",
+ "thegraph-core",
+]
+
+[[package]]
 name = "indexer-service-rs"
 version = "1.4.1"
 dependencies = [
@@ -3772,6 +3782,7 @@ dependencies = [
  "indexer-dips",
  "indexer-monitor",
  "indexer-query",
+ "indexer-receipt",
  "insta",
  "lazy_static",
  "pin-project 1.1.8",
@@ -3821,6 +3832,7 @@ dependencies = [
  "indexer-config",
  "indexer-monitor",
  "indexer-query",
+ "indexer-receipt",
  "indexer-tap-agent",
  "indexer-watcher",
  "jsonrpsee",
@@ -6997,7 +7009,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "tap_aggregator"
 version = "0.4.1"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=dbae001#dbae001f55e48d95a7298417c366f69a711fa1b7"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e5546a6#e5546a617ec2efcdbf09c465848b609856bef96c"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7026,7 +7038,7 @@ dependencies = [
 [[package]]
 name = "tap_core"
 version = "3.0.1"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=dbae001#dbae001f55e48d95a7298417c366f69a711fa1b7"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e5546a6#e5546a617ec2efcdbf09c465848b609856bef96c"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7043,7 +7055,7 @@ dependencies = [
 [[package]]
 name = "tap_eip712_message"
 version = "0.1.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=dbae001#dbae001f55e48d95a7298417c366f69a711fa1b7"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e5546a6#e5546a617ec2efcdbf09c465848b609856bef96c"
 dependencies = [
  "alloy",
  "serde",
@@ -7053,7 +7065,7 @@ dependencies = [
 [[package]]
 name = "tap_graph"
 version = "0.2.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=dbae001#dbae001f55e48d95a7298417c366f69a711fa1b7"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e5546a6#e5546a617ec2efcdbf09c465848b609856bef96c"
 dependencies = [
  "alloy",
  "rand",
@@ -7066,7 +7078,7 @@ dependencies = [
 [[package]]
 name = "tap_receipt"
 version = "0.1.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=dbae001#dbae001f55e48d95a7298417c366f69a711fa1b7"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e5546a6#e5546a617ec2efcdbf09c465848b609856bef96c"
 dependencies = [
  "alloy",
  "anyhow",

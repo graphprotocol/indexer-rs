@@ -20,7 +20,6 @@ use tap_core::{
     manager::{adapters::ReceiptStore, Manager},
     receipt::Context,
 };
-use tap_graph::ReceiptAggregateVoucher;
 use tower_http::auth::AsyncAuthorizeRequest;
 
 use crate::{
@@ -33,7 +32,7 @@ use crate::{
 ///
 /// Requires TapReceipt, MetricLabels and Arc<Context> extensions
 pub fn tap_receipt_authorize<T, B>(
-    tap_manager: Arc<Manager<T, TapReceipt, ReceiptAggregateVoucher>>,
+    tap_manager: Arc<Manager<T, TapReceipt>>,
     failed_receipt_metric: &'static prometheus::CounterVec,
 ) -> impl AsyncAuthorizeRequest<
     B,

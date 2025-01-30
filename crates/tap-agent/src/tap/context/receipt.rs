@@ -8,6 +8,7 @@ use std::{
 };
 
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
+use indexer_receipt::TapReceipt;
 use sqlx::{postgres::types::PgRange, types::BigDecimal};
 use tap_core::manager::adapters::{safe_truncate_receipts, ReceiptDelete, ReceiptRead};
 use tap_graph::{Receipt, SignedReceipt};
@@ -69,7 +70,7 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
 }
 
 #[async_trait::async_trait]
-impl ReceiptRead<SignedReceipt> for TapAgentContext {
+impl ReceiptRead<TapReceipt> for TapAgentContext {
     type AdapterError = AdapterError;
 
     async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
@@ -145,7 +146,7 @@ impl ReceiptRead<SignedReceipt> for TapAgentContext {
                     signature,
                 };
 
-                Ok(CheckingReceipt::new(signed_receipt))
+                Ok(CheckingReceipt::new(TapReceipt::V1(signed_receipt)))
 
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
@@ -198,7 +199,10 @@ mod test {
     use indexer_monitor::EscrowAccounts;
     use lazy_static::lazy_static;
     use sqlx::PgPool;
-    use tap_core::manager::adapters::{ReceiptDelete, ReceiptRead};
+    use tap_core::{
+        manager::adapters::{ReceiptDelete, ReceiptRead},
+        receipt::{WithUniqueId, WithValueAndTimestamp},
+    };
     use test_assets::{
         ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
@@ -246,8 +250,8 @@ mod test {
             .clone();
 
         assert_eq!(
-            received_receipt.signed_receipt().unique_hash(),
-            retrieved_receipt.signed_receipt().unique_hash(),
+            received_receipt.signed_receipt().unique_id(),
+            retrieved_receipt.signed_receipt().unique_id(),
         );
     }
 
@@ -266,8 +270,8 @@ mod test {
         let received_receipt_vec: Vec<_> = received_receipt_vec
             .iter()
             .filter(|received_receipt| {
-                range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
-                    && (received_receipt.signed_receipt().message.allocation_id
+                range.contains(&received_receipt.signed_receipt().timestamp_ns())
+                    && (received_receipt.signed_receipt().allocation_id()
                         == storage_adapter.allocation_id)
                     && escrow_accounts_snapshot
                         .get_sender_for_signer(
@@ -286,7 +290,7 @@ mod test {
             .retrieve_receipts_in_timestamp_range(range, None)
             .await?
             .into_iter()
-            .map(|r| r.signed_receipt().unique_hash())
+            .map(|r| r.signed_receipt().unique_id())
             .collect::<Vec<_>>();
 
         // Check length
@@ -298,8 +302,7 @@ mod test {
         // Checking that the receipts in recovered_received_receipt_vec are the same as
         // the ones in received_receipt_vec
         assert!(received_receipt_vec.iter().all(|received_receipt| {
-            recovered_received_receipt_vec
-                .contains(&received_receipt.signed_receipt().unique_hash())
+            recovered_received_receipt_vec.contains(&received_receipt.signed_receipt().unique_id())
         }));
         Ok(())
     }
@@ -333,7 +336,7 @@ mod test {
         let received_receipt_vec: Vec<_> = received_receipt_vec
             .iter()
             .filter(|(_, received_receipt)| {
-                if (received_receipt.signed_receipt().message.allocation_id
+                if (received_receipt.signed_receipt().allocation_id()
                     == storage_adapter.allocation_id)
                     && escrow_accounts_snapshot
                         .get_sender_for_signer(
@@ -344,7 +347,7 @@ mod test {
                         )
                         .is_ok_and(|v| v == storage_adapter.sender)
                 {
-                    !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
+                    !range.contains(&received_receipt.signed_receipt().timestamp_ns())
                 } else {
                     true
                 }
@@ -397,14 +400,13 @@ mod test {
                     },
                     signature,
                 };
-                signed_receipt.unique_hash()
+                signed_receipt.unique_id()
             })
             .collect();
 
         // Check values recovered_received_receipt_set contains values received_receipt_vec
         assert!(received_receipt_vec.iter().all(|(_, received_receipt)| {
-            recovered_received_receipt_set
-                .contains(&received_receipt.signed_receipt().unique_hash())
+            recovered_received_receipt_set.contains(&received_receipt.signed_receipt().unique_id())
         }));
 
         // Removing all the receipts in the DB
