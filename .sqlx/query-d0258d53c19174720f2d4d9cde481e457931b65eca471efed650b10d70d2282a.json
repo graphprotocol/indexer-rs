@@ -1,0 +1,148 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM indexing_agreements WHERE id=$1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "signature",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
+        "name": "signed_payload",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "protocol_network",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "chain_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "base_price_per_epoch",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 6,
+        "name": "price_per_entity",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 7,
+        "name": "subgraph_deployment_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "service",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "payee",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "payer",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "deadline",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "duration_epochs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "max_initial_amount",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 14,
+        "name": "max_ongoing_amount_per_epoch",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 15,
+        "name": "min_epochs_per_collection",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "max_epochs_per_collection",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 18,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 19,
+        "name": "cancelled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 20,
+        "name": "signed_cancellation_payload",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 21,
+        "name": "current_allocation_id",
+        "type_info": "Bpchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "d0258d53c19174720f2d4d9cde481e457931b65eca471efed650b10d70d2282a"
+}

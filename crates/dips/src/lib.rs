@@ -1,20 +1,14 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    str::FromStr,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{str::FromStr, sync::Arc};
 
-use alloy_rlp::Decodable;
 use thegraph_core::alloy::{
     core::primitives::Address,
-    primitives::PrimitiveSignature as Signature,
-    rlp::{Encodable, RlpDecodable, RlpEncodable},
+    primitives::{b256, ChainId, PrimitiveSignature as Signature, B256},
     signers::SignerSync,
     sol,
-    sol_types::{Eip712Domain, SolStruct},
+    sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
 };
 
 pub mod proto;
@@ -25,63 +19,107 @@ use store::AgreementStore;
 use thiserror::Error;
 use uuid::Uuid;
 
+/// The Arbitrum One (mainnet) chain ID (eip155).
+const CHAIN_ID_ARBITRUM_ONE: ChainId = 0xa4b1; // 42161
+
+/// DIPs EIP-712 domain salt
+const EIP712_DOMAIN_SALT: B256 =
+    b256!("b4632c657c26dce5d4d7da1d65bda185b14ff8f905ddbb03ea0382ed06c5ef28");
+
+/// Create an EIP-712 domain given a chain ID and dispute manager address.
+pub fn dips_agreement_eip712_domain() -> Eip712Domain {
+    eip712_domain! {
+        name: "Graph Protocol Indexing Agreement",
+        version: "0",
+        chain_id: CHAIN_ID_ARBITRUM_ONE,
+        salt: EIP712_DOMAIN_SALT,
+    }
+}
+
+pub fn dips_cancellation_eip712_domain() -> Eip712Domain {
+    eip712_domain! {
+        name: "Graph Protocol Indexing Agreement Cancellation",
+        version: "0",
+        chain_id: CHAIN_ID_ARBITRUM_ONE,
+        salt: EIP712_DOMAIN_SALT,
+    }
+}
+
+pub fn dips_collection_eip712_domain() -> Eip712Domain {
+    eip712_domain! {
+        name: "Graph Protocol Indexing Agreement Collection",
+        version: "0",
+        chain_id: CHAIN_ID_ARBITRUM_ONE,
+        salt: EIP712_DOMAIN_SALT,
+    }
+}
+
 sol! {
-    // EIP712 encoded bytes, ABI - ethers
-    #[derive(Debug, RlpEncodable, RlpDecodable, PartialEq)]
+    // EIP712 encoded bytes
+    #[derive(Debug, PartialEq)]
     struct SignedIndexingAgreementVoucher {
         IndexingAgreementVoucher voucher;
         bytes signature;
     }
 
-    #[derive(Debug, RlpEncodable, RlpDecodable, PartialEq)]
+    #[derive(Debug, PartialEq)]
     struct IndexingAgreementVoucher {
-      // should coincide with signer
+        // must be unique for each indexer/gateway pair
+        bytes16 agreement_id;
+        // should coincide with signer of this voucher
         address payer;
         // should coincide with indexer
         address recipient;
-         // data service that will initiate payment collection
+        // data service that will initiate payment collection
         address service;
 
         uint32 durationEpochs;
 
         uint256 maxInitialAmount;
-        uint256 minOngoingAmountPerEpoch;
+        uint256 maxOngoingAmountPerEpoch;
 
-        uint32 maxEpochsPerCollection;
         uint32 minEpochsPerCollection;
+        uint32 maxEpochsPerCollection;
+
+        // Deadline for the indexer to accept the agreement
+        uint64 deadline;
         bytes metadata;
     }
 
     // the vouchers are generic to each data service, in the case of subgraphs this is an ABI-encoded SubgraphIndexingVoucherMetadata
-    #[derive(Debug, RlpEncodable, RlpDecodable, PartialEq)]
+    #[derive(Debug, PartialEq)]
     struct SubgraphIndexingVoucherMetadata {
-        uint256 pricePerBlock; // wei GRT
-        bytes32 protocolNetwork; // eip199:1 format
-        // differentiate based on indexed chain
-        bytes32 chainId; // eip199:1 format
-        string deployment_ipfs_hash;
+        uint256 basePricePerEpoch; // wei GRT
+        uint256 pricePerEntity; // wei GRT
+        string subgraphDeploymentId; // e.g. "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f" - TODO consider using bytes32
+        string protocolNetwork; // e.g. "eip155:42161"
+        string chainId; // indexed chain, e.g. "eip155:1"
     }
 
-    #[derive(Debug, RlpEncodable, RlpDecodable, PartialEq)]
+    #[derive(Debug, PartialEq)]
     struct SignedCancellationRequest {
         CancellationRequest request;
         bytes signature;
     }
 
-    #[derive(Debug, RlpEncodable, RlpDecodable, PartialEq)]
+    #[derive(Debug, PartialEq)]
     struct CancellationRequest {
-        // should coincide with signer.
-        address payer;
-        // should coincide with indexer.
-        address payee;
-        // data service that will initiate payment collection.
-        address service;
-        // signer of the cancellation, can be signed by either party.
-        address cancellled_by;
-        // should only be usable within a limited period of time.
-        uint64 timestamp;
-        bytes metadata;
+        bytes16 agreement_id;
     }
+
+    #[derive(Debug, PartialEq)]
+    struct SignedCollectionRequest {
+        CollectionRequest request;
+        bytes signature;
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct CollectionRequest {
+        bytes16 agreement_id;
+        address allocation_id;
+        uint64 entity_count;
+    }
+
 }
 
 #[derive(Error, Debug)]
@@ -101,10 +139,16 @@ pub enum DipsError {
     #[error("cancellation request has expired")]
     ExpiredRequest,
     // misc
-    #[error("rlp (de)serialisation failed")]
-    RlpSerializationError(#[from] alloy_rlp::Error),
     #[error("unknown error: {0}")]
     UnknownError(#[from] anyhow::Error),
+    #[error("agreement not found")]
+    AgreementNotFound,
+    #[error("ABI decoding error: {0}")]
+    AbiDecoding(String),
+    #[error("agreement is cancelled")]
+    AgreementCancelled,
+    #[error("invalid voucher: {0}")]
+    InvalidVoucher(String),
 }
 
 // TODO: send back messages
@@ -161,10 +205,7 @@ impl SignedIndexingAgreementVoucher {
     }
 
     pub fn encode_vec(&self) -> Vec<u8> {
-        let mut out = vec![];
-        self.encode(&mut out);
-
-        out
+        self.abi_encode()
     }
 }
 
@@ -188,7 +229,7 @@ impl SignedCancellationRequest {
     pub fn validate(
         &self,
         domain: &Eip712Domain,
-        time_tolerance: Duration,
+        expected_signer: &Address,
     ) -> Result<(), DipsError> {
         let sig = Signature::from_str(&self.signature.to_string())
             .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
@@ -197,64 +238,87 @@ impl SignedCancellationRequest {
             .recover_address_from_prehash(&self.request.eip712_signing_hash(domain))
             .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
 
-        if signer.ne(&self.request.cancellled_by) {
+        if signer.ne(expected_signer) {
             return Err(DipsError::UnexpectedSigner);
-        }
-
-        if signer.ne(&self.request.payer) && signer.ne(&self.request.payee) {
-            return Err(DipsError::SignerNotAuthorised(signer));
-        }
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| DipsError::ExpiredRequest)?
-            .as_secs();
-        if now - self.request.timestamp >= time_tolerance.as_secs() {
-            return Err(DipsError::ExpiredRequest);
         }
 
         Ok(())
     }
     pub fn encode_vec(&self) -> Vec<u8> {
-        let mut out = vec![];
-        self.encode(&mut out);
+        self.abi_encode()
+    }
+}
 
-        out
+impl SignedCollectionRequest {
+    pub fn encode_vec(&self) -> Vec<u8> {
+        self.abi_encode()
+    }
+}
+
+impl CollectionRequest {
+    pub fn sign<S: SignerSync>(
+        &self,
+        domain: &Eip712Domain,
+        signer: S,
+    ) -> anyhow::Result<SignedCollectionRequest> {
+        let voucher = SignedCollectionRequest {
+            request: self.clone(),
+            signature: signer.sign_typed_data_sync(self, domain)?.as_bytes().into(),
+        };
+
+        Ok(voucher)
     }
 }
 
 pub async fn validate_and_create_agreement(
     store: Arc<dyn AgreementStore>,
     domain: &Eip712Domain,
-    id: Uuid,
     expected_payee: &Address,
     allowed_payers: impl AsRef<[Address]>,
     voucher: Vec<u8>,
 ) -> Result<Uuid, DipsError> {
-    let voucher = SignedIndexingAgreementVoucher::decode(&mut voucher.as_ref())?;
-    let metadata = SubgraphIndexingVoucherMetadata::decode(&mut voucher.voucher.metadata.as_ref())?;
+    let decoded_voucher = SignedIndexingAgreementVoucher::abi_decode(voucher.as_ref(), true)
+        .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
+    let metadata = SubgraphIndexingVoucherMetadata::abi_decode(
+        decoded_voucher.voucher.metadata.as_ref(),
+        true,
+    )
+    .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
-    voucher.validate(domain, expected_payee, allowed_payers)?;
+    decoded_voucher.validate(domain, expected_payee, allowed_payers)?;
 
     store
-        .create_agreement(id, voucher, metadata.protocolNetwork.to_string())
+        .create_agreement(decoded_voucher.clone(), metadata)
         .await?;
 
-    Ok(id)
+    Ok(Uuid::from_bytes(
+        decoded_voucher.voucher.agreement_id.into(),
+    ))
 }
 
 pub async fn validate_and_cancel_agreement(
     store: Arc<dyn AgreementStore>,
     domain: &Eip712Domain,
-    id: Uuid,
-    agreement: Vec<u8>,
-    time_tolerance: Duration,
+    cancellation_request: Vec<u8>,
 ) -> Result<Uuid, DipsError> {
-    let voucher = SignedCancellationRequest::decode(&mut agreement.as_ref())?;
+    let decoded_request =
+        SignedCancellationRequest::abi_decode(cancellation_request.as_ref(), true)
+            .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
-    voucher.validate(domain, time_tolerance)?;
+    let result = store
+        .get_by_id(Uuid::from_bytes(
+            decoded_request.request.agreement_id.into(),
+        ))
+        .await?;
+    let (agreement, cancelled) = result.ok_or(DipsError::AgreementNotFound)?;
+    if cancelled {
+        return Err(DipsError::AgreementCancelled);
+    }
+    let expected_signer = agreement.voucher.payer;
+    let id = Uuid::from_bytes(decoded_request.request.agreement_id.into());
+    decoded_request.validate(domain, &expected_signer)?;
 
-    store.cancel_agreement(id, voucher).await?;
+    store.cancel_agreement(decoded_request).await?;
 
     Ok(id)
 }
@@ -266,19 +330,17 @@ mod test {
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
-    use thegraph_core::{
-        alloy::{
-            primitives::{Address, FixedBytes, U256},
-            signers::local::PrivateKeySigner,
-            sol_types::SolStruct,
-        },
-        attestation::eip712_domain,
+    use thegraph_core::alloy::{
+        primitives::{Address, FixedBytes, U256},
+        signers::local::PrivateKeySigner,
+        sol_types::SolValue,
     };
     use uuid::Uuid;
 
     pub use crate::store::{AgreementStore, InMemoryAgreementStore};
     use crate::{
-        CancellationRequest, DipsError, IndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
+        dips_agreement_eip712_domain, dips_cancellation_eip712_domain, CancellationRequest,
+        DipsError, IndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
     };
 
     #[tokio::test]
@@ -290,46 +352,50 @@ mod test {
         let payer_addr = payer.address();
 
         let metadata = SubgraphIndexingVoucherMetadata {
-            pricePerBlock: U256::from(10000_u64),
-            protocolNetwork: FixedBytes::left_padding_from("arbitrum-one".as_bytes()),
-            chainId: FixedBytes::left_padding_from("mainnet".as_bytes()),
-            deployment_ipfs_hash: deployment_id,
+            basePricePerEpoch: U256::from(10000_u64),
+            pricePerEntity: U256::from(100_u64),
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "eip155:1".to_string(),
+            subgraphDeploymentId: deployment_id,
         };
 
         let voucher = IndexingAgreementVoucher {
+            agreement_id: Uuid::now_v7().as_bytes().into(),
             payer: payer_addr,
             recipient: payee_addr,
             service: Address(FixedBytes::ZERO),
             maxInitialAmount: U256::from(10000_u64),
-            minOngoingAmountPerEpoch: U256::from(10000_u64),
+            maxOngoingAmountPerEpoch: U256::from(10000_u64),
             maxEpochsPerCollection: 1000,
             minEpochsPerCollection: 1000,
             durationEpochs: 1000,
-            metadata: alloy_rlp::encode(metadata).into(),
+            deadline: 10000000,
+            metadata: metadata.abi_encode().into(),
         };
-        let domain = eip712_domain(0, Address::ZERO);
+        let domain = dips_agreement_eip712_domain();
 
         let voucher = voucher.sign(&domain, payer)?;
-        let rlp_voucher = alloy_rlp::encode(voucher.clone());
-        let id = Uuid::now_v7();
+        let abi_voucher = voucher.abi_encode();
+        let id = Uuid::from_bytes(voucher.voucher.agreement_id.into());
 
         let store = Arc::new(InMemoryAgreementStore::default());
 
         let actual_id = super::validate_and_create_agreement(
             store.clone(),
             &domain,
-            id,
             &payee_addr,
             vec![payer_addr],
-            rlp_voucher,
+            abi_voucher,
         )
         .await
         .unwrap();
+        assert_eq!(actual_id, id);
 
         let actual = store.get_by_id(actual_id).await.unwrap();
 
-        let actual_voucher = actual.unwrap();
+        let (actual_voucher, actual_cancelled) = actual.unwrap();
         assert_eq!(voucher, actual_voucher);
+        assert!(!actual_cancelled);
         Ok(())
     }
 
@@ -342,25 +408,28 @@ mod test {
         let payer_addr = payer.address();
 
         let metadata = SubgraphIndexingVoucherMetadata {
-            pricePerBlock: U256::from(10000_u64),
-            protocolNetwork: FixedBytes::left_padding_from("arbitrum-one".as_bytes()),
-            chainId: FixedBytes::left_padding_from("mainnet".as_bytes()),
-            deployment_ipfs_hash: deployment_id,
+            basePricePerEpoch: U256::from(10000_u64),
+            pricePerEntity: U256::from(100_u64),
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "eip155:1".to_string(),
+            subgraphDeploymentId: deployment_id,
         };
 
         let voucher = IndexingAgreementVoucher {
+            agreement_id: Uuid::now_v7().as_bytes().into(),
             payer: payer_addr,
             recipient: payee.address(),
             service: Address(FixedBytes::ZERO),
             maxInitialAmount: U256::from(10000_u64),
-            minOngoingAmountPerEpoch: U256::from(10000_u64),
+            maxOngoingAmountPerEpoch: U256::from(10000_u64),
             maxEpochsPerCollection: 1000,
             minEpochsPerCollection: 1000,
             durationEpochs: 1000,
-            metadata: metadata.eip712_hash_struct().to_owned().into(),
+            deadline: 10000000,
+            metadata: metadata.abi_encode().into(),
         };
 
-        let domain = eip712_domain(0, Address::ZERO);
+        let domain = dips_agreement_eip712_domain();
         let signed = voucher.sign(&domain, payer).unwrap();
         assert_eq!(
             signed
@@ -383,24 +452,27 @@ mod test {
         let payer_addr = payer.address();
 
         let metadata = SubgraphIndexingVoucherMetadata {
-            pricePerBlock: U256::from(10000_u64),
-            protocolNetwork: FixedBytes::left_padding_from("arbitrum-one".as_bytes()),
-            chainId: FixedBytes::left_padding_from("mainnet".as_bytes()),
-            deployment_ipfs_hash: deployment_id,
+            basePricePerEpoch: U256::from(10000_u64),
+            pricePerEntity: U256::from(100_u64),
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "eip155:1".to_string(),
+            subgraphDeploymentId: deployment_id,
         };
 
         let voucher = IndexingAgreementVoucher {
+            agreement_id: Uuid::now_v7().as_bytes().into(),
             payer: payer_addr,
             recipient: payee_addr,
             service: Address(FixedBytes::ZERO),
             maxInitialAmount: U256::from(10000_u64),
-            minOngoingAmountPerEpoch: U256::from(10000_u64),
+            maxOngoingAmountPerEpoch: U256::from(10000_u64),
             maxEpochsPerCollection: 1000,
             minEpochsPerCollection: 1000,
             durationEpochs: 1000,
-            metadata: metadata.eip712_hash_struct().to_owned().into(),
+            deadline: 10000000,
+            metadata: metadata.abi_encode().into(),
         };
-        let domain = eip712_domain(0, Address::ZERO);
+        let domain = dips_agreement_eip712_domain();
 
         let mut signed = voucher.sign(&domain, payer).unwrap();
         signed.voucher.service = Address::repeat_byte(9);
@@ -415,82 +487,119 @@ mod test {
 
     #[test]
     fn cancel_voucher_validation() {
-        let deployment_id = "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f".to_string();
-        let payee = PrivateKeySigner::random();
-        let payee_addr = payee.address();
         let payer = PrivateKeySigner::random();
         let payer_addr = payer.address();
         let other_signer = PrivateKeySigner::random();
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        let metadata = SubgraphIndexingVoucherMetadata {
-            pricePerBlock: U256::from(10000_u64),
-            protocolNetwork: FixedBytes::left_padding_from("arbitrum-one".as_bytes()),
-            chainId: FixedBytes::left_padding_from("mainnet".as_bytes()),
-            deployment_ipfs_hash: deployment_id,
-        };
 
         struct Case<'a> {
             name: &'a str,
             signer: PrivateKeySigner,
-            timestamp: u64,
             error: Option<DipsError>,
         }
 
         let cases: Vec<Case> = vec![
             Case {
                 name: "happy path payer",
-                signer: payee.clone(),
-                timestamp: now,
-                error: None,
-            },
-            Case {
-                name: "happy path payee",
-                signer: payer,
-                timestamp: now,
+                signer: payer.clone(),
                 error: None,
             },
             Case {
                 name: "invalid signer",
                 signer: other_signer.clone(),
-                timestamp: now,
-                error: Some(DipsError::SignerNotAuthorised(other_signer.address())),
-            },
-            Case {
-                name: "expired timestamp",
-                signer: payee,
-                timestamp: 100,
                 error: Some(DipsError::SignerNotAuthorised(other_signer.address())),
             },
         ];
 
         for Case {
             name,
-            timestamp,
             signer,
             error,
         } in cases.into_iter()
         {
             let voucher = CancellationRequest {
-                payer: payer_addr,
-                payee: payee_addr,
-                service: Address(FixedBytes::ZERO),
-                metadata: metadata.eip712_hash_struct().to_owned().into(),
-                cancellled_by: signer.address(),
-                timestamp,
+                agreement_id: Uuid::now_v7().as_bytes().into(),
             };
-            let domain = eip712_domain(0, Address::ZERO);
+            let domain = dips_cancellation_eip712_domain();
 
             let signed = voucher.sign(&domain, signer).unwrap();
 
-            let res = signed.validate(&domain, Duration::from_secs(10));
+            let res = signed.validate(&domain, &payer_addr);
             match error {
                 Some(_err) => assert!(matches!(res.unwrap_err(), _err), "case: {}", name),
                 None => assert!(res.is_ok(), "case: {}, err: {}", name, res.unwrap_err()),
             }
         }
+    }
+    #[tokio::test]
+    async fn test_create_and_cancel_agreement() -> anyhow::Result<()> {
+        let deployment_id = "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f".to_string();
+        let payee = PrivateKeySigner::random();
+        let payee_addr = payee.address();
+        let payer = PrivateKeySigner::random();
+        let payer_addr = payer.address();
+        let store = Arc::new(InMemoryAgreementStore::default());
+
+        // Create metadata and voucher
+        let metadata = SubgraphIndexingVoucherMetadata {
+            basePricePerEpoch: U256::from(10000_u64),
+            pricePerEntity: U256::from(100_u64),
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "eip155:1".to_string(),
+            subgraphDeploymentId: deployment_id,
+        };
+
+        let agreement_id = Uuid::now_v7();
+        let voucher = IndexingAgreementVoucher {
+            agreement_id: agreement_id.as_bytes().into(),
+            payer: payer_addr,
+            recipient: payee_addr,
+            service: Address::ZERO,
+            durationEpochs: 100,
+            maxInitialAmount: U256::from(1000000_u64),
+            maxOngoingAmountPerEpoch: U256::from(10000_u64),
+            minEpochsPerCollection: 1,
+            maxEpochsPerCollection: 10,
+            deadline: (SystemTime::now() + Duration::from_secs(3600))
+                .duration_since(UNIX_EPOCH)?
+                .as_secs(),
+            metadata: metadata.abi_encode().into(),
+        };
+
+        let domain = dips_agreement_eip712_domain();
+        let signed_voucher = voucher.sign(&domain, payer.clone())?;
+
+        // Create agreement
+        let agreement_id = super::validate_and_create_agreement(
+            store.clone(),
+            &domain,
+            &payee_addr,
+            vec![payer_addr],
+            signed_voucher.encode_vec(),
+        )
+        .await?;
+
+        // Create and sign cancellation request
+        let cancel_domain = dips_cancellation_eip712_domain();
+        let cancel_request = CancellationRequest {
+            agreement_id: agreement_id.as_bytes().into(),
+        };
+        let signed_cancel = cancel_request.sign(&cancel_domain, payer)?;
+
+        // Cancel agreement
+        let cancelled_id = super::validate_and_cancel_agreement(
+            store.clone(),
+            &cancel_domain,
+            signed_cancel.encode_vec(),
+        )
+        .await?;
+
+        assert_eq!(agreement_id, cancelled_id);
+
+        // Verify agreement is cancelled
+        let result = store.get_by_id(agreement_id).await?;
+        let (_, cancelled) = result.ok_or(DipsError::AgreementNotFound)?;
+        assert!(cancelled);
+
+        Ok(())
     }
 }

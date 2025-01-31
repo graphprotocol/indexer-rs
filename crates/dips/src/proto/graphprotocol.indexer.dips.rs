@@ -5,11 +5,10 @@
 /// See the `DipsService.SubmitAgreementProposal` method.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubmitAgreementProposalRequest {
-    /// / The ID of the agreement to register.
-    #[prost(bytes = "vec", tag = "1")]
-    pub agreement_id: ::prost::alloc::vec::Vec<u8>,
-    /// / The voucher of the agreement.
-    #[prost(bytes = "vec", tag = "20")]
+    #[prost(uint64, tag = "1")]
+    pub version: u64,
+    /// / An ERC-712 signed indexing agreement voucher
+    #[prost(bytes = "vec", tag = "2")]
     pub signed_voucher: ::prost::alloc::vec::Vec<u8>,
 }
 /// *
@@ -23,24 +22,23 @@ pub struct SubmitAgreementProposalResponse {
     pub response: i32,
 }
 /// *
-/// A request to cancel an existing _indexing agreement_.
+/// A request to cancel an _indexing agreement_.
 ///
 /// See the `DipsService.CancelAgreement` method.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CancelAgreementRequest {
-    /// / The ID of the agreement to cancel.
-    #[prost(bytes = "vec", tag = "1")]
-    pub agreement_id: ::prost::alloc::vec::Vec<u8>,
-    /// / The signature of the message.
-    #[prost(bytes = "vec", tag = "99")]
-    pub signature: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint64, tag = "1")]
+    pub version: u64,
+    /// / a signed ERC-712 message cancelling an agreement
+    #[prost(bytes = "vec", tag = "2")]
+    pub signed_cancellation: ::prost::alloc::vec::Vec<u8>,
 }
 /// *
 /// A response to a request to cancel an existing _indexing agreement_.
 ///
 /// See the `DipsService.CancelAgreement` method.
 ///
-/// Empty message
+/// Empty message, eventually we may add custom status codes
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct CancelAgreementResponse {}
 /// *
