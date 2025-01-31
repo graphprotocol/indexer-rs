@@ -39,6 +39,7 @@ use crate::{
     adaptative_concurrency::AdaptiveLimiter,
     agent::unaggregated_receipts::UnaggregatedReceipts,
     backoff::BackoffInfo,
+    tap::context::Legacy,
     tracker::{SenderFeeTracker, SimpleFeeTracker},
 };
 
@@ -210,11 +211,17 @@ impl SenderAccountConfig {
     }
 }
 
+pub enum AllocationType {
+    Legacy,
+    Horizon,
+}
+
 impl State {
     async fn create_sender_allocation(
         &self,
         sender_account_ref: ActorRef<SenderAccountMessage>,
         allocation_id: Address,
+        allocation_type: AllocationType,
     ) -> anyhow::Result<()> {
         tracing::trace!(
             %self.sender,
@@ -233,13 +240,18 @@ impl State {
             .config(AllocationConfig::from_sender_config(self.config))
             .build();
 
-        SenderAllocation::spawn_linked(
-            Some(self.format_sender_allocation(&allocation_id)),
-            SenderAllocation,
-            args,
-            sender_account_ref.get_cell(),
-        )
-        .await?;
+        match allocation_type {
+            AllocationType::Legacy => {
+                SenderAllocation::spawn_linked(
+                    Some(self.format_sender_allocation(&allocation_id)),
+                    SenderAllocation::<Legacy>::default(),
+                    args,
+                    sender_account_ref.get_cell(),
+                )
+                .await?;
+            }
+            AllocationType::Horizon => unimplemented!(),
+        }
         Ok(())
     }
     fn format_sender_allocation(&self, allocation_id: &Address) -> String {
@@ -646,7 +658,13 @@ impl Actor for SenderAccount {
 
         stream::iter(allocation_ids)
             // Create a sender allocation for each allocation
-            .map(|allocation_id| state.create_sender_allocation(myself.clone(), allocation_id))
+            .map(|allocation_id| {
+                state.create_sender_allocation(
+                    myself.clone(),
+                    allocation_id,
+                    AllocationType::Legacy,
+                )
+            })
             .buffer_unordered(10) // Limit concurrency to 10 allocations at a time
             .collect::<Vec<anyhow::Result<()>>>()
             .await
@@ -819,7 +837,11 @@ impl Actor for SenderAccount {
                 let mut new_allocation_ids = state.allocation_ids.clone();
                 for allocation_id in allocation_ids.difference(&state.allocation_ids) {
                     if let Err(error) = state
-                        .create_sender_allocation(myself.clone(), *allocation_id)
+                        .create_sender_allocation(
+                            myself.clone(),
+                            *allocation_id,
+                            AllocationType::Legacy,
+                        )
                         .await
                     {
                         tracing::error!(
@@ -870,7 +892,7 @@ impl Actor for SenderAccount {
             }
             SenderAccountMessage::NewAllocationId(allocation_id) => {
                 if let Err(error) = state
-                    .create_sender_allocation(myself.clone(), allocation_id)
+                    .create_sender_allocation(myself.clone(), allocation_id, AllocationType::Legacy)
                     .await
                 {
                     tracing::error!(
@@ -1013,7 +1035,7 @@ impl Actor for SenderAccount {
                 };
 
                 if let Err(error) = state
-                    .create_sender_allocation(myself.clone(), allocation_id)
+                    .create_sender_allocation(myself.clone(), allocation_id, AllocationType::Legacy)
                     .await
                 {
                     tracing::error!(

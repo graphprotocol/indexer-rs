@@ -14,10 +14,10 @@ use tap_graph::{ReceiptAggregateVoucher, SignedRav};
 use thegraph_core::alloy::signers::Signature;
 use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
 
-use super::{error::AdapterError, TapAgentContext};
+use super::{error::AdapterError, Horizon, Legacy, TapAgentContext};
 
 #[async_trait::async_trait]
-impl RavRead<ReceiptAggregateVoucher> for TapAgentContext {
+impl RavRead<ReceiptAggregateVoucher> for TapAgentContext<Legacy> {
     type AdapterError = AdapterError;
 
     async fn last_rav(&self) -> Result<Option<SignedRav>, Self::AdapterError> {
@@ -87,7 +87,7 @@ impl RavRead<ReceiptAggregateVoucher> for TapAgentContext {
 }
 
 #[async_trait::async_trait]
-impl RavStore<ReceiptAggregateVoucher> for TapAgentContext {
+impl RavStore<ReceiptAggregateVoucher> for TapAgentContext<Legacy> {
     type AdapterError = AdapterError;
 
     async fn update_last_rav(&self, rav: SignedRav) -> Result<(), Self::AdapterError> {
@@ -126,6 +126,27 @@ impl RavStore<ReceiptAggregateVoucher> for TapAgentContext {
             error: e.to_string(),
         })?;
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon> {
+    type AdapterError = AdapterError;
+
+    async fn last_rav(&self) -> Result<Option<tap_graph::v2::SignedRav>, Self::AdapterError> {
+        unimplemented!()
+    }
+}
+
+#[async_trait::async_trait]
+impl RavStore<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon> {
+    type AdapterError = AdapterError;
+
+    async fn update_last_rav(
+        &self,
+        _rav: tap_graph::v2::SignedRav,
+    ) -> Result<(), Self::AdapterError> {
+        unimplemented!()
     }
 }
 
