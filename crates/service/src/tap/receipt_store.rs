@@ -17,8 +17,21 @@ pub struct InnerContext {
     pub pgpool: PgPool,
 }
 
+#[derive(thiserror::Error, Debug)]
+enum ProcessReceiptError {
+    #[error("Failed to store v1 receipts: {0}")]
+    V1(anyhow::Error),
+    #[error("Failed to store v2 receipts: {0}")]
+    V2(anyhow::Error),
+    #[error("Failed to receipts for v1 and v2. Error v1: {0}. Error v2: {1}")]
+    Both(anyhow::Error, anyhow::Error),
+}
+
 impl InnerContext {
-    async fn process_db_receipts(&self, buffer: Vec<DatabaseReceipt>) {
+    async fn process_db_receipts(
+        &self,
+        buffer: Vec<DatabaseReceipt>,
+    ) -> Result<(), ProcessReceiptError> {
         let (v1_receipts, v2_receipts): (Vec<_>, Vec<_>) =
             buffer.into_iter().partition_map(|r| match r {
                 DatabaseReceipt::V1(db_receipt_v1) => Either::Left(db_receipt_v1),
@@ -28,11 +41,11 @@ impl InnerContext {
             self.store_receipts_v1(v1_receipts),
             self.store_receipts_v2(v2_receipts)
         );
-        if let Err(e) = insert_v1 {
-            tracing::error!("Failed to store v1 receipts: {}", e);
-        }
-        if let Err(e) = insert_v2 {
-            tracing::error!("Failed to store v2 receipts: {}", e);
+        match (insert_v1, insert_v2) {
+            (Err(e1), Err(e2)) => Err(ProcessReceiptError::Both(e1.into(), e2.into())),
+            (Err(e1), _) => Err(ProcessReceiptError::V1(e1.into())),
+            (_, Err(e2)) => Err(ProcessReceiptError::V2(e2.into())),
+            _ => Ok(()),
         }
     }
 
@@ -165,7 +178,9 @@ impl IndexerTapContext {
                 tokio::select! {
                     biased;
                     _ = receiver.recv_many(&mut buffer, BUFFER_SIZE) => {
-                        inner_context.process_db_receipts(buffer).await;
+                        if let Err(e) = inner_context.process_db_receipts(buffer).await {
+                            tracing::error!("{e}");
+                        }
                     }
                     _ = cancelation_token.cancelled() => { break },
                 }
