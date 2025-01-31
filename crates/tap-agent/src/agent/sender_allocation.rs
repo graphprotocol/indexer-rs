@@ -102,6 +102,11 @@ pub enum RavError {
 
 type TapManager = tap_core::manager::Manager<TapAgentContext, TapReceipt>;
 
+pub enum AllocationType {
+    Legacy,
+    Horizon,
+}
+
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 pub struct SenderAllocation;
 
@@ -117,6 +122,7 @@ pub struct SenderAllocationState {
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
     sender_aggregator: TapAggregatorClient<Channel>,
+    allocation_type: AllocationType,
     //config
     timestamp_buffer_ns: u64,
     rav_request_receipt_limit: u64,
@@ -141,6 +147,7 @@ impl AllocationConfig {
     }
 }
 
+#[derive(bon::Builder)]
 pub struct SenderAllocationArgs {
     pub pgpool: PgPool,
     pub allocation_id: Address,
@@ -150,6 +157,8 @@ pub struct SenderAllocationArgs {
     pub domain_separator: Eip712Domain,
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
     pub sender_aggregator: TapAggregatorClient<Channel>,
+    #[builder(default = AllocationType::Legacy)]
+    pub allocation_type: AllocationType,
 
     //config
     pub config: AllocationConfig,
@@ -344,6 +353,7 @@ impl Actor for SenderAllocation {
 impl SenderAllocationState {
     async fn new(
         SenderAllocationArgs {
+            allocation_type,
             pgpool,
             allocation_id,
             sender,
@@ -387,6 +397,7 @@ impl SenderAllocationState {
         Ok(Self {
             pgpool,
             tap_manager,
+            allocation_type,
             allocation_id,
             sender,
             escrow_accounts,
@@ -983,22 +994,22 @@ pub mod tests {
                 )
             });
 
-        SenderAllocationArgs {
-            pgpool: pgpool.clone(),
-            allocation_id: ALLOCATION_ID_0,
-            sender: SENDER.1,
-            escrow_accounts: escrow_accounts_rx,
-            escrow_subgraph,
-            domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            sender_account_ref,
-            sender_aggregator,
-            config: super::AllocationConfig {
+        SenderAllocationArgs::builder()
+            .pgpool(pgpool.clone())
+            .allocation_id(ALLOCATION_ID_0)
+            .sender(SENDER.1)
+            .escrow_accounts(escrow_accounts_rx)
+            .escrow_subgraph(escrow_subgraph)
+            .domain_separator(TAP_EIP712_DOMAIN_SEPARATOR.clone())
+            .sender_account_ref(sender_account_ref)
+            .sender_aggregator(sender_aggregator)
+            .config(super::AllocationConfig {
                 timestamp_buffer_ns: 1,
                 rav_request_receipt_limit,
                 indexer_address: INDEXER.1,
                 escrow_polling_interval: Duration::from_millis(1000),
-            },
-        }
+            })
+            .build()
     }
 
     #[bon::builder]

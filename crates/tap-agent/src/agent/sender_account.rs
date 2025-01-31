@@ -221,17 +221,17 @@ impl State {
             %allocation_id,
             "SenderAccount is creating allocation."
         );
-        let args = SenderAllocationArgs {
-            pgpool: self.pgpool.clone(),
-            allocation_id,
-            sender: self.sender,
-            escrow_accounts: self.escrow_accounts.clone(),
-            escrow_subgraph: self.escrow_subgraph,
-            domain_separator: self.domain_separator.clone(),
-            sender_account_ref: sender_account_ref.clone(),
-            sender_aggregator: self.sender_aggregator.clone(),
-            config: AllocationConfig::from_sender_config(self.config),
-        };
+        let args = SenderAllocationArgs::builder()
+            .pgpool(self.pgpool.clone())
+            .allocation_id(allocation_id)
+            .sender(self.sender)
+            .escrow_accounts(self.escrow_accounts.clone())
+            .escrow_subgraph(self.escrow_subgraph)
+            .domain_separator(self.domain_separator.clone())
+            .sender_account_ref(sender_account_ref.clone())
+            .sender_aggregator(self.sender_aggregator.clone())
+            .config(AllocationConfig::from_sender_config(self.config))
+            .build();
 
         SenderAllocation::spawn_linked(
             Some(self.format_sender_allocation(&allocation_id)),
