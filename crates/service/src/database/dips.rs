@@ -19,7 +19,7 @@ pub struct PsqlAgreementStore {
 #[async_trait]
 impl AgreementStore for PsqlAgreementStore {
     async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<SignedIndexingAgreementVoucher>> {
-        let item = sqlx::query!("SELECT * FROM dips_agreements WHERE id=$1", id,)
+        let item = sqlx::query!("SELECT * FROM indexing_agreements WHERE id=$1", id,)
             .fetch_one(&self.pool)
             .await;
 
@@ -43,7 +43,7 @@ impl AgreementStore for PsqlAgreementStore {
         let now = Utc::now();
 
         sqlx::query!(
-            "INSERT INTO dips_agreements VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,null,null)",
+            "INSERT INTO indexing_agreements VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,null,null)",
             id,
             agreement.signature.as_ref(),
             bs,
