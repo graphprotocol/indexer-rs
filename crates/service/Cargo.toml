@@ -59,6 +59,7 @@ bip39.workspace = true
 tower = "0.5.1"
 pin-project = "1.1.7"
 tonic.workspace = true
+itertools = "0.14.0"
 
 [dev-dependencies]
 hex-literal = "0.4.1"
