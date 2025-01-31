@@ -56,10 +56,10 @@ sol! {
     #[derive(Debug, RlpEncodable, RlpDecodable, PartialEq)]
     struct SubgraphIndexingVoucherMetadata {
         uint256 pricePerBlock; // wei GRT
-        bytes32 protocolNetwork; // eip199:1 format
-        // differentiate based on indexed chain
-        bytes32 chainId; // eip199:1 format
-        string deployment_ipfs_hash;
+        uint256 pricePerEntity; // wei GRT
+        string subgraphDeploymentId; // e.g. "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f" - TODO consider using bytes32
+        string protocolNetwork; // e.g. "eip155:42161"
+        string chainId; // e.g. "eip155:1"
     }
 
     #[derive(Debug, RlpEncodable, RlpDecodable, PartialEq)]
@@ -77,7 +77,7 @@ sol! {
         // data service that will initiate payment collection.
         address service;
         // signer of the cancellation, can be signed by either party.
-        address cancellled_by;
+        address cancelledBy;
         // should only be usable within a limited period of time.
         uint64 timestamp;
         bytes metadata;
@@ -197,7 +197,7 @@ impl SignedCancellationRequest {
             .recover_address_from_prehash(&self.request.eip712_signing_hash(domain))
             .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
 
-        if signer.ne(&self.request.cancellled_by) {
+        if signer.ne(&self.request.cancelledBy) {
             return Err(DipsError::UnexpectedSigner);
         }
 
@@ -237,7 +237,7 @@ pub async fn validate_and_create_agreement(
     voucher.validate(domain, expected_payee, allowed_payers)?;
 
     store
-        .create_agreement(id, voucher, metadata.protocolNetwork.to_string())
+        .create_agreement(id, voucher, metadata)
         .await?;
 
     Ok(id)
@@ -291,9 +291,10 @@ mod test {
 
         let metadata = SubgraphIndexingVoucherMetadata {
             pricePerBlock: U256::from(10000_u64),
-            protocolNetwork: FixedBytes::left_padding_from("arbitrum-one".as_bytes()),
-            chainId: FixedBytes::left_padding_from("mainnet".as_bytes()),
-            deployment_ipfs_hash: deployment_id,
+            pricePerEntity: U256::from(100_u64),
+            protocolNetwork: "eip155:42161",
+            chainId: "eip155:1",
+            subgraphDeploymentId: deployment_id,
         };
 
         let voucher = IndexingAgreementVoucher {
@@ -343,9 +344,10 @@ mod test {
 
         let metadata = SubgraphIndexingVoucherMetadata {
             pricePerBlock: U256::from(10000_u64),
-            protocolNetwork: FixedBytes::left_padding_from("arbitrum-one".as_bytes()),
-            chainId: FixedBytes::left_padding_from("mainnet".as_bytes()),
-            deployment_ipfs_hash: deployment_id,
+            pricePerEntity: U256::from(100_u64),
+            protocolNetwork: "eip155:42161",
+            chainId: "eip155:1",
+            subgraphDeploymentId: deployment_id,
         };
 
         let voucher = IndexingAgreementVoucher {
@@ -384,9 +386,10 @@ mod test {
 
         let metadata = SubgraphIndexingVoucherMetadata {
             pricePerBlock: U256::from(10000_u64),
-            protocolNetwork: FixedBytes::left_padding_from("arbitrum-one".as_bytes()),
-            chainId: FixedBytes::left_padding_from("mainnet".as_bytes()),
-            deployment_ipfs_hash: deployment_id,
+            pricePerEntity: U256::from(100_u64),
+            protocolNetwork: "eip155:42161",
+            chainId: "eip155:1",
+            subgraphDeploymentId: deployment_id,
         };
 
         let voucher = IndexingAgreementVoucher {
@@ -428,9 +431,10 @@ mod test {
 
         let metadata = SubgraphIndexingVoucherMetadata {
             pricePerBlock: U256::from(10000_u64),
-            protocolNetwork: FixedBytes::left_padding_from("arbitrum-one".as_bytes()),
-            chainId: FixedBytes::left_padding_from("mainnet".as_bytes()),
-            deployment_ipfs_hash: deployment_id,
+            pricePerEntity: U256::from(100_u64),
+            protocolNetwork: "eip155:42161",
+            chainId: "eip155:1",
+            subgraphDeploymentId: deployment_id,
         };
 
         struct Case<'a> {
@@ -479,7 +483,7 @@ mod test {
                 payee: payee_addr,
                 service: Address(FixedBytes::ZERO),
                 metadata: metadata.eip712_hash_struct().to_owned().into(),
-                cancellled_by: signer.address(),
+                cancelledBy: signer.address(),
                 timestamp,
             };
             let domain = eip712_domain(0, Address::ZERO);
