@@ -1,2 +1,2 @@
 -- Add down migration script here
-DROP TABLE IF EXISTS dips_agreements;
+DROP TABLE IF EXISTS indexing_agreements;

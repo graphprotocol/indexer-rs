@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM dips_agreements WHERE id=$1",
+  "query": "SELECT * FROM indexing_agreements WHERE id=$1",
   "describe": {
     "columns": [
       {
