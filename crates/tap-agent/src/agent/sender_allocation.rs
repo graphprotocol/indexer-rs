@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    marker::PhantomData,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -16,7 +17,7 @@ use tap_aggregator::grpc::{
     tap_aggregator_client::TapAggregatorClient, RavRequest as AggregatorRequest,
 };
 use tap_core::{
-    manager::adapters::RavRead,
+    manager::adapters::{RavRead, RavStore, ReceiptDelete, ReceiptRead},
     rav_request::RavRequest,
     receipt::{
         checks::{Check, CheckList},
@@ -43,7 +44,7 @@ use crate::{
     tap::{
         context::{
             checks::{AllocationId, Signature},
-            TapAgentContext,
+            ReceiptType, TapAgentContext,
         },
         signers_trimmed, TapReceipt,
     },
@@ -100,29 +101,28 @@ pub enum RavError {
     Other(#[from] anyhow::Error),
 }
 
-type TapManager = tap_core::manager::Manager<TapAgentContext, TapReceipt>;
-
-pub enum AllocationType {
-    Legacy,
-    Horizon,
-}
+type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
-pub struct SenderAllocation;
+pub struct SenderAllocation<T>(PhantomData<T>);
+impl<T: ReceiptType> Default for SenderAllocation<T> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
 
-pub struct SenderAllocationState {
+pub struct SenderAllocationState<T> {
     unaggregated_fees: UnaggregatedReceipts,
     invalid_receipts_fees: UnaggregatedReceipts,
     latest_rav: Option<SignedRav>,
     pgpool: PgPool,
-    tap_manager: TapManager,
+    tap_manager: TapManager<T>,
     allocation_id: Address,
     sender: Address,
     escrow_accounts: Receiver<EscrowAccounts>,
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
     sender_aggregator: TapAggregatorClient<Channel>,
-    allocation_type: AllocationType,
     //config
     timestamp_buffer_ns: u64,
     rav_request_receipt_limit: u64,
@@ -157,8 +157,6 @@ pub struct SenderAllocationArgs {
     pub domain_separator: Eip712Domain,
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
     pub sender_aggregator: TapAggregatorClient<Channel>,
-    #[builder(default = AllocationType::Legacy)]
-    pub allocation_type: AllocationType,
 
     //config
     pub config: AllocationConfig,
@@ -173,9 +171,16 @@ pub enum SenderAllocationMessage {
 }
 
 #[async_trait::async_trait]
-impl Actor for SenderAllocation {
+impl<T> Actor for SenderAllocation<T>
+where
+    T: ReceiptType + Send + Sync + 'static,
+    TapAgentContext<T>: RavRead<ReceiptAggregateVoucher>
+        + RavStore<ReceiptAggregateVoucher>
+        + ReceiptDelete
+        + ReceiptRead<TapReceipt>,
+{
     type Msg = SenderAllocationMessage;
-    type State = SenderAllocationState;
+    type State = SenderAllocationState<T>;
     type Arguments = SenderAllocationArgs;
 
     async fn pre_start(
@@ -350,10 +355,16 @@ impl Actor for SenderAllocation {
     }
 }
 
-impl SenderAllocationState {
+impl<T> SenderAllocationState<T>
+where
+    T: ReceiptType + Send + Sync,
+    TapAgentContext<T>: RavRead<ReceiptAggregateVoucher>
+        + RavStore<ReceiptAggregateVoucher>
+        + ReceiptDelete
+        + ReceiptRead<TapReceipt>,
+{
     async fn new(
         SenderAllocationArgs {
-            allocation_type,
             pgpool,
             allocation_id,
             sender,
@@ -397,7 +408,6 @@ impl SenderAllocationState {
         Ok(Self {
             pgpool,
             tap_manager,
-            allocation_type,
             allocation_id,
             sender,
             escrow_accounts,
@@ -1028,7 +1038,7 @@ pub mod tests {
             .rav_request_receipt_limit(rav_request_receipt_limit)
             .call()
             .await;
-        let actor = TestableActor::new(SenderAllocation);
+        let actor = TestableActor::new(SenderAllocation::default());
         let notify = actor.notify.clone();
 
         let (allocation_ref, _join_handle) = Actor::spawn(None, actor, args).await.unwrap();

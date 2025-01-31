@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use tap_core::manager::adapters::SignatureChecker;
 use thegraph_core::alloy::primitives::Address;
 
-use super::{error::AdapterError, TapAgentContext};
+use super::{error::AdapterError, ReceiptType, TapAgentContext};
 
 // Conversion from eventuals::error::Closed to AdapterError::EscrowEventualError
 impl From<eventuals::error::Closed> for AdapterError {
@@ -22,7 +22,7 @@ impl From<eventuals::error::Closed> for AdapterError {
 // In any case, we don't want to fail a receipt because of this.
 // The receipt is fine, just the escrow account that is not.
 #[async_trait]
-impl SignatureChecker for TapAgentContext {
+impl<T: ReceiptType + Send + Sync> SignatureChecker for TapAgentContext<T> {
     type AdapterError = AdapterError;
 
     async fn verify_signer(&self, signer: Address) -> Result<bool, Self::AdapterError> {
