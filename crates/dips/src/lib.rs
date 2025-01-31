@@ -237,7 +237,7 @@ pub async fn validate_and_create_agreement(
     voucher.validate(domain, expected_payee, allowed_payers)?;
 
     store
-        .create_agreement(id, voucher, metadata.protocolNetwork.to_string())
+        .create_agreement(id, voucher, metadata)
         .await?;
 
     Ok(id)

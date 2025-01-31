@@ -15,13 +15,13 @@ CREATE TABLE IF NOT EXISTS indexing_agreements (
     payee CHAR(40) NOT NULL,
     payer CHAR(40) NOT NULL,
 
-    current_allocation_id CHAR(40) NOT NULL,
-
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
 
     cancelled_at TIMESTAMP WITH TIME ZONE,
-    signed_cancellation_payload BYTEA
+    signed_cancellation_payload BYTEA,
+
+    current_allocation_id CHAR(40)
 );
 
 CREATE UNIQUE INDEX IX_UNIQ_SIGNATURE_AGREEMENT on indexing_agreements(signature); 

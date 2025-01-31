@@ -5,7 +5,7 @@ use anyhow::bail;
 use axum::async_trait;
 use build_info::chrono::Utc;
 use indexer_dips::{
-    store::AgreementStore, SignedCancellationRequest, SignedIndexingAgreementVoucher,
+    store::AgreementStore, SignedCancellationRequest, SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata
 };
 use sqlx::PgPool;
 use thegraph_core::alloy::rlp::Decodable;
@@ -37,17 +37,21 @@ impl AgreementStore for PsqlAgreementStore {
         &self,
         id: Uuid,
         agreement: SignedIndexingAgreementVoucher,
-        protocol: String,
+        metadata: SignedIndexingAgreementMetadata,
     ) -> anyhow::Result<()> {
         let bs = agreement.encode_vec();
         let now = Utc::now();
 
         sqlx::query!(
-            "INSERT INTO indexing_agreements VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,null,null)",
+            "INSERT INTO indexing_agreements VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,null,null,null)",
             id,
             agreement.signature.as_ref(),
             bs,
-            protocol,
+            metadata.protocolNetwork,
+            metadata.chainId,
+            metadata.pricePerBlock,
+            metadata.pricePerEntity,
+            metadata.subgraphDeploymentId,
             agreement.voucher.service.as_slice(),
             agreement.voucher.recipient.as_slice(),
             agreement.voucher.payer.as_slice(),
@@ -68,7 +72,7 @@ impl AgreementStore for PsqlAgreementStore {
         let now = Utc::now();
 
         sqlx::query!(
-            "UPDATE dips_agreements SET updated_at=$1, cancelled_at=$1, signed_cancellation_payload=$2 WHERE id=$3",
+            "UPDATE indexing_agreements SET updated_at=$1, cancelled_at=$1, signed_cancellation_payload=$2 WHERE id=$3",
             now,
             bs,
             id,
