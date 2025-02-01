@@ -214,6 +214,13 @@ where
         });
     }
 
+    pub fn is_allocation_id_blocked(&self, address: &Address) -> bool {
+        self.id_to_fee
+            .get(address)
+            .map(|v| v.blocked)
+            .expect("Allocation ID not found")
+    }
+
     pub fn can_trigger_rav(&self, allocation_id: Address) -> bool {
         self.id_to_fee
             .get(&allocation_id)
