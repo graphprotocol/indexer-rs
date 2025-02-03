@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use crate::{SignedCancellationRequest, SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata};
+use crate::{
+    SignedCancellationRequest, SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
+};
 
 #[async_trait]
 pub trait AgreementStore: Sync + Send + std::fmt::Debug {

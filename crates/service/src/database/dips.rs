@@ -1,19 +1,27 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::str::FromStr;
+
 use anyhow::bail;
 use axum::async_trait;
 use build_info::chrono::Utc;
 use indexer_dips::{
-    store::AgreementStore, SignedCancellationRequest, SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata
+    store::AgreementStore, SignedCancellationRequest, SignedIndexingAgreementVoucher,
+    SubgraphIndexingVoucherMetadata,
 };
-use sqlx::PgPool;
-use thegraph_core::alloy::rlp::Decodable;
+use sqlx::{types::BigDecimal, PgPool};
+use thegraph_core::alloy::{core::primitives::U256 as uint256, rlp::Decodable};
 use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct PsqlAgreementStore {
     pub pool: PgPool,
+}
+
+// Utility to convert alloy::alloy_primitives::Uint<256, 4> into sqlx::BigDecimal
+fn uint256_to_bigdecimal(uint256: &uint256) -> BigDecimal {
+    BigDecimal::from_str(&uint256.to_string()).unwrap()
 }
 
 #[async_trait]
@@ -37,11 +45,13 @@ impl AgreementStore for PsqlAgreementStore {
         &self,
         id: Uuid,
         agreement: SignedIndexingAgreementVoucher,
-        metadata: SignedIndexingAgreementMetadata,
+        metadata: SubgraphIndexingVoucherMetadata,
     ) -> anyhow::Result<()> {
         let bs = agreement.encode_vec();
         let now = Utc::now();
 
+        let price_per_block = uint256_to_bigdecimal(&metadata.pricePerBlock);
+        let price_per_entity = uint256_to_bigdecimal(&metadata.pricePerEntity);
         sqlx::query!(
             "INSERT INTO indexing_agreements VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,null,null,null)",
             id,
@@ -49,12 +59,12 @@ impl AgreementStore for PsqlAgreementStore {
             bs,
             metadata.protocolNetwork,
             metadata.chainId,
-            metadata.pricePerBlock,
-            metadata.pricePerEntity,
+            price_per_block,
+            price_per_entity,
             metadata.subgraphDeploymentId,
-            agreement.voucher.service.as_slice(),
-            agreement.voucher.recipient.as_slice(),
-            agreement.voucher.payer.as_slice(),
+            format!("0x{}", agreement.voucher.service),
+            format!("0x{}", agreement.voucher.recipient),
+            format!("0x{}", agreement.voucher.payer),
             now,
             now,
         )

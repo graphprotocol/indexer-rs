@@ -236,9 +236,7 @@ pub async fn validate_and_create_agreement(
 
     voucher.validate(domain, expected_payee, allowed_payers)?;
 
-    store
-        .create_agreement(id, voucher, metadata)
-        .await?;
+    store.create_agreement(id, voucher, metadata).await?;
 
     Ok(id)
 }
@@ -292,8 +290,8 @@ mod test {
         let metadata = SubgraphIndexingVoucherMetadata {
             pricePerBlock: U256::from(10000_u64),
             pricePerEntity: U256::from(100_u64),
-            protocolNetwork: "eip155:42161",
-            chainId: "eip155:1",
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "eip155:1".to_string(),
             subgraphDeploymentId: deployment_id,
         };
 
@@ -345,8 +343,8 @@ mod test {
         let metadata = SubgraphIndexingVoucherMetadata {
             pricePerBlock: U256::from(10000_u64),
             pricePerEntity: U256::from(100_u64),
-            protocolNetwork: "eip155:42161",
-            chainId: "eip155:1",
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "eip155:1".to_string(),
             subgraphDeploymentId: deployment_id,
         };
 
@@ -387,8 +385,8 @@ mod test {
         let metadata = SubgraphIndexingVoucherMetadata {
             pricePerBlock: U256::from(10000_u64),
             pricePerEntity: U256::from(100_u64),
-            protocolNetwork: "eip155:42161",
-            chainId: "eip155:1",
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "eip155:1".to_string(),
             subgraphDeploymentId: deployment_id,
         };
 
@@ -432,8 +430,8 @@ mod test {
         let metadata = SubgraphIndexingVoucherMetadata {
             pricePerBlock: U256::from(10000_u64),
             pricePerEntity: U256::from(100_u64),
-            protocolNetwork: "eip155:42161",
-            chainId: "eip155:1",
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "eip155:1".to_string(),
             subgraphDeploymentId: deployment_id,
         };
 
