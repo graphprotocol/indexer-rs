@@ -7031,7 +7031,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "tap_aggregator"
 version = "0.4.1"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e5546a6#e5546a617ec2efcdbf09c465848b609856bef96c"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9fd4beb#9fd4beb4a8c55114a4e33b851b86d80b71d42a00"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7060,7 +7060,7 @@ dependencies = [
 [[package]]
 name = "tap_core"
 version = "3.0.1"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e5546a6#e5546a617ec2efcdbf09c465848b609856bef96c"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9fd4beb#9fd4beb4a8c55114a4e33b851b86d80b71d42a00"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7077,7 +7077,7 @@ dependencies = [
 [[package]]
 name = "tap_eip712_message"
 version = "0.1.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e5546a6#e5546a617ec2efcdbf09c465848b609856bef96c"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9fd4beb#9fd4beb4a8c55114a4e33b851b86d80b71d42a00"
 dependencies = [
  "alloy",
  "serde",
@@ -7087,7 +7087,7 @@ dependencies = [
 [[package]]
 name = "tap_graph"
 version = "0.2.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e5546a6#e5546a617ec2efcdbf09c465848b609856bef96c"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9fd4beb#9fd4beb4a8c55114a4e33b851b86d80b71d42a00"
 dependencies = [
  "alloy",
  "rand",
@@ -7100,7 +7100,7 @@ dependencies = [
 [[package]]
 name = "tap_receipt"
 version = "0.1.0"
-source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=e5546a6#e5546a617ec2efcdbf09c465848b609856bef96c"
+source = "git+https://github.com/semiotic-ai/timeline-aggregation-protocol?rev=9fd4beb#9fd4beb4a8c55114a4e33b851b86d80b71d42a00"
 dependencies = [
  "alloy",
  "anyhow",

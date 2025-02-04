@@ -730,7 +730,7 @@ pub mod actors {
                                     last_id: 0,
                                     counter: 0,
                                 },
-                                Ok(Some(signed_rav)),
+                                Ok(Some(signed_rav.into())),
                             )),
                         ))?;
                     }

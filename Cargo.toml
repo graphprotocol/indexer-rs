@@ -85,12 +85,12 @@ tonic-build = "0.12.3"
 
 [patch.crates-io.tap_core]
 git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
-rev = "e5546a6"
+rev = "9fd4beb"
 
 [patch.crates-io.tap_aggregator]
 git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
-rev = "e5546a6"
+rev = "9fd4beb"
 
 [patch.crates-io.tap_graph]
 git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
-rev = "e5546a6"
+rev = "9fd4beb"

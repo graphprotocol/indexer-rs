@@ -70,7 +70,7 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
 }
 
 #[async_trait::async_trait]
-impl ReceiptRead<TapReceipt> for TapAgentContext<Legacy> {
+impl<T: Send + Sync> ReceiptRead<TapReceipt> for TapAgentContext<T> {
     type AdapterError = AdapterError;
 
     async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
@@ -244,8 +244,12 @@ mod test {
         ))
         .1;
 
-        let storage_adapter =
-            TapAgentContext::new(pgpool, ALLOCATION_ID_0, SENDER.1, escrow_accounts.clone());
+        let storage_adapter = TapAgentContext::<Legacy>::new(
+            pgpool,
+            ALLOCATION_ID_0,
+            SENDER.1,
+            escrow_accounts.clone(),
+        );
 
         let received_receipt =
             create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX);
@@ -459,7 +463,7 @@ mod test {
         ))
         .1;
 
-        let storage_adapter = TapAgentContext::new(
+        let storage_adapter = TapAgentContext::<Legacy>::new(
             pgpool.clone(),
             ALLOCATION_ID_0,
             SENDER.1,
@@ -527,7 +531,7 @@ mod test {
         ))
         .1;
 
-        let storage_adapter = TapAgentContext::new(
+        let storage_adapter = TapAgentContext::<Legacy>::new(
             pgpool.clone(),
             ALLOCATION_ID_0,
             SENDER.1,
