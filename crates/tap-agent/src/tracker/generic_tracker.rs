@@ -8,6 +8,7 @@ use std::{
 };
 
 use thegraph_core::alloy::primitives::Address;
+use tracing::warn;
 
 use super::{
     global_tracker::GlobalTracker, AllocationStats, DefaultFromExtra, DurationInfo, SenderFeeStats,
@@ -215,10 +216,13 @@ where
     }
 
     pub fn is_allocation_id_blocked(&self, address: &Address) -> bool {
-        self.id_to_fee
-            .get(address)
-            .map(|v| v.blocked)
-            .expect("Allocation ID not found")
+        match self.id_to_fee.get(address).map(|v| v.blocked) {
+            Some(val) => val,
+            None => {
+                warn!("Allocation ID not found in the tracker");
+                false
+            }
+        }
     }
 
     pub fn can_trigger_rav(&self, allocation_id: Address) -> bool {
