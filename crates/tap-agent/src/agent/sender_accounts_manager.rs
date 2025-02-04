@@ -128,6 +128,7 @@ impl Actor for SenderAccountsManager {
             allocation_id
                 .keys()
                 .cloned()
+                // TODO map based on the allocation type returned by the subgraph
                 .map(AllocationId::Legacy)
                 .collect::<HashSet<_>>()
         });
