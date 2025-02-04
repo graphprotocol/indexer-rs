@@ -70,7 +70,7 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
 }
 
 #[async_trait::async_trait]
-impl<T: Send + Sync> ReceiptRead<TapReceipt> for TapAgentContext<T> {
+impl ReceiptRead<TapReceipt> for TapAgentContext<Legacy> {
     type AdapterError = AdapterError;
 
     async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
@@ -184,6 +184,19 @@ impl ReceiptDelete for TapAgentContext<Legacy> {
         .execute(&self.pgpool)
         .await?;
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
+    type AdapterError = AdapterError;
+
+    async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
+        &self,
+        _timestamp_range_ns: R,
+        _receipts_limit: Option<u64>,
+    ) -> Result<Vec<CheckingReceipt>, Self::AdapterError> {
+        unimplemented!()
     }
 }
 
