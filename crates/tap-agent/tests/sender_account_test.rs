@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 
 use indexer_tap_agent::{
-    agent::sender_account::SenderAccountMessage,
+    agent::{sender_account::SenderAccountMessage, sender_accounts_manager::AllocationId},
     test::{create_received_receipt, create_sender_account, store_receipt},
 };
 use ractor::concurrency::Duration;
@@ -50,7 +50,9 @@ async fn sender_account_layer_test(pgpool: PgPool) {
     // we expect it to create a sender allocation
     sender_account
         .cast(SenderAccountMessage::UpdateAllocationIds(
-            vec![ALLOCATION_ID_0].into_iter().collect(),
+            vec![AllocationId::Legacy(ALLOCATION_ID_0)]
+                .into_iter()
+                .collect(),
         ))
         .unwrap();
     notify.notified().await;

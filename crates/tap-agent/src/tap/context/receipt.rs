@@ -14,7 +14,7 @@ use tap_core::manager::adapters::{safe_truncate_receipts, ReceiptDelete, Receipt
 use tap_graph::{Receipt, SignedReceipt};
 use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
 
-use super::{error::AdapterError, TapAgentContext};
+use super::{error::AdapterError, Horizon, Legacy, TapAgentContext};
 use crate::tap::{signers_trimmed, CheckingReceipt};
 impl From<TryFromIntError> for AdapterError {
     fn from(error: TryFromIntError) -> Self {
@@ -70,7 +70,7 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
 }
 
 #[async_trait::async_trait]
-impl ReceiptRead<TapReceipt> for TapAgentContext {
+impl ReceiptRead<TapReceipt> for TapAgentContext<Legacy> {
     type AdapterError = AdapterError;
 
     async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
@@ -158,7 +158,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext {
 }
 
 #[async_trait::async_trait]
-impl ReceiptDelete for TapAgentContext {
+impl ReceiptDelete for TapAgentContext<Legacy> {
     type AdapterError = AdapterError;
 
     async fn remove_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
@@ -184,6 +184,31 @@ impl ReceiptDelete for TapAgentContext {
         .execute(&self.pgpool)
         .await?;
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
+    type AdapterError = AdapterError;
+
+    async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
+        &self,
+        _timestamp_range_ns: R,
+        _receipts_limit: Option<u64>,
+    ) -> Result<Vec<CheckingReceipt>, Self::AdapterError> {
+        unimplemented!()
+    }
+}
+
+#[async_trait::async_trait]
+impl ReceiptDelete for TapAgentContext<Horizon> {
+    type AdapterError = AdapterError;
+
+    async fn remove_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
+        &self,
+        _timestamp_ns: R,
+    ) -> Result<(), Self::AdapterError> {
+        unimplemented!()
     }
 }
 
@@ -232,8 +257,12 @@ mod test {
         ))
         .1;
 
-        let storage_adapter =
-            TapAgentContext::new(pgpool, ALLOCATION_ID_0, SENDER.1, escrow_accounts.clone());
+        let storage_adapter = TapAgentContext::<Legacy>::new(
+            pgpool,
+            ALLOCATION_ID_0,
+            SENDER.1,
+            escrow_accounts.clone(),
+        );
 
         let received_receipt =
             create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX);
@@ -258,12 +287,15 @@ mod test {
     /// This function compares a local receipts vector filter by timestamp range (we assume that the stdlib
     /// implementation is correct) with the receipts vector retrieved from the database using
     /// retrieve_receipts_in_timestamp_range.
-    async fn retrieve_range_and_check<R: RangeBounds<u64> + Send>(
-        storage_adapter: &TapAgentContext,
+    async fn retrieve_range_and_check<R: RangeBounds<u64> + Send, T>(
+        storage_adapter: &TapAgentContext<T>,
         escrow_accounts: Receiver<EscrowAccounts>,
         received_receipt_vec: &[CheckingReceipt],
         range: R,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        TapAgentContext<T>: ReceiptRead<TapReceipt>,
+    {
         let escrow_accounts_snapshot = escrow_accounts.borrow();
 
         // Filtering the received receipts by timestamp range
@@ -307,12 +339,15 @@ mod test {
         Ok(())
     }
 
-    async fn remove_range_and_check<R: RangeBounds<u64> + Send>(
-        storage_adapter: &TapAgentContext,
+    async fn remove_range_and_check<R: RangeBounds<u64> + Send, T>(
+        storage_adapter: &TapAgentContext<T>,
         escrow_accounts: Receiver<EscrowAccounts>,
         received_receipt_vec: &[CheckingReceipt],
         range: R,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        TapAgentContext<T>: ReceiptDelete,
+    {
         let escrow_accounts_snapshot = escrow_accounts.borrow();
 
         // Storing the receipts
@@ -441,7 +476,7 @@ mod test {
         ))
         .1;
 
-        let storage_adapter = TapAgentContext::new(
+        let storage_adapter = TapAgentContext::<Legacy>::new(
             pgpool.clone(),
             ALLOCATION_ID_0,
             SENDER.1,
@@ -509,7 +544,7 @@ mod test {
         ))
         .1;
 
-        let storage_adapter = TapAgentContext::new(
+        let storage_adapter = TapAgentContext::<Legacy>::new(
             pgpool.clone(),
             ALLOCATION_ID_0,
             SENDER.1,
@@ -637,8 +672,12 @@ mod test {
         ))
         .1;
 
-        let storage_adapter =
-            TapAgentContext::new(pgpool, ALLOCATION_ID_0, SENDER.1, escrow_accounts.clone());
+        let storage_adapter = TapAgentContext::<Legacy>::new(
+            pgpool,
+            ALLOCATION_ID_0,
+            SENDER.1,
+            escrow_accounts.clone(),
+        );
 
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();

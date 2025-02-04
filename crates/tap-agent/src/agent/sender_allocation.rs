@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    marker::PhantomData,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -12,11 +13,8 @@ use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use sqlx::{types::BigDecimal, PgPool};
-use tap_aggregator::grpc::{
-    tap_aggregator_client::TapAggregatorClient, RavRequest as AggregatorRequest,
-};
 use tap_core::{
-    manager::adapters::RavRead,
+    manager::adapters::{RavRead, RavStore, ReceiptDelete, ReceiptRead},
     rav_request::RavRequest,
     receipt::{
         checks::{Check, CheckList},
@@ -26,16 +24,14 @@ use tap_core::{
     },
     signed_message::Eip712SignedMessage,
 };
-use tap_graph::{ReceiptAggregateVoucher, SignedRav};
 use thegraph_core::alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
-use tonic::{transport::Channel, Code, Status};
 
 use super::sender_account::SenderAccountConfig;
 use crate::{
     agent::{
-        sender_account::{ReceiptFees, SenderAccountMessage},
+        sender_account::{RavInformation, ReceiptFees, SenderAccountMessage},
         sender_accounts_manager::NewReceiptNotification,
         unaggregated_receipts::UnaggregatedReceipts,
     },
@@ -43,7 +39,7 @@ use crate::{
     tap::{
         context::{
             checks::{AllocationId, Signature},
-            TapAgentContext,
+            NetworkVersion, TapAgentContext,
         },
         signers_trimmed, TapReceipt,
     },
@@ -93,30 +89,32 @@ pub enum RavError {
     #[error("All receipts are invalid")]
     AllReceiptsInvalid,
 
-    #[error("Receipt is not legacy")]
-    ReceiptNotCompatible,
-
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
-type TapManager = tap_core::manager::Manager<TapAgentContext, TapReceipt>;
+type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
-pub struct SenderAllocation;
+pub struct SenderAllocation<T>(PhantomData<T>);
+impl<T: NetworkVersion> Default for SenderAllocation<T> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
 
-pub struct SenderAllocationState {
+pub struct SenderAllocationState<T: NetworkVersion> {
     unaggregated_fees: UnaggregatedReceipts,
     invalid_receipts_fees: UnaggregatedReceipts,
-    latest_rav: Option<SignedRav>,
+    latest_rav: Option<Eip712SignedMessage<T::Rav>>,
     pgpool: PgPool,
-    tap_manager: TapManager,
+    tap_manager: TapManager<T>,
     allocation_id: Address,
     sender: Address,
     escrow_accounts: Receiver<EscrowAccounts>,
     domain_separator: Eip712Domain,
     sender_account_ref: ActorRef<SenderAccountMessage>,
-    sender_aggregator: TapAggregatorClient<Channel>,
+    sender_aggregator: T::AggregatorClient,
     //config
     timestamp_buffer_ns: u64,
     rav_request_receipt_limit: u64,
@@ -141,7 +139,8 @@ impl AllocationConfig {
     }
 }
 
-pub struct SenderAllocationArgs {
+#[derive(bon::Builder)]
+pub struct SenderAllocationArgs<T: NetworkVersion> {
     pub pgpool: PgPool,
     pub allocation_id: Address,
     pub sender: Address,
@@ -149,7 +148,7 @@ pub struct SenderAllocationArgs {
     pub escrow_subgraph: &'static SubgraphClient,
     pub domain_separator: Eip712Domain,
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
-    pub sender_aggregator: TapAggregatorClient<Channel>,
+    pub sender_aggregator: T::AggregatorClient,
 
     //config
     pub config: AllocationConfig,
@@ -164,10 +163,16 @@ pub enum SenderAllocationMessage {
 }
 
 #[async_trait::async_trait]
-impl Actor for SenderAllocation {
+impl<T> Actor for SenderAllocation<T>
+where
+    T: NetworkVersion,
+    for<'a> &'a Eip712SignedMessage<T::Rav>: Into<RavInformation>,
+    TapAgentContext<T>:
+        RavRead<T::Rav> + RavStore<T::Rav> + ReceiptDelete + ReceiptRead<TapReceipt>,
+{
     type Msg = SenderAllocationMessage;
-    type State = SenderAllocationState;
-    type Arguments = SenderAllocationArgs;
+    type State = SenderAllocationState<T>;
+    type Arguments = SenderAllocationArgs<T>;
 
     async fn pre_start(
         &self,
@@ -197,7 +202,7 @@ impl Actor for SenderAllocation {
 
         // update rav tracker for sender account
         if let Some(rav) = &state.latest_rav {
-            sender_account_ref.cast(SenderAccountMessage::UpdateRav(rav.clone()))?;
+            sender_account_ref.cast(SenderAccountMessage::UpdateRav(rav.into()))?;
         }
 
         tracing::info!(
@@ -317,11 +322,14 @@ impl Actor for SenderAllocation {
             }
             SenderAllocationMessage::TriggerRavRequest => {
                 let rav_result = if state.unaggregated_fees.value > 0 {
-                    state.request_rav().await.map(|_| state.latest_rav.clone())
+                    state.request_rav().await.map(|_| state.latest_rav.as_ref())
                 } else {
                     Err(anyhow!("Unaggregated fee equals zero"))
                 };
-                let rav_response = (state.unaggregated_fees, rav_result);
+                let rav_response = (
+                    state.unaggregated_fees,
+                    rav_result.map(|res| res.map(Into::into)),
+                );
                 state
                     .sender_account_ref
                     .cast(SenderAccountMessage::UpdateReceiptFees(
@@ -341,7 +349,12 @@ impl Actor for SenderAllocation {
     }
 }
 
-impl SenderAllocationState {
+impl<T> SenderAllocationState<T>
+where
+    T: NetworkVersion,
+    TapAgentContext<T>:
+        RavRead<T::Rav> + RavStore<T::Rav> + ReceiptDelete + ReceiptRead<TapReceipt>,
+{
     async fn new(
         SenderAllocationArgs {
             pgpool,
@@ -353,7 +366,7 @@ impl SenderAllocationState {
             sender_account_ref,
             sender_aggregator,
             config,
-        }: SenderAllocationArgs,
+        }: SenderAllocationArgs<T>,
     ) -> anyhow::Result<Self> {
         let required_checks: Vec<Arc<dyn Check<TapReceipt> + Send + Sync>> = vec![
             Arc::new(
@@ -440,7 +453,7 @@ impl SenderAllocationState {
             BigDecimal::from(
                 self.latest_rav
                     .as_ref()
-                    .map(|rav| rav.message.timestampNs)
+                    .map(|rav| rav.message.timestamp_ns())
                     .unwrap_or_default()
             ),
         )
@@ -534,7 +547,7 @@ impl SenderAllocationState {
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
     /// time through the use of an internal guard.
-    async fn rav_requester_single(&mut self) -> Result<SignedRav, RavError> {
+    async fn rav_requester_single(&mut self) -> Result<Eip712SignedMessage<T::Rav>, RavError> {
         tracing::trace!("rav_requester_single()");
         let RavRequest {
             valid_receipts,
@@ -596,31 +609,14 @@ impl SenderAllocationState {
             (Ok(expected_rav), ..) => {
                 let valid_receipts: Vec<_> = valid_receipts
                     .into_iter()
-                    .map(|r| {
-                        r.signed_receipt()
-                            .clone()
-                            .as_v1()
-                            .ok_or(RavError::ReceiptNotCompatible)
-                    })
-                    .collect::<Result<_, _>>()?;
-
-                let rav_request = AggregatorRequest::new(valid_receipts, previous_rav);
+                    .map(|r| r.signed_receipt().clone())
+                    .collect();
 
                 let rav_response_time_start = Instant::now();
 
-                let response = self
-                    .sender_aggregator
-                    .aggregate_receipts(rav_request)
-                    .await
-                    .inspect_err(|status: &Status| {
-                        if status.code() == Code::DeadlineExceeded {
-                            tracing::warn!(
-                                "Rav request is timing out, maybe request_timeout_secs is too \
-                                low in your config file, try adding more secs to the value. \
-                                If the problem persists after doing so please open an issue"
-                            );
-                        }
-                    })?;
+                let signed_rav =
+                    T::aggregate(&mut self.sender_aggregator, valid_receipts, previous_rav).await?;
+
                 let rav_response_time = rav_response_time_start.elapsed();
                 RAV_RESPONSE_TIME
                     .with_label_values(&[&self.sender.to_string()])
@@ -641,7 +637,6 @@ impl SenderAllocationState {
                     self.store_invalid_receipts(invalid_receipts.as_slice())
                         .await?;
                 }
-                let signed_rav = response.into_inner().signed_rav()?;
 
                 match self
                     .tap_manager
@@ -843,8 +838,8 @@ impl SenderAllocationState {
 
     async fn store_failed_rav(
         &self,
-        expected_rav: &ReceiptAggregateVoucher,
-        rav: &Eip712SignedMessage<ReceiptAggregateVoucher>,
+        expected_rav: &T::Rav,
+        rav: &Eip712SignedMessage<T::Rav>,
         reason: &str,
     ) -> anyhow::Result<()> {
         sqlx::query!(
@@ -889,7 +884,7 @@ pub mod tests {
     use ruint::aliases::U256;
     use serde_json::json;
     use sqlx::PgPool;
-    use tap_aggregator::grpc::{tap_aggregator_client::TapAggregatorClient, RavResponse};
+    use tap_aggregator::grpc::v1::{tap_aggregator_client::TapAggregatorClient, RavResponse};
     use tap_core::receipt::{
         checks::{Check, CheckError, CheckList, CheckResult},
         Context,
@@ -915,7 +910,7 @@ pub mod tests {
             sender_accounts_manager::NewReceiptNotification,
             unaggregated_receipts::UnaggregatedReceipts,
         },
-        tap::CheckingReceipt,
+        tap::{context::Legacy, CheckingReceipt},
         test::{
             actors::{create_mock_sender_account, TestableActor},
             create_rav, create_received_receipt, get_grpc_url, store_batch_receipts,
@@ -946,7 +941,7 @@ pub mod tests {
         escrow_subgraph_endpoint: &str,
         #[builder(default = 1000)] rav_request_receipt_limit: u64,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
-    ) -> SenderAllocationArgs {
+    ) -> SenderAllocationArgs<Legacy> {
         let escrow_subgraph = Box::leak(Box::new(
             SubgraphClient::new(
                 reqwest::Client::new(),
@@ -983,22 +978,22 @@ pub mod tests {
                 )
             });
 
-        SenderAllocationArgs {
-            pgpool: pgpool.clone(),
-            allocation_id: ALLOCATION_ID_0,
-            sender: SENDER.1,
-            escrow_accounts: escrow_accounts_rx,
-            escrow_subgraph,
-            domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
-            sender_account_ref,
-            sender_aggregator,
-            config: super::AllocationConfig {
+        SenderAllocationArgs::builder()
+            .pgpool(pgpool.clone())
+            .allocation_id(ALLOCATION_ID_0)
+            .sender(SENDER.1)
+            .escrow_accounts(escrow_accounts_rx)
+            .escrow_subgraph(escrow_subgraph)
+            .domain_separator(TAP_EIP712_DOMAIN_SEPARATOR.clone())
+            .sender_account_ref(sender_account_ref)
+            .sender_aggregator(sender_aggregator)
+            .config(super::AllocationConfig {
                 timestamp_buffer_ns: 1,
                 rav_request_receipt_limit,
                 indexer_address: INDEXER.1,
                 escrow_polling_interval: Duration::from_millis(1000),
-            },
-        }
+            })
+            .build()
     }
 
     #[bon::builder]
@@ -1017,7 +1012,7 @@ pub mod tests {
             .rav_request_receipt_limit(rav_request_receipt_limit)
             .call()
             .await;
-        let actor = TestableActor::new(SenderAllocation);
+        let actor = TestableActor::new(SenderAllocation::default());
         let notify = actor.notify.clone();
 
         let (allocation_ref, _join_handle) = Actor::spawn(None, actor, args).await.unwrap();

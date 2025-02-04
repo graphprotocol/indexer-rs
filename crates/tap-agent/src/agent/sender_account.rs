@@ -21,8 +21,10 @@ use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeV
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use reqwest::Url;
 use sqlx::PgPool;
-use tap_aggregator::grpc::tap_aggregator_client::TapAggregatorClient;
-use tap_graph::SignedRav;
+use tap_aggregator::grpc::{
+    v1::tap_aggregator_client::TapAggregatorClient as AggregatorV1,
+    v2::tap_aggregator_client::TapAggregatorClient as AggregatorV2,
+};
 use thegraph_core::alloy::{
     hex::ToHexExt,
     primitives::{Address, U256},
@@ -32,13 +34,17 @@ use tokio::{sync::watch::Receiver, task::JoinHandle};
 use tonic::transport::{Channel, Endpoint};
 use tracing::Level;
 
-use super::sender_allocation::{
-    AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
+use super::{
+    sender_accounts_manager::AllocationId,
+    sender_allocation::{
+        AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
+    },
 };
 use crate::{
     adaptative_concurrency::AdaptiveLimiter,
     agent::unaggregated_receipts::UnaggregatedReceipts,
     backoff::BackoffInfo,
+    tap::context::{Horizon, Legacy},
     tracker::{SenderFeeTracker, SimpleFeeTracker},
 };
 
@@ -94,22 +100,55 @@ const INITIAL_RAV_REQUEST_CONCURRENT: usize = 1;
 type RavMap = HashMap<Address, u128>;
 type Balance = U256;
 
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct RavInformation {
+    pub allocation_id: Address,
+    pub value_aggregate: u128,
+}
+
+impl From<&tap_graph::SignedRav> for RavInformation {
+    fn from(value: &tap_graph::SignedRav) -> Self {
+        RavInformation {
+            allocation_id: value.message.allocationId,
+            value_aggregate: value.message.valueAggregate,
+        }
+    }
+}
+
+impl From<tap_graph::SignedRav> for RavInformation {
+    fn from(value: tap_graph::SignedRav) -> Self {
+        RavInformation {
+            allocation_id: value.message.allocationId,
+            value_aggregate: value.message.valueAggregate,
+        }
+    }
+}
+
+impl From<&tap_graph::v2::SignedRav> for RavInformation {
+    fn from(value: &tap_graph::v2::SignedRav) -> Self {
+        RavInformation {
+            allocation_id: value.message.allocationId,
+            value_aggregate: value.message.valueAggregate,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ReceiptFees {
     NewReceipt(u128, u64),
     UpdateValue(UnaggregatedReceipts),
-    RavRequestResponse((UnaggregatedReceipts, anyhow::Result<Option<SignedRav>>)),
+    RavRequestResponse((UnaggregatedReceipts, anyhow::Result<Option<RavInformation>>)),
     Retry,
 }
 
 #[derive(Debug)]
 pub enum SenderAccountMessage {
     UpdateBalanceAndLastRavs(Balance, RavMap),
-    UpdateAllocationIds(HashSet<Address>),
-    NewAllocationId(Address),
+    UpdateAllocationIds(HashSet<AllocationId>),
+    NewAllocationId(AllocationId),
     UpdateReceiptFees(Address, ReceiptFees),
     UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
-    UpdateRav(SignedRav),
+    UpdateRav(RavInformation),
     #[cfg(test)]
     GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
     #[cfg(test)]
@@ -135,12 +174,12 @@ pub struct SenderAccountArgs {
     pub pgpool: PgPool,
     pub sender_id: Address,
     pub escrow_accounts: Receiver<EscrowAccounts>,
-    pub indexer_allocations: Receiver<HashSet<Address>>,
+    pub indexer_allocations: Receiver<HashSet<AllocationId>>,
     pub escrow_subgraph: &'static SubgraphClient,
     pub network_subgraph: &'static SubgraphClient,
     pub domain_separator: Eip712Domain,
     pub sender_aggregator_endpoint: Url,
-    pub allocation_ids: HashSet<Address>,
+    pub allocation_ids: HashSet<AllocationId>,
     pub prefix: Option<String>,
 
     pub retry_interval: Duration,
@@ -150,7 +189,7 @@ pub struct State {
     sender_fee_tracker: SenderFeeTracker,
     rav_tracker: SimpleFeeTracker,
     invalid_receipts_tracker: SimpleFeeTracker,
-    allocation_ids: HashSet<Address>,
+    allocation_ids: HashSet<AllocationId>,
     _indexer_allocations_handle: JoinHandle<()>,
     _escrow_account_monitor: JoinHandle<()>,
     scheduled_rav_request: Option<JoinHandle<Result<(), MessagingErr<SenderAccountMessage>>>>,
@@ -173,7 +212,8 @@ pub struct State {
 
     domain_separator: Eip712Domain,
     pgpool: PgPool,
-    sender_aggregator: TapAggregatorClient<Channel>,
+    aggregator_v1: AggregatorV1<Channel>,
+    aggregator_v2: AggregatorV2<Channel>,
 
     // Backoff info
     backoff_info: BackoffInfo,
@@ -214,32 +254,57 @@ impl State {
     async fn create_sender_allocation(
         &self,
         sender_account_ref: ActorRef<SenderAccountMessage>,
-        allocation_id: Address,
+        allocation_id: AllocationId,
     ) -> anyhow::Result<()> {
         tracing::trace!(
             %self.sender,
             %allocation_id,
             "SenderAccount is creating allocation."
         );
-        let args = SenderAllocationArgs {
-            pgpool: self.pgpool.clone(),
-            allocation_id,
-            sender: self.sender,
-            escrow_accounts: self.escrow_accounts.clone(),
-            escrow_subgraph: self.escrow_subgraph,
-            domain_separator: self.domain_separator.clone(),
-            sender_account_ref: sender_account_ref.clone(),
-            sender_aggregator: self.sender_aggregator.clone(),
-            config: AllocationConfig::from_sender_config(self.config),
-        };
 
-        SenderAllocation::spawn_linked(
-            Some(self.format_sender_allocation(&allocation_id)),
-            SenderAllocation,
-            args,
-            sender_account_ref.get_cell(),
-        )
-        .await?;
+        match allocation_id {
+            AllocationId::Legacy(id) => {
+                let args = SenderAllocationArgs::builder()
+                    .pgpool(self.pgpool.clone())
+                    .allocation_id(id)
+                    .sender(self.sender)
+                    .escrow_accounts(self.escrow_accounts.clone())
+                    .escrow_subgraph(self.escrow_subgraph)
+                    .domain_separator(self.domain_separator.clone())
+                    .sender_account_ref(sender_account_ref.clone())
+                    .sender_aggregator(self.aggregator_v1.clone())
+                    .config(AllocationConfig::from_sender_config(self.config))
+                    .build();
+                SenderAllocation::<Legacy>::spawn_linked(
+                    Some(self.format_sender_allocation(&id)),
+                    SenderAllocation::default(),
+                    args,
+                    sender_account_ref.get_cell(),
+                )
+                .await?;
+            }
+            AllocationId::Horizon(id) => {
+                let args = SenderAllocationArgs::builder()
+                    .pgpool(self.pgpool.clone())
+                    .allocation_id(id)
+                    .sender(self.sender)
+                    .escrow_accounts(self.escrow_accounts.clone())
+                    .escrow_subgraph(self.escrow_subgraph)
+                    .domain_separator(self.domain_separator.clone())
+                    .sender_account_ref(sender_account_ref.clone())
+                    .sender_aggregator(self.aggregator_v2.clone())
+                    .config(AllocationConfig::from_sender_config(self.config))
+                    .build();
+
+                SenderAllocation::<Horizon>::spawn_linked(
+                    Some(self.format_sender_allocation(&id)),
+                    SenderAllocation::default(),
+                    args,
+                    sender_account_ref.get_cell(),
+                )
+                .await?;
+            }
+        }
         Ok(())
     }
     fn format_sender_allocation(&self, allocation_id: &Address) -> String {
@@ -296,7 +361,7 @@ impl State {
     fn finalize_rav_request(
         &mut self,
         allocation_id: Address,
-        rav_response: (UnaggregatedReceipts, anyhow::Result<Option<SignedRav>>),
+        rav_response: (UnaggregatedReceipts, anyhow::Result<Option<RavInformation>>),
     ) {
         self.sender_fee_tracker.finish_rav_request(allocation_id);
         let (fees, rav_result) = rav_response;
@@ -304,7 +369,7 @@ impl State {
             Ok(signed_rav) => {
                 self.sender_fee_tracker.ok_rav_request(allocation_id);
                 self.adaptive_limiter.on_success();
-                let rav_value = signed_rav.map_or(0, |rav| rav.message.valueAggregate);
+                let rav_value = signed_rav.map_or(0, |rav| rav.value_aggregate);
                 self.update_rav(allocation_id, rav_value);
             }
             Err(err) => {
@@ -410,11 +475,13 @@ impl State {
     /// if they are really closed
     async fn check_closed_allocations(
         &self,
-        allocation_ids: HashSet<&Address>,
+        allocation_ids: HashSet<&AllocationId>,
     ) -> anyhow::Result<HashSet<Address>> {
         if allocation_ids.is_empty() {
             return Ok(HashSet::new());
         }
+        // We don't need to check what type of allocation it is since
+        // legacy allocation ids can't be reused for horizon
         let allocation_ids: Vec<String> = allocation_ids
             .into_iter()
             .map(|addr| addr.to_string().to_lowercase())
@@ -455,7 +522,7 @@ impl State {
         Ok(responses
             .into_iter()
             .map(|allocation| Address::from_str(&allocation.id))
-            .collect::<Result<HashSet<Address>, _>>()?)
+            .collect::<Result<HashSet<_>, _>>()?)
     }
 }
 
@@ -608,7 +675,7 @@ impl Actor for SenderAccount {
         let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
             .context("Failed to create an endpoint for the sender aggregator")?;
 
-        let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
+        let aggregator_v1 = AggregatorV1::connect(endpoint.clone())
             .await
             .with_context(|| {
                 format!(
@@ -618,8 +685,19 @@ impl Actor for SenderAccount {
             })?;
         // wiremock_grpc used for tests doesn't support Zstd compression
         #[cfg(not(test))]
-        let sender_aggregator =
-            sender_aggregator.send_compressed(tonic::codec::CompressionEncoding::Zstd);
+        let aggregator_v1 = aggregator_v1.send_compressed(tonic::codec::CompressionEncoding::Zstd);
+
+        let aggregator_v2 = AggregatorV2::connect(endpoint.clone())
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to connect to the TapAggregator endpoint '{}'",
+                    endpoint.uri()
+                )
+            })?;
+        // wiremock_grpc used for tests doesn't support Zstd compression
+        #[cfg(not(test))]
+        let aggregator_v2 = aggregator_v2.send_compressed(tonic::codec::CompressionEncoding::Zstd);
         let state = State {
             prefix,
             sender_fee_tracker: SenderFeeTracker::new(config.rav_request_buffer),
@@ -639,7 +717,8 @@ impl Actor for SenderAccount {
             network_subgraph,
             domain_separator,
             pgpool,
-            sender_aggregator,
+            aggregator_v1,
+            aggregator_v2,
             backoff_info: BackoffInfo::default(),
             config,
         };
@@ -674,8 +753,11 @@ impl Actor for SenderAccount {
         );
 
         match message {
-            SenderAccountMessage::UpdateRav(rav) => {
-                state.update_rav(rav.message.allocationId, rav.message.valueAggregate);
+            SenderAccountMessage::UpdateRav(RavInformation {
+                allocation_id,
+                value_aggregate,
+            }) => {
+                state.update_rav(allocation_id, value_aggregate);
 
                 let should_deny = !state.denied && state.deny_condition_reached();
                 if should_deny {
@@ -845,14 +927,16 @@ impl Actor for SenderAccount {
 
                 // Remove sender allocations
                 for allocation_id in possibly_closed_allocations {
-                    if really_closed.contains(allocation_id) {
+                    if really_closed.contains(&allocation_id.address()) {
                         if let Some(sender_handle) = ActorRef::<SenderAllocationMessage>::where_is(
-                            state.format_sender_allocation(allocation_id),
+                            state.format_sender_allocation(&allocation_id.address()),
                         ) {
                             tracing::trace!(%allocation_id, "SenderAccount shutting down SenderAllocation");
                             // we can not send a rav request to this allocation
                             // because it's gonna trigger the last rav
-                            state.sender_fee_tracker.block_allocation_id(*allocation_id);
+                            state
+                                .sender_fee_tracker
+                                .block_allocation_id(allocation_id.address());
                             sender_handle.stop(None);
                             new_allocation_ids.remove(allocation_id);
                         }
@@ -892,6 +976,9 @@ impl Actor for SenderAccount {
 
                 let active_allocation_ids = state
                     .allocation_ids
+                    .iter()
+                    .map(|id| id.address())
+                    .collect::<HashSet<_>>()
                     .union(&non_final_last_ravs_set)
                     .cloned()
                     .collect::<HashSet<_>>();
@@ -1011,9 +1098,17 @@ impl Actor for SenderAccount {
                     tracing::error!(%allocation_id, "Could not convert allocation_id to Address");
                     return Ok(());
                 };
+                let Some(allocation_id) = state
+                    .allocation_ids
+                    .iter()
+                    .find(|id| id.address() == allocation_id)
+                else {
+                    tracing::error!(%allocation_id, "Could not get allocation id type from state");
+                    return Ok(());
+                };
 
                 if let Err(error) = state
-                    .create_sender_allocation(myself.clone(), allocation_id)
+                    .create_sender_allocation(myself.clone(), *allocation_id)
                     .await
                 {
                     tracing::error!(
@@ -1069,7 +1164,8 @@ pub mod tests {
     use super::SenderAccountMessage;
     use crate::{
         agent::{
-            sender_account::ReceiptFees, sender_allocation::SenderAllocationMessage,
+            sender_account::ReceiptFees, sender_accounts_manager::AllocationId,
+            sender_allocation::SenderAllocationMessage,
             unaggregated_receipts::UnaggregatedReceipts,
         },
         assert_not_triggered, assert_triggered,
@@ -1183,7 +1279,9 @@ pub mod tests {
         // we expect it to create a sender allocation
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(
-                vec![ALLOCATION_ID_0].into_iter().collect(),
+                vec![AllocationId::Legacy(ALLOCATION_ID_0)]
+                    .into_iter()
+                    .collect(),
             ))
             .unwrap();
         notify.notified().await;
@@ -1268,7 +1366,9 @@ pub mod tests {
 
         // we expect it to create a sender allocation
         sender_account
-            .cast(SenderAccountMessage::NewAllocationId(ALLOCATION_ID_0))
+            .cast(SenderAccountMessage::NewAllocationId(AllocationId::Legacy(
+                ALLOCATION_ID_0,
+            )))
             .unwrap();
 
         flush_messages(&notify).await;
@@ -1281,7 +1381,9 @@ pub mod tests {
         // nothing should change because we already created
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(
-                vec![ALLOCATION_ID_0].into_iter().collect(),
+                vec![AllocationId::Legacy(ALLOCATION_ID_0)]
+                    .into_iter()
+                    .collect(),
             ))
             .unwrap();
 
@@ -1463,7 +1565,11 @@ pub mod tests {
     ) {
         let (sender_account, _, prefix, _) = create_sender_account()
             .pgpool(pgpool)
-            .initial_allocation(vec![ALLOCATION_ID_0].into_iter().collect())
+            .initial_allocation(
+                vec![AllocationId::Legacy(ALLOCATION_ID_0)]
+                    .into_iter()
+                    .collect(),
+            )
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .call()
             .await;
