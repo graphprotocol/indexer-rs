@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use crate::{SignedCancellationRequest, SignedIndexingAgreementVoucher};
+use crate::{
+    SignedCancellationRequest, SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
+};
 
 #[async_trait]
 pub trait AgreementStore: Sync + Send + std::fmt::Debug {
@@ -15,7 +17,7 @@ pub trait AgreementStore: Sync + Send + std::fmt::Debug {
         &self,
         id: Uuid,
         agreement: SignedIndexingAgreementVoucher,
-        protocol: String,
+        metadata: SubgraphIndexingVoucherMetadata,
     ) -> anyhow::Result<()>;
     async fn cancel_agreement(
         &self,
@@ -38,7 +40,7 @@ impl AgreementStore for InMemoryAgreementStore {
         &self,
         id: Uuid,
         agreement: SignedIndexingAgreementVoucher,
-        _protocol: String,
+        _medatadata: SubgraphIndexingVoucherMetadata,
     ) -> anyhow::Result<()> {
         self.data.try_write()?.insert(id, agreement.clone());
 
