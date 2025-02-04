@@ -27,7 +27,7 @@ pub use error::AdapterError;
 use tonic::{transport::Channel, Code, Status};
 
 #[sealed::sealed]
-pub trait ReceiptType: Send + Sync + 'static {
+pub trait NetworkVersion: Send + Sync + 'static {
     //type Receipt;
     type Rav: SolStruct
         + Aggregate<TapReceipt>
@@ -52,7 +52,7 @@ pub enum Legacy {}
 pub enum Horizon {}
 
 #[sealed::sealed]
-impl ReceiptType for Legacy {
+impl NetworkVersion for Legacy {
     //type Receipt = tap_graph::Receipt;
     type Rav = tap_graph::ReceiptAggregateVoucher;
     type AggregatorClient =
@@ -87,7 +87,7 @@ impl ReceiptType for Legacy {
 }
 
 #[sealed::sealed]
-impl ReceiptType for Horizon {
+impl NetworkVersion for Horizon {
     //type Receipt = tap_graph::v2::Receipt;
     type Rav = tap_graph::v2::ReceiptAggregateVoucher;
     type AggregatorClient =
@@ -130,7 +130,7 @@ pub struct TapAgentContext<T> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: ReceiptType> TapAgentContext<T> {
+impl<T: NetworkVersion> TapAgentContext<T> {
     pub fn new(
         pgpool: PgPool,
         allocation_id: Address,

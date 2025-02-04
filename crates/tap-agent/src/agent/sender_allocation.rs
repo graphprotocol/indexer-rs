@@ -39,7 +39,7 @@ use crate::{
     tap::{
         context::{
             checks::{AllocationId, Signature},
-            ReceiptType, TapAgentContext,
+            NetworkVersion, TapAgentContext,
         },
         signers_trimmed, TapReceipt,
     },
@@ -97,13 +97,13 @@ type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 pub struct SenderAllocation<T>(PhantomData<T>);
-impl<T: ReceiptType> Default for SenderAllocation<T> {
+impl<T: NetworkVersion> Default for SenderAllocation<T> {
     fn default() -> Self {
         Self(PhantomData)
     }
 }
 
-pub struct SenderAllocationState<T: ReceiptType> {
+pub struct SenderAllocationState<T: NetworkVersion> {
     unaggregated_fees: UnaggregatedReceipts,
     invalid_receipts_fees: UnaggregatedReceipts,
     latest_rav: Option<Eip712SignedMessage<T::Rav>>,
@@ -140,7 +140,7 @@ impl AllocationConfig {
 }
 
 #[derive(bon::Builder)]
-pub struct SenderAllocationArgs<T: ReceiptType> {
+pub struct SenderAllocationArgs<T: NetworkVersion> {
     pub pgpool: PgPool,
     pub allocation_id: Address,
     pub sender: Address,
@@ -165,7 +165,7 @@ pub enum SenderAllocationMessage {
 #[async_trait::async_trait]
 impl<T> Actor for SenderAllocation<T>
 where
-    T: ReceiptType,
+    T: NetworkVersion,
     for<'a> &'a Eip712SignedMessage<T::Rav>: Into<RavInformation>,
     TapAgentContext<T>:
         RavRead<T::Rav> + RavStore<T::Rav> + ReceiptDelete + ReceiptRead<TapReceipt>,
@@ -351,7 +351,7 @@ where
 
 impl<T> SenderAllocationState<T>
 where
-    T: ReceiptType,
+    T: NetworkVersion,
     TapAgentContext<T>:
         RavRead<T::Rav> + RavStore<T::Rav> + ReceiptDelete + ReceiptRead<TapReceipt>,
 {
