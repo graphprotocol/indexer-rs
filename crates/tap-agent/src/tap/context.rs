@@ -26,8 +26,12 @@ mod receipt;
 pub use error::AdapterError;
 use tonic::{transport::Channel, Code, Status};
 
-#[sealed::sealed]
-pub trait NetworkVersion: Send + Sync + 'static {
+// https://rust-lang.github.io/api-guidelines/future-proofing.html#sealed-traits-protect-against-downstream-implementations-c-sealed
+mod private {
+    pub trait Sealed {}
+}
+
+pub trait NetworkVersion: Send + Sync + 'static + private::Sealed {
     type Rav: SolStruct
         + Aggregate<TapReceipt>
         + Serialize
@@ -50,7 +54,9 @@ pub trait NetworkVersion: Send + Sync + 'static {
 pub enum Legacy {}
 pub enum Horizon {}
 
-#[sealed::sealed]
+impl private::Sealed for Legacy {}
+impl private::Sealed for Horizon {}
+
 impl NetworkVersion for Legacy {
     type Rav = tap_graph::ReceiptAggregateVoucher;
     type AggregatorClient =
@@ -84,7 +90,6 @@ impl NetworkVersion for Legacy {
     }
 }
 
-#[sealed::sealed]
 impl NetworkVersion for Horizon {
     type Rav = tap_graph::v2::ReceiptAggregateVoucher;
     type AggregatorClient =
