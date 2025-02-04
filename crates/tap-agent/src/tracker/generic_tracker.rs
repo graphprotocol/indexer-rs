@@ -219,7 +219,7 @@ where
         match self.id_to_fee.get(address).map(|v| v.blocked) {
             Some(val) => val,
             None => {
-                warn!("Allocation ID not found in the tracker");
+                warn!("Allocation ID {} not found in the tracker", address);
                 false
             }
         }
