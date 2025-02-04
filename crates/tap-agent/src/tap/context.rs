@@ -7,8 +7,9 @@ use indexer_monitor::EscrowAccounts;
 use indexer_receipt::TapReceipt;
 use serde::Serialize;
 use sqlx::PgPool;
-use tap_aggregator::grpc::v1::RavRequest as AggregatorRequestV1;
-use tap_aggregator::grpc::v2::RavRequest as AggregatorRequestV2;
+use tap_aggregator::grpc::{
+    v1::RavRequest as AggregatorRequestV1, v2::RavRequest as AggregatorRequestV2,
+};
 use tap_core::{
     receipt::{rav::Aggregate, WithValueAndTimestamp},
     signed_message::Eip712SignedMessage,

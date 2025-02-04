@@ -34,8 +34,11 @@ use tokio::{sync::watch::Receiver, task::JoinHandle};
 use tonic::transport::{Channel, Endpoint};
 use tracing::Level;
 
-use super::sender_allocation::{
-    AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
+use super::{
+    sender_accounts_manager::AllocationId,
+    sender_allocation::{
+        AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
+    },
 };
 use crate::{
     adaptative_concurrency::AdaptiveLimiter,
@@ -141,8 +144,8 @@ pub enum ReceiptFees {
 #[derive(Debug)]
 pub enum SenderAccountMessage {
     UpdateBalanceAndLastRavs(Balance, RavMap),
-    UpdateAllocationIds(HashSet<Address>),
-    NewAllocationId(Address),
+    UpdateAllocationIds(HashSet<AllocationId>),
+    NewAllocationId(AllocationId),
     UpdateReceiptFees(Address, ReceiptFees),
     UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
     UpdateRav(RavInformation),
@@ -171,12 +174,12 @@ pub struct SenderAccountArgs {
     pub pgpool: PgPool,
     pub sender_id: Address,
     pub escrow_accounts: Receiver<EscrowAccounts>,
-    pub indexer_allocations: Receiver<HashSet<Address>>,
+    pub indexer_allocations: Receiver<HashSet<AllocationId>>,
     pub escrow_subgraph: &'static SubgraphClient,
     pub network_subgraph: &'static SubgraphClient,
     pub domain_separator: Eip712Domain,
     pub sender_aggregator_endpoint: Url,
-    pub allocation_ids: HashSet<Address>,
+    pub allocation_ids: HashSet<AllocationId>,
     pub prefix: Option<String>,
 
     pub retry_interval: Duration,
@@ -186,7 +189,7 @@ pub struct State {
     sender_fee_tracker: SenderFeeTracker,
     rav_tracker: SimpleFeeTracker,
     invalid_receipts_tracker: SimpleFeeTracker,
-    allocation_ids: HashSet<Address>,
+    allocation_ids: HashSet<AllocationId>,
     _indexer_allocations_handle: JoinHandle<()>,
     _escrow_account_monitor: JoinHandle<()>,
     scheduled_rav_request: Option<JoinHandle<Result<(), MessagingErr<SenderAccountMessage>>>>,
@@ -247,17 +250,11 @@ impl SenderAccountConfig {
     }
 }
 
-pub enum AllocationType {
-    Legacy,
-    Horizon,
-}
-
 impl State {
     async fn create_sender_allocation(
         &self,
         sender_account_ref: ActorRef<SenderAccountMessage>,
-        allocation_id: Address,
-        allocation_type: AllocationType,
+        allocation_id: AllocationId,
     ) -> anyhow::Result<()> {
         tracing::trace!(
             %self.sender,
@@ -265,11 +262,11 @@ impl State {
             "SenderAccount is creating allocation."
         );
 
-        match allocation_type {
-            AllocationType::Legacy => {
+        match allocation_id {
+            AllocationId::Legacy(id) => {
                 let args = SenderAllocationArgs::builder()
                     .pgpool(self.pgpool.clone())
-                    .allocation_id(allocation_id)
+                    .allocation_id(id)
                     .sender(self.sender)
                     .escrow_accounts(self.escrow_accounts.clone())
                     .escrow_subgraph(self.escrow_subgraph)
@@ -279,17 +276,17 @@ impl State {
                     .config(AllocationConfig::from_sender_config(self.config))
                     .build();
                 SenderAllocation::<Legacy>::spawn_linked(
-                    Some(self.format_sender_allocation(&allocation_id)),
+                    Some(self.format_sender_allocation(&id)),
                     SenderAllocation::default(),
                     args,
                     sender_account_ref.get_cell(),
                 )
                 .await?;
             }
-            AllocationType::Horizon => {
+            AllocationId::Horizon(id) => {
                 let args = SenderAllocationArgs::builder()
                     .pgpool(self.pgpool.clone())
-                    .allocation_id(allocation_id)
+                    .allocation_id(id)
                     .sender(self.sender)
                     .escrow_accounts(self.escrow_accounts.clone())
                     .escrow_subgraph(self.escrow_subgraph)
@@ -300,7 +297,7 @@ impl State {
                     .build();
 
                 SenderAllocation::<Horizon>::spawn_linked(
-                    Some(self.format_sender_allocation(&allocation_id)),
+                    Some(self.format_sender_allocation(&id)),
                     SenderAllocation::default(),
                     args,
                     sender_account_ref.get_cell(),
@@ -478,11 +475,13 @@ impl State {
     /// if they are really closed
     async fn check_closed_allocations(
         &self,
-        allocation_ids: HashSet<&Address>,
+        allocation_ids: HashSet<&AllocationId>,
     ) -> anyhow::Result<HashSet<Address>> {
         if allocation_ids.is_empty() {
             return Ok(HashSet::new());
         }
+        // We don't need to check what type of allocation it is since
+        // legacy allocation ids can't be reused for horizon
         let allocation_ids: Vec<String> = allocation_ids
             .into_iter()
             .map(|addr| addr.to_string().to_lowercase())
@@ -523,7 +522,7 @@ impl State {
         Ok(responses
             .into_iter()
             .map(|allocation| Address::from_str(&allocation.id))
-            .collect::<Result<HashSet<Address>, _>>()?)
+            .collect::<Result<HashSet<_>, _>>()?)
     }
 }
 
@@ -726,13 +725,7 @@ impl Actor for SenderAccount {
 
         stream::iter(allocation_ids)
             // Create a sender allocation for each allocation
-            .map(|allocation_id| {
-                state.create_sender_allocation(
-                    myself.clone(),
-                    allocation_id,
-                    AllocationType::Legacy,
-                )
-            })
+            .map(|allocation_id| state.create_sender_allocation(myself.clone(), allocation_id))
             .buffer_unordered(10) // Limit concurrency to 10 allocations at a time
             .collect::<Vec<anyhow::Result<()>>>()
             .await
@@ -908,11 +901,7 @@ impl Actor for SenderAccount {
                 let mut new_allocation_ids = state.allocation_ids.clone();
                 for allocation_id in allocation_ids.difference(&state.allocation_ids) {
                     if let Err(error) = state
-                        .create_sender_allocation(
-                            myself.clone(),
-                            *allocation_id,
-                            AllocationType::Legacy,
-                        )
+                        .create_sender_allocation(myself.clone(), *allocation_id)
                         .await
                     {
                         tracing::error!(
@@ -938,14 +927,16 @@ impl Actor for SenderAccount {
 
                 // Remove sender allocations
                 for allocation_id in possibly_closed_allocations {
-                    if really_closed.contains(allocation_id) {
+                    if really_closed.contains(&allocation_id.address()) {
                         if let Some(sender_handle) = ActorRef::<SenderAllocationMessage>::where_is(
-                            state.format_sender_allocation(allocation_id),
+                            state.format_sender_allocation(&allocation_id.address()),
                         ) {
                             tracing::trace!(%allocation_id, "SenderAccount shutting down SenderAllocation");
                             // we can not send a rav request to this allocation
                             // because it's gonna trigger the last rav
-                            state.sender_fee_tracker.block_allocation_id(*allocation_id);
+                            state
+                                .sender_fee_tracker
+                                .block_allocation_id(allocation_id.address());
                             sender_handle.stop(None);
                             new_allocation_ids.remove(allocation_id);
                         }
@@ -963,7 +954,7 @@ impl Actor for SenderAccount {
             }
             SenderAccountMessage::NewAllocationId(allocation_id) => {
                 if let Err(error) = state
-                    .create_sender_allocation(myself.clone(), allocation_id, AllocationType::Legacy)
+                    .create_sender_allocation(myself.clone(), allocation_id)
                     .await
                 {
                     tracing::error!(
@@ -985,6 +976,9 @@ impl Actor for SenderAccount {
 
                 let active_allocation_ids = state
                     .allocation_ids
+                    .iter()
+                    .map(|id| id.address())
+                    .collect::<HashSet<_>>()
                     .union(&non_final_last_ravs_set)
                     .cloned()
                     .collect::<HashSet<_>>();
@@ -1104,9 +1098,17 @@ impl Actor for SenderAccount {
                     tracing::error!(%allocation_id, "Could not convert allocation_id to Address");
                     return Ok(());
                 };
+                let Some(allocation_id) = state
+                    .allocation_ids
+                    .iter()
+                    .find(|id| id.address() == allocation_id)
+                else {
+                    tracing::error!(%allocation_id, "Could not get allocation id type from state");
+                    return Ok(());
+                };
 
                 if let Err(error) = state
-                    .create_sender_allocation(myself.clone(), allocation_id, AllocationType::Legacy)
+                    .create_sender_allocation(myself.clone(), *allocation_id)
                     .await
                 {
                     tracing::error!(
@@ -1162,7 +1164,8 @@ pub mod tests {
     use super::SenderAccountMessage;
     use crate::{
         agent::{
-            sender_account::ReceiptFees, sender_allocation::SenderAllocationMessage,
+            sender_account::ReceiptFees, sender_accounts_manager::AllocationId,
+            sender_allocation::SenderAllocationMessage,
             unaggregated_receipts::UnaggregatedReceipts,
         },
         assert_not_triggered, assert_triggered,
@@ -1276,7 +1279,9 @@ pub mod tests {
         // we expect it to create a sender allocation
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(
-                vec![ALLOCATION_ID_0].into_iter().collect(),
+                vec![AllocationId::Legacy(ALLOCATION_ID_0)]
+                    .into_iter()
+                    .collect(),
             ))
             .unwrap();
         notify.notified().await;
@@ -1361,7 +1366,9 @@ pub mod tests {
 
         // we expect it to create a sender allocation
         sender_account
-            .cast(SenderAccountMessage::NewAllocationId(ALLOCATION_ID_0))
+            .cast(SenderAccountMessage::NewAllocationId(AllocationId::Legacy(
+                ALLOCATION_ID_0,
+            )))
             .unwrap();
 
         flush_messages(&notify).await;
@@ -1374,7 +1381,9 @@ pub mod tests {
         // nothing should change because we already created
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(
-                vec![ALLOCATION_ID_0].into_iter().collect(),
+                vec![AllocationId::Legacy(ALLOCATION_ID_0)]
+                    .into_iter()
+                    .collect(),
             ))
             .unwrap();
 
@@ -1556,7 +1565,11 @@ pub mod tests {
     ) {
         let (sender_account, _, prefix, _) = create_sender_account()
             .pgpool(pgpool)
-            .initial_allocation(vec![ALLOCATION_ID_0].into_iter().collect())
+            .initial_allocation(
+                vec![AllocationId::Legacy(ALLOCATION_ID_0)]
+                    .into_iter()
+                    .collect(),
+            )
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .call()
             .await;
