@@ -28,7 +28,6 @@ use tonic::{transport::Channel, Code, Status};
 
 #[sealed::sealed]
 pub trait NetworkVersion: Send + Sync + 'static {
-    //type Receipt;
     type Rav: SolStruct
         + Aggregate<TapReceipt>
         + Serialize
@@ -53,7 +52,6 @@ pub enum Horizon {}
 
 #[sealed::sealed]
 impl NetworkVersion for Legacy {
-    //type Receipt = tap_graph::Receipt;
     type Rav = tap_graph::ReceiptAggregateVoucher;
     type AggregatorClient =
         tap_aggregator::grpc::v1::tap_aggregator_client::TapAggregatorClient<Channel>;
@@ -88,7 +86,6 @@ impl NetworkVersion for Legacy {
 
 #[sealed::sealed]
 impl NetworkVersion for Horizon {
-    //type Receipt = tap_graph::v2::Receipt;
     type Rav = tap_graph::v2::ReceiptAggregateVoucher;
     type AggregatorClient =
         tap_aggregator::grpc::v2::tap_aggregator_client::TapAggregatorClient<Channel>;
