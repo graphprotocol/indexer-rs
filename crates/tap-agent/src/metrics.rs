@@ -48,6 +48,9 @@ async fn _run_server(port: u16) {
     };
 }
 
+/// Run the server on a given `port`.
+///
+/// This is recommended to run inside a Task
 pub async fn run_server(port: u16) {
     // Code here is to abort program if there is a panic in _run_server
     // Otherwise, when spawning the task, the panic will be silently ignored
