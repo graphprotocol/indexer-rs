@@ -48,6 +48,11 @@ pub struct NewReceiptNotification {
 
 pub struct SenderAccountsManager;
 
+/// Wrapped AllocationId Address with two possible variants
+///
+/// This is used by children actors to define what kind of
+/// SenderAllocation must be created to handle the correct
+/// Rav and Receipt types
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AllocationId {
     Legacy(Address),
@@ -55,6 +60,7 @@ pub enum AllocationId {
 }
 
 impl AllocationId {
+    /// Take the inner address for both allocation types
     pub fn address(&self) -> Address {
         match self {
             AllocationId::Legacy(address) | AllocationId::Horizon(address) => *address,
@@ -109,6 +115,9 @@ impl Actor for SenderAccountsManager {
     type State = State;
     type Arguments = SenderAccountsManagerArgs;
 
+    /// This is called in the [ractor::Actor::spawn] method and is used
+    /// to process the [SenderAccountsManagerArgs] with a reference to the current
+    /// actor
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -303,6 +312,13 @@ impl State {
         sender_allocation_id
     }
 
+    /// Helper function to create a [SenderAccount]
+    ///
+    /// It takes the current [SenderAccountsManager] cell to use it
+    /// as supervisor, sender address and a list of initial allocations
+    ///
+    /// In case there's an error creating it, deny so it
+    /// can no longer send queries
     async fn create_or_deny_sender(
         &self,
         supervisor: ActorCell,
@@ -322,6 +338,11 @@ impl State {
         }
     }
 
+    /// Helper function to create a [SenderAccount]
+    ///
+    /// It takes the current [SenderAccountsManager] cell to use it
+    /// as supervisor, sender address and a list of initial allocations
+    ///
     async fn create_sender_account(
         &self,
         supervisor: ActorCell,
@@ -354,11 +375,10 @@ impl State {
         Ok(())
     }
 
+    /// Gather all outstanding receipts and unfinalized RAVs from the database.
+    /// Used to create [SenderAccount] instances for all senders that have unfinalized allocations
+    /// and try to finalize them if they have become ineligible.
     async fn get_pending_sender_allocation_id(&self) -> HashMap<Address, HashSet<AllocationId>> {
-        // Gather all outstanding receipts and unfinalized RAVs from the database.
-        // Used to create SenderAccount instances for all senders that have unfinalized allocations
-        // and try to finalize them if they have become ineligible.
-
         // First we accumulate all allocations for each sender. This is because we may have more
         // than one signer per sender in DB.
         let mut unfinalized_sender_allocations_map: HashMap<Address, HashSet<AllocationId>> =
@@ -462,6 +482,11 @@ impl State {
 
         unfinalized_sender_allocations_map
     }
+
+    /// Helper function to create [SenderAccountArgs]
+    ///
+    /// Fails if the provided sender_id is not present
+    /// in the sender_aggregator_endpoints map
     fn new_sender_account_args(
         &self,
         sender_id: &Address,
@@ -541,6 +566,16 @@ async fn new_receipts_watcher(
     tracing::error!("Manager killed");
 }
 
+/// Handles a new detected [NewReceiptNotification] and routes to proper
+/// reference of [super::sender_allocation::SenderAllocation]
+///
+/// If the allocation doesn't exist yet, we trust that the whoever has
+/// access to the database already verified that the allocation really
+/// exists and we ask for the sender to create a new allocation.
+///
+/// After a request to create allocation, we don't need to do anything
+/// since the startup script is going to recalculate the receipt in the
+/// database
 async fn handle_notification(
     new_receipt_notification: NewReceiptNotification,
     escrow_accounts_rx: Receiver<EscrowAccounts>,

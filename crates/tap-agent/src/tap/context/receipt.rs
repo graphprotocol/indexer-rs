@@ -69,6 +69,11 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
     ))
 }
 
+/// Implements a [ReceiptRead] for [TapReceipt]
+/// in case [super::NetworkVersion] is [Legacy]
+///
+/// This is important because receipts for each network version
+/// are stored in a different database table
 #[async_trait::async_trait]
 impl ReceiptRead<TapReceipt> for TapAgentContext<Legacy> {
     type AdapterError = AdapterError;
@@ -157,6 +162,11 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Legacy> {
     }
 }
 
+/// Implements a [ReceiptDelete] for [TapReceipt]
+/// in case [super::NetworkVersion] is [Legacy]
+///
+/// This is important because receipts for each network version
+/// are stored in a different database table
 #[async_trait::async_trait]
 impl ReceiptDelete for TapAgentContext<Legacy> {
     type AdapterError = AdapterError;
@@ -187,6 +197,11 @@ impl ReceiptDelete for TapAgentContext<Legacy> {
     }
 }
 
+/// Implements a [ReceiptRead] for [TapReceipt]
+/// in case [super::NetworkVersion] is [Horizon]
+///
+/// This is important because receipts for each network version
+/// are stored in a different database table
 #[async_trait::async_trait]
 impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
     type AdapterError = AdapterError;
@@ -200,6 +215,11 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
     }
 }
 
+/// Implements a [ReceiptDelete] for [TapReceipt]
+/// in case [super::NetworkVersion] is [Horizon]
+///
+/// This is important because receipts for each network version
+/// are stored in a different database table
 #[async_trait::async_trait]
 impl ReceiptDelete for TapAgentContext<Horizon> {
     type AdapterError = AdapterError;

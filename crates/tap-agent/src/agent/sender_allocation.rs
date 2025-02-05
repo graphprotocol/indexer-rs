@@ -72,6 +72,9 @@ lazy_static! {
     .unwrap();
 }
 
+/// Possible Rav Errors returned in case of a failure in Rav Request
+///
+/// This is used to give better error messages to users so they have a better understanding
 #[derive(Error, Debug)]
 pub enum RavError {
     #[error(transparent)]
@@ -96,6 +99,11 @@ pub enum RavError {
 type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
+///
+/// We use PhantomData to be able to add bounds to T while implementing the Actor trait
+///
+/// T is used in SenderAllocationState<T> and SenderAllocationArgs<T> to store the
+/// correct Rav type and the correct aggregator client
 pub struct SenderAllocation<T>(PhantomData<T>);
 impl<T: NetworkVersion> Default for SenderAllocation<T> {
     fn default() -> Self {
@@ -103,20 +111,43 @@ impl<T: NetworkVersion> Default for SenderAllocation<T> {
     }
 }
 
+/// State for [SenderAllocation] actor
 pub struct SenderAllocationState<T: NetworkVersion> {
+    /// Sum of all receipt fees for the current allocation
     unaggregated_fees: UnaggregatedReceipts,
+    /// Sum of all invalid receipts for the current allocation
     invalid_receipts_fees: UnaggregatedReceipts,
+    /// Last sent RAV
+    ///
+    /// This is used to together with a list of receipts to aggregate
+    /// into a new RAV
     latest_rav: Option<Eip712SignedMessage<T::Rav>>,
+    /// Database connection
     pgpool: PgPool,
+    /// Instance of TapManager for our [NetworkVersion] T
     tap_manager: TapManager<T>,
+    /// Current allocation address
     allocation_id: Address,
+    /// Address of the sender responsible for this [SenderAllocation]
     sender: Address,
+
+    /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
+    /// Domain separator used for tap
     domain_separator: Eip712Domain,
+    /// Reference to [super::sender_account::SenderAccount] actor
+    ///
+    /// This is needed to return back Rav responses
     sender_account_ref: ActorRef<SenderAccountMessage>,
+    /// Aggregator client
+    ///
+    /// This is defined by [NetworkVersion::AggregatorClient] depending
+    /// if it's a [crate::tap::context::Legacy] or a [crate::tap::context::Horizon] version
     sender_aggregator: T::AggregatorClient,
-    //config
+    /// Buffer configuration used by TAP so gives some room to receive receipts
+    /// that are delayed since timestamp_ns is defined by the gateway
     timestamp_buffer_ns: u64,
+    /// Limit of receipts sent in a Rav Request
     rav_request_receipt_limit: u64,
 }
 
@@ -139,18 +170,32 @@ impl AllocationConfig {
     }
 }
 
+/// Arguments used to initialize [SenderAllocation]
 #[derive(bon::Builder)]
 pub struct SenderAllocationArgs<T: NetworkVersion> {
+    /// Database connection
     pub pgpool: PgPool,
+    /// Current allocation address
     pub allocation_id: Address,
+    /// Address of the sender responsible for this [SenderAllocation]
     pub sender: Address,
+    /// Watcher containing the escrow accounts
     pub escrow_accounts: Receiver<EscrowAccounts>,
+    /// SubgraphClient of the escrow subgraph
     pub escrow_subgraph: &'static SubgraphClient,
+    /// Domain separator used for tap
     pub domain_separator: Eip712Domain,
+    /// Reference to [super::sender_account::SenderAccount] actor
+    ///
+    /// This is needed to return back Rav responses
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
+    /// Aggregator client
+    ///
+    /// This is defined by [crate::tap::context::NetworkVersion::AggregatorClient] depending
+    /// if it's a [crate::tap::context::Legacy] or a [crate::tap::context::Horizon] version
     pub sender_aggregator: T::AggregatorClient,
 
-    //config
+    /// General configuration from config.toml
     pub config: AllocationConfig,
 }
 
@@ -162,6 +207,10 @@ pub enum SenderAllocationMessage {
     GetUnaggregatedReceipts(ractor::RpcReplyPort<UnaggregatedReceipts>),
 }
 
+/// Actor implementation for [SenderAllocation]
+///
+/// We use some bounds so [TapAgentContext] implements all parts needed for the given
+/// [crate::tap::context::NetworkVersion]
 #[async_trait::async_trait]
 impl<T> Actor for SenderAllocation<T>
 where
@@ -174,6 +223,9 @@ where
     type State = SenderAllocationState<T>;
     type Arguments = SenderAllocationArgs<T>;
 
+    /// This is called in the [ractor::Actor::spawn] method and is used
+    /// to process the [SenderAllocationArgs] with a reference to the current
+    /// actor
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -214,8 +266,11 @@ where
         Ok(state)
     }
 
-    // this method only runs on graceful stop (real close allocation)
-    // if the actor crashes, this is not ran
+    /// This method only runs on graceful stop (real close allocation)
+    /// if the actor crashes, this is not ran
+    ///
+    /// It's used to flush all remaining receipts while creating Ravs
+    /// and marking it as last to be redeemed by indexer-agent
     async fn post_stop(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -266,6 +321,7 @@ where
         Ok(())
     }
 
+    /// Handle a new [SenderAllocationMessage] message
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -349,12 +405,16 @@ where
     }
 }
 
+/// We use some bounds so [TapAgentContext] implements all parts needed for the given
+/// [crate::tap::context::NetworkVersion]
 impl<T> SenderAllocationState<T>
 where
     T: NetworkVersion,
     TapAgentContext<T>:
         RavRead<T::Rav> + RavStore<T::Rav> + ReceiptDelete + ReceiptRead<TapReceipt>,
 {
+    /// Helper function to create a [SenderAllocationState]
+    /// given [SenderAllocationArgs]
     async fn new(
         SenderAllocationArgs {
             pgpool,
@@ -546,7 +606,9 @@ where
     }
 
     /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
-    /// time through the use of an internal guard.
+    /// time because actors run one message at a time.
+    ///
+    /// Yet, multiple different [SenderAllocation] can run a request in parallel.
     async fn rav_requester_single(&mut self) -> Result<Eip712SignedMessage<T::Rav>, RavError> {
         tracing::trace!("rav_requester_single()");
         let RavRequest {
@@ -836,6 +898,7 @@ where
         Ok(())
     }
 
+    /// Stores a failed Rav, used for logging purposes
     async fn store_failed_rav(
         &self,
         expected_rav: &T::Rav,

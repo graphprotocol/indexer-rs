@@ -26,12 +26,15 @@ mod receipt;
 pub use error::AdapterError;
 use tonic::{transport::Channel, Code, Status};
 
-// https://rust-lang.github.io/api-guidelines/future-proofing.html#sealed-traits-protect-against-downstream-implementations-c-sealed
-mod private {
-    pub trait Sealed {}
-}
-
-pub trait NetworkVersion: Send + Sync + 'static + private::Sealed {
+/// This trait represents a version of the network for TapAgentContext
+///
+/// It's used to define what Rav struct is used and how it handles
+/// aggregations since each Rav version has its own aggregator client
+///
+/// The alternative would be using enum but this quickly scale into
+/// multiple matches. This way we can keep the code separated and we
+/// can easily add or remove network versions.
+pub trait NetworkVersion: Send + Sync + 'static {
     type Rav: SolStruct
         + Aggregate<TapReceipt>
         + Serialize
@@ -44,18 +47,33 @@ pub trait NetworkVersion: Send + Sync + 'static + private::Sealed {
 
     type AggregatorClient: Send + Sync;
 
+    /// Takes the aggregator client, a list of receipts and the previous rav
+    /// and performs an aggregation request
     fn aggregate(
-        _client: &mut Self::AggregatorClient,
-        _valid_receipts: Vec<TapReceipt>,
-        _previous_rav: Option<Eip712SignedMessage<Self::Rav>>,
+        client: &mut Self::AggregatorClient,
+        valid_receipts: Vec<TapReceipt>,
+        previous_rav: Option<Eip712SignedMessage<Self::Rav>>,
     ) -> impl Future<Output = anyhow::Result<Eip712SignedMessage<Self::Rav>>> + Send;
 }
 
+/// 0-sized marker for legacy network
+///
+/// By using an enum with no variants, we prevent any instanciation
+/// of the network. It also has zero size at runtime and is used only
+/// as a compile-time marker
+///
+/// A simple `struct Legacy;` would be able to instanciate and pass as
+/// value, while having size 1.
 pub enum Legacy {}
+/// 0-sized marker for horizon network
+///
+/// By using an enum with no variants, we prevent any instanciation
+/// of the network. It also has zero size at runtime and is used only
+/// as a compile-time marker
+///
+/// A simple `struct Legacy;` would be able to instanciate and pass as
+/// value, while having size 1.
 pub enum Horizon {}
-
-impl private::Sealed for Legacy {}
-impl private::Sealed for Horizon {}
 
 impl NetworkVersion for Legacy {
     type Rav = tap_graph::ReceiptAggregateVoucher;
@@ -123,15 +141,22 @@ impl NetworkVersion for Horizon {
     }
 }
 
+/// Context used by [tap_core::manager::Manager] that enables certain helper methods
+///
+/// This context is implemented for PostgresSQL
 #[derive(Clone)]
 pub struct TapAgentContext<T> {
     pgpool: PgPool,
     allocation_id: Address,
     sender: Address,
     escrow_accounts: Receiver<EscrowAccounts>,
+    /// We use phantom data as a marker since it's
+    /// only used to define what methods are available
+    /// for each type of network
     _phantom: PhantomData<T>,
 }
 
+/// Allow any [NetworkVersion] to create a new context
 impl<T: NetworkVersion> TapAgentContext<T> {
     pub fn new(
         pgpool: PgPool,

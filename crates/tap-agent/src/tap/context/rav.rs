@@ -16,6 +16,11 @@ use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
 
 use super::{error::AdapterError, Horizon, Legacy, TapAgentContext};
 
+/// Implements a [RavRead] for [tap_graph::ReceiptAggregateVoucher]
+/// in case [super::NetworkVersion] is [Legacy]
+///
+/// This is important because RAVs for each network version
+/// are stored in a different database table
 #[async_trait::async_trait]
 impl RavRead<ReceiptAggregateVoucher> for TapAgentContext<Legacy> {
     type AdapterError = AdapterError;
@@ -86,6 +91,11 @@ impl RavRead<ReceiptAggregateVoucher> for TapAgentContext<Legacy> {
     }
 }
 
+/// Implements a [RavStore] for [tap_graph::ReceiptAggregateVoucher]
+/// in case [super::NetworkVersion] is [Legacy]
+///
+/// This is important because RAVs for each network version
+/// are stored in a different database table
 #[async_trait::async_trait]
 impl RavStore<ReceiptAggregateVoucher> for TapAgentContext<Legacy> {
     type AdapterError = AdapterError;
@@ -129,6 +139,11 @@ impl RavStore<ReceiptAggregateVoucher> for TapAgentContext<Legacy> {
     }
 }
 
+/// Implements a [RavRead] for [tap_graph::v2::ReceiptAggregateVoucher]
+/// in case [super::NetworkVersion] is [Horizon]
+///
+/// This is important because RAVs for each network version
+/// are stored in a different database table
 #[async_trait::async_trait]
 impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon> {
     type AdapterError = AdapterError;
@@ -138,6 +153,11 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
     }
 }
 
+/// Implements a [RavStore] for [tap_graph::v2::ReceiptAggregateVoucher]
+/// in case [super::NetworkVersion] is [Horizon]
+///
+/// This is important because RAVs for each network version
+/// are stored in a different database table
 #[async_trait::async_trait]
 impl RavStore<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon> {
     type AdapterError = AdapterError;

@@ -16,11 +16,7 @@ impl From<eventuals::error::Closed> for AdapterError {
     }
 }
 
-// we don't need these checks anymore because there are being done before triggering
-// a rav request.
-//
-// In any case, we don't want to fail a receipt because of this.
-// The receipt is fine, just the escrow account that is not.
+/// Implements the SignatureChecker for any [NetworkVersion]
 #[async_trait]
 impl<T: NetworkVersion + Send + Sync> SignatureChecker for TapAgentContext<T> {
     type AdapterError = AdapterError;

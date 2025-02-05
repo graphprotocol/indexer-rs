@@ -100,6 +100,7 @@ const INITIAL_RAV_REQUEST_CONCURRENT: usize = 1;
 type RavMap = HashMap<Address, u128>;
 type Balance = U256;
 
+/// Information for Ravs that are abstracted away from the SignedRav itself
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct RavInformation {
     pub allocation_id: Address,
@@ -133,27 +134,61 @@ impl From<&tap_graph::v2::SignedRav> for RavInformation {
     }
 }
 
+/// Custom update receipt fee message
+///
+/// It has different logic depending on the variant
 #[derive(Debug)]
 pub enum ReceiptFees {
+    /// Adds the receipt value to the fee tracker
+    ///
+    /// Used when a receipt is received
     NewReceipt(u128, u64),
+    /// Overwrite the current fee tracker with the given value
+    ///
+    /// Used while starting up to signalize the sender it's current value
     UpdateValue(UnaggregatedReceipts),
+    /// Overwrite the current fee tracker with the given value
+    ///
+    /// If the rav response was successful, update the rav tracker
+    /// If not, signalize the fee_tracker to apply proper backoff
     RavRequestResponse((UnaggregatedReceipts, anyhow::Result<Option<RavInformation>>)),
+    /// Ignores all logic and simply retry Allow/Deny and Rav Request logic
+    ///
+    /// This is used inside a scheduler to trigger a Rav request in case the
+    /// sender is denied since the only way to trigger a Rav request is by
+    /// receiving a receipt and denied senders don't receive receipts
     Retry,
 }
 
+/// Enum containing all types of messages that a SenderAccount can receive
 #[derive(Debug)]
 pub enum SenderAccountMessage {
+    /// Updates the sender balance and
     UpdateBalanceAndLastRavs(Balance, RavMap),
+    /// Spawn and Stop SenderAllocations that were added or removed
+    /// in comparision with it current state and updates the state
     UpdateAllocationIds(HashSet<AllocationId>),
+    /// Manual request to create a new Sender Allocation
     NewAllocationId(AllocationId),
+    /// Updates the fee tracker for a given allocation
+    ///
+    /// All allowing or denying logic is called inside the message handler
+    /// as well as requesting the underlaying allocation rav request
+    ///
+    /// Custom behavior is defined in [ReceiptFees]
     UpdateReceiptFees(Address, ReceiptFees),
+    /// Updates the counter for invalid receipts and verify to deny sender
     UpdateInvalidReceiptFees(Address, UnaggregatedReceipts),
+    /// Update rav tracker
     UpdateRav(RavInformation),
     #[cfg(test)]
+    /// Returns the sender fee tracker, used for tests
     GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
     #[cfg(test)]
+    /// Returns the Deny status, used for tests
     GetDeny(ractor::RpcReplyPort<bool>),
     #[cfg(test)]
+    /// Returns if the scheduler is enabled, used for tests
     IsSchedulerEnabled(ractor::RpcReplyPort<bool>),
 }
 
@@ -168,57 +203,122 @@ pub enum SenderAccountMessage {
 /// - Requesting the last RAV from the sender's TAP aggregator for all EOL allocations.
 pub struct SenderAccount;
 
+/// Arguments received in startup while spawing [SenderAccount] actor
 pub struct SenderAccountArgs {
     pub config: &'static SenderAccountConfig,
 
+    /// Connection to database
     pub pgpool: PgPool,
+    /// Current sender address
     pub sender_id: Address,
+    /// Watcher that returns a list of escrow accounts for current indexer
     pub escrow_accounts: Receiver<EscrowAccounts>,
+    /// Watcher that returns a set of open and recently closed allocation ids
     pub indexer_allocations: Receiver<HashSet<AllocationId>>,
+    /// SubgraphClient of the escrow subgraph
     pub escrow_subgraph: &'static SubgraphClient,
+    /// SubgraphClient of the network subgraph
     pub network_subgraph: &'static SubgraphClient,
+    /// Domain separator used for tap
     pub domain_separator: Eip712Domain,
+    /// Endpoint URL for aggregator server
     pub sender_aggregator_endpoint: Url,
+    /// List of allocation ids that must created at startup
     pub allocation_ids: HashSet<AllocationId>,
+    /// Prefix used to bypass limitations of global actor registry (used for tests)
     pub prefix: Option<String>,
 
+    /// Configuration for retry scheduler in case sender is denied
     pub retry_interval: Duration,
 }
+
+/// State used by the actor
+///
+/// This is a separate instance that makes it easier to have mutable
+/// reference, for more information check ractor library
 pub struct State {
+    /// Prefix used to bypass limitations of global actor registry (used for tests)
     prefix: Option<String>,
+    /// Tracker used to monitor all pending fees across allocations
+    ///
+    /// Since rav requests are per allocation, this also has the algorithm
+    /// to select the next allocation to have a rav request.
+    ///
+    /// This monitors if rav requests succeeds or fails and apply proper backoff.
+    ///
+    /// Keeps track of the buffer returning values for both inside or outside the buffer.
+    ///
+    /// It selects the allocation with most amount of pending fees.
+    /// Filters out allocations in the algorithm in case:
+    ///     - In back-off
+    ///     - Marked as closing allocation (blocked)
+    ///     - Rav request in flight (selected the previous time)
     sender_fee_tracker: SenderFeeTracker,
+    /// Simple tracker used to monitor all Ravs that were not redeemed yet.
+    ///
+    /// This is used to monitor both active allocations and closed but not redeemed.
     rav_tracker: SimpleFeeTracker,
+    /// Simple tracker used to monitor all invalid receipts ever.
     invalid_receipts_tracker: SimpleFeeTracker,
+    /// Set containing current active allocations
     allocation_ids: HashSet<AllocationId>,
+    /// Keeps a reference of the handle for indexer_allocation pipe
     _indexer_allocations_handle: JoinHandle<()>,
+    /// Keeps a reference of the handle for escrow_account pipe
     _escrow_account_monitor: JoinHandle<()>,
+    /// Scheduler used to send a retry message in case sender is denied
+    ///
+    /// If scheduler is set, it's canceled in the first [SenderAccountMessage::UpdateReceiptFees]
+    /// message
     scheduled_rav_request: Option<JoinHandle<Result<(), MessagingErr<SenderAccountMessage>>>>,
 
+    /// Current sender address
     sender: Address,
 
-    // Deny reasons
+    /// State to check if sender is current denied
     denied: bool,
+    /// Sender Balance used to verify if it has money in
+    /// the escrow to pay for all non-redeemed fees (ravs and receipts)
     sender_balance: U256,
+    /// Configuration for retry scheduler in case sender is denied
     retry_interval: Duration,
 
-    // concurrent rav request
+    /// Adaptative limiter for concurrent Rav Request
+    ///
+    /// This uses a simple algorithm where it increases by one in case
+    /// of a success or decreases by half in case of a failure
     adaptive_limiter: AdaptiveLimiter,
 
-    // Receivers
+    /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
 
+    /// SubgraphClient of the escrow subgraph
     escrow_subgraph: &'static SubgraphClient,
+    /// SubgraphClient of the network subgraph
     network_subgraph: &'static SubgraphClient,
 
+    /// Domain separator used for tap
     domain_separator: Eip712Domain,
+    /// Database connection
     pgpool: PgPool,
+    /// Aggregator client for V1
+    ///
+    /// This is only send to [SenderAllocation] in case
+    /// it's a [AllocationId::Legacy]
     aggregator_v1: AggregatorV1<Channel>,
+    /// Aggregator client for V2
+    ///
+    /// This is only send to [SenderAllocation] in case
+    /// it's a [AllocationId::Horizon]
     aggregator_v2: AggregatorV2<Channel>,
 
-    // Backoff info
+    // Used as a global backoff for triggering new rav requests
+    //
+    // This is used when there are failures in Rav request and
+    // reset in case of a successful response
     backoff_info: BackoffInfo,
 
-    // Config
+    // Config forwarded to [SenderAllocation]
     config: &'static SenderAccountConfig,
 }
 
@@ -251,6 +351,10 @@ impl SenderAccountConfig {
 }
 
 impl State {
+    /// Spawn a sender allocation given the allocation_id
+    ///
+    /// Since this is a function inside State, we need to provide
+    /// the reference for the [SenderAccount] actor
     async fn create_sender_allocation(
         &self,
         sender_account_ref: ActorRef<SenderAccountMessage>,
@@ -358,6 +462,10 @@ impl State {
         Ok(())
     }
 
+    /// Proccess the rav response sent by [SenderAllocation]
+    ///
+    /// This updates all backoff information for fee_tracker, backoff_info and
+    /// adaptative_limiter as well as updating the rav tracker and fee tracker
     fn finalize_rav_request(
         &mut self,
         allocation_id: Address,
@@ -471,8 +579,8 @@ impl State {
             .set(0);
     }
 
-    /// receives a list of possible closed allocations and verify
-    /// if they are really closed
+    /// Receives a list of possible closed allocations and verify
+    /// if they are really closed in the subgraph
     async fn check_closed_allocations(
         &self,
         allocation_ids: HashSet<&AllocationId>,
@@ -526,12 +634,16 @@ impl State {
     }
 }
 
+/// Actor implementation for [SenderAccount]
 #[async_trait::async_trait]
 impl Actor for SenderAccount {
     type Msg = SenderAccountMessage;
     type State = State;
     type Arguments = SenderAccountArgs;
 
+    /// This is called in the [ractor::Actor::spawn] method and is used
+    /// to process the [SenderAccountArgs] with a reference to the current
+    /// actor
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -736,6 +848,7 @@ impl Actor for SenderAccount {
         Ok(state)
     }
 
+    /// Handle a new [SenderAccountMessage] message
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -1028,8 +1141,8 @@ impl Actor for SenderAccount {
         Ok(())
     }
 
-    // we define the supervisor event to overwrite the default behavior which
-    // is shutdown the supervisor on actor termination events
+    /// We define the supervisor event to overwrite the default behavior which
+    /// is shutdown the supervisor on actor termination events
     async fn handle_supervisor_evt(
         &self,
         myself: ActorRef<Self::Msg>,
