@@ -9,12 +9,18 @@ use tokio::sync::watch::Receiver;
 
 use crate::tap::{CheckingReceipt, TapReceipt};
 
+/// Signature check
+///
+/// Verifies if the signatures are signed correctly by the list of provided signers.
+/// This is an important step since [tap_core] doesn't verify signatures by default and RavRequests
+/// may fail if any of those are wrong.
 pub struct Signature {
     domain_separator: Eip712Domain,
     escrow_accounts: Receiver<EscrowAccounts>,
 }
 
 impl Signature {
+    /// Creates a new signature check
     pub fn new(domain_separator: Eip712Domain, escrow_accounts: Receiver<EscrowAccounts>) -> Self {
         Self {
             domain_separator,

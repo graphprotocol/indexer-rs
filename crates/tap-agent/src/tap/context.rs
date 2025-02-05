@@ -35,6 +35,11 @@ use tonic::{transport::Channel, Code, Status};
 /// multiple matches. This way we can keep the code separated and we
 /// can easily add or remove network versions.
 pub trait NetworkVersion: Send + Sync + 'static {
+    /// Sol struct returned from an aggregation
+    ///
+    /// Usually this is wrapped around a [Eip712SignedMessage].
+    ///
+    /// We provide all the trait bounds here to evict it spreading across other modules
     type Rav: SolStruct
         + Aggregate<TapReceipt>
         + Serialize
@@ -45,6 +50,7 @@ pub trait NetworkVersion: Send + Sync + 'static {
         + std::fmt::Debug
         + PartialEq;
 
+    /// gRPC client type used to process an aggregation request
     type AggregatorClient: Send + Sync;
 
     /// Takes the aggregator client, a list of receipts and the previous rav
@@ -158,6 +164,7 @@ pub struct TapAgentContext<T> {
 
 /// Allow any [NetworkVersion] to create a new context
 impl<T: NetworkVersion> TapAgentContext<T> {
+    /// Creates a TapContext
     pub fn new(
         pgpool: PgPool,
         allocation_id: Address,

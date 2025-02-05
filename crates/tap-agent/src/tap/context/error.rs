@@ -3,36 +3,61 @@
 
 use thegraph_core::alloy::primitives::Address;
 
+/// AdapterError.
+///
+/// This is used to provide good error messages for indexers
 #[derive(Debug, thiserror::Error)]
 pub enum AdapterError {
+    /// Error in case it could not get escrow accounts
     #[error("Could not get escrow accounts from eventual")]
-    EscrowEventualError { error: String },
+    EscrowEventualError {
+        /// Error message
+        error: String,
+    },
 
+    /// Error in case couldn't get the available escrow for a sender
     #[error("Could not get available escrow for sender")]
     AvailableEscrowError(#[from] indexer_monitor::EscrowAccountsError),
 
+    /// Overflow error
     #[error("Sender {sender} escrow balance is too large to fit in u128, could not get available escrow.")]
-    BalanceTooLarge { sender: Address },
-
-    #[error("Sender {sender} does not have enough escrow to subtract {fees} from {balance}.")]
-    NotEnoughEscrow {
+    BalanceTooLarge {
+        /// Sender address
         sender: Address,
-        fees: u128,
-        balance: u128,
     },
 
+    /// Database error while storing rav
     #[error("Error in while storing Ravs: {error}")]
-    RavStore { error: String },
+    RavStore {
+        /// Error message
+        error: String,
+    },
 
+    /// Database error while reading receipt
     #[error("Error in while reading Ravs: {error}")]
-    RavRead { error: String },
+    RavRead {
+        /// Error message
+        error: String,
+    },
 
+    /// Database error while deleting receipt
     #[error("Error while deleting receipts: {error}")]
-    ReceiptDelete { error: String },
+    ReceiptDelete {
+        /// Error message
+        error: String,
+    },
 
+    /// Database error while reading receipt
     #[error("Error while reading receipts: {error}")]
-    ReceiptRead { error: String },
+    ReceiptRead {
+        /// Error message
+        error: String,
+    },
 
-    #[error("Error while validating receipts: {error}")]
-    ValidationError { error: String },
+    /// Error validating signer for Ravs
+    #[error("Error while validating rav signature: {error}")]
+    ValidationError {
+        /// Error message
+        error: String,
+    },
 }
