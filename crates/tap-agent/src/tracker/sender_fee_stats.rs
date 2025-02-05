@@ -9,20 +9,24 @@ use std::{
 use super::{AllocationStats, DefaultFromExtra, DurationInfo};
 use crate::{agent::unaggregated_receipts::UnaggregatedReceipts, backoff::BackoffInfo};
 
+/// Stats for a given allocation
 #[derive(Debug, Clone, Default)]
 pub struct SenderFeeStats {
+    /// sum of all fees in the tracker
     pub(super) total_fee: u128,
+    /// counter of receipts
     pub(super) count: u64,
-    // there are some allocations that we don't want it to be
-    // heaviest allocation, because they are already marked for finalization,
-    // and thus requesting RAVs on their own in their `post_stop` routine.
+    /// there are some allocations that we don't want it to be
+    /// heaviest allocation, because they are already marked for finalization,
+    /// and thus requesting RAVs on their own in their `post_stop` routine.
     pub(super) blocked: bool,
+    /// amount of fees that are currently being requested
     pub(super) requesting: u128,
 
-    // Buffer info
+    /// Buffer info
     pub(super) buffer_info: BufferInfo,
 
-    // Backoff info
+    /// Backoff info
     pub(super) backoff_info: BackoffInfo,
 }
 

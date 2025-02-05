@@ -14,6 +14,10 @@ use super::{
 };
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 
+/// Global Fee Tracker used inside SenderFeeTracker
+///
+/// This allows to keep a simple O(1) instead of looping over all allocations to get the total
+/// amount
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct GlobalFeeTracker {
     pub(super) requesting: u128,
