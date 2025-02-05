@@ -41,7 +41,8 @@ use crate::{
             SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
         },
         sender_accounts_manager::{
-            SenderAccountsManager, SenderAccountsManagerArgs, SenderAccountsManagerMessage,
+            AllocationId, SenderAccountsManager, SenderAccountsManagerArgs,
+            SenderAccountsManagerMessage,
         },
     },
     tap::{context::AdapterError, CheckingReceipt},
@@ -86,7 +87,7 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
 #[bon::builder]
 pub async fn create_sender_account(
     pgpool: PgPool,
-    #[builder(default = HashSet::new())] initial_allocation: HashSet<Address>,
+    #[builder(default = HashSet::new())] initial_allocation: HashSet<AllocationId>,
     #[builder(default = TRIGGER_VALUE)] rav_request_trigger_value: u128,
     #[builder(default = TRIGGER_VALUE)] max_amount_willing_to_lose_grt: u128,
     escrow_subgraph_endpoint: Option<&str>,
@@ -730,7 +731,7 @@ pub mod actors {
                                     last_id: 0,
                                     counter: 0,
                                 },
-                                Ok(Some(signed_rav)),
+                                Ok(Some(signed_rav.into())),
                             )),
                         ))?;
                     }

@@ -3,6 +3,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Display,
     str::FromStr,
     time::Duration,
 };
@@ -11,19 +12,14 @@ use anyhow::{anyhow, bail};
 use futures::{stream, StreamExt};
 use indexer_allocation::Allocation;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
-use indexer_watcher::watch_pipe;
+use indexer_watcher::{map_watcher, watch_pipe};
 use prometheus::{register_counter_vec, CounterVec};
-use ractor::{
-    concurrency::JoinHandle, Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
-};
+use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use reqwest::Url;
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
 use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
-use tokio::{
-    select,
-    sync::watch::{self, Receiver},
-};
+use tokio::{select, sync::watch::Receiver};
 
 use super::sender_account::{
     SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
@@ -50,6 +46,32 @@ pub struct NewReceiptNotification {
 
 pub struct SenderAccountsManager;
 
+/// Wrapped AllocationId Address with two possible variants
+///
+/// This is used by children actors to define what kind of
+/// SenderAllocation must be created to handle the correct
+/// Rav and Receipt types
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum AllocationId {
+    Legacy(Address),
+    Horizon(Address),
+}
+
+impl AllocationId {
+    /// Take the inner address for both allocation types
+    pub fn address(&self) -> Address {
+        match self {
+            AllocationId::Legacy(address) | AllocationId::Horizon(address) => *address,
+        }
+    }
+}
+
+impl Display for AllocationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.address().fmt(f)
+    }
+}
+
 #[derive(Debug)]
 pub enum SenderAccountsManagerMessage {
     UpdateSenderAccounts(HashSet<Address>),
@@ -72,12 +94,11 @@ pub struct SenderAccountsManagerArgs {
 pub struct State {
     sender_ids: HashSet<Address>,
     new_receipts_watcher_handle: Option<tokio::task::JoinHandle<()>>,
-    _eligible_allocations_senders_handle: JoinHandle<()>,
 
     config: &'static SenderAccountConfig,
     domain_separator: Eip712Domain,
     pgpool: PgPool,
-    indexer_allocations: Receiver<HashSet<Address>>,
+    indexer_allocations: Receiver<HashSet<AllocationId>>,
     escrow_accounts: Receiver<EscrowAccounts>,
     escrow_subgraph: &'static SubgraphClient,
     network_subgraph: &'static SubgraphClient,
@@ -91,6 +112,9 @@ impl Actor for SenderAccountsManager {
     type State = State;
     type Arguments = SenderAccountsManagerArgs;
 
+    /// This is called in the [ractor::Actor::spawn] method and is used
+    /// to process the [SenderAccountsManagerArgs] with a reference to the current
+    /// actor
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -106,36 +130,34 @@ impl Actor for SenderAccountsManager {
             prefix,
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let (allocations_tx, allocations_rx) = watch::channel(HashSet::<Address>::new());
-        watch_pipe(indexer_allocations.clone(), move |allocation_id| {
-            let allocation_set = allocation_id.keys().cloned().collect::<HashSet<Address>>();
-            allocations_tx
-                .send(allocation_set)
-                .expect("Failed to update indexer_allocations_set channel");
-            async {}
+        let indexer_allocations = map_watcher(indexer_allocations, move |allocation_id| {
+            allocation_id
+                .keys()
+                .cloned()
+                // TODO map based on the allocation type returned by the subgraph
+                .map(AllocationId::Legacy)
+                .collect::<HashSet<_>>()
         });
         let pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
         let myself_clone = myself.clone();
         let accounts_clone = escrow_accounts.clone();
-        let _eligible_allocations_senders_handle =
-            watch_pipe(accounts_clone, move |escrow_accounts| {
-                let senders = escrow_accounts.get_senders();
-                myself_clone
-                    .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(senders))
-                    .unwrap_or_else(|e| {
-                        tracing::error!("Error while updating sender_accounts: {:?}", e);
-                    });
-                async {}
-            });
+        watch_pipe(accounts_clone, move |escrow_accounts| {
+            let senders = escrow_accounts.get_senders();
+            myself_clone
+                .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(senders))
+                .unwrap_or_else(|e| {
+                    tracing::error!("Error while updating sender_accounts: {:?}", e);
+                });
+            async {}
+        });
 
         let mut state = State {
             config,
             domain_separator,
             sender_ids: HashSet::new(),
             new_receipts_watcher_handle: None,
-            _eligible_allocations_senders_handle,
             pgpool,
-            indexer_allocations: allocations_rx,
+            indexer_allocations,
             escrow_accounts: escrow_accounts.clone(),
             escrow_subgraph,
             network_subgraph,
@@ -285,11 +307,18 @@ impl State {
         sender_allocation_id
     }
 
+    /// Helper function to create a [SenderAccount]
+    ///
+    /// It takes the current [SenderAccountsManager] cell to use it
+    /// as supervisor, sender address and a list of initial allocations
+    ///
+    /// In case there's an error creating it, deny so it
+    /// can no longer send queries
     async fn create_or_deny_sender(
         &self,
         supervisor: ActorCell,
         sender_id: Address,
-        allocation_ids: HashSet<Address>,
+        allocation_ids: HashSet<AllocationId>,
     ) {
         if let Err(e) = self
             .create_sender_account(supervisor, sender_id, allocation_ids)
@@ -304,11 +333,16 @@ impl State {
         }
     }
 
+    /// Helper function to create a [SenderAccount]
+    ///
+    /// It takes the current [SenderAccountsManager] cell to use it
+    /// as supervisor, sender address and a list of initial allocations
+    ///
     async fn create_sender_account(
         &self,
         supervisor: ActorCell,
         sender_id: Address,
-        allocation_ids: HashSet<Address>,
+        allocation_ids: HashSet<AllocationId>,
     ) -> anyhow::Result<()> {
         let Ok(args) = self.new_sender_account_args(&sender_id, allocation_ids) else {
             tracing::warn!(
@@ -336,16 +370,16 @@ impl State {
         Ok(())
     }
 
-    async fn get_pending_sender_allocation_id(&self) -> HashMap<Address, HashSet<Address>> {
-        // Gather all outstanding receipts and unfinalized RAVs from the database.
-        // Used to create SenderAccount instances for all senders that have unfinalized allocations
-        // and try to finalize them if they have become ineligible.
-
+    /// Gather all outstanding receipts and unfinalized RAVs from the database.
+    /// Used to create [SenderAccount] instances for all senders that have unfinalized allocations
+    /// and try to finalize them if they have become ineligible.
+    async fn get_pending_sender_allocation_id(&self) -> HashMap<Address, HashSet<AllocationId>> {
         // First we accumulate all allocations for each sender. This is because we may have more
         // than one signer per sender in DB.
-        let mut unfinalized_sender_allocations_map: HashMap<Address, HashSet<Address>> =
+        let mut unfinalized_sender_allocations_map: HashMap<Address, HashSet<AllocationId>> =
             HashMap::new();
 
+        // Legacy Allocations
         let receipts_signer_allocations_in_db = sqlx::query!(
             r#"
                 WITH grouped AS (
@@ -376,10 +410,12 @@ impl State {
                 .expect("all receipts should have an allocation_id")
                 .iter()
                 .map(|allocation_id| {
-                    Address::from_str(allocation_id)
-                        .expect("allocation_id should be a valid address")
+                    AllocationId::Legacy(
+                        Address::from_str(allocation_id)
+                            .expect("allocation_id should be a valid address"),
+                    )
                 })
-                .collect::<HashSet<Address>>();
+                .collect::<HashSet<_>>();
             let signer_id = Address::from_str(&row.signer_address)
                 .expect("signer_address should be a valid address");
             let sender_id = self
@@ -421,10 +457,12 @@ impl State {
                 .expect("all RAVs should have an allocation_id")
                 .iter()
                 .map(|allocation_id| {
-                    Address::from_str(allocation_id)
-                        .expect("allocation_id should be a valid address")
+                    AllocationId::Legacy(
+                        Address::from_str(allocation_id)
+                            .expect("allocation_id should be a valid address"),
+                    )
                 })
-                .collect::<HashSet<Address>>();
+                .collect::<HashSet<_>>();
             let sender_id = Address::from_str(&row.sender_address)
                 .expect("sender_address should be a valid address");
 
@@ -434,12 +472,20 @@ impl State {
                 .or_default()
                 .extend(allocation_ids);
         }
+
+        // TODO Load horizon allocations
+
         unfinalized_sender_allocations_map
     }
+
+    /// Helper function to create [SenderAccountArgs]
+    ///
+    /// Fails if the provided sender_id is not present
+    /// in the sender_aggregator_endpoints map
     fn new_sender_account_args(
         &self,
         sender_id: &Address,
-        allocation_ids: HashSet<Address>,
+        allocation_ids: HashSet<AllocationId>,
     ) -> anyhow::Result<SenderAccountArgs> {
         Ok(SenderAccountArgs {
             config: self.config,
@@ -515,6 +561,16 @@ async fn new_receipts_watcher(
     tracing::error!("Manager killed");
 }
 
+/// Handles a new detected [NewReceiptNotification] and routes to proper
+/// reference of [super::sender_allocation::SenderAllocation]
+///
+/// If the allocation doesn't exist yet, we trust that the whoever has
+/// access to the database already verified that the allocation really
+/// exists and we ask for the sender to create a new allocation.
+///
+/// After a request to create allocation, we don't need to do anything
+/// since the startup script is going to recalculate the receipt in the
+/// database
 async fn handle_notification(
     new_receipt_notification: NewReceiptNotification,
     escrow_accounts_rx: Receiver<EscrowAccounts>,
@@ -569,7 +625,9 @@ async fn handle_notification(
             );
         };
         sender_account
-            .cast(SenderAccountMessage::NewAllocationId(*allocation_id))
+            .cast(SenderAccountMessage::NewAllocationId(AllocationId::Legacy(
+                *allocation_id,
+            )))
             .map_err(|e| {
                 anyhow!(
                     "Error while sendeing new allocation id message to sender_account: {:?}",
@@ -616,7 +674,7 @@ mod tests {
     use crate::{
         agent::{
             sender_account::{tests::PREFIX_ID, SenderAccountMessage},
-            sender_accounts_manager::{handle_notification, NewReceiptNotification},
+            sender_accounts_manager::{handle_notification, AllocationId, NewReceiptNotification},
         },
         test::{
             actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor},
@@ -662,7 +720,6 @@ mod tests {
                 domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
                 sender_ids: HashSet::new(),
                 new_receipts_watcher_handle: None,
-                _eligible_allocations_senders_handle: tokio::spawn(async move {}),
                 pgpool,
                 indexer_allocations: watch::channel(HashSet::new()).1,
                 escrow_accounts: watch::channel(escrow_accounts).1,
@@ -914,7 +971,7 @@ mod tests {
 
         assert_eq!(
             rx.recv().await.unwrap(),
-            SenderAccountMessage::NewAllocationId(ALLOCATION_ID_0)
+            SenderAccountMessage::NewAllocationId(AllocationId::Legacy(ALLOCATION_ID_0))
         );
         sender_account.stop_and_wait(None, None).await.unwrap();
         join_handle.await.unwrap();

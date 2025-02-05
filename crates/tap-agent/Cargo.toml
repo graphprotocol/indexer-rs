@@ -39,7 +39,6 @@ tracing-subscriber.workspace = true
 tonic.workspace = true
 bigdecimal = { workspace = true, features = ["serde"] }
 graphql_client.workspace = true
-
 ruint = { version = "1.12.3", features = [
     "num-traits",
 ], default-features = false }
