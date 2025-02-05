@@ -262,10 +262,6 @@ pub struct State {
     invalid_receipts_tracker: SimpleFeeTracker,
     /// Set containing current active allocations
     allocation_ids: HashSet<AllocationId>,
-    /// Keeps a reference of the handle for indexer_allocation pipe
-    _indexer_allocations_handle: JoinHandle<()>,
-    /// Keeps a reference of the handle for escrow_account pipe
-    _escrow_account_monitor: JoinHandle<()>,
     /// Scheduler used to send a retry message in case sender is denied
     ///
     /// If scheduler is set, it's canceled in the first [SenderAccountMessage::UpdateReceiptFees]
@@ -663,7 +659,7 @@ impl Actor for SenderAccount {
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
-        let _indexer_allocations_handle = watch_pipe(indexer_allocations, move |allocation_ids| {
+        watch_pipe(indexer_allocations, move |allocation_ids| {
             let allocation_ids = allocation_ids.clone();
             // Update the allocation_ids
             myself_clone
@@ -677,7 +673,7 @@ impl Actor for SenderAccount {
         let myself_clone = myself.clone();
         let pgpool_clone = pgpool.clone();
         let accounts_clone = escrow_accounts.clone();
-        let _escrow_account_monitor = watch_pipe(accounts_clone, move |escrow_account| {
+        watch_pipe(accounts_clone, move |escrow_account| {
             let myself = myself_clone.clone();
             let pgpool = pgpool_clone.clone();
             // Get balance or default value for sender
@@ -816,8 +812,6 @@ impl Actor for SenderAccount {
             rav_tracker: SimpleFeeTracker::default(),
             invalid_receipts_tracker: SimpleFeeTracker::default(),
             allocation_ids: allocation_ids.clone(),
-            _indexer_allocations_handle,
-            _escrow_account_monitor,
             scheduled_rav_request: None,
             sender: sender_id,
             denied,

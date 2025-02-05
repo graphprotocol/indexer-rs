@@ -14,9 +14,7 @@ use indexer_allocation::Allocation;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use indexer_watcher::{map_watcher, watch_pipe};
 use prometheus::{register_counter_vec, CounterVec};
-use ractor::{
-    concurrency::JoinHandle, Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
-};
+use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use reqwest::Url;
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
@@ -96,7 +94,6 @@ pub struct SenderAccountsManagerArgs {
 pub struct State {
     sender_ids: HashSet<Address>,
     new_receipts_watcher_handle: Option<tokio::task::JoinHandle<()>>,
-    _eligible_allocations_senders_handle: JoinHandle<()>,
 
     config: &'static SenderAccountConfig,
     domain_separator: Eip712Domain,
@@ -144,23 +141,21 @@ impl Actor for SenderAccountsManager {
         let pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
         let myself_clone = myself.clone();
         let accounts_clone = escrow_accounts.clone();
-        let _eligible_allocations_senders_handle =
-            watch_pipe(accounts_clone, move |escrow_accounts| {
-                let senders = escrow_accounts.get_senders();
-                myself_clone
-                    .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(senders))
-                    .unwrap_or_else(|e| {
-                        tracing::error!("Error while updating sender_accounts: {:?}", e);
-                    });
-                async {}
-            });
+        watch_pipe(accounts_clone, move |escrow_accounts| {
+            let senders = escrow_accounts.get_senders();
+            myself_clone
+                .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(senders))
+                .unwrap_or_else(|e| {
+                    tracing::error!("Error while updating sender_accounts: {:?}", e);
+                });
+            async {}
+        });
 
         let mut state = State {
             config,
             domain_separator,
             sender_ids: HashSet::new(),
             new_receipts_watcher_handle: None,
-            _eligible_allocations_senders_handle,
             pgpool,
             indexer_allocations,
             escrow_accounts: escrow_accounts.clone(),
@@ -725,7 +720,6 @@ mod tests {
                 domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
                 sender_ids: HashSet::new(),
                 new_receipts_watcher_handle: None,
-                _eligible_allocations_senders_handle: tokio::spawn(async move {}),
                 pgpool,
                 indexer_allocations: watch::channel(HashSet::new()).1,
                 escrow_accounts: watch::channel(escrow_accounts).1,
