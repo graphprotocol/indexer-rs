@@ -1,6 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(missing_docs)] // Warns if any public item lacks documentation
+
 use indexer_config::Config;
 use lazy_static::lazy_static;
 use tap_core::tap_eip712_domain;
