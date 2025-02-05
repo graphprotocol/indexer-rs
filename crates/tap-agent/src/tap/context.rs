@@ -58,20 +58,20 @@ pub trait NetworkVersion: Send + Sync + 'static {
 
 /// 0-sized marker for legacy network
 ///
-/// By using an enum with no variants, we prevent any instanciation
+/// By using an enum with no variants, we prevent any instantiation
 /// of the network. It also has zero size at runtime and is used only
 /// as a compile-time marker
 ///
-/// A simple `struct Legacy;` would be able to instanciate and pass as
+/// A simple `struct Legacy;` would be able to instantiate and pass as
 /// value, while having size 1.
 pub enum Legacy {}
 /// 0-sized marker for horizon network
 ///
-/// By using an enum with no variants, we prevent any instanciation
+/// By using an enum with no variants, we prevent any instantiation
 /// of the network. It also has zero size at runtime and is used only
 /// as a compile-time marker
 ///
-/// A simple `struct Legacy;` would be able to instanciate and pass as
+/// A simple `struct Legacy;` would be able to instantiate and pass as
 /// value, while having size 1.
 pub enum Horizon {}
 
