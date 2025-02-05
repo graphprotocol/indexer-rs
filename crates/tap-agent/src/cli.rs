@@ -1,6 +1,9 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! # Cli
+//! Simple [clap] implementation of our Cli.
+
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -11,6 +14,7 @@ use tracing::{
 };
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
+/// A [clap::Parser] that contains the path to the configuration
 #[derive(Parser)]
 #[command(version)]
 pub struct Cli {
@@ -38,6 +42,7 @@ fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
     }
 }
 
+/// Helper function that parses the Cli and uses the provided arguments to return a [IndexerConfig]
 pub fn get_config() -> anyhow::Result<IndexerConfig> {
     let cli = Cli::parse();
     let config = IndexerConfig::parse(ConfigPrefix::Tap, cli.config.as_ref()).map_err(|e| {
