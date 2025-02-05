@@ -103,7 +103,9 @@ type Balance = U256;
 /// Information for Ravs that are abstracted away from the SignedRav itself
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct RavInformation {
+    /// Allocation Id of a Rav
     pub allocation_id: Address,
+    /// Value Aggregate of a Rav
     pub value_aggregate: u128,
 }
 
@@ -160,7 +162,7 @@ pub enum ReceiptFees {
     Retry,
 }
 
-/// Enum containing all types of messages that a SenderAccount can receive
+/// Enum containing all types of messages that a [SenderAccount] can receive
 #[derive(Debug)]
 pub enum SenderAccountMessage {
     /// Updates the sender balance and
@@ -205,6 +207,7 @@ pub struct SenderAccount;
 
 /// Arguments received in startup while spawing [SenderAccount] actor
 pub struct SenderAccountArgs {
+    /// Configuration derived from config.toml
     pub config: &'static SenderAccountConfig,
 
     /// Connection to database
@@ -318,20 +321,32 @@ pub struct State {
     config: &'static SenderAccountConfig,
 }
 
+/// Configuration derived from config.toml
 pub struct SenderAccountConfig {
+    /// Buffer used for the receipts
     pub rav_request_buffer: Duration,
+    /// Maximum amount is willing to lose
     pub max_amount_willing_to_lose_grt: u128,
+    /// What value triggers a new Rav request
     pub trigger_value: u128,
 
     // allocation config
+    /// Timeout config for rav requests
     pub rav_request_timeout: Duration,
+    /// Limit of receipts sent in a Rav Request
     pub rav_request_receipt_limit: u64,
+    /// Current indexer address
     pub indexer_address: Address,
+    /// Polling interval for escrow subgraph
     pub escrow_polling_interval: Duration,
+    /// Timeout used while creating [SenderAccount]
+    ///
+    /// This is reached if the database is too slow
     pub tap_sender_timeout: Duration,
 }
 
 impl SenderAccountConfig {
+    /// Creates a [SenderAccountConfig] by getting a reference of [indexer_config::Config]
     pub fn from_config(config: &indexer_config::Config) -> Self {
         Self {
             rav_request_buffer: config.tap.rav_request.timestamp_buffer_secs,
@@ -1232,6 +1247,7 @@ impl Actor for SenderAccount {
 }
 
 impl SenderAccount {
+    /// Deny sender by giving `sender` [Address]
     pub async fn deny_sender(pool: &PgPool, sender: Address) {
         sqlx::query!(
             r#"
@@ -1248,6 +1264,7 @@ impl SenderAccount {
 
 #[cfg(test)]
 pub mod tests {
+    #![allow(missing_docs)]
     use std::{
         collections::{HashMap, HashSet},
         sync::atomic::AtomicU32,
@@ -1326,6 +1343,7 @@ pub mod tests {
         }
     }
 
+    /// Prefix shared between tests so we don't have conflicts in the global registry
     pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
     const ESCROW_VALUE: u128 = 1000;
     const BUFFER_DURATION: Duration = Duration::from_millis(100);

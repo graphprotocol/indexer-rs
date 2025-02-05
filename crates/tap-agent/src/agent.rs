@@ -1,6 +1,39 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! # agent
+//! The agent is a set of 3 actors:
+//! - [sender_accounts_manager::SenderAccountsManager]
+//! - [sender_account::SenderAccount]
+//! - [sender_allocation::SenderAllocation]
+//!
+//! They run under a supervision tree and it goes like the following:
+//!
+//! [sender_accounts_manager::SenderAccountsManager] monitors allocations provided
+//! by the subgraph via a [Watcher](::indexer_watcher). Every time it detects a
+//! new escrow account created, it automatically spawns a [sender_account::SenderAccount].
+//!
+//! Manager is also responsible for spawning an pgnotify task that monitors new receipts.
+//!
+//! [sender_account::SenderAccount] is then responsible for keeping track of all fees
+//! distributed across different allocations and also spawning [sender_allocation::SenderAllocation]s
+//! that are going to process receipts and RAV requests.
+//!
+//! [sender_allocation::SenderAllocation] receives notifications from the spawned task and then
+//! it updates its state an notifies its parent actor.
+//!
+//! Once [sender_account::SenderAccount] gets enought receipts, it uses its tracker to decide
+//! what is the allocation with the most amount of fees and send a message to trigger a RavRequest.
+//!
+//! When the allocation is closed by the indexer, [sender_allocation::SenderAllocation] is
+//! responsible for triggering the last rav, that will flush all pending receipts and mark the rav
+//! as last to be redeemed by indexer-agent.
+//!
+//! ## Actors
+//! Actors are implemented using the [ractor] library and contain their own message queue.
+//! They process one message at a time and that's why concurrent primitives like
+//! [std::sync::Mutex]s aren't needed.
+
 use indexer_config::{
     Config, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
     SubgraphConfig, SubgraphsConfig, TapConfig,
@@ -15,11 +48,19 @@ use crate::{
     database, CONFIG, EIP_712_DOMAIN,
 };
 
+/// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_account::SenderAccount]
 pub mod sender_account;
+/// Actor, Arguments, State, Messages and implementation for
+/// [crate::agent::sender_accounts_manager::SenderAccountsManager]
 pub mod sender_accounts_manager;
+/// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_allocation::SenderAllocation]
 pub mod sender_allocation;
+/// Unaggregated receipts containing total value and last id stored in the table
 pub mod unaggregated_receipts;
 
+/// This is the main entrypoint for starting up tap-agent
+///
+/// It uses the static [crate::CONFIG] to configure the agent.
 pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
     let Config {
         indexer: IndexerConfig {

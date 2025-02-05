@@ -35,15 +35,24 @@ lazy_static! {
     .unwrap();
 }
 
+/// Notification received by pgnotify
+///
+/// This contains a list of properties that are sent by postgres when a receipt is inserted
 #[derive(Deserialize, Debug, PartialEq, Eq)]
 pub struct NewReceiptNotification {
+    /// id inside the table
     pub id: u64,
+    /// address of the allocation
     pub allocation_id: Address,
+    /// address of wallet that signed this receipt
     pub signer_address: Address,
+    /// timestamp of the receipt
     pub timestamp_ns: u64,
+    /// value of the receipt
     pub value: u128,
 }
 
+/// Manager Actor
 pub struct SenderAccountsManager;
 
 /// Wrapped AllocationId Address with two possible variants
@@ -53,7 +62,9 @@ pub struct SenderAccountsManager;
 /// Rav and Receipt types
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AllocationId {
+    /// Legacy allocation
     Legacy(Address),
+    /// New Subgraph DataService allocation
     Horizon(Address),
 }
 
@@ -72,25 +83,42 @@ impl Display for AllocationId {
     }
 }
 
+/// Enum containing all types of messages that a [SenderAccountsManager] can receive
 #[derive(Debug)]
 pub enum SenderAccountsManagerMessage {
+    /// Spawn and Stop [SenderAccount]s that were added or removed
+    /// in comparision with it current state and updates the state
     UpdateSenderAccounts(HashSet<Address>),
 }
 
+/// Arguments received in startup while spawing [SenderAccount] actor
 pub struct SenderAccountsManagerArgs {
+    /// Config forwarded to [SenderAccount]
     pub config: &'static SenderAccountConfig,
+    /// Domain separator used for tap
     pub domain_separator: Eip712Domain,
 
+    /// Database connection
     pub pgpool: PgPool,
+    /// Watcher that returns a map of open and recently closed allocation ids
     pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
+    /// Watcher containing the escrow accounts
     pub escrow_accounts: Receiver<EscrowAccounts>,
+    /// SubgraphClient of the escrow subgraph
     pub escrow_subgraph: &'static SubgraphClient,
+    /// SubgraphClient of the network subgraph
     pub network_subgraph: &'static SubgraphClient,
+    /// Map containing all endpoints for senders provided in the config
     pub sender_aggregator_endpoints: HashMap<Address, Url>,
 
+    /// Prefix used to bypass limitations of global actor registry (used for tests)
     pub prefix: Option<String>,
 }
 
+/// State for [SenderAccountsManager] actor
+///
+/// This is a separate instance that makes it easier to have mutable
+/// reference, for more information check ractor library
 pub struct State {
     sender_ids: HashSet<Address>,
     new_receipts_watcher_handle: Option<tokio::task::JoinHandle<()>>,
