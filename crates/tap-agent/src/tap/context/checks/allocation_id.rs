@@ -13,12 +13,16 @@ use tokio::sync::watch::Receiver;
 
 use crate::tap::{CheckingReceipt, TapReceipt};
 
+/// AllocationId check
+///
+/// Verifies if the allocation is already redeemed.
 pub struct AllocationId {
     tap_allocation_redeemed: Receiver<bool>,
     allocation_id: Address,
 }
 
 impl AllocationId {
+    /// Creates a new allocation id check
     pub async fn new(
         indexer_address: Address,
         escrow_polling_interval: Duration,

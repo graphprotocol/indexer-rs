@@ -1,6 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(missing_docs)]
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,

@@ -77,21 +77,27 @@ lazy_static! {
 /// This is used to give better error messages to users so they have a better understanding
 #[derive(Error, Debug)]
 pub enum RavError {
+    /// Database Errors
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
 
+    /// Tap Core lib errors
     #[error(transparent)]
     TapCore(#[from] tap_core::Error),
 
+    /// Errors while aggregating
     #[error(transparent)]
     AggregationError(#[from] AggregationError),
 
+    /// Errors with gRPC client
     #[error(transparent)]
     Grpc(#[from] tonic::Status),
 
+    /// All receipts are invalid
     #[error("All receipts are invalid")]
     AllReceiptsInvalid,
 
+    /// Other kind of error
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -151,15 +157,21 @@ pub struct SenderAllocationState<T: NetworkVersion> {
     rav_request_receipt_limit: u64,
 }
 
+/// Configuration derived from config.toml
 #[derive(Clone)]
 pub struct AllocationConfig {
+    /// Buffer used for the receipts
     pub timestamp_buffer_ns: u64,
+    /// Limit of receipts sent in a Rav Request
     pub rav_request_receipt_limit: u64,
+    /// Current indexer address
     pub indexer_address: Address,
+    /// Polling interval for escrow subgraph
     pub escrow_polling_interval: Duration,
 }
 
 impl AllocationConfig {
+    /// Creates a [SenderAccountConfig] by getting a reference of [super::sender_account::SenderAccountConfig]
     pub fn from_sender_config(config: &SenderAccountConfig) -> Self {
         Self {
             timestamp_buffer_ns: config.rav_request_buffer.as_nanos() as u64,
@@ -199,11 +211,18 @@ pub struct SenderAllocationArgs<T: NetworkVersion> {
     pub config: AllocationConfig,
 }
 
+/// Enum containing all types of messages that a [SenderAllocation] can receive
 #[derive(Debug)]
 pub enum SenderAllocationMessage {
+    /// New receipt message, sent by the task spawned by
+    /// [super::sender_accounts_manager::SenderAccountsManager]
     NewReceipt(NewReceiptNotification),
+    /// Triggers a Rav Request for the current allocation
+    ///
+    /// It notifies its parent with the response
     TriggerRavRequest,
     #[cfg(any(test, feature = "test"))]
+    /// Return the internal state (used for tests)
     GetUnaggregatedReceipts(ractor::RpcReplyPort<UnaggregatedReceipts>),
 }
 
@@ -756,6 +775,7 @@ where
         }
     }
 
+    /// Sends a database query and mark the allocation rav as last
     pub async fn mark_rav_last(&self) -> anyhow::Result<()> {
         tracing::info!(
             sender = %self.sender,
@@ -932,6 +952,7 @@ where
 
 #[cfg(test)]
 pub mod tests {
+    #![allow(missing_docs)]
     use std::{
         collections::HashMap,
         future::Future,

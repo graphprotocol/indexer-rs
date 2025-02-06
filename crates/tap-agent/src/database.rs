@@ -5,6 +5,9 @@ use std::time::Duration;
 
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
+/// Uses `config` to connect to a postgres and returns a [PgPool] instance.
+///
+/// This function panics if it wasn't possible to connect to the Db.
 pub async fn connect(config: indexer_config::DatabaseConfig) -> PgPool {
     let url = &config.get_formated_postgres_url();
     tracing::debug!(

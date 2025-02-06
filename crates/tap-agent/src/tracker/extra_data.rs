@@ -3,15 +3,19 @@
 
 use std::time::Duration;
 
+/// Default values for a given extra data E
 pub trait DefaultFromExtra<E> {
+    /// Generates a new default Self given some extra data
     fn default_from_extra(extra: &E) -> Self;
 }
 
+/// Buffer information
 #[derive(Debug, Clone)]
 pub struct DurationInfo {
     pub(super) buffer_duration: Duration,
 }
 
+/// No Extra Data struct
 #[derive(Debug, Clone, Default)]
 pub struct NoExtraData;
 
