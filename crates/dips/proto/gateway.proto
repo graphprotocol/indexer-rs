@@ -12,12 +12,12 @@ service DipsService {
   rpc CancelAgreement(CancelAgreementRequest) returns (CancelAgreementResponse);
 
   /**
-   * Report the progress of an _indexing agreement_.
+   * Collect payment for an _indexing agreement_.
    *
    * This method allows the indexer to report the work completed to the DIPs gateway
    * and receive payment for the indexing work done.
    */
-  rpc ReportProgress(ReportProgressRequest) returns (ReportProgressResponse);
+  rpc CollectPayment(CollectPaymentRequest) returns (CollectPaymentResponse);
 }
 
 
@@ -27,10 +27,8 @@ service DipsService {
  * See the `DipsService.CancelAgreement` method.
  */
 message CancelAgreementRequest {
-  bytes agreement_id = 1;  /// The ID of the agreement to cancel.
-  reserved 2 to 20;        /// Reserved for future use.
-
-  bytes signature = 99; /// The signature of the message.
+  uint64 version = 1;
+  bytes signed_cancellation = 2;  /// a signed ERC-712 message cancelling an agreement
 }
 
 /**
@@ -39,28 +37,37 @@ message CancelAgreementRequest {
  * See the `DipsService.CancelAgreement` method.
  */
 message CancelAgreementResponse {
-  // Empty message
+  /// Empty response, eventually we may add custom status codes
 }
 
-
 /**
- * A request to report the progress of an _indexing agreement_.
+ * A request to collect payment _indexing agreement_.
   *
-  * See the `DipsService.ReportProgress` method.
+  * See the `DipsService.CollectPayment` method.
  */
-message ReportProgressRequest {
-  bytes agreement_id = 1;  /// The ID of the agreement to report progress for.
-  // TODO(LNSD): Add fields to the message
-
-  bytes signature = 99; /// The signature of the message.
+message CollectPaymentRequest {
+  uint64 version = 1;
+  bytes signed_collection = 2; 
 }
 
 /**
- * A response to a request to report the progress of an _indexing agreement_.
+ * A response to a request to collect payment for an _indexing agreement_.
  *
- * See the `DipsService.ReportProgress` method.
+ * See the `DipsService.CollectAgreement` method.
  */
-message ReportProgressResponse {
-  // TODO(LNSD): Add fields to the message
+message CollectPaymentResponse {
+  uint64 version = 1;
+  CollectPaymentStatus status = 2;
+  bytes tap_receipt = 3;
 }
 
+/**
+ * The status on response to collect an _indexing agreement_.
+ */
+enum CollectPaymentStatus {
+  ACCEPT = 0; /// The payment request was accepted.
+  ERR_TOO_EARLY = 1; /// The payment request was done before min epochs passed
+  ERR_TOO_LATE = 2; /// The payment request was done after max epochs passed
+  ERR_AMOUNT_OUT_OF_BOUNDS = 3; /// The payment request is for too large an amount
+  ERR_UNKNOWN = 99; /// Something else went terribly wrong
+}

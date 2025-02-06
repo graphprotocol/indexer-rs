@@ -11,3 +11,8 @@ indexer.toml
 .vscode/
 # migrations/
 .helix
+
+# Node.js related files
+crates/dips/node_modules/
+crates/dips/generated/
+crates/dips/npm-debug.log*

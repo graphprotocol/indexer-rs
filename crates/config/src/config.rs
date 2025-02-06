@@ -390,7 +390,6 @@ pub struct DipsConfig {
     pub host: String,
     pub port: String,
     pub allowed_payers: Vec<Address>,
-    pub cancellation_time_tolerance: Option<Duration>,
 }
 
 impl Default for DipsConfig {
@@ -399,7 +398,6 @@ impl Default for DipsConfig {
             host: "0.0.0.0".to_string(),
             port: "7601".to_string(),
             allowed_payers: vec![],
-            cancellation_time_tolerance: None,
         }
     }
 }
