@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use core::time;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
@@ -128,7 +127,6 @@ pub async fn run() -> anyhow::Result<()> {
             host,
             port,
             allowed_payers,
-            cancellation_time_tolerance,
         } = dips;
 
         let addr = format!("{}:{}", host, port)
@@ -140,8 +138,6 @@ pub async fn run() -> anyhow::Result<()> {
             expected_payee: indexer_address,
             allowed_payers: allowed_payers.clone(),
             domain: domain_separator,
-            cancel_voucher_time_tolerance: cancellation_time_tolerance
-                .unwrap_or(time::Duration::from_secs(60 * 5)),
         };
 
         info!("starting dips grpc server on {}", addr);

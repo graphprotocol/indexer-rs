@@ -5,42 +5,86 @@
 /// See the `DipsService.CancelAgreement` method.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CancelAgreementRequest {
-    /// / The ID of the agreement to cancel.
-    #[prost(bytes = "vec", tag = "1")]
-    pub agreement_id: ::prost::alloc::vec::Vec<u8>,
-    /// / The signature of the message.
-    #[prost(bytes = "vec", tag = "99")]
-    pub signature: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint64, tag = "1")]
+    pub version: u64,
+    /// / a signed ERC-712 message cancelling an agreement
+    #[prost(bytes = "vec", tag = "2")]
+    pub signed_cancellation: ::prost::alloc::vec::Vec<u8>,
 }
 /// *
 /// A response to a request to cancel an _indexing agreement_.
 ///
 /// See the `DipsService.CancelAgreement` method.
 ///
-/// Empty message
+/// / Empty response, eventually we may add custom status codes
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct CancelAgreementResponse {}
 /// *
-/// A request to report the progress of an _indexing agreement_.
+/// A request to collect payment _indexing agreement_.
 ///
-/// See the `DipsService.ReportProgress` method.
+/// See the `DipsService.CollectPayment` method.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ReportProgressRequest {
-    /// / The ID of the agreement to report progress for.
-    #[prost(bytes = "vec", tag = "1")]
-    pub agreement_id: ::prost::alloc::vec::Vec<u8>,
-    /// / The signature of the message.
-    #[prost(bytes = "vec", tag = "99")]
-    pub signature: ::prost::alloc::vec::Vec<u8>,
+pub struct CollectPaymentRequest {
+    #[prost(uint64, tag = "1")]
+    pub version: u64,
+    #[prost(bytes = "vec", tag = "2")]
+    pub signed_collection: ::prost::alloc::vec::Vec<u8>,
 }
 /// *
-/// A response to a request to report the progress of an _indexing agreement_.
+/// A response to a request to collect payment for an _indexing agreement_.
 ///
-/// See the `DipsService.ReportProgress` method.
-///
-/// TODO(LNSD): Add fields to the message
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct ReportProgressResponse {}
+/// See the `DipsService.CollectAgreement` method.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CollectPaymentResponse {
+    #[prost(uint64, tag = "1")]
+    pub version: u64,
+    #[prost(enumeration = "CollectPaymentStatus", tag = "2")]
+    pub status: i32,
+    #[prost(bytes = "vec", tag = "3")]
+    pub tap_receipt: ::prost::alloc::vec::Vec<u8>,
+}
+/// *
+/// The status on response to collect an _indexing agreement_.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum CollectPaymentStatus {
+    /// / The payment request was accepted.
+    Accept = 0,
+    /// / The payment request was done before min epochs passed
+    ErrTooEarly = 1,
+    /// / The payment request was done after max epochs passed
+    ErrTooLate = 2,
+    /// / The payment request is for too large an amount
+    ErrAmountOutOfBounds = 3,
+    /// / Something else went terribly wrong
+    ErrUnknown = 99,
+}
+impl CollectPaymentStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Accept => "ACCEPT",
+            Self::ErrTooEarly => "ERR_TOO_EARLY",
+            Self::ErrTooLate => "ERR_TOO_LATE",
+            Self::ErrAmountOutOfBounds => "ERR_AMOUNT_OUT_OF_BOUNDS",
+            Self::ErrUnknown => "ERR_UNKNOWN",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ACCEPT" => Some(Self::Accept),
+            "ERR_TOO_EARLY" => Some(Self::ErrTooEarly),
+            "ERR_TOO_LATE" => Some(Self::ErrTooLate),
+            "ERR_AMOUNT_OUT_OF_BOUNDS" => Some(Self::ErrAmountOutOfBounds),
+            "ERR_UNKNOWN" => Some(Self::ErrUnknown),
+            _ => None,
+        }
+    }
+}
 /// Generated client implementations.
 pub mod dips_service_client {
     #![allow(
@@ -167,15 +211,15 @@ pub mod dips_service_client {
             self.inner.unary(req, path, codec).await
         }
         /// *
-        /// Report the progress of an _indexing agreement_.
+        /// Collect payment for an _indexing agreement_.
         ///
         /// This method allows the indexer to report the work completed to the DIPs gateway
         /// and receive payment for the indexing work done.
-        pub async fn report_progress(
+        pub async fn collect_payment(
             &mut self,
-            request: impl tonic::IntoRequest<super::ReportProgressRequest>,
+            request: impl tonic::IntoRequest<super::CollectPaymentRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ReportProgressResponse>,
+            tonic::Response<super::CollectPaymentResponse>,
             tonic::Status,
         > {
             self.inner
@@ -188,14 +232,14 @@ pub mod dips_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/graphprotocol.gateway.dips.DipsService/ReportProgress",
+                "/graphprotocol.gateway.dips.DipsService/CollectPayment",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "graphprotocol.gateway.dips.DipsService",
-                        "ReportProgress",
+                        "CollectPayment",
                     ),
                 );
             self.inner.unary(req, path, codec).await
