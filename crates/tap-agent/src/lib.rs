@@ -4,10 +4,11 @@
 #![warn(missing_docs)] // Warns if any public item lacks documentation
 
 //! # Tap-Agent
+//!
 //! This software is used to monitor receipts inserted in the database
 //! and to keep track of all the values across different allocations.
 //!
-//! It's main goal is that the value never goes below the balance available
+//! Its main goal is that the value never goes below the balance available
 //! in the escrow account for a given sender.
 
 use indexer_config::Config;

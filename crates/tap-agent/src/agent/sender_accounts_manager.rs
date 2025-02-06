@@ -87,7 +87,7 @@ impl Display for AllocationId {
 #[derive(Debug)]
 pub enum SenderAccountsManagerMessage {
     /// Spawn and Stop [SenderAccount]s that were added or removed
-    /// in comparision with it current state and updates the state
+    /// in comparison with it current state and updates the state
     UpdateSenderAccounts(HashSet<Address>),
 }
 

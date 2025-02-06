@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! # agent
+//!
 //! The agent is a set of 3 actors:
 //! - [sender_accounts_manager::SenderAccountsManager]
 //! - [sender_account::SenderAccount]
@@ -22,7 +23,7 @@
 //! [sender_allocation::SenderAllocation] receives notifications from the spawned task and then
 //! it updates its state an notifies its parent actor.
 //!
-//! Once [sender_account::SenderAccount] gets enought receipts, it uses its tracker to decide
+//! Once [sender_account::SenderAccount] gets enough receipts, it uses its tracker to decide
 //! what is the allocation with the most amount of fees and send a message to trigger a RavRequest.
 //!
 //! When the allocation is closed by the indexer, [sender_allocation::SenderAllocation] is

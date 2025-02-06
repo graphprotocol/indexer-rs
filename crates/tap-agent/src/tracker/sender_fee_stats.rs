@@ -16,8 +16,8 @@ pub struct SenderFeeStats {
     pub(super) total_fee: u128,
     /// counter of receipts
     pub(super) count: u64,
-    /// there are some allocations that we don't want it to be
-    /// heaviest allocation, because they are already marked for finalization,
+    /// there are some allocations that we don't want to be the
+    /// heaviest allocation. This is because they are already marked for finalization,
     /// and thus requesting RAVs on their own in their `post_stop` routine.
     pub(super) blocked: bool,
     /// amount of fees that are currently being requested

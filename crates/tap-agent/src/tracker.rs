@@ -57,6 +57,6 @@ pub trait AllocationStats<U> {
     ///
     /// Pending fees are usually fees that not eligible to trigger a RAV,
     /// for example, you don't want to trigger a Rav Request if your only allocation is currently
-    /// requesting, so this should return a value that don't contains that allocation
+    /// requesting, so this should return a value that doesn't contain that allocation
     fn get_valid_fee(&mut self) -> u128;
 }

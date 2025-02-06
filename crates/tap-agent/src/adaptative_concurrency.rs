@@ -2,25 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! # Adaptative concurrency
-//! This module provide [AdaptiveLimiter] as a tool to allow concurrency.
-//! It's implemented with a Additive increase, Multiplicative decrease
+//! This module provides [AdaptiveLimiter] as a tool to allow concurrency.
+//! It's implemented with an Additive increase, Multiplicative decrease
 //! ([AIMD](https://en.wikipedia.org/wiki/Additive_increase/multiplicative_decrease))
 //! strategy.
 //!
 //!
 //!
 //! This allows us to have a big number of rav requests running
-//! concurrently, but in case of any of them fails, we limit
+//! concurrently, but if any of them fails we limit
 //! the following requests until the aggregator recovers.
 //!
 //! ## Behaviour
-//! On every request, the caller acquires a slot by calling [AdaptiveLimiter::acquire()],
-//! this will increment the number of in_flight connections.
+//! On every request, the caller acquires a slot by calling [AdaptiveLimiter::acquire()].
+//! This will increment the number of in_flight connections.
 //!
 //! If we receive a successful response, we increment our limit to be able to process
 //! one more request concurrently.
 //!
-//! If we receive a failed response, we decrement our limit by half so quickly
+//! If we receive a failed response, we decrement our limit by half to quickly
 //! relieve the pressure in the system.
 
 use std::ops::Range;
