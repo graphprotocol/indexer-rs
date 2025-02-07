@@ -4,7 +4,7 @@ members = [
     "crates/attestation",
     "crates/config",
     "crates/dips",
-    "crates/indexer-receipt",
+    "crates/indexer-receipt", 
     "crates/monitor",
     "crates/query",
     "crates/service",
@@ -82,6 +82,7 @@ prost = "0.13.4"
 prost-types = "0.13.3"
 dipper-rpc = { git = "https://github.com/edgeandnode/dipper/", rev = "c8700e2", default-features = false }
 tonic-build = "0.12.3"
+serde_yaml = "0.9.21"
 
 [patch.crates-io.tap_core]
 git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"

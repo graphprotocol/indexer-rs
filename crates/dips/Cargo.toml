@@ -15,6 +15,18 @@ prost-types.workspace = true
 uuid.workspace = true
 base64.workspace = true
 tokio.workspace = true
+futures = "0.3"
+
+http = "0.2"
+derivative = "2.2.0"
+ipfs-api-backend-hyper = {version = "0.6.0", features = ["with-send-sync"] }
+ipfs-api-prelude = {version = "0.6.0", features = ["with-send-sync"] }
+bytes = "1.10.0"
+serde_yaml.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+rand = "0.9.0"
 
 [build-dependencies]
 tonic-build = { workspace = true }

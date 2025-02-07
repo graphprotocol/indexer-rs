@@ -8,6 +8,8 @@ use axum::{extract::Request, serve, ServiceExt};
 use clap::Parser;
 use indexer_config::{Config, DipsConfig, GraphNodeConfig, SubgraphConfig};
 use indexer_dips::{
+    ipfs::{IpfsClient, IpfsFetcher},
+    price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::dips_service_server::{
         DipsService, DipsServiceServer,
     },
@@ -133,11 +135,16 @@ pub async fn run() -> anyhow::Result<()> {
             .parse()
             .expect("invalid dips host port");
 
+        let ipfs_fetcher: Arc<dyn IpfsFetcher> =
+            Arc::new(IpfsClient::new("https://api.thegraph.com/ipfs/").unwrap());
+
         let dips = DipsServer {
             agreement_store: Arc::new(PsqlAgreementStore { pool: database }),
             expected_payee: indexer_address,
             allowed_payers: allowed_payers.clone(),
             domain: domain_separator,
+            ipfs_fetcher,
+            price_calculator: PriceCalculator::default(),
         };
 
         info!("starting dips grpc server on {}", addr);
