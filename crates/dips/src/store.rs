@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use build_info::chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{
@@ -11,12 +12,19 @@ use crate::{
     SubgraphIndexingVoucherMetadata,
 };
 
+#[derive(Debug, Clone)]
+pub struct StoredIndexingAgreement {
+    pub voucher: SignedIndexingAgreementVoucher,
+    pub metadata: SubgraphIndexingVoucherMetadata,
+    pub cancelled: bool,
+    pub current_allocation_id: Option<String>,
+    pub last_allocation_id: Option<String>,
+    pub last_payment_collected_at: Option<DateTime<Utc>>,
+}
+
 #[async_trait]
 pub trait AgreementStore: Sync + Send + std::fmt::Debug {
-    async fn get_by_id(
-        &self,
-        id: Uuid,
-    ) -> Result<Option<(SignedIndexingAgreementVoucher, bool)>, DipsError>;
+    async fn get_by_id(&self, id: Uuid) -> Result<Option<StoredIndexingAgreement>, DipsError>;
     async fn create_agreement(
         &self,
         agreement: SignedIndexingAgreementVoucher,
@@ -30,15 +38,12 @@ pub trait AgreementStore: Sync + Send + std::fmt::Debug {
 
 #[derive(Default, Debug)]
 pub struct InMemoryAgreementStore {
-    pub data: tokio::sync::RwLock<HashMap<Uuid, (SignedIndexingAgreementVoucher, bool)>>,
+    pub data: tokio::sync::RwLock<HashMap<Uuid, StoredIndexingAgreement>>,
 }
 
 #[async_trait]
 impl AgreementStore for InMemoryAgreementStore {
-    async fn get_by_id(
-        &self,
-        id: Uuid,
-    ) -> Result<Option<(SignedIndexingAgreementVoucher, bool)>, DipsError> {
+    async fn get_by_id(&self, id: Uuid) -> Result<Option<StoredIndexingAgreement>, DipsError> {
         Ok(self
             .data
             .try_read()
@@ -49,15 +54,21 @@ impl AgreementStore for InMemoryAgreementStore {
     async fn create_agreement(
         &self,
         agreement: SignedIndexingAgreementVoucher,
-        _medatadata: SubgraphIndexingVoucherMetadata,
+        metadata: SubgraphIndexingVoucherMetadata,
     ) -> Result<(), DipsError> {
+        let id = Uuid::from_bytes(agreement.voucher.agreement_id.into());
+        let stored_agreement = StoredIndexingAgreement {
+            voucher: agreement,
+            metadata,
+            cancelled: false,
+            current_allocation_id: None,
+            last_allocation_id: None,
+            last_payment_collected_at: None,
+        };
         self.data
             .try_write()
             .map_err(|e| DipsError::UnknownError(e.into()))?
-            .insert(
-                Uuid::from_bytes(agreement.voucher.agreement_id.into()),
-                (agreement.clone(), false),
-            );
+            .insert(id, stored_agreement);
 
         Ok(())
     }
@@ -67,7 +78,7 @@ impl AgreementStore for InMemoryAgreementStore {
     ) -> Result<Uuid, DipsError> {
         let id = Uuid::from_bytes(signed_cancellation.request.agreement_id.into());
 
-        let agreement = {
+        let mut agreement = {
             let read_lock = self
                 .data
                 .try_read()
@@ -78,11 +89,17 @@ impl AgreementStore for InMemoryAgreementStore {
                 .ok_or(DipsError::AgreementNotFound)?
         };
 
+        if agreement.cancelled {
+            return Err(DipsError::AgreementCancelled);
+        }
+
+        agreement.cancelled = true;
+
         let mut write_lock = self
             .data
             .try_write()
             .map_err(|e| DipsError::UnknownError(e.into()))?;
-        write_lock.insert(id, (agreement.0, true));
+        write_lock.insert(id, agreement);
 
         Ok(id)
     }

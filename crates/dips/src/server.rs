@@ -11,8 +11,9 @@ use crate::{
     ipfs::IpfsFetcher,
     price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::{
-        dips_service_server::DipsService, CancelAgreementRequest, CancelAgreementResponse,
-        ProposalResponse, SubmitAgreementProposalRequest, SubmitAgreementProposalResponse,
+        indexer_dips_service_server::IndexerDipsService, CancelAgreementRequest,
+        CancelAgreementResponse, ProposalResponse, SubmitAgreementProposalRequest,
+        SubmitAgreementProposalResponse,
     },
     store::AgreementStore,
     validate_and_cancel_agreement, validate_and_create_agreement,
@@ -29,7 +30,7 @@ pub struct DipsServer {
 }
 
 #[async_trait]
-impl DipsService for DipsServer {
+impl IndexerDipsService for DipsServer {
     async fn submit_agreement_proposal(
         &self,
         request: Request<SubmitAgreementProposalRequest>,

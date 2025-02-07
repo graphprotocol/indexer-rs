@@ -86,7 +86,7 @@ impl CollectPaymentStatus {
     }
 }
 /// Generated client implementations.
-pub mod dips_service_client {
+pub mod dipper_service_client {
     #![allow(
         unused_variables,
         dead_code,
@@ -97,10 +97,10 @@ pub mod dips_service_client {
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
-    pub struct DipsServiceClient<T> {
+    pub struct DipperServiceClient<T> {
         inner: tonic::client::Grpc<T>,
     }
-    impl DipsServiceClient<tonic::transport::Channel> {
+    impl DipperServiceClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
@@ -111,7 +111,7 @@ pub mod dips_service_client {
             Ok(Self::new(conn))
         }
     }
-    impl<T> DipsServiceClient<T>
+    impl<T> DipperServiceClient<T>
     where
         T: tonic::client::GrpcService<tonic::body::BoxBody>,
         T::Error: Into<StdError>,
@@ -129,7 +129,7 @@ pub mod dips_service_client {
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
-        ) -> DipsServiceClient<InterceptedService<T, F>>
+        ) -> DipperServiceClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
@@ -143,7 +143,7 @@ pub mod dips_service_client {
                 http::Request<tonic::body::BoxBody>,
             >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
-            DipsServiceClient::new(InterceptedService::new(inner, interceptor))
+            DipperServiceClient::new(InterceptedService::new(inner, interceptor))
         }
         /// Compress requests with the given encoding.
         ///
@@ -198,13 +198,13 @@ pub mod dips_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/graphprotocol.gateway.dips.DipsService/CancelAgreement",
+                "/graphprotocol.gateway.dips.DipperService/CancelAgreement",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "graphprotocol.gateway.dips.DipsService",
+                        "graphprotocol.gateway.dips.DipperService",
                         "CancelAgreement",
                     ),
                 );
@@ -232,17 +232,260 @@ pub mod dips_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/graphprotocol.gateway.dips.DipsService/CollectPayment",
+                "/graphprotocol.gateway.dips.DipperService/CollectPayment",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "graphprotocol.gateway.dips.DipsService",
+                        "graphprotocol.gateway.dips.DipperService",
                         "CollectPayment",
                     ),
                 );
             self.inner.unary(req, path, codec).await
         }
+    }
+}
+/// Generated server implementations.
+pub mod dipper_service_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with DipperServiceServer.
+    #[async_trait]
+    pub trait DipperService: std::marker::Send + std::marker::Sync + 'static {
+        /// *
+        /// Cancel an _indexing agreement_.
+        ///
+        /// This method allows the indexer to notify the DIPs gateway that the agreement
+        /// should be canceled.
+        async fn cancel_agreement(
+            &self,
+            request: tonic::Request<super::CancelAgreementRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::CancelAgreementResponse>,
+            tonic::Status,
+        >;
+        /// *
+        /// Collect payment for an _indexing agreement_.
+        ///
+        /// This method allows the indexer to report the work completed to the DIPs gateway
+        /// and receive payment for the indexing work done.
+        async fn collect_payment(
+            &self,
+            request: tonic::Request<super::CollectPaymentRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::CollectPaymentResponse>,
+            tonic::Status,
+        >;
+    }
+    #[derive(Debug)]
+    pub struct DipperServiceServer<T> {
+        inner: Arc<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
+    }
+    impl<T> DipperServiceServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
+            }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for DipperServiceServer<T>
+    where
+        T: DipperService,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            match req.uri().path() {
+                "/graphprotocol.gateway.dips.DipperService/CancelAgreement" => {
+                    #[allow(non_camel_case_types)]
+                    struct CancelAgreementSvc<T: DipperService>(pub Arc<T>);
+                    impl<
+                        T: DipperService,
+                    > tonic::server::UnaryService<super::CancelAgreementRequest>
+                    for CancelAgreementSvc<T> {
+                        type Response = super::CancelAgreementResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::CancelAgreementRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DipperService>::cancel_agreement(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = CancelAgreementSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/graphprotocol.gateway.dips.DipperService/CollectPayment" => {
+                    #[allow(non_camel_case_types)]
+                    struct CollectPaymentSvc<T: DipperService>(pub Arc<T>);
+                    impl<
+                        T: DipperService,
+                    > tonic::server::UnaryService<super::CollectPaymentRequest>
+                    for CollectPaymentSvc<T> {
+                        type Response = super::CollectPaymentResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::CollectPaymentRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as DipperService>::collect_payment(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = CollectPaymentSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
+            }
+        }
+    }
+    impl<T> Clone for DipperServiceServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
+            }
+        }
+    }
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "graphprotocol.gateway.dips.DipperService";
+    impl<T> tonic::server::NamedService for DipperServiceServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
     }
 }

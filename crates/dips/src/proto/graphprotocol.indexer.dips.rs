@@ -71,8 +71,8 @@ impl ProposalResponse {
         }
     }
 }
-/// Generated server implementations.
-pub mod dips_service_server {
+/// Generated client implementations.
+pub mod indexer_dips_service_client {
     #![allow(
         unused_variables,
         dead_code,
@@ -81,9 +81,166 @@ pub mod dips_service_server {
         clippy::let_unit_value,
     )]
     use tonic::codegen::*;
-    /// Generated trait containing gRPC methods that should be implemented for use with DipsServiceServer.
+    use tonic::codegen::http::Uri;
+    #[derive(Debug, Clone)]
+    pub struct IndexerDipsServiceClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl IndexerDipsServiceClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> IndexerDipsServiceClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> IndexerDipsServiceClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
+            T: tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                >,
+            >,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+        {
+            IndexerDipsServiceClient::new(InterceptedService::new(inner, interceptor))
+        }
+        /// Compress requests with the given encoding.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
+            self
+        }
+        /// Enable decompressing responses.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
+        /// *
+        /// Propose a new _indexing agreement_ to an _indexer_.
+        ///
+        /// The _indexer_ can `ACCEPT` or `REJECT` the agreement.
+        pub async fn submit_agreement_proposal(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SubmitAgreementProposalRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SubmitAgreementProposalResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/graphprotocol.indexer.dips.IndexerDipsService/SubmitAgreementProposal",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "graphprotocol.indexer.dips.IndexerDipsService",
+                        "SubmitAgreementProposal",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// *
+        /// Request to cancel an existing _indexing agreement_.
+        pub async fn cancel_agreement(
+            &mut self,
+            request: impl tonic::IntoRequest<super::CancelAgreementRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::CancelAgreementResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/graphprotocol.indexer.dips.IndexerDipsService/CancelAgreement",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "graphprotocol.indexer.dips.IndexerDipsService",
+                        "CancelAgreement",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+    }
+}
+/// Generated server implementations.
+pub mod indexer_dips_service_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with IndexerDipsServiceServer.
     #[async_trait]
-    pub trait DipsService: std::marker::Send + std::marker::Sync + 'static {
+    pub trait IndexerDipsService: std::marker::Send + std::marker::Sync + 'static {
         /// *
         /// Propose a new _indexing agreement_ to an _indexer_.
         ///
@@ -106,14 +263,14 @@ pub mod dips_service_server {
         >;
     }
     #[derive(Debug)]
-    pub struct DipsServiceServer<T> {
+    pub struct IndexerDipsServiceServer<T> {
         inner: Arc<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
         max_decoding_message_size: Option<usize>,
         max_encoding_message_size: Option<usize>,
     }
-    impl<T> DipsServiceServer<T> {
+    impl<T> IndexerDipsServiceServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -164,9 +321,9 @@ pub mod dips_service_server {
             self
         }
     }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for DipsServiceServer<T>
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for IndexerDipsServiceServer<T>
     where
-        T: DipsService,
+        T: IndexerDipsService,
         B: Body + std::marker::Send + 'static,
         B::Error: Into<StdError> + std::marker::Send + 'static,
     {
@@ -181,11 +338,11 @@ pub mod dips_service_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/graphprotocol.indexer.dips.DipsService/SubmitAgreementProposal" => {
+                "/graphprotocol.indexer.dips.IndexerDipsService/SubmitAgreementProposal" => {
                     #[allow(non_camel_case_types)]
-                    struct SubmitAgreementProposalSvc<T: DipsService>(pub Arc<T>);
+                    struct SubmitAgreementProposalSvc<T: IndexerDipsService>(pub Arc<T>);
                     impl<
-                        T: DipsService,
+                        T: IndexerDipsService,
                     > tonic::server::UnaryService<super::SubmitAgreementProposalRequest>
                     for SubmitAgreementProposalSvc<T> {
                         type Response = super::SubmitAgreementProposalResponse;
@@ -201,7 +358,7 @@ pub mod dips_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as DipsService>::submit_agreement_proposal(
+                                <T as IndexerDipsService>::submit_agreement_proposal(
                                         &inner,
                                         request,
                                     )
@@ -232,11 +389,11 @@ pub mod dips_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/graphprotocol.indexer.dips.DipsService/CancelAgreement" => {
+                "/graphprotocol.indexer.dips.IndexerDipsService/CancelAgreement" => {
                     #[allow(non_camel_case_types)]
-                    struct CancelAgreementSvc<T: DipsService>(pub Arc<T>);
+                    struct CancelAgreementSvc<T: IndexerDipsService>(pub Arc<T>);
                     impl<
-                        T: DipsService,
+                        T: IndexerDipsService,
                     > tonic::server::UnaryService<super::CancelAgreementRequest>
                     for CancelAgreementSvc<T> {
                         type Response = super::CancelAgreementResponse;
@@ -250,7 +407,8 @@ pub mod dips_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as DipsService>::cancel_agreement(&inner, request).await
+                                <T as IndexerDipsService>::cancel_agreement(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -297,7 +455,7 @@ pub mod dips_service_server {
             }
         }
     }
-    impl<T> Clone for DipsServiceServer<T> {
+    impl<T> Clone for IndexerDipsServiceServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -310,8 +468,8 @@ pub mod dips_service_server {
         }
     }
     /// Generated gRPC service name
-    pub const SERVICE_NAME: &str = "graphprotocol.indexer.dips.DipsService";
-    impl<T> tonic::server::NamedService for DipsServiceServer<T> {
+    pub const SERVICE_NAME: &str = "graphprotocol.indexer.dips.IndexerDipsService";
+    impl<T> tonic::server::NamedService for IndexerDipsServiceServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }
 }
