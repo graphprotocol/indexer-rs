@@ -155,6 +155,7 @@ pub struct TapAgentContext<T> {
     pgpool: PgPool,
     allocation_id: Address,
     sender: Address,
+    indexer_address: Address,
     escrow_accounts: Receiver<EscrowAccounts>,
     /// We use phantom data as a marker since it's
     /// only used to define what methods are available
@@ -168,12 +169,14 @@ impl<T: NetworkVersion> TapAgentContext<T> {
     pub fn new(
         pgpool: PgPool,
         allocation_id: Address,
+        indexer_address: Address,
         sender: Address,
         escrow_accounts: Receiver<EscrowAccounts>,
     ) -> Self {
         Self {
             pgpool,
             allocation_id,
+            indexer_address,
             sender,
             escrow_accounts,
             _phantom: PhantomData,

@@ -23,13 +23,13 @@ use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, ReceiptAggregateVoucher, SignedRav, SignedReceipt};
 use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
 use thegraph_core::alloy::{
-    primitives::{address, hex::ToHexExt, Address, U256},
+    primitives::{hex::ToHexExt, Address, U256},
     signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     sol_types::Eip712Domain,
 };
 
-pub const ALLOCATION_ID_0: Address = address!("abababababababababababababababababababab");
-pub const ALLOCATION_ID_1: Address = address!("bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc");
+pub const ALLOCATION_ID_0: Address = test_assets::ALLOCATION_ID_0;
+pub const ALLOCATION_ID_1: Address = test_assets::ALLOCATION_ID_1;
 use tokio::sync::{
     watch::{self, Sender},
     Notify,
@@ -46,7 +46,10 @@ use crate::{
             SenderAccountsManagerMessage,
         },
     },
-    tap::{context::AdapterError, CheckingReceipt},
+    tap::{
+        context::{AdapterError, Horizon, Legacy},
+        CheckingReceipt,
+    },
 };
 
 lazy_static! {
@@ -260,6 +263,65 @@ pub fn create_rav(
     .unwrap()
 }
 
+pub trait CreateReceipt {
+    fn create_received_receipt(
+        allocation_id: Address,
+        signer_wallet: &PrivateKeySigner,
+        nonce: u64,
+        timestamp_ns: u64,
+        value: u128,
+    ) -> CheckingReceipt;
+}
+
+impl CreateReceipt for Horizon {
+    fn create_received_receipt(
+        allocation_id: Address,
+        signer_wallet: &PrivateKeySigner,
+        nonce: u64,
+        timestamp_ns: u64,
+        value: u128,
+    ) -> CheckingReceipt {
+        let receipt = Eip712SignedMessage::new(
+            &TAP_EIP712_DOMAIN_SEPARATOR,
+            tap_graph::v2::Receipt {
+                allocation_id,
+                payer: SENDER.1,
+                service_provider: INDEXER.1,
+                data_service: Address::ZERO,
+                nonce,
+                timestamp_ns,
+                value,
+            },
+            signer_wallet,
+        )
+        .unwrap();
+        CheckingReceipt::new(indexer_receipt::TapReceipt::V2(receipt))
+    }
+}
+
+impl CreateReceipt for Legacy {
+    fn create_received_receipt(
+        allocation_id: Address,
+        signer_wallet: &PrivateKeySigner,
+        nonce: u64,
+        timestamp_ns: u64,
+        value: u128,
+    ) -> CheckingReceipt {
+        let receipt = Eip712SignedMessage::new(
+            &TAP_EIP712_DOMAIN_SEPARATOR,
+            Receipt {
+                allocation_id,
+                nonce,
+                timestamp_ns,
+                value,
+            },
+            signer_wallet,
+        )
+        .unwrap();
+        CheckingReceipt::new(indexer_receipt::TapReceipt::V1(receipt))
+    }
+}
+
 /// Fixture to generate a signed receipt using the wallet from `keys()` and the
 /// given `query_id` and `value`
 pub fn create_received_receipt(
@@ -286,7 +348,7 @@ pub fn create_received_receipt(
 pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &TapReceipt) -> anyhow::Result<u64> {
     match signed_receipt {
         TapReceipt::V1(signed_receipt) => store_receipt_v1(pgpool, signed_receipt).await,
-        TapReceipt::V2(_) => unimplemented!("V2 not supported"),
+        TapReceipt::V2(signed_receipt) => store_receipt_v2(pgpool, signed_receipt).await,
     }
 }
 
@@ -296,18 +358,64 @@ pub async fn store_receipt_v1(
 ) -> anyhow::Result<u64> {
     let encoded_signature = signed_receipt.signature.as_bytes().to_vec();
 
+    let signer = signed_receipt
+        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+        .unwrap()
+        .encode_hex();
+
     let record = sqlx::query!(
         r#"
             INSERT INTO scalar_tap_receipts (signer_address, signature, allocation_id, timestamp_ns, nonce, value)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
         "#,
-        signed_receipt
-            .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
-            .unwrap()
-            .encode_hex(),
+        signer,
         encoded_signature,
         signed_receipt.message.allocation_id.encode_hex(),
+        BigDecimal::from(signed_receipt.message.timestamp_ns),
+        BigDecimal::from(signed_receipt.message.nonce),
+        BigDecimal::from(BigInt::from(signed_receipt.message.value)),
+    )
+    .fetch_one(pgpool)
+    .await?;
+
+    // id is BIGSERIAL, so it should be safe to cast to u64.
+    let id: u64 = record.id.try_into()?;
+    Ok(id)
+}
+
+pub async fn store_receipt_v2(
+    pgpool: &PgPool,
+    signed_receipt: &tap_graph::v2::SignedReceipt,
+) -> anyhow::Result<u64> {
+    let encoded_signature = signed_receipt.signature.as_bytes().to_vec();
+
+    let signer = signed_receipt
+        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+        .unwrap()
+        .encode_hex();
+
+    let record = sqlx::query!(
+        r#"
+            INSERT INTO tap_horizon_receipts (
+                signer_address,
+                signature,
+                allocation_id,
+                payer,
+                data_service,
+                service_provider,
+                timestamp_ns,
+                nonce,
+                value
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id
+        "#,
+        signer,
+        encoded_signature,
+        signed_receipt.message.allocation_id.encode_hex(),
+        signed_receipt.message.payer.encode_hex(),
+        signed_receipt.message.data_service.encode_hex(),
+        signed_receipt.message.service_provider.encode_hex(),
         BigDecimal::from(signed_receipt.message.timestamp_ns),
         BigDecimal::from(signed_receipt.message.nonce),
         BigDecimal::from(BigInt::from(signed_receipt.message.value)),

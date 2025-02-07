@@ -466,6 +466,7 @@ where
         let context = TapAgentContext::new(
             pgpool.clone(),
             allocation_id,
+            config.indexer_address,
             sender,
             escrow_accounts.clone(),
         );
