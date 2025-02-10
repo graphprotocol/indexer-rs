@@ -6,8 +6,9 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use indexer_allocation::NetworkAddress;
 use indexer_monitor::EscrowAccounts;
-use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
+use thegraph_core::alloy::sol_types::Eip712Domain;
 use tokio::sync::watch;
 
 use crate::{error::IndexerServiceError, tap::TapReceipt};
@@ -22,14 +23,7 @@ pub struct SenderState {
 }
 
 /// The current query Sender address
-#[derive(Clone)]
-pub struct Sender(pub Address);
-
-impl From<Sender> for String {
-    fn from(value: Sender) -> Self {
-        value.0.to_string()
-    }
-}
+pub type Sender = NetworkAddress;
 
 /// Injects the sender found from the signer in the receipt
 ///
@@ -45,11 +39,15 @@ pub async fn sender_middleware(
 ) -> Result<Response, IndexerServiceError> {
     if let Some(receipt) = request.extensions().get::<TapReceipt>() {
         let signer = receipt.recover_signer(&state.domain_separator)?;
+        let signer = match receipt {
+            TapReceipt::V1(_) => NetworkAddress::Legacy(signer),
+            TapReceipt::V2(_) => NetworkAddress::Horizon(signer),
+        };
         let sender = state
             .escrow_accounts
             .borrow()
             .get_sender_for_signer(&signer)?;
-        request.extensions_mut().insert(Sender(sender));
+        request.extensions_mut().insert(sender);
     }
 
     Ok(next.run(request).await)
@@ -92,7 +90,7 @@ mod tests {
 
         async fn handle(extensions: Extensions) -> Body {
             let sender = extensions.get::<Sender>().expect("Should contain sender");
-            assert_eq!(sender.0, test_assets::TAP_SENDER.1);
+            assert_eq!(sender.address(), test_assets::TAP_SENDER.1);
             Body::empty()
         }
 

@@ -27,7 +27,7 @@ impl Check<TapReceipt> for SenderBalanceCheck {
     async fn check(&self, ctx: &tap_core::receipt::Context, _: &CheckingReceipt) -> CheckResult {
         let escrow_accounts_snapshot = self.escrow_accounts.borrow();
 
-        let Sender(receipt_sender) = ctx
+        let receipt_sender = ctx
             .get::<Sender>()
             .ok_or(CheckError::Failed(anyhow::anyhow!("Could not find sender")))?;
 

@@ -10,6 +10,10 @@ use thegraph_core::{
     DeploymentId,
 };
 
+mod network_address;
+
+pub use network_address::NetworkAddress;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Allocation {
     pub id: Address,

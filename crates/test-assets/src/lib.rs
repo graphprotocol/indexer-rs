@@ -8,7 +8,7 @@ use std::{
 };
 
 use bip39::Mnemonic;
-use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
+use indexer_allocation::{Allocation, AllocationStatus, NetworkAddress, SubgraphDeployment};
 use lazy_static::lazy_static;
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, SignedReceipt};
@@ -237,44 +237,44 @@ lazy_static! {
         ),
     ]);
 
-    pub static ref ESCROW_ACCOUNTS_BALANCES: HashMap<Address, U256> = HashMap::from([
-        (address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), U256::from(24)), // TAP_SENDER
-        (address!("22d491bde2303f2f43325b2108d26f1eaba1e32b"), U256::from(42)),
-        (address!("192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002"), U256::from(2975)),
+    pub static ref ESCROW_ACCOUNTS_BALANCES: HashMap<NetworkAddress, U256> = HashMap::from([
+        (NetworkAddress::Legacy(address!("9858EfFD232B4033E47d90003D41EC34EcaEda94")), U256::from(24)), // TAP_SENDER
+        (NetworkAddress::Legacy(address!("22d491bde2303f2f43325b2108d26f1eaba1e32b")), U256::from(42)),
+        (NetworkAddress::Legacy(address!("192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002")), U256::from(2975)),
     ]);
 
 
     /// Maps signers back to their senders
-    pub static ref ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS: HashMap<Address, Address> = HashMap::from([
+    pub static ref ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS: HashMap<NetworkAddress, NetworkAddress> = HashMap::from([
         (
-            address!("533661F0fb14d2E8B26223C86a610Dd7D2260892"), // TAP_SIGNER
-            address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
+            NetworkAddress::Legacy(address!("533661F0fb14d2E8B26223C86a610Dd7D2260892")), // TAP_SIGNER
+            NetworkAddress::Legacy(address!("9858EfFD232B4033E47d90003D41EC34EcaEda94")), // TAP_SENDER
         ),
         (
-            address!("2740f6fA9188cF53ffB6729DDD21575721dE92ce"),
-            address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
+            NetworkAddress::Legacy(address!("2740f6fA9188cF53ffB6729DDD21575721dE92ce")),
+            NetworkAddress::Legacy(address!("9858EfFD232B4033E47d90003D41EC34EcaEda94")), // TAP_SENDER
         ),
         (
-            address!("245059163ff6ee14279aa7b35ea8f0fdb967df6e"),
-            address!("22d491bde2303f2f43325b2108d26f1eaba1e32b"),
+            NetworkAddress::Legacy(address!("245059163ff6ee14279aa7b35ea8f0fdb967df6e")),
+            NetworkAddress::Legacy(address!("22d491bde2303f2f43325b2108d26f1eaba1e32b")),
         ),
     ]);
 
 
-    pub static ref ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS: HashMap<Address, Vec<Address>> = HashMap::from([
+    pub static ref ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS: HashMap<NetworkAddress, Vec<Address>> = HashMap::from([
         (
-            address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
+            NetworkAddress::Legacy(address!("9858EfFD232B4033E47d90003D41EC34EcaEda94")), // TAP_SENDER
             vec![
                 address!("533661F0fb14d2E8B26223C86a610Dd7D2260892"), // TAP_SIGNER
                 address!("2740f6fA9188cF53ffB6729DDD21575721dE92ce"),
             ],
         ),
         (
-            address!("22d491bde2303f2f43325b2108d26f1eaba1e32b"),
+            NetworkAddress::Legacy(address!("22d491bde2303f2f43325b2108d26f1eaba1e32b")),
             vec![address!("245059163ff6ee14279aa7b35ea8f0fdb967df6e")],
         ),
         (
-            address!("192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002"),
+            NetworkAddress::Legacy(address!("192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002")),
             vec![],
         ),
     ]);

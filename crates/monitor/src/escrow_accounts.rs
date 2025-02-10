@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use indexer_allocation::NetworkAddress;
 use indexer_query::escrow_account::{self, EscrowAccountQuery};
 use thegraph_core::alloy::primitives::{Address, U256};
 use thiserror::Error;
@@ -27,19 +28,27 @@ pub enum EscrowAccountsError {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EscrowAccounts {
-    senders_balances: HashMap<Address, U256>,
-    signers_to_senders: HashMap<Address, Address>,
-    senders_to_signers: HashMap<Address, Vec<Address>>,
+    senders_balances: HashMap<NetworkAddress, U256>,
+    signers_to_senders: HashMap<NetworkAddress, NetworkAddress>,
+    senders_to_signers: HashMap<NetworkAddress, Vec<Address>>,
 }
 
 impl EscrowAccounts {
     pub fn new(
-        senders_balances: HashMap<Address, U256>,
-        senders_to_signers: HashMap<Address, Vec<Address>>,
+        senders_balances: HashMap<NetworkAddress, U256>,
+        senders_to_signers: HashMap<NetworkAddress, Vec<Address>>,
     ) -> Self {
         let signers_to_senders = senders_to_signers
             .iter()
-            .flat_map(|(sender, signers)| signers.iter().map(move |signer| (*signer, *sender)))
+            .flat_map(|(sender, signers)| {
+                signers.iter().map(move |signer| {
+                    let signer = match sender {
+                        NetworkAddress::Legacy(_) => NetworkAddress::Legacy(*signer),
+                        NetworkAddress::Horizon(_) => NetworkAddress::Horizon(*signer),
+                    };
+                    (signer, *sender)
+                })
+            })
             .collect();
 
         Self {
@@ -49,7 +58,7 @@ impl EscrowAccounts {
         }
     }
 
-    pub fn get_signers_for_sender(&self, sender: &Address) -> Vec<Address> {
+    pub fn get_signers_for_sender(&self, sender: &NetworkAddress) -> Vec<Address> {
         self.senders_to_signers
             .get(sender)
             .filter(|signers| !signers.is_empty())
@@ -58,30 +67,39 @@ impl EscrowAccounts {
             .unwrap_or_default()
     }
 
-    pub fn get_sender_for_signer(&self, signer: &Address) -> Result<Address, EscrowAccountsError> {
+    pub fn get_sender_for_signer(
+        &self,
+        signer: &NetworkAddress,
+    ) -> Result<NetworkAddress, EscrowAccountsError> {
         self.signers_to_senders
             .get(signer)
             .ok_or(EscrowAccountsError::NoSenderFound {
-                signer: signer.to_owned(),
+                signer: signer.address().to_owned(),
             })
             .copied()
     }
 
-    pub fn get_balance_for_sender(&self, sender: &Address) -> Result<U256, EscrowAccountsError> {
+    pub fn get_balance_for_sender(
+        &self,
+        sender: &NetworkAddress,
+    ) -> Result<U256, EscrowAccountsError> {
         self.senders_balances
             .get(sender)
             .ok_or(EscrowAccountsError::NoBalanceFound {
-                sender: sender.to_owned(),
+                sender: sender.address().to_owned(),
             })
             .copied()
     }
 
-    pub fn get_balance_for_signer(&self, signer: &Address) -> Result<U256, EscrowAccountsError> {
+    pub fn get_balance_for_signer(
+        &self,
+        signer: &NetworkAddress,
+    ) -> Result<U256, EscrowAccountsError> {
         self.get_sender_for_signer(signer)
             .and_then(|sender| self.get_balance_for_sender(&sender))
     }
 
-    pub fn get_senders(&self) -> HashSet<Address> {
+    pub fn get_senders(&self) -> HashSet<NetworkAddress> {
         self.senders_balances.keys().copied().collect()
     }
 }
@@ -123,7 +141,7 @@ async fn get_escrow_accounts(
 
     let response = response?;
 
-    let senders_balances: HashMap<Address, U256> = response
+    let senders_balances: HashMap<NetworkAddress, U256> = response
         .escrow_accounts
         .iter()
         .map(|account| {
@@ -139,8 +157,11 @@ async fn get_escrow_accounts(
                 );
                 U256::from(0)
             });
-
-            Ok((Address::from_str(&account.sender.id)?, balance))
+            // TODO wrap correctly the type of escrow account
+            Ok((
+                NetworkAddress::Legacy(Address::from_str(&account.sender.id)?),
+                balance,
+            ))
         })
         .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 
@@ -156,7 +177,7 @@ async fn get_escrow_accounts(
                 .iter()
                 .map(|signer| Address::from_str(&signer.id))
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok((sender, signers))
+            Ok((NetworkAddress::Legacy(sender), signers))
         })
         .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 

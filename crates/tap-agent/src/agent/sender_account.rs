@@ -10,7 +10,7 @@ use std::{
 use anyhow::Context;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use futures::{stream, StreamExt};
-use indexer_monitor::{EscrowAccounts, SubgraphClient};
+use indexer_monitor::{EscrowAccounts, NetworkAddress, SubgraphClient};
 use indexer_query::{
     closed_allocations::{self, ClosedAllocations},
     unfinalized_transactions, UnfinalizedTransactions,
@@ -213,7 +213,7 @@ pub struct SenderAccountArgs {
     /// Connection to database
     pub pgpool: PgPool,
     /// Current sender address
-    pub sender_id: Address,
+    pub sender_id: NetworkAddress,
     /// Watcher that returns a list of escrow accounts for current indexer
     pub escrow_accounts: Receiver<EscrowAccounts>,
     /// Watcher that returns a set of open and recently closed allocation ids
@@ -272,7 +272,7 @@ pub struct State {
     scheduled_rav_request: Option<JoinHandle<Result<(), MessagingErr<SenderAccountMessage>>>>,
 
     /// Current sender address
-    sender: Address,
+    sender: NetworkAddress,
 
     /// State to check if sender is current denied
     denied: bool,
