@@ -701,14 +701,15 @@ mod tests {
     use super::{new_receipts_watcher, SenderAccountsManagerMessage, State};
     use crate::{
         agent::{
-            sender_account::{tests::PREFIX_ID, SenderAccountMessage},
+            sender_account::SenderAccountMessage,
             sender_accounts_manager::{handle_notification, AllocationId, NewReceiptNotification},
         },
         test::{
             actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor},
-            create_rav, create_received_receipt, create_sender_accounts_manager, get_grpc_url,
-            get_sender_account_config, store_rav, store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_1,
-            INDEXER, SENDER_2, TAP_EIP712_DOMAIN_SEPARATOR,
+            create_rav, create_received_receipt, create_sender_accounts_manager,
+            generate_random_prefix, get_grpc_url, get_sender_account_config, store_rav,
+            store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER_2,
+            TAP_EIP712_DOMAIN_SEPARATOR,
         },
     };
     const DUMMY_URL: &str = "http://localhost:1234";
@@ -737,10 +738,7 @@ mod tests {
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
         let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
 
-        let prefix = format!(
-            "test-{}",
-            PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        );
+        let prefix = generate_random_prefix();
         (
             prefix.clone(),
             State {
@@ -866,10 +864,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_receive_notifications(pgpool: PgPool) {
-        let prefix = format!(
-            "test-{}",
-            PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        );
+        let prefix = generate_random_prefix();
         // create dummy allocation
 
         let (mock_sender_allocation, mut receipts) = MockSenderAllocation::new_with_receipts();
@@ -968,10 +963,7 @@ mod tests {
         let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
         let escrow_accounts = watch::channel(escrow_accounts).1;
 
-        let prefix = format!(
-            "test-{}",
-            PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        );
+        let prefix = generate_random_prefix();
 
         let (last_message_emitted, mut rx) = mpsc::channel(64);
 

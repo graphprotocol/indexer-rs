@@ -3840,6 +3840,7 @@ dependencies = [
  "lazy_static",
  "prometheus",
  "ractor",
+ "rand",
  "reqwest 0.12.9",
  "rstest 0.24.0",
  "ruint",
