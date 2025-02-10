@@ -263,7 +263,11 @@ pub fn create_rav(
     .unwrap()
 }
 
+/// Generic implementation of create_received_receipt
 pub trait CreateReceipt {
+    /// This might seem weird at first glance since [Horizon] and [Legacy] implementation have the same
+    /// function signature and don't require &self. The reason is that we can not match over T to get
+    /// all variants because T is a trait and not an enum.
     fn create_received_receipt(
         allocation_id: Address,
         signer_wallet: &PrivateKeySigner,
