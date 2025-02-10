@@ -1281,7 +1281,6 @@ pub mod tests {
     #![allow(missing_docs)]
     use std::{
         collections::{HashMap, HashSet},
-        sync::atomic::AtomicU32,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
@@ -1358,7 +1357,6 @@ pub mod tests {
     }
 
     /// Prefix shared between tests so we don't have conflicts in the global registry
-    pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
     const ESCROW_VALUE: u128 = 1000;
     const BUFFER_DURATION: Duration = Duration::from_millis(100);
     const RETRY_DURATION: Duration = Duration::from_millis(1000);

@@ -9,7 +9,7 @@ name = "indexer-tap-agent"
 path = "src/main.rs"
 
 [features]
-test = ["dep:test-assets"]
+test = ["dep:test-assets", "dep:rand"]
 
 [dependencies]
 indexer-monitor = { path = "../monitor" }
@@ -51,6 +51,7 @@ tap_aggregator.workspace = true
 futures = { version = "0.3.30", default-features = false }
 bon = "3.3"
 test-assets = { path = "../test-assets", optional = true }
+rand = { version = "0.8", optional = true }
 
 [dev-dependencies]
 # Release-please breaks with cyclical dependencies if dev-dependencies

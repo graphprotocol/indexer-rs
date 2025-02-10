@@ -5,7 +5,7 @@
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
-    sync::{atomic::AtomicU32, Arc},
+    sync::Arc,
     time::Duration,
 };
 
@@ -16,6 +16,7 @@ use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use indexer_receipt::TapReceipt;
 use lazy_static::lazy_static;
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use reqwest::Url;
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::server::run_server;
@@ -60,8 +61,6 @@ lazy_static! {
         tap_eip712_domain(1, Address::from([0x11u8; 20]),);
 }
 
-pub static PREFIX_ID: AtomicU32 = AtomicU32::new(0);
-
 pub const TRIGGER_VALUE: u128 = 500;
 pub const RECEIPT_LIMIT: u64 = 10000;
 pub const DUMMY_URL: &str = "http://localhost:1234";
@@ -73,6 +72,16 @@ const TAP_SENDER_TIMEOUT: Duration = Duration::from_secs(30);
 
 const RAV_REQUEST_BUFFER: Duration = Duration::from_secs(60);
 const ESCROW_POLLING_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Generates a random prefix to be used for actor registry
+pub fn generate_random_prefix() -> String {
+    const SIZE: usize = 16;
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(SIZE)
+        .map(char::from)
+        .collect()
+}
 
 pub fn get_sender_account_config() -> &'static SenderAccountConfig {
     Box::leak(Box::new(SenderAccountConfig {
@@ -143,10 +152,7 @@ pub async fn create_sender_account(
         ))
         .expect("Failed to update escrow_accounts channel");
 
-    let prefix = format!(
-        "test-{}",
-        PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-    );
+    let prefix = generate_random_prefix();
 
     let aggregator_url = match aggregator_endpoint {
         Some(url) => url,
@@ -217,10 +223,7 @@ pub async fn create_sender_accounts_manager(
         ))
         .expect("Failed to update escrow_accounts channel");
 
-    let prefix = format!(
-        "test-{}",
-        PREFIX_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-    );
+    let prefix = generate_random_prefix();
     let args = SenderAccountsManagerArgs {
         config,
         domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
