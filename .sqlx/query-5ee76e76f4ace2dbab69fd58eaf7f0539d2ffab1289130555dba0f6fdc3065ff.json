@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO tap_horizon_ravs (\n                    payer,\n                    data_service,\n                    service_provider,\n                    metadata,\n                    signature,\n                    allocation_id,\n                    timestamp_ns,\n                    value_aggregate,\n                    created_at,\n                    updated_at\n                )\n                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)\n                ON CONFLICT (payer, data_service, service_provider, allocation_id)\n                DO UPDATE SET\n                    signature = $5,\n                    timestamp_ns = $7,\n                    value_aggregate = $8,\n                    updated_at = $9,\n                    metadata = $4\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Bpchar",
+        "Bpchar",
+        "Bytea",
+        "Bytea",
+        "Bpchar",
+        "Numeric",
+        "Numeric",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5ee76e76f4ace2dbab69fd58eaf7f0539d2ffab1289130555dba0f6fdc3065ff"
+}
