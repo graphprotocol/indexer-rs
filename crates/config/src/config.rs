@@ -382,9 +382,6 @@ pub struct TapConfig {
     pub sender_timeout_secs: Duration,
 
     pub sender_aggregator_endpoints: HashMap<Address, Url>,
-    /// Set of sender addresses that will not be added to the denylist
-    #[serde(default)]
-    pub trusted_senders: Vec<Address>,
 }
 
 #[derive(Debug, Deserialize)]
