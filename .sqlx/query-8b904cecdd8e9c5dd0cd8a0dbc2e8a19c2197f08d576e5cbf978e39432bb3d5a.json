@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tap_horizon_receipts (\n                signer_address,\n                signature,\n                allocation_id,\n                payer,\n                data_service,\n                service_provider,\n                timestamp_ns,\n                nonce,\n                value\n            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Bytea",
+        "Bpchar",
+        "Bpchar",
+        "Bpchar",
+        "Bpchar",
+        "Numeric",
+        "Numeric",
+        "Numeric"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8b904cecdd8e9c5dd0cd8a0dbc2e8a19c2197f08d576e5cbf978e39432bb3d5a"
+}

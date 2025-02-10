@@ -208,10 +208,132 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
 
     async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
         &self,
-        _timestamp_range_ns: R,
-        _receipts_limit: Option<u64>,
+        timestamp_range_ns: R,
+        receipts_limit: Option<u64>,
     ) -> Result<Vec<CheckingReceipt>, Self::AdapterError> {
-        unimplemented!()
+        let receipts_limit = receipts_limit.map_or(1000, |limit| limit);
+
+        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
+            .await
+            .map_err(|e| AdapterError::ReceiptRead {
+                error: format!("{:?}.", e),
+            })?;
+
+        // TODO filter by data_service when we have multiple data services
+
+        let records = sqlx::query!(
+            r#"
+                SELECT 
+                    id,
+                    signature,
+                    allocation_id,
+                    payer,
+                    data_service,
+                    service_provider,
+                    timestamp_ns,
+                    nonce,
+                    value
+                FROM tap_horizon_receipts
+                WHERE
+                    allocation_id = $1
+                    AND payer = $2
+                    AND service_provider = $3
+                    AND signer_address IN (SELECT unnest($4::text[]))
+                AND $5::numrange @> timestamp_ns
+                ORDER BY timestamp_ns ASC
+                LIMIT $6
+            "#,
+            self.allocation_id.encode_hex(),
+            self.sender.encode_hex(),
+            self.indexer_address.encode_hex(),
+            &signers,
+            rangebounds_to_pgrange(timestamp_range_ns),
+            (receipts_limit + 1) as i64,
+        )
+        .fetch_all(&self.pgpool)
+        .await?;
+        let mut receipts = records
+            .into_iter()
+            .map(|record| {
+                let signature = record.signature.as_slice().try_into()
+                    .map_err(|e| AdapterError::ReceiptRead {
+                        error: format!(
+                            "Error decoding signature while retrieving receipt from database: {}",
+                            e
+                        ),
+                    })?;
+                let allocation_id = Address::from_str(&record.allocation_id).map_err(|e| {
+                    AdapterError::ReceiptRead {
+                        error: format!(
+                            "Error decoding allocation_id while retrieving receipt from database: {}",
+                            e
+                        ),
+                    }
+                })?;
+                let payer = Address::from_str(&record.payer).map_err(|e| {
+                    AdapterError::ReceiptRead {
+                        error: format!(
+                            "Error decoding payer while retrieving receipt from database: {}",
+                            e
+                        ),
+                    }
+                })?;
+
+                let data_service = Address::from_str(&record.data_service).map_err(|e| {
+                    AdapterError::ReceiptRead {
+                        error: format!(
+                            "Error decoding data_service while retrieving receipt from database: {}",
+                            e
+                        ),
+                    }
+                })?;
+
+                let service_provider = Address::from_str(&record.service_provider).map_err(|e| {
+                    AdapterError::ReceiptRead {
+                        error: format!(
+                            "Error decoding service_provider while retrieving receipt from database: {}",
+                            e
+                        ),
+                    }
+                })?;
+
+                let timestamp_ns = record
+                    .timestamp_ns
+                    .to_u64()
+                    .ok_or(AdapterError::ReceiptRead {
+                        error: "Error decoding timestamp_ns while retrieving receipt from database"
+                            .to_string(),
+                    })?;
+                let nonce = record.nonce.to_u64().ok_or(AdapterError::ReceiptRead {
+                    error: "Error decoding nonce while retrieving receipt from database".to_string(),
+                })?;
+                // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
+                // So we're converting to BigInt to get a proper implementation of to_u128().
+                let value = record.value.to_bigint().and_then(|v| v.to_u128()).ok_or(AdapterError::ReceiptRead {
+                    error: "Error decoding value while retrieving receipt from database".to_string(),
+                })?;
+
+                let signed_receipt = tap_graph::v2::SignedReceipt {
+                    message: tap_graph::v2::Receipt {
+                        payer,
+                        data_service,
+                        service_provider,
+                        allocation_id,
+                        timestamp_ns,
+                        nonce,
+                        value,
+                    },
+                    signature,
+                };
+
+                Ok(CheckingReceipt::new(TapReceipt::V2(signed_receipt)))
+
+            })
+            .collect::<Result<Vec<_>, AdapterError>>()?;
+
+        safe_truncate_receipts(&mut receipts, receipts_limit);
+
+        Ok(receipts)
     }
 }
 
@@ -226,9 +348,33 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
 
     async fn remove_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
         &self,
-        _timestamp_ns: R,
+        timestamp_ns: R,
     ) -> Result<(), Self::AdapterError> {
-        unimplemented!()
+        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
+            .await
+            .map_err(|e| AdapterError::ReceiptDelete {
+                error: format!("{:?}.", e),
+            })?;
+
+        sqlx::query!(
+            r#"
+                DELETE FROM tap_horizon_receipts
+                WHERE
+                    allocation_id = $1
+                    AND signer_address IN (SELECT unnest($2::text[]))
+                    AND $3::numrange @> timestamp_ns
+                    AND payer = $4
+                    AND service_provider = $5
+            "#,
+            self.allocation_id.encode_hex(),
+            &signers,
+            rangebounds_to_pgrange(timestamp_ns),
+            self.sender.encode_hex(),
+            self.indexer_address.encode_hex(),
+        )
+        .execute(&self.pgpool)
+        .await?;
+        Ok(())
     }
 }
 
@@ -243,6 +389,7 @@ mod test {
     use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
     use indexer_monitor::EscrowAccounts;
     use lazy_static::lazy_static;
+    use rstest::{fixture, rstest};
     use sqlx::PgPool;
     use tap_core::{
         manager::adapters::{ReceiptDelete, ReceiptRead},
@@ -259,7 +406,7 @@ mod test {
     use tokio::sync::watch::{self, Receiver};
 
     use super::*;
-    use crate::test::{create_received_receipt, store_receipt, SENDER_2};
+    use crate::test::{store_receipt, CreateReceipt, INDEXER, SENDER_2};
 
     const ALLOCATION_ID_IRRELEVANT: Address = ALLOCATION_ID_1;
 
@@ -267,32 +414,66 @@ mod test {
         static ref SENDER_IRRELEVANT: (PrivateKeySigner, Address) = SENDER_2.clone();
     }
 
-    /// Insert a single receipt and retrieve it from the database using the adapter.
-    /// The point here it to test the deserialization of large numbers.
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn insert_and_retrieve_single_receipt(pgpool: PgPool) {
-        let escrow_accounts = watch::channel(EscrowAccounts::new(
+    #[fixture]
+    fn escrow_accounts() -> Receiver<EscrowAccounts> {
+        watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ))
-        .1;
+        .1
+    }
 
-        let storage_adapter = TapAgentContext::<Legacy>::new(
+    async fn legacy_adapter(
+        pgpool: PgPool,
+        escrow_accounts: Receiver<EscrowAccounts>,
+    ) -> TapAgentContext<Legacy> {
+        TapAgentContext::new(
+            pgpool.clone(),
+            ALLOCATION_ID_0,
+            INDEXER.1,
+            SENDER.1,
+            escrow_accounts,
+        )
+    }
+
+    async fn horizon_adapter(
+        pgpool: PgPool,
+        escrow_accounts: Receiver<EscrowAccounts>,
+    ) -> TapAgentContext<Horizon> {
+        TapAgentContext::new(
             pgpool,
             ALLOCATION_ID_0,
+            INDEXER.1,
             SENDER.1,
-            escrow_accounts.clone(),
-        );
+            escrow_accounts,
+        )
+    }
 
+    /// Insert a single receipt and retrieve it from the database using the adapter.
+    /// The point here it to test the deserialization of large numbers.
+    #[rstest]
+    #[case(legacy_adapter(_pgpool.clone(), _escrow.clone()))]
+    #[case(horizon_adapter(_pgpool.clone(), _escrow.clone()))]
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn insert_and_retrieve_single_receipt<T>(
+        #[ignore] _pgpool: PgPool,
+        #[from(escrow_accounts)] _escrow: Receiver<EscrowAccounts>,
+        #[case]
+        #[future(awt)]
+        context: TapAgentContext<T>,
+    ) where
+        T: CreateReceipt,
+        TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
+    {
         let received_receipt =
-            create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX);
+            T::create_received_receipt(ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX);
 
         // Storing the receipt
-        store_receipt(&storage_adapter.pgpool, received_receipt.signed_receipt())
+        store_receipt(&context.pgpool, received_receipt.signed_receipt())
             .await
             .unwrap();
 
-        let retrieved_receipt = storage_adapter
+        let retrieved_receipt = context
             .retrieve_receipts_in_timestamp_range(.., None)
             .await
             .unwrap()[0]
@@ -359,171 +540,322 @@ mod test {
         Ok(())
     }
 
-    async fn remove_range_and_check<R: RangeBounds<u64> + Send, T>(
-        storage_adapter: &TapAgentContext<T>,
-        escrow_accounts: Receiver<EscrowAccounts>,
-        received_receipt_vec: &[CheckingReceipt],
-        range: R,
-    ) -> anyhow::Result<()>
-    where
-        TapAgentContext<T>: ReceiptDelete,
-    {
-        let escrow_accounts_snapshot = escrow_accounts.borrow();
+    trait RemoveRange: Sized {
+        async fn remove_range_and_check<R: RangeBounds<u64> + Send>(
+            storage_adapter: &TapAgentContext<Self>,
+            escrow_accounts: Receiver<EscrowAccounts>,
+            received_receipt_vec: &[CheckingReceipt],
+            range: R,
+        ) -> anyhow::Result<()>;
+    }
 
-        // Storing the receipts
-        let mut received_receipt_id_vec = Vec::new();
-        for received_receipt in received_receipt_vec.iter() {
-            received_receipt_id_vec.push(
-                store_receipt(&storage_adapter.pgpool, received_receipt.signed_receipt())
-                    .await
-                    .unwrap(),
-            );
-        }
+    impl RemoveRange for Horizon {
+        async fn remove_range_and_check<R: RangeBounds<u64> + Send>(
+            storage_adapter: &TapAgentContext<Self>,
+            escrow_accounts: Receiver<EscrowAccounts>,
+            received_receipt_vec: &[CheckingReceipt],
+            range: R,
+        ) -> anyhow::Result<()> {
+            let escrow_accounts_snapshot = escrow_accounts.borrow();
 
-        // zip the 2 vectors together
-        let received_receipt_vec = received_receipt_id_vec
-            .into_iter()
-            .zip(received_receipt_vec.iter())
-            .collect::<Vec<_>>();
+            // Storing the receipts
+            let mut received_receipt_id_vec = Vec::new();
+            for received_receipt in received_receipt_vec.iter() {
+                received_receipt_id_vec.push(
+                    store_receipt(&storage_adapter.pgpool, received_receipt.signed_receipt())
+                        .await
+                        .unwrap(),
+                );
+            }
 
-        // Remove the received receipts by timestamp range for the correct (allocation_id,
-        // sender)
-        let received_receipt_vec: Vec<_> = received_receipt_vec
-            .iter()
-            .filter(|(_, received_receipt)| {
-                if (received_receipt.signed_receipt().allocation_id()
-                    == storage_adapter.allocation_id)
-                    && escrow_accounts_snapshot
-                        .get_sender_for_signer(
-                            &received_receipt
-                                .signed_receipt()
-                                .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
-                                .unwrap(),
-                        )
-                        .is_ok_and(|v| v == storage_adapter.sender)
-                {
-                    !range.contains(&received_receipt.signed_receipt().timestamp_ns())
-                } else {
-                    true
-                }
-                // !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
-            })
-            .cloned()
-            .collect();
+            // zip the 2 vectors together
+            let received_receipt_vec = received_receipt_id_vec
+                .into_iter()
+                .zip(received_receipt_vec.iter())
+                .collect::<Vec<_>>();
 
-        // Removing the received receipts in timestamp range from the database
-        storage_adapter
-            .remove_receipts_in_timestamp_range(range)
+            // Remove the received receipts by timestamp range for the correct (allocation_id,
+            // sender)
+            let received_receipt_vec: Vec<_> = received_receipt_vec
+                .iter()
+                .filter(|(_, received_receipt)| {
+                    if (received_receipt.signed_receipt().allocation_id()
+                        == storage_adapter.allocation_id)
+                        && escrow_accounts_snapshot
+                            .get_sender_for_signer(
+                                &received_receipt
+                                    .signed_receipt()
+                                    .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                                    .unwrap(),
+                            )
+                            .is_ok_and(|v| v == storage_adapter.sender)
+                    {
+                        !range.contains(&received_receipt.signed_receipt().timestamp_ns())
+                    } else {
+                        true
+                    }
+                    // !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
+                })
+                .cloned()
+                .collect();
+
+            // Removing the received receipts in timestamp range from the database
+            storage_adapter
+                .remove_receipts_in_timestamp_range(range)
+                .await?;
+
+            // Retrieving all receipts in DB (including irrelevant ones)
+            let records = sqlx::query!(
+                r#"
+                SELECT 
+                    signature,
+                    allocation_id,
+                    payer,
+                    data_service,
+                    service_provider,
+                    timestamp_ns,
+                    nonce,
+                    value
+                FROM tap_horizon_receipts
+            "#
+            )
+            .fetch_all(&storage_adapter.pgpool)
             .await?;
 
-        // Retrieving all receipts in DB (including irrelevant ones)
-        let records = sqlx::query!(
-            r#"
+            // Check length
+            assert_eq!(records.len(), received_receipt_vec.len());
+
+            // Retrieving all receipts in DB (including irrelevant ones)
+            let recovered_received_receipt_set: Vec<_> = records
+                .into_iter()
+                .map(|record| {
+                    let signature = record.signature.as_slice().try_into().unwrap();
+                    let allocation_id = Address::from_str(&record.allocation_id).unwrap();
+                    let payer = Address::from_str(&record.payer).unwrap();
+                    let data_service = Address::from_str(&record.data_service).unwrap();
+                    let service_provider = Address::from_str(&record.service_provider).unwrap();
+                    let timestamp_ns = record.timestamp_ns.to_u64().unwrap();
+                    let nonce = record.nonce.to_u64().unwrap();
+                    // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
+                    // So we're converting to BigInt to get a proper implementation of to_u128().
+                    let value = record
+                        .value
+                        .to_bigint()
+                        .map(|v| v.to_u128())
+                        .unwrap()
+                        .unwrap();
+
+                    let signed_receipt = tap_graph::v2::SignedReceipt {
+                        message: tap_graph::v2::Receipt {
+                            allocation_id,
+                            payer,
+                            data_service,
+                            service_provider,
+                            timestamp_ns,
+                            nonce,
+                            value,
+                        },
+                        signature,
+                    };
+                    signed_receipt.unique_id()
+                })
+                .collect();
+
+            // Check values recovered_received_receipt_set contains values received_receipt_vec
+            assert!(received_receipt_vec.iter().all(|(_, received_receipt)| {
+                recovered_received_receipt_set
+                    .contains(&received_receipt.signed_receipt().unique_id())
+            }));
+
+            // Removing all the receipts in the DB
+            sqlx::query!(
+                r#"
+                DELETE FROM tap_horizon_receipts
+            "#
+            )
+            .execute(&storage_adapter.pgpool)
+            .await?;
+
+            // Checking that there are no receipts left
+            let scalar_tap_receipts_db_count: i64 = sqlx::query!(
+                r#"
+                SELECT count(*)
+                FROM tap_horizon_receipts
+            "#
+            )
+            .fetch_one(&storage_adapter.pgpool)
+            .await?
+            .count
+            .unwrap();
+            assert_eq!(scalar_tap_receipts_db_count, 0);
+            Ok(())
+        }
+    }
+
+    impl RemoveRange for Legacy {
+        async fn remove_range_and_check<R: RangeBounds<u64> + Send>(
+            storage_adapter: &TapAgentContext<Self>,
+            escrow_accounts: Receiver<EscrowAccounts>,
+            received_receipt_vec: &[CheckingReceipt],
+            range: R,
+        ) -> anyhow::Result<()> {
+            let escrow_accounts_snapshot = escrow_accounts.borrow();
+
+            // Storing the receipts
+            let mut received_receipt_id_vec = Vec::new();
+            for received_receipt in received_receipt_vec.iter() {
+                received_receipt_id_vec.push(
+                    store_receipt(&storage_adapter.pgpool, received_receipt.signed_receipt())
+                        .await
+                        .unwrap(),
+                );
+            }
+
+            // zip the 2 vectors together
+            let received_receipt_vec = received_receipt_id_vec
+                .into_iter()
+                .zip(received_receipt_vec.iter())
+                .collect::<Vec<_>>();
+
+            // Remove the received receipts by timestamp range for the correct (allocation_id,
+            // sender)
+            let received_receipt_vec: Vec<_> = received_receipt_vec
+                .iter()
+                .filter(|(_, received_receipt)| {
+                    if (received_receipt.signed_receipt().allocation_id()
+                        == storage_adapter.allocation_id)
+                        && escrow_accounts_snapshot
+                            .get_sender_for_signer(
+                                &received_receipt
+                                    .signed_receipt()
+                                    .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                                    .unwrap(),
+                            )
+                            .is_ok_and(|v| v == storage_adapter.sender)
+                    {
+                        !range.contains(&received_receipt.signed_receipt().timestamp_ns())
+                    } else {
+                        true
+                    }
+                    // !range.contains(&received_receipt.signed_receipt().message.timestamp_ns)
+                })
+                .cloned()
+                .collect();
+
+            // Removing the received receipts in timestamp range from the database
+            storage_adapter
+                .remove_receipts_in_timestamp_range(range)
+                .await?;
+
+            // Retrieving all receipts in DB (including irrelevant ones)
+            let records = sqlx::query!(
+                r#"
                 SELECT signature, allocation_id, timestamp_ns, nonce, value
                 FROM scalar_tap_receipts
             "#
-        )
-        .fetch_all(&storage_adapter.pgpool)
-        .await?;
+            )
+            .fetch_all(&storage_adapter.pgpool)
+            .await?;
 
-        // Check length
-        assert_eq!(records.len(), received_receipt_vec.len());
+            // Check length
+            assert_eq!(records.len(), received_receipt_vec.len());
 
-        // Retrieving all receipts in DB (including irrelevant ones)
-        let recovered_received_receipt_set: Vec<_> = records
-            .into_iter()
-            .map(|record| {
-                let signature = record.signature.as_slice().try_into().unwrap();
-                let allocation_id = Address::from_str(&record.allocation_id).unwrap();
-                let timestamp_ns = record.timestamp_ns.to_u64().unwrap();
-                let nonce = record.nonce.to_u64().unwrap();
-                // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
-                // So we're converting to BigInt to get a proper implementation of to_u128().
-                let value = record
-                    .value
-                    .to_bigint()
-                    .map(|v| v.to_u128())
-                    .unwrap()
-                    .unwrap();
+            // Retrieving all receipts in DB (including irrelevant ones)
+            let recovered_received_receipt_set: Vec<_> = records
+                .into_iter()
+                .map(|record| {
+                    let signature = record.signature.as_slice().try_into().unwrap();
+                    let allocation_id = Address::from_str(&record.allocation_id).unwrap();
+                    let timestamp_ns = record.timestamp_ns.to_u64().unwrap();
+                    let nonce = record.nonce.to_u64().unwrap();
+                    // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
+                    // So we're converting to BigInt to get a proper implementation of to_u128().
+                    let value = record
+                        .value
+                        .to_bigint()
+                        .map(|v| v.to_u128())
+                        .unwrap()
+                        .unwrap();
 
-                let signed_receipt = SignedReceipt {
-                    message: Receipt {
-                        allocation_id,
-                        timestamp_ns,
-                        nonce,
-                        value,
-                    },
-                    signature,
-                };
-                signed_receipt.unique_id()
-            })
-            .collect();
+                    let signed_receipt = SignedReceipt {
+                        message: Receipt {
+                            allocation_id,
+                            timestamp_ns,
+                            nonce,
+                            value,
+                        },
+                        signature,
+                    };
+                    signed_receipt.unique_id()
+                })
+                .collect();
 
-        // Check values recovered_received_receipt_set contains values received_receipt_vec
-        assert!(received_receipt_vec.iter().all(|(_, received_receipt)| {
-            recovered_received_receipt_set.contains(&received_receipt.signed_receipt().unique_id())
-        }));
+            // Check values recovered_received_receipt_set contains values received_receipt_vec
+            assert!(received_receipt_vec.iter().all(|(_, received_receipt)| {
+                recovered_received_receipt_set
+                    .contains(&received_receipt.signed_receipt().unique_id())
+            }));
 
-        // Removing all the receipts in the DB
-        sqlx::query!(
-            r#"
+            // Removing all the receipts in the DB
+            sqlx::query!(
+                r#"
                 DELETE FROM scalar_tap_receipts
             "#
-        )
-        .execute(&storage_adapter.pgpool)
-        .await?;
+            )
+            .execute(&storage_adapter.pgpool)
+            .await?;
 
-        // Checking that there are no receipts left
-        let scalar_tap_receipts_db_count: i64 = sqlx::query!(
-            r#"
+            // Checking that there are no receipts left
+            let scalar_tap_receipts_db_count: i64 = sqlx::query!(
+                r#"
                 SELECT count(*)
                 FROM scalar_tap_receipts
             "#
-        )
-        .fetch_one(&storage_adapter.pgpool)
-        .await?
-        .count
-        .unwrap();
-        assert_eq!(scalar_tap_receipts_db_count, 0);
-        Ok(())
+            )
+            .fetch_one(&storage_adapter.pgpool)
+            .await?
+            .count
+            .unwrap();
+            assert_eq!(scalar_tap_receipts_db_count, 0);
+            Ok(())
+        }
     }
 
+    #[rstest]
+    #[case(legacy_adapter(_pgpool.clone(), _escrow.clone()))]
+    #[case(horizon_adapter(_pgpool.clone(), _escrow.clone()))]
     #[sqlx::test(migrations = "../../migrations")]
-    async fn retrieve_receipts_with_limit(pgpool: PgPool) {
-        let escrow_accounts = watch::channel(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(1000))]),
-            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ))
-        .1;
-
-        let storage_adapter = TapAgentContext::<Legacy>::new(
-            pgpool.clone(),
-            ALLOCATION_ID_0,
-            SENDER.1,
-            escrow_accounts.clone(),
-        );
-
+    async fn retrieve_receipts_with_limit<T>(
+        #[ignore] _pgpool: PgPool,
+        #[from(escrow_accounts)] _escrow: Receiver<EscrowAccounts>,
+        #[case]
+        #[future(awt)]
+        context: TapAgentContext<T>,
+    ) where
+        T: CreateReceipt,
+        TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
+    {
         // Creating 100 receipts with timestamps 42 to 141
         for i in 0..100 {
-            let receipt = create_received_receipt(
-                &ALLOCATION_ID_0,
+            let receipt = T::create_received_receipt(
+                ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
                 (i + 124).into(),
             );
-            store_receipt(&pgpool, receipt.signed_receipt())
+            store_receipt(&context.pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
         }
 
-        let recovered_received_receipt_vec = storage_adapter
+        let recovered_received_receipt_vec = context
             .retrieve_receipts_in_timestamp_range(0..141, Some(10))
             .await
             .unwrap();
         assert_eq!(recovered_received_receipt_vec.len(), 10);
 
-        let recovered_received_receipt_vec = storage_adapter
+        let recovered_received_receipt_vec = context
             .retrieve_receipts_in_timestamp_range(0..141, Some(50))
             .await
             .unwrap();
@@ -531,51 +863,50 @@ mod test {
 
         // add a copy in the same timestamp
         for i in 0..100 {
-            let receipt = create_received_receipt(
-                &ALLOCATION_ID_0,
+            let receipt = T::create_received_receipt(
+                ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
                 i + 43,
                 (i + 124).into(),
             );
-            store_receipt(&pgpool, receipt.signed_receipt())
+            store_receipt(&context.pgpool, receipt.signed_receipt())
                 .await
                 .unwrap();
         }
 
-        let recovered_received_receipt_vec = storage_adapter
+        let recovered_received_receipt_vec = context
             .retrieve_receipts_in_timestamp_range(0..141, Some(10))
             .await
             .unwrap();
         assert_eq!(recovered_received_receipt_vec.len(), 9);
 
-        let recovered_received_receipt_vec = storage_adapter
+        let recovered_received_receipt_vec = context
             .retrieve_receipts_in_timestamp_range(0..141, Some(50))
             .await
             .unwrap();
         assert_eq!(recovered_received_receipt_vec.len(), 49);
     }
 
+    #[rstest]
+    #[case(legacy_adapter(pgpool.clone(), escrow_accounts.clone()))]
+    #[case(horizon_adapter(pgpool.clone(), escrow_accounts.clone()))]
     #[sqlx::test(migrations = "../../migrations")]
-    async fn retrieve_receipts_in_timestamp_range(pgpool: PgPool) {
-        let escrow_accounts = watch::channel(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(1000))]),
-            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ))
-        .1;
-
-        let storage_adapter = TapAgentContext::<Legacy>::new(
-            pgpool.clone(),
-            ALLOCATION_ID_0,
-            SENDER.1,
-            escrow_accounts.clone(),
-        );
-
+    async fn retrieve_receipts_in_timestamp_range<T>(
+        #[ignore] pgpool: PgPool,
+        #[from(escrow_accounts)] escrow_accounts: Receiver<EscrowAccounts>,
+        #[case]
+        #[future(awt)]
+        context: TapAgentContext<T>,
+    ) where
+        T: CreateReceipt,
+        TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
+    {
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();
         for i in 0..10 {
-            received_receipt_vec.push(create_received_receipt(
-                &ALLOCATION_ID_0,
+            received_receipt_vec.push(T::create_received_receipt(
+                ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
@@ -583,15 +914,15 @@ mod test {
             ));
 
             // Adding irrelevant receipts to make sure they are not retrieved
-            received_receipt_vec.push(create_received_receipt(
-                &ALLOCATION_ID_IRRELEVANT,
+            received_receipt_vec.push(T::create_received_receipt(
+                ALLOCATION_ID_IRRELEVANT,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
                 (i + 124).into(),
             ));
-            received_receipt_vec.push(create_received_receipt(
-                &ALLOCATION_ID_0,
+            received_receipt_vec.push(T::create_received_receipt(
+                ALLOCATION_ID_0,
                 &SENDER_IRRELEVANT.0,
                 i + 684,
                 i + 42,
@@ -616,7 +947,7 @@ mod test {
                 {
                     $(
                         assert!(
-                        retrieve_range_and_check(&storage_adapter, escrow_accounts.clone(), &received_receipt_vec, $arg)
+                        retrieve_range_and_check(&context, escrow_accounts.clone(), &received_receipt_vec, $arg)
                             .await
                             .is_ok());
                     )+
@@ -684,26 +1015,25 @@ mod test {
         }
     }
 
+    #[rstest]
+    #[case(legacy_adapter(_pgpool.clone(), escrow_accounts.clone()))]
+    #[case(horizon_adapter(_pgpool.clone(), escrow_accounts.clone()))]
     #[sqlx::test(migrations = "../../migrations")]
-    async fn remove_receipts_in_timestamp_range(pgpool: PgPool) {
-        let escrow_accounts = watch::channel(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(1000))]),
-            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ))
-        .1;
-
-        let storage_adapter = TapAgentContext::<Legacy>::new(
-            pgpool,
-            ALLOCATION_ID_0,
-            SENDER.1,
-            escrow_accounts.clone(),
-        );
-
+    async fn remove_receipts_in_timestamp_range<T>(
+        #[ignore] _pgpool: PgPool,
+        #[from(escrow_accounts)] escrow_accounts: Receiver<EscrowAccounts>,
+        #[case]
+        #[future(awt)]
+        context: TapAgentContext<T>,
+    ) where
+        T: CreateReceipt + RemoveRange,
+        TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
+    {
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();
         for i in 0..10 {
-            received_receipt_vec.push(create_received_receipt(
-                &ALLOCATION_ID_0,
+            received_receipt_vec.push(T::create_received_receipt(
+                ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
@@ -711,15 +1041,15 @@ mod test {
             ));
 
             // Adding irrelevant receipts to make sure they are not retrieved
-            received_receipt_vec.push(create_received_receipt(
-                &ALLOCATION_ID_IRRELEVANT,
+            received_receipt_vec.push(T::create_received_receipt(
+                ALLOCATION_ID_IRRELEVANT,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
                 (i + 124).into(),
             ));
-            received_receipt_vec.push(create_received_receipt(
-                &ALLOCATION_ID_0,
+            received_receipt_vec.push(T::create_received_receipt(
+                ALLOCATION_ID_0,
                 &SENDER_IRRELEVANT.0,
                 i + 684,
                 i + 42,
@@ -732,7 +1062,7 @@ mod test {
                 {
                     $(
                         assert!(
-                            remove_range_and_check(&storage_adapter, escrow_accounts.clone(), &received_receipt_vec, $arg)
+                            T::remove_range_and_check(&context, escrow_accounts.clone(), &received_receipt_vec, $arg)
                             .await.is_ok()
                         );
                     ) +

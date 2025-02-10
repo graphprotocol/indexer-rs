@@ -178,7 +178,7 @@ mod test {
     use tokio::sync::watch;
 
     use super::*;
-    use crate::test::{create_rav, ALLOCATION_ID_0};
+    use crate::test::{create_rav, ALLOCATION_ID_0, INDEXER};
 
     #[derive(Debug)]
     struct TestableRav(SignedRav);
@@ -199,6 +199,7 @@ mod test {
         let context = TapAgentContext::new(
             pool.clone(),
             ALLOCATION_ID_0,
+            INDEXER.1,
             SENDER.1,
             watch::channel(EscrowAccounts::default()).1,
         );
