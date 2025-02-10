@@ -329,6 +329,8 @@ pub struct SenderAccountConfig {
     pub max_amount_willing_to_lose_grt: u128,
     /// What value triggers a new Rav request
     pub trigger_value: u128,
+    /// Set of sender addresses that will not be added to the denylist
+    pub trusted_senders: HashSet<Address>,
 
     // allocation config
     /// Timeout config for rav requests
@@ -355,6 +357,7 @@ impl SenderAccountConfig {
             escrow_polling_interval: config.subgraphs.escrow.config.syncing_interval_secs,
             max_amount_willing_to_lose_grt: config.tap.max_amount_willing_to_lose_grt.get_value(),
             trigger_value: config.tap.get_trigger_value(),
+            trusted_senders: config.tap.trusted_senders.iter().copied().collect(),
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
             tap_sender_timeout: config.tap.sender_timeout_secs,
         }
@@ -549,6 +552,17 @@ impl State {
 
     /// Will update [`State::denied`], as well as the denylist table in the database.
     async fn add_to_denylist(&mut self) {
+        if self.config.trusted_senders.contains(&self.sender) {
+            tracing::warn!(
+                fee_tracker = self.sender_fee_tracker.get_total_fee(),
+                rav_tracker = self.rav_tracker.get_total_fee(),
+                max_amount_willing_to_lose = self.config.max_amount_willing_to_lose_grt,
+                sender_balance = self.sender_balance.to_u128(),
+                "Trusted sender would be denied."
+            );
+            return;
+        }
+
         tracing::warn!(
             fee_tracker = self.sender_fee_tracker.get_total_fee(),
             rav_tracker = self.rav_tracker.get_total_fee(),
