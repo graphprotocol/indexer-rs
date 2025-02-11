@@ -235,7 +235,8 @@ pub async fn create_sender_accounts_manager(
         domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
         pgpool,
         indexer_allocations: allocations_rx,
-        escrow_accounts: escrow_accounts_rx,
+        escrow_accounts_v1: escrow_accounts_rx.clone(),
+        escrow_accounts_v2: escrow_accounts_rx,
         escrow_subgraph,
         network_subgraph,
         sender_aggregator_endpoints: HashMap::from([

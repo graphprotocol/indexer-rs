@@ -15,6 +15,7 @@ pub use crate::{
     deployment_to_allocation::{deployment_to_allocation, DeploymentToAllocationWatcher},
     dispute_manager::{dispute_manager, DisputeManagerWatcher},
     escrow_accounts::{
-        escrow_accounts, EscrowAccounts, EscrowAccountsError, EscrowAccountsWatcher,
+        escrow_accounts, escrow_accounts_v2, EscrowAccounts, EscrowAccountsError,
+        EscrowAccountsWatcher,
     },
 };

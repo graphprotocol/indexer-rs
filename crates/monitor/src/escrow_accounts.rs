@@ -95,12 +95,33 @@ pub async fn escrow_accounts(
     reject_thawing_signers: bool,
 ) -> Result<EscrowAccountsWatcher, anyhow::Error> {
     indexer_watcher::new_watcher(interval, move || {
-        get_escrow_accounts(escrow_subgraph, indexer_address, reject_thawing_signers)
+        get_escrow_accounts_v1(escrow_subgraph, indexer_address, reject_thawing_signers)
     })
     .await
 }
 
-async fn get_escrow_accounts(
+pub async fn escrow_accounts_v2(
+    escrow_subgraph: &'static SubgraphClient,
+    indexer_address: Address,
+    interval: Duration,
+    reject_thawing_signers: bool,
+) -> Result<EscrowAccountsWatcher, anyhow::Error> {
+    indexer_watcher::new_watcher(interval, move || {
+        get_escrow_accounts_v2(escrow_subgraph, indexer_address, reject_thawing_signers)
+    })
+    .await
+}
+
+// TODO implement escrow accounts v2 query
+async fn get_escrow_accounts_v2(
+    _escrow_subgraph: &'static SubgraphClient,
+    _indexer_address: Address,
+    _reject_thawing_signers: bool,
+) -> anyhow::Result<EscrowAccounts> {
+    Ok(EscrowAccounts::new(HashMap::new(), HashMap::new()))
+}
+
+async fn get_escrow_accounts_v1(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     reject_thawing_signers: bool,

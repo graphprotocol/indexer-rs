@@ -67,7 +67,7 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
         .await;
 
     actor
-        .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
+        .cast(SenderAccountsManagerMessage::UpdateSenderAccountsV1(
             vec![SENDER.1].into_iter().collect(),
         ))
         .unwrap();
@@ -124,7 +124,7 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
 
     // this calls and closes acounts manager sender accounts
     actor
-        .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
+        .cast(SenderAccountsManagerMessage::UpdateSenderAccountsV1(
             HashSet::new(),
         ))
         .unwrap();
