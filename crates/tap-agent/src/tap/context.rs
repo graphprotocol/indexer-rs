@@ -70,6 +70,7 @@ pub trait NetworkVersion: Send + Sync + 'static {
 ///
 /// A simple `struct Legacy;` would be able to instantiate and pass as
 /// value, while having size 1.
+#[derive(Debug)]
 pub enum Legacy {}
 /// 0-sized marker for horizon network
 ///
@@ -79,6 +80,7 @@ pub enum Legacy {}
 ///
 /// A simple `struct Legacy;` would be able to instantiate and pass as
 /// value, while having size 1.
+#[derive(Debug)]
 pub enum Horizon {}
 
 impl NetworkVersion for Legacy {

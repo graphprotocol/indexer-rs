@@ -24,7 +24,7 @@ use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, ReceiptAggregateVoucher, SignedRav, SignedReceipt};
 use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
 use thegraph_core::alloy::{
-    primitives::{hex::ToHexExt, Address, U256},
+    primitives::{hex::ToHexExt, Address, Bytes, U256},
     signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     sol_types::Eip712Domain,
 };
@@ -48,7 +48,7 @@ use crate::{
         },
     },
     tap::{
-        context::{AdapterError, Horizon, Legacy},
+        context::{AdapterError, Horizon, Legacy, NetworkVersion},
         CheckingReceipt,
     },
 };
@@ -88,7 +88,6 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
         rav_request_buffer: RAV_REQUEST_BUFFER,
         max_amount_willing_to_lose_grt: TRIGGER_VALUE + 100,
         trigger_value: TRIGGER_VALUE,
-        trusted_senders: Default::default(),
         rav_request_timeout: Duration::from_secs(30),
         rav_request_receipt_limit: 1000,
         indexer_address: INDEXER.1,
@@ -118,7 +117,6 @@ pub async fn create_sender_account(
         rav_request_buffer: BUFFER_DURATION,
         max_amount_willing_to_lose_grt,
         trigger_value: rav_request_trigger_value,
-        trusted_senders: Default::default(),
         rav_request_timeout: RAV_REQUEST_TIMEOUT,
         rav_request_receipt_limit,
         indexer_address: INDEXER.1,
@@ -247,6 +245,41 @@ pub async fn create_sender_accounts_manager(
     )
 }
 
+/// Generic implementation of create_rav
+pub trait CreateRav: NetworkVersion {
+    /// This might seem weird at first glance since [Horizon] and [Legacy] implementation have the same
+    /// function signature and don't require &self. The reason is that we can not match over T to get
+    /// all variants because T is a trait and not an enum.
+    fn create_rav(
+        allocation_id: Address,
+        signer_wallet: PrivateKeySigner,
+        timestamp_ns: u64,
+        value_aggregate: u128,
+    ) -> Eip712SignedMessage<Self::Rav>;
+}
+
+impl CreateRav for Legacy {
+    fn create_rav(
+        allocation_id: Address,
+        signer_wallet: PrivateKeySigner,
+        timestamp_ns: u64,
+        value_aggregate: u128,
+    ) -> Eip712SignedMessage<Self::Rav> {
+        create_rav(allocation_id, signer_wallet, timestamp_ns, value_aggregate)
+    }
+}
+
+impl CreateRav for Horizon {
+    fn create_rav(
+        allocation_id: Address,
+        signer_wallet: PrivateKeySigner,
+        timestamp_ns: u64,
+        value_aggregate: u128,
+    ) -> Eip712SignedMessage<Self::Rav> {
+        create_rav_v2(allocation_id, signer_wallet, timestamp_ns, value_aggregate)
+    }
+}
+
 /// Fixture to generate a RAV using the wallet from `keys()`
 pub fn create_rav(
     allocation_id: Address,
@@ -260,6 +293,29 @@ pub fn create_rav(
             allocationId: allocation_id,
             timestampNs: timestamp_ns,
             valueAggregate: value_aggregate,
+        },
+        &signer_wallet,
+    )
+    .unwrap()
+}
+
+/// Fixture to generate a RAV using the wallet from `keys()`
+pub fn create_rav_v2(
+    allocation_id: Address,
+    signer_wallet: PrivateKeySigner,
+    timestamp_ns: u64,
+    value_aggregate: u128,
+) -> tap_graph::v2::SignedRav {
+    Eip712SignedMessage::new(
+        &TAP_EIP712_DOMAIN_SEPARATOR,
+        tap_graph::v2::ReceiptAggregateVoucher {
+            allocationId: allocation_id,
+            timestampNs: timestamp_ns,
+            valueAggregate: value_aggregate,
+            payer: SENDER.1,
+            dataService: Address::ZERO,
+            serviceProvider: INDEXER.1,
+            metadata: Bytes::new(),
         },
         &signer_wallet,
     )

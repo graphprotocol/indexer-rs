@@ -82,7 +82,6 @@ pub async fn start_agent(
         rav_request_buffer: Duration::from_millis(500),
         max_amount_willing_to_lose_grt: 50,
         trigger_value: 150,
-        trusted_senders: Default::default(),
         rav_request_timeout: Duration::from_secs(60),
         rav_request_receipt_limit: 10,
         indexer_address: INDEXER_ADDRESS,
