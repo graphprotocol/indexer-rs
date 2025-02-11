@@ -64,7 +64,7 @@ lazy_static! {
 pub const TRIGGER_VALUE: u128 = 500;
 pub const RECEIPT_LIMIT: u64 = 10000;
 pub const DUMMY_URL: &str = "http://localhost:1234";
-const ESCROW_VALUE: u128 = 1000;
+pub const ESCROW_VALUE: u128 = 1000;
 const BUFFER_DURATION: Duration = Duration::from_millis(100);
 const RETRY_DURATION: Duration = Duration::from_millis(1000);
 const RAV_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
@@ -93,6 +93,7 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
         indexer_address: INDEXER.1,
         escrow_polling_interval: ESCROW_POLLING_INTERVAL,
         tap_sender_timeout: Duration::from_secs(63),
+        trusted_senders: HashSet::new(),
     }))
 }
 
@@ -107,12 +108,18 @@ pub async fn create_sender_account(
     network_subgraph_endpoint: Option<&str>,
     #[builder(default = RECEIPT_LIMIT)] rav_request_receipt_limit: u64,
     aggregator_endpoint: Option<Url>,
+    #[builder(default = false)] trusted_sender: bool,
 ) -> (
     ActorRef<SenderAccountMessage>,
     Arc<Notify>,
     String,
     Sender<EscrowAccounts>,
 ) {
+    let trusted_senders = if trusted_sender {
+        HashSet::from([SENDER.1])
+    } else {
+        HashSet::new()
+    };
     let config = Box::leak(Box::new(SenderAccountConfig {
         rav_request_buffer: BUFFER_DURATION,
         max_amount_willing_to_lose_grt,
@@ -122,6 +129,7 @@ pub async fn create_sender_account(
         indexer_address: INDEXER.1,
         escrow_polling_interval: Duration::default(),
         tap_sender_timeout: TAP_SENDER_TIMEOUT,
+        trusted_senders,
     }));
 
     let network_subgraph = Box::leak(Box::new(

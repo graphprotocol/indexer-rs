@@ -373,6 +373,7 @@ mod test {
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
+    use rand::{distr::Alphanumeric, Rng};
     use thegraph_core::alloy::{
         primitives::{Address, FixedBytes, U256},
         signers::local::PrivateKeySigner,
@@ -386,8 +387,6 @@ mod test {
         price::PriceCalculator, CancellationRequest, DipsError, IndexingAgreementVoucher,
         SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
     };
-    use rand::distr::Alphanumeric;
-    use rand::Rng;
 
     #[tokio::test]
     async fn test_validate_and_create_agreement() -> anyhow::Result<()> {
