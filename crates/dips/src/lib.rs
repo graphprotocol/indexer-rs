@@ -3,14 +3,18 @@
 
 use std::{str::FromStr, sync::Arc};
 
+use ipfs::IpfsFetcher;
+use price::PriceCalculator;
 use thegraph_core::alloy::{
     core::primitives::Address,
-    primitives::{b256, ChainId, PrimitiveSignature as Signature, B256},
+    primitives::{b256, ChainId, PrimitiveSignature as Signature, Uint, B256},
     signers::SignerSync,
     sol,
     sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
 };
 
+pub mod ipfs;
+pub mod price;
 pub mod proto;
 pub mod server;
 pub mod store;
@@ -131,6 +135,14 @@ pub enum DipsError {
     PayerNotAuthorised(Address),
     #[error("voucher payee {actual} does not match the expected address {expected}")]
     UnexpectedPayee { expected: Address, actual: Address },
+    #[error("invalid subgraph id {0}")]
+    InvalidSubgraphManifest(String),
+    #[error("voucher for chain id {0}, subgraph manifest has network {1}")]
+    SubgraphChainIdMistmatch(String, String),
+    #[error("chainId {0} is not supported")]
+    UnsupportedChainId(String),
+    #[error("price per block is below configured price for chain {0}, minimum: {1}, offered: {2}")]
+    PricePerBlockTooLow(String, u64, String),
     // cancellation
     #[error("cancelled_by is expected to match the signer")]
     UnexpectedSigner,
@@ -276,6 +288,8 @@ pub async fn validate_and_create_agreement(
     expected_payee: &Address,
     allowed_payers: impl AsRef<[Address]>,
     voucher: Vec<u8>,
+    price_calculator: &PriceCalculator,
+    ipfs_client: Arc<dyn IpfsFetcher>,
 ) -> Result<Uuid, DipsError> {
     let decoded_voucher = SignedIndexingAgreementVoucher::abi_decode(voucher.as_ref(), true)
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
@@ -286,6 +300,35 @@ pub async fn validate_and_create_agreement(
     .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
     decoded_voucher.validate(domain, expected_payee, allowed_payers)?;
+
+    let manifest = ipfs_client.fetch(&metadata.subgraphDeploymentId).await?;
+    match manifest.network() {
+        Some(chain_id) if chain_id == metadata.chainId => {}
+        Some(chain_id) => {
+            return Err(DipsError::SubgraphChainIdMistmatch(
+                metadata.chainId,
+                chain_id,
+            ))
+        }
+        None => return Err(DipsError::UnsupportedChainId("".to_string())),
+    }
+
+    let chain_id = manifest
+        .network()
+        .ok_or_else(|| DipsError::UnsupportedChainId("".to_string()))?;
+
+    let offered_price = metadata.pricePerEntity;
+    match price_calculator.get_minimum_price(&chain_id) {
+        Some(price) if offered_price.lt(&Uint::from(price)) => {
+            return Err(DipsError::PricePerBlockTooLow(
+                chain_id,
+                price,
+                offered_price.to_string(),
+            ))
+        }
+        Some(_) => {}
+        None => return Err(DipsError::UnsupportedChainId(chain_id)),
+    }
 
     store
         .create_agreement(decoded_voucher.clone(), metadata)
@@ -333,15 +376,18 @@ mod test {
     use thegraph_core::alloy::{
         primitives::{Address, FixedBytes, U256},
         signers::local::PrivateKeySigner,
-        sol_types::SolValue,
+        sol_types::{Eip712Domain, SolValue},
     };
     use uuid::Uuid;
 
     pub use crate::store::{AgreementStore, InMemoryAgreementStore};
     use crate::{
-        dips_agreement_eip712_domain, dips_cancellation_eip712_domain, CancellationRequest,
-        DipsError, IndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
+        dips_agreement_eip712_domain, dips_cancellation_eip712_domain, ipfs::TestIpfsClient,
+        price::PriceCalculator, CancellationRequest, DipsError, IndexingAgreementVoucher,
+        SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
     };
+    use rand::distr::Alphanumeric;
+    use rand::Rng;
 
     #[tokio::test]
     async fn test_validate_and_create_agreement() -> anyhow::Result<()> {
@@ -355,7 +401,7 @@ mod test {
             basePricePerEpoch: U256::from(10000_u64),
             pricePerEntity: U256::from(100_u64),
             protocolNetwork: "eip155:42161".to_string(),
-            chainId: "eip155:1".to_string(),
+            chainId: "mainnet".to_string(),
             subgraphDeploymentId: deployment_id,
         };
 
@@ -386,6 +432,8 @@ mod test {
             &payee_addr,
             vec![payer_addr],
             abi_voucher,
+            &PriceCalculator::for_testing(),
+            Arc::new(TestIpfsClient::mainnet()),
         )
         .await
         .unwrap();
@@ -530,13 +578,60 @@ mod test {
             }
         }
     }
+    struct VoucherContext {
+        payee: PrivateKeySigner,
+        payer: PrivateKeySigner,
+        deployment_id: String,
+    }
+
+    impl VoucherContext {
+        pub fn random() -> Self {
+            Self {
+                payee: PrivateKeySigner::random(),
+                payer: PrivateKeySigner::random(),
+                deployment_id: rand::rng()
+                    .sample_iter(&Alphanumeric)
+                    .take(32)
+                    .map(char::from)
+                    .collect(),
+            }
+        }
+        pub fn domain(&self) -> Eip712Domain {
+            dips_agreement_eip712_domain()
+        }
+
+        pub fn test_voucher(
+            &self,
+            metadata: SubgraphIndexingVoucherMetadata,
+        ) -> SignedIndexingAgreementVoucher {
+            let agreement_id = Uuid::now_v7();
+
+            let domain = dips_agreement_eip712_domain();
+
+            let voucher = IndexingAgreementVoucher {
+                agreement_id: agreement_id.as_bytes().into(),
+                payer: self.payer.address(),
+                recipient: self.payee.address(),
+                service: Address::ZERO,
+                durationEpochs: 100,
+                maxInitialAmount: U256::from(1000000_u64),
+                maxOngoingAmountPerEpoch: U256::from(10000_u64),
+                minEpochsPerCollection: 1,
+                maxEpochsPerCollection: 10,
+                deadline: (SystemTime::now() + Duration::from_secs(3600))
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                metadata: metadata.abi_encode().into(),
+            };
+
+            voucher.sign(&domain, self.payer.clone()).unwrap()
+        }
+    }
+
     #[tokio::test]
     async fn test_create_and_cancel_agreement() -> anyhow::Result<()> {
-        let deployment_id = "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f".to_string();
-        let payee = PrivateKeySigner::random();
-        let payee_addr = payee.address();
-        let payer = PrivateKeySigner::random();
-        let payer_addr = payer.address();
+        let voucher_ctx = VoucherContext::random();
         let store = Arc::new(InMemoryAgreementStore::default());
 
         // Create metadata and voucher
@@ -544,37 +639,20 @@ mod test {
             basePricePerEpoch: U256::from(10000_u64),
             pricePerEntity: U256::from(100_u64),
             protocolNetwork: "eip155:42161".to_string(),
-            chainId: "eip155:1".to_string(),
-            subgraphDeploymentId: deployment_id,
+            chainId: "mainnet".to_string(),
+            subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
         };
-
-        let agreement_id = Uuid::now_v7();
-        let voucher = IndexingAgreementVoucher {
-            agreement_id: agreement_id.as_bytes().into(),
-            payer: payer_addr,
-            recipient: payee_addr,
-            service: Address::ZERO,
-            durationEpochs: 100,
-            maxInitialAmount: U256::from(1000000_u64),
-            maxOngoingAmountPerEpoch: U256::from(10000_u64),
-            minEpochsPerCollection: 1,
-            maxEpochsPerCollection: 10,
-            deadline: (SystemTime::now() + Duration::from_secs(3600))
-                .duration_since(UNIX_EPOCH)?
-                .as_secs(),
-            metadata: metadata.abi_encode().into(),
-        };
-
-        let domain = dips_agreement_eip712_domain();
-        let signed_voucher = voucher.sign(&domain, payer.clone())?;
+        let signed_voucher = voucher_ctx.test_voucher(metadata);
 
         // Create agreement
         let agreement_id = super::validate_and_create_agreement(
             store.clone(),
-            &domain,
-            &payee_addr,
-            vec![payer_addr],
+            &voucher_ctx.domain(),
+            &voucher_ctx.payee.address(),
+            vec![voucher_ctx.payer.address()],
             signed_voucher.encode_vec(),
+            &PriceCalculator::for_testing(),
+            Arc::new(TestIpfsClient::mainnet()),
         )
         .await?;
 
@@ -583,7 +661,7 @@ mod test {
         let cancel_request = CancellationRequest {
             agreement_id: agreement_id.as_bytes().into(),
         };
-        let signed_cancel = cancel_request.sign(&cancel_domain, payer)?;
+        let signed_cancel = cancel_request.sign(&cancel_domain, voucher_ctx.payer)?;
 
         // Cancel agreement
         let cancelled_id = super::validate_and_cancel_agreement(
@@ -599,6 +677,81 @@ mod test {
         let result = store.get_by_id(agreement_id).await?;
         let (_, cancelled) = result.ok_or(DipsError::AgreementNotFound)?;
         assert!(cancelled);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_create_validations_errors() -> anyhow::Result<()> {
+        let voucher_ctx = VoucherContext::random();
+        let store = Arc::new(InMemoryAgreementStore::default());
+
+        let metadata = SubgraphIndexingVoucherMetadata {
+            basePricePerEpoch: U256::from(10000_u64),
+            pricePerEntity: U256::from(100_u64),
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "mainnet2".to_string(),
+            subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
+        };
+
+        let wrong_network_voucher = voucher_ctx.test_voucher(metadata);
+
+        let metadata = SubgraphIndexingVoucherMetadata {
+            basePricePerEpoch: U256::from(10000_u64),
+            pricePerEntity: U256::from(10_u64),
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "mainnet".to_string(),
+            subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
+        };
+
+        let low_price_voucher = voucher_ctx.test_voucher(metadata);
+
+        let metadata = SubgraphIndexingVoucherMetadata {
+            basePricePerEpoch: U256::from(10000_u64),
+            pricePerEntity: U256::from(100_u64),
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "mainnet".to_string(),
+            subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
+        };
+
+        let valid_voucher = voucher_ctx.test_voucher(metadata);
+
+        let expected_result: Vec<Result<[u8; 16], DipsError>> = vec![
+            Err(DipsError::SubgraphChainIdMistmatch(
+                "mainnet2".to_string(),
+                "mainnet".to_string(),
+            )),
+            Err(DipsError::PricePerBlockTooLow(
+                "mainnet".to_string(),
+                100,
+                "10".to_string(),
+            )),
+            Ok(valid_voucher
+                .voucher
+                .agreement_id
+                .as_slice()
+                .try_into()
+                .unwrap()),
+        ];
+        let cases = vec![wrong_network_voucher, low_price_voucher, valid_voucher];
+        for (voucher, result) in cases.into_iter().zip(expected_result.into_iter()) {
+            let out = super::validate_and_create_agreement(
+                store.clone(),
+                &voucher_ctx.domain(),
+                &voucher_ctx.payee.address(),
+                vec![voucher_ctx.payer.address()],
+                voucher.encode_vec(),
+                &PriceCalculator::for_testing(),
+                Arc::new(TestIpfsClient::mainnet()),
+            )
+            .await;
+
+            match (out, result) {
+                (Ok(a), Ok(b)) => assert_eq!(a.into_bytes(), b),
+                (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string()),
+                (a, b) => panic!("{:?} did not match {:?}", a, b),
+            }
+        }
 
         Ok(())
     }

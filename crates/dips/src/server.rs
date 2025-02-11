@@ -4,10 +4,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use thegraph_core::alloy::{dyn_abi::Eip712Domain, primitives::Address};
+use thegraph_core::alloy::primitives::Address;
+use thegraph_core::alloy::sol_types::Eip712Domain;
 use tonic::{Request, Response, Status};
 
 use crate::{
+    ipfs::IpfsFetcher,
+    price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::{
         dips_service_server::DipsService, CancelAgreementRequest, CancelAgreementResponse,
         ProposalResponse, SubmitAgreementProposalRequest, SubmitAgreementProposalResponse,
@@ -22,6 +25,8 @@ pub struct DipsServer {
     pub expected_payee: Address,
     pub allowed_payers: Vec<Address>,
     pub domain: Eip712Domain,
+    pub ipfs_fetcher: Arc<dyn IpfsFetcher>,
+    pub price_calculator: PriceCalculator,
 }
 
 #[async_trait]
@@ -50,6 +55,8 @@ impl DipsService for DipsServer {
             &self.expected_payee,
             &self.allowed_payers,
             signed_voucher,
+            &self.price_calculator,
+            self.ipfs_fetcher.clone(),
         )
         .await
         .map_err(Into::<tonic::Status>::into)?;
