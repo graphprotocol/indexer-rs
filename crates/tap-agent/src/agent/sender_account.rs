@@ -317,6 +317,10 @@ pub struct State {
     // reset in case of a successful response
     backoff_info: BackoffInfo,
 
+    /// Allows the sender to go over escrow balance
+    /// limited to `max_amount_willing_to_lose_grt`
+    trusted_sender: bool,
+
     // Config forwarded to [SenderAllocation]
     config: &'static SenderAccountConfig,
 }
@@ -343,6 +347,9 @@ pub struct SenderAccountConfig {
     ///
     /// This is reached if the database is too slow
     pub tap_sender_timeout: Duration,
+    /// Senders that are allowed to spend up to `max_amount_willing_to_lose_grt`
+    /// over the escrow balance
+    pub trusted_senders: HashSet<Address>,
 }
 
 impl SenderAccountConfig {
@@ -357,6 +364,7 @@ impl SenderAccountConfig {
             trigger_value: config.tap.get_trigger_value(),
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
             tap_sender_timeout: config.tap.sender_timeout_secs,
+            trusted_senders: config.tap.trusted_senders.clone(),
         }
     }
 }
@@ -531,14 +539,22 @@ impl State {
     fn deny_condition_reached(&self) -> bool {
         let pending_ravs = self.rav_tracker.get_total_fee();
         let unaggregated_fees = self.sender_fee_tracker.get_total_fee();
-        let pending_fees_over_balance =
-            U256::from(pending_ravs + unaggregated_fees) >= self.sender_balance;
         let max_amount_willing_to_lose = self.config.max_amount_willing_to_lose_grt;
+
+        // if it's a trusted sender, allow to spend up to max_amount_willing_to_lose
+        let balance = if self.trusted_sender {
+            self.sender_balance + U256::from(max_amount_willing_to_lose)
+        } else {
+            self.sender_balance
+        };
+
+        let pending_fees_over_balance = U256::from(pending_ravs + unaggregated_fees) >= balance;
         let invalid_receipt_fees = self.invalid_receipts_tracker.get_total_fee();
         let total_fee_over_max_value =
             unaggregated_fees + invalid_receipt_fees >= max_amount_willing_to_lose;
 
         tracing::trace!(
+            trusted_sender = %self.trusted_sender,
             %pending_fees_over_balance,
             %total_fee_over_max_value,
             "Verifying if deny condition was reached.",
@@ -550,6 +566,7 @@ impl State {
     /// Will update [`State::denied`], as well as the denylist table in the database.
     async fn add_to_denylist(&mut self) {
         tracing::warn!(
+            trusted_sender = %self.trusted_sender,
             fee_tracker = self.sender_fee_tracker.get_total_fee(),
             rav_tracker = self.rav_tracker.get_total_fee(),
             max_amount_willing_to_lose = self.config.max_amount_willing_to_lose_grt,
@@ -841,6 +858,7 @@ impl Actor for SenderAccount {
             aggregator_v1,
             aggregator_v2,
             backoff_info: BackoffInfo::default(),
+            trusted_sender: config.trusted_senders.contains(&sender_id),
             config,
         };
 
@@ -1284,7 +1302,7 @@ pub mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use super::SenderAccountMessage;
+    use super::{RavInformation, SenderAccountMessage};
     use crate::{
         agent::{
             sender_account::ReceiptFees, sender_accounts_manager::AllocationId,
@@ -1294,7 +1312,7 @@ pub mod tests {
         assert_not_triggered, assert_triggered,
         test::{
             actors::{create_mock_sender_allocation, MockSenderAllocation},
-            create_rav, create_sender_account, store_rav_with_options, TRIGGER_VALUE,
+            create_rav, create_sender_account, store_rav_with_options, ESCROW_VALUE, TRIGGER_VALUE,
         },
     };
 
@@ -1343,7 +1361,6 @@ pub mod tests {
     }
 
     /// Prefix shared between tests so we don't have conflicts in the global registry
-    const ESCROW_VALUE: u128 = 1000;
     const BUFFER_DURATION: Duration = Duration::from_millis(100);
     const RETRY_DURATION: Duration = Duration::from_millis(1000);
 
@@ -1980,6 +1997,76 @@ pub mod tests {
         // should stay denied because the value was transfered to rav
         let deny = get_deny_status(&sender_account).await;
         assert!(deny);
+
+        allocation.stop_and_wait(None, None).await.unwrap();
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_trusted_sender(pgpool: PgPool) {
+        let max_amount_willing_to_lose_grt = ESCROW_VALUE / 10;
+        // initialize with no trigger value and no max receipt deny
+        let (sender_account, notify, prefix, _) = create_sender_account()
+            .pgpool(pgpool)
+            .trusted_sender(true)
+            .rav_request_trigger_value(u128::MAX)
+            .max_amount_willing_to_lose_grt(max_amount_willing_to_lose_grt)
+            .call()
+            .await;
+
+        let (mock_sender_allocation, _) =
+            MockSenderAllocation::new_with_next_rav_value(sender_account.clone());
+
+        let name = format!("{}:{}:{}", prefix, SENDER.1, ALLOCATION_ID_0);
+        let (allocation, _) = MockSenderAllocation::spawn(Some(name), mock_sender_allocation, ())
+            .await
+            .unwrap();
+
+        async fn get_deny_status(sender_account: &ActorRef<SenderAccountMessage>) -> bool {
+            call!(sender_account, SenderAccountMessage::GetDeny).unwrap()
+        }
+
+        macro_rules! update_receipt_fees {
+            ($value:expr) => {
+                sender_account
+                    .cast(SenderAccountMessage::UpdateRav(RavInformation {
+                        allocation_id: ALLOCATION_ID_0,
+                        value_aggregate: $value,
+                    }))
+                    .unwrap();
+
+                flush_messages(&notify).await;
+            };
+        }
+
+        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        assert!(!deny);
+
+        update_receipt_fees!(ESCROW_VALUE - 1);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(!deny, "it shouldn't deny a sender below escrow balance");
+
+        update_receipt_fees!(ESCROW_VALUE);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(
+            !deny,
+            "it shouldn't deny a trusted sender below escrow balance + max willing to lose"
+        );
+
+        update_receipt_fees!(ESCROW_VALUE + max_amount_willing_to_lose_grt - 1);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(
+            !deny,
+            "it shouldn't deny a trusted sender below escrow balance + max willing to lose"
+        );
+
+        update_receipt_fees!(ESCROW_VALUE + max_amount_willing_to_lose_grt);
+        let deny = get_deny_status(&sender_account).await;
+        assert!(
+            deny,
+            "it should deny a trusted sender over escrow balance + max willing to lose"
+        );
 
         allocation.stop_and_wait(None, None).await.unwrap();
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     env,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::PathBuf,
@@ -382,6 +382,11 @@ pub struct TapConfig {
     pub sender_timeout_secs: Duration,
 
     pub sender_aggregator_endpoints: HashMap<Address, Url>,
+
+    /// Senders that are allowed to spend up to `max_amount_willing_to_lose_grt`
+    /// over the escrow balance
+    #[serde(default)]
+    pub trusted_senders: HashSet<Address>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -431,11 +436,11 @@ pub struct RavRequestConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, fs, path::PathBuf, str::FromStr};
+    use std::{collections::HashSet, env, fs, path::PathBuf, str::FromStr};
 
     use figment::value::Uncased;
     use sealed_test::prelude::*;
-    use thegraph_core::alloy::primitives::{Address, FixedBytes};
+    use thegraph_core::alloy::primitives::{address, Address, FixedBytes};
     use tracing_test::traced_test;
 
     use super::{DatabaseConfig, SHARED_PREFIX};
@@ -458,6 +463,8 @@ mod tests {
             Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
+        max_config.tap.trusted_senders =
+            HashSet::from([address!("deadbeefcafebabedeadbeefcafebabedeadbeef")]);
         max_config.dips = Some(crate::DipsConfig {
             allowed_payers: vec![Address(
                 FixedBytes::<20>::from_str("0x3333333333333333333333333333333333333333").unwrap(),

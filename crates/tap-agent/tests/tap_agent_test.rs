@@ -1,7 +1,12 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use indexer_tap_agent::{
@@ -87,6 +92,7 @@ pub async fn start_agent(
         indexer_address: INDEXER_ADDRESS,
         escrow_polling_interval: Duration::from_secs(10),
         tap_sender_timeout: Duration::from_secs(30),
+        trusted_senders: HashSet::new(),
     }));
 
     let args = SenderAccountsManagerArgs {

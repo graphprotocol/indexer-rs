@@ -124,6 +124,11 @@ max_receipt_value_grt = "0.001" # 0.001 GRT. We use strings to prevent rounding 
 # max_amount_willing_to_lose_grt = "0.1"
 max_amount_willing_to_lose_grt = 20
 
+# List of Senders that are allowed to spend up to `max_amount_willing_to_lose_grt`
+# over the escrow balance
+trusted_senders = ["0xdeadbeefcafebabedeadbeefcafebabedeadbeef"]
+
+
 # Receipts query timeout
 sender_timeout_secs = 30
 
