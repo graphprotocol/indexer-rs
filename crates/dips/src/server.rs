@@ -4,8 +4,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use thegraph_core::alloy::primitives::Address;
-use thegraph_core::alloy::sol_types::Eip712Domain;
+use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
 use tonic::{Request, Response, Status};
 
 use crate::{

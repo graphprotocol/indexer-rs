@@ -45,19 +45,17 @@ pub async fn attestation_middleware(
     request: Request,
     next: Next,
 ) -> Result<Response, AttestationError> {
-    let signer = request
-        .extensions()
-        .get::<AttestationSigner>()
-        .cloned()
-        .ok_or(AttestationError::CouldNotFindSigner)?;
+    let signer = request.extensions().get::<AttestationSigner>().cloned();
 
     let (parts, graphql_response) = next.run(request).await.into_parts();
     let attestation_response = parts.extensions.get::<AttestationInput>();
     let bytes = to_bytes(graphql_response, usize::MAX).await?;
     let res = String::from_utf8(bytes.into())?;
 
-    let attestation = match attestation_response {
-        Some(AttestationInput::Attestable { req }) => Some(signer.create_attestation(req, &res)),
+    let attestation = match (signer, attestation_response) {
+        (Some(signer), Some(AttestationInput::Attestable { req })) => {
+            Some(signer.create_attestation(req, &res))
+        }
         _ => None,
     };
 
@@ -73,26 +71,22 @@ pub async fn attestation_middleware(
 
 #[derive(thiserror::Error, Debug)]
 pub enum AttestationError {
-    #[error("Could not find signer for allocation")]
-    CouldNotFindSigner,
-
     #[error("There was an AxumError: {0}")]
-    AxumError(#[from] axum::Error),
+    Axum(#[from] axum::Error),
 
     #[error("There was an error converting the response to UTF-8 string: {0}")]
-    FromUtf8Error(#[from] FromUtf8Error),
+    FromUtf8(#[from] FromUtf8Error),
 
     #[error("there was an error while serializing the response: {0}")]
-    SerializationError(#[from] serde_json::Error),
+    Serialization(#[from] serde_json::Error),
 }
 
 impl StatusCodeExt for AttestationError {
     fn status_code(&self) -> StatusCode {
         match self {
-            AttestationError::CouldNotFindSigner => StatusCode::INTERNAL_SERVER_ERROR,
-            AttestationError::AxumError(_)
-            | AttestationError::FromUtf8Error(_)
-            | AttestationError::SerializationError(_) => StatusCode::BAD_GATEWAY,
+            AttestationError::Axum(_)
+            | AttestationError::FromUtf8(_)
+            | AttestationError::Serialization(_) => StatusCode::BAD_GATEWAY,
         }
     }
 }
@@ -211,6 +205,6 @@ mod tests {
         let app = Router::new().route("/", get(handle)).layer(middleware);
 
         let res = send_request(app, None).await;
-        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(res.status(), StatusCode::OK);
     }
 }
