@@ -13,10 +13,10 @@ use indexer_tap_agent::{
         create_received_receipt, create_sender_accounts_manager, store_receipt, ALLOCATION_ID_0,
     },
 };
-use ractor::ActorRef;
+use ractor::{ActorRef, ActorStatus};
 use serde_json::json;
 use sqlx::PgPool;
-use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
+use test_assets::{assert_while_retry, flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
 use wiremock::{
     matchers::{body_string_contains, method},
     Mock, MockServer, ResponseTemplate,
@@ -74,9 +74,9 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
     flush_messages(&notify).await;
 
     // verify if create sender account
-    let actor_ref =
+    let sender_account_ref =
         ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix.clone(), SENDER.1));
-    assert!(actor_ref.is_some());
+    assert!(sender_account_ref.is_some());
 
     let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 10);
     store_receipt(&pgpool, receipt.signed_receipt())
@@ -84,7 +84,7 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
         .unwrap();
 
     // we expect it to create a sender allocation
-    actor_ref
+    sender_account_ref
         .clone()
         .unwrap()
         .cast(SenderAccountMessage::UpdateAllocationIds(
@@ -93,15 +93,28 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
                 .collect(),
         ))
         .unwrap();
-    flush_messages(&notify).await;
+
+    assert_while_retry!({
+        ActorRef::<SenderAllocationMessage>::where_is(format!(
+            "{}:{}:{}",
+            prefix, SENDER.1, ALLOCATION_ID_0,
+        ))
+        .is_none()
+    });
+    let allocation_ref = ActorRef::<SenderAllocationMessage>::where_is(format!(
+        "{}:{}:{}",
+        prefix, SENDER.1, ALLOCATION_ID_0,
+    ))
+    .unwrap();
 
     // try to delete sender allocation_id
-    actor_ref
+    sender_account_ref
         .clone()
         .unwrap()
         .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
         .unwrap();
-    flush_messages(&notify).await;
+    allocation_ref.wait(None).await.unwrap();
+    assert_eq!(allocation_ref.get_status(), ActorStatus::Stopped);
 
     assert!(ActorRef::<SenderAllocationMessage>::where_is(format!(
         "{}:{}:{}",
@@ -116,15 +129,14 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
         ))
         .unwrap();
 
-    flush_messages(&notify).await;
+    sender_account_ref.unwrap().wait(None).await.unwrap();
     // verify if it gets removed
     let actor_ref = ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER.1));
     assert!(actor_ref.is_none());
 
-    //verify the rav is marked as last
     let rav_marked_as_last = sqlx::query!(
         r#"
-            SELECT * FROM scalar_tap_ravs WHERE last = true;
+            SELECT * FROM scalar_tap_ravs WHERE last;
         "#,
     )
     .fetch_all(&pgpool)
