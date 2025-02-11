@@ -606,7 +606,104 @@ impl State {
     ///
     /// This loads horizon allocations
     async fn get_pending_sender_allocation_id_v2(&self) -> HashMap<Address, HashSet<AllocationId>> {
-        unimplemented!()
+        // First we accumulate all allocations for each sender. This is because we may have more
+        // than one signer per sender in DB.
+        let mut unfinalized_sender_allocations_map: HashMap<Address, HashSet<AllocationId>> =
+            HashMap::new();
+
+        let receipts_signer_allocations_in_db = sqlx::query!(
+            r#"
+                WITH grouped AS (
+                    SELECT signer_address, allocation_id
+                    FROM tap_horizon_receipts
+                    GROUP BY signer_address, allocation_id
+                )
+                SELECT DISTINCT
+                    signer_address,
+                    (
+                        SELECT ARRAY
+                        (
+                            SELECT DISTINCT allocation_id
+                            FROM grouped
+                            WHERE signer_address = top.signer_address
+                        )
+                    ) AS allocation_ids
+                FROM grouped AS top
+            "#
+        )
+        .fetch_all(&self.pgpool)
+        .await
+        .expect("should be able to fetch pending receipts from the database");
+
+        for row in receipts_signer_allocations_in_db {
+            let allocation_ids = row
+                .allocation_ids
+                .expect("all receipts should have an allocation_id")
+                .iter()
+                .map(|allocation_id| {
+                    AllocationId::Legacy(
+                        Address::from_str(allocation_id)
+                            .expect("allocation_id should be a valid address"),
+                    )
+                })
+                .collect::<HashSet<_>>();
+            let signer_id = Address::from_str(&row.signer_address)
+                .expect("signer_address should be a valid address");
+            let sender_id = self
+                .escrow_accounts_v1
+                .borrow()
+                .get_sender_for_signer(&signer_id)
+                .expect("should be able to get sender from signer");
+
+            // Accumulate allocations for the sender
+            unfinalized_sender_allocations_map
+                .entry(sender_id)
+                .or_default()
+                .extend(allocation_ids);
+        }
+
+        let nonfinal_ravs_sender_allocations_in_db = sqlx::query!(
+            r#"
+                SELECT DISTINCT
+                    sender_address,
+                    (
+                        SELECT ARRAY
+                        (
+                            SELECT DISTINCT allocation_id
+                            FROM tap_horizon_ravs
+                            WHERE sender_address = top.sender_address
+                            AND NOT last
+                        )
+                    ) AS allocation_id
+                FROM scalar_tap_ravs AS top
+            "#
+        )
+        .fetch_all(&self.pgpool)
+        .await
+        .expect("should be able to fetch unfinalized RAVs from the database");
+
+        for row in nonfinal_ravs_sender_allocations_in_db {
+            let allocation_ids = row
+                .allocation_id
+                .expect("all RAVs should have an allocation_id")
+                .iter()
+                .map(|allocation_id| {
+                    AllocationId::Legacy(
+                        Address::from_str(allocation_id)
+                            .expect("allocation_id should be a valid address"),
+                    )
+                })
+                .collect::<HashSet<_>>();
+            let sender_id = Address::from_str(&row.sender_address)
+                .expect("sender_address should be a valid address");
+
+            // Accumulate allocations for the sender
+            unfinalized_sender_allocations_map
+                .entry(sender_id)
+                .or_default()
+                .extend(allocation_ids);
+        }
+        unfinalized_sender_allocations_map
     }
 
     /// Helper function to create [SenderAccountArgs]
@@ -909,8 +1006,11 @@ mod tests {
         flush_messages(&notify).await;
 
         // verify if create sender account
-        let actor_ref =
-            ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix.clone(), SENDER.1));
+        let actor_ref = ActorRef::<SenderAccountMessage>::where_is(format!(
+            "{}:legacy:{}",
+            prefix.clone(),
+            SENDER.1
+        ));
         assert!(actor_ref.is_some());
 
         actor
@@ -946,7 +1046,7 @@ mod tests {
             .unwrap();
 
         let actor_ref =
-            ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER_2.1));
+            ActorRef::<SenderAccountMessage>::where_is(format!("{}:legacy:{}", prefix, SENDER_2.1));
         assert!(actor_ref.is_some());
     }
 

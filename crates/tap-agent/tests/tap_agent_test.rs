@@ -119,7 +119,7 @@ async fn test_start_tap_agent(pgpool: PgPool) {
     flush_messages(&notify).await;
 
     // verify if create sender account
-    let actor_ref = ActorRef::<SenderAccountMessage>::where_is(format!("{}", TAP_SENDER.1));
+    let actor_ref = ActorRef::<SenderAccountMessage>::where_is(format!("legacy:{}", TAP_SENDER.1));
 
     assert!(actor_ref.is_some());
 

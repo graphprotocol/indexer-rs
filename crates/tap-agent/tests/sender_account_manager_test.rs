@@ -74,8 +74,11 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
     flush_messages(&notify).await;
 
     // verify if create sender account
-    let sender_account_ref =
-        ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix.clone(), SENDER.1));
+    let sender_account_ref = ActorRef::<SenderAccountMessage>::where_is(format!(
+        "{}:legacy:{}",
+        prefix.clone(),
+        SENDER.1
+    ));
     assert!(sender_account_ref.is_some());
 
     let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 10);
