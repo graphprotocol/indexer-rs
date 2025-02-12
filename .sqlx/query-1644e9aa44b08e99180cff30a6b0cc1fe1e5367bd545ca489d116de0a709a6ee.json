@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                            SELECT allocation_id, value_aggregate\n                            FROM scalar_tap_ravs\n                            WHERE sender_address = $1 AND last AND NOT final;\n                        ",
+  "query": "\n                                    SELECT allocation_id, value_aggregate\n                                    FROM scalar_tap_ravs\n                                    WHERE sender_address = $1 AND last AND NOT final;\n                                ",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       false
     ]
   },
-  "hash": "b1d4dfcd202af310df032edc34d83dabb56d7b947b023ee3a8b32b24b07bcd18"
+  "hash": "1644e9aa44b08e99180cff30a6b0cc1fe1e5367bd545ca489d116de0a709a6ee"
 }

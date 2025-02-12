@@ -62,6 +62,6 @@ tempfile = "3.8.0"
 wiremock.workspace = true
 wiremock-grpc = "0.0.3-alpha3"
 test-assets = { path = "../test-assets" }
-test-log = { version = "0.2.12", default-features = false }
+test-log = { version = "0.2.12", features = ["trace"] }
 bon = "3.3"
 rstest = "0.24.0"

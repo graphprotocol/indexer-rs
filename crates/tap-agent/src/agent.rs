@@ -39,7 +39,9 @@ use indexer_config::{
     Config, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
     SubgraphConfig, SubgraphsConfig, TapConfig,
 };
-use indexer_monitor::{escrow_accounts, indexer_allocations, DeploymentDetails, SubgraphClient};
+use indexer_monitor::{
+    escrow_accounts, escrow_accounts_v2, indexer_allocations, DeploymentDetails, SubgraphClient,
+};
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use sender_account::SenderAccountConfig;
 use sender_accounts_manager::SenderAccountsManager;
@@ -154,7 +156,16 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         .await,
     ));
 
-    let escrow_accounts = escrow_accounts(
+    let escrow_accounts_v1 = escrow_accounts(
+        escrow_subgraph,
+        *indexer_address,
+        *escrow_sync_interval,
+        false,
+    )
+    .await
+    .expect("Error creating escrow_accounts channel");
+
+    let escrow_accounts_v2 = escrow_accounts_v2(
         escrow_subgraph,
         *indexer_address,
         *escrow_sync_interval,
@@ -170,7 +181,8 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         domain_separator: EIP_712_DOMAIN.clone(),
         pgpool,
         indexer_allocations,
-        escrow_accounts,
+        escrow_accounts_v1,
+        escrow_accounts_v2,
         escrow_subgraph,
         network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),

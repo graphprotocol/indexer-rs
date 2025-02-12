@@ -2664,6 +2664,8 @@ version = "0.11.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcaee3d8e3cfc3fd92428d477bc97fc29ec8716d180c0d74c643bb26166660e0"
 dependencies = [
+ "anstream",
+ "anstyle",
  "env_filter",
  "log",
 ]
@@ -7461,7 +7463,9 @@ version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3dffced63c2b5c7be278154d76b479f9f9920ed34e7574201407f0b14e2bbb93"
 dependencies = [
+ "env_logger",
  "test-log-macros",
+ "tracing-subscriber",
 ]
 
 [[package]]

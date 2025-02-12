@@ -100,7 +100,8 @@ pub async fn start_agent(
         domain_separator: TAP_EIP712_DOMAIN.clone(),
         pgpool,
         indexer_allocations: indexer_allocations1,
-        escrow_accounts,
+        escrow_accounts_v1: escrow_accounts.clone(),
+        escrow_accounts_v2: watch::channel(EscrowAccounts::default()).1,
         escrow_subgraph,
         network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
@@ -118,9 +119,11 @@ async fn test_start_tap_agent(pgpool: PgPool) {
     flush_messages(&notify).await;
 
     // verify if create sender account
-    let actor_ref = ActorRef::<SenderAccountMessage>::where_is(format!("{}", TAP_SENDER.1));
-
-    assert!(actor_ref.is_some());
+    assert_while_retry!(ActorRef::<SenderAccountMessage>::where_is(format!(
+        "legacy:{}",
+        TAP_SENDER.1
+    ))
+    .is_none());
 
     // Add batch receits to the database.
     const AMOUNT_OF_RECEIPTS: u64 = 3000;
@@ -140,6 +143,15 @@ async fn test_start_tap_agent(pgpool: PgPool) {
     }
     let res = store_batch_receipts(&pgpool, receipts).await;
     assert!(res.is_ok());
+
+    assert_while_retry!({
+        ActorRef::<SenderAllocationMessage>::where_is(format!(
+            "{}:{}",
+            TAP_SENDER.1, ALLOCATION_ID_0,
+        ))
+        .is_none()
+    });
+
     let sender_allocation_ref = ActorRef::<SenderAllocationMessage>::where_is(format!(
         "{}:{}",
         TAP_SENDER.1, ALLOCATION_ID_0,

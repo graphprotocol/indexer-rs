@@ -1,8 +1,9 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use indexer_monitor::EscrowAccounts;
 use indexer_tap_agent::{
     agent::{
         sender_account::SenderAccountMessage,
@@ -11,12 +12,14 @@ use indexer_tap_agent::{
     },
     test::{
         create_received_receipt, create_sender_accounts_manager, store_receipt, ALLOCATION_ID_0,
+        ESCROW_VALUE,
     },
 };
 use ractor::{ActorRef, ActorStatus};
 use serde_json::json;
 use sqlx::PgPool;
 use test_assets::{assert_while_retry, flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
+use thegraph_core::alloy::primitives::U256;
 use wiremock::{
     matchers::{body_string_contains, method},
     Mock, MockServer, ResponseTemplate,
@@ -26,7 +29,7 @@ const TRIGGER_VALUE: u128 = 100;
 
 // This test should ensure the full flow starting from
 // sender account manager layer to work, up to closing an allocation
-#[sqlx::test(migrations = "../../migrations")]
+#[test_log::test(sqlx::test(migrations = "../../migrations"))]
 async fn sender_account_manager_layer_test(pgpool: PgPool) {
     let mock_network_subgraph_server: MockServer = MockServer::start().await;
     mock_network_subgraph_server
@@ -63,19 +66,34 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
         .pgpool(pgpool.clone())
         .network_subgraph(&mock_network_subgraph_server.uri())
         .escrow_subgraph(&mock_escrow_subgraph_server.uri())
+        .initial_escrow_accounts_v1(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ))
         .call()
         .await;
 
     actor
-        .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
+        .cast(SenderAccountsManagerMessage::UpdateSenderAccountsV1(
             vec![SENDER.1].into_iter().collect(),
         ))
         .unwrap();
     flush_messages(&notify).await;
+    assert_while_retry!({
+        ActorRef::<SenderAccountMessage>::where_is(format!(
+            "{}:legacy:{}",
+            prefix.clone(),
+            SENDER.1
+        ))
+        .is_none()
+    });
 
     // verify if create sender account
-    let sender_account_ref =
-        ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix.clone(), SENDER.1));
+    let sender_account_ref = ActorRef::<SenderAccountMessage>::where_is(format!(
+        "{}:legacy:{}",
+        prefix.clone(),
+        SENDER.1
+    ));
     assert!(sender_account_ref.is_some());
 
     let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 10);
@@ -124,14 +142,15 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
 
     // this calls and closes acounts manager sender accounts
     actor
-        .cast(SenderAccountsManagerMessage::UpdateSenderAccounts(
+        .cast(SenderAccountsManagerMessage::UpdateSenderAccountsV1(
             HashSet::new(),
         ))
         .unwrap();
 
     sender_account_ref.unwrap().wait(None).await.unwrap();
     // verify if it gets removed
-    let actor_ref = ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER.1));
+    let actor_ref =
+        ActorRef::<SenderAccountMessage>::where_is(format!("{}:legacy:{}", prefix, SENDER.1));
     assert!(actor_ref.is_none());
 
     let rav_marked_as_last = sqlx::query!(
