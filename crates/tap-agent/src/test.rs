@@ -44,7 +44,7 @@ use crate::{
         },
         sender_accounts_manager::{
             AllocationId, SenderAccountsManager, SenderAccountsManagerArgs,
-            SenderAccountsManagerMessage,
+            SenderAccountsManagerMessage, SenderType,
         },
     },
     tap::{
@@ -178,6 +178,7 @@ pub async fn create_sender_account(
         allocation_ids: HashSet::new(),
         prefix: Some(prefix.clone()),
         retry_interval: RETRY_DURATION,
+        sender_type: SenderType::Legacy,
     };
 
     let actor = TestableActor::new(SenderAccount);
@@ -198,6 +199,8 @@ pub async fn create_sender_accounts_manager(
     pgpool: PgPool,
     network_subgraph: Option<&str>,
     escrow_subgraph: Option<&str>,
+    initial_escrow_accounts_v1: Option<EscrowAccounts>,
+    initial_escrow_accounts_v2: Option<EscrowAccounts>,
 ) -> (
     String,
     Arc<Notify>,
@@ -222,12 +225,18 @@ pub async fn create_sender_accounts_manager(
         .await,
     ));
     let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
-    escrow_accounts_tx
-        .send(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
-            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ))
-        .expect("Failed to update escrow_accounts channel");
+    if let Some(escrow_acccounts) = initial_escrow_accounts_v1 {
+        escrow_accounts_tx
+            .send(escrow_acccounts)
+            .expect("Failed to update escrow_accounts channel");
+    }
+
+    let (escrow_accounts_tx_v2, escrow_accounts_rx_v2) = watch::channel(EscrowAccounts::default());
+    if let Some(escrow_acccounts) = initial_escrow_accounts_v2 {
+        escrow_accounts_tx_v2
+            .send(escrow_acccounts)
+            .expect("Failed to update escrow_accounts channel");
+    }
 
     let prefix = generate_random_prefix();
     let args = SenderAccountsManagerArgs {
@@ -235,8 +244,8 @@ pub async fn create_sender_accounts_manager(
         domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
         pgpool,
         indexer_allocations: allocations_rx,
-        escrow_accounts_v1: escrow_accounts_rx.clone(),
-        escrow_accounts_v2: escrow_accounts_rx,
+        escrow_accounts_v1: escrow_accounts_rx,
+        escrow_accounts_v2: escrow_accounts_rx_v2,
         escrow_subgraph,
         network_subgraph,
         sender_aggregator_endpoints: HashMap::from([
