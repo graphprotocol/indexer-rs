@@ -622,17 +622,11 @@ impl State {
                     FROM tap_horizon_receipts
                     GROUP BY signer_address, allocation_id
                 )
-                SELECT DISTINCT
+                SELECT 
                     signer_address,
-                    (
-                        SELECT ARRAY
-                        (
-                            SELECT DISTINCT allocation_id
-                            FROM grouped
-                            WHERE signer_address = top.signer_address
-                        )
-                    ) AS allocation_ids
-                FROM grouped AS top
+                    ARRAY_AGG(allocation_id) AS allocation_ids
+                FROM grouped
+                GROUP BY signer_address
             "#
         )
         .fetch_all(&self.pgpool)
@@ -668,18 +662,11 @@ impl State {
 
         let nonfinal_ravs_sender_allocations_in_db = sqlx::query!(
             r#"
-                SELECT DISTINCT
-                    sender_address,
-                    (
-                        SELECT ARRAY
-                        (
-                            SELECT DISTINCT allocation_id
-                            FROM tap_horizon_ravs
-                            WHERE sender_address = top.sender_address
-                            AND NOT last
-                        )
-                    ) AS allocation_id
-                FROM scalar_tap_ravs AS top
+                SELECT
+                    payer,
+                    ARRAY_AGG(DISTINCT allocation_id) FILTER (WHERE NOT last) AS allocation_ids
+                FROM tap_horizon_ravs
+                GROUP BY payer
             "#
         )
         .fetch_all(&self.pgpool)
@@ -688,7 +675,7 @@ impl State {
 
         for row in nonfinal_ravs_sender_allocations_in_db {
             let allocation_ids = row
-                .allocation_id
+                .allocation_ids
                 .expect("all RAVs should have an allocation_id")
                 .iter()
                 .map(|allocation_id| {
@@ -698,8 +685,8 @@ impl State {
                     )
                 })
                 .collect::<HashSet<_>>();
-            let sender_id = Address::from_str(&row.sender_address)
-                .expect("sender_address should be a valid address");
+            let sender_id =
+                Address::from_str(&row.payer).expect("sender_address should be a valid address");
 
             // Accumulate allocations for the sender
             unfinalized_sender_allocations_map
