@@ -6,6 +6,13 @@
 
 
 
+## [1.4.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.4.1...indexer-service-rs-v1.4.2) (2025-02-12)
+
+
+### Bug Fixes
+
+* allow responses for free queries with no allocation open ([#622](https://github.com/graphprotocol/indexer-rs/issues/622)) ([bce155e](https://github.com/graphprotocol/indexer-rs/commit/bce155e8515bd4e8a666a42d621a82776727a8cd))
+
 ## [1.4.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.4.0...indexer-service-rs-v1.4.1) (2025-01-16)
 
 
