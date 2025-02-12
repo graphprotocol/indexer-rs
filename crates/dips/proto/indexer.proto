@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package graphprotocol.indexer.dips;
 
-service DipsService {
+service IndexerDipsService {
   /**
    * Propose a new _indexing agreement_ to an _indexer_.
    *

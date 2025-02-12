@@ -8,10 +8,11 @@ use axum::{extract::Request, serve, ServiceExt};
 use clap::Parser;
 use indexer_config::{Config, DipsConfig, GraphNodeConfig, SubgraphConfig};
 use indexer_dips::{
+    database::PsqlAgreementStore,
     ipfs::{IpfsClient, IpfsFetcher},
     price::PriceCalculator,
-    proto::indexer::graphprotocol::indexer::dips::dips_service_server::{
-        DipsService, DipsServiceServer,
+    proto::indexer::graphprotocol::indexer::dips::indexer_dips_service_server::{
+        IndexerDipsService, IndexerDipsServiceServer,
     },
     server::DipsServer,
 };
@@ -23,11 +24,7 @@ use tokio::{net::TcpListener, signal};
 use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
-use crate::{
-    cli::Cli,
-    database::{self, dips::PsqlAgreementStore},
-    metrics::serve_metrics,
-};
+use crate::{cli::Cli, database, metrics::serve_metrics};
 
 mod release;
 mod router;
@@ -168,9 +165,9 @@ pub async fn run() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_handler())
         .await?)
 }
-async fn start_dips_server(addr: SocketAddr, service: impl DipsService) {
+async fn start_dips_server(addr: SocketAddr, service: impl IndexerDipsService) {
     tonic::transport::Server::builder()
-        .add_service(DipsServiceServer::new(service))
+        .add_service(IndexerDipsServiceServer::new(service))
         .serve(addr)
         .await
         .expect("unable to start dips grpc");

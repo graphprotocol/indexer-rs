@@ -5,13 +5,15 @@ use std::str::FromStr;
 
 use axum::async_trait;
 use build_info::chrono::{DateTime, Utc};
-use indexer_dips::{
-    store::AgreementStore, DipsError, SignedCancellationRequest, SignedIndexingAgreementVoucher,
-    SubgraphIndexingVoucherMetadata,
-};
 use sqlx::{types::BigDecimal, PgPool};
 use thegraph_core::alloy::{core::primitives::U256 as uint256, hex::ToHexExt, sol_types::SolType};
 use uuid::Uuid;
+
+use crate::{
+    store::{AgreementStore, StoredIndexingAgreement},
+    DipsError, SignedCancellationRequest, SignedIndexingAgreementVoucher,
+    SubgraphIndexingVoucherMetadata,
+};
 
 #[derive(Debug)]
 pub struct PsqlAgreementStore {
@@ -25,10 +27,7 @@ fn uint256_to_bigdecimal(value: &uint256, field: &str) -> Result<BigDecimal, Dip
 
 #[async_trait]
 impl AgreementStore for PsqlAgreementStore {
-    async fn get_by_id(
-        &self,
-        id: Uuid,
-    ) -> Result<Option<(SignedIndexingAgreementVoucher, bool)>, DipsError> {
+    async fn get_by_id(&self, id: Uuid) -> Result<Option<StoredIndexingAgreement>, DipsError> {
         let item = sqlx::query!("SELECT * FROM indexing_agreements WHERE id=$1", id,)
             .fetch_one(&self.pool)
             .await;
@@ -41,8 +40,18 @@ impl AgreementStore for PsqlAgreementStore {
 
         let signed = SignedIndexingAgreementVoucher::abi_decode(item.signed_payload.as_ref(), true)
             .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
+        let metadata =
+            SubgraphIndexingVoucherMetadata::abi_decode(signed.voucher.metadata.as_ref(), true)
+                .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
         let cancelled = item.cancelled_at.is_some();
-        Ok(Some((signed, cancelled)))
+        Ok(Some(StoredIndexingAgreement {
+            voucher: signed,
+            metadata,
+            cancelled,
+            current_allocation_id: item.current_allocation_id,
+            last_allocation_id: item.last_allocation_id,
+            last_payment_collected_at: item.last_payment_collected_at,
+        }))
     }
     async fn create_agreement(
         &self,
@@ -72,7 +81,7 @@ impl AgreementStore for PsqlAgreementStore {
         let min_epochs_per_collection: i64 = agreement.voucher.minEpochsPerCollection.into();
         let max_epochs_per_collection: i64 = agreement.voucher.maxEpochsPerCollection.into();
         sqlx::query!(
-            "INSERT INTO indexing_agreements VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,null,null,null)",
+            "INSERT INTO indexing_agreements VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,null,null,null,null,null)",
             id,
             agreement.signature.as_ref(),
             bs,
@@ -126,15 +135,15 @@ pub(crate) mod test {
     use std::sync::Arc;
 
     use build_info::chrono::Duration;
-    use indexer_dips::{CancellationRequest, IndexingAgreementVoucher};
     use sqlx::PgPool;
     use thegraph_core::alloy::{
         primitives::{ruint::aliases::U256, Address},
-        sol_types::{SolType, SolValue},
+        sol_types::SolValue,
     };
     use uuid::Uuid;
 
     use super::*;
+    use crate::{CancellationRequest, IndexingAgreementVoucher};
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_store_agreement(pool: PgPool) {
@@ -226,19 +235,15 @@ pub(crate) mod test {
             .unwrap();
 
         // Retrieve agreement
-        let (retrieved_signed_voucher, cancelled) = store.get_by_id(id).await.unwrap().unwrap();
+        let stored_agreement = store.get_by_id(id).await.unwrap().unwrap();
 
-        let retrieved_voucher = &retrieved_signed_voucher.voucher;
-        let retrieved_metadata =
-            <indexer_dips::SubgraphIndexingVoucherMetadata as SolType>::abi_decode(
-                retrieved_voucher.metadata.as_ref(),
-                true,
-            )
-            .unwrap();
+        let retrieved_voucher = &stored_agreement.voucher;
+        let retrieved_metadata = stored_agreement.metadata;
+
         // Verify retrieved agreement matches original
-        assert_eq!(retrieved_signed_voucher.signature, agreement.signature);
+        assert_eq!(retrieved_voucher.signature, agreement.signature);
         assert_eq!(
-            retrieved_voucher.durationEpochs,
+            retrieved_voucher.voucher.durationEpochs,
             agreement.voucher.durationEpochs
         );
         assert_eq!(retrieved_metadata.protocolNetwork, metadata.protocolNetwork);
@@ -247,26 +252,29 @@ pub(crate) mod test {
             retrieved_metadata.subgraphDeploymentId,
             metadata.subgraphDeploymentId
         );
-        assert_eq!(retrieved_voucher.payer, agreement.voucher.payer);
-        assert_eq!(retrieved_voucher.recipient, agreement.voucher.recipient);
-        assert_eq!(retrieved_voucher.service, agreement.voucher.service);
+        assert_eq!(retrieved_voucher.voucher.payer, agreement.voucher.payer);
         assert_eq!(
-            retrieved_voucher.maxInitialAmount,
+            retrieved_voucher.voucher.recipient,
+            agreement.voucher.recipient
+        );
+        assert_eq!(retrieved_voucher.voucher.service, agreement.voucher.service);
+        assert_eq!(
+            retrieved_voucher.voucher.maxInitialAmount,
             agreement.voucher.maxInitialAmount
         );
         assert_eq!(
-            retrieved_voucher.maxOngoingAmountPerEpoch,
+            retrieved_voucher.voucher.maxOngoingAmountPerEpoch,
             agreement.voucher.maxOngoingAmountPerEpoch
         );
         assert_eq!(
-            retrieved_voucher.maxEpochsPerCollection,
+            retrieved_voucher.voucher.maxEpochsPerCollection,
             agreement.voucher.maxEpochsPerCollection
         );
         assert_eq!(
-            retrieved_voucher.minEpochsPerCollection,
+            retrieved_voucher.voucher.minEpochsPerCollection,
             agreement.voucher.minEpochsPerCollection
         );
-        assert!(!cancelled);
+        assert!(!stored_agreement.cancelled);
     }
 
     #[sqlx::test(migrations = "../../migrations")]
