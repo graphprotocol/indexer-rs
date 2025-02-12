@@ -8,9 +8,9 @@ use axum::{extract::Request, serve, ServiceExt};
 use clap::Parser;
 use indexer_config::{Config, DipsConfig, GraphNodeConfig, SubgraphConfig};
 use indexer_dips::{
+    database::PsqlAgreementStore,
     ipfs::{IpfsClient, IpfsFetcher},
     price::PriceCalculator,
-    database::PsqlAgreementStore,
     proto::indexer::graphprotocol::indexer::dips::indexer_dips_service_server::{
         IndexerDipsService, IndexerDipsServiceServer,
     },

@@ -13,9 +13,9 @@ use thegraph_core::alloy::{
     sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
 };
 
+pub mod database;
 pub mod ipfs;
 pub mod price;
-pub mod database;
 pub mod proto;
 pub mod server;
 pub mod store;
