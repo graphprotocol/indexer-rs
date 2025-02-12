@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    sender_address,\n                    ARRAY_AGG(DISTINCT allocation_id) FILTER (WHERE NOT last) AS allocation_ids\n                FROM scalar_tap_ravs\n                GROUP BY sender_address\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sender_address",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "allocation_ids",
+        "type_info": "BpcharArray"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "67c8c6323c92732bb994593223ccb4f7b9b4a4bda786542c18b404d2287e78a7"
+}
