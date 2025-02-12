@@ -15,7 +15,7 @@ clippy:
     cargo +nightly clippy --all-targets --all-features
 
 test:
-    cargo nextest run
+    RUST_LOG=debug cargo nextest run
 
 fmt:
     cargo +nightly fmt
