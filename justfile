@@ -14,6 +14,13 @@ url:
 clippy:
     cargo +nightly clippy --all-targets --all-features
 
+ci:
+  just fmt
+  just clippy
+  just test
+  just sqlx-prepare
+
+
 test:
     RUST_LOG=debug cargo nextest run
 
