@@ -83,9 +83,13 @@ impl Display for AllocationId {
     }
 }
 
+/// Type used in [SenderAccountsManager] and [SenderAccount] to route the correct escrow queries
+/// and to use the correct set of tables
 #[derive(Clone, Copy)]
-enum SenderType {
+pub enum SenderType {
+    /// SenderAccounts that are found in Escrow Subgraph v1 (Legacy)
     Legacy,
+    /// SenderAccounts that are found in Tap Collector v2 (Horizon)
     Horizon,
 }
 
@@ -465,7 +469,7 @@ impl State {
                 sender_id,
                 e
             );
-            SenderAccount::deny_sender(&self.pgpool, sender_id).await;
+            SenderAccount::deny_sender(sender_type, &self.pgpool, sender_id).await;
         }
     }
 
@@ -739,6 +743,7 @@ impl State {
             allocation_ids,
             prefix: self.prefix.clone(),
             retry_interval: Duration::from_secs(30),
+            sender_type,
         })
     }
 }
@@ -895,7 +900,9 @@ mod tests {
     use reqwest::Url;
     use ruint::aliases::U256;
     use sqlx::{postgres::PgListener, PgPool};
-    use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
+    use test_assets::{
+        assert_while_retry, flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
+    };
     use thegraph_core::alloy::hex::ToHexExt;
     use tokio::sync::{
         mpsc::{self, error::TryRecvError},
@@ -1005,13 +1012,21 @@ mod tests {
 
         flush_messages(&notify).await;
 
+        assert_while_retry! {
+            ActorRef::<SenderAccountMessage>::where_is(format!(
+                "{}:legacy:{}",
+                prefix.clone(),
+                SENDER.1
+            )).is_none()
+        };
+
         // verify if create sender account
-        let actor_ref = ActorRef::<SenderAccountMessage>::where_is(format!(
+        let sender_ref = ActorRef::<SenderAccountMessage>::where_is(format!(
             "{}:legacy:{}",
             prefix.clone(),
             SENDER.1
-        ));
-        assert!(actor_ref.is_some());
+        ))
+        .unwrap();
 
         actor
             .cast(SenderAccountsManagerMessage::UpdateSenderAccountsV1(
@@ -1020,6 +1035,8 @@ mod tests {
             .unwrap();
 
         flush_messages(&notify).await;
+
+        sender_ref.wait(None).await.unwrap();
         // verify if it gets removed
         let actor_ref =
             ActorRef::<SenderAccountMessage>::where_is(format!("{}:{}", prefix, SENDER.1));

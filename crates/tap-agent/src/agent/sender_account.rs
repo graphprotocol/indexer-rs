@@ -35,7 +35,7 @@ use tonic::transport::{Channel, Endpoint};
 use tracing::Level;
 
 use super::{
-    sender_accounts_manager::AllocationId,
+    sender_accounts_manager::{AllocationId, SenderType},
     sender_allocation::{
         AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
     },
@@ -233,6 +233,9 @@ pub struct SenderAccountArgs {
 
     /// Configuration for retry scheduler in case sender is denied
     pub retry_interval: Duration,
+
+    /// Sender type, used to decide which set of tables to use
+    pub sender_type: SenderType,
 }
 
 /// State used by the actor
@@ -320,6 +323,9 @@ pub struct State {
     /// Allows the sender to go over escrow balance
     /// limited to `max_amount_willing_to_lose_grt`
     trusted_sender: bool,
+
+    /// Sender type, used to decide which set of tables to use
+    sender_type: SenderType,
 
     // Config forwarded to [SenderAllocation]
     config: &'static SenderAccountConfig,
@@ -574,7 +580,7 @@ impl State {
             "Denying sender."
         );
 
-        SenderAccount::deny_sender(&self.pgpool, self.sender).await;
+        SenderAccount::deny_sender(self.sender_type, &self.pgpool, self.sender).await;
         self.denied = true;
         SENDER_DENIED
             .with_label_values(&[&self.sender.to_string()])
@@ -590,16 +596,21 @@ impl State {
             sender_balance = self.sender_balance.to_u128(),
             "Allowing sender."
         );
-        sqlx::query!(
-            r#"
+        match self.sender_type {
+            SenderType::Legacy => {
+                sqlx::query!(
+                    r#"
                     DELETE FROM scalar_tap_denylist
                     WHERE sender_address = $1
                 "#,
-            self.sender.encode_hex(),
-        )
-        .execute(&self.pgpool)
-        .await
-        .expect("Should not fail to delete from denylist");
+                    self.sender.encode_hex(),
+                )
+                .execute(&self.pgpool)
+                .await
+                .expect("Should not fail to delete from denylist");
+            }
+            SenderType::Horizon => unimplemented!(),
+        }
         self.denied = false;
 
         SENDER_DENIED
@@ -688,6 +699,7 @@ impl Actor for SenderAccount {
             allocation_ids,
             prefix,
             retry_interval,
+            sender_type,
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         let myself_clone = myself.clone();
@@ -714,39 +726,58 @@ impl Actor for SenderAccount {
                 .get_balance_for_sender(&sender_id)
                 .unwrap_or_default();
             async move {
-                let last_non_final_ravs = sqlx::query!(
-                    r#"
-                            SELECT allocation_id, value_aggregate
-                            FROM scalar_tap_ravs
-                            WHERE sender_address = $1 AND last AND NOT final;
-                        "#,
-                    sender_id.encode_hex(),
-                )
-                .fetch_all(&pgpool)
-                .await
-                .expect("Should not fail to fetch from scalar_tap_ravs");
+                let last_non_final_ravs = match sender_type {
+                    // Get all ravs from v1 table
+                    SenderType::Legacy => sqlx::query!(
+                        r#"
+                                    SELECT allocation_id, value_aggregate
+                                    FROM scalar_tap_ravs
+                                    WHERE sender_address = $1 AND last AND NOT final;
+                                "#,
+                        sender_id.encode_hex(),
+                    )
+                    .fetch_all(&pgpool)
+                    .await
+                    .expect("Should not fail to fetch from scalar_tap_ravs"),
+                    // Get all ravs from v2 table
+                    SenderType::Horizon => {
+                        unimplemented!()
+                    }
+                };
 
                 // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
-                let redeemed_ravs_allocation_ids = match escrow_subgraph
-                    .query::<UnfinalizedTransactions, _>(unfinalized_transactions::Variables {
-                        unfinalized_ravs_allocation_ids: last_non_final_ravs
-                            .iter()
-                            .map(|rav| rav.allocation_id.to_string())
-                            .collect::<Vec<_>>(),
-                        sender: format!("{:x?}", sender_id),
-                    })
-                    .await
-                {
-                    Ok(Ok(response)) => response
-                        .transactions
-                        .into_iter()
-                        .map(|tx| {
-                            tx.allocation_id
-                                .expect("all redeem tx must have allocation_id")
-                        })
-                        .collect::<Vec<_>>(),
-                    // if we have any problems, we don't want to filter out
-                    _ => vec![],
+                let redeemed_ravs_allocation_ids = match sender_type {
+                    SenderType::Legacy => {
+                        // This query returns unfinalized transactions for v1
+                        match escrow_subgraph
+                            .query::<UnfinalizedTransactions, _>(
+                                unfinalized_transactions::Variables {
+                                    unfinalized_ravs_allocation_ids: last_non_final_ravs
+                                        .iter()
+                                        .map(|rav| rav.allocation_id.to_string())
+                                        .collect::<Vec<_>>(),
+                                    sender: format!("{:x?}", sender_id),
+                                },
+                            )
+                            .await
+                        {
+                            Ok(Ok(response)) => response
+                                .transactions
+                                .into_iter()
+                                .map(|tx| {
+                                    tx.allocation_id
+                                        .expect("all redeem tx must have allocation_id")
+                                })
+                                .collect::<Vec<_>>(),
+                            // if we have any problems, we don't want to filter out
+                            _ => vec![],
+                        }
+                    }
+                    // TODO Implement query for unfinalized v2 transactions
+                    // Depends on Escrow Subgraph Schema
+                    SenderType::Horizon => {
+                        todo!()
+                    }
                 };
 
                 // filter the ravs marked as last that were not redeemed yet
@@ -779,21 +810,25 @@ impl Actor for SenderAccount {
             }
         });
 
-        // Get deny status from the scalar_tap_denylist table
-        let denied = sqlx::query!(
-            r#"
+        let denied = match sender_type {
+            // Get deny status from the scalar_tap_denylist table
+            SenderType::Legacy => sqlx::query!(
+                r#"
                 SELECT EXISTS (
                     SELECT 1
                     FROM scalar_tap_denylist
                     WHERE sender_address = $1
                 ) as denied
             "#,
-            sender_id.encode_hex(),
-        )
-        .fetch_one(&pgpool)
-        .await?
-        .denied
-        .expect("Deny status cannot be null");
+                sender_id.encode_hex(),
+            )
+            .fetch_one(&pgpool)
+            .await?
+            .denied
+            .expect("Deny status cannot be null"),
+            // Get deny status from the tap horizon table
+            SenderType::Horizon => unimplemented!(),
+        };
 
         let sender_balance = escrow_accounts
             .borrow()
@@ -860,6 +895,7 @@ impl Actor for SenderAccount {
             backoff_info: BackoffInfo::default(),
             trusted_sender: config.trusted_senders.contains(&sender_id),
             config,
+            sender_type,
         };
 
         stream::iter(allocation_ids)
@@ -937,7 +973,12 @@ impl Actor for SenderAccount {
                                 fee ***MONEY***.
                                 "
                             );
-                            SenderAccount::deny_sender(&state.pgpool, state.sender).await;
+                            SenderAccount::deny_sender(
+                                state.sender_type,
+                                &state.pgpool,
+                                state.sender,
+                            )
+                            .await;
                         }
 
                         // add new value
@@ -1266,7 +1307,14 @@ impl Actor for SenderAccount {
 
 impl SenderAccount {
     /// Deny sender by giving `sender` [Address]
-    pub async fn deny_sender(pool: &PgPool, sender: Address) {
+    pub async fn deny_sender(sender_type: SenderType, pool: &PgPool, sender: Address) {
+        match sender_type {
+            SenderType::Legacy => Self::deny_v1_sender(pool, sender).await,
+            SenderType::Horizon => Self::deny_v2_sender(pool, sender).await,
+        }
+    }
+
+    async fn deny_v1_sender(pool: &PgPool, sender: Address) {
         sqlx::query!(
             r#"
                     INSERT INTO scalar_tap_denylist (sender_address)
@@ -1277,6 +1325,10 @@ impl SenderAccount {
         .execute(pool)
         .await
         .expect("Should not fail to insert into denylist");
+    }
+
+    async fn deny_v2_sender(_pool: &PgPool, _sender: Address) {
+        unimplemented!()
     }
 }
 
@@ -1537,8 +1589,8 @@ pub mod tests {
         flush_messages(&notify).await;
 
         // should not delete it because it was not in network subgraph
-        let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
-        assert!(actor_ref.is_some());
+        let allocation_ref =
+            ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone()).unwrap();
 
         // Mock result for closed allocations
 
@@ -1568,7 +1620,7 @@ pub mod tests {
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();
 
-        flush_messages(&notify).await;
+        allocation_ref.wait(None).await.unwrap();
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_none());
