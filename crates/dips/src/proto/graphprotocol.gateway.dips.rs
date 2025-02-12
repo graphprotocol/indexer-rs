@@ -86,7 +86,7 @@ impl CollectPaymentStatus {
     }
 }
 /// Generated client implementations.
-pub mod dipper_service_client {
+pub mod gateway_dips_service_client {
     #![allow(
         unused_variables,
         dead_code,
@@ -97,10 +97,10 @@ pub mod dipper_service_client {
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
-    pub struct DipperServiceClient<T> {
+    pub struct GatewayDipsServiceClient<T> {
         inner: tonic::client::Grpc<T>,
     }
-    impl DipperServiceClient<tonic::transport::Channel> {
+    impl GatewayDipsServiceClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
@@ -111,7 +111,7 @@ pub mod dipper_service_client {
             Ok(Self::new(conn))
         }
     }
-    impl<T> DipperServiceClient<T>
+    impl<T> GatewayDipsServiceClient<T>
     where
         T: tonic::client::GrpcService<tonic::body::BoxBody>,
         T::Error: Into<StdError>,
@@ -129,7 +129,7 @@ pub mod dipper_service_client {
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
-        ) -> DipperServiceClient<InterceptedService<T, F>>
+        ) -> GatewayDipsServiceClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
@@ -143,7 +143,7 @@ pub mod dipper_service_client {
                 http::Request<tonic::body::BoxBody>,
             >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
-            DipperServiceClient::new(InterceptedService::new(inner, interceptor))
+            GatewayDipsServiceClient::new(InterceptedService::new(inner, interceptor))
         }
         /// Compress requests with the given encoding.
         ///
@@ -198,13 +198,13 @@ pub mod dipper_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/graphprotocol.gateway.dips.DipperService/CancelAgreement",
+                "/graphprotocol.gateway.dips.GatewayDipsService/CancelAgreement",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "graphprotocol.gateway.dips.DipperService",
+                        "graphprotocol.gateway.dips.GatewayDipsService",
                         "CancelAgreement",
                     ),
                 );
@@ -232,13 +232,13 @@ pub mod dipper_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/graphprotocol.gateway.dips.DipperService/CollectPayment",
+                "/graphprotocol.gateway.dips.GatewayDipsService/CollectPayment",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "graphprotocol.gateway.dips.DipperService",
+                        "graphprotocol.gateway.dips.GatewayDipsService",
                         "CollectPayment",
                     ),
                 );
@@ -247,7 +247,7 @@ pub mod dipper_service_client {
     }
 }
 /// Generated server implementations.
-pub mod dipper_service_server {
+pub mod gateway_dips_service_server {
     #![allow(
         unused_variables,
         dead_code,
@@ -256,9 +256,9 @@ pub mod dipper_service_server {
         clippy::let_unit_value,
     )]
     use tonic::codegen::*;
-    /// Generated trait containing gRPC methods that should be implemented for use with DipperServiceServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with GatewayDipsServiceServer.
     #[async_trait]
-    pub trait DipperService: std::marker::Send + std::marker::Sync + 'static {
+    pub trait GatewayDipsService: std::marker::Send + std::marker::Sync + 'static {
         /// *
         /// Cancel an _indexing agreement_.
         ///
@@ -285,14 +285,14 @@ pub mod dipper_service_server {
         >;
     }
     #[derive(Debug)]
-    pub struct DipperServiceServer<T> {
+    pub struct GatewayDipsServiceServer<T> {
         inner: Arc<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
         max_decoding_message_size: Option<usize>,
         max_encoding_message_size: Option<usize>,
     }
-    impl<T> DipperServiceServer<T> {
+    impl<T> GatewayDipsServiceServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -343,9 +343,9 @@ pub mod dipper_service_server {
             self
         }
     }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for DipperServiceServer<T>
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for GatewayDipsServiceServer<T>
     where
-        T: DipperService,
+        T: GatewayDipsService,
         B: Body + std::marker::Send + 'static,
         B::Error: Into<StdError> + std::marker::Send + 'static,
     {
@@ -360,11 +360,11 @@ pub mod dipper_service_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/graphprotocol.gateway.dips.DipperService/CancelAgreement" => {
+                "/graphprotocol.gateway.dips.GatewayDipsService/CancelAgreement" => {
                     #[allow(non_camel_case_types)]
-                    struct CancelAgreementSvc<T: DipperService>(pub Arc<T>);
+                    struct CancelAgreementSvc<T: GatewayDipsService>(pub Arc<T>);
                     impl<
-                        T: DipperService,
+                        T: GatewayDipsService,
                     > tonic::server::UnaryService<super::CancelAgreementRequest>
                     for CancelAgreementSvc<T> {
                         type Response = super::CancelAgreementResponse;
@@ -378,7 +378,7 @@ pub mod dipper_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as DipperService>::cancel_agreement(&inner, request)
+                                <T as GatewayDipsService>::cancel_agreement(&inner, request)
                                     .await
                             };
                             Box::pin(fut)
@@ -406,11 +406,11 @@ pub mod dipper_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/graphprotocol.gateway.dips.DipperService/CollectPayment" => {
+                "/graphprotocol.gateway.dips.GatewayDipsService/CollectPayment" => {
                     #[allow(non_camel_case_types)]
-                    struct CollectPaymentSvc<T: DipperService>(pub Arc<T>);
+                    struct CollectPaymentSvc<T: GatewayDipsService>(pub Arc<T>);
                     impl<
-                        T: DipperService,
+                        T: GatewayDipsService,
                     > tonic::server::UnaryService<super::CollectPaymentRequest>
                     for CollectPaymentSvc<T> {
                         type Response = super::CollectPaymentResponse;
@@ -424,7 +424,8 @@ pub mod dipper_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as DipperService>::collect_payment(&inner, request).await
+                                <T as GatewayDipsService>::collect_payment(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -471,7 +472,7 @@ pub mod dipper_service_server {
             }
         }
     }
-    impl<T> Clone for DipperServiceServer<T> {
+    impl<T> Clone for GatewayDipsServiceServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -484,8 +485,8 @@ pub mod dipper_service_server {
         }
     }
     /// Generated gRPC service name
-    pub const SERVICE_NAME: &str = "graphprotocol.gateway.dips.DipperService";
-    impl<T> tonic::server::NamedService for DipperServiceServer<T> {
+    pub const SERVICE_NAME: &str = "graphprotocol.gateway.dips.GatewayDipsService";
+    impl<T> tonic::server::NamedService for GatewayDipsServiceServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }
 }

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package graphprotocol.gateway.dips;
 
-service DipperService {
+service GatewayDipsService {
   /**
    * Cancel an _indexing agreement_.
    *
