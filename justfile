@@ -34,3 +34,4 @@ psql-down:
 
 migrate:
      sqlx migrate run --database-url postgresql://postgres:postgres@127.0.0.1:5432
+
