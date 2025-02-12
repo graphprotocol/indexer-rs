@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT EXISTS (\n                    SELECT 1\n                    FROM tap_horizon_denylist\n                    WHERE sender_address = $1\n                ) as denied\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "denied",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "712d6c51098b981a3a84908eda1b4530d70a5c1a9d6ecaeed59f20a63914d723"
+}

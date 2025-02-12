@@ -609,7 +609,18 @@ impl State {
                 .await
                 .expect("Should not fail to delete from denylist");
             }
-            SenderType::Horizon => unimplemented!(),
+            SenderType::Horizon => {
+                sqlx::query!(
+                    r#"
+                    DELETE FROM tap_horizon_denylist
+                    WHERE sender_address = $1
+                "#,
+                    self.sender.encode_hex(),
+                )
+                .execute(&self.pgpool)
+                .await
+                .expect("Should not fail to delete from denylist");
+            }
         }
         self.denied = false;
 
@@ -726,7 +737,7 @@ impl Actor for SenderAccount {
                 .get_balance_for_sender(&sender_id)
                 .unwrap_or_default();
             async move {
-                let last_non_final_ravs = match sender_type {
+                let last_non_final_ravs: Vec<_> = match sender_type {
                     // Get all ravs from v1 table
                     SenderType::Legacy => sqlx::query!(
                         r#"
@@ -738,11 +749,25 @@ impl Actor for SenderAccount {
                     )
                     .fetch_all(&pgpool)
                     .await
-                    .expect("Should not fail to fetch from scalar_tap_ravs"),
+                    .expect("Should not fail to fetch from scalar_tap_ravs")
+                    .into_iter()
+                    .map(|record| (record.allocation_id, record.value_aggregate))
+                    .collect(),
                     // Get all ravs from v2 table
-                    SenderType::Horizon => {
-                        unimplemented!()
-                    }
+                    SenderType::Horizon => sqlx::query!(
+                        r#"
+                                    SELECT allocation_id, value_aggregate
+                                    FROM tap_horizon_ravs
+                                    WHERE payer = $1 AND last AND NOT final;
+                                "#,
+                        sender_id.encode_hex(),
+                    )
+                    .fetch_all(&pgpool)
+                    .await
+                    .expect("Should not fail to fetch from scalar_tap_ravs")
+                    .into_iter()
+                    .map(|record| (record.allocation_id, record.value_aggregate))
+                    .collect(),
                 };
 
                 // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
@@ -754,7 +779,7 @@ impl Actor for SenderAccount {
                                 unfinalized_transactions::Variables {
                                     unfinalized_ravs_allocation_ids: last_non_final_ravs
                                         .iter()
-                                        .map(|rav| rav.allocation_id.to_string())
+                                        .map(|rav| rav.0.to_string())
                                         .collect::<Vec<_>>(),
                                     sender: format!("{:x?}", sender_id),
                                 },
@@ -785,8 +810,8 @@ impl Actor for SenderAccount {
                     .into_iter()
                     .filter_map(|rav| {
                         Some((
-                            Address::from_str(&rav.allocation_id).ok()?,
-                            rav.value_aggregate.to_bigint().and_then(|v| v.to_u128())?,
+                            Address::from_str(&rav.0).ok()?,
+                            rav.1.to_bigint().and_then(|v| v.to_u128())?,
                         ))
                     })
                     .filter(|(allocation, _value)| {
@@ -827,7 +852,20 @@ impl Actor for SenderAccount {
             .denied
             .expect("Deny status cannot be null"),
             // Get deny status from the tap horizon table
-            SenderType::Horizon => unimplemented!(),
+            SenderType::Horizon => sqlx::query!(
+                r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM tap_horizon_denylist
+                    WHERE sender_address = $1
+                ) as denied
+            "#,
+                sender_id.encode_hex(),
+            )
+            .fetch_one(&pgpool)
+            .await?
+            .denied
+            .expect("Deny status cannot be null"),
         };
 
         let sender_balance = escrow_accounts
@@ -1327,8 +1365,17 @@ impl SenderAccount {
         .expect("Should not fail to insert into denylist");
     }
 
-    async fn deny_v2_sender(_pool: &PgPool, _sender: Address) {
-        unimplemented!()
+    async fn deny_v2_sender(pool: &PgPool, sender: Address) {
+        sqlx::query!(
+            r#"
+                    INSERT INTO tap_horizon_denylist (sender_address)
+                    VALUES ($1) ON CONFLICT DO NOTHING
+                "#,
+            sender.encode_hex(),
+        )
+        .execute(pool)
+        .await
+        .expect("Should not fail to insert into denylist");
     }
 }
 
