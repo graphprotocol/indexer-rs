@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT * FROM scalar_tap_ravs;\n        ",
+  "query": "\n            SELECT * FROM scalar_tap_ravs WHERE last;\n        ",
   "describe": {
     "columns": [
       {
@@ -64,5 +64,5 @@
       true
     ]
   },
-  "hash": "a95d8893a679041a9f91227f83c61b4c2245f5b9f35cf0ab1711a6a609e93320"
+  "hash": "3d76b9e04b0c09999c5653e4176e469cd7bc10a39e7c94f2b3d57946e4a060ff"
 }

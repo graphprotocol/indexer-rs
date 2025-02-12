@@ -155,7 +155,7 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
 
     let rav_marked_as_last = sqlx::query!(
         r#"
-            SELECT * FROM scalar_tap_ravs;
+            SELECT * FROM scalar_tap_ravs WHERE last;
         "#,
     )
     .fetch_all(&pgpool)
