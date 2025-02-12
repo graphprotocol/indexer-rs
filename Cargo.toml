@@ -80,7 +80,6 @@ typed-builder = "0.20.0"
 tonic = { version = "0.12.3", features = ["tls-roots", "gzip"] }
 prost = "0.13.4"
 prost-types = "0.13.3"
-dipper-rpc = { git = "https://github.com/edgeandnode/dipper/", rev = "c8700e2", default-features = false }
 tonic-build = "0.12.3"
 serde_yaml = "0.9.21"
 

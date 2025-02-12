@@ -112,6 +112,16 @@
         "ordinal": 21,
         "name": "current_allocation_id",
         "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 22,
+        "name": "last_allocation_id",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 23,
+        "name": "last_payment_collected_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -139,6 +149,8 @@
       false,
       false,
       false,
+      true,
+      true,
       true,
       true,
       true

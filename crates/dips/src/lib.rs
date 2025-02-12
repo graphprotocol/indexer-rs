@@ -13,6 +13,7 @@ use thegraph_core::alloy::{
     sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
 };
 
+pub mod database;
 pub mod ipfs;
 pub mod price;
 pub mod proto;
@@ -353,11 +354,11 @@ pub async fn validate_and_cancel_agreement(
             decoded_request.request.agreement_id.into(),
         ))
         .await?;
-    let (agreement, cancelled) = result.ok_or(DipsError::AgreementNotFound)?;
-    if cancelled {
+    let stored_agreement = result.ok_or(DipsError::AgreementNotFound)?;
+    if stored_agreement.cancelled {
         return Err(DipsError::AgreementCancelled);
     }
-    let expected_signer = agreement.voucher.payer;
+    let expected_signer = stored_agreement.voucher.voucher.payer;
     let id = Uuid::from_bytes(decoded_request.request.agreement_id.into());
     decoded_request.validate(domain, &expected_signer)?;
 
@@ -438,11 +439,10 @@ mod test {
         .unwrap();
         assert_eq!(actual_id, id);
 
-        let actual = store.get_by_id(actual_id).await.unwrap();
+        let stored_agreement = store.get_by_id(actual_id).await.unwrap().unwrap();
 
-        let (actual_voucher, actual_cancelled) = actual.unwrap();
-        assert_eq!(voucher, actual_voucher);
-        assert!(!actual_cancelled);
+        assert_eq!(voucher, stored_agreement.voucher);
+        assert!(!stored_agreement.cancelled);
         Ok(())
     }
 
@@ -673,9 +673,8 @@ mod test {
         assert_eq!(agreement_id, cancelled_id);
 
         // Verify agreement is cancelled
-        let result = store.get_by_id(agreement_id).await?;
-        let (_, cancelled) = result.ok_or(DipsError::AgreementNotFound)?;
-        assert!(cancelled);
+        let stored_agreement = store.get_by_id(agreement_id).await?.unwrap();
+        assert!(stored_agreement.cancelled);
 
         Ok(())
     }
