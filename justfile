@@ -14,6 +14,7 @@ url:
 clippy:
     cargo +nightly clippy --all-targets --all-features
 
+#  run everything that is needed for ci to pass
 ci:
   just fmt
   just clippy
