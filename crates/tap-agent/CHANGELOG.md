@@ -4,6 +4,19 @@
 
 
 
+## [1.9.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.8.0...indexer-tap-agent-v1.9.0) (2025-02-12)
+
+
+### Features
+
+* add escape hatch to trusted senders ([#621](https://github.com/graphprotocol/indexer-rs/issues/621)) ([bdc40ef](https://github.com/graphprotocol/indexer-rs/commit/bdc40ef33ee0b9b063ca8eeaa5374ef6f4779626))
+* add option to avoid denying senders ([#607](https://github.com/graphprotocol/indexer-rs/issues/607)) ([d0731e3](https://github.com/graphprotocol/indexer-rs/commit/d0731e3bf2e36f587e9318be9028897a0a35cda4))
+
+
+### Performance Improvements
+
+* speed up startup setup queries ([#625](https://github.com/graphprotocol/indexer-rs/issues/625)) ([c5b115e](https://github.com/graphprotocol/indexer-rs/commit/c5b115e997a71582dad7d75c4c954cece225fdaa))
+
 ## [1.8.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.7.4...indexer-tap-agent-v1.8.0) (2025-01-29)
 
 

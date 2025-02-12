@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.2.2...indexer-config-v1.3.0) (2025-02-12)
+
+
+### Features
+
+* add escape hatch to trusted senders ([#621](https://github.com/graphprotocol/indexer-rs/issues/621)) ([bdc40ef](https://github.com/graphprotocol/indexer-rs/commit/bdc40ef33ee0b9b063ca8eeaa5374ef6f4779626))
+* add option to avoid denying senders ([#607](https://github.com/graphprotocol/indexer-rs/issues/607)) ([d0731e3](https://github.com/graphprotocol/indexer-rs/commit/d0731e3bf2e36f587e9318be9028897a0a35cda4))
+
 ## [1.2.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.2.1...indexer-config-v1.2.2) (2024-12-18)
 
 
