@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO tap_horizon_denylist (sender_address)\n                    VALUES ($1) ON CONFLICT DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "75125066518ed99d12c1cf4e738ca058c0d7886ca33932434c72ca82a8073567"
+}

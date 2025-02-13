@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                                    SELECT allocation_id, value_aggregate\n                                    FROM tap_horizon_ravs\n                                    WHERE payer = $1 AND last AND NOT final;\n                                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "allocation_id",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "value_aggregate",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "27a9c5a16714c8551c8921e4012bceda54664d0f41228f60b3a0f7f601cf9923"
+}
