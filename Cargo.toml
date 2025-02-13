@@ -76,12 +76,13 @@ graphql_client = { version = "0.14.0", features = ["reqwest-rustls"] }
 bip39 = "2.0.0"
 rstest = "0.23.0"
 wiremock = "0.6.1"
-bon = "3.3"
 tonic = { version = "0.12.3", features = ["tls-roots", "gzip"] }
 prost = "0.13.4"
 prost-types = "0.13.3"
 tonic-build = "0.12.3"
 serde_yaml = "0.9.21"
+bon = "3.3"
+test-log = { version = "0.2.12", features = ["trace"] }
 
 [patch.crates-io.tap_core]
 git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"

@@ -32,6 +32,7 @@ tracing-subscriber = { workspace = true, features = ["fmt"] }
 clap = { workspace = true, features = ["derive"] }
 build-info.workspace = true
 lazy_static.workspace = true
+prost.workspace = true 
 async-trait.workspace = true
 async-graphql = { version = "7.0.11", default-features = false }
 async-graphql-axum = "7.0.11"
@@ -39,6 +40,7 @@ base64.workspace = true
 graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0" }
 tap_core.workspace = true
 tap_graph.workspace = true
+tap_aggregator.workspace = true
 uuid.workspace = true
 bon.workspace = true
 tower_governor = { version = "0.5.0", features = ["axum"] }
@@ -71,6 +73,7 @@ tower-service = "0.3.3"
 tokio-test = "0.4.4"
 wiremock.workspace = true
 insta = "1.41.1"
+test-log.workspace = true
 
 [build-dependencies]
 build-info-build = { version = "0.0.39", default-features = false }
