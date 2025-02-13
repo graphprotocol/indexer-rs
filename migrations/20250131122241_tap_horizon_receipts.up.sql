@@ -14,8 +14,21 @@ CREATE TABLE IF NOT EXISTS tap_horizon_receipts (
     value NUMERIC(39) NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS scalar_tap_receipts_allocation_id_idx ON scalar_tap_receipts (allocation_id);
-CREATE INDEX IF NOT EXISTS scalar_tap_receipts_timestamp_ns_idx ON scalar_tap_receipts (timestamp_ns);
+CREATE INDEX IF NOT EXISTS tap_horizon_receipts_allocation_id_idx ON tap_horizon_receipts (allocation_id);
+CREATE INDEX IF NOT EXISTS tap_horizon_receipts_timestamp_ns_idx ON tap_horizon_receipts (timestamp_ns);
+
+CREATE FUNCTION tap_horizon_receipt_notify()
+RETURNS trigger AS
+$$
+BEGIN
+    PERFORM pg_notify('tap_horizon_receipt_notification', format('{"id": %s, "allocation_id": "%s", "signer_address": "%s", "timestamp_ns": %s, "value": %s}', NEW.id, NEW.allocation_id, NEW.signer_address, NEW.timestamp_ns, NEW.value));
+    RETURN NEW;
+END;
+$$ LANGUAGE 'plpgsql';
+
+CREATE TRIGGER receipt_update AFTER INSERT OR UPDATE
+    ON tap_horizon_receipts
+    FOR EACH ROW EXECUTE PROCEDURE tap_horizon_receipt_notify();
 
 
 -- This table is used to store invalid receipts (receipts that fail at least one of the checks in the tap-agent).
