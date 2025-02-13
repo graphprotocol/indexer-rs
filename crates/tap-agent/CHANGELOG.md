@@ -4,6 +4,13 @@
 
 
 
+## [1.9.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.9.0...indexer-tap-agent-v1.9.1) (2025-02-13)
+
+
+### Bug Fixes
+
+* send allocation creation message to correct sender account ([387d660](https://github.com/graphprotocol/indexer-rs/commit/387d660a7a9a4f2a669762408f872e36251a3855))
+
 ## [1.9.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.8.0...indexer-tap-agent-v1.9.0) (2025-02-12)
 
 
