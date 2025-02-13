@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    future::Future,
     marker::PhantomData,
     sync::Arc,
     time::{Duration, Instant},
@@ -10,6 +11,7 @@ use std::{
 use anyhow::{anyhow, ensure};
 use bigdecimal::{num_bigint::BigInt, ToPrimitive};
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
+use itertools::{Either, Itertools};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use sqlx::{types::BigDecimal, PgPool};
@@ -39,7 +41,7 @@ use crate::{
     tap::{
         context::{
             checks::{AllocationId, Signature},
-            NetworkVersion, TapAgentContext,
+            Horizon, Legacy, NetworkVersion, TapAgentContext,
         },
         signers_trimmed, TapReceipt,
     },
@@ -136,6 +138,8 @@ pub struct SenderAllocationState<T: NetworkVersion> {
     allocation_id: Address,
     /// Address of the sender responsible for this [SenderAllocation]
     sender: Address,
+    /// Address of the indexer
+    indexer_address: Address,
 
     /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
@@ -233,6 +237,7 @@ pub enum SenderAllocationMessage {
 #[async_trait::async_trait]
 impl<T> Actor for SenderAllocation<T>
 where
+    SenderAllocationState<T>: DatabaseInteractions,
     T: NetworkVersion,
     for<'a> &'a Eip712SignedMessage<T::Rav>: Into<RavInformation>,
     TapAgentContext<T>:
@@ -431,6 +436,7 @@ where
     T: NetworkVersion,
     TapAgentContext<T>:
         RavRead<T::Rav> + RavStore<T::Rav> + ReceiptDelete + ReceiptRead<TapReceipt>,
+    SenderAllocationState<T>: DatabaseInteractions,
 {
     /// Helper function to create a [SenderAllocationState]
     /// given [SenderAllocationArgs]
@@ -484,6 +490,7 @@ where
             sender,
             escrow_accounts,
             domain_separator,
+            indexer_address: config.indexer_address,
             sender_account_ref: sender_account_ref.clone(),
             unaggregated_fees: UnaggregatedReceipts::default(),
             invalid_receipts_fees: UnaggregatedReceipts::default(),
@@ -501,6 +508,511 @@ where
     async fn calculate_unaggregated_fee(&self) -> anyhow::Result<UnaggregatedReceipts> {
         self.calculate_fee_until_last_id(self.unaggregated_fees.last_id as i64)
             .await
+    }
+
+    async fn request_rav(&mut self) -> anyhow::Result<()> {
+        match self.rav_requester_single().await {
+            Ok(rav) => {
+                self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
+                self.latest_rav = Some(rav);
+                RAVS_CREATED
+                    .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+                    .inc();
+                Ok(())
+            }
+            Err(e) => {
+                if let RavError::AllReceiptsInvalid = e {
+                    self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
+                }
+                RAVS_FAILED
+                    .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+                    .inc();
+                Err(e.into())
+            }
+        }
+    }
+
+    /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
+    /// time because actors run one message at a time.
+    ///
+    /// Yet, multiple different [SenderAllocation] can run a request in parallel.
+    async fn rav_requester_single(&mut self) -> Result<Eip712SignedMessage<T::Rav>, RavError> {
+        tracing::trace!("rav_requester_single()");
+        let RavRequest {
+            valid_receipts,
+            previous_rav,
+            invalid_receipts,
+            expected_rav,
+        } = self
+            .tap_manager
+            .create_rav_request(
+                &Context::new(),
+                self.timestamp_buffer_ns,
+                Some(self.rav_request_receipt_limit),
+            )
+            .await?;
+        match (
+            expected_rav,
+            valid_receipts.is_empty(),
+            invalid_receipts.is_empty(),
+        ) {
+            // All receipts are invalid
+            (Err(AggregationError::NoValidReceiptsForRavRequest), true, false) => {
+                tracing::warn!(
+                    "Found {} invalid receipts for allocation {} and sender {}.",
+                    invalid_receipts.len(),
+                    self.allocation_id,
+                    self.sender
+                );
+                // Obtain min/max timestamps to define query
+                let min_timestamp = invalid_receipts
+                    .iter()
+                    .map(|receipt| receipt.signed_receipt().timestamp_ns())
+                    .min()
+                    .expect("invalid receipts should not be empty");
+                let max_timestamp = invalid_receipts
+                    .iter()
+                    .map(|receipt| receipt.signed_receipt().timestamp_ns())
+                    .max()
+                    .expect("invalid receipts should not be empty");
+
+                self.store_invalid_receipts(invalid_receipts).await?;
+                let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
+                self.delete_receipts_between(&signers, min_timestamp, max_timestamp)
+                    .await?;
+                Err(RavError::AllReceiptsInvalid)
+            }
+            // When it receives both valid and invalid receipts or just valid
+            (Ok(expected_rav), ..) => {
+                let valid_receipts: Vec<_> = valid_receipts
+                    .into_iter()
+                    .map(|r| r.signed_receipt().clone())
+                    .collect();
+
+                let rav_response_time_start = Instant::now();
+
+                let signed_rav =
+                    T::aggregate(&mut self.sender_aggregator, valid_receipts, previous_rav).await?;
+
+                let rav_response_time = rav_response_time_start.elapsed();
+                RAV_RESPONSE_TIME
+                    .with_label_values(&[&self.sender.to_string()])
+                    .observe(rav_response_time.as_secs_f64());
+                // we only save invalid receipts when we are about to store our rav
+                //
+                // store them before we call remove_obsolete_receipts()
+                if !invalid_receipts.is_empty() {
+                    tracing::warn!(
+                        "Found {} invalid receipts for allocation {} and sender {}.",
+                        invalid_receipts.len(),
+                        self.allocation_id,
+                        self.sender
+                    );
+
+                    // Save invalid receipts to the database for logs.
+                    // TODO: consider doing that in a spawned task?
+                    self.store_invalid_receipts(invalid_receipts).await?;
+                }
+
+                match self
+                    .tap_manager
+                    .verify_and_store_rav(expected_rav.clone(), signed_rav.clone())
+                    .await
+                {
+                    Ok(_) => {}
+
+                    // Adapter errors are local software errors. Shouldn't be a problem with the sender.
+                    Err(tap_core::Error::AdapterError { source_error: e }) => {
+                        return Err(
+                            anyhow::anyhow!("TAP Adapter error while storing RAV: {:?}", e).into(),
+                        )
+                    }
+
+                    // The 3 errors below signal an invalid RAV, which should be about problems with the
+                    // sender. The sender could be malicious.
+                    Err(
+                        e @ tap_core::Error::InvalidReceivedRav {
+                            expected_rav: _,
+                            received_rav: _,
+                        }
+                        | e @ tap_core::Error::SignatureError(_)
+                        | e @ tap_core::Error::InvalidRecoveredSigner { address: _ },
+                    ) => {
+                        Self::store_failed_rav(self, &expected_rav, &signed_rav, &e.to_string())
+                            .await?;
+                        return Err(anyhow::anyhow!(
+                            "Invalid RAV, sender could be malicious: {:?}.",
+                            e
+                        )
+                        .into());
+                    }
+
+                    // All relevant errors should be handled above. If we get here, we forgot to handle
+                    // an error case.
+                    Err(e) => {
+                        return Err(anyhow::anyhow!(
+                            "Error while verifying and storing RAV: {:?}",
+                            e
+                        )
+                        .into());
+                    }
+                }
+                Ok(signed_rav)
+            }
+            (Err(AggregationError::NoValidReceiptsForRavRequest), true, true) => Err(anyhow!(
+                "It looks like there are no valid receipts for the RAV request.\
+                This may happen if your `rav_request_trigger_value` is too low \
+                and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
+                You can fix this by increasing the `rav_request_trigger_value`."
+            )
+            .into()),
+            (Err(e), ..) => Err(e.into()),
+        }
+    }
+
+    async fn store_invalid_receipts(
+        &mut self,
+        receipts: Vec<ReceiptWithState<Failed, TapReceipt>>,
+    ) -> anyhow::Result<()> {
+        let fees = receipts
+            .iter()
+            .map(|receipt| receipt.signed_receipt().value())
+            .sum();
+
+        let (receipts_v1, receipts_v2): (Vec<_>, Vec<_>) =
+            receipts.into_iter().partition_map(|r| {
+                // note: it would be nice if we could get signed_receipt and error by value without
+                // cloning
+                let error = r.clone().error().to_string();
+                match r.signed_receipt().clone() {
+                    TapReceipt::V1(receipt) => Either::Left((receipt, error)),
+                    TapReceipt::V2(receipt) => Either::Right((receipt, error)),
+                }
+            });
+
+        let (result1, result2) = tokio::join!(
+            self.store_v1_invalid_receipts(receipts_v1),
+            self.store_v2_invalid_receipts(receipts_v2),
+        );
+        if let Err(err) = result1 {
+            tracing::error!(%err, "There was an error while storing invalid v1 receipts.");
+        }
+
+        if let Err(err) = result2 {
+            tracing::error!(%err, "There was an error while storing invalid v2 receipts.");
+        }
+
+        self.invalid_receipts_fees.value = self
+            .invalid_receipts_fees
+            .value
+            .checked_add(fees)
+            .unwrap_or_else(|| {
+                // This should never happen, but if it does, we want to know about it.
+                tracing::error!(
+                    "Overflow when adding receipt value {} to invalid receipts fees {} \
+            for allocation {} and sender {}. Setting total unaggregated fees to \
+            u128::MAX.",
+                    fees,
+                    self.invalid_receipts_fees.value,
+                    self.allocation_id,
+                    self.sender
+                );
+                u128::MAX
+            });
+        self.sender_account_ref
+            .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
+                self.allocation_id,
+                self.invalid_receipts_fees,
+            ))?;
+
+        Ok(())
+    }
+
+    async fn store_v1_invalid_receipts(
+        &self,
+        receipts: Vec<(tap_graph::SignedReceipt, String)>,
+    ) -> anyhow::Result<()> {
+        let reciepts_len = receipts.len();
+        let mut reciepts_signers = Vec::with_capacity(reciepts_len);
+        let mut encoded_signatures = Vec::with_capacity(reciepts_len);
+        let mut allocation_ids = Vec::with_capacity(reciepts_len);
+        let mut timestamps = Vec::with_capacity(reciepts_len);
+        let mut nounces = Vec::with_capacity(reciepts_len);
+        let mut values = Vec::with_capacity(reciepts_len);
+        let mut error_logs = Vec::with_capacity(reciepts_len);
+
+        for (receipt, receipt_error) in receipts {
+            let allocation_id = receipt.message.allocation_id;
+            let encoded_signature = receipt.signature.as_bytes().to_vec();
+            let receipt_signer = receipt
+                .recover_signer(&self.domain_separator)
+                .map_err(|e| {
+                    tracing::error!("Failed to recover receipt signer: {}", e);
+                    anyhow!(e)
+                })?;
+            tracing::debug!(
+                "Receipt for allocation {} and signer {} failed reason: {}",
+                allocation_id.encode_hex(),
+                receipt_signer.encode_hex(),
+                receipt_error
+            );
+            reciepts_signers.push(receipt_signer.encode_hex());
+            encoded_signatures.push(encoded_signature);
+            allocation_ids.push(allocation_id.encode_hex());
+            timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
+            nounces.push(BigDecimal::from(receipt.message.nonce));
+            values.push(BigDecimal::from(BigInt::from(receipt.message.value)));
+            error_logs.push(receipt_error);
+        }
+        sqlx::query!(
+            r#"INSERT INTO scalar_tap_receipts_invalid (
+                signer_address,
+                signature,
+                allocation_id,
+                timestamp_ns,
+                nonce,
+                value,
+                error_log
+            ) SELECT * FROM UNNEST(
+                $1::CHAR(40)[],
+                $2::BYTEA[],
+                $3::CHAR(40)[],
+                $4::NUMERIC(20)[],
+                $5::NUMERIC(20)[],
+                $6::NUMERIC(40)[],
+                $7::TEXT[]
+            )"#,
+            &reciepts_signers,
+            &encoded_signatures,
+            &allocation_ids,
+            &timestamps,
+            &nounces,
+            &values,
+            &error_logs
+        )
+        .execute(&self.pgpool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to store invalid receipt: {}", e);
+            anyhow!(e)
+        })?;
+
+        Ok(())
+    }
+
+    async fn store_v2_invalid_receipts(
+        &self,
+        receipts: Vec<(tap_graph::v2::SignedReceipt, String)>,
+    ) -> anyhow::Result<()> {
+        let reciepts_len = receipts.len();
+        let mut reciepts_signers = Vec::with_capacity(reciepts_len);
+        let mut encoded_signatures = Vec::with_capacity(reciepts_len);
+        let mut allocation_ids = Vec::with_capacity(reciepts_len);
+        let mut payers = Vec::with_capacity(reciepts_len);
+        let mut data_services = Vec::with_capacity(reciepts_len);
+        let mut service_providers = Vec::with_capacity(reciepts_len);
+        let mut timestamps = Vec::with_capacity(reciepts_len);
+        let mut nonces = Vec::with_capacity(reciepts_len);
+        let mut values = Vec::with_capacity(reciepts_len);
+        let mut error_logs = Vec::with_capacity(reciepts_len);
+
+        for (receipt, receipt_error) in receipts {
+            let allocation_id = receipt.message.allocation_id;
+            let payer = receipt.message.payer;
+            let data_service = receipt.message.data_service;
+            let service_provider = receipt.message.service_provider;
+            let encoded_signature = receipt.signature.as_bytes().to_vec();
+            let receipt_signer = receipt
+                .recover_signer(&self.domain_separator)
+                .map_err(|e| {
+                    tracing::error!("Failed to recover receipt signer: {}", e);
+                    anyhow!(e)
+                })?;
+            tracing::debug!(
+                "Receipt for allocation {} and signer {} failed reason: {}",
+                allocation_id.encode_hex(),
+                receipt_signer.encode_hex(),
+                receipt_error
+            );
+            reciepts_signers.push(receipt_signer.encode_hex());
+            encoded_signatures.push(encoded_signature);
+            allocation_ids.push(allocation_id.encode_hex());
+            payers.push(payer.encode_hex());
+            data_services.push(data_service.encode_hex());
+            service_providers.push(service_provider.encode_hex());
+            timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
+            nonces.push(BigDecimal::from(receipt.message.nonce));
+            values.push(BigDecimal::from(BigInt::from(receipt.message.value)));
+            error_logs.push(receipt_error);
+        }
+        sqlx::query!(
+            r#"INSERT INTO tap_horizon_receipts_invalid (
+                signer_address,
+                signature,
+                allocation_id,
+                payer,
+                data_service,
+                service_provider,
+                timestamp_ns,
+                nonce,
+                value,
+                error_log
+            ) SELECT * FROM UNNEST(
+                $1::CHAR(40)[],
+                $2::BYTEA[],
+                $3::CHAR(40)[],
+                $4::CHAR(40)[],
+                $5::CHAR(40)[],
+                $6::CHAR(40)[],
+                $7::NUMERIC(20)[],
+                $8::NUMERIC(20)[],
+                $9::NUMERIC(40)[],
+                $10::TEXT[]
+            )"#,
+            &reciepts_signers,
+            &encoded_signatures,
+            &allocation_ids,
+            &payers,
+            &data_services,
+            &service_providers,
+            &timestamps,
+            &nonces,
+            &values,
+            &error_logs
+        )
+        .execute(&self.pgpool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to store invalid receipt: {}", e);
+            anyhow!(e)
+        })?;
+
+        Ok(())
+    }
+
+    /// Stores a failed Rav, used for logging purposes
+    async fn store_failed_rav(
+        &self,
+        expected_rav: &T::Rav,
+        rav: &Eip712SignedMessage<T::Rav>,
+        reason: &str,
+    ) -> anyhow::Result<()> {
+        // Failed Ravs are stored as json, we don't need to have a copy of the table
+        // TODO update table name?
+        sqlx::query!(
+            r#"
+                INSERT INTO scalar_tap_rav_requests_failed (
+                    allocation_id,
+                    sender_address,
+                    expected_rav,
+                    rav_response,
+                    reason
+                )
+                VALUES ($1, $2, $3, $4, $5)
+            "#,
+            self.allocation_id.encode_hex(),
+            self.sender.encode_hex(),
+            serde_json::to_value(expected_rav)?,
+            serde_json::to_value(rav)?,
+            reason
+        )
+        .execute(&self.pgpool)
+        .await
+        .map_err(|e| anyhow!("Failed to store failed RAV: {:?}", e))?;
+
+        Ok(())
+    }
+}
+
+/// Interactions with the database that needs some special treatment depending on the NetworkVersion
+pub trait DatabaseInteractions {
+    /// Delete receipts between `min_timestamp` and `max_timestamp`
+    fn delete_receipts_between(
+        &self,
+        signers: &[String],
+        min_timestamp: u64,
+        max_timestamp: u64,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    /// Calculates fees for invalid receipts
+    fn calculate_invalid_receipts_fee(
+        &self,
+    ) -> impl Future<Output = anyhow::Result<UnaggregatedReceipts>> + Send;
+
+    /// Calculates all receipt fees until provided `last_id`
+    /// Delete obsolete receipts in the DB w.r.t. the last RAV in DB, then update the tap manager
+    /// with the latest unaggregated fees from the database.
+    fn calculate_fee_until_last_id(
+        &self,
+        last_id: i64,
+    ) -> impl Future<Output = anyhow::Result<UnaggregatedReceipts>> + Send;
+
+    /// Sends a database query and mark the allocation rav as last
+    fn mark_rav_last(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
+}
+
+impl DatabaseInteractions for SenderAllocationState<Legacy> {
+    async fn delete_receipts_between(
+        &self,
+        signers: &[String],
+        min_timestamp: u64,
+        max_timestamp: u64,
+    ) -> anyhow::Result<()> {
+        sqlx::query!(
+            r#"
+                        DELETE FROM scalar_tap_receipts
+                        WHERE timestamp_ns BETWEEN $1 AND $2
+                        AND allocation_id = $3
+                        AND signer_address IN (SELECT unnest($4::text[]));
+                    "#,
+            BigDecimal::from(min_timestamp),
+            BigDecimal::from(max_timestamp),
+            self.allocation_id.encode_hex(),
+            &signers,
+        )
+        .execute(&self.pgpool)
+        .await?;
+        Ok(())
+    }
+    async fn calculate_invalid_receipts_fee(&self) -> anyhow::Result<UnaggregatedReceipts> {
+        tracing::trace!("calculate_invalid_receipts_fee()");
+        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
+
+        let res = sqlx::query!(
+            r#"
+            SELECT
+                MAX(id),
+                SUM(value),
+                COUNT(*)
+            FROM
+                scalar_tap_receipts_invalid
+            WHERE
+                allocation_id = $1
+                AND signer_address IN (SELECT unnest($2::text[]))
+            "#,
+            self.allocation_id.encode_hex(),
+            &signers
+        )
+        .fetch_one(&self.pgpool)
+        .await?;
+
+        ensure!(
+            res.sum.is_none() == res.max.is_none(),
+            "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
+        );
+
+        Ok(UnaggregatedReceipts {
+            last_id: res.max.unwrap_or(0).try_into()?,
+            value: res
+                .sum
+                .unwrap_or(BigDecimal::from(0))
+                .to_string()
+                .parse::<u128>()?,
+            counter: res
+                .count
+                .unwrap_or(0)
+                .to_u64()
+                .expect("default value exists, this shouldn't be empty"),
+        })
     }
 
     /// Delete obsolete receipts in the DB w.r.t. the last RAV in DB, then update the tap manager
@@ -560,224 +1072,8 @@ where
         })
     }
 
-    async fn calculate_invalid_receipts_fee(&self) -> anyhow::Result<UnaggregatedReceipts> {
-        tracing::trace!("calculate_invalid_receipts_fee()");
-        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
-
-        // TODO: Get `rav.timestamp_ns` from the TAP Manager's RAV storage adapter instead?
-        let res = sqlx::query!(
-            r#"
-            SELECT
-                MAX(id),
-                SUM(value),
-                COUNT(*)
-            FROM
-                scalar_tap_receipts_invalid
-            WHERE
-                allocation_id = $1
-                AND signer_address IN (SELECT unnest($2::text[]))
-            "#,
-            self.allocation_id.encode_hex(),
-            &signers
-        )
-        .fetch_one(&self.pgpool)
-        .await?;
-
-        ensure!(
-            res.sum.is_none() == res.max.is_none(),
-            "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
-        );
-
-        Ok(UnaggregatedReceipts {
-            last_id: res.max.unwrap_or(0).try_into()?,
-            value: res
-                .sum
-                .unwrap_or(BigDecimal::from(0))
-                .to_string()
-                .parse::<u128>()?,
-            counter: res
-                .count
-                .unwrap_or(0)
-                .to_u64()
-                .expect("default value exists, this shouldn't be empty"),
-        })
-    }
-
-    async fn request_rav(&mut self) -> anyhow::Result<()> {
-        match self.rav_requester_single().await {
-            Ok(rav) => {
-                self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
-                self.latest_rav = Some(rav);
-                RAVS_CREATED
-                    .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
-                    .inc();
-                Ok(())
-            }
-            Err(e) => {
-                if let RavError::AllReceiptsInvalid = e {
-                    self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
-                }
-                RAVS_FAILED
-                    .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
-                    .inc();
-                Err(e.into())
-            }
-        }
-    }
-
-    /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
-    /// time because actors run one message at a time.
-    ///
-    /// Yet, multiple different [SenderAllocation] can run a request in parallel.
-    async fn rav_requester_single(&mut self) -> Result<Eip712SignedMessage<T::Rav>, RavError> {
-        tracing::trace!("rav_requester_single()");
-        let RavRequest {
-            valid_receipts,
-            previous_rav,
-            invalid_receipts,
-            expected_rav,
-        } = self
-            .tap_manager
-            .create_rav_request(
-                &Context::new(),
-                self.timestamp_buffer_ns,
-                Some(self.rav_request_receipt_limit),
-            )
-            .await?;
-        match (
-            expected_rav,
-            valid_receipts.is_empty(),
-            invalid_receipts.is_empty(),
-        ) {
-            // All receipts are invalid
-            (Err(AggregationError::NoValidReceiptsForRavRequest), true, false) => {
-                tracing::warn!(
-                    "Found {} invalid receipts for allocation {} and sender {}.",
-                    invalid_receipts.len(),
-                    self.allocation_id,
-                    self.sender
-                );
-                self.store_invalid_receipts(invalid_receipts.as_slice())
-                    .await?;
-                // Obtain min/max timestamps to define query
-                let min_timestamp = invalid_receipts
-                    .iter()
-                    .map(|receipt| receipt.signed_receipt().timestamp_ns())
-                    .min()
-                    .expect("invalid receipts should not be empty");
-                let max_timestamp = invalid_receipts
-                    .iter()
-                    .map(|receipt| receipt.signed_receipt().timestamp_ns())
-                    .max()
-                    .expect("invalid receipts should not be empty");
-                let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
-                sqlx::query!(
-                    r#"
-                        DELETE FROM scalar_tap_receipts
-                        WHERE timestamp_ns BETWEEN $1 AND $2
-                        AND allocation_id = $3
-                        AND signer_address IN (SELECT unnest($4::text[]));
-                    "#,
-                    BigDecimal::from(min_timestamp),
-                    BigDecimal::from(max_timestamp),
-                    self.allocation_id.encode_hex(),
-                    &signers,
-                )
-                .execute(&self.pgpool)
-                .await?;
-                Err(RavError::AllReceiptsInvalid)
-            }
-            // When it receives both valid and invalid receipts or just valid
-            (Ok(expected_rav), ..) => {
-                let valid_receipts: Vec<_> = valid_receipts
-                    .into_iter()
-                    .map(|r| r.signed_receipt().clone())
-                    .collect();
-
-                let rav_response_time_start = Instant::now();
-
-                let signed_rav =
-                    T::aggregate(&mut self.sender_aggregator, valid_receipts, previous_rav).await?;
-
-                let rav_response_time = rav_response_time_start.elapsed();
-                RAV_RESPONSE_TIME
-                    .with_label_values(&[&self.sender.to_string()])
-                    .observe(rav_response_time.as_secs_f64());
-                // we only save invalid receipts when we are about to store our rav
-                //
-                // store them before we call remove_obsolete_receipts()
-                if !invalid_receipts.is_empty() {
-                    tracing::warn!(
-                        "Found {} invalid receipts for allocation {} and sender {}.",
-                        invalid_receipts.len(),
-                        self.allocation_id,
-                        self.sender
-                    );
-
-                    // Save invalid receipts to the database for logs.
-                    // TODO: consider doing that in a spawned task?
-                    self.store_invalid_receipts(invalid_receipts.as_slice())
-                        .await?;
-                }
-
-                match self
-                    .tap_manager
-                    .verify_and_store_rav(expected_rav.clone(), signed_rav.clone())
-                    .await
-                {
-                    Ok(_) => {}
-
-                    // Adapter errors are local software errors. Shouldn't be a problem with the sender.
-                    Err(tap_core::Error::AdapterError { source_error: e }) => {
-                        return Err(
-                            anyhow::anyhow!("TAP Adapter error while storing RAV: {:?}", e).into(),
-                        )
-                    }
-
-                    // The 3 errors below signal an invalid RAV, which should be about problems with the
-                    // sender. The sender could be malicious.
-                    Err(
-                        e @ tap_core::Error::InvalidReceivedRav {
-                            expected_rav: _,
-                            received_rav: _,
-                        }
-                        | e @ tap_core::Error::SignatureError(_)
-                        | e @ tap_core::Error::InvalidRecoveredSigner { address: _ },
-                    ) => {
-                        Self::store_failed_rav(self, &expected_rav, &signed_rav, &e.to_string())
-                            .await?;
-                        return Err(anyhow::anyhow!(
-                            "Invalid RAV, sender could be malicious: {:?}.",
-                            e
-                        )
-                        .into());
-                    }
-
-                    // All relevant errors should be handled above. If we get here, we forgot to handle
-                    // an error case.
-                    Err(e) => {
-                        return Err(anyhow::anyhow!(
-                            "Error while verifying and storing RAV: {:?}",
-                            e
-                        )
-                        .into());
-                    }
-                }
-                Ok(signed_rav)
-            }
-            (Err(AggregationError::NoValidReceiptsForRavRequest), true, true) => Err(anyhow!(
-                "It looks like there are no valid receipts for the RAV request.\
-                This may happen if your `rav_request_trigger_value` is too low \
-                and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
-                You can fix this by increasing the `rav_request_trigger_value`."
-            )
-            .into()),
-            (Err(e), ..) => Err(e.into()),
-        }
-    }
-
     /// Sends a database query and mark the allocation rav as last
-    pub async fn mark_rav_last(&self) -> anyhow::Result<()> {
+    async fn mark_rav_last(&self) -> anyhow::Result<()> {
         tracing::info!(
             sender = %self.sender,
             allocation_id = %self.allocation_id,
@@ -813,141 +1109,172 @@ where
             ),
         }
     }
+}
 
-    async fn store_invalid_receipts(
-        &mut self,
-        receipts: &[ReceiptWithState<Failed, TapReceipt>],
-    ) -> anyhow::Result<()> {
-        let reciepts_len = receipts.len();
-        let mut reciepts_signers = Vec::with_capacity(reciepts_len);
-        let mut encoded_signatures = Vec::with_capacity(reciepts_len);
-        let mut allocation_ids = Vec::with_capacity(reciepts_len);
-        let mut timestamps = Vec::with_capacity(reciepts_len);
-        let mut nounces = Vec::with_capacity(reciepts_len);
-        let mut values = Vec::with_capacity(reciepts_len);
-        let mut error_logs = Vec::with_capacity(reciepts_len);
-
-        for received_receipt in receipts.iter() {
-            let receipt = match received_receipt.signed_receipt() {
-                TapReceipt::V1(receipt) => receipt,
-                TapReceipt::V2(_) => unimplemented!("V2 not supported"),
-            };
-            let allocation_id = receipt.message.allocation_id;
-            let encoded_signature = receipt.signature.as_bytes().to_vec();
-            let receipt_error = received_receipt.clone().error().to_string();
-            let receipt_signer = receipt
-                .recover_signer(&self.domain_separator)
-                .map_err(|e| {
-                    tracing::error!("Failed to recover receipt signer: {}", e);
-                    anyhow!(e)
-                })?;
-            tracing::debug!(
-                "Receipt for allocation {} and signer {} failed reason: {}",
-                allocation_id.encode_hex(),
-                receipt_signer.encode_hex(),
-                receipt_error
-            );
-            reciepts_signers.push(receipt_signer.encode_hex());
-            encoded_signatures.push(encoded_signature);
-            allocation_ids.push(allocation_id.encode_hex());
-            timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
-            nounces.push(BigDecimal::from(receipt.message.nonce));
-            values.push(BigDecimal::from(BigInt::from(receipt.message.value)));
-            error_logs.push(receipt_error);
-        }
-        sqlx::query!(
-            r#"INSERT INTO scalar_tap_receipts_invalid (
-                signer_address,
-                signature,
-                allocation_id,
-                timestamp_ns,
-                nonce,
-                value,
-                error_log
-            ) SELECT * FROM UNNEST(
-                $1::CHAR(40)[],
-                $2::BYTEA[],
-                $3::CHAR(40)[],
-                $4::NUMERIC(20)[],
-                $5::NUMERIC(20)[],
-                $6::NUMERIC(40)[],
-                $7::TEXT[]
-            )"#,
-            &reciepts_signers,
-            &encoded_signatures,
-            &allocation_ids,
-            &timestamps,
-            &nounces,
-            &values,
-            &error_logs
-        )
-        .execute(&self.pgpool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to store invalid receipt: {}", e);
-            anyhow!(e)
-        })?;
-
-        let fees = receipts
-            .iter()
-            .map(|receipt| receipt.signed_receipt().value())
-            .sum();
-
-        self.invalid_receipts_fees.value = self
-            .invalid_receipts_fees
-            .value
-            .checked_add(fees)
-            .unwrap_or_else(|| {
-                // This should never happen, but if it does, we want to know about it.
-                tracing::error!(
-                    "Overflow when adding receipt value {} to invalid receipts fees {} \
-            for allocation {} and sender {}. Setting total unaggregated fees to \
-            u128::MAX.",
-                    fees,
-                    self.invalid_receipts_fees.value,
-                    self.allocation_id,
-                    self.sender
-                );
-                u128::MAX
-            });
-        self.sender_account_ref
-            .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
-                self.allocation_id,
-                self.invalid_receipts_fees,
-            ))?;
-
-        Ok(())
-    }
-
-    /// Stores a failed Rav, used for logging purposes
-    async fn store_failed_rav(
+impl DatabaseInteractions for SenderAllocationState<Horizon> {
+    async fn delete_receipts_between(
         &self,
-        expected_rav: &T::Rav,
-        rav: &Eip712SignedMessage<T::Rav>,
-        reason: &str,
+        signers: &[String],
+        min_timestamp: u64,
+        max_timestamp: u64,
     ) -> anyhow::Result<()> {
         sqlx::query!(
             r#"
-                INSERT INTO scalar_tap_rav_requests_failed (
-                    allocation_id,
-                    sender_address,
-                    expected_rav,
-                    rav_response,
-                    reason
-                )
-                VALUES ($1, $2, $3, $4, $5)
+                        DELETE FROM scalar_tap_receipts
+                        WHERE timestamp_ns BETWEEN $1 AND $2
+                        AND allocation_id = $3
+                        AND signer_address IN (SELECT unnest($4::text[]));
+                    "#,
+            BigDecimal::from(min_timestamp),
+            BigDecimal::from(max_timestamp),
+            self.allocation_id.encode_hex(),
+            &signers,
+        )
+        .execute(&self.pgpool)
+        .await?;
+        Ok(())
+    }
+
+    async fn calculate_invalid_receipts_fee(&self) -> anyhow::Result<UnaggregatedReceipts> {
+        tracing::trace!("calculate_invalid_receipts_fee()");
+        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
+
+        let res = sqlx::query!(
+            r#"
+            SELECT
+                MAX(id),
+                SUM(value),
+                COUNT(*)
+            FROM
+                tap_horizon_receipts_invalid
+            WHERE
+                allocation_id = $1
+                AND signer_address IN (SELECT unnest($2::text[]))
+            "#,
+            self.allocation_id.encode_hex(),
+            &signers
+        )
+        .fetch_one(&self.pgpool)
+        .await?;
+
+        ensure!(
+            res.sum.is_none() == res.max.is_none(),
+            "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
+        );
+
+        Ok(UnaggregatedReceipts {
+            last_id: res.max.unwrap_or(0).try_into()?,
+            value: res
+                .sum
+                .unwrap_or(BigDecimal::from(0))
+                .to_string()
+                .parse::<u128>()?,
+            counter: res
+                .count
+                .unwrap_or(0)
+                .to_u64()
+                .expect("default value exists, this shouldn't be empty"),
+        })
+    }
+
+    async fn calculate_fee_until_last_id(
+        &self,
+        last_id: i64,
+    ) -> anyhow::Result<UnaggregatedReceipts> {
+        tracing::trace!("calculate_unaggregated_fee()");
+        self.tap_manager.remove_obsolete_receipts().await?;
+
+        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
+        let res = sqlx::query!(
+            r#"
+            SELECT
+                MAX(id),
+                SUM(value),
+                COUNT(*)
+            FROM
+                tap_horizon_receipts
+            WHERE
+                allocation_id = $1
+                AND service_provider = $2
+                AND id <= $3
+                AND signer_address IN (SELECT unnest($4::text[]))
+                AND timestamp_ns > $5
+            "#,
+            self.allocation_id.encode_hex(),
+            self.indexer_address.encode_hex(),
+            last_id,
+            &signers,
+            BigDecimal::from(
+                self.latest_rav
+                    .as_ref()
+                    .map(|rav| rav.message.timestamp_ns())
+                    .unwrap_or_default()
+            ),
+        )
+        .fetch_one(&self.pgpool)
+        .await?;
+
+        ensure!(
+            res.sum.is_none() == res.max.is_none(),
+            "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
+        );
+
+        Ok(UnaggregatedReceipts {
+            last_id: res.max.unwrap_or(0).try_into()?,
+            value: res
+                .sum
+                .unwrap_or(BigDecimal::from(0))
+                .to_string()
+                .parse::<u128>()?,
+            counter: res
+                .count
+                .unwrap_or(0)
+                .to_u64()
+                .expect("default value exists, this shouldn't be empty"),
+        })
+    }
+
+    /// Sends a database query and mark the allocation rav as last
+    async fn mark_rav_last(&self) -> anyhow::Result<()> {
+        tracing::info!(
+            sender = %self.sender,
+            allocation_id = %self.allocation_id,
+            "Marking rav as last!",
+        );
+        // TODO add service_provider filter
+        let updated_rows = sqlx::query!(
+            r#"
+                UPDATE tap_horizon_ravs
+                    SET last = true
+                WHERE 
+                    allocation_id = $1
+                    AND payer = $2
+                    AND service_provider = $3
             "#,
             self.allocation_id.encode_hex(),
             self.sender.encode_hex(),
-            serde_json::to_value(expected_rav)?,
-            serde_json::to_value(rav)?,
-            reason
+            self.indexer_address.encode_hex(),
         )
         .execute(&self.pgpool)
-        .await
-        .map_err(|e| anyhow!("Failed to store failed RAV: {:?}", e))?;
+        .await?;
 
-        Ok(())
+        match updated_rows.rows_affected() {
+            // in case no rav was marked as final
+            0 => {
+                tracing::warn!(
+                    "No RAVs were updated as last for allocation {} and sender {}.",
+                    self.allocation_id,
+                    self.sender
+                );
+                Ok(())
+            }
+            1 => Ok(()),
+            _ => anyhow::bail!(
+                "Expected exactly one row to be updated in the latest RAVs table, \
+                        but {} were updated.",
+                updated_rows.rows_affected()
+            ),
+        }
     }
 }
 
@@ -993,6 +1320,7 @@ pub mod tests {
         agent::{
             sender_account::{ReceiptFees, SenderAccountMessage},
             sender_accounts_manager::NewReceiptNotification,
+            sender_allocation::DatabaseInteractions,
             unaggregated_receipts::UnaggregatedReceipts,
         },
         tap::{context::Legacy, CheckingReceipt},
@@ -1703,7 +2031,7 @@ pub mod tests {
         let failing_receipts: Vec<_> = join_all(failing_receipts).await;
 
         // store the failing receipts
-        let result = state.store_invalid_receipts(&failing_receipts).await;
+        let result = state.store_invalid_receipts(failing_receipts).await;
 
         // we just store a few and make sure it doesn't fail
         assert!(result.is_ok());
