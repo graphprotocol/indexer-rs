@@ -17,9 +17,9 @@ use indexer_config::{
     ServiceConfig, ServiceTapConfig,
 };
 use indexer_monitor::{
-    attestation_signers, deployment_to_allocation, dispute_manager, escrow_accounts,
-    indexer_allocations, AllocationWatcher, DisputeManagerWatcher, EscrowAccountsWatcher,
-    SubgraphClient,
+    attestation_signers, deployment_to_allocation, dispute_manager, escrow_accounts_v1,
+    escrow_accounts_v2, indexer_allocations, AllocationWatcher, DisputeManagerWatcher,
+    EscrowAccountsWatcher, SubgraphClient,
 };
 use reqwest::Method;
 use tap_core::{manager::Manager, receipt::checks::CheckList};
@@ -34,7 +34,6 @@ use tower_http::{
     trace::TraceLayer,
     validate_request::ValidateRequestHeaderLayer,
 };
-use typed_builder::TypedBuilder;
 
 use super::{release::IndexerServiceRelease, GraphNodeState};
 use crate::{
@@ -51,7 +50,7 @@ use crate::{
     wallet::public_key,
 };
 
-#[derive(TypedBuilder)]
+#[derive(bon::Builder)]
 pub struct ServiceRouter {
     // database
     database: sqlx::PgPool,
@@ -60,7 +59,6 @@ pub struct ServiceRouter {
     // graphnode client
     http_client: reqwest::Client,
     // release info
-    #[builder(default, setter(strip_option))]
     release: Option<IndexerServiceRelease>,
 
     // configuration
@@ -71,23 +69,21 @@ pub struct ServiceRouter {
     timestamp_buffer_secs: Duration,
 
     // either provide subgraph or watcher
-    #[builder(default, setter(transform =
+    #[builder(with =
         |subgraph: &'static SubgraphClient,
-            config: EscrowSubgraphConfig|
-        Some((subgraph, config))))]
+        config: EscrowSubgraphConfig|
+        (subgraph, config))]
     escrow_subgraph: Option<(&'static SubgraphClient, EscrowSubgraphConfig)>,
-    #[builder(default, setter(strip_option))]
-    escrow_accounts: Option<EscrowAccountsWatcher>,
+    escrow_accounts_v1: Option<EscrowAccountsWatcher>,
+
+    escrow_accounts_v2: Option<EscrowAccountsWatcher>,
 
     // provide network subgraph or allocations + dispute manager
-    #[builder(default, setter(transform =
-        |subgraph: &'static SubgraphClient,
-            config: NetworkSubgraphConfig|
-        Some((subgraph, config))))]
+    #[builder(with = |subgraph: &'static SubgraphClient,
+        config: NetworkSubgraphConfig|
+        (subgraph, config))]
     network_subgraph: Option<(&'static SubgraphClient, NetworkSubgraphConfig)>,
-    #[builder(default, setter(strip_option))]
     allocations: Option<AllocationWatcher>,
-    #[builder(default, setter(strip_option))]
     dispute_manager: Option<DisputeManagerWatcher>,
 }
 
@@ -141,11 +137,26 @@ impl ServiceRouter {
             (None, None) => panic!("No allocations or network subgraph was provided"),
         };
 
-        // Monitor escrow accounts
+        // Monitor escrow accounts v1
         // if not provided, create monitor from subgraph
-        let escrow_accounts = match (self.escrow_accounts, self.escrow_subgraph.as_ref()) {
+        let escrow_accounts_v1 = match (self.escrow_accounts_v1, self.escrow_subgraph.as_ref()) {
             (Some(escrow_account), _) => escrow_account,
-            (_, Some((escrow_subgraph, escrow))) => escrow_accounts(
+            (_, Some((escrow_subgraph, escrow))) => escrow_accounts_v1(
+                escrow_subgraph,
+                indexer_address,
+                escrow.config.syncing_interval_secs,
+                true, // Reject thawing signers eagerly
+            )
+            .await
+            .expect("Error creating escrow_accounts channel"),
+            (None, None) => panic!("No escrow accounts or escrow subgraph was provided"),
+        };
+
+        // Monitor escrow accounts v2
+        // if not provided, create monitor from subgraph
+        let escrow_accounts_v2 = match (self.escrow_accounts_v2, self.escrow_subgraph.as_ref()) {
+            (Some(escrow_account), _) => escrow_account,
+            (_, Some((escrow_subgraph, escrow))) => escrow_accounts_v2(
                 escrow_subgraph,
                 indexer_address,
                 escrow.config.syncing_interval_secs,
@@ -255,7 +266,8 @@ impl ServiceRouter {
                 let checks = IndexerTapContext::get_checks(
                     self.database,
                     allocations.clone(),
-                    escrow_accounts.clone(),
+                    escrow_accounts_v1.clone(),
+                    escrow_accounts_v2.clone(),
                     timestamp_error_tolerance,
                     receipt_max_value,
                 )
@@ -299,7 +311,8 @@ impl ServiceRouter {
                 deployment_to_allocation,
             };
             let sender_state = SenderState {
-                escrow_accounts,
+                escrow_accounts_v1,
+                escrow_accounts_v2,
                 domain_separator: self.domain_separator,
             };
 

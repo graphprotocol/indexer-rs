@@ -21,7 +21,6 @@ use thegraph_core::{
     deployment_id, DeploymentId,
 };
 use tokio::sync::Notify;
-use typed_builder::TypedBuilder;
 
 /// Assert something is true while sleeping and retrying
 ///
@@ -310,16 +309,16 @@ lazy_static! {
     );
 }
 
-#[derive(TypedBuilder)]
+#[derive(bon::Builder)]
 pub struct SignedReceiptRequest {
     #[builder(default = Address::ZERO)]
     allocation_id: Address,
     #[builder(default)]
     nonce: u64,
-    #[builder(default_code = r#"SystemTime::now()
+    #[builder(default = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_nanos() as u64"#)]
+            .as_nanos() as u64)]
     timestamp_ns: u64,
     #[builder(default = 1)]
     value: u128,

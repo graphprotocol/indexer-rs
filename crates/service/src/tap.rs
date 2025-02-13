@@ -48,13 +48,17 @@ impl IndexerTapContext {
     pub async fn get_checks(
         pgpool: PgPool,
         indexer_allocations: Receiver<HashMap<Address, Allocation>>,
-        escrow_accounts: Receiver<EscrowAccounts>,
+        escrow_accounts_v1: Receiver<EscrowAccounts>,
+        escrow_accounts_v2: Receiver<EscrowAccounts>,
         timestamp_error_tolerance: Duration,
         receipt_max_value: u128,
     ) -> Vec<ReceiptCheck<TapReceipt>> {
         vec![
             Arc::new(AllocationEligible::new(indexer_allocations)),
-            Arc::new(SenderBalanceCheck::new(escrow_accounts)),
+            Arc::new(SenderBalanceCheck::new(
+                escrow_accounts_v1,
+                escrow_accounts_v2,
+            )),
             Arc::new(TimestampCheck::new(timestamp_error_tolerance)),
             Arc::new(DenyListCheck::new(pgpool.clone()).await),
             Arc::new(ReceiptMaxValueCheck::new(receipt_max_value)),
