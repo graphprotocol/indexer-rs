@@ -88,7 +88,7 @@ impl EscrowAccounts {
 
 pub type EscrowAccountsWatcher = Receiver<EscrowAccounts>;
 
-pub async fn escrow_accounts(
+pub async fn escrow_accounts_v1(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     interval: Duration,
@@ -243,7 +243,7 @@ mod tests {
             );
         mock_server.register(mock).await;
 
-        let mut accounts = escrow_accounts(
+        let mut accounts = escrow_accounts_v1(
             escrow_subgraph,
             test_assets::INDEXER_ADDRESS,
             Duration::from_secs(60),

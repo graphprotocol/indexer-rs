@@ -40,7 +40,7 @@ use indexer_config::{
     SubgraphConfig, SubgraphsConfig, TapConfig,
 };
 use indexer_monitor::{
-    escrow_accounts, escrow_accounts_v2, indexer_allocations, DeploymentDetails, SubgraphClient,
+    escrow_accounts_v1, escrow_accounts_v2, indexer_allocations, DeploymentDetails, SubgraphClient,
 };
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use sender_account::SenderAccountConfig;
@@ -156,7 +156,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         .await,
     ));
 
-    let escrow_accounts_v1 = escrow_accounts(
+    let escrow_accounts_v1 = escrow_accounts_v1(
         escrow_subgraph,
         *indexer_address,
         *escrow_sync_interval,
