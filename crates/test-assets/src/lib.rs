@@ -348,6 +348,36 @@ pub async fn create_signed_receipt(
     .unwrap()
 }
 
+/// Function to generate a signed receipt using the TAP_SIGNER wallet.
+#[bon::builder]
+pub async fn create_signed_receipt_v2(
+    #[builder(default = ALLOCATION_ID_0)] allocation_id: Address,
+    #[builder(default)] nonce: u64,
+    #[builder(default = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64)]
+    timestamp_ns: u64,
+    #[builder(default = 1)] value: u128,
+) -> tap_graph::v2::SignedReceipt {
+    let (wallet, _) = &*self::TAP_SIGNER;
+
+    Eip712SignedMessage::new(
+        &self::TAP_EIP712_DOMAIN,
+        tap_graph::v2::Receipt {
+            payer: TAP_SENDER.1,
+            service_provider: INDEXER_ADDRESS,
+            data_service: Address::ZERO,
+            allocation_id,
+            nonce,
+            timestamp_ns,
+            value,
+        },
+        wallet,
+    )
+    .unwrap()
+}
+
 pub async fn flush_messages(notify: &Notify) {
     loop {
         if tokio::time::timeout(Duration::from_millis(10), notify.notified())
