@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use axum_extra::headers::{self, Header, HeaderName, HeaderValue};
+use base64::prelude::*;
 use lazy_static::lazy_static;
 use prometheus::{register_counter, Counter};
+use prost::Message;
+use tap_aggregator::grpc;
 use tap_graph::SignedReceipt;
 
 use crate::tap::TapReceipt;
@@ -26,17 +29,28 @@ impl Header for TapHeader {
     where
         I: Iterator<Item = &'i HeaderValue>,
     {
-        let mut execute = || {
-            let value = values.next();
-            let raw_receipt = value.ok_or(headers::Error::invalid())?;
-            let raw_receipt = raw_receipt
-                .to_str()
-                .map_err(|_| headers::Error::invalid())?;
-            let parsed_receipt: SignedReceipt =
-                serde_json::from_str(raw_receipt).map_err(|_| headers::Error::invalid())?;
-            Ok(TapHeader(crate::tap::TapReceipt::V1(parsed_receipt)))
+        let mut execute = || -> anyhow::Result<TapHeader> {
+            let raw_receipt = values.next().ok_or(headers::Error::invalid())?;
+
+            // we first try to decode a v2 receipt since it's cheaper and fail earlier than using
+            // serde
+            match BASE64_STANDARD.decode(raw_receipt) {
+                Ok(raw_receipt) => {
+                    tracing::debug!("Decoded v2");
+                    let receipt = grpc::v2::SignedReceipt::decode(raw_receipt.as_ref())?;
+                    Ok(TapHeader(TapReceipt::V2(receipt.try_into()?)))
+                }
+                Err(_) => {
+                    tracing::debug!("Could not decode v2, trying v1");
+                    let parsed_receipt: SignedReceipt =
+                        serde_json::from_slice(raw_receipt.as_ref())?;
+                    Ok(TapHeader(TapReceipt::V1(parsed_receipt)))
+                }
+            }
         };
-        execute().inspect_err(|_| TAP_RECEIPT_INVALID.inc())
+        execute()
+            .map_err(|_| headers::Error::invalid())
+            .inspect_err(|_| TAP_RECEIPT_INVALID.inc())
     }
 
     fn encode<E>(&self, _values: &mut E)
@@ -51,13 +65,16 @@ impl Header for TapHeader {
 mod test {
     use axum::http::HeaderValue;
     use axum_extra::headers::Header;
-    use test_assets::{create_signed_receipt, SignedReceiptRequest};
+    use base64::prelude::*;
+    use prost::Message;
+    use tap_aggregator::grpc::v2::SignedReceipt;
+    use test_assets::{create_signed_receipt, create_signed_receipt_v2, SignedReceiptRequest};
 
     use super::TapHeader;
     use crate::tap::TapReceipt;
 
     #[tokio::test]
-    async fn test_decode_valid_tap_receipt_header() {
+    async fn test_decode_valid_tap_v1_receipt_header() {
         let original_receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
         let serialized_receipt = serde_json::to_string(&original_receipt).unwrap();
         let header_value = HeaderValue::from_str(&serialized_receipt).unwrap();
@@ -66,6 +83,20 @@ mod test {
             .expect("tap receipt header value should be valid");
 
         assert_eq!(decoded_receipt, TapHeader(TapReceipt::V1(original_receipt)));
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_decode_valid_tap_v2_receipt_header() {
+        let original_receipt = create_signed_receipt_v2().call().await;
+        let protobuf_receipt = SignedReceipt::from(original_receipt.clone());
+        let encoded = protobuf_receipt.encode_to_vec();
+        let base64_encoded = BASE64_STANDARD.encode(encoded);
+        let header_value = HeaderValue::from_str(&base64_encoded).unwrap();
+        let header_values = vec![&header_value];
+        let decoded_receipt = TapHeader::decode(&mut header_values.into_iter())
+            .expect("tap receipt header value should be valid");
+
+        assert_eq!(decoded_receipt, TapHeader(TapReceipt::V2(original_receipt)));
     }
 
     #[test]

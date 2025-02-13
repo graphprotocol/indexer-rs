@@ -49,7 +49,7 @@ ractor = { version = "0.14", features = [
 ], default-features = false }
 tap_aggregator.workspace = true
 futures = { version = "0.3.30", default-features = false }
-bon = "3.3"
+bon.workspace = true
 test-assets = { path = "../test-assets", optional = true }
 rand = { version = "0.8", optional = true }
 itertools = "0.14.0"
@@ -63,6 +63,5 @@ tempfile = "3.8.0"
 wiremock.workspace = true
 wiremock-grpc = "0.0.3-alpha3"
 test-assets = { path = "../test-assets" }
-test-log = { version = "0.2.12", features = ["trace"] }
-bon = "3.3"
+test-log.workspace = true
 rstest = "0.24.0"

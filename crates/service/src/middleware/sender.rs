@@ -17,8 +17,10 @@ use crate::{error::IndexerServiceError, tap::TapReceipt};
 pub struct SenderState {
     /// Used to recover the signer address
     pub domain_separator: Eip712Domain,
-    /// Used to get the sender address given the signer address
-    pub escrow_accounts: watch::Receiver<EscrowAccounts>,
+    /// Used to get the sender address given the signer address if v1 receipt
+    pub escrow_accounts_v1: watch::Receiver<EscrowAccounts>,
+    /// Used to get the sender address given the signer address if v2 receipt
+    pub escrow_accounts_v2: watch::Receiver<EscrowAccounts>,
 }
 
 /// The current query Sender address
@@ -45,10 +47,16 @@ pub async fn sender_middleware(
 ) -> Result<Response, IndexerServiceError> {
     if let Some(receipt) = request.extensions().get::<TapReceipt>() {
         let signer = receipt.recover_signer(&state.domain_separator)?;
-        let sender = state
-            .escrow_accounts
-            .borrow()
-            .get_sender_for_signer(&signer)?;
+        let sender = match receipt {
+            TapReceipt::V1(_) => state
+                .escrow_accounts_v1
+                .borrow()
+                .get_sender_for_signer(&signer)?,
+            TapReceipt::V2(_) => state
+                .escrow_accounts_v2
+                .borrow()
+                .get_sender_for_signer(&signer)?,
+        };
         request.extensions_mut().insert(Sender(sender));
     }
 
@@ -78,14 +86,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_sender_middleware() {
-        let escrow_accounts = watch::channel(EscrowAccounts::new(
+        let escrow_accounts_v1 = watch::channel(EscrowAccounts::new(
             ESCROW_ACCOUNTS_BALANCES.to_owned(),
             ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
         ))
         .1;
+
+        let escrow_accounts_v2 = watch::channel(EscrowAccounts::new(
+            ESCROW_ACCOUNTS_BALANCES.to_owned(),
+            ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
+        ))
+        .1;
+
         let state = SenderState {
             domain_separator: test_assets::TAP_EIP712_DOMAIN.clone(),
-            escrow_accounts,
+            escrow_accounts_v1,
+            escrow_accounts_v2,
         };
 
         let middleware = from_fn_with_state(state, sender_middleware);

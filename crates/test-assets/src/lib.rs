@@ -21,7 +21,6 @@ use thegraph_core::{
     deployment_id, DeploymentId,
 };
 use tokio::sync::Notify;
-use typed_builder::TypedBuilder;
 
 /// Assert something is true while sleeping and retrying
 ///
@@ -310,16 +309,16 @@ lazy_static! {
     );
 }
 
-#[derive(TypedBuilder)]
+#[derive(bon::Builder)]
 pub struct SignedReceiptRequest {
     #[builder(default = Address::ZERO)]
     allocation_id: Address,
     #[builder(default)]
     nonce: u64,
-    #[builder(default_code = r#"SystemTime::now()
+    #[builder(default = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_nanos() as u64"#)]
+            .as_nanos() as u64)]
     timestamp_ns: u64,
     #[builder(default = 1)]
     value: u128,
@@ -339,6 +338,36 @@ pub async fn create_signed_receipt(
     Eip712SignedMessage::new(
         &self::TAP_EIP712_DOMAIN,
         Receipt {
+            allocation_id,
+            nonce,
+            timestamp_ns,
+            value,
+        },
+        wallet,
+    )
+    .unwrap()
+}
+
+/// Function to generate a signed receipt using the TAP_SIGNER wallet.
+#[bon::builder]
+pub async fn create_signed_receipt_v2(
+    #[builder(default = ALLOCATION_ID_0)] allocation_id: Address,
+    #[builder(default)] nonce: u64,
+    #[builder(default = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64)]
+    timestamp_ns: u64,
+    #[builder(default = 1)] value: u128,
+) -> tap_graph::v2::SignedReceipt {
+    let (wallet, _) = &*self::TAP_SIGNER;
+
+    Eip712SignedMessage::new(
+        &self::TAP_EIP712_DOMAIN,
+        tap_graph::v2::Receipt {
+            payer: TAP_SENDER.1,
+            service_provider: INDEXER_ADDRESS,
+            data_service: Address::ZERO,
             allocation_id,
             nonce,
             timestamp_ns,

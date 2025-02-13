@@ -90,7 +90,8 @@ async fn full_integration_test(database: PgPool) {
             receipts_verifier_address: test_assets::VERIFIER_ADDRESS,
         })
         .timestamp_buffer_secs(Duration::from_secs(10))
-        .escrow_accounts(escrow_accounts)
+        .escrow_accounts_v1(escrow_accounts.clone())
+        .escrow_accounts_v2(escrow_accounts)
         .dispute_manager(dispute_manager)
         .allocations(allocations)
         .build();
