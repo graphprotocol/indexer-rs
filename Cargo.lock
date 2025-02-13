@@ -3958,6 +3958,7 @@ dependencies = [
  "indexer-receipt",
  "indexer-tap-agent",
  "indexer-watcher",
+ "itertools 0.14.0",
  "jsonrpsee",
  "lazy_static",
  "prometheus",
