@@ -72,8 +72,14 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    async fn test_parses_synced_and_healthy_response() {
+    struct MonitorMock {
+        mock_server: MockServer,
+        status_url: Url,
+        deployment: DeploymentId,
+    }
+
+    #[rstest::fixture]
+    async fn monitor_mock() -> MonitorMock {
         let mock_server = MockServer::start().await;
         let status_url: Url = mock_server
             .uri()
@@ -82,7 +88,16 @@ mod tests {
             .join("/status")
             .unwrap();
         let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        MonitorMock {
+            mock_server,
+            status_url,
+            deployment,
+        }
+    }
 
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn test_parses_synced_and_healthy_response(#[future(awt)] monitor_mock: MonitorMock) {
         Mock::given(method("POST"))
             .and(path("/status"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -95,10 +110,10 @@ mod tests {
                     ]
                 }
             })))
-            .mount(&mock_server)
+            .mount(&monitor_mock.mock_server)
             .await;
 
-        let status = monitor_deployment_status(deployment, status_url)
+        let status = monitor_deployment_status(monitor_mock.deployment, monitor_mock.status_url)
             .await
             .unwrap();
 
@@ -111,17 +126,9 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
     #[tokio::test]
-    async fn test_parses_not_synced_and_healthy_response() {
-        let mock_server = MockServer::start().await;
-        let status_url: Url = mock_server
-            .uri()
-            .parse::<Url>()
-            .unwrap()
-            .join("/status")
-            .unwrap();
-        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-
+    async fn test_parses_not_synced_and_healthy_response(#[future(awt)] monitor_mock: MonitorMock) {
         Mock::given(method("POST"))
             .and(path("/status"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -134,10 +141,10 @@ mod tests {
                     ]
                 }
             })))
-            .mount(&mock_server)
+            .mount(&monitor_mock.mock_server)
             .await;
 
-        let status = monitor_deployment_status(deployment, status_url)
+        let status = monitor_deployment_status(monitor_mock.deployment, monitor_mock.status_url)
             .await
             .unwrap();
 
@@ -150,17 +157,9 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
     #[tokio::test]
-    async fn test_parses_synced_and_unhealthy_response() {
-        let mock_server = MockServer::start().await;
-        let status_url: Url = mock_server
-            .uri()
-            .parse::<Url>()
-            .unwrap()
-            .join("/status")
-            .unwrap();
-        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-
+    async fn test_parses_synced_and_unhealthy_response(#[future(awt)] monitor_mock: MonitorMock) {
         Mock::given(method("POST"))
             .and(path("/status"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -173,10 +172,10 @@ mod tests {
                     ]
                 }
             })))
-            .mount(&mock_server)
+            .mount(&monitor_mock.mock_server)
             .await;
 
-        let status = monitor_deployment_status(deployment, status_url)
+        let status = monitor_deployment_status(monitor_mock.deployment, monitor_mock.status_url)
             .await
             .unwrap();
 
@@ -189,17 +188,9 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
     #[tokio::test]
-    async fn test_parses_synced_and_failed_response() {
-        let mock_server = MockServer::start().await;
-        let status_url: Url = mock_server
-            .uri()
-            .parse::<Url>()
-            .unwrap()
-            .join("/status")
-            .unwrap();
-        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-
+    async fn test_parses_synced_and_failed_response(#[future(awt)] monitor_mock: MonitorMock) {
         Mock::given(method("POST"))
             .and(path("/status"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -212,10 +203,10 @@ mod tests {
                     ]
                 }
             })))
-            .mount(&mock_server)
+            .mount(&monitor_mock.mock_server)
             .await;
 
-        let status = monitor_deployment_status(deployment, status_url)
+        let status = monitor_deployment_status(monitor_mock.deployment, monitor_mock.status_url)
             .await
             .unwrap();
 

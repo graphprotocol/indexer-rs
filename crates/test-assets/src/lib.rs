@@ -3,6 +3,8 @@
 
 use std::{
     collections::HashMap,
+    future::Future,
+    pin::Pin,
     str::FromStr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -10,6 +12,7 @@ use std::{
 use bip39::Mnemonic;
 use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
 use lazy_static::lazy_static;
+use sqlx::{migrate, PgPool, Postgres};
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, SignedReceipt};
 use thegraph_core::{
@@ -387,4 +390,47 @@ pub async fn flush_messages<T>(notify: &mut mpsc::Receiver<T>) {
             break;
         }
     }
+}
+
+/// Fixtures
+#[rstest::fixture]
+pub fn pgpool() -> Pin<Box<dyn Future<Output = PgPool>>> {
+    use sqlx::{
+        testing::{TestArgs, TestSupport},
+        ConnectOptions, Connection,
+    };
+    Box::pin(async {
+        let args = TestArgs {
+            test_path: stdext::function_name!(),
+            migrator: Some(&migrate!("../../migrations")),
+            fixtures: &[],
+        };
+
+        let test_context = Postgres::test_context(&args)
+            .await
+            .expect("failed to connect to setup test database");
+
+        let mut conn = test_context
+            .connect_opts
+            .connect()
+            .await
+            .expect("failed to connect to test database");
+
+        if let Some(migrator) = args.migrator {
+            migrator
+                .run_direct(&mut conn)
+                .await
+                .expect("failed to apply migrations");
+        }
+
+        conn.close()
+            .await
+            .expect("failed to close setup connection");
+
+        test_context
+            .pool_opts
+            .connect_with(test_context.connect_opts)
+            .await
+            .expect("failed to connect test pool")
+    })
 }

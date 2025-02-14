@@ -66,3 +66,5 @@ wiremock-grpc = "0.0.3-alpha3"
 test-assets = { path = "../test-assets" }
 test-log.workspace = true
 rstest = "0.24.0"
+stdext = "0.3.3"
+async-std = { version = "1.12.0", features = ["attributes"] }

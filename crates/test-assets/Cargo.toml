@@ -11,4 +11,7 @@ tap_core.workspace = true
 tap_graph.workspace = true
 thegraph-core.workspace = true
 bon.workspace = true
+sqlx.workspace = true
 tokio.workspace = true
+rstest = "0.24.0"
+stdext = "0.3.3"
