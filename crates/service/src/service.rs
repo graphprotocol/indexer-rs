@@ -14,9 +14,10 @@ use indexer_dips::{
     proto::indexer::graphprotocol::indexer::dips::indexer_dips_service_server::{
         IndexerDipsService, IndexerDipsServiceServer,
     },
-    server::DipsServer,
+    server::{DipsServer, DipsServerContext},
+    signers::EscrowSignerValidator,
 };
-use indexer_monitor::{DeploymentDetails, SubgraphClient};
+use indexer_monitor::{escrow_accounts_v1, DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
 use reqwest::Url;
 use tap_core::tap_eip712_domain;
@@ -135,13 +136,30 @@ pub async fn run() -> anyhow::Result<()> {
         let ipfs_fetcher: Arc<dyn IpfsFetcher> =
             Arc::new(IpfsClient::new("https://api.thegraph.com/ipfs/").unwrap());
 
+        // TODO: Try to re-use the same watcher for both DIPS and TAP
+        let watcher = escrow_accounts_v1(
+            escrow_subgraph,
+            indexer_address,
+            Duration::from_secs(500),
+            true,
+        )
+        .await
+        .expect("Failed to create escrow accounts watcher");
+
+        let ctx = DipsServerContext {
+            store: Arc::new(PsqlAgreementStore {
+                pool: database.clone(),
+            }),
+            ipfs_fetcher,
+            price_calculator: PriceCalculator::default(),
+            signer_validator: Arc::new(EscrowSignerValidator::new(watcher)),
+        };
+
         let dips = DipsServer {
-            agreement_store: Arc::new(PsqlAgreementStore { pool: database }),
+            ctx: Arc::new(ctx),
             expected_payee: indexer_address,
             allowed_payers: allowed_payers.clone(),
             domain: domain_separator,
-            ipfs_fetcher,
-            price_calculator: PriceCalculator::default(),
         };
 
         info!("starting dips grpc server on {}", addr);

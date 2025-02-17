@@ -3,8 +3,7 @@
 
 use std::{str::FromStr, sync::Arc};
 
-use ipfs::IpfsFetcher;
-use price::PriceCalculator;
+use server::DipsServerContext;
 use thegraph_core::alloy::{
     core::primitives::Address,
     primitives::{b256, ChainId, PrimitiveSignature as Signature, Uint, B256},
@@ -21,6 +20,7 @@ pub mod price;
 pub mod proto;
 #[cfg(feature = "rpc")]
 pub mod server;
+pub mod signers;
 pub mod store;
 
 use store::AgreementStore;
@@ -194,6 +194,7 @@ impl SignedIndexingAgreementVoucher {
     // TODO: Validate all values
     pub fn validate(
         &self,
+        signer_validator: &Arc<dyn signers::SignerValidator>,
         domain: &Eip712Domain,
         expected_payee: &Address,
         allowed_payers: impl AsRef<[Address]>,
@@ -201,7 +202,8 @@ impl SignedIndexingAgreementVoucher {
         let sig = Signature::from_str(&self.signature.to_string())
             .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
 
-        let payer = sig
+        let payer = self.voucher.payer;
+        let signer = sig
             .recover_address_from_prehash(&self.voucher.eip712_signing_hash(domain))
             .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
 
@@ -210,6 +212,10 @@ impl SignedIndexingAgreementVoucher {
         {
             return Err(DipsError::PayerNotAuthorised(payer));
         }
+
+        signer_validator
+            .validate(&payer, &signer)
+            .map_err(|_| DipsError::SignerNotAuthorised(signer))?;
 
         if !self.voucher.recipient.eq(expected_payee) {
             return Err(DipsError::UnexpectedPayee {
@@ -288,14 +294,18 @@ impl CollectionRequest {
 }
 
 pub async fn validate_and_create_agreement(
-    store: Arc<dyn AgreementStore>,
+    ctx: Arc<DipsServerContext>,
     domain: &Eip712Domain,
     expected_payee: &Address,
     allowed_payers: impl AsRef<[Address]>,
     voucher: Vec<u8>,
-    price_calculator: &PriceCalculator,
-    ipfs_client: Arc<dyn IpfsFetcher>,
 ) -> Result<Uuid, DipsError> {
+    let DipsServerContext {
+        store,
+        ipfs_fetcher,
+        price_calculator,
+        signer_validator,
+    } = ctx.as_ref();
     let decoded_voucher = SignedIndexingAgreementVoucher::abi_decode(voucher.as_ref(), true)
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
     let metadata = SubgraphIndexingVoucherMetadata::abi_decode(
@@ -304,9 +314,9 @@ pub async fn validate_and_create_agreement(
     )
     .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
-    decoded_voucher.validate(domain, expected_payee, allowed_payers)?;
+    decoded_voucher.validate(signer_validator, domain, expected_payee, allowed_payers)?;
 
-    let manifest = ipfs_client.fetch(&metadata.subgraphDeploymentId).await?;
+    let manifest = ipfs_fetcher.fetch(&metadata.subgraphDeploymentId).await?;
     match manifest.network() {
         Some(chain_id) if chain_id == metadata.chainId => {}
         Some(chain_id) => {
@@ -374,10 +384,11 @@ pub async fn validate_and_cancel_agreement(
 #[cfg(test)]
 mod test {
     use std::{
-        sync::Arc,
+        collections::HashMap,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
+    use indexer_monitor::EscrowAccounts;
     use rand::{distr::Alphanumeric, Rng};
     use thegraph_core::alloy::{
         primitives::{Address, FixedBytes, U256},
@@ -388,9 +399,9 @@ mod test {
 
     pub use crate::store::{AgreementStore, InMemoryAgreementStore};
     use crate::{
-        dips_agreement_eip712_domain, dips_cancellation_eip712_domain, ipfs::TestIpfsClient,
-        price::PriceCalculator, CancellationRequest, DipsError, IndexingAgreementVoucher,
-        SignedIndexingAgreementVoucher, SubgraphIndexingVoucherMetadata,
+        dips_agreement_eip712_domain, dips_cancellation_eip712_domain, server::DipsServerContext,
+        CancellationRequest, DipsError, IndexingAgreementVoucher, SignedIndexingAgreementVoucher,
+        SubgraphIndexingVoucherMetadata,
     };
 
     #[tokio::test]
@@ -428,22 +439,19 @@ mod test {
         let abi_voucher = voucher.abi_encode();
         let id = Uuid::from_bytes(voucher.voucher.agreement_id.into());
 
-        let store = Arc::new(InMemoryAgreementStore::default());
-
+        let ctx = DipsServerContext::for_testing();
         let actual_id = super::validate_and_create_agreement(
-            store.clone(),
+            ctx.clone(),
             &domain,
             &payee_addr,
             vec![payer_addr],
             abi_voucher,
-            &PriceCalculator::for_testing(),
-            Arc::new(TestIpfsClient::mainnet()),
         )
         .await
         .unwrap();
         assert_eq!(actual_id, id);
 
-        let stored_agreement = store.get_by_id(actual_id).await.unwrap().unwrap();
+        let stored_agreement = ctx.store.get_by_id(actual_id).await.unwrap().unwrap();
 
         assert_eq!(voucher, stored_agreement.voucher);
         assert!(!stored_agreement.cancelled);
@@ -452,6 +460,7 @@ mod test {
 
     #[test]
     fn voucher_signature_verification() {
+        let ctx = DipsServerContext::for_testing();
         let deployment_id = "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f".to_string();
         let payee = PrivateKeySigner::random();
         let payee_addr = payee.address();
@@ -484,23 +493,34 @@ mod test {
         let signed = voucher.sign(&domain, payer).unwrap();
         assert_eq!(
             signed
-                .validate(&domain, &payee_addr, vec![])
+                .validate(&ctx.signer_validator, &domain, &payee_addr, vec![])
                 .unwrap_err()
                 .to_string(),
             DipsError::PayerNotAuthorised(voucher.payer).to_string()
         );
         assert!(signed
-            .validate(&domain, &payee_addr, vec![payer_addr])
+            .validate(
+                &ctx.signer_validator,
+                &domain,
+                &payee_addr,
+                vec![payer_addr]
+            )
             .is_ok());
     }
 
-    #[test]
-    fn check_voucher_modified() {
-        let deployment_id = "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f".to_string();
+    #[tokio::test]
+    async fn check_voucher_modified() {
         let payee = PrivateKeySigner::random();
         let payee_addr = payee.address();
         let payer = PrivateKeySigner::random();
         let payer_addr = payer.address();
+        let ctx = DipsServerContext::for_testing_mocked_accounts(EscrowAccounts::new(
+            HashMap::default(),
+            HashMap::from_iter(vec![(payer_addr, vec![payer_addr])]),
+        ))
+        .await;
+
+        let deployment_id = "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f".to_string();
 
         let metadata = SubgraphIndexingVoucherMetadata {
             basePricePerEpoch: U256::from(10000_u64),
@@ -530,9 +550,14 @@ mod test {
 
         assert!(matches!(
             signed
-                .validate(&domain, &payee_addr, vec![payer_addr])
+                .validate(
+                    &ctx.signer_validator,
+                    &domain,
+                    &payee_addr,
+                    vec![payer_addr]
+                )
                 .unwrap_err(),
-            DipsError::PayerNotAuthorised(_)
+            DipsError::SignerNotAuthorised(_)
         ));
     }
 
@@ -603,9 +628,10 @@ mod test {
             dips_agreement_eip712_domain()
         }
 
-        pub fn test_voucher(
+        pub fn test_voucher_with_signer(
             &self,
             metadata: SubgraphIndexingVoucherMetadata,
+            signer: PrivateKeySigner,
         ) -> SignedIndexingAgreementVoucher {
             let agreement_id = Uuid::now_v7();
 
@@ -628,14 +654,21 @@ mod test {
                 metadata: metadata.abi_encode().into(),
             };
 
-            voucher.sign(&domain, self.payer.clone()).unwrap()
+            voucher.sign(&domain, signer).unwrap()
+        }
+
+        pub fn test_voucher(
+            &self,
+            metadata: SubgraphIndexingVoucherMetadata,
+        ) -> SignedIndexingAgreementVoucher {
+            self.test_voucher_with_signer(metadata, self.payer.clone())
         }
     }
 
     #[tokio::test]
     async fn test_create_and_cancel_agreement() -> anyhow::Result<()> {
+        let ctx = DipsServerContext::for_testing();
         let voucher_ctx = VoucherContext::random();
-        let store = Arc::new(InMemoryAgreementStore::default());
 
         // Create metadata and voucher
         let metadata = SubgraphIndexingVoucherMetadata {
@@ -649,13 +682,11 @@ mod test {
 
         // Create agreement
         let agreement_id = super::validate_and_create_agreement(
-            store.clone(),
+            ctx.clone(),
             &voucher_ctx.domain(),
             &voucher_ctx.payee.address(),
             vec![voucher_ctx.payer.address()],
             signed_voucher.encode_vec(),
-            &PriceCalculator::for_testing(),
-            Arc::new(TestIpfsClient::mainnet()),
         )
         .await?;
 
@@ -668,7 +699,7 @@ mod test {
 
         // Cancel agreement
         let cancelled_id = super::validate_and_cancel_agreement(
-            store.clone(),
+            ctx.store.clone(),
             &cancel_domain,
             signed_cancel.encode_vec(),
         )
@@ -677,7 +708,7 @@ mod test {
         assert_eq!(agreement_id, cancelled_id);
 
         // Verify agreement is cancelled
-        let stored_agreement = store.get_by_id(agreement_id).await?.unwrap();
+        let stored_agreement = ctx.store.get_by_id(agreement_id).await?.unwrap();
         assert!(stored_agreement.cancelled);
 
         Ok(())
@@ -686,7 +717,14 @@ mod test {
     #[tokio::test]
     async fn test_create_validations_errors() -> anyhow::Result<()> {
         let voucher_ctx = VoucherContext::random();
-        let store = Arc::new(InMemoryAgreementStore::default());
+        let ctx = DipsServerContext::for_testing_mocked_accounts(EscrowAccounts::new(
+            HashMap::default(),
+            HashMap::from_iter(vec![(
+                voucher_ctx.payer.address(),
+                vec![voucher_ctx.payer.address()],
+            )]),
+        ))
+        .await;
 
         let metadata = SubgraphIndexingVoucherMetadata {
             basePricePerEpoch: U256::from(10000_u64),
@@ -716,6 +754,9 @@ mod test {
             subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
         };
 
+        let signer = PrivateKeySigner::random();
+        let valid_voucher_invalid_signer =
+            voucher_ctx.test_voucher_with_signer(metadata.clone(), signer.clone());
         let valid_voucher = voucher_ctx.test_voucher(metadata);
 
         let expected_result: Vec<Result<[u8; 16], DipsError>> = vec![
@@ -728,6 +769,7 @@ mod test {
                 100,
                 "10".to_string(),
             )),
+            Err(DipsError::SignerNotAuthorised(signer.address())),
             Ok(valid_voucher
                 .voucher
                 .agreement_id
@@ -735,16 +777,19 @@ mod test {
                 .try_into()
                 .unwrap()),
         ];
-        let cases = vec![wrong_network_voucher, low_price_voucher, valid_voucher];
+        let cases = vec![
+            wrong_network_voucher,
+            low_price_voucher,
+            valid_voucher_invalid_signer,
+            valid_voucher,
+        ];
         for (voucher, result) in cases.into_iter().zip(expected_result.into_iter()) {
             let out = super::validate_and_create_agreement(
-                store.clone(),
+                ctx.clone(),
                 &voucher_ctx.domain(),
                 &voucher_ctx.payee.address(),
                 vec![voucher_ctx.payer.address()],
                 voucher.encode_vec(),
-                &PriceCalculator::for_testing(),
-                Arc::new(TestIpfsClient::mainnet()),
             )
             .await;
 
