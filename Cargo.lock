@@ -3804,16 +3804,21 @@ dependencies = [
 name = "indexer-dips"
 version = "0.1.0"
 dependencies = [
+ "alloy-rlp",
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "build-info",
  "bytes",
  "derivative",
  "futures",
  "http 0.2.12",
+ "indexer-monitor",
+ "indexer-watcher",
  "ipfs-api-backend-hyper",
  "ipfs-api-prelude",
  "prost",
+ "prost-types",
  "rand 0.9.0",
  "serde",
  "serde_yaml",
