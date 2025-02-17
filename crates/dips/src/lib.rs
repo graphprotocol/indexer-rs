@@ -13,10 +13,13 @@ use thegraph_core::alloy::{
     sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
 };
 
+#[cfg(feature = "db")]
 pub mod database;
 pub mod ipfs;
 pub mod price;
+#[cfg(feature = "rpc")]
 pub mod proto;
+#[cfg(feature = "rpc")]
 pub mod server;
 pub mod store;
 
@@ -165,6 +168,7 @@ pub enum DipsError {
 }
 
 // TODO: send back messages
+#[cfg(feature = "rpc")]
 impl From<DipsError> for tonic::Status {
     fn from(_val: DipsError) -> Self {
         tonic::Status::internal("unknown errr")
