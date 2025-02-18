@@ -19,5 +19,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.2.3"
   }
 }
