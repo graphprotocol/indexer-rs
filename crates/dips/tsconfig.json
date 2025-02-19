@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "es2018",
+    "module": "commonjs",
+    "declaration": true,
+    "outDir": "./generated",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["es2018", "dom"],
+    "types": ["node"]
+  },
+  "include": ["generated/**/*"],
+  "exclude": ["node_modules"]
+} 

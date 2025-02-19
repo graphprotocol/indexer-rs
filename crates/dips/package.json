@@ -1,6 +1,6 @@
 {
   "name": "@graphprotocol/dips-proto",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "main": "generated/index.js",
   "types": "generated/index.d.ts",
   "files": [
@@ -8,14 +8,19 @@
     "generated/**/*"
   ],
   "scripts": {
-    "prepublishOnly": "npm run generate",
-    "generate": "mkdir -p generated && protoc --plugin=protoc-gen-ts_proto=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=./generated --proto_path=./proto proto/*.proto"
+    "build": "tsc",
+    "generate": "mkdir -p generated && protoc --plugin=protoc-gen-ts_proto=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=./generated --proto_path=./proto proto/*.proto",
+    "prepublishOnly": "npm run generate && npm run build"
   },
   "devDependencies": {
+    "@types/node": "^22.13.4",
     "ts-proto": "^2.6.1",
     "typescript": "^5.7.3"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.2.3"
   }
-} 
+}
