@@ -3,7 +3,7 @@
 
 use std::str::FromStr;
 
-use axum::async_trait;
+use async_trait::async_trait;
 use build_info::chrono::{DateTime, Utc};
 use sqlx::{types::BigDecimal, PgPool};
 use thegraph_core::alloy::{core::primitives::U256 as uint256, hex::ToHexExt, sol_types::SolType};

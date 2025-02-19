@@ -3,12 +3,12 @@
 
 use std::{str::FromStr, sync::Arc};
 
+use async_trait::async_trait;
 use derivative::Derivative;
 use futures::TryStreamExt;
 use http::Uri;
 use ipfs_api_prelude::{IpfsApi, TryFromUri};
 use serde::Deserialize;
-use tonic::async_trait;
 
 use crate::DipsError;
 
