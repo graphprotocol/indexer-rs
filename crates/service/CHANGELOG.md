@@ -6,6 +6,13 @@
 
 
 
+## [1.5.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.4.2...indexer-service-rs-v1.5.0) (2025-02-24)
+
+
+### Features
+
+* Escrow based signer validation ([#635](https://github.com/graphprotocol/indexer-rs/issues/635)) ([454c925](https://github.com/graphprotocol/indexer-rs/commit/454c925f184fbd8b454ef9aaea86fc53a218fcea))
+
 ## [1.4.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.4.1...indexer-service-rs-v1.4.2) (2025-02-12)
 
 
