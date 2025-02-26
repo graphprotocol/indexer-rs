@@ -102,6 +102,7 @@ type Balance = U256;
 
 /// Information for Ravs that are abstracted away from the SignedRav itself
 #[derive(Debug, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(Clone))]
 pub struct RavInformation {
     /// Allocation Id of a Rav
     pub allocation_id: Address,
@@ -140,6 +141,8 @@ impl From<&tap_graph::v2::SignedRav> for RavInformation {
 ///
 /// It has different logic depending on the variant
 #[derive(Debug)]
+#[cfg_attr(test, derive(educe::Educe))]
+#[cfg_attr(test, educe(PartialEq, Eq, Clone))]
 pub enum ReceiptFees {
     /// Adds the receipt value to the fee tracker
     ///
@@ -153,7 +156,11 @@ pub enum ReceiptFees {
     ///
     /// If the rav response was successful, update the rav tracker
     /// If not, signalize the fee_tracker to apply proper backoff
-    RavRequestResponse((UnaggregatedReceipts, anyhow::Result<Option<RavInformation>>)),
+    RavRequestResponse(
+        UnaggregatedReceipts,
+        #[cfg_attr(test, educe(PartialEq(ignore), Clone(method(clone_rav_result))))]
+        anyhow::Result<Option<RavInformation>>,
+    ),
     /// Ignores all logic and simply retry Allow/Deny and Rav Request logic
     ///
     /// This is used inside a scheduler to trigger a Rav request in case the
@@ -162,8 +169,20 @@ pub enum ReceiptFees {
     Retry,
 }
 
+#[cfg(test)]
+fn clone_rav_result(
+    res: &anyhow::Result<Option<RavInformation>>,
+) -> anyhow::Result<Option<RavInformation>> {
+    match res {
+        Ok(val) => Ok(val.clone()),
+        Err(_) => Err(anyhow::anyhow!("Some error")),
+    }
+}
+
 /// Enum containing all types of messages that a [SenderAccount] can receive
 #[derive(Debug)]
+#[cfg_attr(test, derive(educe::Educe))]
+#[cfg_attr(test, educe(PartialEq, Eq, Clone))]
 pub enum SenderAccountMessage {
     /// Updates the sender balance and
     UpdateBalanceAndLastRavs(Balance, RavMap),
@@ -185,13 +204,22 @@ pub enum SenderAccountMessage {
     UpdateRav(RavInformation),
     #[cfg(test)]
     /// Returns the sender fee tracker, used for tests
-    GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
+    GetSenderFeeTracker(
+        #[educe(PartialEq(ignore), Clone(method(crate::test::actors::clone_rpc_reply)))]
+        ractor::RpcReplyPort<SenderFeeTracker>,
+    ),
     #[cfg(test)]
     /// Returns the Deny status, used for tests
-    GetDeny(ractor::RpcReplyPort<bool>),
+    GetDeny(
+        #[educe(PartialEq(ignore), Clone(method(crate::test::actors::clone_rpc_reply)))]
+        ractor::RpcReplyPort<bool>,
+    ),
     #[cfg(test)]
     /// Returns if the scheduler is enabled, used for tests
-    IsSchedulerEnabled(ractor::RpcReplyPort<bool>),
+    IsSchedulerEnabled(
+        #[educe(PartialEq(ignore), Clone(method(crate::test::actors::clone_rpc_reply)))]
+        ractor::RpcReplyPort<bool>,
+    ),
 }
 
 /// A SenderAccount manages the receipts accounting between the indexer and the sender across
@@ -1040,8 +1068,8 @@ impl Actor for SenderAccount {
                                     .unwrap_or_default() as f64,
                             );
                     }
-                    ReceiptFees::RavRequestResponse(rav_result) => {
-                        state.finalize_rav_request(allocation_id, rav_result);
+                    ReceiptFees::RavRequestResponse(fees, rav_result) => {
+                        state.finalize_rav_request(allocation_id, (fees, rav_result));
                     }
                     ReceiptFees::UpdateValue(unaggregated_fees) => {
                         state.update_sender_fee(allocation_id, unaggregated_fees);
@@ -1414,50 +1442,6 @@ pub mod tests {
             create_rav, create_sender_account, store_rav_with_options, ESCROW_VALUE, TRIGGER_VALUE,
         },
     };
-
-    // we implement the PartialEq and Eq traits for SenderAccountMessage to be able to compare
-    impl Eq for SenderAccountMessage {}
-
-    impl PartialEq for SenderAccountMessage {
-        fn eq(&self, other: &Self) -> bool {
-            match (self, other) {
-                (Self::UpdateAllocationIds(l0), Self::UpdateAllocationIds(r0)) => l0 == r0,
-                (Self::UpdateReceiptFees(l0, l1), Self::UpdateReceiptFees(r0, r1)) => {
-                    l0 == r0
-                        && match (l1, r1) {
-                            (ReceiptFees::NewReceipt(l1, l2), ReceiptFees::NewReceipt(r1, r2)) => {
-                                r1 == l1 && r2 == l2
-                            }
-                            (ReceiptFees::UpdateValue(l), ReceiptFees::UpdateValue(r)) => r == l,
-                            (
-                                ReceiptFees::RavRequestResponse(l),
-                                ReceiptFees::RavRequestResponse(r),
-                            ) => match (l, r) {
-                                ((fee, Ok(rav)), (fee1, Ok(rav1))) => fee == fee1 && rav == rav1,
-                                ((fee, Err(error)), (fee1, Err(error1))) => {
-                                    fee == fee1 && error.to_string() == error1.to_string()
-                                }
-                                _ => false,
-                            },
-                            (ReceiptFees::Retry, ReceiptFees::Retry) => true,
-                            _ => false,
-                        }
-                }
-                (
-                    Self::UpdateInvalidReceiptFees(l0, l1),
-                    Self::UpdateInvalidReceiptFees(r0, r1),
-                ) => l0 == r0 && l1 == r1,
-                (Self::NewAllocationId(l0), Self::NewAllocationId(r0)) => l0 == r0,
-                (a, b) => match (
-                    core::mem::discriminant(self),
-                    core::mem::discriminant(other),
-                ) {
-                    (a, b) if a != b => false,
-                    _ => unimplemented!("PartialEq not implementated for {a:?} and {b:?}"),
-                },
-            }
-        }
-    }
 
     /// Prefix shared between tests so we don't have conflicts in the global registry
     const BUFFER_DURATION: Duration = Duration::from_millis(100);
