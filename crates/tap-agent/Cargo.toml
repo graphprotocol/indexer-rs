@@ -53,6 +53,7 @@ bon.workspace = true
 test-assets = { path = "../test-assets", optional = true }
 rand = { version = "0.8", optional = true }
 itertools = "0.14.0"
+educe = "0.6.0"
 
 [dev-dependencies]
 # Release-please breaks with cyclical dependencies if dev-dependencies

@@ -406,15 +406,14 @@ where
                 } else {
                     Err(anyhow!("Unaggregated fee equals zero"))
                 };
-                let rav_response = (
-                    state.unaggregated_fees,
-                    rav_result.map(|res| res.map(Into::into)),
-                );
                 state
                     .sender_account_ref
                     .cast(SenderAccountMessage::UpdateReceiptFees(
                         state.allocation_id,
-                        ReceiptFees::RavRequestResponse(rav_response),
+                        ReceiptFees::RavRequestResponse(
+                            state.unaggregated_fees,
+                            rav_result.map(|res| res.map(Into::into)),
+                        ),
                     ))?;
             }
             #[cfg(any(test, feature = "test"))]
@@ -1672,7 +1671,7 @@ pub mod tests {
 
         assert!(matches!(
             message_receiver.recv().await.unwrap(),
-            SenderAccountMessage::UpdateReceiptFees(_, ReceiptFees::RavRequestResponse(_))
+            SenderAccountMessage::UpdateReceiptFees(_, ReceiptFees::RavRequestResponse(_, _))
         ));
     }
 
@@ -2106,9 +2105,9 @@ pub mod tests {
         match rav_response_message {
             SenderAccountMessage::UpdateReceiptFees(
                 _,
-                ReceiptFees::RavRequestResponse(rav_response),
+                ReceiptFees::RavRequestResponse(_, rav_response),
             ) => {
-                assert!(rav_response.1.is_err());
+                assert!(rav_response.is_err());
             }
             v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
         }
@@ -2207,9 +2206,9 @@ pub mod tests {
         match rav_response_message {
             SenderAccountMessage::UpdateReceiptFees(
                 _,
-                ReceiptFees::RavRequestResponse(rav_response),
+                ReceiptFees::RavRequestResponse(_, rav_response),
             ) => {
-                assert!(rav_response.1.is_err());
+                assert!(rav_response.is_err());
             }
             v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
         }
