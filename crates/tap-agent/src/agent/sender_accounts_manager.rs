@@ -283,23 +283,27 @@ impl Actor for SenderAccountsManager {
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         // after starting all senders
-        state.new_receipts_watcher_handle_v1 = Some(tokio::spawn(new_receipts_watcher(
-            myself.get_cell(),
-            pglistener_v1,
-            escrow_accounts_v1,
-            SenderType::Legacy,
-            prefix.clone(),
-        )));
+        state.new_receipts_watcher_handle_v1 = Some(tokio::spawn(
+            new_receipts_watcher()
+                .sender_type(SenderType::Legacy)
+                .actor_cell(myself.get_cell())
+                .pglistener(pglistener_v1)
+                .escrow_accounts_rx(escrow_accounts_v1)
+                .maybe_prefix(prefix.clone())
+                .call(),
+        ));
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         // after starting all senders
-        state.new_receipts_watcher_handle_v2 = Some(tokio::spawn(new_receipts_watcher(
-            myself.get_cell(),
-            pglistener_v2,
-            escrow_accounts_v2,
-            SenderType::Horizon,
-            prefix,
-        )));
+        state.new_receipts_watcher_handle_v2 = Some(tokio::spawn(
+            new_receipts_watcher()
+                .actor_cell(myself.get_cell())
+                .pglistener(pglistener_v2)
+                .escrow_accounts_rx(escrow_accounts_v2)
+                .sender_type(SenderType::Horizon)
+                .maybe_prefix(prefix)
+                .call(),
+        ));
 
         tracing::info!("SenderAccountManager created!");
         Ok(state)
@@ -757,6 +761,7 @@ impl State {
 
 /// Continuously listens for new receipt notifications from Postgres and forwards them to the
 /// corresponding SenderAccount.
+#[bon::builder]
 async fn new_receipts_watcher(
     actor_cell: ActorCell,
     mut pglistener: PgListener,
@@ -1169,13 +1174,15 @@ mod tests {
         let dummy_actor = DummyActor::spawn().await;
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
-        let new_receipts_watcher_handle = tokio::spawn(new_receipts_watcher(
-            dummy_actor.get_cell(),
-            pglistener,
-            escrow_accounts_rx,
-            SenderType::Legacy,
-            Some(prefix.clone()),
-        ));
+        let new_receipts_watcher_handle = tokio::spawn(
+            new_receipts_watcher()
+                .actor_cell(dummy_actor.get_cell())
+                .pglistener(pglistener)
+                .escrow_accounts_rx(escrow_accounts_rx)
+                .sender_type(SenderType::Legacy)
+                .prefix(prefix.clone())
+                .call(),
+        );
 
         let receipts_count = 10;
         // add receipts to the database
@@ -1213,13 +1220,14 @@ mod tests {
         let dummy_actor = DummyActor::spawn().await;
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
-        let new_receipts_watcher_handle = tokio::spawn(new_receipts_watcher(
-            dummy_actor.get_cell(),
-            pglistener,
-            escrow_accounts_rx,
-            SenderType::Legacy,
-            None,
-        ));
+        let new_receipts_watcher_handle = tokio::spawn(
+            new_receipts_watcher()
+                .sender_type(SenderType::Legacy)
+                .actor_cell(dummy_actor.get_cell())
+                .pglistener(pglistener)
+                .escrow_accounts_rx(escrow_accounts_rx)
+                .call(),
+        );
         pgpool.close().await;
         new_receipts_watcher_handle.await.unwrap();
 
