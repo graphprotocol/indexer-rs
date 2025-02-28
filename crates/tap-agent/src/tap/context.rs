@@ -152,36 +152,19 @@ impl NetworkVersion for Horizon {
 /// Context used by [tap_core::manager::Manager] that enables certain helper methods
 ///
 /// This context is implemented for PostgresSQL
-#[derive(Clone)]
+#[derive(Clone, bon::Builder)]
 pub struct TapAgentContext<T> {
     pgpool: PgPool,
+    #[cfg_attr(test, builder(default = crate::test::ALLOCATION_ID_0))]
     allocation_id: Address,
+    #[cfg_attr(test, builder(default = test_assets::TAP_SENDER.1))]
     sender: Address,
+    #[cfg_attr(test, builder(default = crate::test::INDEXER.1))]
     indexer_address: Address,
     escrow_accounts: Receiver<EscrowAccounts>,
     /// We use phantom data as a marker since it's
     /// only used to define what methods are available
     /// for each type of network
+    #[builder(default = PhantomData)]
     _phantom: PhantomData<T>,
-}
-
-/// Allow any [NetworkVersion] to create a new context
-impl<T: NetworkVersion> TapAgentContext<T> {
-    /// Creates a TapContext
-    pub fn new(
-        pgpool: PgPool,
-        allocation_id: Address,
-        indexer_address: Address,
-        sender: Address,
-        escrow_accounts: Receiver<EscrowAccounts>,
-    ) -> Self {
-        Self {
-            pgpool,
-            allocation_id,
-            indexer_address,
-            sender,
-            escrow_accounts,
-            _phantom: PhantomData,
-        }
-    }
 }

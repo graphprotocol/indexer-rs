@@ -406,7 +406,7 @@ mod test {
     use tokio::sync::watch::{self, Receiver};
 
     use super::*;
-    use crate::test::{store_receipt, CreateReceipt, INDEXER, SENDER_2};
+    use crate::test::{store_receipt, CreateReceipt, SENDER_2};
 
     const ALLOCATION_ID_IRRELEVANT: Address = ALLOCATION_ID_1;
 
@@ -427,26 +427,20 @@ mod test {
         pgpool: PgPool,
         escrow_accounts: Receiver<EscrowAccounts>,
     ) -> TapAgentContext<Legacy> {
-        TapAgentContext::new(
-            pgpool.clone(),
-            ALLOCATION_ID_0,
-            INDEXER.1,
-            SENDER.1,
-            escrow_accounts,
-        )
+        TapAgentContext::builder()
+            .pgpool(pgpool)
+            .escrow_accounts(escrow_accounts)
+            .build()
     }
 
     async fn horizon_adapter(
         pgpool: PgPool,
         escrow_accounts: Receiver<EscrowAccounts>,
     ) -> TapAgentContext<Horizon> {
-        TapAgentContext::new(
-            pgpool,
-            ALLOCATION_ID_0,
-            INDEXER.1,
-            SENDER.1,
-            escrow_accounts,
-        )
+        TapAgentContext::builder()
+            .pgpool(pgpool)
+            .escrow_accounts(escrow_accounts)
+            .build()
     }
 
     /// Insert a single receipt and retrieve it from the database using the adapter.

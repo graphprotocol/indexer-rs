@@ -468,13 +468,14 @@ where
                 escrow_accounts.clone(),
             )),
         ];
-        let context = TapAgentContext::new(
-            pgpool.clone(),
-            allocation_id,
-            config.indexer_address,
-            sender,
-            escrow_accounts.clone(),
-        );
+        let context = TapAgentContext::builder()
+            .pgpool(pgpool.clone())
+            .allocation_id(allocation_id)
+            .indexer_address(config.indexer_address)
+            .sender(sender)
+            .escrow_accounts(escrow_accounts.clone())
+            .build();
+
         let latest_rav = context.last_rav().await.unwrap_or_default();
         let tap_manager = TapManager::new(
             domain_separator.clone(),
