@@ -326,13 +326,13 @@ mod test {
     use rstest::rstest;
     use sqlx::PgPool;
     use tap_core::signed_message::Eip712SignedMessage;
-    use test_assets::{TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
+    use test_assets::TAP_SIGNER as SIGNER;
     use tokio::sync::watch;
 
     use super::*;
     use crate::{
         tap::context::NetworkVersion,
-        test::{CreateRav, ALLOCATION_ID_0, INDEXER},
+        test::{CreateRav, ALLOCATION_ID_0},
     };
 
     #[derive(Debug)]
@@ -351,23 +351,17 @@ mod test {
     const VALUE_AGGREGATE: u128 = u128::MAX;
 
     async fn legacy_adapter(pgpool: PgPool) -> TapAgentContext<Legacy> {
-        TapAgentContext::new(
-            pgpool,
-            ALLOCATION_ID_0,
-            INDEXER.1,
-            SENDER.1,
-            watch::channel(EscrowAccounts::default()).1,
-        )
+        TapAgentContext::builder()
+            .pgpool(pgpool)
+            .escrow_accounts(watch::channel(EscrowAccounts::default()).1)
+            .build()
     }
 
     async fn horizon_adapter(pgpool: PgPool) -> TapAgentContext<Horizon> {
-        TapAgentContext::new(
-            pgpool,
-            ALLOCATION_ID_0,
-            INDEXER.1,
-            SENDER.1,
-            watch::channel(EscrowAccounts::default()).1,
-        )
+        TapAgentContext::builder()
+            .pgpool(pgpool)
+            .escrow_accounts(watch::channel(EscrowAccounts::default()).1)
+            .build()
     }
 
     /// Insert a single receipt and retrieve it from the database using the adapter.

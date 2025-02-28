@@ -1831,7 +1831,13 @@ pub mod tests {
 
         // make sure there's a reason to keep denied
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
-        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
+        store_rav_with_options()
+            .pgpool(&pgpool)
+            .signed_rav(signed_rav)
+            .sender(SENDER.1)
+            .last(true)
+            .final_rav(false)
+            .call()
             .await
             .unwrap();
 
@@ -1981,7 +1987,13 @@ pub mod tests {
     async fn test_initialization_with_pending_ravs_over_the_limit(pgpool: PgPool) {
         // add last non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
-        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
+        store_rav_with_options()
+            .pgpool(&pgpool)
+            .signed_rav(signed_rav)
+            .sender(SENDER.1)
+            .last(true)
+            .final_rav(false)
+            .call()
             .await
             .unwrap();
 
@@ -1999,13 +2011,25 @@ pub mod tests {
     async fn test_unaggregated_fees_over_balance(pgpool: PgPool) {
         // add last non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
-        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
+        store_rav_with_options()
+            .pgpool(&pgpool)
+            .signed_rav(signed_rav)
+            .sender(SENDER.1)
+            .last(true)
+            .final_rav(false)
+            .call()
             .await
             .unwrap();
 
         // other rav final, should not be taken into account
         let signed_rav = create_rav(ALLOCATION_ID_1, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
-        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, true)
+        store_rav_with_options()
+            .pgpool(&pgpool)
+            .signed_rav(signed_rav)
+            .sender(SENDER.1)
+            .last(true)
+            .final_rav(true)
+            .call()
             .await
             .unwrap();
 
@@ -2176,12 +2200,24 @@ pub mod tests {
 
         // redeemed
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
-        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
+        store_rav_with_options()
+            .pgpool(&pgpool)
+            .signed_rav(signed_rav)
+            .sender(SENDER.1)
+            .last(true)
+            .final_rav(false)
+            .call()
             .await
             .unwrap();
 
         let signed_rav = create_rav(ALLOCATION_ID_1, SIGNER.0.clone(), 4, ESCROW_VALUE - 1);
-        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
+        store_rav_with_options()
+            .pgpool(&pgpool)
+            .signed_rav(signed_rav)
+            .sender(SENDER.1)
+            .last(true)
+            .final_rav(false)
+            .call()
             .await
             .unwrap();
 
@@ -2233,7 +2269,13 @@ pub mod tests {
     async fn test_thawing_deposit_process(pgpool: PgPool) {
         // add last non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
-        store_rav_with_options(&pgpool, signed_rav, SENDER.1, true, false)
+        store_rav_with_options()
+            .pgpool(&pgpool)
+            .signed_rav(signed_rav)
+            .sender(SENDER.1)
+            .last(true)
+            .final_rav(false)
+            .call()
             .await
             .unwrap();
 

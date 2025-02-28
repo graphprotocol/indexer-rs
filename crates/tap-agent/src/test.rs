@@ -627,7 +627,14 @@ pub async fn store_rav(
     signed_rav: SignedRav,
     sender: Address,
 ) -> anyhow::Result<()> {
-    store_rav_with_options(pgpool, signed_rav, sender, false, false).await
+    store_rav_with_options()
+        .pgpool(pgpool)
+        .signed_rav(signed_rav)
+        .sender(sender)
+        .last(false)
+        .final_rav(false)
+        .call()
+        .await
 }
 
 // TODO use static and check for possible errors with connection refused
@@ -659,6 +666,7 @@ async fn create_grpc_aggregator() -> (JoinHandle<()>, SocketAddr) {
     .unwrap()
 }
 
+#[bon::builder]
 pub async fn store_rav_with_options(
     pgpool: &PgPool,
     signed_rav: SignedRav,
