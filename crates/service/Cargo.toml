@@ -76,4 +76,4 @@ insta = "1.41.1"
 test-log.workspace = true
 
 [build-dependencies]
-build-info-build = { version = "0.0.39", default-features = false }
+build-info-build = { version = "0.0.40", default-features = false }
