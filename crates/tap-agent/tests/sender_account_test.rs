@@ -39,7 +39,7 @@ async fn sender_account_layer_test(pgpool: PgPool) {
         .await
         .unwrap();
 
-    let (sender_account, notify, _, _) = create_sender_account()
+    let (sender_account, mut msg_receiver, _, _) = create_sender_account()
         .pgpool(pgpool.clone())
         .max_amount_willing_to_lose_grt(TRIGGER_VALUE + 1000)
         .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
@@ -55,7 +55,7 @@ async fn sender_account_layer_test(pgpool: PgPool) {
                 .collect(),
         ))
         .unwrap();
-    notify.notified().await;
+    msg_receiver.recv().await.expect("Channel failed");
 
     mock_server
         .register(

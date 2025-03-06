@@ -4,7 +4,6 @@
 use std::{
     collections::{HashMap, HashSet},
     str::FromStr,
-    sync::Arc,
     time::Duration,
 };
 
@@ -29,13 +28,13 @@ use test_assets::{
     INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN, TAP_SENDER, TAP_SIGNER,
 };
 use thegraph_core::alloy::primitives::Address;
-use tokio::sync::{watch, Notify};
+use tokio::sync::{mpsc, watch};
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
 pub async fn start_agent(
     pgpool: PgPool,
 ) -> (
-    Arc<Notify>,
+    mpsc::Receiver<SenderAccountsManagerMessage>,
     (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>),
 ) {
     let escrow_subgraph_mock_server: MockServer = MockServer::start().await;
@@ -108,15 +107,15 @@ pub async fn start_agent(
         prefix: None,
     };
 
-    let actor = TestableActor::new(SenderAccountsManager);
-    let notify = actor.notify.clone();
-    (notify, Actor::spawn(None, actor, args).await.unwrap())
+    let (sender, receiver) = mpsc::channel(10);
+    let actor = TestableActor::new(SenderAccountsManager, sender);
+    (receiver, Actor::spawn(None, actor, args).await.unwrap())
 }
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn test_start_tap_agent(pgpool: PgPool) {
-    let (notify, (_actor_ref, _handle)) = start_agent(pgpool.clone()).await;
-    flush_messages(&notify).await;
+    let (mut msg_receiver, (_actor_ref, _handle)) = start_agent(pgpool.clone()).await;
+    flush_messages(&mut msg_receiver).await;
 
     // verify if create sender account
     assert_while_retry!(ActorRef::<SenderAccountMessage>::where_is(format!(

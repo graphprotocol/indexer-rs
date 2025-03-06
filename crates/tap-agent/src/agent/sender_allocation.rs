@@ -217,6 +217,8 @@ pub struct SenderAllocationArgs<T: NetworkVersion> {
 
 /// Enum containing all types of messages that a [SenderAllocation] can receive
 #[derive(Debug)]
+#[cfg_attr(any(test, feature = "test"), derive(educe::Educe))]
+#[cfg_attr(any(test, feature = "test"), educe(Clone))]
 pub enum SenderAllocationMessage {
     /// New receipt message, sent by the task spawned by
     /// [super::sender_accounts_manager::SenderAccountsManager]
@@ -227,7 +229,10 @@ pub enum SenderAllocationMessage {
     TriggerRavRequest,
     #[cfg(any(test, feature = "test"))]
     /// Return the internal state (used for tests)
-    GetUnaggregatedReceipts(ractor::RpcReplyPort<UnaggregatedReceipts>),
+    GetUnaggregatedReceipts(
+        #[educe(Clone(method(crate::test::actors::clone_rpc_reply)))]
+        ractor::RpcReplyPort<UnaggregatedReceipts>,
+    ),
 }
 
 /// Actor implementation for [SenderAllocation]
@@ -1305,7 +1310,7 @@ pub mod tests {
         flush_messages, ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
-    use tokio::sync::{watch, Notify};
+    use tokio::sync::{mpsc, watch};
     use tonic::{transport::Endpoint, Code};
     use wiremock::{
         matchers::{body_string_contains, method},
@@ -1416,7 +1421,10 @@ pub mod tests {
         escrow_subgraph_endpoint: &str,
         #[builder(default = 1000)] rav_request_receipt_limit: u64,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
-    ) -> (ActorRef<SenderAllocationMessage>, Arc<Notify>) {
+    ) -> (
+        ActorRef<SenderAllocationMessage>,
+        mpsc::Receiver<SenderAllocationMessage>,
+    ) {
         let args = create_sender_allocation_args()
             .pgpool(pgpool)
             .maybe_sender_aggregator_endpoint(sender_aggregator_endpoint)
@@ -1425,12 +1433,13 @@ pub mod tests {
             .rav_request_receipt_limit(rav_request_receipt_limit)
             .call()
             .await;
-        let actor = TestableActor::new(SenderAllocation::default());
-        let notify = actor.notify.clone();
+
+        let (sender, msg_receiver) = mpsc::channel(10);
+        let actor = TestableActor::new(SenderAllocation::default(), sender);
 
         let (allocation_ref, _join_handle) = Actor::spawn(None, actor, args).await.unwrap();
 
-        (allocation_ref, notify)
+        (allocation_ref, msg_receiver)
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1530,7 +1539,7 @@ pub mod tests {
 
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
-        let (sender_allocation, notify) = create_sender_allocation()
+        let (sender_allocation, mut msg_receiver) = create_sender_allocation()
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .sender_account(sender_account)
@@ -1567,7 +1576,7 @@ pub mod tests {
         )
         .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut msg_receiver).await;
 
         // should emit update aggregate fees message to sender account
         let expected_message = SenderAccountMessage::UpdateReceiptFees(
@@ -1623,7 +1632,7 @@ pub mod tests {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // Create a sender_allocation.
-        let (sender_allocation, notify) = create_sender_allocation()
+        let (sender_allocation, mut msg_receiver_alloc) = create_sender_allocation()
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_server.uri())
             .sender_account(sender_account)
@@ -1635,7 +1644,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut msg_receiver_alloc).await;
 
         let total_unaggregated_fees = call!(
             sender_allocation,
@@ -1703,7 +1712,7 @@ pub mod tests {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // Create a sender_allocation.
-        let (sender_allocation, notify) = create_sender_allocation()
+        let (sender_allocation, mut msg_receiver_alloc) = create_sender_allocation()
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_server.uri())
             .rav_request_receipt_limit(2000)
@@ -1716,7 +1725,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut msg_receiver_alloc).await;
 
         let total_unaggregated_fees = call!(
             sender_allocation,
@@ -2073,7 +2082,7 @@ pub mod tests {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // Create a sender_allocation.
-        let (sender_allocation, notify) = create_sender_allocation()
+        let (sender_allocation, mut notify) = create_sender_allocation()
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .sender_account(sender_account)
@@ -2086,7 +2095,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         // If it is an error then rav request failed
 
@@ -2159,7 +2168,7 @@ pub mod tests {
 
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
-        let (sender_allocation, notify) = create_sender_allocation()
+        let (sender_allocation, mut notify) = create_sender_allocation()
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_server.uri())
             .sender_account(sender_account)
@@ -2172,7 +2181,7 @@ pub mod tests {
             .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         // If it is an error then rav request failed
 
