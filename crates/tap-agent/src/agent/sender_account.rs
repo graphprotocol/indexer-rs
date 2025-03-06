@@ -1564,7 +1564,11 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();
-        msg_receiver.recv().await.expect("Channel failed");
+        let msg = msg_receiver.recv().await.expect("Channel failed");
+        assert_eq!(
+            msg,
+            SenderAccountMessage::UpdateAllocationIds(HashSet::new())
+        );
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_none());
@@ -2366,7 +2370,14 @@ pub mod tests {
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
-        msg_receiver.recv().await.expect("Channel failed");
+        let msg = msg_receiver.recv().await.expect("Channel failed");
+        assert!(matches!(
+            msg,
+            SenderAccountMessage::UpdateReceiptFees(
+                ALLOCATION_ID_0,
+                ReceiptFees::NewReceipt(TRIGGER_VALUE, _)
+            )
+        ));
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(deny, "should be blocked");
