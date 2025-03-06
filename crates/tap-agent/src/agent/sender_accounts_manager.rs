@@ -38,7 +38,7 @@ lazy_static! {
 /// Notification received by pgnotify
 ///
 /// This contains a list of properties that are sent by postgres when a receipt is inserted
-#[derive(Deserialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct NewReceiptNotification {
     /// id inside the table
     pub id: u64,
@@ -53,6 +53,7 @@ pub struct NewReceiptNotification {
 }
 
 /// Manager Actor
+#[derive(Debug, Clone)]
 pub struct SenderAccountsManager;
 
 /// Wrapped AllocationId Address with two possible variants
@@ -95,6 +96,7 @@ pub enum SenderType {
 
 /// Enum containing all types of messages that a [SenderAccountsManager] can receive
 #[derive(Debug)]
+#[cfg_attr(any(test, feature = "test"), derive(Clone))]
 pub enum SenderAccountsManagerMessage {
     /// Spawn and Stop [SenderAccount]s that were added or removed
     /// in comparison with it current state and updates the state
@@ -1035,7 +1037,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_update_sender_allocation(pgpool: PgPool) {
-        let (prefix, notify, (actor, join_handle)) =
+        let (prefix, mut notify, (actor, join_handle)) =
             create_sender_accounts_manager().pgpool(pgpool).call().await;
 
         actor
@@ -1044,7 +1046,7 @@ mod tests {
             ))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         assert_while_retry! {
             ActorRef::<SenderAccountMessage>::where_is(format!(
@@ -1068,7 +1070,7 @@ mod tests {
             ))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         sender_ref.wait(None).await.unwrap();
         // verify if it gets removed
@@ -1140,8 +1142,8 @@ mod tests {
         // create dummy allocation
 
         let (mock_sender_allocation, mut receipts) = MockSenderAllocation::new_with_receipts();
-        let actor = TestableActor::new(mock_sender_allocation);
-        let notify = actor.notify.clone();
+        let (tx, mut notify) = mpsc::channel(10);
+        let actor = TestableActor::new(mock_sender_allocation, tx);
         let _ = Actor::spawn(
             Some(format!(
                 "{}:{}:{}",
@@ -1192,7 +1194,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        flush_messages(&notify).await;
+        flush_messages(&mut notify).await;
 
         // check if receipt notification was sent to the allocation
         for i in 1..=receipts_count {

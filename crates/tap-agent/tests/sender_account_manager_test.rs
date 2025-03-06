@@ -62,7 +62,7 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
         ))
         .await;
 
-    let (prefix, notify, (actor, join_handle)) = create_sender_accounts_manager()
+    let (prefix, mut msg_receiver, (actor, join_handle)) = create_sender_accounts_manager()
         .pgpool(pgpool.clone())
         .network_subgraph(&mock_network_subgraph_server.uri())
         .escrow_subgraph(&mock_escrow_subgraph_server.uri())
@@ -78,7 +78,7 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
             vec![SENDER.1].into_iter().collect(),
         ))
         .unwrap();
-    flush_messages(&notify).await;
+    flush_messages(&mut msg_receiver).await;
     assert_while_retry!({
         ActorRef::<SenderAccountMessage>::where_is(format!(
             "{}:legacy:{}",

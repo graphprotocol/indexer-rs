@@ -5,7 +5,6 @@
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
-    sync::Arc,
     time::Duration,
 };
 
@@ -32,8 +31,8 @@ use thegraph_core::alloy::{
 pub const ALLOCATION_ID_0: Address = test_assets::ALLOCATION_ID_0;
 pub const ALLOCATION_ID_1: Address = test_assets::ALLOCATION_ID_1;
 use tokio::sync::{
+    mpsc,
     watch::{self, Sender},
-    Notify,
 };
 use tracing::error;
 
@@ -111,7 +110,7 @@ pub async fn create_sender_account(
     #[builder(default = false)] trusted_sender: bool,
 ) -> (
     ActorRef<SenderAccountMessage>,
-    Arc<Notify>,
+    mpsc::Receiver<SenderAccountMessage>,
     String,
     Sender<EscrowAccounts>,
 ) {
@@ -181,17 +180,17 @@ pub async fn create_sender_account(
         sender_type: SenderType::Legacy,
     };
 
-    let actor = TestableActor::new(SenderAccount);
-    let notify = actor.notify.clone();
+    let (sender, mut receiver) = mpsc::channel(100);
+    let actor = TestableActor::new(SenderAccount, sender);
 
     let (sender, _) = Actor::spawn(Some(prefix.clone()), actor, args)
         .await
         .unwrap();
 
     // flush all messages
-    flush_messages(&notify).await;
+    flush_messages(&mut receiver).await;
 
-    (sender, notify, prefix, escrow_accounts_tx)
+    (sender, receiver, prefix, escrow_accounts_tx)
 }
 
 #[bon::builder]
@@ -203,7 +202,7 @@ pub async fn create_sender_accounts_manager(
     initial_escrow_accounts_v2: Option<EscrowAccounts>,
 ) -> (
     String,
-    Arc<Notify>,
+    mpsc::Receiver<SenderAccountsManagerMessage>,
     (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>),
 ) {
     let config = get_sender_account_config();
@@ -254,11 +253,11 @@ pub async fn create_sender_accounts_manager(
         ]),
         prefix: Some(prefix.clone()),
     };
-    let actor = TestableActor::new(SenderAccountsManager);
-    let notify = actor.notify.clone();
+    let (sender, receiver) = mpsc::channel(100);
+    let actor = TestableActor::new(SenderAccountsManager, sender);
     (
         prefix,
-        notify,
+        receiver,
         Actor::spawn(None, actor, args).await.unwrap(),
     )
 }
@@ -696,7 +695,7 @@ pub async fn store_rav_with_options(
 }
 
 pub mod actors {
-    use std::sync::Arc;
+    use std::{fmt::Debug, sync::Arc};
 
     use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
     use test_assets::{ALLOCATION_ID_0, TAP_SIGNER};
@@ -711,7 +710,7 @@ pub mod actors {
         unaggregated_receipts::UnaggregatedReceipts,
     };
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test"))]
     pub fn clone_rpc_reply<T>(_: &ractor::RpcReplyPort<T>) -> ractor::RpcReplyPort<T> {
         ractor::concurrency::oneshot().0.into()
     }
@@ -744,18 +743,15 @@ pub mod actors {
         T: Actor,
     {
         inner: T,
-        pub notify: Arc<Notify>,
+        pub sender: mpsc::Sender<T::Msg>,
     }
 
     impl<T> TestableActor<T>
     where
         T: Actor,
     {
-        pub fn new(inner: T) -> Self {
-            Self {
-                inner,
-                notify: Arc::new(Notify::new()),
-            }
+        pub fn new(inner: T, sender: mpsc::Sender<T::Msg>) -> Self {
+            Self { inner, sender }
         }
     }
 
@@ -794,6 +790,7 @@ pub mod actors {
     impl<T> Actor for TestableActor<T>
     where
         T: Actor,
+        T::Msg: Debug + Clone,
     {
         type Msg = T::Msg;
         type State = T::State;
@@ -821,8 +818,9 @@ pub mod actors {
             msg: Self::Msg,
             state: &mut Self::State,
         ) -> Result<(), ActorProcessingErr> {
+            let message = msg.clone();
             let result = self.inner.handle(myself, msg, state).await;
-            self.notify.notify_one();
+            self.sender.send(message).await.expect("Channel failed");
             result
         }
 

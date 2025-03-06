@@ -20,6 +20,8 @@ use tap_core::receipt::{
     Context, WithValueAndTimestamp,
 };
 use thegraph_core::DeploymentId;
+#[cfg(test)]
+use tokio::sync::mpsc;
 
 use crate::{
     database::cost_model,
@@ -55,7 +57,7 @@ pub struct MinimumValue {
     grace_period: Duration,
 
     #[cfg(test)]
-    notify: std::sync::Arc<tokio::sync::Notify>,
+    msg_receiver: mpsc::Receiver<()>,
 }
 
 struct CostModelWatcher {
@@ -66,7 +68,7 @@ struct CostModelWatcher {
     updated_at: GracePeriod,
 
     #[cfg(test)]
-    notify: std::sync::Arc<tokio::sync::Notify>,
+    sender: mpsc::Sender<()>,
 }
 
 impl CostModelWatcher {
@@ -77,7 +79,7 @@ impl CostModelWatcher {
         global_model: GlobalModel,
         cancel_token: tokio_util::sync::CancellationToken,
         grace_period: GracePeriod,
-        #[cfg(test)] notify: std::sync::Arc<tokio::sync::Notify>,
+        #[cfg(test)] sender: mpsc::Sender<()>,
     ) {
         let cost_model_watcher = CostModelWatcher {
             pgpool,
@@ -85,7 +87,7 @@ impl CostModelWatcher {
             cost_models,
             updated_at: grace_period,
             #[cfg(test)]
-            notify,
+            sender,
         };
 
         loop {
@@ -119,7 +121,7 @@ impl CostModelWatcher {
             Err(_) => self.handle_unexpected_notification(payload).await,
         }
         #[cfg(test)]
-        self.notify.notify_one();
+        self.sender.send(()).await.expect("Channel failed");
     }
 
     fn handle_insert(&self, deployment: String, model: String, variables: String) {
@@ -212,7 +214,7 @@ impl MinimumValue {
             );
 
         #[cfg(test)]
-        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let (sender, receiver) = mpsc::channel(10);
 
         let watcher_cancel_token = tokio_util::sync::CancellationToken::new();
         tokio::spawn(CostModelWatcher::cost_models_watcher(
@@ -223,7 +225,7 @@ impl MinimumValue {
             watcher_cancel_token.clone(),
             updated_at.clone(),
             #[cfg(test)]
-            notify.clone(),
+            sender,
         ));
         Self {
             global_model,
@@ -232,7 +234,7 @@ impl MinimumValue {
             updated_at,
             grace_period,
             #[cfg(test)]
-            notify,
+            msg_receiver: receiver,
         }
     }
 
@@ -399,14 +401,14 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_watch_model_insert(pgpool: PgPool) {
-        let check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
+        let mut check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
 
         // insert 2 cost models for different deployment_id
         let test_models = test::test_data();
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
-        flush_messages(&check.notify).await;
+        flush_messages(&mut check.msg_receiver).await;
 
         assert_eq!(
             check.cost_model_map.read().unwrap().len(),
@@ -420,7 +422,7 @@ mod tests {
         let test_models = test::test_data();
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
 
-        let check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
+        let mut check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
         assert_eq!(check.cost_model_map.read().unwrap().len(), 2);
 
         // remove
@@ -429,7 +431,7 @@ mod tests {
             .await
             .unwrap();
 
-        check.notify.notified().await;
+        check.msg_receiver.recv().await.expect("Channel failed");
 
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
     }
@@ -445,12 +447,12 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn should_watch_global_model(pgpool: PgPool) {
-        let check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
+        let mut check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
 
         let global_model = global_cost_model();
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
 
-        check.notify.notified().await;
+        check.msg_receiver.recv().await.expect("Channel failed");
 
         assert!(check.global_model.read().unwrap().is_some());
     }
@@ -460,7 +462,7 @@ mod tests {
         let global_model = global_cost_model();
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
 
-        let check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
+        let mut check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
         assert!(check.global_model.read().unwrap().is_some());
 
         sqlx::query!(r#"DELETE FROM "CostModels""#)
@@ -468,7 +470,7 @@ mod tests {
             .await
             .unwrap();
 
-        check.notify.notified().await;
+        check.msg_receiver.recv().await.expect("Channel failed");
 
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
     }

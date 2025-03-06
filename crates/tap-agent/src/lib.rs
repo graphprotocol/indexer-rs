@@ -35,7 +35,8 @@ pub mod database;
 /// Prometheus Metrics server
 pub mod metrics;
 pub mod tap;
-#[cfg(any(test, feature = "test"))]
+
 /// Test utils to interact with Tap Actors
+#[cfg(any(test, feature = "test"))]
 pub mod test;
 pub mod tracker;
