@@ -206,10 +206,7 @@ async fn create_subgraph_client(
                     deployment,
                 )
             }),
-            DeploymentDetails::for_query_url_with_token(
-                subgraph_config.query_url.clone(),
-                subgraph_config.query_auth_token.clone(),
-            ),
+            DeploymentDetails::for_query_url(subgraph_config.query_url.clone().as_str()).unwrap(),
         )
         .await,
     ))
