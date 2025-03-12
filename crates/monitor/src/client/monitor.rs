@@ -124,7 +124,7 @@ mod tests {
         assert_eq!(
             status.borrow().clone(),
             DeploymentStatus {
-                synced: synced,
+                synced,
                 health: health.to_string()
             }
         );
