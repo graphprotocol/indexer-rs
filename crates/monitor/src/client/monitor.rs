@@ -97,15 +97,19 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    async fn test_parses_synced_and_healthy_response(#[future(awt)] monitor_mock: MonitorMock) {
+    async fn test_parses_health_and_sync_status_response(
+        #[future(awt)] monitor_mock: MonitorMock,
+        #[values(true, false)] synced: bool,
+        #[values("healthy", "unhealthy", "failed")] health: &str,
+    ) {
         Mock::given(method("POST"))
             .and(path("/status"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "data": {
                     "indexingStatuses": [
                         {
-                            "synced": true,
-                            "health": "healthy"
+                            "synced": synced,
+                            "health": health
                         }
                     ]
                 }
@@ -120,101 +124,8 @@ mod tests {
         assert_eq!(
             status.borrow().clone(),
             DeploymentStatus {
-                synced: true,
-                health: "healthy".to_string()
-            }
-        );
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn test_parses_not_synced_and_healthy_response(#[future(awt)] monitor_mock: MonitorMock) {
-        Mock::given(method("POST"))
-            .and(path("/status"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "data": {
-                    "indexingStatuses": [
-                        {
-                            "synced": false,
-                            "health": "healthy"
-                        }
-                    ]
-                }
-            })))
-            .mount(&monitor_mock.mock_server)
-            .await;
-
-        let status = monitor_deployment_status(monitor_mock.deployment, monitor_mock.status_url)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            status.borrow().clone(),
-            DeploymentStatus {
-                synced: false,
-                health: "healthy".to_string()
-            }
-        );
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn test_parses_synced_and_unhealthy_response(#[future(awt)] monitor_mock: MonitorMock) {
-        Mock::given(method("POST"))
-            .and(path("/status"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "data": {
-                    "indexingStatuses": [
-                        {
-                            "synced": true,
-                            "health": "unhealthy"
-                        }
-                    ]
-                }
-            })))
-            .mount(&monitor_mock.mock_server)
-            .await;
-
-        let status = monitor_deployment_status(monitor_mock.deployment, monitor_mock.status_url)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            status.borrow().clone(),
-            DeploymentStatus {
-                synced: true,
-                health: "unhealthy".to_string()
-            }
-        );
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn test_parses_synced_and_failed_response(#[future(awt)] monitor_mock: MonitorMock) {
-        Mock::given(method("POST"))
-            .and(path("/status"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "data": {
-                    "indexingStatuses": [
-                        {
-                            "synced": true,
-                            "health": "failed"
-                        }
-                    ]
-                }
-            })))
-            .mount(&monitor_mock.mock_server)
-            .await;
-
-        let status = monitor_deployment_status(monitor_mock.deployment, monitor_mock.status_url)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            status.borrow().clone(),
-            DeploymentStatus {
-                synced: true,
-                health: "failed".to_string()
+                synced: synced,
+                health: health.to_string()
             }
         );
     }
