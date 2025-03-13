@@ -3951,6 +3951,7 @@ dependencies = [
  "build-info-build",
  "clap",
  "cost-model",
+ "futures",
  "governor",
  "graphql 0.3.0",
  "graphql_client",
