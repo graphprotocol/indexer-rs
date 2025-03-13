@@ -3897,7 +3897,9 @@ dependencies = [
  "indexer-attestation",
  "indexer-query",
  "indexer-watcher",
+ "rstest 0.24.0",
  "reqwest 0.12.13",
+
  "serde",
  "serde_json",
  "test-assets",
@@ -4028,6 +4030,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "stdext",
  "tap_aggregator",
  "tap_core",
  "tap_graph",
@@ -7229,6 +7232,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7beae5182595e9a8b683fa98c4317f956c9a2dec3b9716990d20023cc60c766"
 
 [[package]]
+name = "stdext"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4af28eeb7c18ac2dbdb255d40bee63f203120e1db6b0024b177746ebec7049c1"
+
+[[package]]
 name = "stringprep"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7511,6 +7520,9 @@ dependencies = [
  "bon 3.3.2",
  "indexer-allocation",
  "lazy_static",
+ "rstest 0.24.0",
+ "sqlx",
+ "stdext",
  "tap_core",
  "tap_graph",
  "thegraph-core",

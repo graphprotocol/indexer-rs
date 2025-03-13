@@ -72,47 +72,14 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    async fn test_parses_synced_and_healthy_response() {
-        let mock_server = MockServer::start().await;
-        let status_url: Url = mock_server
-            .uri()
-            .parse::<Url>()
-            .unwrap()
-            .join("/status")
-            .unwrap();
-        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-
-        Mock::given(method("POST"))
-            .and(path("/status"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "data": {
-                    "indexingStatuses": [
-                        {
-                            "synced": true,
-                            "health": "healthy"
-                        }
-                    ]
-                }
-            })))
-            .mount(&mock_server)
-            .await;
-
-        let status = monitor_deployment_status(deployment, status_url)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            status.borrow().clone(),
-            DeploymentStatus {
-                synced: true,
-                health: "healthy".to_string()
-            }
-        );
+    struct MonitorMock {
+        mock_server: MockServer,
+        status_url: Url,
+        deployment: DeploymentId,
     }
 
-    #[tokio::test]
-    async fn test_parses_not_synced_and_healthy_response() {
+    #[rstest::fixture]
+    async fn monitor_mock() -> MonitorMock {
         let mock_server = MockServer::start().await;
         let status_url: Url = mock_server
             .uri()
@@ -121,109 +88,44 @@ mod tests {
             .join("/status")
             .unwrap();
         let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-
-        Mock::given(method("POST"))
-            .and(path("/status"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "data": {
-                    "indexingStatuses": [
-                        {
-                            "synced": false,
-                            "health": "healthy"
-                        }
-                    ]
-                }
-            })))
-            .mount(&mock_server)
-            .await;
-
-        let status = monitor_deployment_status(deployment, status_url)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            status.borrow().clone(),
-            DeploymentStatus {
-                synced: false,
-                health: "healthy".to_string()
-            }
-        );
+        MonitorMock {
+            mock_server,
+            status_url,
+            deployment,
+        }
     }
 
+    #[rstest::rstest]
     #[tokio::test]
-    async fn test_parses_synced_and_unhealthy_response() {
-        let mock_server = MockServer::start().await;
-        let status_url: Url = mock_server
-            .uri()
-            .parse::<Url>()
-            .unwrap()
-            .join("/status")
-            .unwrap();
-        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-
+    async fn test_parses_health_and_sync_status_response(
+        #[future(awt)] monitor_mock: MonitorMock,
+        #[values(true, false)] synced: bool,
+        #[values("healthy", "unhealthy", "failed")] health: &str,
+    ) {
         Mock::given(method("POST"))
             .and(path("/status"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "data": {
                     "indexingStatuses": [
                         {
-                            "synced": true,
-                            "health": "unhealthy"
+                            "synced": synced,
+                            "health": health
                         }
                     ]
                 }
             })))
-            .mount(&mock_server)
+            .mount(&monitor_mock.mock_server)
             .await;
 
-        let status = monitor_deployment_status(deployment, status_url)
+        let status = monitor_deployment_status(monitor_mock.deployment, monitor_mock.status_url)
             .await
             .unwrap();
 
         assert_eq!(
             status.borrow().clone(),
             DeploymentStatus {
-                synced: true,
-                health: "unhealthy".to_string()
-            }
-        );
-    }
-
-    #[tokio::test]
-    async fn test_parses_synced_and_failed_response() {
-        let mock_server = MockServer::start().await;
-        let status_url: Url = mock_server
-            .uri()
-            .parse::<Url>()
-            .unwrap()
-            .join("/status")
-            .unwrap();
-        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-
-        Mock::given(method("POST"))
-            .and(path("/status"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "data": {
-                    "indexingStatuses": [
-                        {
-                            "synced": true,
-                            "health": "failed"
-                        }
-                    ]
-                }
-            })))
-            .mount(&mock_server)
-            .await;
-
-        let status = monitor_deployment_status(deployment, status_url)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            status.borrow().clone(),
-            DeploymentStatus {
-                synced: true,
-                health: "failed".to_string()
+                synced,
+                health: health.to_string()
             }
         );
     }
