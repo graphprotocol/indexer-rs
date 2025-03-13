@@ -7,6 +7,7 @@ use graphql_client::GraphQLQuery;
 use reqwest::{header, Url};
 use thegraph_core::DeploymentId;
 use tokio::sync::watch::Receiver;
+use tracing::debug;
 
 use super::monitor::{monitor_deployment_status, DeploymentStatus};
 
@@ -117,8 +118,10 @@ impl DeploymentClient {
             .post(self.query_url.as_ref())
             .header(header::USER_AGENT, "indexer-common")
             .json(&body);
+        debug!("QUERY URL check {}", self.query_url);
 
         if let Some(token) = self.query_auth_token.as_ref() {
+            debug!("QUERY AUTH TOKEN check {}", token);
             req = req.header(header::AUTHORIZATION, format!("Bearer {}", token));
         }
 
