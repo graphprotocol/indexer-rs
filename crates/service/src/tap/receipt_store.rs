@@ -33,7 +33,7 @@ enum ProcessReceiptError {
 pub enum Processed {
     V1,
     V2,
-    All,
+    Both,
     None,
 }
 
@@ -69,7 +69,7 @@ impl InnerContext {
             // only useful for testing
             (Some(Ok(_)), None) => Ok(Processed::V1),
             (None, Some(Ok(_))) => Ok(Processed::V2),
-            (Some(Ok(_)), Some(Ok(_))) => Ok(Processed::All),
+            (Some(Ok(_)), Some(Ok(_))) => Ok(Processed::Both),
             (None, None) => Ok(Processed::None),
         }
     }
@@ -376,7 +376,7 @@ mod tests {
         #[case(Processed::None, async { vec![] })]
         #[case(Processed::V1, async { vec![create_v1().await] })]
         #[case(Processed::V2, async { vec![create_v2().await] })]
-        #[case(Processed::All, async { vec![create_v2().await, create_v1().await] })]
+        #[case(Processed::Both, async { vec![create_v2().await, create_v1().await] })]
         #[sqlx::test(migrations = "../../migrations")]
         async fn v1_and_v2_are_processed_successfully(
             #[ignore] pgpool: PgPool,
