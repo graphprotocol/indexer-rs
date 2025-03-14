@@ -3897,9 +3897,8 @@ dependencies = [
  "indexer-attestation",
  "indexer-query",
  "indexer-watcher",
- "rstest 0.24.0",
  "reqwest 0.12.13",
-
+ "rstest 0.24.0",
  "serde",
  "serde_json",
  "test-assets",
@@ -3951,6 +3950,7 @@ dependencies = [
  "build-info-build",
  "clap",
  "cost-model",
+ "futures",
  "governor",
  "graphql 0.3.0",
  "graphql_client",
