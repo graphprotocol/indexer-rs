@@ -37,6 +37,25 @@ pub enum IndexerServiceError {
     EscrowAccount(#[from] EscrowAccountsError),
 }
 
+// Helper struct to properly format
+// error messages
+#[derive(Serialize)]
+struct ErrorResponse {
+    message: String,
+}
+
+impl ErrorResponse {
+    fn new(message: impl ToString) -> Self {
+        Self {
+            message: message.to_string(),
+        }
+    }
+
+    fn into_response(self, status_code: StatusCode) -> Response {
+        (status_code, Json(self)).into_response()
+    }
+}
+
 impl StatusCodeExt for IndexerServiceError {
     fn status_code(&self) -> StatusCode {
         use IndexerServiceError as E;
@@ -55,19 +74,9 @@ impl StatusCodeExt for IndexerServiceError {
 
 impl IntoResponse for IndexerServiceError {
     fn into_response(self) -> Response {
-        #[derive(Serialize)]
-        struct ErrorResponse {
-            message: String,
-        }
-
-        tracing::error!(%self, "An IndexerServiceError occoured.");
-        (
-            self.status_code(),
-            Json(ErrorResponse {
-                message: self.to_string(),
-            }),
-        )
-            .into_response()
+        tracing::error!(%self, "An IndexerServiceError occurred.");
+        let status_code = self.status_code();
+        ErrorResponse::new(self).into_response(status_code)
     }
 }
 
@@ -100,7 +109,9 @@ impl StatusCodeExt for SubgraphServiceError {
 // Tell axum how to convert `SubgraphServiceError` into a response.
 impl IntoResponse for SubgraphServiceError {
     fn into_response(self) -> Response {
-        (self.status_code(), self.to_string()).into_response()
+        tracing::error!(%self, "An SubgraphServiceError occurred.");
+        let status_code = self.status_code();
+        ErrorResponse::new(self).into_response(status_code)
     }
 }
 
