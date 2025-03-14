@@ -30,7 +30,7 @@ enum ProcessReceiptError {
 /// Indicates which versions of Receipts where processed
 /// It's intended to be used for migration tests
 #[derive(Debug, PartialEq, Eq)]
-pub enum Processed {
+pub enum ProcessedReceipt {
     V1,
     V2,
     Both,
@@ -41,40 +41,35 @@ impl InnerContext {
     async fn process_db_receipts(
         &self,
         buffer: Vec<DatabaseReceipt>,
-    ) -> Result<Processed, ProcessReceiptError> {
+    ) -> Result<ProcessedReceipt, ProcessReceiptError> {
         let (v1_receipts, v2_receipts): (Vec<_>, Vec<_>) =
             buffer.into_iter().partition_map(|r| match r {
                 DatabaseReceipt::V1(db_receipt_v1) => Either::Left(db_receipt_v1),
                 DatabaseReceipt::V2(db_receipt_v2) => Either::Right(db_receipt_v2),
             });
 
-        let (insert_v1, insert_v2) = match (v1_receipts.is_empty(), v2_receipts.is_empty()) {
-            (true, true) => (None, None),
-            (false, true) => (Some(self.store_receipts_v1(v1_receipts).await), None),
-            (true, false) => (None, Some(self.store_receipts_v2(v2_receipts).await)),
-            (false, false) => {
-                let (v1, v2) = tokio::join!(
-                    self.store_receipts_v1(v1_receipts),
-                    self.store_receipts_v2(v2_receipts),
-                );
-                (Some(v1), Some(v2))
-            }
-        };
+        let (insert_v1, insert_v2) = tokio::join!(
+            self.store_receipts_v1(v1_receipts),
+            self.store_receipts_v2(v2_receipts),
+        );
 
         match (insert_v1, insert_v2) {
-            (Some(Err(e1)), Some(Err(e2))) => Err(ProcessReceiptError::Both(e1.into(), e2.into())),
-            (Some(Err(e1)), _) => Err(ProcessReceiptError::V1(e1.into())),
-            (_, Some(Err(e2))) => Err(ProcessReceiptError::V2(e2.into())),
+            (Err(e1), Err(e2)) => Err(ProcessReceiptError::Both(e1.into(), e2.into())),
 
-            // only useful for testing
-            (Some(Ok(_)), None) => Ok(Processed::V1),
-            (None, Some(Ok(_))) => Ok(Processed::V2),
-            (Some(Ok(_)), Some(Ok(_))) => Ok(Processed::Both),
-            (None, None) => Ok(Processed::None),
+            (Err(e1), Ok(_)) => Err(ProcessReceiptError::V1(e1.into())),
+            (Ok(_), Err(e2)) => Err(ProcessReceiptError::V2(e2.into())),
+
+            (Ok(0), Ok(0)) => Ok(ProcessedReceipt::None),
+            (Ok(_), Ok(0)) => Ok(ProcessedReceipt::V1),
+            (Ok(0), Ok(_)) => Ok(ProcessedReceipt::V2),
+            (Ok(_), Ok(_)) => Ok(ProcessedReceipt::Both),
         }
     }
 
-    async fn store_receipts_v1(&self, receipts: Vec<DbReceiptV1>) -> Result<(), AdapterError> {
+    async fn store_receipts_v1(&self, receipts: Vec<DbReceiptV1>) -> Result<u64, AdapterError> {
+        if receipts.is_empty() {
+            return Ok(0);
+        }
         let receipts_len = receipts.len();
         let mut signers = Vec::with_capacity(receipts_len);
         let mut signatures = Vec::with_capacity(receipts_len);
@@ -91,7 +86,7 @@ impl InnerContext {
             nonces.push(receipt.nonce);
             values.push(receipt.value);
         }
-        sqlx::query!(
+        let query_res = sqlx::query!(
             r#"INSERT INTO scalar_tap_receipts (
                 signer_address,
                 signature,
@@ -121,10 +116,13 @@ impl InnerContext {
             anyhow!(e)
         })?;
 
-        Ok(())
+        Ok(query_res.rows_affected())
     }
 
-    async fn store_receipts_v2(&self, receipts: Vec<DbReceiptV2>) -> Result<(), AdapterError> {
+    async fn store_receipts_v2(&self, receipts: Vec<DbReceiptV2>) -> Result<u64, AdapterError> {
+        if receipts.is_empty() {
+            return Ok(0);
+        }
         let receipts_len = receipts.len();
         let mut signers = Vec::with_capacity(receipts_len);
         let mut signatures = Vec::with_capacity(receipts_len);
@@ -147,7 +145,7 @@ impl InnerContext {
             nonces.push(receipt.nonce);
             values.push(receipt.value);
         }
-        sqlx::query!(
+        let query_res = sqlx::query!(
             r#"INSERT INTO tap_horizon_receipts (
                 signer_address,
                 signature,
@@ -186,7 +184,7 @@ impl InnerContext {
             anyhow!(e)
         })?;
 
-        Ok(())
+        Ok(query_res.rows_affected())
     }
 }
 
@@ -347,7 +345,8 @@ mod tests {
 
     use crate::tap::{
         receipt_store::{
-            DatabaseReceipt, DbReceiptV1, DbReceiptV2, InnerContext, ProcessReceiptError, Processed,
+            DatabaseReceipt, DbReceiptV1, DbReceiptV2, InnerContext, ProcessReceiptError,
+            ProcessedReceipt,
         },
         AdapterError,
     };
@@ -373,14 +372,14 @@ mod tests {
         use super::*;
 
         #[rstest::rstest]
-        #[case(Processed::None, async { vec![] })]
-        #[case(Processed::V1, async { vec![create_v1().await] })]
-        #[case(Processed::V2, async { vec![create_v2().await] })]
-        #[case(Processed::Both, async { vec![create_v2().await, create_v1().await] })]
+        #[case(ProcessedReceipt::None, async { vec![] })]
+        #[case(ProcessedReceipt::V1, async { vec![create_v1().await] })]
+        #[case(ProcessedReceipt::V2, async { vec![create_v2().await] })]
+        #[case(ProcessedReceipt::Both, async { vec![create_v2().await, create_v1().await] })]
         #[sqlx::test(migrations = "../../migrations")]
         async fn v1_and_v2_are_processed_successfully(
             #[ignore] pgpool: PgPool,
-            #[case] expected: Processed,
+            #[case] expected: ProcessedReceipt,
             #[future(awt)]
             #[case]
             receipts: Vec<DatabaseReceipt>,
@@ -402,7 +401,7 @@ mod tests {
 
             let res = context.process_db_receipts(vec![]).await.unwrap();
 
-            assert_eq!(res, Processed::None);
+            assert_eq!(res, ProcessedReceipt::None);
         }
 
         #[sqlx::test(migrator = "WITHOUT_HORIZON_MIGRATIONS")]
@@ -414,7 +413,7 @@ mod tests {
 
             let res = context.process_db_receipts(receipts).await.unwrap();
 
-            assert_eq!(res, Processed::V1);
+            assert_eq!(res, ProcessedReceipt::V1);
         }
 
         #[rstest::rstest]
