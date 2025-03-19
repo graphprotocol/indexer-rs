@@ -1527,10 +1527,7 @@ pub mod tests {
             ))
             .unwrap();
         let message = msg_receiver.recv().await.expect("Channel failed");
-        assert_eq!(
-            message,
-            SenderAccountMessage::UpdateAllocationIds(allocation_ids)
-        );
+        insta::assert_debug_snapshot!(message);
 
         // verify if create sender account
         let sender_allocation_id = format!("{}:{}:{}", prefix.clone(), SENDER.1, ALLOCATION_ID_0);
@@ -1541,17 +1538,7 @@ pub mod tests {
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();
         let message = msg_receiver.recv().await.expect("Channel failed");
-        assert_eq!(
-            message,
-            SenderAccountMessage::UpdateReceiptFees(
-                ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                    value: 0,
-                    last_id: 0,
-                    counter: 0,
-                })
-            )
-        );
+        insta::assert_debug_snapshot!(message);
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_some());
@@ -1582,10 +1569,7 @@ pub mod tests {
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();
         let msg = msg_receiver.recv().await.expect("Channel failed");
-        assert_eq!(
-            msg,
-            SenderAccountMessage::UpdateAllocationIds(HashSet::new())
-        );
+        insta::assert_debug_snapshot!(msg);
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_none());

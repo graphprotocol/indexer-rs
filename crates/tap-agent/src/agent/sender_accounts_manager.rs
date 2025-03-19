@@ -948,9 +948,7 @@ mod tests {
     use crate::{
         agent::{
             sender_account::SenderAccountMessage,
-            sender_accounts_manager::{
-                handle_notification, AllocationId, NewReceiptNotification, SenderType,
-            },
+            sender_accounts_manager::{handle_notification, NewReceiptNotification, SenderType},
         },
         test::{
             actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor},
@@ -1316,10 +1314,8 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(
-            rx.recv().await.unwrap(),
-            SenderAccountMessage::NewAllocationId(AllocationId::Legacy(ALLOCATION_ID_0))
-        );
+        let new_alloc_msg = rx.recv().await.unwrap();
+        insta::assert_debug_snapshot!(new_alloc_msg);
         sender_account.stop_and_wait(None, None).await.unwrap();
         join_handle.await.unwrap();
     }

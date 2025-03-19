@@ -25,6 +25,9 @@ ci:
 test:
     RUST_LOG=debug cargo nextest run
 
+review:
+    RUST_LOG=debug cargo insta review
+
 fmt:
     cargo +nightly fmt
 
