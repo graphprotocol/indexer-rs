@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::LazyLock};
 
 use async_graphql_axum::GraphQLRequest;
 use axum::{extract::State, response::IntoResponse, Json};
@@ -14,23 +14,24 @@ use thegraph_graphql_http::{
 
 use crate::{error::SubgraphServiceError, service::GraphNodeState};
 
-lazy_static::lazy_static! {
-    static ref SUPPORTED_ROOT_FIELDS: HashSet<&'static str> =
-        vec![
-            "indexingStatuses",
-            "chains",
-            "latestBlock",
-            "earliestBlock",
-            "publicProofsOfIndexing",
-            "entityChangesInBlock",
-            "blockData",
-            "blockHashFromNumber",
-            "cachedEthereumCalls",
-            "subgraphFeatures",
-            "apiVersions",
-            "version"
-        ].into_iter().collect();
-}
+static SUPPORTED_ROOT_FIELDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    [
+        "indexingStatuses",
+        "chains",
+        "latestBlock",
+        "earliestBlock",
+        "publicProofsOfIndexing",
+        "entityChangesInBlock",
+        "blockData",
+        "blockHashFromNumber",
+        "cachedEthereumCalls",
+        "subgraphFeatures",
+        "apiVersions",
+        "version",
+    ]
+    .into_iter()
+    .collect()
+});
 
 struct WrappedGraphQLRequest(async_graphql::Request);
 

@@ -32,7 +32,6 @@ axum.workspace = true
 tap_core.workspace = true
 tap_graph.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-lazy_static.workspace = true
 thegraph-core.workspace = true
 clap.workspace = true
 tracing-subscriber.workspace = true

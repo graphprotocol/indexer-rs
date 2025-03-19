@@ -6,12 +6,12 @@ use std::{
     future::Future,
     pin::Pin,
     str::FromStr,
+    sync::LazyLock,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use bip39::Mnemonic;
 use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
-use lazy_static::lazy_static;
 use sqlx::{migrate, PgPool, Postgres};
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, SignedReceipt};
@@ -133,14 +133,16 @@ pub const ALLOCATION_ID_3: Address = address!("69f961358846fdb64b04e1fd7b2701237
 
 pub const VERIFIER_ADDRESS: Address = address!("1111111111111111111111111111111111111111");
 
-lazy_static! {
-    pub static ref INDEXER_MNEMONIC: Mnemonic = Mnemonic::from_str(
-        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-    ).unwrap();
+pub static INDEXER_MNEMONIC: LazyLock<Mnemonic> = LazyLock::new(|| {
+    Mnemonic::from_str(
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+).unwrap()
+});
 
-    /// These are the expected json-serialized contents of the value returned by
-    /// AllocationMonitor::current_eligible_allocations with the values above at epoch threshold 940.
-    pub static ref INDEXER_ALLOCATIONS: HashMap<Address, Allocation> = HashMap::from([
+/// These are the expected json-serialized contents of the value returned by
+/// AllocationMonitor::current_eligible_allocations with the values above at epoch threshold 940.
+pub static INDEXER_ALLOCATIONS: LazyLock<HashMap<Address, Allocation>> = LazyLock::new(|| {
+    HashMap::from([
         (
             ALLOCATION_ID_0,
             Allocation {
@@ -153,8 +155,9 @@ lazy_static! {
                 closed_at_epoch: None,
                 subgraph_deployment: SubgraphDeployment {
                     id: DeploymentId::from_str(
-                        "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
-                    ).unwrap(),
+                        "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
+                    )
+                    .unwrap(),
                     denied_at: Some(0),
                 },
                 status: AllocationStatus::Null,
@@ -177,8 +180,9 @@ lazy_static! {
                 closed_at_epoch: None,
                 subgraph_deployment: SubgraphDeployment {
                     id: DeploymentId::from_str(
-                        "0xcda7fa0405d6fd10721ed13d18823d24b535060d8ff661f862b26c23334f13bf"
-                    ).unwrap(),
+                        "0xcda7fa0405d6fd10721ed13d18823d24b535060d8ff661f862b26c23334f13bf",
+                    )
+                    .unwrap(),
                     denied_at: Some(0),
                 },
                 status: AllocationStatus::Null,
@@ -201,8 +205,9 @@ lazy_static! {
                 closed_at_epoch: Some(953),
                 subgraph_deployment: SubgraphDeployment {
                     id: DeploymentId::from_str(
-                        "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a"
-                    ).unwrap(),
+                        "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
+                    )
+                    .unwrap(),
                     denied_at: Some(0),
                 },
                 status: AllocationStatus::Null,
@@ -225,8 +230,9 @@ lazy_static! {
                 closed_at_epoch: Some(953),
                 subgraph_deployment: SubgraphDeployment {
                     id: DeploymentId::from_str(
-                        "0xc064c354bc21dd958b1d41b67b8ef161b75d2246b425f68ed4c74964ae705cbd"
-                    ).unwrap(),
+                        "0xc064c354bc21dd958b1d41b67b8ef161b75d2246b425f68ed4c74964ae705cbd",
+                    )
+                    .unwrap(),
                     denied_at: Some(0),
                 },
                 status: AllocationStatus::Null,
@@ -237,80 +243,89 @@ lazy_static! {
                 query_fees_collected: None,
             },
         ),
-    ]);
+    ])
+});
 
-    pub static ref ESCROW_ACCOUNTS_BALANCES: HashMap<Address, U256> = HashMap::from([
-        (address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), U256::from(24)), // TAP_SENDER
-        (address!("22d491bde2303f2f43325b2108d26f1eaba1e32b"), U256::from(42)),
-        (address!("192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002"), U256::from(2975)),
-    ]);
-
-
-    /// Maps signers back to their senders
-    pub static ref ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS: HashMap<Address, Address> = HashMap::from([
+pub static ESCROW_ACCOUNTS_BALANCES: LazyLock<HashMap<Address, U256>> = LazyLock::new(|| {
+    HashMap::from([
         (
-            address!("533661F0fb14d2E8B26223C86a610Dd7D2260892"), // TAP_SIGNER
-            address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
-        ),
-        (
-            address!("2740f6fA9188cF53ffB6729DDD21575721dE92ce"),
-            address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
-        ),
-        (
-            address!("245059163ff6ee14279aa7b35ea8f0fdb967df6e"),
-            address!("22d491bde2303f2f43325b2108d26f1eaba1e32b"),
-        ),
-    ]);
-
-
-    pub static ref ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS: HashMap<Address, Vec<Address>> = HashMap::from([
-        (
-            address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
-            vec![
-                address!("533661F0fb14d2E8B26223C86a610Dd7D2260892"), // TAP_SIGNER
-                address!("2740f6fA9188cF53ffB6729DDD21575721dE92ce"),
-            ],
-        ),
+            address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"),
+            U256::from(24),
+        ), // TAP_SENDER
         (
             address!("22d491bde2303f2f43325b2108d26f1eaba1e32b"),
-            vec![address!("245059163ff6ee14279aa7b35ea8f0fdb967df6e")],
+            U256::from(42),
         ),
         (
             address!("192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002"),
-            vec![],
+            U256::from(2975),
         ),
-    ]);
+    ])
+});
 
+/// Maps signers back to their senders
+pub static ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS: LazyLock<HashMap<Address, Address>> =
+    LazyLock::new(|| {
+        HashMap::from([
+            (
+                address!("533661F0fb14d2E8B26223C86a610Dd7D2260892"), // TAP_SIGNER
+                address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
+            ),
+            (
+                address!("2740f6fA9188cF53ffB6729DDD21575721dE92ce"),
+                address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
+            ),
+            (
+                address!("245059163ff6ee14279aa7b35ea8f0fdb967df6e"),
+                address!("22d491bde2303f2f43325b2108d26f1eaba1e32b"),
+            ),
+        ])
+    });
 
-    /// Fixture to generate a wallet and address.
-    /// Address: 0x9858EfFD232B4033E47d90003D41EC34EcaEda94
-    pub static ref TAP_SENDER: (PrivateKeySigner, Address) = {
-        let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
-            .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
-            .build()
-            .unwrap();
-        let address = wallet.address();
+pub static ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS: LazyLock<HashMap<Address, Vec<Address>>> =
+    LazyLock::new(|| {
+        HashMap::from([
+            (
+                address!("9858EfFD232B4033E47d90003D41EC34EcaEda94"), // TAP_SENDER
+                vec![
+                    address!("533661F0fb14d2E8B26223C86a610Dd7D2260892"), // TAP_SIGNER
+                    address!("2740f6fA9188cF53ffB6729DDD21575721dE92ce"),
+                ],
+            ),
+            (
+                address!("22d491bde2303f2f43325b2108d26f1eaba1e32b"),
+                vec![address!("245059163ff6ee14279aa7b35ea8f0fdb967df6e")],
+            ),
+            (address!("192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002"), vec![]),
+        ])
+    });
 
-        (wallet, address)
-    };
+/// Fixture to generate a wallet and address.
+/// Address: 0x9858EfFD232B4033E47d90003D41EC34EcaEda94
+pub static TAP_SENDER: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| {
+    let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
+        .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
+        .build()
+        .unwrap();
+    let address = wallet.address();
 
-    /// Fixture to generate a wallet and address.
-    /// Address: 0x533661F0fb14d2E8B26223C86a610Dd7D2260892
-    pub static ref TAP_SIGNER: (PrivateKeySigner, Address) = {
-        let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
-            .phrase("rude pipe parade travel organ vendor card festival magnet novel forget refuse keep draft tool")
-            .build()
-            .unwrap();
-        let address = wallet.address();
+    (wallet, address)
+});
 
-        (wallet, address)
-    };
+/// Fixture to generate a wallet and address.
+/// Address: 0x533661F0fb14d2E8B26223C86a610Dd7D2260892
+pub static TAP_SIGNER: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| {
+    let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
+        .phrase("rude pipe parade travel organ vendor card festival magnet novel forget refuse keep draft tool")
+        .build()
+        .unwrap();
+    let address = wallet.address();
 
-    pub static ref TAP_EIP712_DOMAIN: Eip712Domain = tap_eip712_domain(
-        1,
-        VERIFIER_ADDRESS
-    );
-}
+    (wallet, address)
+});
+
+pub static TAP_EIP712_DOMAIN: LazyLock<Eip712Domain> =
+    LazyLock::new(|| tap_eip712_domain(1, VERIFIER_ADDRESS));
 
 #[derive(bon::Builder)]
 pub struct SignedReceiptRequest {

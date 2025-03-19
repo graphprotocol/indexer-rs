@@ -5,6 +5,7 @@
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
+    sync::LazyLock,
     time::Duration,
 };
 
@@ -13,7 +14,6 @@ use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use indexer_receipt::TapReceipt;
-use lazy_static::lazy_static;
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use reqwest::Url;
@@ -52,13 +52,11 @@ use crate::{
     },
 };
 
-lazy_static! {
-    // pub static ref SENDER: (PrivateKeySigner, Address) = wallet(0);
-    pub static ref SENDER_2: (PrivateKeySigner, Address) = wallet(1);
-    pub static ref INDEXER: (PrivateKeySigner, Address) = wallet(3);
-    pub static ref TAP_EIP712_DOMAIN_SEPARATOR: Eip712Domain =
-        tap_eip712_domain(1, Address::from([0x11u8; 20]),);
-}
+// pub static ref SENDER: (PrivateKeySigner, Address) = wallet(0);
+pub static SENDER_2: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wallet(1));
+pub static INDEXER: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wallet(3));
+pub static TAP_EIP712_DOMAIN_SEPARATOR: LazyLock<Eip712Domain> =
+    LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20])));
 
 pub const TRIGGER_VALUE: u128 = 500;
 pub const RECEIPT_LIMIT: u64 = 10000;

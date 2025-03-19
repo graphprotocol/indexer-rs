@@ -4,7 +4,7 @@
 use std::{
     future::Future,
     marker::PhantomData,
-    sync::Arc,
+    sync::{Arc, LazyLock},
     time::{Duration, Instant},
 };
 
@@ -37,7 +37,6 @@ use crate::{
         sender_accounts_manager::NewReceiptNotification,
         unaggregated_receipts::UnaggregatedReceipts,
     },
-    lazy_static,
     tap::{
         context::{
             checks::{AllocationId, Signature},
@@ -47,32 +46,38 @@ use crate::{
     },
 };
 
-lazy_static! {
-    static ref CLOSED_SENDER_ALLOCATIONS: CounterVec = register_counter_vec!(
+static CLOSED_SENDER_ALLOCATIONS: LazyLock<CounterVec> = LazyLock::new(|| {
+    register_counter_vec!(
         "tap_closed_sender_allocation_total",
         "Count of sender-allocation managers closed since the start of the program",
         &["sender"]
     )
-    .unwrap();
-    static ref RAVS_CREATED: CounterVec = register_counter_vec!(
+    .unwrap()
+});
+static RAVS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
+    register_counter_vec!(
         "tap_ravs_created_total",
         "RAVs updated or created per sender allocation since the start of the program",
         &["sender", "allocation"]
     )
-    .unwrap();
-    static ref RAVS_FAILED: CounterVec = register_counter_vec!(
+    .unwrap()
+});
+static RAVS_FAILED: LazyLock<CounterVec> = LazyLock::new(|| {
+    register_counter_vec!(
         "tap_ravs_failed_total",
         "RAV requests failed since the start of the program",
         &["sender", "allocation"]
     )
-    .unwrap();
-    static ref RAV_RESPONSE_TIME: HistogramVec = register_histogram_vec!(
+    .unwrap()
+});
+static RAV_RESPONSE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    register_histogram_vec!(
         "tap_rav_response_time_seconds",
         "RAV response time per sender",
         &["sender"]
     )
-    .unwrap();
-}
+    .unwrap()
+});
 
 /// Possible Rav Errors returned in case of a failure in Rav Request
 ///
