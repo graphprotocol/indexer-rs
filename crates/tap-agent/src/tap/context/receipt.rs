@@ -385,11 +385,11 @@ mod test {
         collections::{Bound, HashMap},
         ops::RangeBounds,
         str::FromStr,
+        sync::LazyLock,
     };
 
     use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
     use indexer_monitor::EscrowAccounts;
-    use lazy_static::lazy_static;
     use rstest::{fixture, rstest};
     use sqlx::PgPool;
     use tap_core::{
@@ -411,9 +411,8 @@ mod test {
 
     const ALLOCATION_ID_IRRELEVANT: Address = ALLOCATION_ID_1;
 
-    lazy_static! {
-        static ref SENDER_IRRELEVANT: (PrivateKeySigner, Address) = SENDER_2.clone();
-    }
+    static SENDER_IRRELEVANT: LazyLock<(PrivateKeySigner, Address)> =
+        LazyLock::new(|| SENDER_2.clone());
 
     #[fixture]
     fn escrow_accounts() -> Receiver<EscrowAccounts> {

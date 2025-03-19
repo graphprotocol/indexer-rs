@@ -19,7 +19,6 @@ opt-level = 3
 
 [workspace.dependencies]
 clap = "4.4.3"
-lazy_static = "1.4.0"
 axum = { version = "0.7.9", default-features = false, features = [
     "tokio",
     "http1",

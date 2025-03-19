@@ -1,9 +1,10 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::LazyLock;
+
 use axum_extra::headers::{self, Header, HeaderName, HeaderValue};
 use base64::prelude::*;
-use lazy_static::lazy_static;
 use prometheus::{register_counter, Counter};
 use prost::Message;
 use tap_aggregator::grpc;
@@ -14,11 +15,10 @@ use crate::tap::TapReceipt;
 #[derive(Debug, PartialEq)]
 pub struct TapHeader(pub TapReceipt);
 
-lazy_static! {
-    static ref TAP_RECEIPT: HeaderName = HeaderName::from_static("tap-receipt");
-    pub static ref TAP_RECEIPT_INVALID: Counter =
-        register_counter!("indexer_tap_invalid_total", "Invalid tap receipt decode",).unwrap();
-}
+static TAP_RECEIPT: LazyLock<HeaderName> = LazyLock::new(|| HeaderName::from_static("tap-receipt"));
+pub static TAP_RECEIPT_INVALID: LazyLock<Counter> = LazyLock::new(|| {
+    register_counter!("indexer_tap_invalid_total", "Invalid tap receipt decode",).unwrap()
+});
 
 impl Header for TapHeader {
     fn name() -> &'static HeaderName {

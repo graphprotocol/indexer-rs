@@ -8,7 +8,9 @@ use tokio::signal::unix::{signal, SignalKind};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Parse basic configurations, also initializes logging.
-    lazy_static::initialize(&CONFIG);
+
+    // initialize LazyLock'd config
+    _ = &*CONFIG;
 
     let (manager, handler) = agent::start_agent().await;
     tracing::info!("TAP Agent started.");

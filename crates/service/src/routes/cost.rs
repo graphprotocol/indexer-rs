@@ -1,10 +1,9 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::str::FromStr;
+use std::{str::FromStr, sync::LazyLock};
 
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
-use lazy_static::lazy_static;
 use prometheus::{
     register_counter, register_counter_vec, register_histogram, register_histogram_vec, Counter,
     CounterVec, Histogram, HistogramVec,
@@ -16,45 +15,57 @@ use thegraph_core::DeploymentId;
 
 use crate::database::cost_model::{self, CostModel};
 
-lazy_static! {
-    pub static ref COST_MODEL_METRIC: HistogramVec = register_histogram_vec!(
+pub static COST_MODEL_METRIC: LazyLock<HistogramVec> = LazyLock::new(|| {
+    register_histogram_vec!(
         "indexer_cost_model_seconds",
         "Histogram metric for single cost model query",
         &["deployment"]
     )
-    .unwrap();
-    pub static ref COST_MODEL_FAILED: CounterVec = register_counter_vec!(
+    .unwrap()
+});
+pub static COST_MODEL_FAILED: LazyLock<CounterVec> = LazyLock::new(|| {
+    register_counter_vec!(
         "indexer_cost_model_failed_total",
         "Total failed Cost Model query",
         &["deployment"]
     )
-    .unwrap();
-    pub static ref COST_MODEL_INVALID: Counter = register_counter!(
+    .unwrap()
+});
+pub static COST_MODEL_INVALID: LazyLock<Counter> = LazyLock::new(|| {
+    register_counter!(
         "indexer_cost_model_invalid_total",
         "Cost model queries with invalid deployment id",
     )
-    .unwrap();
-    pub static ref COST_MODEL_BATCH_METRIC: Histogram = register_histogram!(
+    .unwrap()
+});
+pub static COST_MODEL_BATCH_METRIC: LazyLock<Histogram> = LazyLock::new(|| {
+    register_histogram!(
         "indexer_cost_model_batch_seconds",
         "Histogram metric for batch cost model query",
     )
-    .unwrap();
-    pub static ref COST_MODEL_BATCH_SIZE: Histogram = register_histogram!(
+    .unwrap()
+});
+pub static COST_MODEL_BATCH_SIZE: LazyLock<Histogram> = LazyLock::new(|| {
+    register_histogram!(
         "indexer_cost_model_batch_size",
         "This shows the size of deployment ids cost model batch queries got",
     )
-    .unwrap();
-    pub static ref COST_MODEL_BATCH_FAILED: Counter = register_counter!(
+    .unwrap()
+});
+pub static COST_MODEL_BATCH_FAILED: LazyLock<Counter> = LazyLock::new(|| {
+    register_counter!(
         "indexer_cost_model_batch_failed_total",
         "Total failed batch cost model queries",
     )
-    .unwrap();
-    pub static ref COST_MODEL_BATCH_INVALID: Counter = register_counter!(
+    .unwrap()
+});
+pub static COST_MODEL_BATCH_INVALID: LazyLock<Counter> = LazyLock::new(|| {
+    register_counter!(
         "indexer_cost_model_batch_invalid_total",
         "Batch cost model queries with invalid deployment ids",
     )
-    .unwrap();
-}
+    .unwrap()
+});
 
 #[derive(Clone, Debug, Serialize, Deserialize, SimpleObject)]
 pub struct GraphQlCostModel {

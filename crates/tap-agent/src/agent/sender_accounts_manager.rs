@@ -5,6 +5,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     str::FromStr,
+    sync::LazyLock,
     time::Duration,
 };
 
@@ -24,16 +25,16 @@ use tokio::{select, sync::watch::Receiver};
 use super::sender_account::{
     SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
 };
-use crate::{agent::sender_allocation::SenderAllocationMessage, lazy_static};
+use crate::agent::sender_allocation::SenderAllocationMessage;
 
-lazy_static! {
-    static ref RECEIPTS_CREATED: CounterVec = register_counter_vec!(
+static RECEIPTS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
+    register_counter_vec!(
         "tap_receipts_received_total",
         "Receipts received since start of the program.",
         &["sender", "allocation"]
     )
-    .unwrap();
-}
+    .unwrap()
+});
 
 /// Notification received by pgnotify
 ///

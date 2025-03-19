@@ -4,6 +4,7 @@
 use std::{
     collections::{HashMap, HashSet},
     str::FromStr,
+    sync::LazyLock,
     time::Duration,
 };
 
@@ -16,7 +17,6 @@ use indexer_query::{
     unfinalized_transactions, UnfinalizedTransactions,
 };
 use indexer_watcher::watch_pipe;
-use lazy_static::lazy_static;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use reqwest::Url;
@@ -48,52 +48,65 @@ use crate::{
     tracker::{SenderFeeTracker, SimpleFeeTracker},
 };
 
-lazy_static! {
-    static ref SENDER_DENIED: IntGaugeVec =
-        register_int_gauge_vec!("tap_sender_denied", "Sender is denied", &["sender"]).unwrap();
-    static ref ESCROW_BALANCE: GaugeVec = register_gauge_vec!(
+static SENDER_DENIED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    register_int_gauge_vec!("tap_sender_denied", "Sender is denied", &["sender"]).unwrap()
+});
+static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
+    register_gauge_vec!(
         "tap_sender_escrow_balance_grt_total",
         "Sender escrow balance",
         &["sender"]
     )
-    .unwrap();
-    static ref UNAGGREGATED_FEES: GaugeVec = register_gauge_vec!(
+    .unwrap()
+});
+static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
+    register_gauge_vec!(
         "tap_unaggregated_fees_grt_total",
         "Unggregated Fees value",
         &["sender", "allocation"]
     )
-    .unwrap();
-    static ref SENDER_FEE_TRACKER: GaugeVec = register_gauge_vec!(
+    .unwrap()
+});
+static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
+    register_gauge_vec!(
         "tap_sender_fee_tracker_grt_total",
         "Sender fee tracker metric",
         &["sender"]
     )
-    .unwrap();
-    static ref INVALID_RECEIPT_FEES: GaugeVec = register_gauge_vec!(
+    .unwrap()
+});
+static INVALID_RECEIPT_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
+    register_gauge_vec!(
         "tap_invalid_receipt_fees_grt_total",
         "Failed receipt fees",
         &["sender", "allocation"]
     )
-    .unwrap();
-    static ref PENDING_RAV: GaugeVec = register_gauge_vec!(
+    .unwrap()
+});
+static PENDING_RAV: LazyLock<GaugeVec> = LazyLock::new(|| {
+    register_gauge_vec!(
         "tap_pending_rav_grt_total",
         "Pending ravs values",
         &["sender", "allocation"]
     )
-    .unwrap();
-    static ref MAX_FEE_PER_SENDER: GaugeVec = register_gauge_vec!(
+    .unwrap()
+});
+static MAX_FEE_PER_SENDER: LazyLock<GaugeVec> = LazyLock::new(|| {
+    register_gauge_vec!(
         "tap_max_fee_per_sender_grt_total",
         "Max fee per sender in the config",
         &["sender"]
     )
-    .unwrap();
-    static ref RAV_REQUEST_TRIGGER_VALUE: GaugeVec = register_gauge_vec!(
+    .unwrap()
+});
+static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
+    register_gauge_vec!(
         "tap_rav_request_trigger_value",
         "RAV request trigger value divisor",
         &["sender"]
     )
-    .unwrap();
-}
+    .unwrap()
+});
 
 const INITIAL_RAV_REQUEST_CONCURRENT: usize = 1;
 
