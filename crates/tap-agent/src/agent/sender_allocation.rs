@@ -1293,7 +1293,6 @@ pub mod tests {
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
-    use bigdecimal::ToPrimitive;
     use futures::future::join_all;
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
     use indexer_receipt::TapReceipt;
@@ -1326,7 +1325,6 @@ pub mod tests {
             sender_account::{ReceiptFees, SenderAccountMessage},
             sender_accounts_manager::NewReceiptNotification,
             sender_allocation::DatabaseInteractions,
-            unaggregated_receipts::UnaggregatedReceipts,
         },
         tap::{context::Legacy, CheckingReceipt},
         test::{
@@ -1492,17 +1490,8 @@ pub mod tests {
         )
         .unwrap();
 
-        // Should emit a message to the sender account with the unaggregated fees.
-        let expected_message = SenderAccountMessage::UpdateReceiptFees(
-            ALLOCATION_ID_0,
-            ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                last_id: 10,
-                value: 55u128,
-                counter: 10,
-            }),
-        );
         let last_message_emitted = last_message_emitted.recv().await.unwrap();
-        assert_eq!(last_message_emitted, expected_message);
+        insta::assert_debug_snapshot!(last_message_emitted);
 
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 55u128);
@@ -1537,25 +1526,11 @@ pub mod tests {
         )
         .unwrap();
 
-        // Should emit a message to the sender account with the unaggregated fees.
-        let expected_message = SenderAccountMessage::UpdateInvalidReceiptFees(
-            ALLOCATION_ID_0,
-            UnaggregatedReceipts {
-                last_id: 10,
-                value: 55u128,
-                counter: 10,
-            },
-        );
         let update_invalid_msg = message_receiver.recv().await.unwrap();
-        assert_eq!(update_invalid_msg, expected_message);
+        insta::assert_debug_snapshot!(update_invalid_msg);
+
         let last_message_emitted = message_receiver.recv().await.unwrap();
-        assert_eq!(
-            last_message_emitted,
-            SenderAccountMessage::UpdateReceiptFees(
-                ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts::default())
-            )
-        );
+        insta::assert_debug_snapshot!(last_message_emitted);
 
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 0u128);
@@ -1609,23 +1584,14 @@ pub mod tests {
         flush_messages(&mut msg_receiver).await;
 
         // should emit update aggregate fees message to sender account
+        let startup_load_msg = message_receiver.recv().await.unwrap();
+        insta::assert_debug_snapshot!(startup_load_msg);
+
+        let last_message_emitted = message_receiver.recv().await.unwrap();
         let expected_message = SenderAccountMessage::UpdateReceiptFees(
             ALLOCATION_ID_0,
             ReceiptFees::NewReceipt(20u128, timestamp_ns),
         );
-        let startup_load_msg = message_receiver.recv().await.unwrap();
-        assert_eq!(
-            startup_load_msg,
-            SenderAccountMessage::UpdateReceiptFees(
-                ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                    value: 0,
-                    last_id: 0,
-                    counter: 0,
-                })
-            )
-        );
-        let last_message_emitted = message_receiver.recv().await.unwrap();
         assert_eq!(last_message_emitted, expected_message);
     }
 
@@ -1686,40 +1652,18 @@ pub mod tests {
         assert_eq!(total_unaggregated_fees.value, 0u128);
 
         let startup_msg = message_receiver.recv().await.unwrap();
-        assert_eq!(
-            startup_msg,
-            SenderAccountMessage::UpdateReceiptFees(
-                ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                    value: 90,
-                    last_id: 20,
-                    counter: 20,
-                })
-            )
-        );
+        insta::assert_debug_snapshot!(startup_msg);
 
         // Check if the sender received invalid receipt fees
-        let expected_message = SenderAccountMessage::UpdateInvalidReceiptFees(
-            ALLOCATION_ID_0,
-            UnaggregatedReceipts {
-                last_id: 0,
-                value: 45,
-                counter: 0,
-            },
-        );
-        assert_eq!(message_receiver.recv().await.unwrap(), expected_message);
+        let msg = message_receiver.recv().await.unwrap();
+        insta::assert_debug_snapshot!(msg);
 
-        assert!(matches!(
-            message_receiver.recv().await.unwrap(),
-            SenderAccountMessage::UpdateReceiptFees(_, ReceiptFees::RavRequestResponse(_, _))
-        ));
+        let updated_receipt_fees = message_receiver.recv().await.unwrap();
+        insta::assert_debug_snapshot!(updated_receipt_fees);
     }
 
-    async fn execute<Fut>(
-        pgpool: PgPool,
-        amount_of_receipts: u64,
-        populate: impl FnOnce(PgPool) -> Fut,
-    ) where
+    async fn execute<Fut>(pgpool: PgPool, populate: impl FnOnce(PgPool) -> Fut)
+    where
         Fut: Future<Output = ()>,
     {
         // Start a mock graphql server using wiremock
@@ -1767,27 +1711,13 @@ pub mod tests {
         assert_eq!(total_unaggregated_fees.value, 0u128);
 
         let startup_msg = message_receiver.recv().await.unwrap();
-        let expected_value: u128 = ((amount_of_receipts.to_u128().expect("should be u128")
-            - 1u128)
-            * (amount_of_receipts.to_u128().expect("should be u128")))
-            / 2;
-        assert_eq!(
-            startup_msg,
-            SenderAccountMessage::UpdateReceiptFees(
-                ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                    value: expected_value,
-                    last_id: amount_of_receipts,
-                    counter: amount_of_receipts,
-                })
-            )
-        );
+        insta::assert_debug_snapshot!(startup_msg);
     }
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn test_several_receipts_rav_request(pgpool: PgPool) {
         const AMOUNT_OF_RECEIPTS: u64 = 1000;
-        execute(pgpool, AMOUNT_OF_RECEIPTS, |pgpool| async move {
+        execute(pgpool, |pgpool| async move {
             // Add receipts to the database.
 
             for i in 0..AMOUNT_OF_RECEIPTS {
@@ -1805,7 +1735,7 @@ pub mod tests {
     async fn test_several_receipts_batch_insert_rav_request(pgpool: PgPool) {
         // Add batch receipts to the database.
         const AMOUNT_OF_RECEIPTS: u64 = 1000;
-        execute(pgpool, AMOUNT_OF_RECEIPTS, |pgpool| async move {
+        execute(pgpool, |pgpool| async move {
             // Add receipts to the database.
             let mut receipts = Vec::with_capacity(1000);
             for i in 0..AMOUNT_OF_RECEIPTS {
@@ -1841,13 +1771,7 @@ pub mod tests {
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
 
         // check if message is sent to sender account
-        assert_eq!(
-            message_receiver.recv().await.unwrap(),
-            SenderAccountMessage::UpdateReceiptFees(
-                ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts::default())
-            )
-        );
+        insta::assert_debug_snapshot!(message_receiver.recv().await);
     }
 
     // used for test_close_allocation_with_pending_fees(pgpool:
@@ -2117,27 +2041,10 @@ pub mod tests {
         // If it is an error then rav request failed
 
         let startup_msg = message_receiver.recv().await.unwrap();
-        assert_eq!(
-            startup_msg,
-            SenderAccountMessage::UpdateReceiptFees(
-                ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                    value: 45,
-                    last_id: 10,
-                    counter: 10,
-                })
-            )
-        );
-        let rav_response_message = message_receiver.recv().await.unwrap();
-        match rav_response_message {
-            SenderAccountMessage::UpdateReceiptFees(
-                _,
-                ReceiptFees::RavRequestResponse(_, rav_response),
-            ) => {
-                assert!(rav_response.is_err());
-            }
-            v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
-        }
+        insta::assert_debug_snapshot!(startup_msg);
+
+        let rav_error_response_message = message_receiver.recv().await.unwrap();
+        insta::assert_debug_snapshot!(rav_error_response_message);
 
         // expect the actor to keep running
         assert_eq!(sender_allocation.get_status(), ActorStatus::Running);
@@ -2173,7 +2080,6 @@ pub mod tests {
             .as_nanos() as u64;
         const RECEIPT_VALUE: u128 = 1622018441284756158;
         const TOTAL_RECEIPTS: u64 = 10;
-        const TOTAL_SUM: u128 = RECEIPT_VALUE * TOTAL_RECEIPTS as u128;
 
         for i in 0..TOTAL_RECEIPTS {
             let receipt =
@@ -2203,42 +2109,14 @@ pub mod tests {
         // If it is an error then rav request failed
 
         let startup_msg = message_receiver.recv().await.unwrap();
-        assert_eq!(
-            startup_msg,
-            SenderAccountMessage::UpdateReceiptFees(
-                ALLOCATION_ID_0,
-                ReceiptFees::UpdateValue(UnaggregatedReceipts {
-                    value: 16220184412847561580,
-                    last_id: 10,
-                    counter: 10,
-                })
-            )
-        );
+        insta::assert_debug_snapshot!(startup_msg);
 
         let invalid_receipts = message_receiver.recv().await.unwrap();
 
-        assert_eq!(
-            invalid_receipts,
-            SenderAccountMessage::UpdateInvalidReceiptFees(
-                ALLOCATION_ID_0,
-                UnaggregatedReceipts {
-                    value: TOTAL_SUM,
-                    last_id: 0,
-                    counter: 0,
-                }
-            )
-        );
+        insta::assert_debug_snapshot!(invalid_receipts);
 
-        let rav_response_message = message_receiver.recv().await.unwrap();
-        match rav_response_message {
-            SenderAccountMessage::UpdateReceiptFees(
-                _,
-                ReceiptFees::RavRequestResponse(_, rav_response),
-            ) => {
-                assert!(rav_response.is_err());
-            }
-            v => panic!("Expecting RavRequestResponse as last message, found: {v:?}"),
-        }
+        let rav_error_response_message = message_receiver.recv().await.unwrap();
+        insta::assert_debug_snapshot!(rav_error_response_message);
 
         let invalid_receipts = sqlx::query!(
             r#"

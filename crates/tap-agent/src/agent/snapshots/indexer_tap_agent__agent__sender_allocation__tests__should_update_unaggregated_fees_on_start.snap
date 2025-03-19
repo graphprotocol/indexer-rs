@@ -1,0 +1,14 @@
+---
+source: crates/tap-agent/src/agent/sender_allocation.rs
+expression: last_message_emitted
+---
+UpdateReceiptFees(
+    0xfa44c72b753a66591f241c7dc04e8178c30e13af,
+    UpdateValue(
+        UnaggregatedReceipts {
+            value: 55,
+            last_id: 10,
+            counter: 10,
+        },
+    ),
+)

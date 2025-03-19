@@ -95,3 +95,9 @@ rev = "9fd4beb"
 [patch.crates-io.tap_graph]
 git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
 rev = "9fd4beb"
+
+# Insta benefits from being compiled in release mode, even as dev dependency
+# see https://insta.rs/docs/quickstart
+[profile.dev.package]
+insta.opt-level = 3
+similar.opt-level = 3

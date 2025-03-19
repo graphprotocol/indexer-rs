@@ -110,6 +110,7 @@ jobs:
       image: rust:1.81-bookworm
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
+      CI: true
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Cache dependencies

@@ -1,0 +1,7 @@
+---
+source: crates/tap-agent/src/agent/sender_account.rs
+expression: msg
+---
+UpdateAllocationIds(
+    {},
+)

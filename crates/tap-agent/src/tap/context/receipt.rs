@@ -41,6 +41,7 @@ impl From<serde_json::Error> for AdapterError {
 }
 
 /// convert Bound`<u64>` to Bound`<BigDecimal>`
+#[inline]
 fn u64_bound_to_bigdecimal_bound(bound: Bound<&u64>) -> Bound<BigDecimal> {
     match bound {
         Bound::Included(val) => Bound::Included(BigDecimal::from(*val)),
@@ -473,10 +474,9 @@ mod test {
             .unwrap()[0]
             .clone();
 
-        assert_eq!(
-            received_receipt.signed_receipt().unique_id(),
-            retrieved_receipt.signed_receipt().unique_id(),
-        );
+        let received_id = received_receipt.signed_receipt().unique_id();
+        let retrieved_id = retrieved_receipt.signed_receipt().unique_id();
+        assert_eq!(received_id, retrieved_id);
     }
 
     /// This function compares a local receipts vector filter by timestamp range (we assume that the stdlib
@@ -933,8 +933,6 @@ mod test {
                     .unwrap(),
             );
         }
-
-        // zip the 2 vectors together
 
         macro_rules! test_ranges{
             ($($arg: expr), +) => {

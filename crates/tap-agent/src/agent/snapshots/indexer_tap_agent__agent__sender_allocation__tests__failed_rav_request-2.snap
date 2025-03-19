@@ -1,0 +1,19 @@
+---
+source: crates/tap-agent/src/agent/sender_allocation.rs
+expression: rav_response_message
+---
+UpdateReceiptFees(
+    0xfa44c72b753a66591f241c7dc04e8178c30e13af,
+    RavRequestResponse(
+        UnaggregatedReceipts {
+            value: 45,
+            last_id: 10,
+            counter: 10,
+        },
+        Err(
+            Other(
+                "It looks like there are no valid receipts for the RAV request.This may happen if your `rav_request_trigger_value` is too low and no receipts were found outside the `rav_request_timestamp_buffer_ms`.You can fix this by increasing the `rav_request_trigger_value`.",
+            ),
+        ),
+    ),
+)
