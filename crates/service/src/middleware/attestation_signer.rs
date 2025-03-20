@@ -32,9 +32,7 @@ pub async fn signer_middleware(
             request.extensions_mut().insert(signer.clone());
         } else {
             // Just log this case which is silently passed through next middleware
-            tracing::warn!(warn=%allocation_id,
-                "No attestation signer found for allocation",
-            );
+            tracing::warn!(%allocation_id, "No attestation signer found for allocation",);
         }
     }
 
