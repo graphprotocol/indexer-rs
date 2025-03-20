@@ -33,8 +33,8 @@ pub async fn signer_middleware(
         } else {
             // Just log this case which is silently passed through next middleware
             tracing::warn!(
-                "No attestation signer found for allocation {}",
-                allocation_id
+                allocation_id,
+                "No attestation signer found for allocation",
             );
         }
     }
