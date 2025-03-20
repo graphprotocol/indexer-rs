@@ -14,7 +14,7 @@ use reqwest::StatusCode;
 use serde::Serialize;
 use thegraph_core::attestation::Attestation;
 
-use crate::error::StatusCodeExt;
+use crate::error::{ErrorResponse, StatusCodeExt};
 
 #[derive(Clone)]
 pub enum AttestationInput {
@@ -56,6 +56,11 @@ pub async fn attestation_middleware(
         (Some(signer), Some(AttestationInput::Attestable { req })) => {
             Some(signer.create_attestation(req, &res))
         }
+        (None, Some(AttestationInput::Attestable { .. })) => {
+            // keep this branch separated just to log the missing signer condition
+            tracing::warn!("Attestation requested but no signer found");
+            None
+        }
         _ => None,
     };
 
@@ -93,12 +98,14 @@ impl StatusCodeExt for AttestationError {
 
 impl IntoResponse for AttestationError {
     fn into_response(self) -> Response {
-        self.status_code().into_response()
+        tracing::error!(error=%self, "Attestation error");
+        let status_code = self.status_code();
+        ErrorResponse::new(self).into_response(status_code)
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod attestation_tests {
     use axum::{
         body::{to_bytes, Body},
         http::{Request, Response},

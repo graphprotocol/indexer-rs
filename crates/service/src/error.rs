@@ -40,18 +40,19 @@ pub enum IndexerServiceError {
 // Helper struct to properly format
 // error messages
 #[derive(Serialize)]
-struct ErrorResponse {
-    message: String,
+#[cfg_attr(test, derive(serde::Deserialize))]
+pub struct ErrorResponse {
+    pub(crate) message: String,
 }
 
 impl ErrorResponse {
-    fn new(message: impl ToString) -> Self {
+    pub fn new(message: impl ToString) -> Self {
         Self {
             message: message.to_string(),
         }
     }
 
-    fn into_response(self, status_code: StatusCode) -> Response {
+    pub fn into_response(self, status_code: StatusCode) -> Response {
         (status_code, Json(self)).into_response()
     }
 }

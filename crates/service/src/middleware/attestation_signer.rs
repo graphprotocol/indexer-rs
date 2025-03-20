@@ -30,6 +30,9 @@ pub async fn signer_middleware(
     if let Some(Allocation(allocation_id)) = request.extensions().get::<Allocation>() {
         if let Some(signer) = state.attestation_signers.borrow().get(allocation_id) {
             request.extensions_mut().insert(signer.clone());
+        } else {
+            // Just log this case which is silently passed through next middleware
+            tracing::warn!(%allocation_id, "No attestation signer found for allocation",);
         }
     }
 
