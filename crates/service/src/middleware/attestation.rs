@@ -98,7 +98,7 @@ impl StatusCodeExt for AttestationError {
 
 impl IntoResponse for AttestationError {
     fn into_response(self) -> Response {
-        tracing::error!(error=self, "Attestation error");
+        tracing::error!(error=%self, "Attestation error");
         let status_code = self.status_code();
         ErrorResponse::new(self).into_response(status_code)
     }
