@@ -44,9 +44,9 @@ echo "Response: $RESPONSE"
 
 # Check if the response contains payment required error
 if echo "$RESPONSE" | grep -q "No Tap receipt was found"; then
-    echo "✅ Test passed: Query without receipt correctly returned payment required"
+    echo "✅ Test 1 passed: Query without receipt correctly returned payment required"
 else
-    echo "❌ Test failed: Query without receipt should have returned payment required"
+    echo "❌ Test 1 failed: Query without receipt should have returned payment required"
     exit 1
 fi
 
@@ -59,9 +59,9 @@ echo "Response: $RESPONSE"
 
 # FIXME: Temporary workaround – we're checking for "No sender found for signer" to force a pass.
 if echo "$RESPONSE" | grep -q "No sender found for signer"; then
-    echo "✅ Test passed: Query with receipt succeeded"
+    echo "✅ Test 2 passed: Query with receipt succeeded"
 else
-    echo "❌ Test failed: Query with receipt should have succeeded"
+    echo "❌ Test 2 failed: Query with receipt should have succeeded"
     exit 1
 fi
 

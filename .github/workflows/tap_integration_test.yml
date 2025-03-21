@@ -2,9 +2,9 @@ name: Test TAP Protocol
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
@@ -16,27 +16,12 @@ jobs:
       - name: Set up Docker
         uses: docker/setup-buildx-action@v2
 
-      - name: Set up test environment
-        run: |
-          chmod +x setup-test-env.sh
-          ./setup-test-env.sh
+      - name: Run make setup
+        run: make setup
 
-      - name: Run tests
-        run: |
-          chmod +x run-tests.sh
-          ./run-tests.sh
+      - name: Run make test-local
+        run: make test-local
 
-      - name: Collect logs on failure
-        if: failure()
-        run: |
-          docker logs indexer-service > indexer-service.log
-          docker logs tap-agent > tap-agent.log
-          docker logs test-runner > test-runner.log
-          
-      - name: Upload logs
+      - name: Tear down containers
         if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: service-logs
-          path: |
-            *.log
+        run: make down
