@@ -16,3 +16,4 @@ indexer.toml
 crates/dips/node_modules/
 crates/dips/generated/
 crates/dips/npm-debug.log*
+contrib/local-network
