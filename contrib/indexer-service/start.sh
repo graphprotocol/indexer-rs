@@ -40,7 +40,6 @@ ESCROW_DEPLOYMENT=$(curl -s "http://graph-node:8000/subgraphs/name/semiotic/tap"
 
 stdbuf -oL echo "Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
 stdbuf -oL echo "Using test Network subgraph deployment ID: $NETWORK_DEPLOYMENT"
-stdbuf -oL echo "Using test Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
 stdbuf -oL echo "Using test Verifier address: $VERIFIER_ADDRESS"
 stdbuf -oL echo "Using test Indexer address: $RECEIVER_ADDRESS"
 stdbuf -oL echo "Using TAPVerifier address from contracts.json: $VERIFIER_ADDRESS"

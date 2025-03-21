@@ -5,21 +5,10 @@ set -eu
 if [ -f /opt/.env ]; then
     echo "Sourcing environment variables from .env file"
     . /opt/.env
-else
-    echo "WARNING: .env file not found!"
-    # Set default values
-    POSTGRES="5432"
-    GRAPH_NODE_GRAPHQL="8000"
-    GRAPH_NODE_STATUS="8030"
-    INDEXER_SERVICE="7601"
-    TAP_AGGREGATOR="7610"
 fi
 
-# Override with test values taken from test-assets/src/lib.rs
-INDEXER_ADDRESS="0xd75c4dbcb215a6cf9097cfbcc70aab2596b96a9c"
-INDEXER_MNEMONIC="abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-ACCOUNT0_ADDRESS="0x9858EfFD232B4033E47d90003D41EC34EcaEda94" # TAP_SENDER address
-VERIFIER_ADDRESS="0x1111111111111111111111111111111111111111"
+# Extract TAPVerifier address from contracts.json
+VERIFIER_ADDRESS=$(jq -r '."1337".TAPVerifier.address' /opt/contracts.json)
 ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
 
 # Wait for postgres to be ready with timeout
@@ -123,10 +112,6 @@ fi
 
 echo "Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
 
-# Get verifier address from contracts.json
-VERIFIER_ADDRESS=$(jq -r '."1337".TAPVerifier.address' /opt/contracts.json)
-echo "Verifier address: $VERIFIER_ADDRESS"
-
 # Copy the config template
 cp /opt/config/config.toml /opt/config.toml
 
@@ -134,7 +119,7 @@ cp /opt/config/config.toml /opt/config.toml
 sed -i "s/NETWORK_DEPLOYMENT_PLACEHOLDER/$NETWORK_DEPLOYMENT/g" /opt/config.toml
 sed -i "s/ESCROW_DEPLOYMENT_PLACEHOLDER/$ESCROW_DEPLOYMENT/g" /opt/config.toml
 sed -i "s/VERIFIER_ADDRESS_PLACEHOLDER/$VERIFIER_ADDRESS/g" /opt/config.toml
-sed -i "s/INDEXER_ADDRESS_PLACEHOLDER/$INDEXER_ADDRESS/g" /opt/config.toml
+sed -i "s/INDEXER_ADDRESS_PLACEHOLDER/$RECEIVER_ADDRESS/g" /opt/config.toml
 sed -i "s/INDEXER_MNEMONIC_PLACEHOLDER/$INDEXER_MNEMONIC/g" /opt/config.toml
 sed -i "s/ACCOUNT0_ADDRESS_PLACEHOLDER/$ACCOUNT0_ADDRESS/g" /opt/config.toml
 sed -i "s/TAP_AGGREGATOR_PORT_PLACEHOLDER/$TAP_AGGREGATOR/g" /opt/config.toml
