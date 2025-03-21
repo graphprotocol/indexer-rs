@@ -1,0 +1,37 @@
+[indexer]
+indexer_address = "INDEXER_ADDRESS_PLACEHOLDER"
+operator_mnemonic = "INDEXER_MNEMONIC_PLACEHOLDER"
+
+[database]
+postgres_url = "postgres://postgres@postgres:POSTGRES_PORT_PLACEHOLDER/indexer_components_1"
+
+[graph_node]
+query_url = "http://graph-node:8000"
+status_url = "http://graph-node:8030/graphql"
+
+[subgraphs.network]
+query_url = "http://graph-node:8000/subgraphs/name/graph-network"
+deployment_id = "NETWORK_DEPLOYMENT_PLACEHOLDER"
+
+[subgraphs.escrow]
+query_url = "http://graph-node:8000/subgraphs/name/semiotic/tap"
+deployment_id = "ESCROW_DEPLOYMENT_PLACEHOLDER"
+
+[blockchain]
+chain_id = 1337
+receipts_verifier_address = "VERIFIER_ADDRESS_PLACEHOLDER"
+
+[service]
+host_and_port = "0.0.0.0:7601"
+
+[service.tap]
+max_receipt_value_grt = "0.001"
+
+[tap]
+max_amount_willing_to_lose_grt = 1000
+
+[tap.rav_request]
+timestamp_buffer_secs = 1000
+
+[tap.sender_aggregator_endpoints]
+"ACCOUNT0_ADDRESS_PLACEHOLDER" = "http://tap-aggregator:7610"
