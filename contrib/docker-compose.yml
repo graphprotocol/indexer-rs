@@ -1,0 +1,57 @@
+services:
+  indexer-service:
+    build:
+      context: .. # Go up one level to the root directory
+      dockerfile: ./contrib/indexer-service/Dockerfile
+    container_name: indexer-service
+    volumes:
+      - ./indexer-service:/opt/config:ro # From contrib dir to indexer-service dir
+      - ./local-network/contracts.json:/opt/contracts.json:ro
+      - ./local-network/.env:/opt/.env:ro
+      - ../migrations:/opt/migrations:ro
+    entrypoint: ["/bin/bash", "-c", "/opt/config/start.sh"]
+    environment:
+      - RUST_BACKTRACE=1
+      - RUST_LOG=debug
+    ports:
+      - "7601:7601"
+    networks:
+      - local-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7601/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  tap-agent:
+    build:
+      context: ..
+      dockerfile: ./contrib/tap-agent/Dockerfile
+    container_name: tap-agent
+    depends_on:
+      indexer-service:
+        condition: service_healthy
+    volumes:
+      - ./tap-agent:/opt/config:ro # From contrib dir to tap-agent dir
+      - ./local-network/.env:/opt/.env:ro
+      - ./local-network/contracts.json:/opt/contracts.json:ro
+      - ../migrations:/opt/migrations:ro
+    entrypoint: ["/bin/bash", "-c", "/opt/config/start.sh"]
+    environment:
+      - RUST_BACKTRACE=1
+      - RUST_LOG=debug
+    ports:
+      # to expose the metrics port
+      - "7300:7300"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7300/metrics"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+networks:
+  local-network:
+    external: true
+    name: local-network_default
