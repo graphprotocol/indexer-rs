@@ -13,11 +13,11 @@ reload:
 
 # Watch log output from services
 logs:
-	cd contrib && docker-compose -f docker-compose.dev.yml logs -f
+	cd contrib && docker compose -f docker-compose.dev.yml logs -f
 
 # Stop all services
 down:
-	cd contrib && docker-compose -f docker-compose.dev.yml down
+	cd contrib && docker compose -f docker-compose.dev.yml down
 
 # Cargo commands
 fmt:
