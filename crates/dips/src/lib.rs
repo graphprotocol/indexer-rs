@@ -198,7 +198,7 @@ impl SignedIndexingAgreementVoucher {
         expected_payee: &Address,
         allowed_payers: impl AsRef<[Address]>,
     ) -> Result<(), DipsError> {
-        let sig = Signature::from_str(&self.signature.to_string())
+        let sig = Signature::try_from(self.signature.as_ref())
             .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
 
         let payer = self.voucher.payer;
