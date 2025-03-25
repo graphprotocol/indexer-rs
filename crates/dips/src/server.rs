@@ -10,6 +10,7 @@ use thegraph_core::alloy::primitives::{Address, ChainId};
 use tonic::{Request, Response, Status};
 
 use crate::{
+    dips_agreement_eip712_domain, dips_cancellation_eip712_domain,
     ipfs::IpfsFetcher,
     price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::{
@@ -20,7 +21,6 @@ use crate::{
     signers::SignerValidator,
     store::AgreementStore,
     validate_and_cancel_agreement, validate_and_create_agreement, PROTOCOL_VERSION,
-    dips_agreement_eip712_domain, dips_cancellation_eip712_domain,
 };
 
 #[derive(Debug)]
