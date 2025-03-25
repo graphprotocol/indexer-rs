@@ -19,7 +19,7 @@ use crate::{
     },
     signers::SignerValidator,
     store::AgreementStore,
-    validate_and_cancel_agreement, validate_and_create_agreement,
+    validate_and_cancel_agreement, validate_and_create_agreement, PROTOCOL_VERSION,
 };
 
 #[derive(Debug)]
@@ -78,7 +78,7 @@ impl IndexerDipsService for DipsServer {
         } = request.into_inner();
 
         // Ensure the version is 1
-        if version != 1 {
+        if version != PROTOCOL_VERSION {
             return Err(Status::invalid_argument("invalid version"));
         }
 
@@ -93,10 +93,9 @@ impl IndexerDipsService for DipsServer {
             &self.allowed_payers,
             signed_voucher,
         )
-        .await
-        .map_err(Into::<tonic::Status>::into)?;
+        .await?;
 
-        Ok(tonic::Response::new(SubmitAgreementProposalResponse {
+        Ok(Response::new(SubmitAgreementProposalResponse {
             response: ProposalResponse::Accept.into(),
         }))
     }
