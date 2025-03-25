@@ -27,9 +27,6 @@ use store::AgreementStore;
 use thiserror::Error;
 use uuid::Uuid;
 
-/// The Arbitrum One (mainnet) chain ID (eip155).
-const CHAIN_ID_ARBITRUM_ONE: ChainId = 0xa4b1; // 42161
-
 /// DIPs EIP-712 domain salt
 const EIP712_DOMAIN_SALT: B256 =
     b256!("b4632c657c26dce5d4d7da1d65bda185b14ff8f905ddbb03ea0382ed06c5ef28");
@@ -38,29 +35,29 @@ const EIP712_DOMAIN_SALT: B256 =
 pub const PROTOCOL_VERSION: u64 = 1; // MVP
 
 /// Create an EIP-712 domain given a chain ID and dispute manager address.
-pub fn dips_agreement_eip712_domain() -> Eip712Domain {
+pub fn dips_agreement_eip712_domain(chain_id: ChainId) -> Eip712Domain {
     eip712_domain! {
         name: "Graph Protocol Indexing Agreement",
         version: "0",
-        chain_id: CHAIN_ID_ARBITRUM_ONE,
+        chain_id: chain_id,
         salt: EIP712_DOMAIN_SALT,
     }
 }
 
-pub fn dips_cancellation_eip712_domain() -> Eip712Domain {
+pub fn dips_cancellation_eip712_domain(chain_id: ChainId) -> Eip712Domain {
     eip712_domain! {
         name: "Graph Protocol Indexing Agreement Cancellation",
         version: "0",
-        chain_id: CHAIN_ID_ARBITRUM_ONE,
+        chain_id: chain_id,
         salt: EIP712_DOMAIN_SALT,
     }
 }
 
-pub fn dips_collection_eip712_domain() -> Eip712Domain {
+pub fn dips_collection_eip712_domain(chain_id: ChainId) -> Eip712Domain {
     eip712_domain! {
         name: "Graph Protocol Indexing Agreement Collection",
         version: "0",
-        chain_id: CHAIN_ID_ARBITRUM_ONE,
+        chain_id: chain_id,
         salt: EIP712_DOMAIN_SALT,
     }
 }
@@ -393,7 +390,7 @@ mod test {
     use indexer_monitor::EscrowAccounts;
     use rand::{distr::Alphanumeric, Rng};
     use thegraph_core::alloy::{
-        primitives::{Address, FixedBytes, U256},
+        primitives::{Address, ChainId, FixedBytes, U256},
         signers::local::PrivateKeySigner,
         sol_types::{Eip712Domain, SolValue},
     };
@@ -405,6 +402,9 @@ mod test {
         CancellationRequest, DipsError, IndexingAgreementVoucher, SignedIndexingAgreementVoucher,
         SubgraphIndexingVoucherMetadata,
     };
+
+    /// The Arbitrum One (mainnet) chain ID (eip155).
+    const CHAIN_ID_ARBITRUM_ONE: ChainId = 0xa4b1; // 42161
 
     #[tokio::test]
     async fn test_validate_and_create_agreement() -> anyhow::Result<()> {
@@ -435,7 +435,7 @@ mod test {
             deadline: 10000000,
             metadata: metadata.abi_encode().into(),
         };
-        let domain = dips_agreement_eip712_domain();
+        let domain = dips_agreement_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
 
         let voucher = voucher.sign(&domain, payer)?;
         let abi_voucher = voucher.abi_encode();
@@ -491,7 +491,7 @@ mod test {
             metadata: metadata.abi_encode().into(),
         };
 
-        let domain = dips_agreement_eip712_domain();
+        let domain = dips_agreement_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
         let signed = voucher.sign(&domain, payer).unwrap();
         assert_eq!(
             signed
@@ -545,7 +545,7 @@ mod test {
             deadline: 10000000,
             metadata: metadata.abi_encode().into(),
         };
-        let domain = dips_agreement_eip712_domain();
+        let domain = dips_agreement_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
 
         let mut signed = voucher.sign(&domain, payer).unwrap();
         signed.voucher.service = Address::repeat_byte(9);
@@ -597,7 +597,7 @@ mod test {
             let voucher = CancellationRequest {
                 agreement_id: Uuid::now_v7().as_bytes().into(),
             };
-            let domain = dips_cancellation_eip712_domain();
+            let domain = dips_cancellation_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
 
             let signed = voucher.sign(&domain, signer).unwrap();
 
@@ -627,7 +627,7 @@ mod test {
             }
         }
         pub fn domain(&self) -> Eip712Domain {
-            dips_agreement_eip712_domain()
+            dips_agreement_eip712_domain(CHAIN_ID_ARBITRUM_ONE)
         }
 
         pub fn test_voucher_with_signer(
@@ -637,7 +637,7 @@ mod test {
         ) -> SignedIndexingAgreementVoucher {
             let agreement_id = Uuid::now_v7();
 
-            let domain = dips_agreement_eip712_domain();
+            let domain = dips_agreement_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
 
             let voucher = IndexingAgreementVoucher {
                 agreement_id: agreement_id.as_bytes().into(),
@@ -693,7 +693,7 @@ mod test {
         .await?;
 
         // Create and sign cancellation request
-        let cancel_domain = dips_cancellation_eip712_domain();
+        let cancel_domain = dips_cancellation_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
         let cancel_request = CancellationRequest {
             agreement_id: agreement_id.as_bytes().into(),
         };

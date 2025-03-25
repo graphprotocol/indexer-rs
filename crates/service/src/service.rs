@@ -98,6 +98,7 @@ pub async fn run() -> anyhow::Result<()> {
         config.blockchain.chain_id as u64,
         config.blockchain.receipts_verifier_address,
     );
+    let chain_id = config.blockchain.chain_id as u64;
 
     let host_and_port = config.service.host_and_port;
     let indexer_address = config.indexer.indexer_address;
@@ -159,7 +160,7 @@ pub async fn run() -> anyhow::Result<()> {
             ctx: Arc::new(ctx),
             expected_payee: indexer_address,
             allowed_payers: allowed_payers.clone(),
-            domain: domain_separator,
+            chain_id,
         };
 
         info!("starting dips grpc server on {}", addr);
