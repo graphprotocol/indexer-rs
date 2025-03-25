@@ -25,7 +25,34 @@ timeout 300 bash -c 'until docker ps | grep graph-node | grep -q healthy; do sle
 echo "Deploying contract services..."
 docker compose up -d graph-contracts
 # Wait for contracts to be deployed
-sleep 20
+timeout 300 bash -c 'until docker ps -a | grep graph-contracts | grep -q "Exited (0)"; do sleep 5; done'
+
+# Verify the contracts have code, usually when starting from scratch
+# there could be timing issues between contract deployment
+# and when transaction gets approved and contract address gets available
+# in the network.
+# So bellow is a kind of double check
+# Extract a few key contract addresses from the contracts.json file
+graph_token_address=$(jq -r '."1337".GraphToken.address' contracts.json)
+controller_address=$(jq -r '."1337".Controller.address' contracts.json)
+
+echo "Checking GraphToken contract at $graph_token_address"
+code=$(docker exec chain cast code $graph_token_address --rpc-url http://localhost:8545)
+if [ -z "$code" ] || [ "$code" == "0x" ]; then
+    echo "ERROR: GraphToken contract has no code!"
+    exit 1
+fi
+echo "GraphToken contract verified."
+
+echo "Checking Controller contract at $controller_address"
+code=$(docker exec chain cast code $controller_address --rpc-url http://localhost:8545)
+if [ -z "$code" ] || [ "$code" == "0x" ]; then
+    echo "ERROR: Controller contract has no code!"
+    exit 1
+fi
+echo "Controller contract verified."
+echo "Contract deployment successful."
+
 docker compose up -d tap-contracts
 
 echo "Starting indexer services..."
@@ -44,6 +71,7 @@ timeout 300 bash -c 'until docker ps | grep indexer-agent | grep -q healthy; do 
 
 echo "Starting TAP services..."
 docker compose up -d tap-aggregator
+# sleep 10
 # tap-scrow-manager requires subgraph-deploy
 # docker compose up -d tap-escrow-manager
 sleep 10
