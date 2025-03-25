@@ -102,6 +102,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     let host_and_port = config.service.host_and_port;
     let indexer_address = config.indexer.indexer_address;
+    let ipfs_url = config.service.ipfs_url.clone();
 
     let router = ServiceRouter::builder()
         .database(database.clone())
@@ -135,7 +136,7 @@ pub async fn run() -> anyhow::Result<()> {
             .expect("invalid dips host port");
 
         let ipfs_fetcher: Arc<dyn IpfsFetcher> =
-            Arc::new(IpfsClient::new("https://api.thegraph.com/ipfs/").unwrap());
+            Arc::new(IpfsClient::new(ipfs_url.as_str()).unwrap());
 
         // TODO: Try to re-use the same watcher for both DIPS and TAP
         let watcher = escrow_accounts_v1(
