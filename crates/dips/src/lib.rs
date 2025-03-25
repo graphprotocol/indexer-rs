@@ -34,6 +34,9 @@ const CHAIN_ID_ARBITRUM_ONE: ChainId = 0xa4b1; // 42161
 const EIP712_DOMAIN_SALT: B256 =
     b256!("b4632c657c26dce5d4d7da1d65bda185b14ff8f905ddbb03ea0382ed06c5ef28");
 
+/// DIPs Protocol version
+pub const PROTOCOL_VERSION: u64 = 1; // MVP
+
 /// Create an EIP-712 domain given a chain ID and dispute manager address.
 pub fn dips_agreement_eip712_domain() -> Eip712Domain {
     eip712_domain! {
@@ -132,7 +135,7 @@ sol! {
 
 #[derive(Error, Debug)]
 pub enum DipsError {
-    // agreement cration
+    // agreement creation
     #[error("signature is not valid, error: {0}")]
     InvalidSignature(String),
     #[error("payer {0} not authorised")]
@@ -167,11 +170,10 @@ pub enum DipsError {
     InvalidVoucher(String),
 }
 
-// TODO: send back messages
 #[cfg(feature = "rpc")]
 impl From<DipsError> for tonic::Status {
-    fn from(_val: DipsError) -> Self {
-        tonic::Status::internal("unknown errr")
+    fn from(value: DipsError) -> Self {
+        tonic::Status::internal(format!("{}", value))
     }
 }
 
