@@ -159,7 +159,7 @@ pub async fn run() -> anyhow::Result<()> {
             ctx: Arc::new(ctx),
             expected_payee: indexer_address,
             allowed_payers: allowed_payers.clone(),
-            domain: domain_separator,
+            chain_id: config.blockchain.chain_id,
         };
 
         info!("starting dips grpc server on {}", addr);

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 #[cfg(test)]
 use indexer_monitor::EscrowAccounts;
-use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
+use thegraph_core::alloy::primitives::{Address, ChainId};
 use tonic::{Request, Response, Status};
 
 use crate::{
@@ -20,6 +20,7 @@ use crate::{
     signers::SignerValidator,
     store::AgreementStore,
     validate_and_cancel_agreement, validate_and_create_agreement, PROTOCOL_VERSION,
+    dips_agreement_eip712_domain, dips_cancellation_eip712_domain,
 };
 
 #[derive(Debug)]
@@ -63,7 +64,7 @@ pub struct DipsServer {
     pub ctx: Arc<DipsServerContext>,
     pub expected_payee: Address,
     pub allowed_payers: Vec<Address>,
-    pub domain: Eip712Domain,
+    pub chain_id: ChainId,
 }
 
 #[async_trait]
@@ -88,7 +89,7 @@ impl IndexerDipsService for DipsServer {
         // - The subgraph deployment is available on IPFS
         validate_and_create_agreement(
             self.ctx.clone(),
-            &self.domain,
+            &dips_agreement_eip712_domain(self.chain_id),
             &self.expected_payee,
             &self.allowed_payers,
             signed_voucher,
@@ -114,9 +115,13 @@ impl IndexerDipsService for DipsServer {
             return Err(Status::invalid_argument("invalid version"));
         }
 
-        validate_and_cancel_agreement(self.ctx.store.clone(), &self.domain, signed_cancellation)
-            .await
-            .map_err(Into::<tonic::Status>::into)?;
+        validate_and_cancel_agreement(
+            self.ctx.store.clone(),
+            &dips_cancellation_eip712_domain(self.chain_id),
+            signed_cancellation,
+        )
+        .await
+        .map_err(Into::<tonic::Status>::into)?;
 
         Ok(tonic::Response::new(CancelAgreementResponse {}))
     }
