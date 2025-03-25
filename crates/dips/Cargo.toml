@@ -12,12 +12,9 @@ db = ["dep:sqlx"]
 build-info.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
-alloy-rlp = "0.3.10"
 thegraph-core.workspace = true
 async-trait.workspace = true
-prost-types.workspace = true
 uuid.workspace = true
-base64.workspace = true
 tokio.workspace = true
 indexer-monitor = { path = "../monitor" }
 
