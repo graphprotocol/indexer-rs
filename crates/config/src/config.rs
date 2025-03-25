@@ -353,6 +353,7 @@ pub struct BlockchainConfig {
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct ServiceConfig {
+    pub ipfs_url: Url,
     pub serve_network_subgraph: bool,
     pub serve_escrow_subgraph: bool,
     pub serve_auth_token: Option<String>,

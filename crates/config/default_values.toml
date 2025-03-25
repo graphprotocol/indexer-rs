@@ -9,6 +9,7 @@ recently_closed_allocation_buffer_secs = 3600
 syncing_interval_secs = 60
 
 [service]
+ipfs_url = "https://api.thegraph.com/ipfs/"
 serve_network_subgraph = false
 serve_escrow_subgraph = false
 host_and_port = "0.0.0.0:7600"
@@ -26,4 +27,3 @@ trigger_value_divisor = 10
 timestamp_buffer_secs = 60
 request_timeout_secs = 5
 max_receipts_per_request = 10000
-

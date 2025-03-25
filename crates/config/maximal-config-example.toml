@@ -102,6 +102,7 @@ serve_escrow_subgraph = false
 # serve_auth_token = "token"
 ## allow queries using this token
 # free_query_auth_token = "i-am-authorized-right?"
+ipfs_url = "https://api.thegraph.com/ipfs/"
 
 
 [service.tap]
