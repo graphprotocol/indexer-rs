@@ -9,6 +9,7 @@ use futures::TryStreamExt;
 use http::Uri;
 use ipfs_api_prelude::{IpfsApi, TryFromUri};
 use serde::Deserialize;
+use tracing;
 
 use crate::DipsError;
 
@@ -50,10 +51,16 @@ impl IpfsFetcher for IpfsClient {
             .map_ok(|chunk| chunk.to_vec())
             .try_concat()
             .await
-            .map_err(|e| DipsError::SubgraphManifestUnavailable(format!("{}: {}", file, e)))?;
+            .map_err(|e| {
+                tracing::warn!("Failed to fetch subgraph manifest {}: {}", file, e);
+                DipsError::SubgraphManifestUnavailable(format!("{}: {}", file, e))
+            })?;
 
         let manifest: GraphManifest = serde_yaml::from_slice(&content)
-            .map_err(|_| DipsError::InvalidSubgraphManifest(file.to_string()))?;
+            .map_err(|e| {
+                tracing::warn!("Failed to parse subgraph manifest {}: {}", file, e);
+                DipsError::InvalidSubgraphManifest(format!("{}: {}", file, e))
+            })?;
 
         Ok(manifest)
     }
