@@ -47,7 +47,7 @@ impl IpfsFetcher for IpfsClient {
     async fn fetch(&self, file: &str) -> Result<GraphManifest, DipsError> {
         let content = self
             .client
-            .get(file.as_ref())
+            .cat(file.as_ref())
             .map_ok(|chunk| chunk.to_vec())
             .try_concat()
             .await
