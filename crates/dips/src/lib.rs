@@ -726,16 +726,25 @@ mod test {
             )]),
         ))
         .await;
+        let no_network_ctx =
+            DipsServerContext::for_testing_mocked_accounts_no_network(EscrowAccounts::new(
+                HashMap::default(),
+                HashMap::from_iter(vec![(
+                    voucher_ctx.payer.address(),
+                    vec![voucher_ctx.payer.address()],
+                )]),
+            ))
+            .await;
 
         let metadata = SubgraphIndexingVoucherMetadata {
             basePricePerEpoch: U256::from(10000_u64),
             pricePerEntity: U256::from(100_u64),
             protocolNetwork: "eip155:42161".to_string(),
-            chainId: "mainnet2".to_string(),
+            chainId: "mainnet".to_string(),
             subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
         };
-
-        let wrong_network_voucher = voucher_ctx.test_voucher(metadata);
+        // The voucher says mainnet, but the manifest has no network
+        let no_network_voucher = voucher_ctx.test_voucher(metadata);
 
         let metadata = SubgraphIndexingVoucherMetadata {
             basePricePerEpoch: U256::from(10000_u64),
@@ -760,10 +769,11 @@ mod test {
             voucher_ctx.test_voucher_with_signer(metadata.clone(), signer.clone());
         let valid_voucher = voucher_ctx.test_voucher(metadata);
 
+        let contexts = vec![no_network_ctx, ctx.clone(), ctx.clone(), ctx.clone()];
+
         let expected_result: Vec<Result<[u8; 16], DipsError>> = vec![
-            Err(DipsError::SubgraphChainIdMistmatch(
-                "mainnet2".to_string(),
-                "mainnet".to_string(),
+            Err(DipsError::InvalidSubgraphManifest(
+                voucher_ctx.deployment_id.clone(),
             )),
             Err(DipsError::PricePerBlockTooLow(
                 "mainnet".to_string(),
@@ -779,14 +789,18 @@ mod test {
                 .unwrap()),
         ];
         let cases = vec![
-            wrong_network_voucher,
+            no_network_voucher,
             low_price_voucher,
             valid_voucher_invalid_signer,
             valid_voucher,
         ];
-        for (voucher, result) in cases.into_iter().zip(expected_result.into_iter()) {
+        for ((voucher, result), dips_ctx) in cases
+            .into_iter()
+            .zip(expected_result.into_iter())
+            .zip(contexts.into_iter())
+        {
             let out = super::validate_and_create_agreement(
-                ctx.clone(),
+                dips_ctx.clone(),
                 &voucher_ctx.domain(),
                 &voucher_ctx.payee.address(),
                 vec![voucher_ctx.payer.address()],
