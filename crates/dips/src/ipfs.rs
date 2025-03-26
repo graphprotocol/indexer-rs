@@ -50,7 +50,7 @@ impl IpfsFetcher for IpfsClient {
             .map_ok(|chunk| chunk.to_vec())
             .try_concat()
             .await
-            .unwrap();
+            .map_err(|_| DipsError::SubgraphManifestUnavailable(file.to_string()))?;
 
         let manifest: GraphManifest = serde_yaml::from_slice(&content)
             .map_err(|_| DipsError::InvalidSubgraphManifest(file.to_string()))?;
