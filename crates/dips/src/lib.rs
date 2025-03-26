@@ -139,6 +139,8 @@ pub enum DipsError {
     PayerNotAuthorised(Address),
     #[error("voucher payee {actual} does not match the expected address {expected}")]
     UnexpectedPayee { expected: Address, actual: Address },
+    #[error("cannot get subgraph manifest for {0}")]
+    SubgraphManifestUnavailable(String),
     #[error("invalid subgraph id {0}")]
     InvalidSubgraphManifest(String),
     #[error("voucher for chain id {0}, subgraph manifest has network {1}")]

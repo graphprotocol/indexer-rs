@@ -17,6 +17,7 @@ async-trait.workspace = true
 uuid.workspace = true
 tokio.workspace = true
 indexer-monitor = { path = "../monitor" }
+tracing.workspace = true
 
 bytes = { version = "1.10.0", optional = true }
 derivative = "2.2.0"
