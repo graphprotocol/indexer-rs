@@ -143,8 +143,6 @@ pub enum DipsError {
     SubgraphManifestUnavailable(String),
     #[error("invalid subgraph id {0}")]
     InvalidSubgraphManifest(String),
-    #[error("voucher for chain id {0}, subgraph manifest has network {1}")]
-    SubgraphChainIdMistmatch(String, String),
     #[error("chainId {0} is not supported")]
     UnsupportedChainId(String),
     #[error("price per block is below configured price for chain {0}, minimum: {1}, offered: {2}")]
@@ -319,31 +317,30 @@ pub async fn validate_and_create_agreement(
 
     let manifest = ipfs_fetcher.fetch(&metadata.subgraphDeploymentId).await?;
     match manifest.network() {
-        Some(chain_id) if chain_id == metadata.chainId => {}
-        Some(chain_id) => {
-            return Err(DipsError::SubgraphChainIdMistmatch(
-                metadata.chainId,
-                chain_id,
+        Some(network_name) => {
+            tracing::debug!("Subgraph manifest network: {}", network_name);
+            // TODO: Check if the network is supported
+            // This will require a mapping of network names to chain IDs
+            // by querying the supported networks from the EBO subgraph
+        }
+        None => {
+            return Err(DipsError::InvalidSubgraphManifest(
+                metadata.subgraphDeploymentId,
             ))
         }
-        None => return Err(DipsError::UnsupportedChainId("".to_string())),
     }
 
-    let chain_id = manifest
-        .network()
-        .ok_or_else(|| DipsError::UnsupportedChainId("".to_string()))?;
-
     let offered_price = metadata.pricePerEntity;
-    match price_calculator.get_minimum_price(&chain_id) {
+    match price_calculator.get_minimum_price(&metadata.chainId) {
         Some(price) if offered_price.lt(&Uint::from(price)) => {
             return Err(DipsError::PricePerBlockTooLow(
-                chain_id,
+                metadata.chainId,
                 price,
                 offered_price.to_string(),
             ))
         }
         Some(_) => {}
-        None => return Err(DipsError::UnsupportedChainId(chain_id)),
+        None => return Err(DipsError::UnsupportedChainId(metadata.chainId)),
     }
 
     store
