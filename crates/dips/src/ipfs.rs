@@ -95,6 +95,13 @@ impl TestIpfsClient {
             },
         }
     }
+    pub fn no_network() -> Self {
+        Self {
+            manifest: GraphManifest {
+                data_sources: vec![],
+            },
+        }
+    }
 }
 
 #[cfg(test)]
