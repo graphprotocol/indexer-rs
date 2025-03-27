@@ -167,4 +167,4 @@ mainnet = 100
 hardhat = 100
 
 [dips.additional_networks]
-eip155:1337 = "hardhat"
+"eip155:1337" = "hardhat"
