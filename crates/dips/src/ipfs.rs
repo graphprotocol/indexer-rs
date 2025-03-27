@@ -1,15 +1,13 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use derivative::Derivative;
 use futures::TryStreamExt;
-use http::Uri;
-use ipfs_api_prelude::{IpfsApi, TryFromUri};
+use ipfs_api_backend_hyper::{IpfsApi, TryFromUri};
 use serde::Deserialize;
-use tracing;
 
 use crate::DipsError;
 
@@ -34,11 +32,8 @@ pub struct IpfsClient {
 
 impl IpfsClient {
     pub fn new(url: &str) -> anyhow::Result<Self> {
-        Ok(Self {
-            client: ipfs_api_backend_hyper::IpfsClient::build_with_base_uri(
-                Uri::from_str(url).map_err(anyhow::Error::from)?,
-            ),
-        })
+        let client = ipfs_api_backend_hyper::IpfsClient::from_str(url)?;
+        Ok(Self { client })
     }
 }
 

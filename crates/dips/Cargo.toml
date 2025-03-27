@@ -26,7 +26,6 @@ futures = "0.3"
 http = "0.2"
 prost = { workspace = true, optional = true }
 ipfs-api-backend-hyper = { version = "0.6.0", features = ["with-send-sync", "with-hyper-tls"] }
-ipfs-api-prelude = { version = "0.6.0", features = ["with-send-sync"] }
 serde_yaml.workspace = true
 serde.workspace = true
 sqlx = { workspace = true, optional = true }

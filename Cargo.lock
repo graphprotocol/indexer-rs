@@ -3880,7 +3880,6 @@ dependencies = [
  "indexer-monitor",
  "indexer-watcher",
  "ipfs-api-backend-hyper",
- "ipfs-api-prelude",
  "prost",
  "rand 0.9.0",
  "serde",
