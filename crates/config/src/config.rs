@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     env,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::PathBuf,
@@ -396,6 +396,9 @@ pub struct DipsConfig {
     pub host: String,
     pub port: String,
     pub allowed_payers: Vec<Address>,
+
+    pub price_per_entity: u64,
+    pub price_per_epoch: BTreeMap<String, u64>,
 }
 
 impl Default for DipsConfig {
@@ -404,6 +407,8 @@ impl Default for DipsConfig {
             host: "0.0.0.0".to_string(),
             port: "7601".to_string(),
             allowed_payers: vec![],
+            price_per_entity: 100,
+            price_per_epoch: BTreeMap::new(),
         }
     }
 }
@@ -437,7 +442,12 @@ pub struct RavRequestConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, env, fs, path::PathBuf, str::FromStr};
+    use std::{
+        collections::{BTreeMap, HashMap, HashSet},
+        env, fs,
+        path::PathBuf,
+        str::FromStr,
+    };
 
     use figment::value::Uncased;
     use sealed_test::prelude::*;
@@ -470,6 +480,11 @@ mod tests {
             allowed_payers: vec![Address(
                 FixedBytes::<20>::from_str("0x3333333333333333333333333333333333333333").unwrap(),
             )],
+            price_per_entity: 1000,
+            price_per_epoch: BTreeMap::from_iter(vec![
+                ("mainnet".to_string(), 100),
+                ("hardhat".to_string(), 100),
+            ]),
             ..Default::default()
         });
 

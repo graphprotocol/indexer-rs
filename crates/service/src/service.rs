@@ -130,6 +130,8 @@ pub async fn run() -> anyhow::Result<()> {
             host,
             port,
             allowed_payers,
+            price_per_entity,
+            price_per_epoch,
         } = dips;
 
         let addr = format!("{}:{}", host, port)
@@ -156,7 +158,7 @@ pub async fn run() -> anyhow::Result<()> {
                 pool: database.clone(),
             }),
             ipfs_fetcher,
-            price_calculator: PriceCalculator::default(),
+            price_calculator: PriceCalculator::new(price_per_epoch.clone(), *price_per_entity),
             signer_validator: Arc::new(EscrowSignerValidator::new(watcher)),
             registry: Arc::new(registry),
         };
