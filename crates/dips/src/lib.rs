@@ -312,6 +312,7 @@ pub async fn validate_and_create_agreement(
         price_calculator,
         signer_validator,
         registry,
+        additional_networks,
     } = ctx.as_ref();
     let decoded_voucher = SignedIndexingAgreementVoucher::abi_decode(voucher.as_ref(), true)
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
@@ -340,7 +341,10 @@ pub async fn validate_and_create_agreement(
 
     let network = match registry.get_network_by_id(&metadata.chainId) {
         Some(network) => network.id.clone(),
-        None => return Err(DipsError::UnsupportedChainId(metadata.chainId)),
+        None => match additional_networks.get(&metadata.chainId) {
+            Some(network) => network.clone(),
+            None => return Err(DipsError::UnsupportedChainId(metadata.chainId)),
+        },
     };
 
     let offered_epoch_price = metadata.basePricePerEpoch;

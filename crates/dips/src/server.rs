@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use graph_networks_registry::NetworksRegistry;
@@ -31,6 +31,7 @@ pub struct DipsServerContext {
     pub price_calculator: PriceCalculator,
     pub signer_validator: Arc<dyn SignerValidator>,
     pub registry: Arc<NetworksRegistry>,
+    pub additional_networks: Arc<HashMap<String, String>>,
 }
 
 impl DipsServerContext {
@@ -48,6 +49,7 @@ impl DipsServerContext {
             price_calculator: PriceCalculator::for_testing(),
             signer_validator: Arc::new(signers::NoopSignerValidator),
             registry: Arc::new(test_registry()),
+            additional_networks: Arc::new(HashMap::new()),
         })
     }
 
@@ -61,6 +63,7 @@ impl DipsServerContext {
             price_calculator: PriceCalculator::for_testing(),
             signer_validator: Arc::new(signers::EscrowSignerValidator::mock(accounts).await),
             registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(HashMap::new()),
         })
     }
 
@@ -76,6 +79,7 @@ impl DipsServerContext {
             price_calculator: PriceCalculator::for_testing(),
             signer_validator: Arc::new(signers::EscrowSignerValidator::mock(accounts).await),
             registry: Arc::new(test_registry()),
+            additional_networks: Arc::new(HashMap::new()),
         })
     }
 }

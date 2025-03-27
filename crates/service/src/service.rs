@@ -132,6 +132,7 @@ pub async fn run() -> anyhow::Result<()> {
             allowed_payers,
             price_per_entity,
             price_per_epoch,
+            additional_networks,
         } = dips;
 
         let addr = format!("{}:{}", host, port)
@@ -161,6 +162,7 @@ pub async fn run() -> anyhow::Result<()> {
             price_calculator: PriceCalculator::new(price_per_epoch.clone(), *price_per_entity),
             signer_validator: Arc::new(EscrowSignerValidator::new(watcher)),
             registry: Arc::new(registry),
+            additional_networks: Arc::new(additional_networks.clone()),
         };
 
         let dips = DipsServer {

@@ -399,6 +399,7 @@ pub struct DipsConfig {
 
     pub price_per_entity: u64,
     pub price_per_epoch: BTreeMap<String, u64>,
+    pub additional_networks: HashMap<String, String>,
 }
 
 impl Default for DipsConfig {
@@ -409,6 +410,7 @@ impl Default for DipsConfig {
             allowed_payers: vec![],
             price_per_entity: 100,
             price_per_epoch: BTreeMap::new(),
+            additional_networks: HashMap::new(),
         }
     }
 }
@@ -485,6 +487,10 @@ mod tests {
                 ("mainnet".to_string(), 100),
                 ("hardhat".to_string(), 100),
             ]),
+            additional_networks: HashMap::from([(
+                "eip155:1337".to_string(),
+                "hardhat".to_string(),
+            )]),
             ..Default::default()
         });
 

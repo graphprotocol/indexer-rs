@@ -165,3 +165,6 @@ price_per_entity = 1000
 [dips.price_per_epoch]
 mainnet = 100
 hardhat = 100
+
+[dips.additional_networks]
+eip155:1337 = "hardhat"
