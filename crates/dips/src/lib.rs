@@ -325,19 +325,6 @@ pub async fn validate_and_create_agreement(
     decoded_voucher.validate(signer_validator, domain, expected_payee, allowed_payers)?;
 
     let manifest = ipfs_fetcher.fetch(&metadata.subgraphDeploymentId).await?;
-    match manifest.network() {
-        Some(network_name) => {
-            tracing::debug!("Subgraph manifest network: {}", network_name);
-            // TODO: Check if the network is supported
-            // This will require a mapping of network names to chain IDs
-            // by querying the supported networks from the EBO subgraph
-        }
-        None => {
-            return Err(DipsError::InvalidSubgraphManifest(
-                metadata.subgraphDeploymentId,
-            ))
-        }
-    }
 
     let network = match registry.get_network_by_id(&metadata.chainId) {
         Some(network) => network.id.clone(),
@@ -346,6 +333,22 @@ pub async fn validate_and_create_agreement(
             None => return Err(DipsError::UnsupportedChainId(metadata.chainId)),
         },
     };
+
+    match manifest.network() {
+        Some(manifest_network_name) => {
+            tracing::debug!("Subgraph manifest network: {}", manifest_network_name);
+            if manifest_network_name != network {
+                return Err(DipsError::InvalidSubgraphManifest(
+                    metadata.subgraphDeploymentId,
+                ));
+            }
+        }
+        None => {
+            return Err(DipsError::InvalidSubgraphManifest(
+                metadata.subgraphDeploymentId,
+            ))
+        }
+    }
 
     let offered_epoch_price = metadata.basePricePerEpoch;
     match price_calculator.get_minimum_price(&metadata.chainId) {
