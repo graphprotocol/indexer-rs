@@ -5,16 +5,16 @@ use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct PriceCalculator {
-    prices_per_chain: HashMap<String, u64>,
-    default_price: Option<u64>,
+    base_price_per_epoch: HashMap<String, u64>,
+    price_per_entity: u64,
 }
 
 impl PriceCalculator {
     #[cfg(test)]
     pub fn for_testing() -> Self {
         Self {
-            prices_per_chain: HashMap::default(),
-            default_price: Some(100),
+            base_price_per_epoch: HashMap::from_iter(vec![("mainnet".to_string(), 200)]),
+            price_per_entity: 100,
         }
     }
 
@@ -22,8 +22,10 @@ impl PriceCalculator {
         self.get_minimum_price(chain_id).is_some()
     }
     pub fn get_minimum_price(&self, chain_id: &str) -> Option<u64> {
-        let chain_price = self.prices_per_chain.get(chain_id).copied();
+        self.base_price_per_epoch.get(chain_id).copied()
+    }
 
-        chain_price.or(self.default_price)
+    pub fn entity_price(&self) -> u64 {
+        self.price_per_entity
     }
 }

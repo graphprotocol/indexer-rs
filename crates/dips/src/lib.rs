@@ -6,7 +6,9 @@ use std::{str::FromStr, sync::Arc};
 use server::DipsServerContext;
 use thegraph_core::alloy::{
     core::primitives::Address,
-    primitives::{b256, ChainId, PrimitiveSignature as Signature, Uint, B256},
+    primitives::{
+        b256, ruint::aliases::U256, ChainId, PrimitiveSignature as Signature, Uint, B256,
+    },
     signers::SignerSync,
     sol,
     sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
@@ -18,6 +20,7 @@ pub mod ipfs;
 pub mod price;
 #[cfg(feature = "rpc")]
 pub mod proto;
+pub mod registry;
 #[cfg(feature = "rpc")]
 pub mod server;
 pub mod signers;
@@ -145,8 +148,12 @@ pub enum DipsError {
     InvalidSubgraphManifest(String),
     #[error("chainId {0} is not supported")]
     UnsupportedChainId(String),
-    #[error("price per block is below configured price for chain {0}, minimum: {1}, offered: {2}")]
-    PricePerBlockTooLow(String, u64, String),
+    #[error("price per epoch is below configured price for chain {0}, minimum: {1}, offered: {2}")]
+    PricePerEpochTooLow(String, u64, String),
+    #[error(
+        "price per entity is below configured price for chain {0}, minimum: {1}, offered: {2}"
+    )]
+    PricePerEntityTooLow(String, u64, String),
     // cancellation
     #[error("cancelled_by is expected to match the signer")]
     UnexpectedSigner,
@@ -304,6 +311,7 @@ pub async fn validate_and_create_agreement(
         ipfs_fetcher,
         price_calculator,
         signer_validator,
+        registry,
     } = ctx.as_ref();
     let decoded_voucher = SignedIndexingAgreementVoucher::abi_decode(voucher.as_ref(), true)
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
@@ -330,17 +338,31 @@ pub async fn validate_and_create_agreement(
         }
     }
 
-    let offered_price = metadata.pricePerEntity;
+    let network = match registry.get_network_by_id(&metadata.chainId) {
+        Some(network) => network.id.clone(),
+        None => return Err(DipsError::UnsupportedChainId(metadata.chainId)),
+    };
+
+    let offered_epoch_price = metadata.basePricePerEpoch;
     match price_calculator.get_minimum_price(&metadata.chainId) {
-        Some(price) if offered_price.lt(&Uint::from(price)) => {
-            return Err(DipsError::PricePerBlockTooLow(
-                metadata.chainId,
+        Some(price) if offered_epoch_price.lt(&Uint::from(price)) => {
+            return Err(DipsError::PricePerEpochTooLow(
+                network,
                 price,
-                offered_price.to_string(),
+                offered_epoch_price.to_string(),
             ))
         }
         Some(_) => {}
         None => return Err(DipsError::UnsupportedChainId(metadata.chainId)),
+    }
+
+    let offered_entity_price = metadata.pricePerEntity;
+    if offered_entity_price < U256::from(price_calculator.entity_price()) {
+        return Err(DipsError::PricePerEntityTooLow(
+            network,
+            price_calculator.entity_price(),
+            offered_entity_price.to_string(),
+        ));
     }
 
     store
@@ -754,7 +776,17 @@ mod test {
             subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
         };
 
-        let low_price_voucher = voucher_ctx.test_voucher(metadata);
+        let low_entity_price_voucher = voucher_ctx.test_voucher(metadata);
+
+        let metadata = SubgraphIndexingVoucherMetadata {
+            basePricePerEpoch: U256::from(10_u64),
+            pricePerEntity: U256::from(10000_u64),
+            protocolNetwork: "eip155:42161".to_string(),
+            chainId: "mainnet".to_string(),
+            subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
+        };
+
+        let low_epoch_price_voucher = voucher_ctx.test_voucher(metadata);
 
         let metadata = SubgraphIndexingVoucherMetadata {
             basePricePerEpoch: U256::from(10000_u64),
@@ -775,9 +807,14 @@ mod test {
             Err(DipsError::InvalidSubgraphManifest(
                 voucher_ctx.deployment_id.clone(),
             )),
-            Err(DipsError::PricePerBlockTooLow(
+            Err(DipsError::PricePerEntityTooLow(
                 "mainnet".to_string(),
                 100,
+                "10".to_string(),
+            )),
+            Err(DipsError::PricePerEpochTooLow(
+                "mainnet".to_string(),
+                200,
                 "10".to_string(),
             )),
             Err(DipsError::SignerNotAuthorised(signer.address())),
@@ -790,7 +827,8 @@ mod test {
         ];
         let cases = vec![
             no_network_voucher,
-            low_price_voucher,
+            low_entity_price_voucher,
+            low_epoch_price_voucher,
             valid_voucher_invalid_signer,
             valid_voucher,
         ];

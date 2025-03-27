@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use graph_networks_registry::NetworksRegistry;
 #[cfg(test)]
 use indexer_monitor::EscrowAccounts;
 use thegraph_core::alloy::primitives::{Address, ChainId};
@@ -29,6 +30,7 @@ pub struct DipsServerContext {
     pub ipfs_fetcher: Arc<dyn IpfsFetcher>,
     pub price_calculator: PriceCalculator,
     pub signer_validator: Arc<dyn SignerValidator>,
+    pub registry: Arc<NetworksRegistry>,
 }
 
 impl DipsServerContext {
@@ -36,13 +38,16 @@ impl DipsServerContext {
     pub fn for_testing() -> Arc<Self> {
         use std::sync::Arc;
 
-        use crate::{ipfs::TestIpfsClient, signers, test::InMemoryAgreementStore};
+        use crate::{
+            ipfs::TestIpfsClient, registry::test_registry, signers, test::InMemoryAgreementStore,
+        };
 
         Arc::new(DipsServerContext {
             store: Arc::new(InMemoryAgreementStore::default()),
             ipfs_fetcher: Arc::new(TestIpfsClient::mainnet()),
             price_calculator: PriceCalculator::for_testing(),
             signer_validator: Arc::new(signers::NoopSignerValidator),
+            registry: Arc::new(test_registry()),
         })
     }
 
@@ -55,18 +60,22 @@ impl DipsServerContext {
             ipfs_fetcher: Arc::new(TestIpfsClient::mainnet()),
             price_calculator: PriceCalculator::for_testing(),
             signer_validator: Arc::new(signers::EscrowSignerValidator::mock(accounts).await),
+            registry: Arc::new(crate::registry::test_registry()),
         })
     }
 
     #[cfg(test)]
     pub async fn for_testing_mocked_accounts_no_network(accounts: EscrowAccounts) -> Arc<Self> {
-        use crate::{ipfs::TestIpfsClient, signers, test::InMemoryAgreementStore};
+        use crate::{
+            ipfs::TestIpfsClient, registry::test_registry, signers, test::InMemoryAgreementStore,
+        };
 
         Arc::new(DipsServerContext {
             store: Arc::new(InMemoryAgreementStore::default()),
             ipfs_fetcher: Arc::new(TestIpfsClient::no_network()),
             price_calculator: PriceCalculator::for_testing(),
             signer_validator: Arc::new(signers::EscrowSignerValidator::mock(accounts).await),
+            registry: Arc::new(test_registry()),
         })
     }
 }
