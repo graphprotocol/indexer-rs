@@ -21,7 +21,7 @@ use crate::{
     },
     signers::SignerValidator,
     store::AgreementStore,
-    validate_and_cancel_agreement, validate_and_create_agreement, PROTOCOL_VERSION,
+    validate_and_cancel_agreement, validate_and_create_agreement, DipsError, PROTOCOL_VERSION,
 };
 
 #[derive(Debug)]
@@ -112,18 +112,59 @@ impl IndexerDipsService for DipsServer {
         // - The price is over the configured minimum price
         // - The subgraph deployment is for a chain we support
         // - The subgraph deployment is available on IPFS
-        validate_and_create_agreement(
+        let response = validate_and_create_agreement(
             self.ctx.clone(),
             &dips_agreement_eip712_domain(self.chain_id),
             &self.expected_payee,
             &self.allowed_payers,
             signed_voucher,
         )
-        .await?;
+        .await;
 
-        Ok(Response::new(SubmitAgreementProposalResponse {
-            response: ProposalResponse::Accept.into(),
-        }))
+        match response {
+            Ok(_) => Ok(Response::new(SubmitAgreementProposalResponse {
+                response: ProposalResponse::Accept.into(),
+            })),
+            Err(e) => match e {
+                // Invalid signature/authorization errors
+                DipsError::InvalidSignature(msg) => Err(Status::invalid_argument(format!(
+                    "invalid signature: {}",
+                    msg
+                ))),
+                DipsError::PayerNotAuthorised(addr) => Err(Status::invalid_argument(format!(
+                    "payer {} not authorized",
+                    addr
+                ))),
+                DipsError::UnexpectedPayee { expected, actual } => {
+                    Err(Status::invalid_argument(format!(
+                        "voucher payee {} does not match expected address {}",
+                        actual, expected
+                    )))
+                }
+                DipsError::SignerNotAuthorised(addr) => Err(Status::invalid_argument(format!(
+                    "signer {} not authorized",
+                    addr
+                ))),
+
+                // Deployment/manifest related errors - these should return Reject
+                DipsError::SubgraphManifestUnavailable(_)
+                | DipsError::InvalidSubgraphManifest(_)
+                | DipsError::UnsupportedChainId(_)
+                | DipsError::PricePerEpochTooLow(_, _, _)
+                | DipsError::PricePerEntityTooLow(_, _, _) => {
+                    Ok(Response::new(SubmitAgreementProposalResponse {
+                        response: ProposalResponse::Reject.into(),
+                    }))
+                }
+
+                // Other errors
+                DipsError::AbiDecoding(msg) => Err(Status::invalid_argument(format!(
+                    "invalid request voucher: {}",
+                    msg
+                ))),
+                _ => Err(Status::internal(e.to_string())),
+            },
+        }
     }
     /// *
     /// Request to cancel an existing _indexing agreement_.
