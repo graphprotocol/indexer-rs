@@ -57,6 +57,18 @@ impl DipsServerContext {
             signer_validator: Arc::new(signers::EscrowSignerValidator::mock(accounts).await),
         })
     }
+
+    #[cfg(test)]
+    pub async fn for_testing_mocked_accounts_no_network(accounts: EscrowAccounts) -> Arc<Self> {
+        use crate::{ipfs::TestIpfsClient, signers, test::InMemoryAgreementStore};
+
+        Arc::new(DipsServerContext {
+            store: Arc::new(InMemoryAgreementStore::default()),
+            ipfs_fetcher: Arc::new(TestIpfsClient::no_network()),
+            price_calculator: PriceCalculator::for_testing(),
+            signer_validator: Arc::new(signers::EscrowSignerValidator::mock(accounts).await),
+        })
+    }
 }
 
 #[derive(Debug)]
