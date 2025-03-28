@@ -9,7 +9,8 @@ pwd
 if [ ! -d "local-network" ]; then
     git clone https://github.com/edgeandnode/local-network.git
     cd local-network
-    git checkout 0af4bbcd851b365715e11ac68b29f263204353fb
+    # Chekout to a specific commit that is known to work
+    git checkout 006e2511d4b8262ff14ff6cd5e1b75f0663dee98
     cd ..
 fi
 
@@ -64,16 +65,17 @@ docker compose up -d indexer-agent
 echo "Waiting for indexer-agent to be healthy..."
 timeout 300 bash -c 'until docker ps | grep indexer-agent | grep -q healthy; do sleep 5; done'
 
-# subgraph-deploy is not needed for our testing suite
-# echo "Starting subgraph deployment..."
-# docker compose up -d subgraph-deploy
-# sleep 30 # Give time for subgraphs to deploy
+echo "Starting subgraph deployment..."
+docker compose up --build -d subgraph-deploy
+sleep 10 # Give time for subgraphs to deploy
 
 echo "Starting TAP services..."
+echo "Starting tap-aggregator..."
 docker compose up -d tap-aggregator
-# sleep 10
+sleep 10
 # tap-scrow-manager requires subgraph-deploy
-# docker compose up -d tap-escrow-manager
+echo "Starting tap-scrow-manager..."
+docker compose up -d tap-escrow-manager
 sleep 10
 # Phase 4: Try a simple escrowAccounts query to see if the schema is accessible
 echo "Testing escrowAccounts query..."
