@@ -6,6 +6,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use anyhow::anyhow;
 use axum::{extract::Request, serve, ServiceExt};
 use clap::Parser;
+use graph_networks_registry::NetworksRegistry;
 use indexer_config::{Config, DipsConfig, GraphNodeConfig, SubgraphConfig};
 use indexer_dips::{
     database::PsqlAgreementStore,
@@ -129,6 +130,9 @@ pub async fn run() -> anyhow::Result<()> {
             host,
             port,
             allowed_payers,
+            price_per_entity,
+            price_per_epoch,
+            additional_networks,
         } = dips;
 
         let addr = format!("{}:{}", host, port)
@@ -148,13 +152,17 @@ pub async fn run() -> anyhow::Result<()> {
         .await
         .expect("Failed to create escrow accounts watcher");
 
+        let registry = NetworksRegistry::from_latest_version().await.unwrap();
+
         let ctx = DipsServerContext {
             store: Arc::new(PsqlAgreementStore {
                 pool: database.clone(),
             }),
             ipfs_fetcher,
-            price_calculator: PriceCalculator::default(),
+            price_calculator: PriceCalculator::new(price_per_epoch.clone(), *price_per_entity),
             signer_validator: Arc::new(EscrowSignerValidator::new(watcher)),
+            registry: Arc::new(registry),
+            additional_networks: Arc::new(additional_networks.clone()),
         };
 
         let dips = DipsServer {

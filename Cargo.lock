@@ -3137,6 +3137,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "graph-networks-registry"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87ecaa12d76f47946cb0da75fcb3a1a89ba2077af58b0c9b090d3356ab74b0f9"
+dependencies = [
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.11",
+ "tokio",
+]
+
+[[package]]
 name = "graphql"
 version = "0.2.0"
 source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-v0.2.0#2df5ee975656027d4a7fbf591baf6a29dfbe0ee6"
@@ -3876,6 +3889,7 @@ dependencies = [
  "bytes",
  "derivative",
  "futures",
+ "graph-networks-registry",
  "http 0.2.12",
  "indexer-monitor",
  "indexer-watcher",
@@ -3883,6 +3897,7 @@ dependencies = [
  "prost",
  "rand 0.9.0",
  "serde",
+ "serde_json",
  "serde_yaml",
  "sqlx",
  "thegraph-core",
@@ -3962,6 +3977,7 @@ dependencies = [
  "cost-model",
  "futures",
  "governor",
+ "graph-networks-registry",
  "graphql 0.3.0",
  "graphql_client",
  "hex-literal",
@@ -6006,10 +6022,12 @@ dependencies = [
  "http-body 0.4.6",
  "hyper 0.14.31",
  "hyper-rustls 0.24.2",
+ "hyper-tls 0.5.0",
  "ipnet",
  "js-sys",
  "log",
  "mime",
+ "native-tls",
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
@@ -6021,6 +6039,7 @@ dependencies = [
  "sync_wrapper 0.1.2",
  "system-configuration 0.5.1",
  "tokio",
+ "tokio-native-tls",
  "tokio-rustls 0.24.1",
  "tower-service",
  "url",
