@@ -160,11 +160,11 @@ host = "0.0.0.0"
 port = "7601"
 allowed_payers = ["0x3333333333333333333333333333333333333333"]
 
-price_per_entity = 1000
+price_per_entity = "1000"
 
 [dips.price_per_epoch]
-mainnet = 100
-hardhat = 100
+mainnet = "100"
+hardhat = "100"
 
 [dips.additional_networks]
 "eip155:1337" = "hardhat"

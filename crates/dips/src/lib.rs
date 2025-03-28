@@ -20,7 +20,8 @@ pub mod ipfs;
 pub mod price;
 #[cfg(feature = "rpc")]
 pub mod proto;
-pub mod registry;
+#[cfg(test)]
+mod registry;
 #[cfg(feature = "rpc")]
 pub mod server;
 pub mod signers;
@@ -149,11 +150,11 @@ pub enum DipsError {
     #[error("chainId {0} is not supported")]
     UnsupportedChainId(String),
     #[error("price per epoch is below configured price for chain {0}, minimum: {1}, offered: {2}")]
-    PricePerEpochTooLow(String, u64, String),
+    PricePerEpochTooLow(String, U256, String),
     #[error(
         "price per entity is below configured price for chain {0}, minimum: {1}, offered: {2}"
     )]
-    PricePerEntityTooLow(String, u64, String),
+    PricePerEntityTooLow(String, U256, String),
     // cancellation
     #[error("cancelled_by is expected to match the signer")]
     UnexpectedSigner,
@@ -364,7 +365,7 @@ pub async fn validate_and_create_agreement(
     }
 
     let offered_entity_price = metadata.pricePerEntity;
-    if offered_entity_price < U256::from(price_calculator.entity_price()) {
+    if offered_entity_price < price_calculator.entity_price() {
         return Err(DipsError::PricePerEntityTooLow(
             network,
             price_calculator.entity_price(),
@@ -816,12 +817,12 @@ mod test {
             )),
             Err(DipsError::PricePerEntityTooLow(
                 "mainnet".to_string(),
-                100,
+                U256::from(100),
                 "10".to_string(),
             )),
             Err(DipsError::PricePerEpochTooLow(
                 "mainnet".to_string(),
-                200,
+                U256::from(200),
                 "10".to_string(),
             )),
             Err(DipsError::SignerNotAuthorised(signer.address())),

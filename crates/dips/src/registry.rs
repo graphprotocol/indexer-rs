@@ -1,10 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(test)]
 use graph_networks_registry::NetworksRegistry;
 
-#[cfg(test)]
 pub fn test_registry() -> NetworksRegistry {
     use graph_networks_registry::{Network, NetworkType, Services};
 

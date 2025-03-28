@@ -20,7 +20,10 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_repr::Deserialize_repr;
 use serde_with::{serde_as, DurationSecondsWithFrac};
-use thegraph_core::{alloy::primitives::Address, DeploymentId};
+use thegraph_core::{
+    alloy::primitives::{Address, U256},
+    DeploymentId,
+};
 use url::Url;
 
 use crate::NonZeroGRT;
@@ -397,8 +400,8 @@ pub struct DipsConfig {
     pub port: String,
     pub allowed_payers: Vec<Address>,
 
-    pub price_per_entity: u64,
-    pub price_per_epoch: BTreeMap<String, u64>,
+    pub price_per_entity: U256,
+    pub price_per_epoch: BTreeMap<String, U256>,
     pub additional_networks: HashMap<String, String>,
 }
 
@@ -408,7 +411,7 @@ impl Default for DipsConfig {
             host: "0.0.0.0".to_string(),
             port: "7601".to_string(),
             allowed_payers: vec![],
-            price_per_entity: 100,
+            price_per_entity: U256::from(100),
             price_per_epoch: BTreeMap::new(),
             additional_networks: HashMap::new(),
         }
@@ -453,7 +456,7 @@ mod tests {
 
     use figment::value::Uncased;
     use sealed_test::prelude::*;
-    use thegraph_core::alloy::primitives::{address, Address, FixedBytes};
+    use thegraph_core::alloy::primitives::{address, Address, FixedBytes, U256};
     use tracing_test::traced_test;
 
     use super::{DatabaseConfig, SHARED_PREFIX};
@@ -482,10 +485,10 @@ mod tests {
             allowed_payers: vec![Address(
                 FixedBytes::<20>::from_str("0x3333333333333333333333333333333333333333").unwrap(),
             )],
-            price_per_entity: 1000,
+            price_per_entity: U256::from(1000),
             price_per_epoch: BTreeMap::from_iter(vec![
-                ("mainnet".to_string(), 100),
-                ("hardhat".to_string(), 100),
+                ("mainnet".to_string(), U256::from(100)),
+                ("hardhat".to_string(), U256::from(100)),
             ]),
             additional_networks: HashMap::from([(
                 "eip155:1337".to_string(),
