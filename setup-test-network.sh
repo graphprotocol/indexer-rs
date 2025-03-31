@@ -1,6 +1,38 @@
 #!/bin/bash
 set -e
 
+# ==============================================================================
+# SETUP LOCAL GRAPH NETWORK FOR TESTING
+# ==============================================================================
+# This script sets up a local Graph network for testing.
+#
+# NOTES:
+# - If you encounter container conflicts, run: docker compose down
+#   to stop all services before running this script again
+#
+# - To test changes to your indexer code without restarting everything:
+#   make reload
+#
+# - The script checks for existing services and skips those already running
+# ==============================================================================
+
+container_running() {
+    docker ps --format '{{.Names}}' | grep -q "^$1$"
+    return $?
+}
+
+if container_running "indexer-service" && container_running "tap-agent" && container_running "gateway"; then
+    echo "====================================================================================="
+    echo "All services are already running. To test changes to your indexer code, you can use:"
+    echo "  make reload                  - To rebuild and restart just indexer-service tap-agent services"
+    echo ""
+    echo "If you need to start from scratch, first stop all services with:"
+    echo "  make down"
+    echo "  docker rm -f indexer-service tap-agent gateway"
+    echo "====================================================================================="
+    exit 0
+fi
+
 cd contrib/
 ls
 pwd
@@ -9,7 +41,7 @@ pwd
 if [ ! -d "local-network" ]; then
     git clone https://github.com/edgeandnode/local-network.git
     cd local-network
-    # Chekout to a specific commit that is known to work
+    # Checkout to a specific commit that is known to work
     git checkout 006e2511d4b8262ff14ff6cd5e1b75f0663dee98
     cd ..
 fi
@@ -65,6 +97,10 @@ docker compose up -d indexer-agent
 echo "Waiting for indexer-agent to be healthy..."
 timeout 300 bash -c 'until docker ps | grep indexer-agent | grep -q healthy; do sleep 5; done'
 
+docker compose up -d indexer-service
+echo "Waiting for indexer-service to be healthy..."
+timeout 300 bash -c 'until docker ps | grep indexer-service | grep -q healthy; do sleep 5; done'
+
 echo "Starting subgraph deployment..."
 docker compose up --build -d subgraph-deploy
 sleep 10 # Give time for subgraphs to deploy
@@ -73,25 +109,23 @@ echo "Starting TAP services..."
 echo "Starting tap-aggregator..."
 docker compose up -d tap-aggregator
 sleep 10
-# tap-scrow-manager requires subgraph-deploy
-echo "Starting tap-scrow-manager..."
+
+echo "Starting tap-agent..."
+docker compose up -d tap-agent
+sleep 10
+
+# tap-escrow-manager requires subgraph-deploy
+echo "Starting tap-escrow-manager..."
 docker compose up -d tap-escrow-manager
 sleep 10
-# Phase 4: Try a simple escrowAccounts query to see if the schema is accessible
-echo "Testing escrowAccounts query..."
-curl -s "http://localhost:8000/subgraphs/name/semiotic/tap" \
-    -H 'content-type: application/json' \
-    -d '{"query": "{ escrowAccounts { id } }"}'
-# docker compose up -d chain ipfs postgres graph-node graph-contracts tap-contracts tap-escrow-manager tap-aggregator
-# docker compose up -d chain ipfs postgres graph-node graph-contracts tap-contracts tap-escrow-manager tap-aggregator block-oracle indexer-agent
 
-# # Wait for services to be ready
-# echo "Waiting for graph-node to be healthy..."
-# timeout 300 bash -c 'until docker ps | grep graph-node | grep -q healthy; do sleep 5; done'
-#
-# # Check if tap-contracts deployed the subgraph
-# echo "Checking if TAP subgraph is deployed..."
-# timeout 300 bash -c 'until curl -s "http://localhost:8000/subgraphs/name/semiotic/tap" -H "content-type: application/json" -d "{\"query\": \"{ _meta { block { number } } }\"}" | grep -q "data"; do sleep 5; done'
+# Start redpanda if it's not already started (required for gateway)
+if ! docker ps | grep -q redpanda; then
+    echo "Starting redpanda..."
+    docker compose up -d redpanda
+    echo "Waiting for redpanda to be healthy..."
+    timeout 300 bash -c 'until docker ps | grep redpanda | grep -q healthy; do sleep 5; done'
+fi
 
 # Get the network name used by local-network
 NETWORK_NAME=$(docker inspect graph-node --format='{{range $net,$v := .NetworkSettings.Networks}}{{$net}}{{end}}')
@@ -119,6 +153,45 @@ EOF
 echo "Building base Docker image for development..."
 docker build -t indexer-base:latest -f base/Dockerfile ..
 
+# Check to stop any previous instance of indexer-service
+# and tap-service
+echo "Checking for existing conflicting services..."
+if docker ps | grep -q "indexer-service\|tap-agent"; then
+    echo "Stopping existing indexer-service or tap-agent containers..."
+    docker stop indexer-service tap-agent 2>/dev/null || true
+    docker rm indexer-service tap-agent 2>/dev/null || true
+fi
+
 # Run the custom services using the override file
 docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
 rm docker-compose.override.yml
+
+# GATEWAY DEPLOYMENT NOTE:
+# We're deploying gateway directly with "docker run" instead of docker-compose
+# because the local-network's compose file has a dependency on "indexer-service",
+# which would conflict with our custom indexer-service container.
+# This approach avoids container name conflicts while allowing full testing
+# of the RAV flow through the gateway.
+echo "Building gateway image..."
+docker build -t local-gateway:latest ./local-network/gateway
+
+echo "Running gateway container..."
+docker run -d --name gateway \
+    --network local-network_default \
+    -p 7700:7700 \
+    -v $(pwd)/local-network/.env:/opt/.env:ro \
+    -v $(pwd)/local-network/contracts.json:/opt/contracts.json:ro \
+    -e RUST_LOG=info,graph_gateway=trace \
+    --restart on-failure:3 \
+    local-gateway:latest
+
+echo "Waiting for gateway to be healthy..."
+if docker ps | grep -q "gateway"; then
+    echo "Gateway is running"
+else
+    echo "Gateway failed to start. Check logs with: docker logs gateway"
+    exit 1
+fi
+
+echo "All services are now running!"
+echo "You can enjoy your new local network setup for testing."

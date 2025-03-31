@@ -1,4 +1,20 @@
-.PHONY: setup setup-dev reload logs down fmt
+.PHONY: setup setup-dev reload logs down fmt help
+
+# Default target shows help
+help:
+	@echo "Available commands:"
+	@echo "  make setup         - Full setup for testing (builds and starts all services)"
+	@echo "  make reload        - Rebuild binaries and restart services after code changes"
+	@echo "  make logs          - Watch log output from services"
+	@echo "  make down          - Stop all services and remove containers"
+	@echo "  make fmt           - Run cargo fmt"
+	@echo "  make test-local    - Run local tests"
+	@echo ""
+	@echo "Development workflow:"
+	@echo "  1. Run 'make setup' to initialize everything"
+	@echo "  2. After code changes, run 'make reload' to rebuild and restart"
+	@echo "  3. Use 'make logs' to monitor service logs"
+	@echo "  4. Run 'make down' to stop all services when done"
 
 # Full setup for testing
 # this includes building indexer-service and tap-agent
@@ -18,6 +34,7 @@ logs:
 # Stop all services
 down:
 	cd contrib && docker compose -f docker-compose.dev.yml down
+	docker rm -f indexer-service tap-agent gateway 2>/dev/null || true
 
 # Cargo commands
 fmt:
