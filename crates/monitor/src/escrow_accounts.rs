@@ -144,6 +144,8 @@ async fn get_escrow_accounts_v1(
 
     let response = response?;
 
+    tracing::trace!("Escrow accounts response: {:?}", response);
+
     let senders_balances: HashMap<Address, U256> = response
         .escrow_accounts
         .iter()

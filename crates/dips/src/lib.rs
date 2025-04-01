@@ -325,6 +325,9 @@ pub async fn validate_and_create_agreement(
 
     decoded_voucher.validate(signer_validator, domain, expected_payee, allowed_payers)?;
 
+    // Extract and parse the agreement ID from the voucher
+    let agreement_id = Uuid::from_bytes(decoded_voucher.voucher.agreement_id.into());
+
     let manifest = ipfs_fetcher.fetch(&metadata.subgraphDeploymentId).await?;
 
     let network = match registry.get_network_by_id(&metadata.chainId) {
@@ -337,7 +340,9 @@ pub async fn validate_and_create_agreement(
 
     match manifest.network() {
         Some(manifest_network_name) => {
-            tracing::debug!("Subgraph manifest network: {}", manifest_network_name);
+            tracing::debug!(
+                agreement_id = %agreement_id,
+                "Subgraph manifest network: {}", manifest_network_name);
             if manifest_network_name != network {
                 return Err(DipsError::InvalidSubgraphManifest(
                     metadata.subgraphDeploymentId,
@@ -354,18 +359,43 @@ pub async fn validate_and_create_agreement(
     let offered_epoch_price = metadata.basePricePerEpoch;
     match price_calculator.get_minimum_price(&metadata.chainId) {
         Some(price) if offered_epoch_price.lt(&Uint::from(price)) => {
+            tracing::debug!(
+                agreement_id = %agreement_id,
+                chain_id = %metadata.chainId,
+                deployment_id = %metadata.subgraphDeploymentId,
+                "offered epoch price '{}' is lower than minimum price '{}'",
+                offered_epoch_price,
+                price
+            );
             return Err(DipsError::PricePerEpochTooLow(
                 network,
                 price,
                 offered_epoch_price.to_string(),
-            ))
+            ));
         }
         Some(_) => {}
-        None => return Err(DipsError::UnsupportedChainId(metadata.chainId)),
+        None => {
+            tracing::debug!(
+                agreement_id = %agreement_id,
+                chain_id = %metadata.chainId,
+                deployment_id = %metadata.subgraphDeploymentId,
+                "chain id '{}' is not supported",
+                metadata.chainId
+            );
+            return Err(DipsError::UnsupportedChainId(metadata.chainId));
+        }
     }
 
     let offered_entity_price = metadata.pricePerEntity;
     if offered_entity_price < price_calculator.entity_price() {
+        tracing::debug!(
+            agreement_id = %agreement_id,
+            chain_id = %metadata.chainId,
+            deployment_id = %metadata.subgraphDeploymentId,
+            "offered entity price '{}' is lower than minimum price '{}'",
+            offered_entity_price,
+            price_calculator.entity_price()
+        );
         return Err(DipsError::PricePerEntityTooLow(
             network,
             price_calculator.entity_price(),
@@ -373,13 +403,22 @@ pub async fn validate_and_create_agreement(
         ));
     }
 
+    tracing::debug!(
+        agreement_id = %agreement_id,
+        chain_id = %metadata.chainId,
+        deployment_id = %metadata.subgraphDeploymentId,
+        "creating agreement"
+    );
+
     store
         .create_agreement(decoded_voucher.clone(), metadata)
-        .await?;
+        .await
+        .map_err(|error| {
+            tracing::error!(%agreement_id, %error, "failed to create agreement");
+            error
+        })?;
 
-    Ok(Uuid::from_bytes(
-        decoded_voucher.voucher.agreement_id.into(),
-    ))
+    Ok(agreement_id)
 }
 
 pub async fn validate_and_cancel_agreement(
@@ -391,22 +430,35 @@ pub async fn validate_and_cancel_agreement(
         SignedCancellationRequest::abi_decode(cancellation_request.as_ref(), true)
             .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
-    let result = store
-        .get_by_id(Uuid::from_bytes(
-            decoded_request.request.agreement_id.into(),
-        ))
-        .await?;
-    let stored_agreement = result.ok_or(DipsError::AgreementNotFound)?;
+    // Get the agreement ID from the cancellation request
+    let agreement_id = Uuid::from_bytes(decoded_request.request.agreement_id.into());
+
+    let stored_agreement = store.get_by_id(agreement_id).await?.ok_or_else(|| {
+        tracing::warn!(%agreement_id, "agreement not found");
+        DipsError::AgreementNotFound
+    })?;
+
+    // Get the deployment ID from the stored agreement
+    let deployment_id = stored_agreement.metadata.subgraphDeploymentId;
+
     if stored_agreement.cancelled {
+        tracing::warn!(%agreement_id, %deployment_id, "agreement already cancelled");
         return Err(DipsError::AgreementCancelled);
     }
-    let expected_signer = stored_agreement.voucher.voucher.payer;
-    let id = Uuid::from_bytes(decoded_request.request.agreement_id.into());
-    decoded_request.validate(domain, &expected_signer)?;
 
-    store.cancel_agreement(decoded_request).await?;
+    decoded_request.validate(domain, &stored_agreement.voucher.voucher.payer)?;
 
-    Ok(id)
+    tracing::debug!(%agreement_id, %deployment_id, "cancelling agreement");
+
+    store
+        .cancel_agreement(decoded_request)
+        .await
+        .map_err(|error| {
+            tracing::error!(%agreement_id, %deployment_id, %error, "failed to cancel agreement");
+            error
+        })?;
+
+    Ok(agreement_id)
 }
 
 #[cfg(test)]
