@@ -33,8 +33,9 @@ logs:
 
 # Stop all services
 down:
-	cd contrib && docker compose -f docker-compose.dev.yml down
-	docker rm -f indexer-service tap-agent gateway 2>/dev/null || true
+	cd contrib && docker compose -f docker-compose.dev.yml down || true
+	cd contrib/local-network && docker compose down || true
+	docker rm -f indexer-service tap-agent gateway block-oracle indexer-agent graph-node redpanda tap-aggregator tap-escrow-manager 2>/dev/null || true
 
 
 # Cargo commands
