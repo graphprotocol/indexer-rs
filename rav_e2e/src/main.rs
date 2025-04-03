@@ -112,7 +112,7 @@ async fn tap_rav_test() -> Result<()> {
     // trigger_value = 20 / 10,000 = 0.002 GRT
     // We need to send at least 20 receipts to reach the trigger threshold
     // Sending slightly more than required to ensure triggering
-    let num_receipts = 30;
+    let num_receipts = 60;
 
     println!(
         "\n=== Sending {} receipts to trigger RAV generation ===",
