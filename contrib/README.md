@@ -5,7 +5,7 @@ Including how to build and deploy the required containers, and how to use hot-re
 
 ### Note
 
-The current implementation leverages local-network for the common services and uses its testing configuration. We're specifically using an older [commit](https://github.com/edgeandnode/local-network/commit/ae72f1b8d57f18e7055a7fa29b873fe5bb8d9879) due to permissions issues with more recent versions, which fail when cloning the repository because of private git dependencies.
+The current implementation leverages local-network for the common services and uses its testing configuration.
 
 ## Available Commands
 
@@ -15,7 +15,7 @@ We provide the following Make/Just commands to streamline your development workf
 - `make reload` - Rebuild Rust binaries and restart services after code changes
 - `make logs` - Watch log output from all services
 - `make down` - Stop all services
-- `make test-local` - Run integration tests against local services(Work in progress)
+- `make rav_tests` - Run integration tests against local services
 
 ## Initial Setup
 
@@ -33,7 +33,7 @@ This will:
 - Clone the local-network repo if needed
 - Start core infrastructure services
 - Deploy contracts and required services
-- Set up and start the indexer services
+- Set up and start the indexer and tap-agent services
 
 ## Development Workflow
 
@@ -80,7 +80,7 @@ This will show a live stream of logs from all services, which is useful for debu
 To run integration tests against your local environment:
 
 ```bash
-make test-local
+make rav_tests
 ```
 
 This is currently a work in progress, and additional testing strategies are still being defined and implemented.
@@ -94,26 +94,3 @@ make down
 ```
 
 This will stop and remove all the containers defined in the docker-compose file.
-
-## Testing Improvements
-
-The current testing setup has some limitations that could be addressed in the future:
-
-### Current Limitations
-
-- Bash script for testing (`run-test-local.sh`) are not optimal
-- Limited test coverage of complex edge cases
-- Manual verification required for some functionality
-
-## Complete End-to-End Environment
-
-Note that the current test environment is a simplified version intended to emulate real-world operation. For a complete end-to-end testing environment, additional services are required but not currently deployed:
-
-- `tap-escrow-manager` - Manages escrow accounts for payment channels
-- `subgraph-deploy` - Handles deployment of subgraphs for testing
-
-These services are commented out in the setup script for simplicity but would be needed in a full production environment or complete integration testing setup.
-
-### Note
-
-It would be worth to keep updating local-network dependency and try to conciliate future permissions errors
