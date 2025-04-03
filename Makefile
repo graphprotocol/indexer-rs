@@ -1,4 +1,4 @@
-.PHONY: setup setup-dev reload logs down fmt help
+.PHONY: setup setup-dev reload logs down fmt help rav_tests
 
 # Default target shows help
 help:
@@ -36,9 +36,13 @@ down:
 	cd contrib && docker compose -f docker-compose.dev.yml down
 	docker rm -f indexer-service tap-agent gateway 2>/dev/null || true
 
+
 # Cargo commands
 fmt:
 	cargo fmt
 
 test-local:
 	cd tests && ./run-test-local.sh
+
+rav_tests:
+	cd rav_e2e/ && cargo run

@@ -12,6 +12,7 @@ members = [
     "crates/test-assets",
     "crates/watcher",
 ]
+exclude = ["rav_e2e"]
 resolver = "2"
 
 [profile.dev.package."*"]

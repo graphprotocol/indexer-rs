@@ -1,0 +1,43 @@
+[package]
+name = "rav_test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hex = "0.4"
+rand = "0.8"
+anyhow = "1.0"
+chrono = "0.4"
+indexer-receipt = { path = "../crates/indexer-receipt" }
+
+# TAP dependencies
+tap_core = { version = "3.0.0", default-features = false }
+tap_graph = { version = "0.2.0", features = ["v2"] }
+thegraph-core = { version = "0.11.0", features = [
+    "alloy-eip712",
+    "alloy-sol-types",
+    "alloy-signers",
+    "alloy-signer-local",
+    "serde",
+] }
+bip39 = "2.0.0"
+bollard = "0.15.0"
+tokio = { version = "1.32.0", features = ["full"] }
+futures-util = "0.3.28"
+toml = "0.8.6"
+regex = "1.10.2"
+
+[patch.crates-io.tap_core]
+git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
+rev = "9fd4beb"
+
+[patch.crates-io.tap_aggregator]
+git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
+rev = "9fd4beb"
+
+[patch.crates-io.tap_graph]
+git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
+rev = "9fd4beb"
