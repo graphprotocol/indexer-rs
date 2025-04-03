@@ -37,5 +37,5 @@ jobs:
             -ignore '*.toml' \
             -ignore '*.yml' \
             -ignore '*.yaml' \
-            -ignore 'rav_e2e/*.sh'
+            -ignore 'rav_e2e/*.sh' \
             .
