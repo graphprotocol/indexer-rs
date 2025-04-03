@@ -8,7 +8,7 @@ help:
 	@echo "  make logs          - Watch log output from services"
 	@echo "  make down          - Stop all services and remove containers"
 	@echo "  make fmt           - Run cargo fmt"
-	@echo "  make test-local    - Run local tests"
+	@echo "  make rav_tests     - Run end to end tests"
 	@echo ""
 	@echo "Development workflow:"
 	@echo "  1. Run 'make setup' to initialize everything"
@@ -42,8 +42,7 @@ down:
 fmt:
 	cargo fmt
 
-test-local:
-	cd tests && ./run-test-local.sh
-
 rav_tests:
-	cd rav_e2e/ && cargo run
+	# First fund the escrow account
+	cd rav_e2e && ./fund_escrow.sh 
+	cd rav_e2e && cargo run
