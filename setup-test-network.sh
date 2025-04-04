@@ -11,7 +11,7 @@ set -e
 #   to stop all services before running this script again
 #
 # - To test changes to your indexer code without restarting everything:
-#   make reload
+#   just reload
 #
 # - The script checks for existing services and skips those already running
 # ==============================================================================
@@ -38,10 +38,10 @@ container_running() {
 if container_running "indexer-service" && container_running "tap-agent" && container_running "gateway"; then
     echo "====================================================================================="
     echo "All services are already running. To test changes to your indexer code, you can use:"
-    echo "  make reload                  - To rebuild and restart just indexer-service tap-agent services"
+    echo "  just reload                   - To rebuild and restart just indexer-service tap-agent services"
     echo ""
     echo "If you need to start from scratch, first stop all services with:"
-    echo "  make down"
+    echo "  just down"
     echo "  docker rm -f indexer-service tap-agent gateway"
     echo "====================================================================================="
     exit 0

@@ -11,11 +11,11 @@ The current implementation leverages local-network for the common services and u
 
 We provide the following Make/Just commands to streamline your development workflow:
 
-- `make setup` - Full setup of all services, dependencies and binary compilation
-- `make reload` - Rebuild Rust binaries and restart services after code changes
-- `make logs` - Watch log output from all services
-- `make down` - Stop all services
-- `make rav_tests` - Run integration tests against local services
+- `just setup` - Full setup of all services, dependencies and binary compilation
+- `just reload` - Rebuild Rust binaries and restart services after code changes
+- `just logs` - Watch log output from all services
+- `just down` - Stop all services
+- `just test-local` - Run integration tests against local services
 
 ## Initial Setup
 
@@ -25,7 +25,7 @@ To get started with development:
 2. Run the full setup to initialize all services:
 
 ```bash
-make setup
+just setup
 ```
 
 This will:
@@ -43,7 +43,7 @@ After the initial setup, you can use the fast development workflow:
 2. Run the reload command to rebuild and restart indexer and tap-agent services:
 
 ```bash
-make reload
+just reload
 ```
 
 This workflow is much faster because:
@@ -70,7 +70,7 @@ This approach avoids the time-consuming container rebuild process while still ma
 To monitor the services during development:
 
 ```bash
-make logs
+just logs
 ```
 
 This will show a live stream of logs from all services, which is useful for debugging.
@@ -80,7 +80,7 @@ This will show a live stream of logs from all services, which is useful for debu
 To run integration tests against your local environment:
 
 ```bash
-make rav_tests
+just local-test
 ```
 
 This is currently a work in progress, and additional testing strategies are still being defined and implemented.
@@ -90,7 +90,7 @@ This is currently a work in progress, and additional testing strategies are stil
 When you're done working:
 
 ```bash
-make down
+just down
 ```
 
 This will stop and remove all the containers defined in the docker-compose file.
