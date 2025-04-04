@@ -44,11 +44,12 @@ const MAX_RECEIPT_VALUE: u128 = GRT_BASE / 1_000;
 const WAIT_TIME_BATCHES: u64 = 40;
 
 // Bellow constant is to define the number of receipts
-const NUM_RECEIPTS: u32 = 200;
+const NUM_RECEIPTS: u32 = 70;
 
 // Send receipts in batches with a delay in between
 // to ensure some receipts get outside the timestamp buffer
-const BATCHES: u32 = 4;
+const BATCHES: u32 = 2;
+const MAX_TRIGGERS: usize = 100;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -82,9 +83,6 @@ async fn tap_rav_test() -> Result<()> {
         .send()
         .await?;
 
-    // Default to a fallback allocation ID
-    let mut allocation_id = Address::from_str("0x0000000000000000000000000000000000000000")?;
-
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
             "Network subgraph request failed with status: {}",
@@ -96,9 +94,6 @@ async fn tap_rav_test() -> Result<()> {
     let response_text = response.text().await?;
     println!("Network subgraph response: {}", response_text);
 
-    // Extract allocation_id, if not found return an error
-    // this should not happen as we run the fund escrow script
-    // before(in theory tho)
     let json_value = serde_json::from_str::<serde_json::Value>(&response_text)?;
     let allocation_id = json_value
         .get("data")
@@ -115,52 +110,44 @@ async fn tap_rav_test() -> Result<()> {
     let metrics_checker =
         MetricsChecker::new(http_client.clone(), TAP_AGENT_METRICS_URL.to_string());
 
+    // First check initial metrics
     let initial_metrics = metrics_checker.get_current_metrics().await?;
-    // Extract the initial metrics we care about
-    // in this case the number of created/requested ravs
-    // and the amount of unaggregated fees
-    // so later at the end of the test we compare them
-    // to see if we triggered any RAV generation
     let initial_ravs_created =
         initial_metrics.ravs_created_by_allocation(&allocation_id.to_string());
     let initial_unaggregated =
         initial_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
 
     println!(
-        "\n=== Sending {} receipts to trigger RAV generation ===",
-        NUM_RECEIPTS
-    );
-    println!(
-        "Each receipt value: {} GRT",
-        MAX_RECEIPT_VALUE as f64 / GRT_BASE as f64
-    );
-    println!(
-        "Total value to be sent: {} GRT",
-        (MAX_RECEIPT_VALUE as f64 * NUM_RECEIPTS as f64) / GRT_BASE as f64
+        "\n=== Initial metrics: RAVs created: {}, Unaggregated fees: {} ===",
+        initial_ravs_created, initial_unaggregated
     );
 
-    let receipts_per_batch = NUM_RECEIPTS / BATCHES;
+    // Calculate required receipts to trigger RAV
+    // With MAX_RECEIPT_VALUE = GRT_BASE / 1_000 (0.001 GRT)
+    // And trigger_value = 0.002 GRT
+    // We need at least 3 receipts to trigger a RAV (0.003 GRT > 0.002 GRT)
+    const RECEIPTS_NEEDED: u32 = 3;
+
+    println!("\n=== STAGE 1: Sending large receipt batches with small pauses ===");
+
+    // Send multiple receipts in two batches with a gap between them
     let mut total_successful = 0;
 
-    for batch in 0..BATCHES {
+    for batch in 0..2 {
         println!(
-            "Sending batch {} of {} ({} receipts per batch)",
+            "Sending batch {} of 2 with {} receipts each...",
             batch + 1,
-            BATCHES,
-            receipts_per_batch
+            RECEIPTS_NEEDED
         );
 
-        for i in 0..receipts_per_batch {
-            let receipt_index = batch * receipts_per_batch + i;
-            println!("Sending receipt {} of {}", receipt_index + 1, NUM_RECEIPTS);
-
-            // Create TAP receipt
+        for i in 0..RECEIPTS_NEEDED {
             let receipt = create_tap_receipt(
                 MAX_RECEIPT_VALUE,
                 &allocation_id,
                 TAP_ESCROW_CONTRACT,
                 &wallet,
             )?;
+
             let receipt_json = serde_json::to_string(&receipt).unwrap();
 
             let response = http_client
@@ -175,81 +162,112 @@ async fn tap_rav_test() -> Result<()> {
                 .send()
                 .await?;
 
-            let status = response.status();
-            if status.is_success() {
+            if response.status().is_success() {
                 total_successful += 1;
-                println!("Receipt {} sent successfully", receipt_index + 1);
+                println!("Receipt {} of batch {} sent successfully", i + 1, batch + 1);
             } else {
-                println!("Failed to send receipt {}: {}", receipt_index + 1, status);
-                let response_text = response.text().await?;
-                println!("Response: {}", response_text);
+                println!("Failed to send receipt: {}", response.status());
             }
 
-            // Small delay between queries to avoid flooding
+            // Small pause between receipts within batch
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
-        // After each batch, wait longer than the timestamp buffer
-        // (typically 30 seconds) to ensure receipts are outside buffer
-        if batch < BATCHES - 1 {
+        // Check metrics after batch
+        let batch_metrics = metrics_checker.get_current_metrics().await?;
+        println!(
+            "After batch {}: RAVs created: {}, Unaggregated fees: {}",
+            batch + 1,
+            batch_metrics.ravs_created_by_allocation(&allocation_id.to_string()),
+            batch_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string())
+        );
+
+        // Wait between batches - long enough for first batch to exit buffer
+        if batch < 1 {
+            println!("Waiting for buffer period + 5s...");
+            tokio::time::sleep(Duration::from_secs(WAIT_TIME_BATCHES + 5)).await;
+        }
+    }
+
+    println!("\n=== STAGE 2: Sending continuous trigger receipts ===");
+
+    // Now send a series of regular receipts with short intervals until RAV is detected
+    for i in 0..MAX_TRIGGERS {
+        println!("Sending trigger receipt {}/{}...", i + 1, MAX_TRIGGERS);
+
+        let trigger_receipt = create_tap_receipt(
+            MAX_RECEIPT_VALUE,
+            &allocation_id,
+            TAP_ESCROW_CONTRACT,
+            &wallet,
+        )?;
+
+        let receipt_json = serde_json::to_string(&trigger_receipt).unwrap();
+
+        let response = http_client
+            .post(format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID))
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
+            .header("Tap-Receipt", receipt_json)
+            .json(&json!({
+                "query": "{ _meta { block { number } } }"
+            }))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            total_successful += 1;
+            println!("Trigger receipt {} sent successfully", i + 1);
+        } else {
+            return Err(anyhow::anyhow!(
+                "Failed to send trigger receipt: {}",
+                response.status()
+            ));
+        }
+
+        // Check after each trigger
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        let current_metrics = metrics_checker.get_current_metrics().await?;
+        let current_ravs_created =
+            current_metrics.ravs_created_by_allocation(&allocation_id.to_string());
+        let current_unaggregated =
+            current_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
+
+        println!(
+            "After trigger {}: RAVs created: {}, Unaggregated fees: {}",
+            i + 1,
+            current_ravs_created,
+            current_unaggregated
+        );
+
+        // If we've succeeded, exit early
+        if current_ravs_created > initial_ravs_created {
             println!(
-                "\nBatch {} complete. Waiting to exceed timestamp buffer...",
-                batch + 1
+                "✅ TEST PASSED: RAVs created increased from {} to {}!",
+                initial_ravs_created, current_ravs_created
             );
-            tokio::time::sleep(Duration::from_secs(WAIT_TIME_BATCHES * 2)).await;
+            return Ok(());
+        }
+
+        if current_unaggregated < initial_unaggregated * 0.9 {
+            println!(
+                "✅ TEST PASSED: Unaggregated fees decreased significantly from {} to {}!",
+                initial_unaggregated, current_unaggregated
+            );
+            return Ok(());
         }
     }
 
     println!("\n=== Summary ===");
-    println!(
-        "Total receipts sent successfully: {}/{}",
-        total_successful, NUM_RECEIPTS
-    );
+    println!("Total receipts sent successfully: {}", total_successful);
     println!(
         "Total value sent: {} GRT",
         (MAX_RECEIPT_VALUE as f64 * total_successful as f64) / GRT_BASE as f64
     );
 
-    // Give the system enough time to process the receipts
-    // ensuring the aged beyong timestamp buffer
-    tokio::time::sleep(Duration::from_secs(WAIT_TIME_BATCHES * 4)).await;
-
-    // Check for RAV generation
-    println!("\n=== Checking for RAV generation ===");
-
-    // Get final metrics
-    println!("Getting final metrics snapshot...");
-    let final_metrics = metrics_checker.get_current_metrics().await?;
-
-    // Extract the final metrics
-    let final_ravs_created = final_metrics.ravs_created_by_allocation(&allocation_id.to_string());
-    let final_unaggregated =
-        final_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
-
-    println!(
-        "Final state: RAVs created: {}, Unaggregated fees: {}",
-        final_ravs_created, final_unaggregated
-    );
-
-    // Check for success criteria
-    if final_ravs_created > initial_ravs_created {
-        println!(
-            "✅ TEST PASSED: RAVs created increased from {} to {}!",
-            initial_ravs_created, final_ravs_created
-        );
-        return Ok(());
-    }
-
-    if final_unaggregated < initial_unaggregated * 0.9 {
-        println!(
-            "✅ TEST PASSED: Unaggregated fees decreased significantly from {} to {}!",
-            initial_unaggregated, final_unaggregated
-        );
-        return Ok(());
-    }
-
     // If we got here, test failed
     println!("❌ TEST FAILED: No RAV generation detected");
-
     Err(anyhow::anyhow!("Failed to detect RAV generation"))
 }
