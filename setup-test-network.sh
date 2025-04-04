@@ -74,6 +74,10 @@ docker compose up -d graph-contracts
 # Wait for contracts to be deployed
 timeout 300 bash -c 'until docker ps -a | grep graph-contracts | grep -q "Exited (0)"; do sleep 5; done'
 
+# Before checking the smart contract, ensure they make it to the local network
+# by mining some blocks
+./scripts/mine-block.sh 100 2>/dev/null || true
+
 # Verify the contracts have code
 graph_token_address=$(jq -r '."1337".GraphToken.address' contracts.json)
 controller_address=$(jq -r '."1337".Controller.address' contracts.json)
