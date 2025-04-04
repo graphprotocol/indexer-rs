@@ -15,7 +15,21 @@ set -e
 #
 # - The script checks for existing services and skips those already running
 # ==============================================================================
+#
+# Save the starting disk usage
+START_SPACE=$(df -h --output=used /var/lib/docker | tail -1)
+START_IMAGES_SIZE=$(docker system df --format '{{.ImagesSize}}' 2>/dev/null || echo "N/A")
+START_CONTAINERS_SIZE=$(docker system df --format '{{.ContainersSize}}' 2>/dev/null || echo "N/A")
+START_VOLUMES_SIZE=$(docker system df --format '{{.VolumesSize}}' 2>/dev/null || echo "N/A")
 
+echo "============ STARTING DISK USAGE ============"
+echo "Docker directory usage: $START_SPACE"
+echo "Images size: $START_IMAGES_SIZE"
+echo "Containers size: $START_CONTAINERS_SIZE"
+echo "Volumes size: $START_VOLUMES_SIZE"
+echo "=============================================="
+
+# Your existing script starts here
 container_running() {
     docker ps --format '{{.Names}}' | grep -q "^$1$"
     return $?
@@ -60,12 +74,7 @@ docker compose up -d graph-contracts
 # Wait for contracts to be deployed
 timeout 300 bash -c 'until docker ps -a | grep graph-contracts | grep -q "Exited (0)"; do sleep 5; done'
 
-# Verify the contracts have code, usually when starting from scratch
-# there could be timing issues between contract deployment
-# and when transaction gets approved and contract address gets available
-# in the network.
-# So bellow is a kind of double check
-# Extract a few key contract addresses from the contracts.json file
+# Verify the contracts have code
 graph_token_address=$(jq -r '."1337".GraphToken.address' contracts.json)
 controller_address=$(jq -r '."1337".Controller.address' contracts.json)
 
@@ -169,12 +178,6 @@ rm docker-compose.override.yml
 timeout 30 bash -c 'until docker ps | grep indexer | grep -q healthy; do sleep 5; done'
 timeout 30 bash -c 'until docker ps | grep tap-agent | grep -q healthy; do sleep 5; done'
 
-# GATEWAY DEPLOYMENT NOTE:
-# We're deploying gateway directly with "docker run" instead of docker-compose
-# because the local-network's compose file has a dependency on "indexer-service",
-# which would conflict with our custom indexer-service container.
-# This approach avoids container name conflicts while allowing full testing
-# of the RAV flow through the gateway.
 echo "Building gateway image..."
 docker build -t local-gateway:latest ./local-network/gateway
 
@@ -191,9 +194,25 @@ docker run -d --name gateway \
 echo "Waiting for gateway to be healthy..."
 echo "Waiting for gateway to be available..."
 
+# Mine some blocks
+# This is important for the gateway
+./local-network/scripts/mine-block.sh 100 2>/dev/null || true
+
 # Ensure gateway is ready before testing
-# it might take a while to start(usually 5 minutes, why???)
 timeout 300 bash -c 'until curl -f http://localhost:7700/ > /dev/null 2>&1; do echo "Waiting for gateway service..."; sleep 5; done'
+
+# After all services are running, measure the disk space used
+END_SPACE=$(df -h --output=used /var/lib/docker | tail -1)
+END_IMAGES_SIZE=$(docker system df --format '{{.ImagesSize}}' 2>/dev/null || echo "N/A")
+END_CONTAINERS_SIZE=$(docker system df --format '{{.ContainersSize}}' 2>/dev/null || echo "N/A")
+END_VOLUMES_SIZE=$(docker system df --format '{{.VolumesSize}}' 2>/dev/null || echo "N/A")
 
 echo "All services are now running!"
 echo "You can enjoy your new local network setup for testing."
+
+echo "============ FINAL DISK USAGE ============"
+echo "Docker directory usage: $END_SPACE"
+echo "Images size: $END_IMAGES_SIZE"
+echo "Containers size: $END_CONTAINERS_SIZE"
+echo "Volumes size: $END_VOLUMES_SIZE"
+echo "==========================================="
