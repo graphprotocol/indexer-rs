@@ -61,13 +61,14 @@ reload:
 
 # Watch log output from services
 logs:
-    @cd contrib && docker-compose -f docker-compose.dev.yml logs -f
+    @cd contrib && docker compose -f docker-compose.dev.yml logs -f
 
 # Stop all services
 down:
-    @cd contrib && docker-compose -f docker-compose.dev.yml down
+    @cd contrib && docker compose -f docker-compose.dev.yml down
     @cd contrib/local-network && docker compose down
     docker rm -f indexer-service tap-agent gateway block-oracle indexer-agent graph-node redpanda tap-aggregator tap-escrow-manager 2>/dev/null || true
 
 test-local:
-    cd rav_e2e && cargo run 
+    @cd rav_e2e && ./fund_escrow.sh
+    @cd rav_e2e && cargo run 
