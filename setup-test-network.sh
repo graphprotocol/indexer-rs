@@ -189,12 +189,11 @@ docker run -d --name gateway \
     local-gateway:latest
 
 echo "Waiting for gateway to be healthy..."
-if docker ps | grep -q "gateway"; then
-    echo "Gateway is running"
-else
-    echo "Gateway failed to start. Check logs with: docker logs gateway"
-    exit 1
-fi
+echo "Waiting for gateway to be available..."
+
+# Ensure gateway is ready before testing
+# it might take a while to start(usually 5 minutes, why???)
+timeout 300 bash -c 'until curl -f http://localhost:7700/ > /dev/null 2>&1; do echo "Waiting for gateway service..."; sleep 5; done'
 
 echo "All services are now running!"
 echo "You can enjoy your new local network setup for testing."
