@@ -18,16 +18,37 @@ mod receipt;
 use metrics::MetricsChecker;
 use receipt::create_tap_receipt;
 
-// Constants taken from local-network/.env
-// it could be possible to read that file
-// along with the local-network/contracts.json
-// and regex over to get bellow values
+// TODO: Would be nice to read this values from:
+// contrib/tap-agent/config.toml
+// and contrib/local-network/.env
 const GATEWAY_URL: &str = "http://localhost:7700";
 const SUBGRAPH_ID: &str = "BFr2mx7FgkJ36Y6pE5BiXs1KmNUmVDCnL82KUSdcLW1g";
 const TAP_ESCROW_CONTRACT: &str = "0x0355B7B8cb128fA5692729Ab3AAa199C1753f726";
 const GATEWAY_API_KEY: &str = "deadbeefdeadbeefdeadbeefdeadbeef";
-const RECEIVER_ADDRESS: &str = "0xf4EF6650E48d099a4972ea5B414daB86e1998Bd3";
+// const RECEIVER_ADDRESS: &str = "0xf4EF6650E48d099a4972ea5B414daB86e1998Bd3";
 const TAP_AGENT_METRICS_URL: &str = "http://localhost:7300/metrics";
+
+const MNEMONIC: &str = "test test test test test test test test test test test junk";
+const GRAPH_URL: &str = "http://localhost:8000/subgraphs/name/graph-network";
+
+const GRT_DECIMALS: u8 = 18;
+const GRT_BASE: u128 = 10u128.pow(GRT_DECIMALS as u32);
+
+// With trigger_value_divisor = 500_000 and max_amount_willing_to_lose_grt = 1000
+// trigger_value = 0.002 GRT
+// We need to send at least 20 receipts to reach the trigger threshold
+// Sending slightly more than required to ensure triggering
+const MAX_RECEIPT_VALUE: u128 = GRT_BASE / 1_000;
+// This value should match the timestamp_buffer_secs
+// in the tap-agent setting + 10 seconds
+const WAIT_TIME_BATCHES: u64 = 40;
+
+// Bellow constant is to define the number of receipts
+const NUM_RECEIPTS: u32 = 200;
+
+// Send receipts in batches with a delay in between
+// to ensure some receipts get outside the timestamp buffer
+const BATCHES: u32 = 4;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -39,7 +60,7 @@ async fn tap_rav_test() -> Result<()> {
     // Setup wallet using your MnemonicBuilder
     let index: u32 = 0;
     let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
-        .phrase("test test test test test test test test test test test junk")
+        .phrase(MNEMONIC)
         .index(index)
         .unwrap()
         .build()
@@ -53,45 +74,42 @@ async fn tap_rav_test() -> Result<()> {
 
     // Query the network subgraph to find active allocations
     println!("Querying for active allocations...");
-    let allocations_query = http_client
-        .post("http://localhost:8000/subgraphs/name/graph-network")
+    let response = http_client
+        .post(GRAPH_URL)
         .json(&json!({
             "query": "{ allocations(where: { status: Active }) { id indexer { id } subgraphDeployment { id } } }"
         }))
         .send()
-        .await;
+        .await?;
 
     // Default to a fallback allocation ID
     let mut allocation_id = Address::from_str("0x0000000000000000000000000000000000000000")?;
 
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!(
+            "Network subgraph request failed with status: {}",
+            response.status()
+        ));
+    }
+
     // Try to find a valid allocation
-    if let Ok(response) = allocations_query {
-        if response.status().is_success() {
-            let response_text = response.text().await.unwrap();
-            println!("Network subgraph response: {}", response_text);
+    let response_text = response.text().await?;
+    println!("Network subgraph response: {}", response_text);
 
-            if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&response_text) {
-                if let Some(allocations) = json_value
-                    .get("data")
-                    .and_then(|d| d.get("allocations"))
-                    .and_then(|a| a.as_array())
-                {
-                    if !allocations.is_empty() {
-                        if let Some(id_str) = allocations[0].get("id").and_then(|id| id.as_str()) {
-                            println!("Found allocation ID: {}", id_str);
-                            allocation_id = Address::from_str(id_str)?;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Extract allocation_id, if not found return an error
+    // this should not happen as we run the fund escrow script
+    // before(in theory tho)
+    let json_value = serde_json::from_str::<serde_json::Value>(&response_text)?;
+    let allocation_id = json_value
+        .get("data")
+        .and_then(|d| d.get("allocations"))
+        .and_then(|a| a.as_array())
+        .filter(|arr| !arr.is_empty())
+        .and_then(|arr| arr[0].get("id"))
+        .and_then(|id| id.as_str())
+        .ok_or_else(|| anyhow::anyhow!("No valid allocation ID found"))?;
 
-    // If we still don't have an allocation ID, create a mock one based on the receiver address
-    if allocation_id == Address::from_str("0x0000000000000000000000000000000000000000")? {
-        println!("No allocation found, using a mock allocation based on receiver address");
-        allocation_id = Address::from_str(RECEIVER_ADDRESS)?;
-    }
+    let allocation_id = Address::from_str(allocation_id)?;
 
     // Create a metrics checker
     let metrics_checker =
@@ -108,63 +126,44 @@ async fn tap_rav_test() -> Result<()> {
     let initial_unaggregated =
         initial_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
 
-    // The value for each receipt
-    let value = 100_000_000_000_000u128; // 0.0001 GRT
-
-    // With trigger_value_divisor = 10,000 and max_amount_willing_to_lose_grt = 20
-    // trigger_value = 20 / 10,000 = 0.002 GRT
-    // We need to send at least 20 receipts to reach the trigger threshold
-    // Sending slightly more than required to ensure triggering
-    let num_receipts = 60;
-
     println!(
         "\n=== Sending {} receipts to trigger RAV generation ===",
-        num_receipts
+        NUM_RECEIPTS
     );
     println!(
         "Each receipt value: {} GRT",
-        value as f64 / 1_000_000_000_000_000f64
+        MAX_RECEIPT_VALUE as f64 / GRT_BASE as f64
     );
     println!(
         "Total value to be sent: {} GRT",
-        (value as f64 * num_receipts as f64) / 1_000_000_000_000_000f64
+        (MAX_RECEIPT_VALUE as f64 * NUM_RECEIPTS as f64) / GRT_BASE as f64
     );
 
-    // let mut trigger_value = 0.0;
-
-    let trigger_value = initial_metrics.trigger_value_by_sender(&sender_address.to_string());
-
-    if trigger_value > 0.0 {
-        println!(
-            "With trigger value of {} GRT, we need to send at least {} receipts",
-            trigger_value,
-            (trigger_value * 1_000_000_000_000_000f64 / value as f64).ceil()
-        );
-    }
-
-    // Send receipts in batches with a delay in between
-    // to ensure some receipts get outside the timestamp buffer
-    let batches = 3;
-    let receipts_per_batch = num_receipts / batches;
+    let receipts_per_batch = NUM_RECEIPTS / BATCHES;
     let mut total_successful = 0;
 
-    for batch in 0..batches {
+    for batch in 0..BATCHES {
         println!(
             "Sending batch {} of {} ({} receipts per batch)",
             batch + 1,
-            batches,
+            BATCHES,
             receipts_per_batch
         );
 
         for i in 0..receipts_per_batch {
             let receipt_index = batch * receipts_per_batch + i;
-            println!("Sending receipt {} of {}", receipt_index + 1, num_receipts);
+            println!("Sending receipt {} of {}", receipt_index + 1, NUM_RECEIPTS);
 
             // Create TAP receipt
-            let receipt = create_tap_receipt(value, &allocation_id, TAP_ESCROW_CONTRACT, &wallet)?;
+            let receipt = create_tap_receipt(
+                MAX_RECEIPT_VALUE,
+                &allocation_id,
+                TAP_ESCROW_CONTRACT,
+                &wallet,
+            )?;
             let receipt_json = serde_json::to_string(&receipt).unwrap();
 
-            let query_response = http_client
+            let response = http_client
                 .post(format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID))
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
@@ -174,50 +173,46 @@ async fn tap_rav_test() -> Result<()> {
                 }))
                 .timeout(Duration::from_secs(10))
                 .send()
-                .await;
+                .await?;
 
-            match query_response {
-                Ok(response) => {
-                    let status = response.status();
-                    if status.is_success() {
-                        total_successful += 1;
-                        println!("Receipt {} sent successfully", receipt_index + 1);
-                    } else {
-                        println!("Failed to send receipt {}: {}", receipt_index + 1, status);
-                        let response_text = response.text().await?;
-                        println!("Response: {}", response_text);
-                    }
-                }
-                Err(e) => {
-                    println!("Error sending receipt {}: {}", receipt_index + 1, e);
-                    return Err(e.into());
-                }
+            let status = response.status();
+            if status.is_success() {
+                total_successful += 1;
+                println!("Receipt {} sent successfully", receipt_index + 1);
+            } else {
+                println!("Failed to send receipt {}: {}", receipt_index + 1, status);
+                let response_text = response.text().await?;
+                println!("Response: {}", response_text);
             }
 
             // Small delay between queries to avoid flooding
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         // After each batch, wait longer than the timestamp buffer
-        // (typically 60 seconds) to ensure receipts are outside buffer
-        if batch < batches - 1 {
+        // (typically 30 seconds) to ensure receipts are outside buffer
+        if batch < BATCHES - 1 {
             println!(
-                "\nBatch {} complete. Waiting 65 seconds to exceed timestamp buffer...",
+                "\nBatch {} complete. Waiting to exceed timestamp buffer...",
                 batch + 1
             );
-            tokio::time::sleep(Duration::from_secs(65)).await;
+            tokio::time::sleep(Duration::from_secs(WAIT_TIME_BATCHES * 2)).await;
         }
     }
 
     println!("\n=== Summary ===");
     println!(
         "Total receipts sent successfully: {}/{}",
-        total_successful, num_receipts
+        total_successful, NUM_RECEIPTS
     );
     println!(
         "Total value sent: {} GRT",
-        (value as f64 * total_successful as f64) / 1_000_000_000_000_000f64
+        (MAX_RECEIPT_VALUE as f64 * total_successful as f64) / GRT_BASE as f64
     );
+
+    // Give the system enough time to process the receipts
+    // ensuring the aged beyong timestamp buffer
+    tokio::time::sleep(Duration::from_secs(WAIT_TIME_BATCHES * 4)).await;
 
     // Check for RAV generation
     println!("\n=== Checking for RAV generation ===");

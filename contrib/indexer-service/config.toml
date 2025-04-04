@@ -33,8 +33,7 @@ max_amount_willing_to_lose_grt = 1000
 
 [tap.rav_request]
 # Set a lower timestamp buffer threshold
-# for testing purposes
-timestamp_buffer_secs = 60
+timestamp_buffer_secs = 30
 # The trigger value divisor is used to calculate the trigger value for the RAV request.
 # using the formula:
 # trigger_value = max_amount_willing_to_lose_grt / trigger_value_divisor

@@ -166,6 +166,9 @@ fi
 docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
 rm docker-compose.override.yml
 
+timeout 30 bash -c 'until docker ps | grep indexer | grep -q healthy; do sleep 5; done'
+timeout 30 bash -c 'until docker ps | grep tap-agent | grep -q healthy; do sleep 5; done'
+
 # GATEWAY DEPLOYMENT NOTE:
 # We're deploying gateway directly with "docker run" instead of docker-compose
 # because the local-network's compose file has a dependency on "indexer-service",

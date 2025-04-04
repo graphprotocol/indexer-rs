@@ -45,4 +45,6 @@ fmt:
 rav_tests:
 	# First fund the escrow account
 	cd rav_e2e && ./fund_escrow.sh 
+	# Give time for the funding to take place
+	sleep 30
 	cd rav_e2e && cargo run
