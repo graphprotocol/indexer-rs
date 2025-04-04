@@ -41,11 +41,6 @@ impl MetricsData {
         let key = format!("allocation=\"{}\"", allocation_id);
         get_value(&self.unaggregated_fees, &key)
     }
-
-    pub fn trigger_value_by_sender(&self, sender: &str) -> f64 {
-        let key = format!("sender=\"{}\"", sender);
-        get_value(&self.trigger_value, &key)
-    }
 }
 
 pub struct MetricsChecker {
