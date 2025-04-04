@@ -13,8 +13,8 @@ use thegraph_core::alloy::{
     signers::local::{MnemonicBuilder, PrivateKeySigner},
 };
 
-use crate::metrics::MetricsChecker;
-use crate::receipt::create_tap_receipt;
+use crate::create_tap_receipt;
+use crate::MetricsChecker;
 
 // TODO: Would be nice to read this values from:
 // contrib/tap-agent/config.toml
@@ -41,15 +41,18 @@ const MAX_RECEIPT_VALUE: u128 = GRT_BASE / 1_000;
 // in the tap-agent setting + 10 seconds
 const WAIT_TIME_BATCHES: u64 = 40;
 
-// Bellow constant is to define the number of receipts
-const NUM_RECEIPTS: u32 = 20;
+// Calculate required receipts to trigger RAV
+// With MAX_RECEIPT_VALUE = GRT_BASE / 1_000 (0.001 GRT)
+// And trigger_value = 0.002 GRT
+// We need at least 3 receipts to trigger a RAV (0.003 GRT > 0.002 GRT)
+const NUM_RECEIPTS: u32 = 3;
 
 // Send receipts in batches with a delay in between
 // to ensure some receipts get outside the timestamp buffer
 const BATCHES: u32 = 2;
 const MAX_TRIGGERS: usize = 100;
 
-pub async fn test_rav_generation() -> Result<()> {
+pub async fn tap_rav_test() -> Result<()> {
     // Setup wallet using your MnemonicBuilder
     let index: u32 = 0;
     let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
@@ -152,7 +155,10 @@ pub async fn test_rav_generation() -> Result<()> {
                 total_successful += 1;
                 println!("Receipt {} of batch {} sent successfully", i + 1, batch + 1);
             } else {
-                println!("Failed to send receipt: {}", response.status());
+                return Err(anyhow::anyhow!(
+                    "Failed to send receipt: {}",
+                    response.status()
+                ));
             }
 
             // Small pause between receipts within batch
@@ -171,7 +177,7 @@ pub async fn test_rav_generation() -> Result<()> {
         // Wait between batches - long enough for first batch to exit buffer
         if batch < 1 {
             println!("Waiting for buffer period + 5s...");
-            tokio::time::sleep(Duration::from_secs(WAIT_TIME_BATCHES + 5)).await;
+            tokio::time::sleep(Duration::from_secs(WAIT_TIME_BATCHES)).await;
         }
     }
 
@@ -181,7 +187,7 @@ pub async fn test_rav_generation() -> Result<()> {
     for i in 0..MAX_TRIGGERS {
         println!("Sending trigger receipt {}/{}...", i + 1, MAX_TRIGGERS);
 
-        let trigger_receipt = crate::create_tap_receipt(
+        let trigger_receipt = create_tap_receipt(
             MAX_RECEIPT_VALUE,
             &allocation_id,
             TAP_ESCROW_CONTRACT,
@@ -213,7 +219,7 @@ pub async fn test_rav_generation() -> Result<()> {
         }
 
         // Check after each trigger
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         let current_metrics = metrics_checker.get_current_metrics().await?;
         let current_ravs_created =

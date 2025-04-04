@@ -2,18 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
+use rav_tests::tap_rav_test;
 
 mod metrics;
-mod receipt;
 mod rav_tests;
-
-use rav_tests::test_rav_generation;
+mod receipt;
+use metrics::MetricsChecker;
 use receipt::create_tap_receipt;
-
 
 #[tokio::main]
 async fn main() -> Result<()> {
-
     // Run the TAP receipt test
-    test_rav_generation().await
+    tap_rav_test().await
 }
