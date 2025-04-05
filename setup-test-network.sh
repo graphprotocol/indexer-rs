@@ -74,10 +74,6 @@ docker compose up -d graph-contracts
 # Wait for contracts to be deployed
 timeout 300 bash -c 'until docker ps -a | grep graph-contracts | grep -q "Exited (0)"; do sleep 5; done'
 
-# Before checking the smart contract, ensure they make it to the local network
-# by mining some blocks
-./scripts/mine-block.sh 100 2>/dev/null || true
-
 # Verify the contracts have code
 graph_token_address=$(jq -r '."1337".GraphToken.address' contracts.json)
 controller_address=$(jq -r '."1337".Controller.address' contracts.json)
@@ -110,10 +106,6 @@ docker compose up -d indexer-agent
 echo "Waiting for indexer-agent to be healthy..."
 timeout 300 bash -c 'until docker ps | grep indexer-agent | grep -q healthy; do sleep 5; done'
 
-docker compose up -d indexer-service
-echo "Waiting for indexer-service to be healthy..."
-timeout 300 bash -c 'until docker ps | grep indexer-service | grep -q healthy; do sleep 5; done'
-
 echo "Starting subgraph deployment..."
 docker compose up --build -d subgraph-deploy
 sleep 10 # Give time for subgraphs to deploy
@@ -121,10 +113,6 @@ sleep 10 # Give time for subgraphs to deploy
 echo "Starting TAP services..."
 echo "Starting tap-aggregator..."
 docker compose up -d tap-aggregator
-sleep 10
-
-echo "Starting tap-agent..."
-docker compose up -d tap-agent
 sleep 10
 
 # tap-escrow-manager requires subgraph-deploy
@@ -163,16 +151,17 @@ networks:
 EOF
 
 # Build the base image for development(base image:latest)
+# This is used for hot reloading
 echo "Building base Docker image for development..."
 docker build -t indexer-base:latest -f base/Dockerfile ..
 
 # Check to stop any previous instance of indexer-service
-# and tap-service
+# and tap-agent
 echo "Checking for existing conflicting services..."
-if docker ps | grep -q "indexer-service\|tap-agent"; then
+if docker ps -a | grep -q "indexer-service\|tap-agent\|gateway"; then
     echo "Stopping existing indexer-service or tap-agent containers..."
-    docker stop indexer-service tap-agent 2>/dev/null || true
-    docker rm indexer-service tap-agent 2>/dev/null || true
+    docker stop indexer-service tap-agent gateway 2>/dev/null || true
+    docker rm indexer-service tap-agent gateway 2>/dev/null || true
 fi
 
 # Run the custom services using the override file
@@ -181,6 +170,10 @@ rm docker-compose.override.yml
 
 timeout 30 bash -c 'until docker ps | grep indexer | grep -q healthy; do sleep 5; done'
 timeout 30 bash -c 'until docker ps | grep tap-agent | grep -q healthy; do sleep 5; done'
+
+# Mine some blocks
+# This is important for the gateway
+(./local-network/scripts/mine-block.sh 10) 2>/dev/null || true
 
 echo "Building gateway image..."
 docker build -t local-gateway:latest ./local-network/gateway
@@ -195,12 +188,7 @@ docker run -d --name gateway \
     --restart on-failure:3 \
     local-gateway:latest
 
-echo "Waiting for gateway to be healthy..."
 echo "Waiting for gateway to be available..."
-
-# Mine some blocks
-# This is important for the gateway
-./local-network/scripts/mine-block.sh 100 2>/dev/null || true
 
 # Ensure gateway is ready before testing
 timeout 300 bash -c 'until curl -f http://localhost:7700/ > /dev/null 2>&1; do echo "Waiting for gateway service..."; sleep 5; done'
