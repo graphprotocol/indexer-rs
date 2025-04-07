@@ -4123,6 +4123,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bip39",
+ "indexer-receipt",
+ "rand 0.8.5",
+ "reqwest 0.12.13",
+ "serde",
+ "serde_json",
+ "tap_core",
+ "tap_graph",
+ "thegraph-core",
+ "tokio",
+]
+
+[[package]]
 name = "interprocess"
 version = "2.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

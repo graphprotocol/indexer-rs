@@ -11,8 +11,8 @@ members = [
     "crates/tap-agent",
     "crates/test-assets",
     "crates/watcher",
+    "integration-tests",
 ]
-exclude = ["rav_e2e"]
 resolver = "2"
 
 [profile.dev.package."*"]

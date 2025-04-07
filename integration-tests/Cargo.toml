@@ -1,0 +1,25 @@
+[package]
+name = "integration-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+reqwest = { workspace = true, features = ["json"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tap_core = { workspace = true }
+tap_graph = { workspace = true, features = ["v2"] }
+thegraph-core = { workspace = true, features = [
+    "alloy-eip712",
+    "alloy-sol-types",
+    "alloy-signers",
+    "alloy-signer-local",
+    "serde",
+] }
+bip39 = { workspace = true }
+
+rand = "0.8"
+
+indexer-receipt = { path = "../crates/indexer-receipt" }
