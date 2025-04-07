@@ -48,7 +48,7 @@ jobs:
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@65101d47ea8028ed0c98a1cdea8dd9182e9b5133 # v0.0.8
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
       - name: Install protobuf compiler
         run: apt-get update && apt-get install protobuf-compiler -y
@@ -78,7 +78,7 @@ jobs:
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@65101d47ea8028ed0c98a1cdea8dd9182e9b5133 # v0.0.8
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
       - name: Install protobuf compiler
         run: apt-get update && apt-get install protobuf-compiler -y
@@ -124,7 +124,7 @@ jobs:
       - name: Install protobuf compiler
         run: apt-get update && apt-get install protobuf-compiler -y
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@65101d47ea8028ed0c98a1cdea8dd9182e9b5133 # v0.0.8
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -176,7 +176,7 @@ jobs:
       - name: Install protobuf compiler
         run: apt-get update && apt-get install protobuf-compiler -y
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@65101d47ea8028ed0c98a1cdea8dd9182e9b5133 # v0.0.8
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
       - name: Install sqlx
         run: cargo install sqlx-cli --no-default-features --features postgres
