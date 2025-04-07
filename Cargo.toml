@@ -11,6 +11,7 @@ members = [
     "crates/tap-agent",
     "crates/test-assets",
     "crates/watcher",
+    "integration-tests",
 ]
 resolver = "2"
 

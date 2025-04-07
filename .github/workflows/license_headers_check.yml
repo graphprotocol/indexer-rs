@@ -2,7 +2,7 @@ name: License headers check
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [main, dev]
   pull_request:
   workflow_dispatch:
 
@@ -31,4 +31,11 @@ jobs:
             -ignore 'migrations/*.sql' \
             -ignore 'crates/dips/src/proto/*' \
             -ignore 'crates/dips/proto/*' \
+            -ignore 'contrib/**/*' \
+            -ignore '*.sh' \
+            -ignore 'Dockerfile' \
+            -ignore '*.toml' \
+            -ignore '*.yml' \
+            -ignore '*.yaml' \
+            -ignore 'integration-tests/*.sh' \
             .

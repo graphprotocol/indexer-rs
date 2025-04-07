@@ -46,3 +46,29 @@ psql-down:
 migrate:
      sqlx migrate run --database-url postgresql://postgres:postgres@127.0.0.1:5432
 
+
+# Development workflow commands
+# -----------------------------
+
+# Full setup for testing 
+# using a local network
+setup:
+    ./setup-test-network.sh
+
+# Rebuild binaries and restart services after code changes
+reload:
+    ./dev-reload.sh
+
+# Watch log output from services
+logs:
+    @cd contrib && docker compose -f docker-compose.dev.yml logs -f
+
+# Stop all services
+down:
+    @cd contrib && docker compose -f docker-compose.dev.yml down
+    @cd contrib/local-network && docker compose down
+    docker rm -f indexer-service tap-agent gateway block-oracle indexer-agent graph-node redpanda tap-aggregator tap-escrow-manager 2>/dev/null || true
+
+test-local:
+    @cd integration-tests && ./fund_escrow.sh
+    @cd integration-tests && cargo run 
