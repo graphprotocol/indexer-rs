@@ -52,7 +52,8 @@ const NUM_RECEIPTS: u32 = 3;
 const BATCHES: u32 = 2;
 const MAX_TRIGGERS: usize = 100;
 
-pub async fn tap_rav_test() -> Result<()> {
+// Function to test the tap RAV generation
+pub async fn test_tap_rav_v1() -> Result<()> {
     // Setup wallet using your MnemonicBuilder
     let index: u32 = 0;
     let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
@@ -61,9 +62,6 @@ pub async fn tap_rav_test() -> Result<()> {
         .unwrap()
         .build()
         .unwrap();
-
-    let sender_address = wallet.address();
-    println!("Using sender address: {}", sender_address);
 
     // Setup HTTP client
     let http_client = Arc::new(Client::new());
@@ -87,7 +85,6 @@ pub async fn tap_rav_test() -> Result<()> {
 
     // Try to find a valid allocation
     let response_text = response.text().await?;
-    println!("Network subgraph response: {}", response_text);
 
     let json_value = serde_json::from_str::<serde_json::Value>(&response_text)?;
     let allocation_id = json_value
