@@ -44,3 +44,6 @@ trigger_value_divisor = 500_000
 
 [tap.sender_aggregator_endpoints]
 "ACCOUNT0_ADDRESS_PLACEHOLDER" = "http://tap-aggregator:7610"
+
+[horizon]
+enabled = false

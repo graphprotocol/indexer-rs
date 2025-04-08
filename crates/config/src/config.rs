@@ -42,6 +42,7 @@ pub struct Config {
     pub service: ServiceConfig,
     pub tap: TapConfig,
     pub dips: Option<DipsConfig>,
+    pub horizon: HorizonConfig,
 }
 
 // Newtype wrapping Config to be able use serde_ignored with Figment
@@ -443,6 +444,15 @@ pub struct RavRequestConfig {
     pub request_timeout_secs: Duration,
     /// how many receipts are sent in a single rav requests
     pub max_receipts_per_request: u64,
+}
+
+/// Configuration for the horizon
+/// standard
+#[derive(Debug, Default, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct HorizonConfig {
+    /// Whether the horizon is enabled or not
+    pub enabled: bool,
 }
 
 #[cfg(test)]
