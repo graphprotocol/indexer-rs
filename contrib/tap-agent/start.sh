@@ -28,11 +28,11 @@ fi
 
 echo "Postgres is ready!"
 
-echo "Ensuring database tables exist..."
-for migration_file in $(find /opt/migrations -name "*.up.sql" | sort); do
-    echo "Applying migration if needed: $(basename $migration_file)"
-    psql -h postgres -U postgres indexer_components_1 -f $migration_file 2>/dev/null || true
-done
+# echo "Ensuring database tables exist..."
+# for migration_file in $(find /opt/migrations -name "*.up.sql" | sort); do
+#     echo "Applying migration if needed: $(basename $migration_file)"
+#     psql -h postgres -U postgres indexer_components_1 -f $migration_file 2>/dev/null || true
+# done
 echo "Database setup completed."
 
 # Wait for indexer-service to be ready with timeout
