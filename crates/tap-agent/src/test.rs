@@ -91,6 +91,7 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
         escrow_polling_interval: ESCROW_POLLING_INTERVAL,
         tap_sender_timeout: Duration::from_secs(63),
         trusted_senders: HashSet::new(),
+        horizon_enabled: true,
     }))
 }
 
@@ -127,6 +128,7 @@ pub async fn create_sender_account(
         escrow_polling_interval: Duration::default(),
         tap_sender_timeout: TAP_SENDER_TIMEOUT,
         trusted_senders,
+        horizon_enabled: false,
     }));
 
     let network_subgraph = Box::leak(Box::new(

@@ -27,3 +27,6 @@ trigger_value_divisor = 10
 timestamp_buffer_secs = 60
 request_timeout_secs = 5
 max_receipts_per_request = 10000
+
+[horizon]
+enabled = false

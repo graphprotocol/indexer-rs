@@ -19,14 +19,6 @@ until pg_isready -h postgres -U postgres -d indexer_components_1; do
     sleep 2
 done
 
-echo "Applying database migrations..."
-# Get all the migration UP files and sort them by name
-for migration_file in $(find /opt/migrations -name "*.up.sql" | sort); do
-    echo "Applying migration: $(basename $migration_file)"
-    psql -h postgres -U postgres postgres -f $migration_file
-done
-echo "Database migrations completed."
-
 # Get network subgraph deployment ID
 NETWORK_DEPLOYMENT=$(curl -s "http://graph-node:8000/subgraphs/name/graph-network" \
     -H 'content-type: application/json' \

@@ -168,3 +168,6 @@ hardhat = "100"
 
 [dips.additional_networks]
 "eip155:1337" = "hardhat"
+
+[horizon]
+enabled = false

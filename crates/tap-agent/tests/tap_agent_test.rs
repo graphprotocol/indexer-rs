@@ -92,6 +92,7 @@ pub async fn start_agent(
         escrow_polling_interval: Duration::from_secs(10),
         tap_sender_timeout: Duration::from_secs(30),
         trusted_senders: HashSet::new(),
+        horizon_enabled: false,
     }));
 
     let args = SenderAccountsManagerArgs {

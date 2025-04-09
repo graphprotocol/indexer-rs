@@ -400,6 +400,9 @@ pub struct SenderAccountConfig {
     /// Senders that are allowed to spend up to `max_amount_willing_to_lose_grt`
     /// over the escrow balance
     pub trusted_senders: HashSet<Address>,
+
+    #[doc(hidden)]
+    pub horizon_enabled: bool,
 }
 
 impl SenderAccountConfig {
@@ -415,6 +418,7 @@ impl SenderAccountConfig {
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
             tap_sender_timeout: config.tap.sender_timeout_secs,
             trusted_senders: config.tap.trusted_senders.clone(),
+            horizon_enabled: config.horizon.enabled,
         }
     }
 }
@@ -623,6 +627,13 @@ impl State {
             sender_balance = self.sender_balance.to_u128(),
             "Denying sender."
         );
+        // Check if this is horizon like sender and if it is actually enable,
+        // otherwise just ignore.
+        // FIXME: This should be removed once full horizon support
+        // is implemented!
+        if matches!(self.sender_type, SenderType::Horizon) && !self.config.horizon_enabled {
+            return;
+        }
 
         SenderAccount::deny_sender(self.sender_type, &self.pgpool, self.sender).await;
         self.denied = true;
@@ -654,16 +665,18 @@ impl State {
                 .expect("Should not fail to delete from denylist");
             }
             SenderType::Horizon => {
-                sqlx::query!(
-                    r#"
+                if self.config.horizon_enabled {
+                    sqlx::query!(
+                        r#"
                     DELETE FROM tap_horizon_denylist
                     WHERE sender_address = $1
                 "#,
-                    self.sender.encode_hex(),
-                )
-                .execute(&self.pgpool)
-                .await
-                .expect("Should not fail to delete from denylist");
+                        self.sender.encode_hex(),
+                    )
+                    .execute(&self.pgpool)
+                    .await
+                    .expect("Should not fail to delete from horizon denylist");
+                }
             }
         }
         self.denied = false;
@@ -798,20 +811,26 @@ impl Actor for SenderAccount {
                     .map(|record| (record.allocation_id, record.value_aggregate))
                     .collect(),
                     // Get all ravs from v2 table
-                    SenderType::Horizon => sqlx::query!(
-                        r#"
+                    SenderType::Horizon => {
+                        if config.horizon_enabled {
+                            sqlx::query!(
+                                r#"
                                     SELECT allocation_id, value_aggregate
                                     FROM tap_horizon_ravs
                                     WHERE payer = $1 AND last AND NOT final;
                                 "#,
-                        sender_id.encode_hex(),
-                    )
-                    .fetch_all(&pgpool)
-                    .await
-                    .expect("Should not fail to fetch from scalar_tap_ravs")
-                    .into_iter()
-                    .map(|record| (record.allocation_id, record.value_aggregate))
-                    .collect(),
+                                sender_id.encode_hex(),
+                            )
+                            .fetch_all(&pgpool)
+                            .await
+                            .expect("Should not fail to fetch from \"horizon\" scalar_tap_ravs")
+                            .into_iter()
+                            .map(|record| (record.allocation_id, record.value_aggregate))
+                            .collect()
+                        } else {
+                            vec![]
+                        }
+                    }
                 };
 
                 // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
@@ -845,7 +864,11 @@ impl Actor for SenderAccount {
                     // TODO Implement query for unfinalized v2 transactions
                     // Depends on Escrow Subgraph Schema
                     SenderType::Horizon => {
-                        todo!()
+                        if config.horizon_enabled {
+                            todo!("Implement query for unfinalized v2 transactions, It depends on Escrow Subgraph Schema")
+                        }
+                        // if we have any problems, we don't want to filter out
+                        vec![]
                     }
                 };
 
@@ -896,20 +919,28 @@ impl Actor for SenderAccount {
             .denied
             .expect("Deny status cannot be null"),
             // Get deny status from the tap horizon table
-            SenderType::Horizon => sqlx::query!(
-                r#"
+            SenderType::Horizon => {
+                if config.horizon_enabled {
+                    sqlx::query!(
+                        r#"
                 SELECT EXISTS (
                     SELECT 1
                     FROM tap_horizon_denylist
                     WHERE sender_address = $1
                 ) as denied
             "#,
-                sender_id.encode_hex(),
-            )
-            .fetch_one(&pgpool)
-            .await?
-            .denied
-            .expect("Deny status cannot be null"),
+                        sender_id.encode_hex(),
+                    )
+                    .fetch_one(&pgpool)
+                    .await?
+                    .denied
+                    .expect("Deny status cannot be null")
+                } else {
+                    // If horizon is enabled,
+                    // just ignore this sender
+                    false
+                }
+            }
         };
 
         let sender_balance = escrow_accounts
@@ -1419,7 +1450,7 @@ impl SenderAccount {
         )
         .execute(pool)
         .await
-        .expect("Should not fail to insert into denylist");
+        .expect("Should not fail to insert into \"horizon\" denylist");
     }
 }
 

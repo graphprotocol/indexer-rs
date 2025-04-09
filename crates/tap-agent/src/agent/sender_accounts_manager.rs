@@ -264,12 +264,17 @@ impl Actor for SenderAccountsManager {
             .await;
 
         // v2
-        let sender_allocation_v2 = select! {
-            sender_allocation = state.get_pending_sender_allocation_id_v2() => sender_allocation,
-            _ = tokio::time::sleep(state.config.tap_sender_timeout) => {
-                panic!("Timeout while getting pending sender allocation ids");
+        let sender_allocation_v2 = if state.config.horizon_enabled {
+            select! {
+                sender_allocation = state.get_pending_sender_allocation_id_v2() => sender_allocation,
+                _ = tokio::time::sleep(state.config.tap_sender_timeout) => {
+                    panic!("Timeout while getting pending sender allocation ids");
+                }
             }
+        } else {
+            HashMap::new()
         };
+
         state.sender_ids_v2.extend(sender_allocation_v2.keys());
         stream::iter(sender_allocation_v2)
             .map(|(sender_id, allocation_ids)| {
@@ -298,19 +303,24 @@ impl Actor for SenderAccountsManager {
 
         // Start the new_receipts_watcher task that will consume from the `pglistener`
         // after starting all senders
-        state.new_receipts_watcher_handle_v2 = Some(tokio::spawn(
-            new_receipts_watcher()
-                .actor_cell(myself.get_cell())
-                .pglistener(pglistener_v2)
-                .escrow_accounts_rx(escrow_accounts_v2)
-                .sender_type(SenderType::Horizon)
-                .maybe_prefix(prefix)
-                .call(),
-        ));
+        state.new_receipts_watcher_handle_v2 = None;
+
+        if state.config.horizon_enabled {
+            state.new_receipts_watcher_handle_v2 = Some(tokio::spawn(
+                new_receipts_watcher()
+                    .actor_cell(myself.get_cell())
+                    .pglistener(pglistener_v2)
+                    .escrow_accounts_rx(escrow_accounts_v2)
+                    .sender_type(SenderType::Horizon)
+                    .maybe_prefix(prefix)
+                    .call(),
+            ));
+        }
 
         tracing::info!("SenderAccountManager created!");
         Ok(state)
     }
+
     async fn post_stop(
         &self,
         _: ActorRef<Self::Msg>,
