@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.3.0...indexer-config-v1.3.1) (2025-04-10)
+
+
+### Bug Fixes
+
+* **config:** add missing config field ([26a6f56](https://github.com/graphprotocol/indexer-rs/commit/26a6f5680a6bfefb9ae82e3d08c2562179780a10))
+* validate dips pricing ([#675](https://github.com/graphprotocol/indexer-rs/issues/675)) ([3d2728d](https://github.com/graphprotocol/indexer-rs/commit/3d2728da9f10a61815cc284ecb0f572d36394aee))
+
 ## [1.3.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.2.2...indexer-config-v1.3.0) (2025-02-12)
 
 
