@@ -6,6 +6,14 @@
 
 
 
+## [1.5.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.0...indexer-service-rs-v1.5.1) (2025-04-10)
+
+
+### Bug Fixes
+
+* use the correct eip712 domain for each part of dips ([#667](https://github.com/graphprotocol/indexer-rs/issues/667)) ([ebe950b](https://github.com/graphprotocol/indexer-rs/commit/ebe950b7397a2844117f077df7709786cf3bb404))
+* validate dips pricing ([#675](https://github.com/graphprotocol/indexer-rs/issues/675)) ([3d2728d](https://github.com/graphprotocol/indexer-rs/commit/3d2728da9f10a61815cc284ecb0f572d36394aee))
+
 ## [1.5.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.4.2...indexer-service-rs-v1.5.0) (2025-03-17)
 
 
