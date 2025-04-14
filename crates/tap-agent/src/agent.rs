@@ -174,7 +174,21 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     .await
     .expect("Error creating escrow_accounts channel");
 
-    let config = Box::leak(Box::new(SenderAccountConfig::from_config(&CONFIG)));
+    let config = Box::leak(Box::new({
+        let mut config = SenderAccountConfig::from_config(&CONFIG);
+        // FIXME: This is a temporary measure to disable
+        // Horizon, even if enable through our configuration file.
+        // Force disable Horizon support
+        config.horizon_enabled = false;
+        // Add a warning log so operators know their setting was ignore
+        if CONFIG.horizon.enabled {
+            tracing::warn!(
+            "Horizon support is configured as enabled but has been forcibly disabled as it's not fully supported yet. \
+            This is a temporary measure until Horizon support is stable."
+        );
+        }
+        config
+    }));
 
     let args = SenderAccountsManagerArgs {
         config,
