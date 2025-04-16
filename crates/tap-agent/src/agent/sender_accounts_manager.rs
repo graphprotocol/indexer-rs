@@ -465,7 +465,7 @@ impl Actor for SenderAccountsManager {
                         let mut sender_allocation = select! {
                             sender_allocation = state.get_pending_sender_allocation_id_v1() => sender_allocation,
                             _ = tokio::time::sleep(state.config.tap_sender_timeout) => {
-                                tracing::error!("Timeout while getting pending sender allocation ids");
+                                tracing::error!(version = "V1", "Timeout while getting pending sender allocation ids");
                                 return Ok(());
                             }
                         };
@@ -483,7 +483,7 @@ impl Actor for SenderAccountsManager {
                         let mut sender_allocation = select! {
                             sender_allocation = state.get_pending_sender_allocation_id_v2() => sender_allocation,
                             _ = tokio::time::sleep(state.config.tap_sender_timeout) => {
-                                tracing::error!("Timeout while getting pending V2 sender allocation ids");
+                                tracing::error!(version = "V2", "Timeout while getting pending sender allocation ids");
                                 return Ok(());
                             }
                         };
@@ -653,25 +653,29 @@ impl State {
         .expect("should be able to fetch unfinalized RAVs V1 from the database");
 
         for row in nonfinal_ravs_sender_allocations_in_db {
-            let allocation_ids = row
-                .allocation_ids
-                .expect("all RAVs V1 should have an allocation_id")
-                .iter()
-                .map(|allocation_id| {
-                    AllocationId::Legacy(
-                        Address::from_str(allocation_id)
-                            .expect("allocation_id should be a valid address"),
-                    )
-                })
-                .collect::<HashSet<_>>();
-            let sender_id = Address::from_str(&row.sender_address)
-                .expect("sender_address should be a valid address");
+            // Check if allocation_ids is Some before processing,
+            // as ARRAY_AGG with FILTER can return NULL
+            if let Some(allocation_id_strings) = row.allocation_ids {
+                let allocation_ids = allocation_id_strings
+                    .iter()
+                    .map(|allocation_id| {
+                        AllocationId::Legacy(
+                            Address::from_str(allocation_id)
+                                .expect("allocation_id should be a valid address"),
+                        )
+                    })
+                    .collect::<HashSet<_>>();
 
-            // Accumulate allocations for the sender
-            unfinalized_sender_allocations_map
-                .entry(sender_id)
-                .or_default()
-                .extend(allocation_ids);
+                if !allocation_ids.is_empty() {
+                    let sender_id = Address::from_str(&row.sender_address)
+                        .expect("sender_address should be a valid address");
+
+                    unfinalized_sender_allocations_map
+                        .entry(sender_id)
+                        .or_default()
+                        .extend(allocation_ids);
+                }
+            }
         }
         unfinalized_sender_allocations_map
     }
@@ -746,25 +750,29 @@ impl State {
         .expect("should be able to fetch unfinalized V2 RAVs from the database");
 
         for row in nonfinal_ravs_sender_allocations_in_db {
-            let allocation_ids = row
-                .allocation_ids
-                .expect("all RAVs V2 should have an allocation_id")
-                .iter()
-                .map(|allocation_id| {
-                    AllocationId::Legacy(
-                        Address::from_str(allocation_id)
-                            .expect("allocation_id should be a valid address"),
-                    )
-                })
-                .collect::<HashSet<_>>();
-            let sender_id =
-                Address::from_str(&row.payer).expect("sender_address should be a valid address");
+            // Check if allocation_ids is Some before processing,
+            // as ARRAY_AGG with FILTER can return NULL
+            if let Some(allocation_id_strings) = row.allocation_ids {
+                let allocation_ids = allocation_id_strings // Use the unwrapped Vec<String>
+                    .iter()
+                    .map(|allocation_id| {
+                        AllocationId::Legacy(
+                            Address::from_str(allocation_id)
+                                .expect("allocation_id should be a valid address"),
+                        )
+                    })
+                    .collect::<HashSet<_>>();
 
-            // Accumulate allocations for the sender
-            unfinalized_sender_allocations_map
-                .entry(sender_id)
-                .or_default()
-                .extend(allocation_ids);
+                if !allocation_ids.is_empty() {
+                    let sender_id = Address::from_str(&row.payer)
+                        .expect("sender_address should be a valid address");
+
+                    unfinalized_sender_allocations_map
+                        .entry(sender_id)
+                        .or_default()
+                        .extend(allocation_ids);
+                }
+            }
         }
         unfinalized_sender_allocations_map
     }
