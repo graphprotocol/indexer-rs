@@ -112,7 +112,7 @@ impl InnerContext {
         .execute(&self.pgpool)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to store receipt: {}", e);
+            tracing::error!("Failed to store V1 receipt: {}", e);
             anyhow!(e)
         })?;
 
@@ -180,7 +180,7 @@ impl InnerContext {
         .execute(&self.pgpool)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to store receipt: {}", e);
+            tracing::error!("Failed to store V2 receipt: {}", e);
             anyhow!(e)
         })?;
 
