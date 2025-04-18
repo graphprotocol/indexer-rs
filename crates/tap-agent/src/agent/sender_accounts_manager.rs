@@ -679,7 +679,6 @@ impl State {
             } else {
                 // Log the case when allocation_ids is NULL
                 tracing::warn!(
-                    sender_address = %row.sender_address,
                     "Found NULL allocation_ids. This may indicate all RAVs are finalized."
                 );
             }
@@ -783,7 +782,6 @@ impl State {
             } else {
                 // Log the case when allocation_ids is NULL
                 tracing::warn!(
-                    sender_address = %row.sender_address,
                     "Found NULL allocation_ids. This may indicate all RAVs are finalized."
                 );
             }
