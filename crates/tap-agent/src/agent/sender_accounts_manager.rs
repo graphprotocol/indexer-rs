@@ -654,7 +654,8 @@ impl State {
 
         for row in nonfinal_ravs_sender_allocations_in_db {
             // Check if allocation_ids is Some before processing,
-            // as ARRAY_AGG with FILTER can return NULL
+            // as ARRAY_AGG with FILTER returns NULL
+            // instead of an empty array
             if let Some(allocation_id_strings) = row.allocation_ids {
                 let allocation_ids = allocation_id_strings
                     .iter()
@@ -675,6 +676,12 @@ impl State {
                         .or_default()
                         .extend(allocation_ids);
                 }
+            } else {
+                // Log the case when allocation_ids is NULL
+                tracing::warn!(
+                    sender_address = %row.sender_address,
+                    "Found NULL allocation_ids. This may indicate all RAVs are finalized."
+                );
             }
         }
         unfinalized_sender_allocations_map
@@ -751,9 +758,10 @@ impl State {
 
         for row in nonfinal_ravs_sender_allocations_in_db {
             // Check if allocation_ids is Some before processing,
-            // as ARRAY_AGG with FILTER can return NULL
+            // as ARRAY_AGG with FILTER returns NULL instead of an
+            // empty array
             if let Some(allocation_id_strings) = row.allocation_ids {
-                let allocation_ids = allocation_id_strings // Use the unwrapped Vec<String>
+                let allocation_ids = allocation_id_strings
                     .iter()
                     .map(|allocation_id| {
                         AllocationId::Legacy(
@@ -772,6 +780,12 @@ impl State {
                         .or_default()
                         .extend(allocation_ids);
                 }
+            } else {
+                // Log the case when allocation_ids is NULL
+                tracing::warn!(
+                    sender_address = %row.sender_address,
+                    "Found NULL allocation_ids. This may indicate all RAVs are finalized."
+                );
             }
         }
         unfinalized_sender_allocations_map
