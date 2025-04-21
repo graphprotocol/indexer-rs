@@ -1,4 +1,4 @@
-FROM rust:1.81-bookworm as build
+FROM rust:1.86-bookworm as build
 
 WORKDIR /root
 COPY . .
