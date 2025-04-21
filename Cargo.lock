@@ -364,7 +364,7 @@ dependencies = [
  "lru",
  "parking_lot",
  "pin-project 1.1.10",
- "reqwest 0.12.13",
+ "reqwest 0.12.15",
  "schnellru",
  "serde",
  "serde_json",
@@ -431,7 +431,7 @@ dependencies = [
  "alloy-transport-ws",
  "futures",
  "pin-project 1.1.10",
- "reqwest 0.12.13",
+ "reqwest 0.12.15",
  "serde",
  "serde_json",
  "tokio",
@@ -705,7 +705,7 @@ checksum = "6e1509599021330a31c4a6816b655e34bf67acb1cc03c564e09fd8754ff6c5de"
 dependencies = [
  "alloy-json-rpc",
  "alloy-transport",
- "reqwest 0.12.13",
+ "reqwest 0.12.15",
  "serde_json",
  "tower 0.5.2",
  "tracing",
@@ -2736,7 +2736,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3054,7 +3054,7 @@ dependencies = [
  "once_cell",
  "prost",
  "prost-types",
- "reqwest 0.12.13",
+ "reqwest 0.12.15",
  "secret-vault-value",
  "serde",
  "serde_json",
@@ -3922,7 +3922,7 @@ dependencies = [
  "indexer-attestation",
  "indexer-query",
  "indexer-watcher",
- "reqwest 0.12.13",
+ "reqwest 0.12.15",
  "rstest 0.24.0",
  "serde",
  "serde_json",
@@ -3993,7 +3993,7 @@ dependencies = [
  "pin-project 1.1.10",
  "prometheus",
  "prost",
- "reqwest 0.12.13",
+ "reqwest 0.12.15",
  "rstest 0.23.0",
  "serde",
  "serde_json",
@@ -4049,7 +4049,7 @@ dependencies = [
  "prometheus",
  "ractor",
  "rand 0.8.5",
- "reqwest 0.12.13",
+ "reqwest 0.12.15",
  "rstest 0.24.0",
  "ruint",
  "serde",
@@ -4130,7 +4130,7 @@ dependencies = [
  "bip39",
  "indexer-receipt",
  "rand 0.8.5",
- "reqwest 0.12.13",
+ "reqwest 0.12.15",
  "serde",
  "serde_json",
  "tap_core",
@@ -5791,7 +5791,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.8",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6071,9 +6071,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.13"
+version = "0.12.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "389a89e494bbc88bebf30e23da98742c843863a16a352647716116aa71fae80a"
+checksum = "d19c46a6fdd48bc4dab94b6103fccc55d34c67cc0ad04653aad4ea2a07cd7bbb"
 dependencies = [
  "async-compression",
  "base64 0.22.1",
@@ -6471,7 +6471,7 @@ dependencies = [
  "security-framework 3.0.1",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7555,7 +7555,7 @@ dependencies = [
  "fastrand",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7610,7 +7610,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "reqwest 0.12.13",
+ "reqwest 0.12.15",
  "syn 2.0.100",
  "sysinfo",
  "uzers",
@@ -7637,7 +7637,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80bff1bad9a7c3b210876b5601460cab05d8fa6e8f52481472427ed18bc33975"
 dependencies = [
  "async-trait",
- "reqwest 0.12.13",
+ "reqwest 0.12.15",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
