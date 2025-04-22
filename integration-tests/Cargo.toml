@@ -20,6 +20,6 @@ thegraph-core = { workspace = true, features = [
 ] }
 bip39 = { workspace = true }
 
-rand = "0.8"
+rand.workspace = true
 
 indexer-receipt = { path = "../crates/indexer-receipt" }
