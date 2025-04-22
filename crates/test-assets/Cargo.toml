@@ -5,12 +5,12 @@ edition = "2021"
 
 [dependencies]
 indexer-allocation = { path = "../allocation" }
-bip39 = "2.0.0"
+bip39.workspace = true
 tap_core.workspace = true
 tap_graph.workspace = true
 thegraph-core.workspace = true
 bon.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
-rstest = "0.24.0"
-stdext = "0.3.3"
+rstest.workspace = true
+stdext.workspace = true

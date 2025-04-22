@@ -65,17 +65,17 @@ graph-networks-registry.workspace = true
 
 
 [dev-dependencies]
-hex-literal = "0.4.1"
-test-assets = { path = "../test-assets" }
-sqlx = { workspace = true, features = ["migrate"] }
+futures.workspace = true
+hex-literal.workspace = true
+insta.workspace = true
 rstest.workspace = true
-tower-test = "0.4.0"
-tower-service = "0.3.3"
-tokio-test = "0.4.4"
+sqlx = { workspace = true, features = ["migrate"] }
+test-assets = { path = "../test-assets" }
+test-log = { workspace = true, features = ["trace"] }
+tower-test.workspace = true
+tower-service.workspace = true
+tokio-test.workspace = true
 wiremock.workspace = true
-insta = "1.41.1"
-test-log.workspace = true
-futures = "0.3.31"
 
 [build-dependencies]
-build-info-build = { version = "0.0.40", default-features = false }
+build-info-build.workspace = true

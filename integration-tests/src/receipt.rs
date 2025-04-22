@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use rand::Rng;
+use rand::{rng, Rng};
 use std::str::FromStr;
 use std::time::SystemTime;
 
@@ -16,7 +16,7 @@ pub fn create_tap_receipt(
     escrow_contract: &str,
     wallet: &PrivateKeySigner,
 ) -> Result<Eip712SignedMessage<Receipt>> {
-    let nonce = rand::thread_rng().gen::<u64>();
+    let nonce = rng().random::<u64>();
 
     // Get timestamp in nanoseconds
     let timestamp = SystemTime::now()

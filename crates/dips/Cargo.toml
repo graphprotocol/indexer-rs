@@ -23,7 +23,7 @@ graph-networks-registry.workspace = true
 bytes = { version = "1.10.0", optional = true }
 derivative = "2.2.0"
 
-futures = "0.3"
+futures.workspace = true
 http = "0.2"
 prost = { workspace = true, optional = true }
 ipfs-api-backend-hyper = { version = "0.6.0", features = [
@@ -37,7 +37,7 @@ tonic = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [dev-dependencies]
-rand = "0.9.0"
+rand.workspace = true
 indexer-watcher = { path = "../watcher" }
 
 [build-dependencies]
