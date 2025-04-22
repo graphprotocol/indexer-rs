@@ -6,6 +6,13 @@
 
 
 
+## [1.5.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.1...indexer-service-rs-v1.5.2) (2025-04-22)
+
+
+### Bug Fixes
+
+* Temporarily disable Horizon, enhance agent stability and logging ([#691](https://github.com/graphprotocol/indexer-rs/issues/691)) ([175ec75](https://github.com/graphprotocol/indexer-rs/commit/175ec75e5d675eb382a8fa3ced670aa28cdcb577))
+
 ## [1.5.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.0...indexer-service-rs-v1.5.1) (2025-04-10)
 
 
