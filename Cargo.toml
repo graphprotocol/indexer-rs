@@ -19,25 +19,33 @@ resolver = "2"
 opt-level = 3
 
 [workspace.dependencies]
-clap = "4.4.3"
+anyhow = { version = "1.0.72" }
+async-trait = "0.1.83"
 axum = { version = "0.7.9", default-features = false, features = [
     "tokio",
     "http1",
     "http2",
 ] }
-tokio = "1.40"
-prometheus = "0.13.3"
-anyhow = { version = "1.0.72" }
-thiserror = "1.0.49"
-async-trait = "0.1.83"
-eventuals = "0.6.7"
 base64 = "0.22.1"
+bigdecimal = "0.4.3"
+bip39 = "2.0.0"
+bon = "3.3"
+build-info = "0.0.40"
+clap = "4.4.3"
+eventuals = "0.6.7"
+graphql_client = { version = "0.14.0", features = ["reqwest-rustls"] }
+graph-networks-registry = "0.6.1"
+prometheus = "0.13.3"
+prost = "0.13.4"
+prost-types = "0.13.3"
 reqwest = { version = "0.12", features = [
     "charset",
     "h2",
 ], default-features = false }
+rstest = "0.23.0"
 serde = { version = "1.0.206", default-features = false }
 serde_json = "1.0.124"
+serde_yaml = "0.9.21"
 sqlx = { version = "0.8.2", features = [
     "bigdecimal",
     "chrono",
@@ -49,18 +57,10 @@ sqlx = { version = "0.8.2", features = [
     "rust_decimal",
     "uuid",
 ], default-features = false }
-uuid = { version = "1.11.0", features = ["v7"] }
-tracing = { version = "0.1.40", default-features = false }
-bigdecimal = "0.4.3"
-build-info = "0.0.40"
-tap_core = { version = "3.0.0", default-features = false }
 tap_aggregator = { version = "0.4.0", default-features = false }
+tap_core = { version = "3.0.0", default-features = false }
 tap_graph = { version = "0.2.0", features = ["v2"] }
-tracing-subscriber = { version = "0.3", features = [
-    "json",
-    "env-filter",
-    "ansi",
-], default-features = false }
+test-log = { version = "0.2.12", features = ["trace"] }
 thegraph-core = { version = "0.11.0", features = [
     "attestation",
     "alloy-eip712",
@@ -72,18 +72,18 @@ thegraph-core = { version = "0.11.0", features = [
     "serde",
 ] }
 thegraph-graphql-http = { version = "0.3.2", features = ["reqwest"] }
-graphql_client = { version = "0.14.0", features = ["reqwest-rustls"] }
-bip39 = "2.0.0"
-rstest = "0.23.0"
-wiremock = "0.6.1"
+thiserror = "1.0.49"
+tokio = "1.40"
 tonic = { version = "0.12.3", features = ["tls-roots", "gzip"] }
-prost = "0.13.4"
-prost-types = "0.13.3"
 tonic-build = "0.12.3"
-serde_yaml = "0.9.21"
-bon = "3.3"
-test-log = { version = "0.2.12", features = ["trace"] }
-graph-networks-registry = "0.6.1"
+tracing = { version = "0.1.40", default-features = false }
+tracing-subscriber = { version = "0.3", features = [
+    "json",
+    "env-filter",
+    "ansi",
+], default-features = false }
+uuid = { version = "1.11.0", features = ["v7"] }
+wiremock = "0.6.1"
 
 [patch.crates-io.tap_core]
 git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
