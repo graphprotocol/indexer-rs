@@ -28,8 +28,8 @@ This section lists the routes currently exposed by the Subgraph Service. Each ro
 
 | Route                                | Description                                                                                  |
 |--------------------------------------|----------------------------------------------------------------------------------------------|
-| `/subgraph/health/:id`               | Retrieves the health state of a specified subgraph using its ID.                             |
-| `/subgraphs/id/:id`                  | Routes a query to a specific subgraph using its ID. Requires a receipt or valid token.       |
+| `/subgraph/health/{id}`               | Retrieves the health state of a specified subgraph using its ID.                             |
+| `/subgraphs/id/{id}`                  | Routes a query to a specific subgraph using its ID. Requires a receipt or valid token.       |
 
 ## Node Status Route
 

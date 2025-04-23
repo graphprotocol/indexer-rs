@@ -49,7 +49,7 @@ mod tests {
         };
 
         let app = Router::new()
-            .route("/:deployment_id", get(handle))
+            .route("/{deployment_id}", get(handle))
             .layer(middleware);
 
         let res = app
