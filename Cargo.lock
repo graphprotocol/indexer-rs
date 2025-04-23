@@ -9188,8 +9188,9 @@ dependencies = [
 
 [[package]]
 name = "wiremock-grpc"
-version = "0.0.3-alpha3"
-source = "git+https://github.com/semiotic-ai/wiremock-grpc-rs.git?branch=main#a0710a860c5061537a50a6c2ee4e7204b6c29cde"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1de7d4fc4c0116d6ab24ad9db0998d446393a2006269e9090589e68bc54ffc02"
 dependencies = [
  "http-body 1.0.1",
  "log",

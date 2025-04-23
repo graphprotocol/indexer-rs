@@ -106,7 +106,7 @@ tracing-subscriber = { version = "0.3", features = [
 ], default-features = false }
 uuid = { version = "1.11.0", features = ["v7"] }
 wiremock = "0.6.1"
-wiremock-grpc = { git = "https://github.com/semiotic-ai/wiremock-grpc-rs.git", branch = "main" }
+wiremock-grpc = "0.1.0"
 
 # Insta benefits from being compiled in release mode, even as dev dependency
 # see https://insta.rs/docs/quickstart
