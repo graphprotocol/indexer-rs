@@ -21,7 +21,7 @@ opt-level = 3
 [workspace.dependencies]
 anyhow = { version = "1.0.72" }
 async-trait = "0.1.83"
-axum = { version = "0.7.9", default-features = false, features = [
+axum = { version = "0.8.3", default-features = false, features = [
     "tokio",
     "http1",
     "http2",
@@ -74,13 +74,13 @@ sqlx = { version = "0.8.2", features = [
     "uuid",
 ], default-features = false }
 stdext = "0.3.3"
-tap_aggregator = { version = "0.4.0", default-features = false }
-tap_core = { version = "3.0.0", default-features = false }
-tap_graph = { version = "0.2.0", features = ["v2"] }
+tap_aggregator = { version = "0.5.1", default-features = false }
+tap_core = { version = "4.1.0", default-features = false }
+tap_graph = { version = "0.3.0", features = ["v2"] }
 tempfile = "3.8.0"
 test-log = { version = "0.2.12", default-features = false }
 test-with = "0.14.6"
-thegraph-core = { version = "0.11.0", features = [
+thegraph-core = { version = "0.14.0", features = [
     "attestation",
     "alloy-eip712",
     "alloy-sol-types",
@@ -94,8 +94,8 @@ thegraph-graphql-http = { version = "0.3.2", features = ["reqwest"] }
 thiserror = "1.0.49"
 tokio = "1.40"
 tokio-test = "0.4.4"
-tonic = { version = "0.12.3", features = ["tls-roots", "gzip"] }
-tonic-build = "0.12.3"
+tonic = { version = "0.13.0", features = ["tls-native-roots", "gzip"] }
+tonic-build = "0.13.0"
 tower-service = "0.3.3"
 tower-test = "0.4.0"
 tracing = { version = "0.1.40", default-features = false }
@@ -106,19 +106,7 @@ tracing-subscriber = { version = "0.3", features = [
 ], default-features = false }
 uuid = { version = "1.11.0", features = ["v7"] }
 wiremock = "0.6.1"
-wiremock-grpc = "0.0.3-alpha3"
-
-[patch.crates-io.tap_core]
-git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
-rev = "9fd4beb"
-
-[patch.crates-io.tap_aggregator]
-git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
-rev = "9fd4beb"
-
-[patch.crates-io.tap_graph]
-git = "https://github.com/semiotic-ai/timeline-aggregation-protocol"
-rev = "9fd4beb"
+wiremock-grpc = { git = "https://github.com/semiotic-ai/wiremock-grpc-rs.git", branch = "main" }
 
 # Insta benefits from being compiled in release mode, even as dev dependency
 # see https://insta.rs/docs/quickstart

@@ -660,6 +660,7 @@ async fn create_grpc_aggregator() -> (JoinHandle<()>, SocketAddr) {
         max_request_body_size,
         max_response_body_size,
         max_concurrent_connections,
+        None,
     )
     .await
     .unwrap()

@@ -42,7 +42,7 @@ tap_graph.workspace = true
 tap_aggregator.workspace = true
 uuid.workspace = true
 bon.workspace = true
-tower_governor = { version = "0.5.0", features = ["axum"] }
+tower_governor = { version = "0.7.0", features = ["axum"] }
 governor = "0.8.0"
 tower-http = { version = "0.6.2", features = [
     "auth",
@@ -51,7 +51,7 @@ tower-http = { version = "0.6.2", features = [
     "trace",
 ] }
 autometrics = { version = "1.0.1", features = ["prometheus-exporter"] }
-axum-extra = { version = "0.9.3", features = [
+axum-extra = { version = "0.10.1", features = [
     "typed-header",
 ], default-features = false }
 tokio-util = "0.7.10"
