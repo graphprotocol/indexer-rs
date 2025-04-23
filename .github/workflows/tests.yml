@@ -39,6 +39,8 @@ jobs:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Install libsasl2-dev
+        run: apt-get update && apt-get install -y libsasl2-dev
       - name: Cache dependencies
         uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2.7.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -69,6 +71,8 @@ jobs:
       SQLX_OFFLINE: true
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Install libsasl2-dev
+        run: apt-get update && apt-get install -y libsasl2-dev
       - name: Cache dependencies
         uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2.7.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -113,6 +117,8 @@ jobs:
       CI: true
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Install libsasl2-dev
+        run: apt-get update && apt-get install -y libsasl2-dev
       - name: Cache dependencies
         uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2.7.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -165,6 +171,8 @@ jobs:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Install libsasl2-dev
+        run: apt-get update && apt-get install -y libsasl2-dev
       - name: Cache dependencies
         uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2.7.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
