@@ -387,7 +387,12 @@ impl ServiceRouter {
             .route("/subgraphs/id/{id}", post_request_handler)
             .with_state(graphnode_state.clone());
 
-        let subgraphs_route = Router::new().nest(&url_prefix, data_routes);
+        // If url_prefix == "/", use merge; otherwise, it's safe to nest
+        let subgraphs_route = if url_prefix == "/" {
+            data_routes
+        } else {
+            Router::new().nest(&url_prefix, data_routes)
+        };
 
         let misc_routes = Router::new()
             .route("/", get("Service is up and running"))
