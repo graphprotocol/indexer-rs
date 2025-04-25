@@ -381,6 +381,7 @@ where
                 if id <= unaggregated_fees.last_id {
                     // our world assumption is wrong
                     tracing::warn!(
+                        unaggregated_fees_last_id = %unaggregated_fees.last_id,
                         last_id = %id,
                         "Received a receipt notification that was already calculated."
                     );
