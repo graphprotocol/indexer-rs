@@ -379,7 +379,7 @@ where
                     ..
                 } = notification;
                 if id <= unaggregated_fees.last_id {
-                    // our world assumption is wrong
+                    // Unexpected: received a receipt with an ID not greater than the last processed one
                     tracing::warn!(
                         unaggregated_fees_last_id = %unaggregated_fees.last_id,
                         last_id = %id,
