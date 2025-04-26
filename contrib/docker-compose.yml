@@ -44,6 +44,8 @@ services:
     ports:
       # to expose the metrics port
       - "7300:7300"
+    networks:
+      - local-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7300/metrics"]
       interval: 5s

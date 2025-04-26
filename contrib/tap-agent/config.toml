@@ -3,37 +3,36 @@ indexer_address = "INDEXER_ADDRESS_PLACEHOLDER"
 operator_mnemonic = "INDEXER_MNEMONIC_PLACEHOLDER"
 
 [database]
-postgres_url = "postgresql://postgres@postgres:POSTGRES_PORT_PLACEHOLDER/indexer_components_1"
+postgres_url = "postgres://postgres@postgres:POSTGRES_PORT_PLACEHOLDER/indexer_components_1"
 
 [graph_node]
-query_url = "http://graph-node:GRAPH_NODE_GRAPHQL_PORT_PLACEHOLDER"
-status_url = "http://graph-node:GRAPH_NODE_STATUS_PORT_PLACEHOLDER/graphql"
+query_url = "http://graph-node:8000"
+status_url = "http://graph-node:8030/graphql"
 
 [subgraphs.network]
-query_url = "http://graph-node:GRAPH_NODE_GRAPHQL_PORT_PLACEHOLDER/subgraphs/name/graph-network"
-recently_closed_allocation_buffer_secs = 60
-syncing_interval_secs = 30
+query_url = "http://graph-node:8000/subgraphs/name/graph-network"
+deployment_id = "NETWORK_DEPLOYMENT_PLACEHOLDER"
 
 [subgraphs.escrow]
-query_url = "http://graph-node:GRAPH_NODE_GRAPHQL_PORT_PLACEHOLDER/subgraphs/name/semiotic/tap"
-syncing_interval_secs = 30
+query_url = "http://graph-node:8000/subgraphs/name/semiotic/tap"
+deployment_id = "ESCROW_DEPLOYMENT_PLACEHOLDER"
 
 [blockchain]
 chain_id = 1337
 receipts_verifier_address = "VERIFIER_ADDRESS_PLACEHOLDER"
 
 [service]
-host_and_port = "0.0.0.0:INDEXER_SERVICE_PORT_PLACEHOLDER"
-url_prefix = "/"
-serve_network_subgraph = false
-serve_escrow_subgraph = false
+host_and_port = "0.0.0.0:7601"
+free_query_auth_token = "freestuff"
+
+[service.tap]
+max_receipt_value_grt = "0.001"
 
 [tap]
 max_amount_willing_to_lose_grt = 1000
 
 [tap.rav_request]
 # Set a lower timestamp buffer threshold
-# for testing purposes
 timestamp_buffer_secs = 30
 # The trigger value divisor is used to calculate the trigger value for the RAV request.
 # using the formula:
@@ -44,4 +43,7 @@ timestamp_buffer_secs = 30
 trigger_value_divisor = 500_000
 
 [tap.sender_aggregator_endpoints]
-"ACCOUNT0_ADDRESS_PLACEHOLDER" = "http://tap-aggregator:TAP_AGGREGATOR_PORT_PLACEHOLDER"
+"ACCOUNT0_ADDRESS_PLACEHOLDER" = "http://tap-aggregator:7610"
+
+[horizon]
+enabled = false

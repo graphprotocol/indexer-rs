@@ -13,12 +13,6 @@ VERIFIER_ADDRESS=$(jq -r '."1337".TAPVerifier.address' /opt/contracts.json)
 # Override with test values taken from test-assets/src/lib.rs
 ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
 
-# Wait for postgres to be ready
-until pg_isready -h postgres -U postgres -d indexer_components_1; do
-    stdbuf -oL echo "Waiting for postgres..."
-    sleep 2
-done
-
 # Get network subgraph deployment ID
 NETWORK_DEPLOYMENT=$(curl -s "http://graph-node:8000/subgraphs/name/graph-network" \
     -H 'content-type: application/json' \
@@ -67,8 +61,9 @@ export RUST_BACKTRACE=full
 export RUST_LOG="${RUST_LOG:-trace}"
 
 # Create output directory if it doesn't exist
-mkdir -p /opt/profiling
+mkdir -p /opt/profiling/indexer-service
 chmod 777 /opt/profiling
+chmod 777 /opt/profiling/indexer-service
 
 stdbuf -oL echo "📁 DEBUG: Profiling output directory: $(ls -la /opt/profiling)"
 
@@ -88,7 +83,7 @@ strace)
     # -e trace=all: trace all system calls
     # -s 256: show up to 256 characters per string
     # -o: output file
-    exec strace -f -tt -T -e trace=all -s 256 -o /opt/profiling/indexer-service.strace.log /usr/local/bin/indexer-service-rs --config /opt/config.toml
+    exec strace -f -tt -T -e trace=all -s 256 -o /opt/profiling/indexer-service/strace.log /usr/local/bin/indexer-service-rs --config /opt/config.toml
     ;;
 valgrind)
     stdbuf -oL echo "🔍 Starting with Valgrind profiling..."
@@ -96,7 +91,7 @@ valgrind)
     # Start with Massif memory profiler
     stdbuf -oL echo "🔄 Starting Valgrind Massif memory profiling..."
     exec valgrind --tool=massif \
-        --massif-out-file=/opt/profiling/indexer-service.massif.out \
+        --massif-out-file=/opt/profiling/indexer-service/massif.out \
         --time-unit=B \
         --detailed-freq=10 \
         --max-snapshots=100 \
@@ -113,7 +108,7 @@ valgrind)
 callgrind)
     stdbuf -oL echo "🔍 Starting with Callgrind CPU profiling..."
     exec valgrind --tool=callgrind \
-        --callgrind-out-file=/opt/profiling/indexer-service.callgrind.out \
+        --callgrind-out-file=/opt/profiling/indexer-service/callgrind.out \
         --cache-sim=yes \
         --branch-sim=yes \
         /usr/local/bin/indexer-service-rs --config /opt/config.toml

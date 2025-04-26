@@ -32,7 +32,6 @@ services:
         condition: service_healthy
     volumes:
       - ../target/release/indexer-tap-agent:/usr/local/bin/indexer-tap-agent
-      - ./tap-agent/start.sh:/usr/local/bin/start.sh
       - ./tap-agent:/opt/config:ro
       - ./local-network/.env:/opt/.env:ro
       - ./local-network/contracts.json:/opt/contracts.json:ro
@@ -44,6 +43,8 @@ services:
     ports:
       # to expose the metrics port
       - "7300:7300"
+    networks:
+      - local-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7300/metrics"]
       interval: 5s
