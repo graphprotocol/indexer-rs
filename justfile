@@ -69,6 +69,43 @@ down:
     @cd contrib/local-network && docker compose down
     docker rm -f indexer-service tap-agent gateway block-oracle indexer-agent graph-node redpanda tap-aggregator tap-escrow-manager 2>/dev/null || true
 
+
+# Profiling commands
+# -----------------------------
+
+# Profile indexer-service with flamegraph
+profile-flamegraph:
+    @mkdir -p contrib/profiling/output
+    ./prof-reload.sh flamegraph
+
+# Profile indexer-service with valgrind
+profile-valgrind:
+    @mkdir -p contrib/profiling/output
+    ./prof-reload.sh valgrind
+
+# Profile indexer-service with strace
+profile-strace:
+    @mkdir -p contrib/profiling/output
+    ./prof-reload.sh strace
+
+profile-callgrind:
+    @mkdir -p contrib/profiling/output
+    ./prof-reload.sh callgrind
+
+# Stop the running indexer-service (useful after profiling)
+# This sends SIGTERM, allowing the trap in start-perf.sh to handle cleanup (e.g., generate flamegraph)
+stop-profiling:  # <-- New Rule Added Here
+    @echo "🛑 Stopping the indexer-service container (allowing profiling data generation)..."
+    cd contrib && docker compose -f docker-compose.dev.yml stop indexer-service
+    @echo "✅ Service stop signal sent. Check profiling output directory."
+
+# Restore normal service (without profiling)
+profile-restore:
+    @echo "🔄 Restoring normal service..."
+    cd contrib && docker compose -f docker-compose.dev.yml up -d --force-recreate indexer-service
+    @echo "✅ Normal service restored"
+
+
 test-local:
     @cd integration-tests && ./fund_escrow.sh
     @cd integration-tests && cargo run 

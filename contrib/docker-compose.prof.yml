@@ -1,0 +1,34 @@
+services:
+  indexer-service:
+    image: indexer-base:latest
+    build:
+      context: ..
+      # dockerfile: contrib/indexer-service/Dockerfile
+    container_name: indexer-service
+    volumes:
+      - ./local-network/contracts.json:/opt/contracts.json:ro
+      - ./local-network/.env:/opt/.env:ro
+      - ./profiling/output:/opt/profiling:rw
+      - ./indexer-service/config.toml:/opt/config/config.toml
+      - ./indexer-service/start-perf.sh:/usr/local/bin/start-perf.sh
+      - ../migrations:/opt/migrations:ro
+      - ../target/release/indexer-service-rs:/usr/local/bin/indexer-service-rs
+    entrypoint: ["/usr/local/bin/start-perf.sh"]
+    environment:
+      - RUST_BACKTRACE=1
+      - RUST_LOG=debug
+      - PROFILER=${PROFILER:-flamegraph} # Default to flamegraph if not specified
+    ports:
+      - "7601:7601"
+    networks:
+      - local-network
+    cap_add:
+      - SYS_ADMIN
+    privileged: true
+    security_opt:
+      - seccomp:unconfined
+
+networks:
+  local-network:
+    external: true
+    name: local-network_default
