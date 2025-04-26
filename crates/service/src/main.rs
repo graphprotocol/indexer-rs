@@ -7,13 +7,19 @@ use indexer_service_rs::service::run;
 use tracing::{level_filters::LevelFilter, subscriber::set_global_default};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
+mod profiling;
+
 #[tokio::main]
 async fn main() -> ExitCode {
     init_tracing();
+
+    profiling::setup_profiling();
+
     if let Err(e) = run().await {
         tracing::error!("Indexer service error: {e}");
         return ExitCode::from(1);
     }
+
     ExitCode::SUCCESS
 }
 

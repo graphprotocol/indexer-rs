@@ -62,6 +62,12 @@ pin-project = "1.1.7"
 tonic.workspace = true
 itertools = "0.14.0"
 graph-networks-registry.workspace = true
+pprof = { version = "0.14", features = [
+    "flamegraph",
+    "protobuf-codec",
+], optional = true }
+timer = { version = "0.2", optional = true }
+chrono = { version = "0.4", optional = true }
 
 
 [dev-dependencies]
@@ -79,3 +85,7 @@ wiremock.workspace = true
 
 [build-dependencies]
 build-info-build.workspace = true
+
+[features]
+default = []
+profiling = ["pprof", "timer", "dep:chrono"]
