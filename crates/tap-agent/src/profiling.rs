@@ -40,7 +40,7 @@ mod implementation {
 
                 tracing::info!("📊 Continuous profiling active");
                 let mut options = pprof::flamegraph::Options::default();
-                options.title = "Profiling: indexer-service".to_string();
+                options.title = "Profiling: tap-agent".to_string();
 
                 // Create a timer thread to periodically save reports
                 thread::spawn(move || {
@@ -61,7 +61,7 @@ mod implementation {
                                 Err(_) => "unknown".to_string(),
                             };
                         let flamegraph_path = format!(
-                            "/opt/profiling/indexer-service/flamegraph-{}-{}.svg",
+                            "/opt/profiling/tap-agent/flamegraph-{}-{}.svg",
                             timestamp, current_counter
                         );
 
@@ -100,7 +100,7 @@ mod implementation {
                                     Ok(profile) => {
                                         // Use the write_to_bytes method available on the Message trait
                                         let proto_path = format!(
-                                            "/opt/profiling/indexer-service/profile-{}-{}.pb",
+                                            "/opt/profiling/tap-agent/profile-{}-{}.pb",
                                             timestamp, current_counter
                                         );
 
@@ -172,4 +172,3 @@ pub fn setup_profiling() {
     tracing::info!("🔍 Setting up profiling...");
     implementation::setup();
 }
-

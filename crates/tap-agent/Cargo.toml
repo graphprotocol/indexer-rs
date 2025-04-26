@@ -9,7 +9,9 @@ name = "indexer-tap-agent"
 path = "src/main.rs"
 
 [features]
+default = []
 test = ["dep:test-assets", "dep:rand"]
+profiling = ["pprof", "timer", "dep:chrono"]
 
 [dependencies]
 indexer-monitor = { path = "../monitor" }
@@ -49,6 +51,13 @@ test-assets = { path = "../test-assets", optional = true }
 rand = { workspace = true, optional = true }
 itertools.workspace = true
 educe.workspace = true
+
+pprof = { version = "0.14", features = [
+    "flamegraph",
+    "protobuf-codec",
+], optional = true }
+timer = { version = "0.2", optional = true }
+chrono = { version = "0.4", optional = true }
 
 [dev-dependencies]
 # Release-please breaks with cyclical dependencies if dev-dependencies

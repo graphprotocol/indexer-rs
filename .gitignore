@@ -17,7 +17,8 @@ crates/dips/node_modules/
 crates/dips/generated/
 crates/dips/npm-debug.log*
 contrib/local-network
-contrib/profiling
+contrib/profiling/indexer-service
+contrib/profiling/tap-agent
 node_modules
 target/
 *.code-workspace

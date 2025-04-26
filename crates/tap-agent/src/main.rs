@@ -5,8 +5,12 @@ use indexer_tap_agent::{agent, metrics, CONFIG};
 use ractor::ActorStatus;
 use tokio::signal::unix::{signal, SignalKind};
 
+mod profiling;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    profiling::setup_profiling();
+
     // Parse basic configurations, also initializes logging.
 
     // initialize LazyLock'd config
