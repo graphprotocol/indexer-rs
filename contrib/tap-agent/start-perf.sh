@@ -159,7 +159,6 @@ callgrind)
         --collect-jumps=yes \
         --collect-systime=yes \
         --collect-bus=yes \
-        --separate-threads=yes \
         --dump-instr=yes \
         --dump-line=yes \
         --compress-strings=no \

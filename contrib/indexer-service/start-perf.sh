@@ -98,7 +98,7 @@ valgrind)
         --threshold=0.5 \
         /usr/local/bin/indexer-service-rs --config /opt/config.toml
     ;;
-# Use sudo callgrind_annotate indexer-service.callgrind.out
+# Use callgrind_annotate indexer-service.callgrind.out
 # for humand friendly report  of callgrind output
 # Ideally you should set:
 # [profile.release.package."*"]
@@ -111,6 +111,12 @@ callgrind)
         --callgrind-out-file=/opt/profiling/indexer-service/callgrind.out \
         --cache-sim=yes \
         --branch-sim=yes \
+        --collect-jumps=yes \
+        --collect-systime=yes \
+        --collect-bus=yes \
+        --dump-instr=yes \
+        --dump-line=yes \
+        --compress-strings=no \
         /usr/local/bin/indexer-service-rs --config /opt/config.toml
     ;;
 none)
