@@ -96,13 +96,13 @@ profile-callgrind:
 # This sends SIGTERM, allowing the trap in start-perf.sh to handle cleanup (e.g., generate flamegraph)
 stop-profiling:  # <-- New Rule Added Here
     @echo "🛑 Stopping the indexer-service container (allowing profiling data generation)..."
-    cd contrib && docker compose -f docker-compose.dev.yml stop indexer-service
+    cd contrib && docker compose -f docker-compose.prof.yml stop indexer-service tap-agent
     @echo "✅ Service stop signal sent. Check profiling output directory."
 
 # Restore normal service (without profiling)
 profile-restore:
     @echo "🔄 Restoring normal service..."
-    cd contrib && docker compose -f docker-compose.dev.yml up -d --force-recreate indexer-service
+    cd contrib && docker compose -f docker-compose.prof.yml up -d --force-recreate indexer-service tap-agent
     @echo "✅ Normal service restored"
 
 
