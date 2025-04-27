@@ -2266,15 +2266,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cpp_demangle"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96e58d342ad113c2b878f16d5d034c03be492ae460cdbc02b7f0f2284d310c7d"
-dependencies = [
- "cfg-if",
-]
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4041,7 +4032,6 @@ dependencies = [
  "bon 3.6.3",
  "build-info",
  "build-info-build",
- "chrono",
  "clap",
  "cost-model",
  "futures",
@@ -4060,7 +4050,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "pin-project 1.1.10",
- "pprof",
+ "profiler",
  "prometheus 0.13.4",
  "prost",
  "reqwest 0.12.15",
@@ -4076,7 +4066,6 @@ dependencies = [
  "thegraph-core",
  "thegraph-graphql-http",
  "thiserror 1.0.69",
- "timer",
  "tokio",
  "tokio-test",
  "tokio-util",
@@ -4101,7 +4090,6 @@ dependencies = [
  "axum 0.8.3",
  "bigdecimal",
  "bon 3.6.3",
- "chrono",
  "clap",
  "educe",
  "eventuals",
@@ -4118,7 +4106,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "jsonrpsee",
- "pprof",
+ "profiler",
  "prometheus 0.13.4",
  "ractor",
  "rand 0.9.1",
@@ -4138,7 +4126,6 @@ dependencies = [
  "test-log",
  "thegraph-core",
  "thiserror 1.0.69",
- "timer",
  "tokio",
  "tonic 0.13.0",
  "tracing",
@@ -5696,6 +5683,17 @@ dependencies = [
  "syn 2.0.101",
  "version_check",
  "yansi",
+]
+
+[[package]]
+name = "profiler"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "pprof",
+ "thiserror 1.0.69",
+ "timer",
+ "tracing",
 ]
 
 [[package]]
@@ -7622,7 +7620,6 @@ version = "12.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "153faacda0d58dc1eb3e8bbd5dab998041e95bd7f4ab2caeeadc89410617f144"
 dependencies = [
- "cpp_demangle",
  "rustc-demangle",
  "symbolic-common",
 ]

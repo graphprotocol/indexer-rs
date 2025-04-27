@@ -7,13 +7,25 @@ use indexer_service_rs::service::run;
 use tracing::{level_filters::LevelFilter, subscriber::set_global_default};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-mod profiling;
-
 #[tokio::main]
 async fn main() -> ExitCode {
     init_tracing();
 
-    profiling::setup_profiling();
+    // pub fn setup_profiling(path: String, frequency: i32, interval: u64, name: Option<String>) {
+    #[cfg(feature = "profiling")]
+    if let Err(e) = profiler::setup_profiling(
+        "/opt/profiling/indexer-service".to_string(),
+        150,
+        120,
+        Some("Indexer Service".to_string()),
+    ) {
+        // If profiling fails, log the error
+        // but continue running the application
+        // as profiling is just for development.
+        tracing::error!("Failed to setup profiling: {e}");
+    } else {
+        tracing::info!("Profiling setup complete.");
+    }
 
     if let Err(e) = run().await {
         tracing::error!("Indexer service error: {e}");

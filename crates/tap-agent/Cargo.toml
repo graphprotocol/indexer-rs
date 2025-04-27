@@ -11,7 +11,7 @@ path = "src/main.rs"
 [features]
 default = []
 test = ["dep:test-assets", "dep:rand"]
-profiling = ["pprof", "timer", "dep:chrono"]
+profiling = ["profiler"]
 
 [dependencies]
 indexer-monitor = { path = "../monitor" }
@@ -20,6 +20,7 @@ indexer-allocation = { path = "../allocation" }
 indexer-config = { path = "../config" }
 indexer-query = { path = "../query" }
 indexer-receipt = { path = "../indexer-receipt" }
+profiler = { path = "../profiler", optional = true }
 anyhow.workspace = true
 async-trait.workspace = true
 sqlx.workspace = true
@@ -52,12 +53,6 @@ rand = { workspace = true, optional = true }
 itertools.workspace = true
 educe.workspace = true
 
-pprof = { version = "0.14", features = [
-    "flamegraph",
-    "protobuf-codec",
-], optional = true }
-timer = { version = "0.2", optional = true }
-chrono = { version = "0.4", optional = true }
 
 [dev-dependencies]
 # Release-please breaks with cyclical dependencies if dev-dependencies

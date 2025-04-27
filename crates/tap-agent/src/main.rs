@@ -5,11 +5,22 @@ use indexer_tap_agent::{agent, metrics, CONFIG};
 use ractor::ActorStatus;
 use tokio::signal::unix::{signal, SignalKind};
 
-mod profiling;
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    profiling::setup_profiling();
+    #[cfg(feature = "profiling")]
+    if let Err(e) = profiler::setup_profiling(
+        "/opt/profiling/tap-agent".to_string(),
+        150,
+        120,
+        Some("Tap-agent service".to_string()),
+    ) {
+        // If profiling fails, log the error
+        // but continue running the application
+        // as profiling is just for development.
+        tracing::error!("Failed to setup profiling: {e}");
+    } else {
+        tracing::info!("Profiling setup complete.");
+    }
 
     // Parse basic configurations, also initializes logging.
 

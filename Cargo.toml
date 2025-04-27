@@ -6,6 +6,7 @@ members = [
     "crates/dips",
     "crates/indexer-receipt",
     "crates/monitor",
+    "crates/profiler",
     "crates/query",
     "crates/service",
     "crates/tap-agent",

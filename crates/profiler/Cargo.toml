@@ -1,0 +1,18 @@
+[package]
+name = "profiler"
+version = "0.1.0"
+edition = "2021"
+
+
+[features]
+default = ["flamegraph", "protobuf-codec"]
+flamegraph = ["pprof/flamegraph"]
+protobuf-codec = ["pprof/protobuf-codec"]
+
+[dependencies]
+tracing.workspace = true
+thiserror.workspace = true
+
+pprof = { version = "0.14", default-features = false }
+timer = { version = "0.2" }
+chrono = { version = "0.4" }
