@@ -7,7 +7,7 @@ use tokio::signal::unix::{signal, SignalKind};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    #[cfg(feature = "profiling")]
+    #[cfg(all(feature = "profiling", not(test)))]
     if let Err(e) = profiler::setup_profiling(
         "/opt/profiling/tap-agent".to_string(),
         150,

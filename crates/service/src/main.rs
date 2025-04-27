@@ -11,7 +11,7 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 async fn main() -> ExitCode {
     init_tracing();
 
-    #[cfg(feature = "profiling")]
+    #[cfg(all(feature = "profiling", not(test)))]
     if let Err(e) = profiler::setup_profiling(
         "/opt/profiling/indexer-service".to_string(),
         150,
