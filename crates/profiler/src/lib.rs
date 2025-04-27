@@ -193,12 +193,15 @@ fn setup(path: String, frequency: i32, interval: u64, name: String) -> Result<()
 /// # Examples
 ///
 /// ```
-/// profiler::setup_profiling(
-///     "/opt/profiling/my-service".to_string(),
-///     150,
-///     120,
-///     Some("My Service".to_string())
-/// )?;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     profiler::setup_profiling(
+///         "/opt/profiling/my-service".to_string(),
+///         150,
+///         120,
+///         Some("My Service".to_string()),
+///     )?;
+///     # Ok(())
+/// # }
 /// ```
 pub fn setup_profiling(
     path: String,
