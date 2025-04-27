@@ -22,8 +22,6 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Profiling setup complete.");
     }
 
-    // Parse basic configurations, also initializes logging.
-
     // initialize LazyLock'd config
     _ = &*CONFIG;
 

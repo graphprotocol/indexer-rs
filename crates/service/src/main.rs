@@ -11,7 +11,6 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 async fn main() -> ExitCode {
     init_tracing();
 
-    // pub fn setup_profiling(path: String, frequency: i32, interval: u64, name: Option<String>) {
     #[cfg(feature = "profiling")]
     if let Err(e) = profiler::setup_profiling(
         "/opt/profiling/indexer-service".to_string(),
