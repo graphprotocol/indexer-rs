@@ -142,8 +142,9 @@ valgrind)
         --threshold=0.5 \
         /usr/local/bin/indexer-tap-agent --config /opt/config.toml
     ;;
-# Use sudo callgrind_annotate indexer-service.callgrind.out
-# for humand friendly report  of callgrind output
+# Use callgrind_annotate indexer-service.callgrind.out
+# or KcacheGrind viewer
+# for humand friendly report
 # Ideally you should set:
 # [profile.release.package."*"]
 # debug = true
@@ -155,6 +156,13 @@ callgrind)
         --callgrind-out-file=/opt/profiling/tap-agent/callgrind.out \
         --cache-sim=yes \
         --branch-sim=yes \
+        --collect-jumps=yes \
+        --collect-systime=yes \
+        --collect-bus=yes \
+        --separate-threads=yes \
+        --dump-instr=yes \
+        --dump-line=yes \
+        --compress-strings=no \
         /usr/local/bin/indexer-tap-agent --config /opt/config.toml
     ;;
 none)
