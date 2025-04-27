@@ -19,8 +19,7 @@ resolver = "2"
 # This is to enable debug symbols
 # which are useful during profiling 
 # with callgrind
-# [profile.release.package."*"]
-# opt-level = 3
+# [profile.release]
 # debug = true
 # force-frame-pointers = true
 
