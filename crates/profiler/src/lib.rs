@@ -9,10 +9,14 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
+use chrono::{DateTime, Utc};
 use pprof::protos::Message;
 
 mod error;
 pub use error::ProfilerError;
+
+// Time to wait before starting profiling (in seconds)
+const WAIT_TIME: u64 = 10;
 
 /// Save a flamegraph to the specified path
 fn save_flamegraph(
@@ -63,12 +67,14 @@ fn generate_filename(
     extension: &str,
     counter: u64,
 ) -> Result<PathBuf, ProfilerError> {
-    let timestamp = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)?
-        .as_secs()
-        .to_string();
+    // Convert SystemTime to DateTime<Utc>
+    let system_time = SystemTime::now();
+    let datetime: DateTime<Utc> = system_time.into();
 
-    let filename = format!("{}-{}-{}.{}", prefix, timestamp, counter, extension);
+    // Format the datetime (YYYY-MM-DD-HH_MM_SS)
+    let formatted_time = datetime.format("%Y-%m-%d-%H_%M_%S").to_string();
+
+    let filename = format!("{}-{}-{}.{}", prefix, formatted_time, counter, extension);
     Ok(Path::new(base_path).join(filename))
 }
 
@@ -118,7 +124,7 @@ fn setup(path: String, frequency: i32, interval: u64, name: String) -> Result<()
     let path_clone = path.clone();
     thread::spawn(move || {
         // Wait a bit for the application to start
-        thread::sleep(Duration::from_secs(10));
+        thread::sleep(Duration::from_secs(WAIT_TIME));
         tracing::info!("🔍 Starting continuous profiling...");
 
         // Counter for tracking report generation
