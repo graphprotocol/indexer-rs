@@ -94,8 +94,8 @@ thegraph-graphql-http = { version = "0.3.2", features = ["reqwest"] }
 thiserror = "1.0.49"
 tokio = "1.40"
 tokio-test = "0.4.4"
-tonic = { version = "0.12.3", features = ["tls-roots", "gzip"] }
-tonic-build = "0.12.3"
+tonic = { version = "0.13.0", features = ["tls-roots", "gzip"] }
+tonic-build = "0.13.0"
 tower-service = "0.3.3"
 tower-test = "0.4.0"
 tracing = { version = "0.1.40", default-features = false }
