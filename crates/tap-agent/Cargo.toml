@@ -55,6 +55,7 @@ educe.workspace = true
 # import the current crate. For testing we import the current crate with the `test`
 # feature enabled in order to enable test-only infrastructure within our app when running tests.
 my-crate = { package = "indexer-tap-agent", path = ".", features = ["test"] }
+serial_test.workspace = true
 tempfile.workspace = true
 wiremock.workspace = true
 wiremock-grpc.workspace = true

@@ -62,6 +62,7 @@ ruint = { version = "1.12.3", features = [
 serde = { version = "1.0.206", default-features = false }
 serde_json = "1.0.124"
 serde_yaml = "0.9.21"
+serial_test = "3.2.0"
 sqlx = { version = "0.8.2", features = [
     "bigdecimal",
     "chrono",
