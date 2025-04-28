@@ -6,9 +6,7 @@ use std::{str::FromStr, sync::Arc};
 use server::DipsServerContext;
 use thegraph_core::alloy::{
     core::primitives::Address,
-    primitives::{
-        b256, ruint::aliases::U256, ChainId, PrimitiveSignature as Signature, Uint, B256,
-    },
+    primitives::{b256, ruint::aliases::U256, ChainId, Signature, Uint, B256},
     signers::SignerSync,
     sol,
     sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
@@ -315,13 +313,11 @@ pub async fn validate_and_create_agreement(
         registry,
         additional_networks,
     } = ctx.as_ref();
-    let decoded_voucher = SignedIndexingAgreementVoucher::abi_decode(voucher.as_ref(), true)
+    let decoded_voucher = SignedIndexingAgreementVoucher::abi_decode(voucher.as_ref())
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
-    let metadata = SubgraphIndexingVoucherMetadata::abi_decode(
-        decoded_voucher.voucher.metadata.as_ref(),
-        true,
-    )
-    .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
+    let metadata =
+        SubgraphIndexingVoucherMetadata::abi_decode(decoded_voucher.voucher.metadata.as_ref())
+            .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
     decoded_voucher.validate(signer_validator, domain, expected_payee, allowed_payers)?;
 
@@ -426,9 +422,8 @@ pub async fn validate_and_cancel_agreement(
     domain: &Eip712Domain,
     cancellation_request: Vec<u8>,
 ) -> Result<Uuid, DipsError> {
-    let decoded_request =
-        SignedCancellationRequest::abi_decode(cancellation_request.as_ref(), true)
-            .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
+    let decoded_request = SignedCancellationRequest::abi_decode(cancellation_request.as_ref())
+        .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
     // Get the agreement ID from the cancellation request
     let agreement_id = Uuid::from_bytes(decoded_request.request.agreement_id.into());

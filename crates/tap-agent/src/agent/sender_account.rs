@@ -1465,6 +1465,7 @@ pub mod tests {
     use indexer_monitor::EscrowAccounts;
     use ractor::{call, Actor, ActorRef, ActorStatus};
     use serde_json::json;
+    use serial_test::serial;
     use sqlx::PgPool;
     use test_assets::{
         flush_messages, pgpool, ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER,
@@ -1531,6 +1532,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_update_allocation_ids(
         #[ignore] pgpool: PgPool,
         #[future(awt)] mock_escrow_subgraph: MockServer,
@@ -1621,6 +1623,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_new_allocation_id(
         #[ignore] pgpool: PgPool,
         #[future(awt)] mock_escrow_subgraph: MockServer,
@@ -1802,6 +1805,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_counter_greater_limit_trigger_rav(pgpool: PgPool) {
         let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
             .pgpool(pgpool.clone())
@@ -1852,6 +1856,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_remove_sender_account(
         #[ignore] pgpool: PgPool,
         #[future(awt)] mock_escrow_subgraph: MockServer,
@@ -1888,6 +1893,7 @@ pub mod tests {
     /// Test that the deny status is correctly loaded from the DB at the start of the actor
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_init_deny(#[future(awt)] pgpool: PgPool) {
         sqlx::query!(
             r#"
@@ -1920,6 +1926,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_retry_unaggregated_fees(pgpool: PgPool) {
         // we set to zero to block the sender, no matter the fee
         let max_unaggregated_fees_per_sender: u128 = 0;
@@ -1960,6 +1967,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_deny_allow(pgpool: PgPool) {
         async fn get_deny_status(sender_account: &ActorRef<SenderAccountMessage>) -> bool {
             call!(sender_account, SenderAccountMessage::GetDeny).unwrap()
@@ -2055,6 +2063,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_initialization_with_pending_ravs_over_the_limit(pgpool: PgPool) {
         // add last non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
@@ -2079,6 +2088,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_unaggregated_fees_over_balance(pgpool: PgPool) {
         // add last non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
@@ -2182,6 +2192,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_trusted_sender(pgpool: PgPool) {
         let max_amount_willing_to_lose_grt = ESCROW_VALUE / 10;
         // initialize with no trigger value and no max receipt deny
@@ -2252,6 +2263,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_pending_rav_already_redeemed_and_redeem(pgpool: PgPool) {
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
@@ -2337,6 +2349,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_thawing_deposit_process(pgpool: PgPool) {
         // add last non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
@@ -2389,6 +2402,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_sender_denied_close_allocation_stop_retry(pgpool: PgPool) {
         // we set to 1 to block the sender on a really low value
         let max_unaggregated_fees_per_sender: u128 = 1;

@@ -38,10 +38,10 @@ impl AgreementStore for PsqlAgreementStore {
             Err(err) => return Err(DipsError::UnknownError(err.into())),
         };
 
-        let signed = SignedIndexingAgreementVoucher::abi_decode(item.signed_payload.as_ref(), true)
+        let signed = SignedIndexingAgreementVoucher::abi_decode(item.signed_payload.as_ref())
             .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
         let metadata =
-            SubgraphIndexingVoucherMetadata::abi_decode(signed.voucher.metadata.as_ref(), true)
+            SubgraphIndexingVoucherMetadata::abi_decode(signed.voucher.metadata.as_ref())
                 .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
         let cancelled = item.cancelled_at.is_some();
         Ok(Some(StoredIndexingAgreement {

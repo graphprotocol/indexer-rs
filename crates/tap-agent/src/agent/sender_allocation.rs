@@ -1305,6 +1305,7 @@ pub mod tests {
     use ractor::{call, cast, Actor, ActorRef, ActorStatus};
     use ruint::aliases::U256;
     use serde_json::json;
+    use serial_test::serial;
     use sqlx::PgPool;
     use tap_aggregator::grpc::v1::{tap_aggregator_client::TapAggregatorClient, RavResponse};
     use tap_core::receipt::{
@@ -1469,6 +1470,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn should_update_unaggregated_fees_on_start(
         #[future(awt)] pgpool: PgPool,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
@@ -1505,6 +1507,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn should_return_invalid_receipts_on_startup(
         #[future(awt)] pgpool: PgPool,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
@@ -1544,6 +1547,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_receive_new_receipt(
         #[future(awt)] pgpool: PgPool,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
@@ -1602,6 +1606,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_trigger_rav_request(pgpool: PgPool) {
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
@@ -1721,6 +1726,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_several_receipts_rav_request(pgpool: PgPool) {
         const AMOUNT_OF_RECEIPTS: u64 = 1000;
         execute(pgpool, |pgpool| async move {
@@ -1738,6 +1744,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_several_receipts_batch_insert_rav_request(pgpool: PgPool) {
         // Add batch receipts to the database.
         const AMOUNT_OF_RECEIPTS: u64 = 1000;
@@ -1757,6 +1764,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_close_allocation_no_pending_fees(
         #[future(awt)] pgpool: PgPool,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
@@ -1853,6 +1861,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn should_return_unaggregated_fees_without_rav(
         #[future(awt)] pgpool: PgPool,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
@@ -1881,6 +1890,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn should_calculate_invalid_receipts_fee(
         #[future(awt)] pgpool: PgPool,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
@@ -1915,6 +1925,7 @@ pub mod tests {
     /// than the RAV's timestamp.
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn should_return_unaggregated_fees_with_rav(
         #[future(awt)] pgpool: PgPool,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
@@ -1947,6 +1958,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_store_failed_rav(#[future[awt]] state: SenderAllocationState<Legacy>) {
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
 
@@ -1960,6 +1972,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_store_invalid_receipts(#[future[awt]] mut state: SenderAllocationState<Legacy>) {
         struct FailingCheck;
 
@@ -2003,6 +2016,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_mark_rav_last(#[future[awt]] state: SenderAllocationState<Legacy>) {
         // mark rav as final
         let result = state.mark_rav_last().await;
@@ -2013,6 +2027,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_failed_rav_request(
         #[future(awt)] pgpool: PgPool,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
@@ -2061,6 +2076,7 @@ pub mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_rav_request_when_all_receipts_invalid(pgpool: PgPool) {
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;

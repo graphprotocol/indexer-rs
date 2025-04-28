@@ -1000,6 +1000,7 @@ mod tests {
     use ractor::{Actor, ActorRef, ActorStatus};
     use reqwest::Url;
     use ruint::aliases::U256;
+    use serial_test::serial;
     use sqlx::{postgres::PgListener, PgPool};
     use test_assets::{
         assert_while_retry, flush_messages, pgpool, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
@@ -1075,6 +1076,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_create_sender_accounts_manager(pgpool: PgPool) {
         let (_, _, (actor, join_handle)) =
             create_sender_accounts_manager().pgpool(pgpool).call().await;
@@ -1114,6 +1116,7 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_pending_sender_allocations(#[future(awt)] pgpool: PgPool) {
         let (_, state) = create_state(pgpool.clone()).await;
         // add receipts to the database
@@ -1136,6 +1139,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_update_sender_account(pgpool: PgPool) {
         let (prefix, mut notify, (actor, join_handle)) =
             create_sender_accounts_manager().pgpool(pgpool).call().await;
@@ -1185,6 +1189,7 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_create_sender_account(
         #[future(awt)] state: TestState,
         #[future(awt)] supervisor: ActorRef<()>,
@@ -1210,6 +1215,7 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_deny_sender_account_on_failure(
         #[future(awt)] pgpool: PgPool,
         #[future(awt)] supervisor: ActorRef<()>,
@@ -1245,6 +1251,7 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_receive_notifications(#[future(awt)] pgpool: PgPool) {
         let prefix = generate_random_prefix();
         // create dummy allocation
@@ -1315,6 +1322,7 @@ mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
+    #[serial]
     async fn test_manager_killed_in_database_connection(#[future(awt)] pgpool: PgPool) {
         let mut pglistener = PgListener::connect_with(&pgpool).await.unwrap();
         pglistener
@@ -1344,6 +1352,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_create_allocation_id() {
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
         let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
