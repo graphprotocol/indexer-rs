@@ -14,6 +14,7 @@ indexer-config = { path = "../config" }
 indexer-dips = { path = "../dips" }
 indexer-query = { path = "../query" }
 indexer-receipt = { path = "../indexer-receipt" }
+profiler = { path = "../profiler", optional = true }
 anyhow = { workspace = true }
 prometheus = { workspace = true }
 reqwest = { workspace = true }
@@ -79,3 +80,7 @@ wiremock.workspace = true
 
 [build-dependencies]
 build-info-build.workspace = true
+
+[features]
+default = []
+profiling = ["profiler"]

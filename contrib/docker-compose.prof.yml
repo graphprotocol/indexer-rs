@@ -1,18 +1,22 @@
 services:
   indexer-service:
     image: indexer-base:latest
+    build:
+      context: ..
     container_name: indexer-service
     volumes:
-      - ../target/release/indexer-service-rs:/usr/local/bin/indexer-service-rs
-      - ./indexer-service/start.sh:/usr/local/bin/start.sh
+      - ./local-network/contracts.json:/opt/contracts.json:ro
+      - ./local-network/.env:/opt/.env:ro
+      - ./profiling:/opt/profiling:rw
       - ./indexer-service/config.toml:/opt/config/config.toml
-      - ../local-network/contracts.json:/opt/contracts.json:ro
-      - ../local-network/.env:/opt/.env:ro
+      - ./indexer-service/start-perf.sh:/usr/local/bin/start-perf.sh
       - ../migrations:/opt/migrations:ro
-    entrypoint: ["/usr/local/bin/start.sh"]
+      - ../target/release/indexer-service-rs:/usr/local/bin/indexer-service-rs
+    entrypoint: ["/usr/local/bin/start-perf.sh"]
     environment:
       - RUST_BACKTRACE=1
       - RUST_LOG=debug
+      - PROFILER=${PROFILER:-flamegraph} # Default to flamegraph if not specified
     ports:
       - "7601:7601"
     networks:
@@ -23,23 +27,31 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+    cap_add:
+      - SYS_ADMIN
+    privileged: true
+    security_opt:
+      - seccomp:unconfined
 
   tap-agent:
     image: indexer-base:latest # Pre-built base image with dependencies
     container_name: tap-agent
-    depends_on:
-      indexer-service:
-        condition: service_healthy
+    # depends_on:
+    #   indexer-service:
+    #     condition: service_healthy
     volumes:
       - ../target/release/indexer-tap-agent:/usr/local/bin/indexer-tap-agent
+      - ./tap-agent/start-perf.sh:/usr/local/bin/start-perf.sh
       - ./tap-agent:/opt/config:ro
+      - ./profiling:/opt/profiling:rw
       - ./local-network/.env:/opt/.env:ro
       - ./local-network/contracts.json:/opt/contracts.json:ro
       - ../migrations:/opt/migrations:ro
-    entrypoint: ["/bin/bash", "-c", "/opt/config/start.sh"]
+    entrypoint: ["/usr/local/bin/start-perf.sh"]
     environment:
       - RUST_BACKTRACE=1
       - RUST_LOG=debug
+      - PROFILER=${PROFILER:-flamegraph}
     ports:
       # to expose the metrics port
       - "7300:7300"
@@ -51,6 +63,11 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+    cap_add:
+      - SYS_ADMIN
+    privileged: true
+    security_opt:
+      - seccomp:unconfined
 
 networks:
   local-network:

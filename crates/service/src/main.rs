@@ -10,10 +10,27 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 #[tokio::main]
 async fn main() -> ExitCode {
     init_tracing();
+
+    #[cfg(all(feature = "profiling", not(test)))]
+    if let Err(e) = profiler::setup_profiling(
+        "/opt/profiling/indexer-service".to_string(),
+        150,
+        120,
+        Some("Indexer Service".to_string()),
+    ) {
+        // If profiling fails, log the error
+        // but continue running the application
+        // as profiling is just for development.
+        tracing::error!("Failed to setup profiling: {e}");
+    } else {
+        tracing::info!("Profiling setup complete.");
+    }
+
     if let Err(e) = run().await {
         tracing::error!("Indexer service error: {e}");
         return ExitCode::from(1);
     }
+
     ExitCode::SUCCESS
 }
 
