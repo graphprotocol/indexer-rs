@@ -6,6 +6,13 @@
 
 
 
+## [1.5.3](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.2...indexer-service-rs-v1.5.3) (2025-04-29)
+
+
+### Bug Fixes
+
+* update tap, axum, tonic, alloy dependencies: ([#702](https://github.com/graphprotocol/indexer-rs/issues/702)) ([6e49c0c](https://github.com/graphprotocol/indexer-rs/commit/6e49c0ceb61c0a972d36237cfc365dd7af72e9e3))
+
 ## [1.5.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.1...indexer-service-rs-v1.5.2) (2025-04-22)
 
 
