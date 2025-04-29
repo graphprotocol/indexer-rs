@@ -4,6 +4,18 @@
 
 
 
+## [1.9.4](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.9.3...indexer-tap-agent-v1.9.4) (2025-04-29)
+
+
+### Features
+
+* improve sender allocation logging ([#703](https://github.com/graphprotocol/indexer-rs/issues/703)) ([b9fc3ba](https://github.com/graphprotocol/indexer-rs/commit/b9fc3ba2335631654872d2b6b4341973ab1f617d))
+
+
+### Bug Fixes
+
+* update tap, axum, tonic, alloy dependencies: ([#702](https://github.com/graphprotocol/indexer-rs/issues/702)) ([6e49c0c](https://github.com/graphprotocol/indexer-rs/commit/6e49c0ceb61c0a972d36237cfc365dd7af72e9e3))
+
 ## [1.9.3](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.9.2...indexer-tap-agent-v1.9.3) (2025-04-22)
 
 
