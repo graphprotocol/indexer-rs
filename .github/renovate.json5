@@ -98,20 +98,24 @@
       ],
     },
     {
-      "matchUpdateTypes": ["patch"],
-      "automerge": true
+      matchUpdateTypes: [
+        'patch',
+      ],
+      automerge: true,
     },
     {
-      "matchUpdateTypes": ["minor"],
-      "matchCurrentVersion": "!/^0/",
-      "automerge": true
+      matchUpdateTypes: [
+        'minor',
+      ],
+      matchCurrentVersion: '!/^0/',
+      automerge: true,
     },
   ],
   customManagers: [
     {
       customType: 'regex',
-      fileMatch: [
-        '^rust-toolchain(\\.toml)?$',
+      managerFilePatterns: [
+        '/^rust-toolchain(\\.toml)?$/',
       ],
       matchStrings: [
         'channel\\s*=\\s*"(?<currentValue>\\d+\\.\\d+\\.\\d+)"',
