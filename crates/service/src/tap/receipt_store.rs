@@ -59,16 +59,19 @@ impl InnerContext {
             (Err(e1), Ok(_)) => Err(ProcessReceiptError::V1(e1.into())),
             (Ok(_), Err(e2)) => Err(ProcessReceiptError::V2(e2.into())),
 
-            (Ok(0), Ok(0)) => Ok(ProcessedReceipt::None),
-            (Ok(_), Ok(0)) => Ok(ProcessedReceipt::V1),
-            (Ok(0), Ok(_)) => Ok(ProcessedReceipt::V2),
-            (Ok(_), Ok(_)) => Ok(ProcessedReceipt::Both),
+            (Ok(None), Ok(None)) => Ok(ProcessedReceipt::None),
+            (Ok(Some(_)), Ok(None)) => Ok(ProcessedReceipt::V1),
+            (Ok(None), Ok(Some(_))) => Ok(ProcessedReceipt::V2),
+            (Ok(Some(_)), Ok(Some(_))) => Ok(ProcessedReceipt::Both),
         }
     }
 
-    async fn store_receipts_v1(&self, receipts: Vec<DbReceiptV1>) -> Result<u64, AdapterError> {
+    async fn store_receipts_v1(
+        &self,
+        receipts: Vec<DbReceiptV1>,
+    ) -> Result<Option<u64>, AdapterError> {
         if receipts.is_empty() {
-            return Ok(0);
+            return Ok(None);
         }
         let receipts_len = receipts.len();
         let mut signers = Vec::with_capacity(receipts_len);
@@ -116,12 +119,15 @@ impl InnerContext {
             anyhow!(e)
         })?;
 
-        Ok(query_res.rows_affected())
+        Ok(Some(query_res.rows_affected()))
     }
 
-    async fn store_receipts_v2(&self, receipts: Vec<DbReceiptV2>) -> Result<u64, AdapterError> {
+    async fn store_receipts_v2(
+        &self,
+        receipts: Vec<DbReceiptV2>,
+    ) -> Result<Option<u64>, AdapterError> {
         if receipts.is_empty() {
-            return Ok(0);
+            return Ok(None);
         }
         let receipts_len = receipts.len();
         let mut signers = Vec::with_capacity(receipts_len);
@@ -184,7 +190,7 @@ impl InnerContext {
             anyhow!(e)
         })?;
 
-        Ok(query_res.rows_affected())
+        Ok(Some(query_res.rows_affected()))
     }
 }
 
