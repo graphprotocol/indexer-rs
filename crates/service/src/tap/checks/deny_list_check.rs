@@ -76,7 +76,7 @@ impl DenyListCheck {
         tokio::spawn(Self::sender_denylist_watcher(
             pgpool.clone(),
             pglistener_v2,
-            sender_denylist_v1.clone(),
+            sender_denylist_v2.clone(),
             sender_denylist_watcher_cancel_token.clone(),
             DenyListVersion::V2,
             #[cfg(test)]
