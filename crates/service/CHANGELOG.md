@@ -6,6 +6,13 @@
 
 
 
+## [1.5.4](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.3...indexer-service-rs-v1.5.4) (2025-05-09)
+
+
+### Bug Fixes
+
+* **tap:** fix unused v2 deny list check ([#711](https://github.com/graphprotocol/indexer-rs/issues/711)) ([ab4aaba](https://github.com/graphprotocol/indexer-rs/commit/ab4aaba294c417e94766cdaaac8efda89509b544))
+
 ## [1.5.3](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.2...indexer-service-rs-v1.5.3) (2025-04-29)
 
 
