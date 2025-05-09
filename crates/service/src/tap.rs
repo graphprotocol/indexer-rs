@@ -34,7 +34,10 @@ const GRACE_PERIOD: u64 = 60;
 #[derive(Clone)]
 pub struct IndexerTapContext {
     domain_separator: Arc<Eip712Domain>,
-    receipt_producer: Sender<DatabaseReceipt>,
+    receipt_producer: Sender<(
+        DatabaseReceipt,
+        tokio::sync::oneshot::Sender<Result<(), AdapterError>>,
+    )>,
     cancelation_token: CancellationToken,
 }
 
