@@ -127,20 +127,10 @@ pub async fn test_tap_rav_v1() -> Result<()> {
         );
 
         for i in 0..NUM_RECEIPTS {
-            let receipt = create_tap_receipt(
-                MAX_RECEIPT_VALUE,
-                &allocation_id,
-                TAP_ESCROW_CONTRACT,
-                &wallet,
-            )?;
-
-            let receipt_json = serde_json::to_string(&receipt).unwrap();
-
             let response = http_client
                 .post(format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID))
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
-                .header("Tap-Receipt", receipt_json)
                 .json(&json!({
                     "query": "{ _meta { block { number } } }"
                 }))
@@ -150,15 +140,15 @@ pub async fn test_tap_rav_v1() -> Result<()> {
 
             if response.status().is_success() {
                 total_successful += 1;
-                println!("Receipt {} of batch {} sent successfully", i + 1, batch + 1);
+                println!("Query {} of batch {} sent successfully", i + 1, batch + 1);
             } else {
                 return Err(anyhow::anyhow!(
-                    "Failed to send receipt: {}",
+                    "Failed to send query: {}",
                     response.status()
                 ));
             }
 
-            // Small pause between receipts within batch
+            // Small pause between queries within batch
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
@@ -180,24 +170,14 @@ pub async fn test_tap_rav_v1() -> Result<()> {
 
     println!("\n=== STAGE 2: Sending continuous trigger receipts ===");
 
-    // Now send a series of regular receipts with short intervals until RAV is detected
+    // Now send a series of regular queries with short intervals until RAV is detected
     for i in 0..MAX_TRIGGERS {
-        println!("Sending trigger receipt {}/{}...", i + 1, MAX_TRIGGERS);
-
-        let trigger_receipt = create_tap_receipt(
-            MAX_RECEIPT_VALUE,
-            &allocation_id,
-            TAP_ESCROW_CONTRACT,
-            &wallet,
-        )?;
-
-        let receipt_json = serde_json::to_string(&trigger_receipt).unwrap();
+        println!("Sending trigger query {}/{}...", i + 1, MAX_TRIGGERS);
 
         let response = http_client
             .post(format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID))
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
-            .header("Tap-Receipt", receipt_json)
             .json(&json!({
                 "query": "{ _meta { block { number } } }"
             }))
@@ -210,7 +190,7 @@ pub async fn test_tap_rav_v1() -> Result<()> {
             println!("Trigger receipt {} sent successfully", i + 1);
         } else {
             return Err(anyhow::anyhow!(
-                "Failed to send trigger receipt: {}",
+                "Failed to send trigger query: {}",
                 response.status()
             ));
         }
@@ -250,7 +230,7 @@ pub async fn test_tap_rav_v1() -> Result<()> {
     }
 
     println!("\n=== Summary ===");
-    println!("Total receipts sent successfully: {}", total_successful);
+    println!("Total queries sent successfully: {}", total_successful);
     println!(
         "Total value sent: {} GRT",
         (MAX_RECEIPT_VALUE as f64 * total_successful as f64) / GRT_BASE as f64
