@@ -56,7 +56,7 @@ if [ ! -d "local-network" ]; then
     git clone https://github.com/edgeandnode/local-network.git
     cd local-network
     # Checkout to a specific commit that is known to work
-    git checkout 006e2511d4b8262ff14ff6cd5e1b75f0663dee98
+    git checkout ad98716661b033dd5e4cb9f09cebb80dba954c2d
     cd ..
 fi
 
@@ -118,7 +118,7 @@ sleep 10
 # tap-escrow-manager requires subgraph-deploy
 echo "Starting tap-escrow-manager..."
 docker compose up -d tap-escrow-manager
-sleep 10
+timeout 90 bash -c 'until docker ps --filter "name=^tap-escrow-manager$" --format "{{.Names}}" | grep -q "^tap-escrow-manager$"; do echo "Waiting for tap-escrow-manager container to appear..."; sleep 5; done'
 
 # Start redpanda if it's not already started (required for gateway)
 if ! docker ps | grep -q redpanda; then
@@ -191,7 +191,7 @@ docker run -d --name gateway \
 echo "Waiting for gateway to be available..."
 
 # Ensure gateway is ready before testing
-timeout 300 bash -c 'until curl -f http://localhost:7700/ > /dev/null 2>&1; do echo "Waiting for gateway service..."; sleep 5; done'
+timeout 100 bash -c 'until curl -f http://localhost:7700/ > /dev/null 2>&1; do echo "Waiting for gateway service..."; sleep 5; done'
 
 # After all services are running, measure the disk space used
 END_SPACE=$(df -h --output=used /var/lib/docker | tail -1)
