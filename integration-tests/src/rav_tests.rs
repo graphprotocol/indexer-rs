@@ -1,4 +1,4 @@
-// Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
+// Copyright 2023-, Edge i Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
@@ -7,13 +7,8 @@ use serde_json::json;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use thegraph_core::alloy::signers::local::coins_bip39::English;
-use thegraph_core::alloy::{
-    primitives::Address,
-    signers::local::{MnemonicBuilder, PrivateKeySigner},
-};
+use thegraph_core::alloy::primitives::Address;
 
-use crate::create_tap_receipt;
 use crate::MetricsChecker;
 
 // TODO: Would be nice to read this values from:
@@ -21,30 +16,13 @@ use crate::MetricsChecker;
 // and contrib/local-network/.env
 const GATEWAY_URL: &str = "http://localhost:7700";
 const SUBGRAPH_ID: &str = "BFr2mx7FgkJ36Y6pE5BiXs1KmNUmVDCnL82KUSdcLW1g";
-const TAP_ESCROW_CONTRACT: &str = "0x0355B7B8cb128fA5692729Ab3AAa199C1753f726";
 const GATEWAY_API_KEY: &str = "deadbeefdeadbeefdeadbeefdeadbeef";
-// const RECEIVER_ADDRESS: &str = "0xf4EF6650E48d099a4972ea5B414daB86e1998Bd3";
 const TAP_AGENT_METRICS_URL: &str = "http://localhost:7300/metrics";
 
-const MNEMONIC: &str = "test test test test test test test test test test test junk";
 const GRAPH_URL: &str = "http://localhost:8000/subgraphs/name/graph-network";
 
-const GRT_DECIMALS: u8 = 18;
-const GRT_BASE: u128 = 10u128.pow(GRT_DECIMALS as u32);
-
-// With trigger_value_divisor = 500_000 and max_amount_willing_to_lose_grt = 1000
-// trigger_value = 0.002 GRT
-// We need to send at least 20 receipts to reach the trigger threshold
-// Sending slightly more than required to ensure triggering
-const MAX_RECEIPT_VALUE: u128 = GRT_BASE / 1_000;
-// This value should match the timestamp_buffer_secs
-// in the tap-agent setting + 10 seconds
 const WAIT_TIME_BATCHES: u64 = 40;
 
-// Calculate required receipts to trigger RAV
-// With MAX_RECEIPT_VALUE = GRT_BASE / 1_000 (0.001 GRT)
-// And trigger_value = 0.002 GRT
-// We need at least 3 receipts to trigger a RAV (0.003 GRT > 0.002 GRT)
 const NUM_RECEIPTS: u32 = 3;
 
 // Send receipts in batches with a delay in between
@@ -54,15 +32,6 @@ const MAX_TRIGGERS: usize = 100;
 
 // Function to test the tap RAV generation
 pub async fn test_tap_rav_v1() -> Result<()> {
-    // Setup wallet using your MnemonicBuilder
-    let index: u32 = 0;
-    let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
-        .phrase(MNEMONIC)
-        .index(index)
-        .unwrap()
-        .build()
-        .unwrap();
-
     // Setup HTTP client
     let http_client = Arc::new(Client::new());
 
@@ -231,10 +200,6 @@ pub async fn test_tap_rav_v1() -> Result<()> {
 
     println!("\n=== Summary ===");
     println!("Total queries sent successfully: {}", total_successful);
-    println!(
-        "Total value sent: {} GRT",
-        (MAX_RECEIPT_VALUE as f64 * total_successful as f64) / GRT_BASE as f64
-    );
 
     // If we got here, test failed
     println!("❌ TEST FAILED: No RAV generation detected");
