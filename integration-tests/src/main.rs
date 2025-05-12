@@ -2,16 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
-use rav_tests::test_tap_rav_v1;
+use rav_tests::{test_invalid_chain_id, test_tap_rav_v1};
 
 mod metrics;
 mod rav_tests;
-mod receipt;
+mod utils;
+
 use metrics::MetricsChecker;
-use receipt::create_tap_receipt;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Run the TAP receipt test
+    test_invalid_chain_id().await?;
     test_tap_rav_v1().await
 }
