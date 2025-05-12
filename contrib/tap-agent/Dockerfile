@@ -7,7 +7,7 @@ COPY . .
 # the prepared files in the `.sqlx` directory.
 ENV SQLX_OFFLINE=true
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    protobuf-compiler && rm -rf /var/lib/apt/lists/*
+    protobuf-compiler libsasl2-dev && rm -rf /var/lib/apt/lists/*
 RUN cargo build --release --bin indexer-tap-agent
 
 ########################################################################################
