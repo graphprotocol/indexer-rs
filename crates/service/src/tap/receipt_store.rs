@@ -7,7 +7,7 @@ use itertools::{Either, Itertools};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_core::{manager::adapters::ReceiptStore, receipt::WithValueAndTimestamp};
 use thegraph_core::alloy::{hex::ToHexExt, sol_types::Eip712Domain};
-use tokio::{sync::mpsc::Receiver, task::JoinHandle};
+use tokio::{sync::mpsc::Receiver, sync::oneshot::Sender as OneShotSender, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use super::{AdapterError, CheckingReceipt, IndexerTapContext, TapReceipt};
@@ -40,18 +40,27 @@ pub enum ProcessedReceipt {
 impl InnerContext {
     async fn process_db_receipts(
         &self,
-        buffer: Vec<DatabaseReceipt>,
+        buffer: Vec<(DatabaseReceipt, OneShotSender<Result<(), AdapterError>>)>,
     ) -> Result<ProcessedReceipt, ProcessReceiptError> {
-        let (v1_receipts, v2_receipts): (Vec<_>, Vec<_>) =
-            buffer.into_iter().partition_map(|r| match r {
-                DatabaseReceipt::V1(db_receipt_v1) => Either::Left(db_receipt_v1),
-                DatabaseReceipt::V2(db_receipt_v2) => Either::Right(db_receipt_v2),
-            });
+        let (v1_data, v2_data): (Vec<_>, Vec<_>) =
+            buffer
+                .into_iter()
+                .partition_map(|(receipt, sender)| match receipt {
+                    DatabaseReceipt::V1(receipt) => Either::Left((receipt, sender)),
+                    DatabaseReceipt::V2(receipt) => Either::Right((receipt, sender)),
+                });
+
+        let (v1_receipts, v1_senders): (Vec<_>, Vec<_>) = v1_data.into_iter().unzip();
+        let (v2_receipts, v2_senders): (Vec<_>, Vec<_>) = v2_data.into_iter().unzip();
 
         let (insert_v1, insert_v2) = tokio::join!(
             self.store_receipts_v1(v1_receipts),
             self.store_receipts_v2(v2_receipts),
         );
+
+        // send back the result of storing receipts to callers
+        Self::notify_senders(v1_senders, &insert_v1, "V1");
+        Self::notify_senders(v2_senders, &insert_v2, "V2");
 
         match (insert_v1, insert_v2) {
             (Err(e1), Err(e2)) => Err(ProcessReceiptError::Both(e1.into(), e2.into())),
@@ -63,6 +72,29 @@ impl InnerContext {
             (Ok(Some(_)), Ok(None)) => Ok(ProcessedReceipt::V1),
             (Ok(None), Ok(Some(_))) => Ok(ProcessedReceipt::V2),
             (Ok(Some(_)), Ok(Some(_))) => Ok(ProcessedReceipt::Both),
+        }
+    }
+
+    fn notify_senders(
+        senders: Vec<OneShotSender<Result<(), AdapterError>>>,
+        result: &Result<Option<u64>, AdapterError>,
+        version: &str,
+    ) {
+        match result {
+            Ok(_) => {
+                for sender in senders {
+                    let _ = sender.send(Ok(()));
+                }
+            }
+            Err(e) => {
+                // Create error message once
+                let err_msg = format!("Failed to store {} receipts: {}", version, e);
+                tracing::error!("{}", err_msg);
+                for sender in senders {
+                    // Convert to AdapterError for each sender
+                    let _ = sender.send(Err(anyhow!(err_msg.clone()).into()));
+                }
+            }
         }
     }
 
@@ -197,7 +229,7 @@ impl InnerContext {
 impl IndexerTapContext {
     pub fn spawn_store_receipt_task(
         inner_context: InnerContext,
-        mut receiver: Receiver<DatabaseReceipt>,
+        mut receiver: Receiver<(DatabaseReceipt, OneShotSender<Result<(), AdapterError>>)>,
         cancelation_token: CancellationToken,
     ) -> JoinHandle<()> {
         const BUFFER_SIZE: usize = 100;
@@ -224,13 +256,19 @@ impl ReceiptStore<TapReceipt> for IndexerTapContext {
 
     async fn store_receipt(&self, receipt: CheckingReceipt) -> Result<u64, Self::AdapterError> {
         let db_receipt = DatabaseReceipt::from_receipt(receipt, &self.domain_separator)?;
-        self.receipt_producer.send(db_receipt).await.map_err(|e| {
-            tracing::error!("Failed to queue receipt for storage: {}", e);
-            anyhow!(e)
-        })?;
+        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+        self.receipt_producer
+            .send((db_receipt, result_tx))
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to queue receipt for storage: {}", e);
+                anyhow!(e)
+            })?;
+
+        let res = result_rx.await.map_err(|e| anyhow!(e))?;
 
         // We don't need receipt_ids
-        Ok(0)
+        res.map(|_| 0)
     }
 }
 
@@ -374,6 +412,23 @@ mod tests {
         DatabaseReceipt::V2(DbReceiptV2::from_receipt(&v2, &TAP_EIP712_DOMAIN).unwrap())
     }
 
+    pub type VecReceiptTx = Vec<(
+        DatabaseReceipt,
+        tokio::sync::oneshot::Sender<Result<(), AdapterError>>,
+    )>;
+    pub type VecRx = Vec<tokio::sync::oneshot::Receiver<Result<(), AdapterError>>>;
+
+    pub fn attach_oneshot_channels(receipts: Vec<DatabaseReceipt>) -> (VecReceiptTx, VecRx) {
+        let mut txs = Vec::with_capacity(receipts.len());
+        let mut rxs = Vec::with_capacity(receipts.len());
+        for r in receipts.into_iter() {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            txs.push((r, tx));
+            rxs.push(rx);
+        }
+        (txs, rxs)
+    }
+
     mod when_all_migrations_are_run {
         use super::*;
 
@@ -391,6 +446,7 @@ mod tests {
             receipts: Vec<DatabaseReceipt>,
         ) {
             let context = InnerContext { pgpool };
+            let (receipts, _rxs) = attach_oneshot_channels(receipts);
 
             let res = context.process_db_receipts(receipts).await.unwrap();
 
@@ -415,7 +471,9 @@ mod tests {
             let context = InnerContext { pgpool };
 
             let v1 = create_v1().await;
+
             let receipts = vec![v1];
+            let (receipts, _rxs) = attach_oneshot_channels(receipts);
 
             let res = context.process_db_receipts(receipts).await.unwrap();
 
@@ -434,6 +492,7 @@ mod tests {
         ) {
             let context = InnerContext { pgpool };
 
+            let (receipts, _rxs) = attach_oneshot_channels(receipts);
             let error = context.process_db_receipts(receipts).await.unwrap_err();
 
             let ProcessReceiptError::V2(error) = error else {

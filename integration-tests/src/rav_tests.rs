@@ -7,44 +7,32 @@ use serde_json::json;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use thegraph_core::alloy::signers::local::coins_bip39::English;
-use thegraph_core::alloy::{
-    primitives::Address,
-    signers::local::{MnemonicBuilder, PrivateKeySigner},
-};
+use thegraph_core::alloy::primitives::Address;
+use thegraph_core::alloy::signers::local::PrivateKeySigner;
 
-use crate::create_tap_receipt;
+use crate::utils::{create_request, create_tap_receipt, find_allocation};
 use crate::MetricsChecker;
 
-// TODO: Would be nice to read this values from:
-// contrib/tap-agent/config.toml
-// and contrib/local-network/.env
+const INDEXER_URL: &str = "http://localhost:7601";
+// Taken from .env
+// this is the key gateway uses
+const ACCOUNT0_SECRET: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+
+// The deployed gateway and indexer
+// use this verifier contract
+// which must be part of the eip712 domain
+const TAP_VERIFIER_CONTRACT: &str = "0x8198f5d8F8CfFE8f9C413d98a0A55aEB8ab9FbB7";
+const CHAIN_ID: u64 = 1337;
+
 const GATEWAY_URL: &str = "http://localhost:7700";
 const SUBGRAPH_ID: &str = "BFr2mx7FgkJ36Y6pE5BiXs1KmNUmVDCnL82KUSdcLW1g";
-const TAP_ESCROW_CONTRACT: &str = "0x0355B7B8cb128fA5692729Ab3AAa199C1753f726";
 const GATEWAY_API_KEY: &str = "deadbeefdeadbeefdeadbeefdeadbeef";
-// const RECEIVER_ADDRESS: &str = "0xf4EF6650E48d099a4972ea5B414daB86e1998Bd3";
 const TAP_AGENT_METRICS_URL: &str = "http://localhost:7300/metrics";
 
-const MNEMONIC: &str = "test test test test test test test test test test test junk";
 const GRAPH_URL: &str = "http://localhost:8000/subgraphs/name/graph-network";
 
-const GRT_DECIMALS: u8 = 18;
-const GRT_BASE: u128 = 10u128.pow(GRT_DECIMALS as u32);
-
-// With trigger_value_divisor = 500_000 and max_amount_willing_to_lose_grt = 1000
-// trigger_value = 0.002 GRT
-// We need to send at least 20 receipts to reach the trigger threshold
-// Sending slightly more than required to ensure triggering
-const MAX_RECEIPT_VALUE: u128 = GRT_BASE / 1_000;
-// This value should match the timestamp_buffer_secs
-// in the tap-agent setting + 10 seconds
 const WAIT_TIME_BATCHES: u64 = 40;
 
-// Calculate required receipts to trigger RAV
-// With MAX_RECEIPT_VALUE = GRT_BASE / 1_000 (0.001 GRT)
-// And trigger_value = 0.002 GRT
-// We need at least 3 receipts to trigger a RAV (0.003 GRT > 0.002 GRT)
 const NUM_RECEIPTS: u32 = 3;
 
 // Send receipts in batches with a delay in between
@@ -52,51 +40,20 @@ const NUM_RECEIPTS: u32 = 3;
 const BATCHES: u32 = 2;
 const MAX_TRIGGERS: usize = 100;
 
+const GRT_DECIMALS: u8 = 18;
+const GRT_BASE: u128 = 10u128.pow(GRT_DECIMALS as u32);
+
+const MAX_RECEIPT_VALUE: u128 = GRT_BASE / 10_000;
+
 // Function to test the tap RAV generation
 pub async fn test_tap_rav_v1() -> Result<()> {
-    // Setup wallet using your MnemonicBuilder
-    let index: u32 = 0;
-    let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
-        .phrase(MNEMONIC)
-        .index(index)
-        .unwrap()
-        .build()
-        .unwrap();
-
     // Setup HTTP client
     let http_client = Arc::new(Client::new());
 
     // Query the network subgraph to find active allocations
-    println!("Querying for active allocations...");
-    let response = http_client
-        .post(GRAPH_URL)
-        .json(&json!({
-            "query": "{ allocations(where: { status: Active }) { id indexer { id } subgraphDeployment { id } } }"
-        }))
-        .send()
-        .await?;
+    let allocation_id = find_allocation(http_client.clone(), GRAPH_URL).await?;
 
-    if !response.status().is_success() {
-        return Err(anyhow::anyhow!(
-            "Network subgraph request failed with status: {}",
-            response.status()
-        ));
-    }
-
-    // Try to find a valid allocation
-    let response_text = response.text().await?;
-
-    let json_value = serde_json::from_str::<serde_json::Value>(&response_text)?;
-    let allocation_id = json_value
-        .get("data")
-        .and_then(|d| d.get("allocations"))
-        .and_then(|a| a.as_array())
-        .filter(|arr| !arr.is_empty())
-        .and_then(|arr| arr[0].get("id"))
-        .and_then(|id| id.as_str())
-        .ok_or_else(|| anyhow::anyhow!("No valid allocation ID found"))?;
-
-    let allocation_id = Address::from_str(allocation_id)?;
+    let allocation_id = Address::from_str(&allocation_id)?;
 
     // Create a metrics checker
     let metrics_checker =
@@ -127,20 +84,10 @@ pub async fn test_tap_rav_v1() -> Result<()> {
         );
 
         for i in 0..NUM_RECEIPTS {
-            let receipt = create_tap_receipt(
-                MAX_RECEIPT_VALUE,
-                &allocation_id,
-                TAP_ESCROW_CONTRACT,
-                &wallet,
-            )?;
-
-            let receipt_json = serde_json::to_string(&receipt).unwrap();
-
             let response = http_client
                 .post(format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID))
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
-                .header("Tap-Receipt", receipt_json)
                 .json(&json!({
                     "query": "{ _meta { block { number } } }"
                 }))
@@ -150,15 +97,15 @@ pub async fn test_tap_rav_v1() -> Result<()> {
 
             if response.status().is_success() {
                 total_successful += 1;
-                println!("Receipt {} of batch {} sent successfully", i + 1, batch + 1);
+                println!("Query {} of batch {} sent successfully", i + 1, batch + 1);
             } else {
                 return Err(anyhow::anyhow!(
-                    "Failed to send receipt: {}",
+                    "Failed to send query: {}",
                     response.status()
                 ));
             }
 
-            // Small pause between receipts within batch
+            // Small pause between queries within batch
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
@@ -180,24 +127,14 @@ pub async fn test_tap_rav_v1() -> Result<()> {
 
     println!("\n=== STAGE 2: Sending continuous trigger receipts ===");
 
-    // Now send a series of regular receipts with short intervals until RAV is detected
+    // Now send a series of regular queries with short intervals until RAV is detected
     for i in 0..MAX_TRIGGERS {
-        println!("Sending trigger receipt {}/{}...", i + 1, MAX_TRIGGERS);
-
-        let trigger_receipt = create_tap_receipt(
-            MAX_RECEIPT_VALUE,
-            &allocation_id,
-            TAP_ESCROW_CONTRACT,
-            &wallet,
-        )?;
-
-        let receipt_json = serde_json::to_string(&trigger_receipt).unwrap();
+        println!("Sending trigger query {}/{}...", i + 1, MAX_TRIGGERS);
 
         let response = http_client
             .post(format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID))
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
-            .header("Tap-Receipt", receipt_json)
             .json(&json!({
                 "query": "{ _meta { block { number } } }"
             }))
@@ -210,7 +147,7 @@ pub async fn test_tap_rav_v1() -> Result<()> {
             println!("Trigger receipt {} sent successfully", i + 1);
         } else {
             return Err(anyhow::anyhow!(
-                "Failed to send trigger receipt: {}",
+                "Failed to send trigger query: {}",
                 response.status()
             ));
         }
@@ -250,13 +187,47 @@ pub async fn test_tap_rav_v1() -> Result<()> {
     }
 
     println!("\n=== Summary ===");
-    println!("Total receipts sent successfully: {}", total_successful);
-    println!(
-        "Total value sent: {} GRT",
-        (MAX_RECEIPT_VALUE as f64 * total_successful as f64) / GRT_BASE as f64
-    );
+    println!("Total queries sent successfully: {}", total_successful);
 
     // If we got here, test failed
     println!("❌ TEST FAILED: No RAV generation detected");
     Err(anyhow::anyhow!("Failed to detect RAV generation"))
+}
+
+pub async fn test_invalid_chain_id() -> Result<()> {
+    let wallet: PrivateKeySigner = ACCOUNT0_SECRET.parse().unwrap();
+
+    let http_client = Arc::new(Client::new());
+
+    let allocation_id = find_allocation(http_client.clone(), GRAPH_URL).await?;
+
+    let allocation_id = Address::from_str(&allocation_id)?;
+    println!("Found allocation ID: {}", allocation_id);
+
+    let receipt = create_tap_receipt(
+        MAX_RECEIPT_VALUE,
+        &allocation_id,
+        TAP_VERIFIER_CONTRACT,
+        CHAIN_ID + 18,
+        &wallet,
+    )?;
+
+    let receipt_json = serde_json::to_string(&receipt).unwrap();
+    let response = create_request(
+        &http_client,
+        format!("{}/subgraphs/id/{}", INDEXER_URL, SUBGRAPH_ID).as_str(),
+        &receipt_json,
+        &json!({
+            "query": "{ _meta { block { number } } }"
+        }),
+    )
+    .send()
+    .await?;
+
+    assert!(
+        response.status().is_client_error(),
+        "Failed to send receipt"
+    );
+
+    Ok(())
 }
