@@ -16,7 +16,7 @@ RUN cargo build --release --bin indexer-service-rs
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssl ca-certificates protobuf-compiler \
+    openssl ca-certificates protobuf-compiler libsasl2-2 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /root/target/release/indexer-service-rs /usr/local/bin/indexer-service-rs
 

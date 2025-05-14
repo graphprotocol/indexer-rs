@@ -15,7 +15,7 @@ RUN cargo build --release --bin indexer-tap-agent
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssl ca-certificates protobuf-compiler \
+    openssl ca-certificates protobuf-compiler libsasl2-2 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /root/target/release/indexer-tap-agent /usr/local/bin/indexer-tap-agent
 
