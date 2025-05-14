@@ -167,7 +167,6 @@ Contributions can include:
 
 Feel free to suggest enhancements or report issues in the project repository.
 
-
 ## Implementation Details
 
 ### indexer-service-rs
@@ -231,7 +230,6 @@ The TAP Agent is an actor-based system powered by [ractor](https://crates.io/cra
      - Review debug logs (`RUST_LOG=debug`) for additional context.
      - Use the Grafana dashboard to identify bottlenecks or failures in the actor system.
 
-
 ## Crates
 
 | Crate Name               | Description                                                                                  |
@@ -246,7 +244,6 @@ The TAP Agent is an actor-based system powered by [ractor](https://crates.io/cra
 | `indexer-tap-agent`      | Processes receipts into RAVs (Redeemable Aggregate Values) and marks them as ready for redemption. |
 | `indexer-watcher`        | An alternative to [eventuals](https://github.com/edgeandnode/eventuals), built on `tokio::sync::watch`. |
 | `test-assets`            | Provides assets for testing, such as generating allocations, wallets, and receipts.          |
-
 
 ## Additional Documentation
 
