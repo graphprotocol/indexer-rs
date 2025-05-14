@@ -4,6 +4,13 @@
 
 
 
+## [1.9.5](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.9.4...indexer-tap-agent-v1.9.5) (2025-05-14)
+
+
+### Bug Fixes
+
+* add libsasl2-2 to images ([#719](https://github.com/graphprotocol/indexer-rs/issues/719)) ([ea168db](https://github.com/graphprotocol/indexer-rs/pull/720/commits/ea168dbe6845845fe0a6598ffcd57f872ef1bdb2))
+
 ## [1.9.4](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.9.3...indexer-tap-agent-v1.9.4) (2025-04-29)
 
 

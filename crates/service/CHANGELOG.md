@@ -6,6 +6,14 @@
 
 
 
+## [1.5.5](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.4...indexer-service-rs-v1.5.5) (2025-05-14)
+
+
+### Bug Fixes
+
+* add libsasl2-2 to images ([#719](https://github.com/graphprotocol/indexer-rs/issues/719)) ([ea168db](https://github.com/graphprotocol/indexer-rs/pull/720/commits/ea168dbe6845845fe0a6598ffcd57f872ef1bdb2))
+* **indexer:** propagate database errors back to the caller ([#715](https://github.com/graphprotocol/indexer-rs/issues/715)) ([0e85079](https://github.com/graphprotocol/indexer-rs/commit/0e850794f53457e0fdeb7b9a70a4e1332914d23e))
+
 ## [1.5.4](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.3...indexer-service-rs-v1.5.4) (2025-05-09)
 
 
