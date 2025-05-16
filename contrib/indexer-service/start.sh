@@ -99,7 +99,7 @@ valgrind)
         /usr/local/bin/indexer-service-rs --config /opt/config.toml
     ;;
 # Use callgrind_annotate indexer-service.callgrind.out
-# for humand friendly report  of callgrind output
+# for human-friendly report of callgrind output
 # Ideally you should set:
 # [profile.release.package."*"]
 # debug = true
