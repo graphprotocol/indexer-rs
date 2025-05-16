@@ -23,3 +23,5 @@ bip39 = { workspace = true }
 rand.workspace = true
 
 indexer-receipt = { path = "../crates/indexer-receipt" }
+num_cpus = "1.16.0"
+clap = { version = "4.0", features = ["derive"] }

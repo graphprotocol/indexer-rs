@@ -12,27 +12,11 @@ use tokio::sync::Semaphore;
 use tokio::task;
 use tokio::time::Instant;
 
+use crate::constants::{
+    ACCOUNT0_SECRET, CHAIN_ID, GRAPH_URL, INDEXER_URL, MAX_RECEIPT_VALUE, SUBGRAPH_ID,
+    TAP_VERIFIER_CONTRACT,
+};
 use crate::utils::{create_request, create_tap_receipt, find_allocation};
-
-const INDEXER_URL: &str = "http://localhost:7601";
-// Taken from .env
-// this is the key gateway uses
-const ACCOUNT0_SECRET: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-
-// The deployed gateway and indexer
-// use this verifier contract
-// which must be part of the eip712 domain
-const TAP_VERIFIER_CONTRACT: &str = "0x8198f5d8F8CfFE8f9C413d98a0A55aEB8ab9FbB7";
-const CHAIN_ID: u64 = 1337;
-
-const SUBGRAPH_ID: &str = "QmV4R5g7Go94bVFmKTVFG7vaMTb1ztUUWb45mNrsc7Yyqs";
-
-const GRAPH_URL: &str = "http://localhost:8000/subgraphs/name/graph-network";
-
-const GRT_DECIMALS: u8 = 18;
-const GRT_BASE: u128 = 10u128.pow(GRT_DECIMALS as u32);
-
-const MAX_RECEIPT_VALUE: u128 = GRT_BASE / 10_000;
 
 // Function to test indexer service component
 // which is in charge of validating receipt signature,
