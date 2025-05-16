@@ -4083,7 +4083,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-tap-agent"
-version = "1.9.4"
+version = "1.9.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4206,7 +4206,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bip39",
+ "clap",
  "indexer-receipt",
+ "num_cpus",
  "rand 0.9.1",
  "reqwest 0.12.15",
  "serde",
