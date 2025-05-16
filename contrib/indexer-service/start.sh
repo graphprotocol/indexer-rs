@@ -7,11 +7,6 @@ fi
 
 cat /opt/.env
 
-until pg_isready -h postgres -U postgres -d indexer_components_1; do
-    stdbuf -oL echo "Waiting for postgres..."
-    sleep 2
-done
-
 # Extract TAPVerifier address from contracts.json
 VERIFIER_ADDRESS=$(jq -r '."1337".TAPVerifier.address' /opt/contracts.json)
 
