@@ -9,10 +9,10 @@ services:
       - ./local-network/.env:/opt/.env:ro
       - ./profiling:/opt/profiling:rw
       - ./indexer-service/config.toml:/opt/config/config.toml
-      - ./indexer-service/start-perf.sh:/usr/local/bin/start-perf.sh
+      - ./indexer-service/start.sh:/usr/local/bin/start.sh
       - ../migrations:/opt/migrations:ro
       - ../target/release/indexer-service-rs:/usr/local/bin/indexer-service-rs
-    entrypoint: ["/usr/local/bin/start-perf.sh"]
+    entrypoint: ["/usr/local/bin/start.sh"]
     environment:
       - RUST_BACKTRACE=1
       - RUST_LOG=debug

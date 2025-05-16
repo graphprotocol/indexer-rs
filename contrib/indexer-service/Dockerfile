@@ -23,9 +23,7 @@ COPY --from=build /root/target/release/indexer-service-rs /usr/local/bin/indexer
 # Copy our start script into the image
 COPY contrib/indexer-service/start.sh /usr/local/bin/start.sh
 COPY contrib/indexer-service/config.toml /opt/config/config.toml
-COPY contrib/indexer-service/start-perf.sh /usr/local/bin/start-perf.sh
 
 RUN chmod +x /usr/local/bin/start.sh
-RUN chmod +x /usr/local/bin/start-perf.sh
 
-ENTRYPOINT [ "/usr/local/bin/start-perf.sh" ]
+ENTRYPOINT [ "/usr/local/bin/start.sh" ]
