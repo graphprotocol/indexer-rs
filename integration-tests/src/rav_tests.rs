@@ -10,40 +10,20 @@ use std::time::Duration;
 use thegraph_core::alloy::primitives::Address;
 use thegraph_core::alloy::signers::local::PrivateKeySigner;
 
+use crate::constants::{
+    ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_URL, INDEXER_URL,
+    MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT,
+};
 use crate::utils::{create_request, create_tap_receipt, find_allocation};
 use crate::MetricsChecker;
 
-const INDEXER_URL: &str = "http://localhost:7601";
-// Taken from .env
-// this is the key gateway uses
-const ACCOUNT0_SECRET: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-
-// The deployed gateway and indexer
-// use this verifier contract
-// which must be part of the eip712 domain
-const TAP_VERIFIER_CONTRACT: &str = "0x8198f5d8F8CfFE8f9C413d98a0A55aEB8ab9FbB7";
-const CHAIN_ID: u64 = 1337;
-
-const GATEWAY_URL: &str = "http://localhost:7700";
-const SUBGRAPH_ID: &str = "BFr2mx7FgkJ36Y6pE5BiXs1KmNUmVDCnL82KUSdcLW1g";
-const GATEWAY_API_KEY: &str = "deadbeefdeadbeefdeadbeefdeadbeef";
-const TAP_AGENT_METRICS_URL: &str = "http://localhost:7300/metrics";
-
-const GRAPH_URL: &str = "http://localhost:8000/subgraphs/name/graph-network";
-
 const WAIT_TIME_BATCHES: u64 = 40;
-
 const NUM_RECEIPTS: u32 = 3;
 
 // Send receipts in batches with a delay in between
 // to ensure some receipts get outside the timestamp buffer
 const BATCHES: u32 = 2;
 const MAX_TRIGGERS: usize = 100;
-
-const GRT_DECIMALS: u8 = 18;
-const GRT_BASE: u128 = 10u128.pow(GRT_DECIMALS as u32);
-
-const MAX_RECEIPT_VALUE: u128 = GRT_BASE / 10_000;
 
 // Function to test the tap RAV generation
 pub async fn test_tap_rav_v1() -> Result<()> {
