@@ -29,10 +29,71 @@ echo "Containers size: $START_CONTAINERS_SIZE"
 echo "Volumes size: $START_VOLUMES_SIZE"
 echo "=============================================="
 
-# Your existing script starts here
 container_running() {
     docker ps --format '{{.Names}}' | grep -q "^$1$"
     return $?
+}
+
+# Function to fund the escrow smart contract
+# 1. first read .env variables from local-network/.env
+# 2. then read contract addresses from local-network/contracts.json
+# 3. finally, use the cast command to approve and deposit GRT to the escrow
+# this should be done just after deploying the gateway
+# otherwise it does not move forward in its setup process
+# causing false error during deployment of our local testnet
+fund_escrow() {
+    echo "Funding escrow for sender..."
+
+    if [ -f "local-network/.env" ]; then
+        source local-network/.env
+    else
+        echo "Error: local-network/.env file not found"
+        return 1
+    fi
+
+    GRAPH_TOKEN=$(jq -r '."1337".GraphToken.address' local-network/contracts.json)
+    TAP_ESCROW=$(jq -r '."1337".TAPEscrow.address' local-network/contracts.json)
+
+    if [ -z "$GRAPH_TOKEN" ] || [ -z "$TAP_ESCROW" ]; then
+        echo "Error: Could not read contract addresses from contracts.json"
+        return 1
+    fi
+
+    # Use constants from .env
+    SENDER_ADDRESS="$ACCOUNT0_ADDRESS"
+    SENDER_KEY="$ACCOUNT0_SECRET"
+    AMOUNT="10000000000000000000"
+
+    echo "Using GraphToken at: $GRAPH_TOKEN"
+    echo "Using TapEscrow at: $TAP_ESCROW"
+    echo "Using sender address: $SENDER_ADDRESS"
+
+    # Approve GRT for escrow
+    echo "Approving GRT..."
+    docker exec chain cast send \
+        --rpc-url http://localhost:8545 \
+        --private-key $SENDER_KEY \
+        $GRAPH_TOKEN "approve(address,uint256)" $TAP_ESCROW $AMOUNT
+
+    # Deposit to escrow
+    echo "Depositing to escrow..."
+    docker exec chain cast send \
+        --rpc-url http://localhost:8545 \
+        --private-key $SENDER_KEY \
+        $TAP_ESCROW "deposit(address,uint256)" $SENDER_ADDRESS $AMOUNT
+
+    # Verify deposit
+    echo "Verifying deposit..."
+    ESCROW_BALANCE=$(docker exec chain cast call \
+        --rpc-url http://localhost:8545 \
+        $TAP_ESCROW "getEscrowAmount(address,address)(uint256)" $SENDER_ADDRESS $SENDER_ADDRESS)
+    echo "Escrow balance: $ESCROW_BALANCE"
+    if [[ "$ESCROW_BALANCE" == "0" ]]; then
+        echo "Error: Failed to fund escrow"
+        return 1
+    fi
+    echo "Successfully funded escrow"
+    return 0
 }
 
 if container_running "indexer-service" && container_running "tap-agent" && container_running "gateway"; then
@@ -171,10 +232,6 @@ rm docker-compose.override.yml
 timeout 30 bash -c 'until docker ps | grep indexer | grep -q healthy; do sleep 5; done'
 timeout 30 bash -c 'until docker ps | grep tap-agent | grep -q healthy; do sleep 5; done'
 
-# Mine some blocks
-# This is important for the gateway
-(./local-network/scripts/mine-block.sh 10) 2>/dev/null || true
-
 echo "Building gateway image..."
 docker build -t local-gateway:latest ./local-network/gateway
 
@@ -189,6 +246,18 @@ docker run -d --name gateway \
     local-gateway:latest
 
 echo "Waiting for gateway to be available..."
+
+# Try to fund escrow up to 3 times
+for i in {1..3}; do
+    echo "Attempt $i to fund escrow..."
+    if fund_escrow; then
+        break
+    fi
+    if [ $i -lt 3 ]; then
+        echo "Waiting before retry..."
+        sleep 10
+    fi
+done
 
 # Ensure gateway is ready before testing
 timeout 100 bash -c 'until curl -f http://localhost:7700/ > /dev/null 2>&1; do echo "Waiting for gateway service..."; sleep 5; done'
