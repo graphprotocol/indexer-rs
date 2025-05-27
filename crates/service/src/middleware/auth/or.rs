@@ -75,6 +75,7 @@ where
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[pin_project::pin_project(project = KindProj)]
 pub enum Kind<Fut, Req, Resp> {
     QueryResult {
