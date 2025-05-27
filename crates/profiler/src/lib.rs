@@ -194,8 +194,11 @@ fn setup(path: String, frequency: i32, interval: u64, name: String) -> Result<()
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let temp_dir = tempfile::Builder::new().prefix("my-service-profile-").tempdir()?;
+///     let profile_path = temp_dir.path().to_str().ok_or("Invalid path")?.to_string();
+///
 ///     profiler::setup_profiling(
-///         "/opt/profiling/my-service".to_string(),
+///         profile_path,
 ///         150,
 ///         120,
 ///         Some("My Service".to_string()),
