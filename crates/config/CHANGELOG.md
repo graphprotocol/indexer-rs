@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.3.1...indexer-config-v1.3.2) (2025-05-28)
+
+
+### Bug Fixes
+
+* trigger release for recent dependency updates ([#730](https://github.com/graphprotocol/indexer-rs/issues/730)) ([f3ca43f](https://github.com/graphprotocol/indexer-rs/commit/f3ca43f9780f24e8b62c5478ccadfb2f6b10cc00))
+
 ## [1.3.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.3.0...indexer-config-v1.3.1) (2025-04-10)
 
 
