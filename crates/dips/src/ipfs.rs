@@ -1,12 +1,12 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use derivative::Derivative;
 use futures::TryStreamExt;
-use ipfs_api_backend_hyper::{IpfsApi, TryFromUri};
+use ipfs_api_backend_hyper::{BackendWithGlobalOptions, GlobalOptions, IpfsApi, TryFromUri};
 use serde::Deserialize;
 
 use crate::DipsError;
@@ -27,12 +27,16 @@ impl<T: IpfsFetcher> IpfsFetcher for Arc<T> {
 #[derivative(Debug)]
 pub struct IpfsClient {
     #[derivative(Debug = "ignore")]
-    client: ipfs_api_backend_hyper::IpfsClient,
+    client: ipfs_api_backend_hyper::BackendWithGlobalOptions<IpfsClient>,
 }
 
 impl IpfsClient {
     pub fn new(url: &str) -> anyhow::Result<Self> {
-        let client = ipfs_api_backend_hyper::IpfsClient::from_str(url)?;
+        let opts = GlobalOptions {
+            timeout: Some(Duration::from_secs(30)),
+        };
+        let backend = ipfs_api_backend_hyper::IpfsClient::from_str(url)?;
+        let client = BackendWithGlobalOptions::new(backend, opts);
         Ok(Self { client })
     }
 }
