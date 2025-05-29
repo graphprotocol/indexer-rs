@@ -28,5 +28,10 @@ timestamp_buffer_secs = 60
 request_timeout_secs = 5
 max_receipts_per_request = 10000
 
+[tap.sender_aggregator_endpoints]
+# Key-Value of all senders and their aggregator endpoints
+0xDDE4cfFd3D9052A9cb618fC05a1Cd02be1f2F467 = "https://tap-aggregator.network.thegraph.com"
+0xDD6a6f76eb36B873C1C184e8b9b9e762FE216490 = "https://tap-aggregator-arbitrum-one.graphops.xyz"
+
 [horizon]
 enabled = false
