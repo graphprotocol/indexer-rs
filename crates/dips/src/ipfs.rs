@@ -27,12 +27,13 @@ impl<T: IpfsFetcher> IpfsFetcher for Arc<T> {
 #[derivative(Debug)]
 pub struct IpfsClient {
     #[derivative(Debug = "ignore")]
-    client: ipfs_api_backend_hyper::BackendWithGlobalOptions<IpfsClient>,
+    client: ipfs_api_backend_hyper::Backend,
 }
 
 impl IpfsClient {
     pub fn new(url: &str) -> anyhow::Result<Self> {
         let opts = GlobalOptions {
+            offline: None,
             timeout: Some(Duration::from_secs(30)),
         };
         let backend = ipfs_api_backend_hyper::IpfsClient::from_str(url)?;
