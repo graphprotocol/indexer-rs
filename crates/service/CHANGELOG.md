@@ -6,6 +6,8 @@
 
 
 
+## [1.5.7](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.6...indexer-service-rs-v1.5.7) (2025-05-29)
+
 ## [1.5.6](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.5...indexer-service-rs-v1.5.6) (2025-05-28)
 
 
