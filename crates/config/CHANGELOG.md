@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.3.2...indexer-config-v1.4.0) (2025-05-29)
+
+
+### Features
+
+* add tap sender aggregator endpoints to default config ([#732](https://github.com/graphprotocol/indexer-rs/issues/732)) ([afc50dc](https://github.com/graphprotocol/indexer-rs/commit/afc50dca4fc997482e4e0fd42727171a177a43a2))
+
 ## [1.3.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.3.1...indexer-config-v1.3.2) (2025-05-28)
 
 
