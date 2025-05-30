@@ -27,7 +27,7 @@ impl<T: IpfsFetcher> IpfsFetcher for Arc<T> {
 #[derivative(Debug)]
 pub struct IpfsClient {
     #[derivative(Debug = "ignore")]
-    client: ipfs_api_backend_hyper::Backend,
+    client: ipfs_api_backend_hyper::BackendWithGlobalOptions<ipfs_api_backend_hyper::IpfsClient>,
 }
 
 impl IpfsClient {
