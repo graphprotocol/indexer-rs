@@ -43,7 +43,6 @@ build-info-build = { version = "0.0.40", default-features = false }
 clap = "4.4.3"
 educe = "0.6.0"
 env_logger = { version = "0.11.0", default-features = false }
-eventuals = "0.6.7"
 futures = "0.3"
 futures-util = { version = "0.3.28", default-features = false }
 graphql_client = { version = "0.14.0", features = ["reqwest-rustls"] }

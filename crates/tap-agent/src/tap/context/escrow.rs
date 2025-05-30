@@ -7,15 +7,6 @@ use thegraph_core::alloy::primitives::Address;
 
 use super::{error::AdapterError, NetworkVersion, TapAgentContext};
 
-// Conversion from eventuals::error::Closed to AdapterError::EscrowEventualError
-impl From<eventuals::error::Closed> for AdapterError {
-    fn from(e: eventuals::error::Closed) -> Self {
-        AdapterError::EscrowEventualError {
-            error: format!("{:?}", e),
-        }
-    }
-}
-
 /// Implements the SignatureChecker for any [NetworkVersion]
 #[async_trait]
 impl<T: NetworkVersion + Send + Sync> SignatureChecker for TapAgentContext<T> {
