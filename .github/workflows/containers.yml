@@ -24,6 +24,8 @@ jobs:
       - name: Release please
         id: release-please
         uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   builds-linux:
     runs-on: ubuntu-latest
