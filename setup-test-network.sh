@@ -114,10 +114,10 @@ pwd
 
 # Clone local-network repo if it doesn't exist
 if [ ! -d "local-network" ]; then
-    git clone https://github.com/edgeandnode/local-network.git
+    git clone https://github.com/semiotic-ai/local-network.git
     cd local-network
-    # Checkout to a specific commit that is known to work
-    git checkout ad98716661b033dd5e4cb9f09cebb80dba954c2d
+    # Checkout to a branch with no dipper
+    git checkout suchapalaver/main-no-dipper
     cd ..
 fi
 
