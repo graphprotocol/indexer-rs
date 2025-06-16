@@ -108,4 +108,4 @@ profile-restore:
 
 test-local:
     @cd integration-tests && ./fund_escrow.sh
-    @cd integration-tests && cargo run 
+    @cd integration-tests && cargo run -- rav1
