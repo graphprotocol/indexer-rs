@@ -233,15 +233,21 @@ timeout 30 bash -c 'until docker ps | grep indexer | grep -q healthy; do sleep 5
 timeout 30 bash -c 'until docker ps | grep tap-agent | grep -q healthy; do sleep 5; done'
 
 echo "Building gateway image..."
+source local-network/.env
 docker build -t local-gateway:latest ./local-network/gateway
 
 echo "Running gateway container..."
 docker run -d --name gateway \
     --network local-network_default \
     -p 7700:7700 \
-    -v $(pwd)/local-network/.env:/opt/.env:ro \
-    -v $(pwd)/local-network/contracts.json:/opt/contracts.json:ro \
+    -v "$(pwd)/local-network/contracts.json":/opt/contracts.json:ro \
     -e RUST_LOG=info,graph_gateway=trace \
+    -e ACCOUNT0_SECRET="$ACCOUNT0_SECRET" \
+    -e ACCOUNT0_ADDRESS="$ACCOUNT0_ADDRESS" \
+    -e GATEWAY_API_KEY="$GATEWAY_API_KEY" \
+    -e GRAPH_NODE_GRAPHQL="$GRAPH_NODE_GRAPHQL" \
+    -e REDPANDA_KAFKA="$REDPANDA_KAFKA" \
+    -e INDEXER_SERVICE="$INDEXER_SERVICE" \
     --restart on-failure:3 \
     local-gateway:latest
 
