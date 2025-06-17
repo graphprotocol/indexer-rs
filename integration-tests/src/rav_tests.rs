@@ -30,9 +30,6 @@ pub async fn test_tap_rav_v1() -> Result<()> {
     // Setup HTTP client
     let http_client = Arc::new(Client::new());
 
-    // Create wallet for signing receipts
-    let wallet: PrivateKeySigner = ACCOUNT0_SECRET.parse().unwrap();
-
     // Query the network subgraph to find active allocations
     let allocation_id = find_allocation(http_client.clone(), GRAPH_URL).await?;
 
@@ -67,27 +64,16 @@ pub async fn test_tap_rav_v1() -> Result<()> {
         );
 
         for i in 0..NUM_RECEIPTS {
-            // Create TAP receipt for this query
-            let receipt = create_tap_receipt(
-                MAX_RECEIPT_VALUE,
-                &allocation_id,
-                TAP_VERIFIER_CONTRACT,
-                CHAIN_ID,
-                &wallet,
-            )?;
-
-            let receipt_json = serde_json::to_string(&receipt).unwrap();
-            let response = create_request(
-                &http_client,
-                format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID).as_str(),
-                &receipt_json,
-                &json!({
+            let response = http_client
+                .post(format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID))
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
+                .json(&json!({
                     "query": "{ _meta { block { number } } }"
-                }),
-            )
-            .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
-            .send()
-            .await?;
+                }))
+                .timeout(Duration::from_secs(10))
+                .send()
+                .await?;
 
             if response.status().is_success() {
                 total_successful += 1;
@@ -125,27 +111,16 @@ pub async fn test_tap_rav_v1() -> Result<()> {
     for i in 0..MAX_TRIGGERS {
         println!("Sending trigger query {}/{}...", i + 1, MAX_TRIGGERS);
 
-        // Create TAP receipt for this trigger query
-        let receipt = create_tap_receipt(
-            MAX_RECEIPT_VALUE,
-            &allocation_id,
-            TAP_VERIFIER_CONTRACT,
-            CHAIN_ID,
-            &wallet,
-        )?;
-
-        let receipt_json = serde_json::to_string(&receipt).unwrap();
-        let response = create_request(
-            &http_client,
-            format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID).as_str(),
-            &receipt_json,
-            &json!({
+        let response = http_client
+            .post(format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID))
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
+            .json(&json!({
                 "query": "{ _meta { block { number } } }"
-            }),
-        )
-        .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
-        .send()
-        .await?;
+            }))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await?;
 
         if response.status().is_success() {
             total_successful += 1;
