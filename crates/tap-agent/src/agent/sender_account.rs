@@ -888,8 +888,8 @@ impl Actor for SenderAccount {
 
                                 match escrow_subgraph
                                     .query::<LatestRavs, _>(latest_ravs_v2::Variables {
-                                        payer: format!("{:x?}", sender_id),
-                                        data_service: format!("{:x?}", data_service),
+                                        payer: format!("{sender_id:x?}"),
+                                        data_service: format!("{data_service:x?}"),
                                         service_provider: format!("{:x?}", config.indexer_address),
                                         collection_ids: collection_ids.clone(),
                                     })

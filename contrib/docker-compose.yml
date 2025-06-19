@@ -6,7 +6,7 @@ services:
     container_name: indexer-service
     volumes:
       - ./indexer-service:/opt/config:ro # From contrib dir to indexer-service dir
-      - ./local-network/contracts.json:/opt/contracts.json:ro
+      - ./local-network/tap-contracts.json:/opt/contracts.json:ro
       - ./local-network/.env:/opt/.env:ro
       - ../migrations:/opt/migrations:ro
     entrypoint: ["/bin/bash", "-c", "/opt/config/start.sh"]
@@ -35,7 +35,7 @@ services:
     volumes:
       - ./tap-agent:/opt/config:ro # From contrib dir to tap-agent dir
       - ./local-network/.env:/opt/.env:ro
-      - ./local-network/contracts.json:/opt/contracts.json:ro
+      - ./local-network/tap-contracts.json:/opt/contracts.json:ro
       - ../migrations:/opt/migrations:ro
     entrypoint: ["/bin/bash", "-c", "/opt/config/start.sh"]
     environment:

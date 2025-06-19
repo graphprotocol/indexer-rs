@@ -4172,14 +4172,17 @@ name = "integration-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "bip39",
  "clap",
  "indexer-receipt",
  "num_cpus",
+ "prost",
  "rand 0.9.1",
  "reqwest 0.12.20",
  "serde",
  "serde_json",
+ "tap_aggregator",
  "tap_core",
  "tap_graph",
  "thegraph-core",

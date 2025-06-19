@@ -269,7 +269,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                 let collection_id = FixedBytes::<32>::from_str(&record.collection_id).map_err(|e| {
                     AdapterError::ReceiptRead {
                         error: format!(
-                            "Error decoding allocation_id while retrieving receipt from database: {e}"
+                            "Error decoding collection_id while retrieving receipt from database: {e}"
                         ),
                     }
                 })?;

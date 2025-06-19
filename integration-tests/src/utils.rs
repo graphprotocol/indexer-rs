@@ -8,12 +8,18 @@ use std::{
 };
 
 use anyhow::Result;
+use base64::prelude::*;
+use prost::Message;
 use rand::{rng, Rng};
 use reqwest::Client;
 use serde_json::json;
+use tap_aggregator::grpc;
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::Receipt;
 use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use thegraph_core::CollectionId;
+
+use crate::constants::TEST_DATA_SERVICE;
 
 pub fn create_tap_receipt(
     value: u128,
@@ -48,6 +54,57 @@ pub fn create_tap_receipt(
     )?;
 
     Ok(receipt)
+}
+
+pub fn create_tap_receipt_v2(
+    value: u128,
+    allocation_id: &Address, // Used to derive collection_id in V2
+    verifier_contract: &str,
+    chain_id: u64,
+    wallet: &PrivateKeySigner,
+    payer: &Address,
+    service_provider: &Address,
+) -> Result<Eip712SignedMessage<tap_graph::v2::Receipt>> {
+    let nonce = rng().random::<u64>();
+
+    // Get timestamp in nanoseconds
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)?
+        .as_nanos();
+    let timestamp_ns = timestamp as u64;
+
+    // In V2, convert the allocation_id to a collection_id
+    // For the migration period, we derive collection_id from allocation_id
+    let collection_id = CollectionId::from(*allocation_id);
+
+    // Create domain separator
+    let eip712_domain_separator =
+        tap_eip712_domain(chain_id, Address::from_str(verifier_contract)?);
+
+    // Create and sign V2 receipt
+    println!("Creating and signing V2 receipt...");
+    let receipt = Eip712SignedMessage::new(
+        &eip712_domain_separator,
+        tap_graph::v2::Receipt {
+            collection_id: *collection_id,
+            payer: *payer,
+            service_provider: *service_provider,
+            data_service: Address::from_str(TEST_DATA_SERVICE)?, // Use proper data service
+            nonce,
+            timestamp_ns,
+            value,
+        },
+        wallet,
+    )?;
+
+    Ok(receipt)
+}
+
+pub fn encode_v2_receipt(receipt: &Eip712SignedMessage<tap_graph::v2::Receipt>) -> Result<String> {
+    let protobuf_receipt = grpc::v2::SignedReceipt::from(receipt.clone());
+    let encoded = protobuf_receipt.encode_to_vec();
+    let base64_encoded = BASE64_STANDARD.encode(encoded);
+    Ok(base64_encoded)
 }
 
 // Function to create a configured request
