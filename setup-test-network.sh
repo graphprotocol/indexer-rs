@@ -117,7 +117,7 @@ if [ ! -d "local-network" ]; then
     git clone https://github.com/semiotic-ai/local-network.git
     cd local-network
     # Checkout to a branch with no dipper
-    git checkout suchapalaver/main-no-dipper
+    git checkout suchapalaver/test/horizon
     cd ..
 fi
 
