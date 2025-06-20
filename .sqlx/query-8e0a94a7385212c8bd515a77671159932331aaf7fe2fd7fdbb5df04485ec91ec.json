@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                DELETE FROM scalar_tap_receipts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "8e0a94a7385212c8bd515a77671159932331aaf7fe2fd7fdbb5df04485ec91ec"
+}
