@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS tap_horizon_receipts (
 
     -- Values below are the individual fields of the EIP-712 receipt
     signature BYTEA NOT NULL,
-    allocation_id CHAR(40) NOT NULL,
+    collection_id CHAR(64) NOT NULL,
     payer CHAR(40) NOT NULL,
     data_service CHAR(40) NOT NULL,
     service_provider CHAR(40) NOT NULL,
@@ -14,14 +14,14 @@ CREATE TABLE IF NOT EXISTS tap_horizon_receipts (
     value NUMERIC(39) NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS tap_horizon_receipts_allocation_id_idx ON tap_horizon_receipts (allocation_id);
+CREATE INDEX IF NOT EXISTS tap_horizon_receipts_collection_id_idx ON tap_horizon_receipts (collection_id);
 CREATE INDEX IF NOT EXISTS tap_horizon_receipts_timestamp_ns_idx ON tap_horizon_receipts (timestamp_ns);
 
 CREATE FUNCTION tap_horizon_receipt_notify()
 RETURNS trigger AS
 $$
 BEGIN
-    PERFORM pg_notify('tap_horizon_receipt_notification', format('{"id": %s, "allocation_id": "%s", "signer_address": "%s", "timestamp_ns": %s, "value": %s}', NEW.id, NEW.allocation_id, NEW.signer_address, NEW.timestamp_ns, NEW.value));
+    PERFORM pg_notify('tap_horizon_receipt_notification', format('{"id": %s, "collection_id": "%s", "signer_address": "%s", "timestamp_ns": %s, "value": %s}', NEW.id, NEW.collection_id, NEW.signer_address, NEW.timestamp_ns, NEW.value));
     RETURN NEW;
 END;
 $$ LANGUAGE 'plpgsql';
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS tap_horizon_receipts_invalid (
 
     -- Values below are the individual fields of the EIP-712 receipt
     signature BYTEA NOT NULL,
-    allocation_id CHAR(40) NOT NULL,
+    collection_id CHAR(64) NOT NULL,
     payer CHAR(40) NOT NULL,
     data_service CHAR(40) NOT NULL,
     service_provider CHAR(40) NOT NULL,
