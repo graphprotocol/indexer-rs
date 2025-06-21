@@ -17,7 +17,7 @@ use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, SignedReceipt};
 use thegraph_core::{
     alloy::{
-        primitives::{address, Address, U256},
+        primitives::{address, fixed_bytes, Address, FixedBytes, U256},
         signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
         sol_types::Eip712Domain,
     },
@@ -130,6 +130,9 @@ pub const ALLOCATION_ID_1: Address = address!("dd975e30aafebb143e54d215db8a3e8fd
 pub const ALLOCATION_ID_2: Address = address!("a171cd12c3dde7eb8fe7717a0bcd06f3ffa65658");
 
 pub const ALLOCATION_ID_3: Address = address!("69f961358846fdb64b04e1fd7b2701237c13cd9a");
+
+pub const COLLECTION_ID_0: FixedBytes<32> =
+    fixed_bytes!("0x0000000000000000000000000000000000000000000000000000000000000000");
 
 pub const VERIFIER_ADDRESS: Address = address!("1111111111111111111111111111111111111111");
 
@@ -369,7 +372,7 @@ pub async fn create_signed_receipt(
 /// Function to generate a signed receipt using the TAP_SIGNER wallet.
 #[bon::builder]
 pub async fn create_signed_receipt_v2(
-    #[builder(default = ALLOCATION_ID_0)] allocation_id: Address,
+    #[builder(default = COLLECTION_ID_0)] collection_id: FixedBytes<32>,
     #[builder(default)] nonce: u64,
     #[builder(default = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -386,7 +389,7 @@ pub async fn create_signed_receipt_v2(
             payer: TAP_SENDER.1,
             service_provider: INDEXER_ADDRESS,
             data_service: Address::ZERO,
-            allocation_id,
+            collection_id,
             nonce,
             timestamp_ns,
             value,

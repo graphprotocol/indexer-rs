@@ -54,7 +54,7 @@ impl Check<TapReceipt> for AllocationId {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let allocation_id = receipt.signed_receipt().allocation_id();
+        let allocation_id = receipt.signed_receipt().allocation_id().unwrap();
         // TODO: Remove the if block below? Each TAP Monitor is specific to an allocation
         // ID. So the receipts that are received here should already have been filtered by
         // allocation ID.

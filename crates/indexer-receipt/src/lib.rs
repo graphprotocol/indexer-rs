@@ -9,7 +9,10 @@ use tap_core::{
     },
     signed_message::SignatureBytes,
 };
-use thegraph_core::alloy::{dyn_abi::Eip712Domain, primitives::Address, signers::Signature};
+use thegraph_core::{
+    alloy::{dyn_abi::Eip712Domain, primitives::Address, signers::Signature},
+    CollectionId,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TapReceipt {
@@ -70,13 +73,13 @@ impl Aggregate<TapReceipt> for tap_graph::v2::ReceiptAggregateVoucher {
             })
             .collect::<Result<_, _>>()
             .map_err(AggregationError::Other)?;
-        let allocation_id = receipts[0].message.allocation_id;
+        let collection_id = receipts[0].message.collection_id;
         let payer = receipts[0].message.payer;
         let data_service = receipts[0].message.data_service;
         let service_provider = receipts[0].message.service_provider;
 
         tap_graph::v2::ReceiptAggregateVoucher::aggregate_receipts(
-            allocation_id,
+            collection_id,
             payer,
             data_service,
             service_provider,
@@ -115,10 +118,17 @@ impl TapReceipt {
         }
     }
 
-    pub fn allocation_id(&self) -> Address {
+    pub fn allocation_id(&self) -> Option<Address> {
         match self {
-            TapReceipt::V1(receipt) => receipt.message.allocation_id,
-            TapReceipt::V2(receipt) => receipt.message.allocation_id,
+            TapReceipt::V1(receipt) => Some(receipt.message.allocation_id),
+            _ => None,
+        }
+    }
+
+    pub fn collection_id(&self) -> Option<CollectionId> {
+        match self {
+            TapReceipt::V1(_) => None,
+            TapReceipt::V2(receipt) => Some(receipt.message.collection_id.into()),
         }
     }
 

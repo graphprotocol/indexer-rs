@@ -700,13 +700,13 @@ impl State {
         let receipts_signer_allocations_in_db = sqlx::query!(
             r#"
                 WITH grouped AS (
-                    SELECT signer_address, allocation_id
+                    SELECT signer_address, collection_id
                     FROM tap_horizon_receipts
-                    GROUP BY signer_address, allocation_id
+                    GROUP BY signer_address, collection_id
                 )
                 SELECT 
                     signer_address,
-                    ARRAY_AGG(allocation_id) AS allocation_ids
+                    ARRAY_AGG(collection_id) AS allocation_ids
                 FROM grouped
                 GROUP BY signer_address
             "#
@@ -746,7 +746,7 @@ impl State {
             r#"
                 SELECT
                     payer,
-                    ARRAY_AGG(DISTINCT allocation_id) FILTER (WHERE NOT last) AS allocation_ids
+                    ARRAY_AGG(DISTINCT collection_id) FILTER (WHERE NOT last) AS allocation_ids
                 FROM tap_horizon_ravs
                 GROUP BY payer
             "#

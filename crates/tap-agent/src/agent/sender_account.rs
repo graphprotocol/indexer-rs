@@ -25,10 +25,13 @@ use tap_aggregator::grpc::{
     v1::tap_aggregator_client::TapAggregatorClient as AggregatorV1,
     v2::tap_aggregator_client::TapAggregatorClient as AggregatorV2,
 };
-use thegraph_core::alloy::{
-    hex::ToHexExt,
-    primitives::{Address, U256},
-    sol_types::Eip712Domain,
+use thegraph_core::{
+    alloy::{
+        hex::ToHexExt,
+        primitives::{Address, U256},
+        sol_types::Eip712Domain,
+    },
+    CollectionId,
 };
 use tokio::{sync::watch::Receiver, task::JoinHandle};
 use tonic::transport::{Channel, Endpoint};
@@ -144,7 +147,7 @@ impl From<tap_graph::SignedRav> for RavInformation {
 impl From<&tap_graph::v2::SignedRav> for RavInformation {
     fn from(value: &tap_graph::v2::SignedRav) -> Self {
         RavInformation {
-            allocation_id: value.message.allocationId,
+            allocation_id: CollectionId::from(value.message.collectionId).as_address(),
             value_aggregate: value.message.valueAggregate,
         }
     }
@@ -815,7 +818,7 @@ impl Actor for SenderAccount {
                         if config.horizon_enabled {
                             sqlx::query!(
                                 r#"
-                                    SELECT allocation_id, value_aggregate
+                                    SELECT collection_id, value_aggregate
                                     FROM tap_horizon_ravs
                                     WHERE payer = $1 AND last AND NOT final;
                                 "#,
@@ -825,7 +828,7 @@ impl Actor for SenderAccount {
                             .await
                             .expect("Should not fail to fetch from \"horizon\" scalar_tap_ravs")
                             .into_iter()
-                            .map(|record| (record.allocation_id, record.value_aggregate))
+                            .map(|record| (record.collection_id, record.value_aggregate))
                             .collect()
                         } else {
                             vec![]

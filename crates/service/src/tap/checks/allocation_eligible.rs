@@ -29,16 +29,29 @@ impl Check<TapReceipt> for AllocationEligible {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let allocation_id = receipt.signed_receipt().allocation_id();
-        if !self
-            .indexer_allocations
-            .borrow()
-            .contains_key(&allocation_id)
-        {
-            return Err(CheckError::Failed(anyhow!(
-                "Receipt allocation ID `{}` is not eligible for this indexer",
-                allocation_id
-            )));
+        if let Some(allocation_id) = receipt.signed_receipt().allocation_id() {
+            if !self
+                .indexer_allocations
+                .borrow()
+                .contains_key(&allocation_id)
+            {
+                return Err(CheckError::Failed(anyhow!(
+                    "Receipt allocation ID `{}` is not eligible for this indexer",
+                    allocation_id
+                )));
+            }
+        } else if let Some(collection_id) = receipt.signed_receipt().collection_id() {
+            let collection_id_address = collection_id.as_address();
+            if !self
+                .indexer_allocations
+                .borrow()
+                .contains_key(&collection_id_address)
+            {
+                return Err(CheckError::Failed(anyhow!(
+                    "Receipt collection ID `{}` is not eligible for this indexer",
+                    collection_id
+                )));
+            }
         }
         Ok(())
     }

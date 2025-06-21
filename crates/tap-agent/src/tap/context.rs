@@ -155,6 +155,8 @@ impl NetworkVersion for Horizon {
 #[derive(Clone, bon::Builder)]
 pub struct TapAgentContext<T> {
     pgpool: PgPool,
+    /// For Legacy network: represents an allocation ID
+    /// For Horizon network: represents a collection ID (stored in collection_id database column)
     #[cfg_attr(test, builder(default = crate::test::ALLOCATION_ID_0))]
     allocation_id: Address,
     #[cfg_attr(test, builder(default = test_assets::TAP_SENDER.1))]
