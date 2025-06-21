@@ -14,7 +14,7 @@ use tap_graph::{ReceiptAggregateVoucher, SignedRav};
 use thegraph_core::alloy::signers::Signature;
 use thegraph_core::alloy::{
     hex::ToHexExt,
-    primitives::{Address, Bytes},
+    primitives::{Address, Bytes, FixedBytes},
 };
 
 use super::{error::AdapterError, Horizon, Legacy, TapAgentContext};
@@ -157,7 +157,7 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
             r#"
                 SELECT 
                     signature,
-                    allocation_id,
+                    collection_id,
                     payer,
                     data_service,
                     service_provider,
@@ -166,7 +166,7 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                     metadata
                 FROM tap_horizon_ravs
                 WHERE 
-                    allocation_id = $1 
+                    collection_id = $1 
                     AND payer = $2
                     AND service_provider = $3
             "#,
@@ -193,13 +193,14 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                                 e
                             ),
                         })?;
-                let allocation_id =
-                    Address::from_str(&row.allocation_id).map_err(|e| AdapterError::RavRead {
+                let collection_id = FixedBytes::from_str(&row.collection_id).map_err(|e| {
+                    AdapterError::RavRead {
                         error: format!(
-                            "Error decoding allocation_id while retrieving RAV from database: {}",
+                            "Error decoding collection_id while retrieving RAV from database: {}",
                             e
                         ),
-                    })?;
+                    }
+                })?;
 
                 let payer = Address::from_str(&row.payer).map_err(|e| AdapterError::RavRead {
                     error: format!(
@@ -244,7 +245,7 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                     })?;
 
                 let rav = tap_graph::v2::ReceiptAggregateVoucher {
-                    allocationId: allocation_id,
+                    collectionId: collection_id,
                     timestampNs: timestamp_ns,
                     valueAggregate: value_aggregate,
                     dataService: data_service,
@@ -285,14 +286,14 @@ impl RavStore<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizo
                     service_provider,
                     metadata,
                     signature,
-                    allocation_id,
+                    collection_id,
                     timestamp_ns,
                     value_aggregate,
                     created_at,
                     updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-                ON CONFLICT (payer, data_service, service_provider, allocation_id)
+                ON CONFLICT (payer, data_service, service_provider, collection_id)
                 DO UPDATE SET
                     signature = $5,
                     timestamp_ns = $7,
@@ -305,7 +306,7 @@ impl RavStore<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizo
             rav.message.serviceProvider.encode_hex(),
             rav.message.metadata.as_ref(),
             signature_bytes,
-            rav.message.allocationId.encode_hex(),
+            rav.message.collectionId.encode_hex(),
             BigDecimal::from(rav.message.timestampNs),
             BigDecimal::from(BigInt::from(rav.message.valueAggregate)),
             chrono::Utc::now()
@@ -381,7 +382,8 @@ mod test {
     {
         // Insert a rav
         let mut new_rav = T::create_rav(
-            ALLOCATION_ID_0,
+            Some(ALLOCATION_ID_0),
+            None,
             SIGNER.0.clone(),
             TIMESTAMP_NS,
             VALUE_AGGREGATE,
@@ -397,7 +399,8 @@ mod test {
         // Update the RAV 3 times in quick succession
         for i in 0..3 {
             new_rav = T::create_rav(
-                ALLOCATION_ID_0,
+                Some(ALLOCATION_ID_0),
+                None,
                 SIGNER.0.clone(),
                 TIMESTAMP_NS + i,
                 VALUE_AGGREGATE - (i as u128),

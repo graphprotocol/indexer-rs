@@ -164,7 +164,7 @@ impl InnerContext {
         let receipts_len = receipts.len();
         let mut signers = Vec::with_capacity(receipts_len);
         let mut signatures = Vec::with_capacity(receipts_len);
-        let mut allocation_ids = Vec::with_capacity(receipts_len);
+        let mut collection_ids = Vec::with_capacity(receipts_len);
         let mut payers = Vec::with_capacity(receipts_len);
         let mut data_services = Vec::with_capacity(receipts_len);
         let mut service_providers = Vec::with_capacity(receipts_len);
@@ -175,7 +175,7 @@ impl InnerContext {
         for receipt in receipts {
             signers.push(receipt.signer_address);
             signatures.push(receipt.signature);
-            allocation_ids.push(receipt.allocation_id);
+            collection_ids.push(receipt.collection_id);
             payers.push(receipt.payer);
             data_services.push(receipt.data_service);
             service_providers.push(receipt.service_provider);
@@ -187,7 +187,7 @@ impl InnerContext {
             r#"INSERT INTO tap_horizon_receipts (
                 signer_address,
                 signature,
-                allocation_id,
+                collection_id,
                 payer,
                 data_service,
                 service_provider,
@@ -207,7 +207,7 @@ impl InnerContext {
             )"#,
             &signers,
             &signatures,
-            &allocation_ids,
+            &collection_ids,
             &payers,
             &data_services,
             &service_providers,
@@ -328,7 +328,7 @@ impl DbReceiptV1 {
 pub struct DbReceiptV2 {
     signer_address: String,
     signature: Vec<u8>,
-    allocation_id: String,
+    collection_id: String,
     payer: String,
     data_service: String,
     service_provider: String,
@@ -342,7 +342,7 @@ impl DbReceiptV2 {
         receipt: &tap_graph::v2::SignedReceipt,
         separator: &Eip712Domain,
     ) -> anyhow::Result<Self> {
-        let allocation_id = receipt.message.allocation_id.encode_hex();
+        let collection_id = receipt.message.collection_id.encode_hex();
         let payer = receipt.message.payer.encode_hex();
         let data_service = receipt.message.data_service.encode_hex();
         let service_provider = receipt.message.service_provider.encode_hex();
@@ -360,7 +360,7 @@ impl DbReceiptV2 {
         let nonce = BigDecimal::from(receipt.message.nonce);
         let value = BigDecimal::from(BigInt::from(receipt.value()));
         Ok(Self {
-            allocation_id,
+            collection_id,
             payer,
             data_service,
             service_provider,
