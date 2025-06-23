@@ -1,22 +1,21 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{str::FromStr, sync::Arc};
+
 use anyhow::Result;
 use reqwest::Client;
 use serde_json::json;
-use std::str::FromStr;
-use std::sync::Arc;
-use thegraph_core::alloy::primitives::Address;
-use thegraph_core::alloy::signers::local::PrivateKeySigner;
-use tokio::sync::Semaphore;
-use tokio::task;
-use tokio::time::Instant;
+use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use tokio::{sync::Semaphore, task, time::Instant};
 
-use crate::constants::{
-    ACCOUNT0_SECRET, CHAIN_ID, GRAPH_URL, INDEXER_URL, MAX_RECEIPT_VALUE, SUBGRAPH_ID,
-    TAP_VERIFIER_CONTRACT,
+use crate::{
+    constants::{
+        ACCOUNT0_SECRET, CHAIN_ID, GRAPH_URL, INDEXER_URL, MAX_RECEIPT_VALUE, SUBGRAPH_ID,
+        TAP_VERIFIER_CONTRACT,
+    },
+    utils::{create_request, create_tap_receipt, find_allocation},
 };
-use crate::utils::{create_request, create_tap_receipt, find_allocation};
 
 // Function to test indexer service component
 // which is in charge of validating receipt signature,

@@ -1,21 +1,21 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{str::FromStr, sync::Arc, time::Duration};
+
 use anyhow::Result;
 use reqwest::Client;
 use serde_json::json;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
-use thegraph_core::alloy::primitives::Address;
-use thegraph_core::alloy::signers::local::PrivateKeySigner;
+use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner};
 
-use crate::constants::{
-    ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_URL, INDEXER_URL,
-    MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT,
+use crate::{
+    constants::{
+        ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_URL, INDEXER_URL,
+        MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT,
+    },
+    utils::{create_request, create_tap_receipt, find_allocation},
+    MetricsChecker,
 };
-use crate::utils::{create_request, create_tap_receipt, find_allocation};
-use crate::MetricsChecker;
 
 const WAIT_TIME_BATCHES: u64 = 40;
 const NUM_RECEIPTS: u32 = 3;

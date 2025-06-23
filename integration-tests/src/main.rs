@@ -10,9 +10,8 @@ mod utils;
 use anyhow::Result;
 use clap::Parser;
 use load_test::receipt_handler_load_test;
-pub(crate) use rav_tests::{test_invalid_chain_id, test_tap_rav_v1};
-
 use metrics::MetricsChecker;
+pub(crate) use rav_tests::{test_invalid_chain_id, test_tap_rav_v1};
 
 /// Main CLI parser structure
 #[derive(Parser, Debug)]
