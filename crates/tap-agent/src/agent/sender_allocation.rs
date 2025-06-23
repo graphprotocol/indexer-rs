@@ -921,7 +921,7 @@ where
                 )
                 VALUES ($1, $2, $3, $4, $5)
             "#,
-            self.allocation_id.to_string(),
+            T::allocation_id_to_address(&self.allocation_id).encode_hex(),
             self.sender.encode_hex(),
             serde_json::to_value(expected_rav)?,
             serde_json::to_value(rav)?,
@@ -977,7 +977,7 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
                     "#,
             BigDecimal::from(min_timestamp),
             BigDecimal::from(max_timestamp),
-            self.allocation_id.to_string(),
+            (**self.allocation_id).encode_hex(),
             &signers,
         )
         .execute(&self.pgpool)
@@ -1000,7 +1000,7 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
                 allocation_id = $1
                 AND signer_address IN (SELECT unnest($2::text[]))
             "#,
-            self.allocation_id.to_string(),
+            (**self.allocation_id).encode_hex(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -1050,7 +1050,7 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
                 AND signer_address IN (SELECT unnest($3::text[]))
                 AND timestamp_ns > $4
             "#,
-            self.allocation_id.to_string(),
+            (**self.allocation_id).encode_hex(),
             last_id,
             &signers,
             BigDecimal::from(
@@ -1096,7 +1096,7 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
                         SET last = true
                         WHERE allocation_id = $1 AND sender_address = $2
                     "#,
-            self.allocation_id.to_string(),
+            (**self.allocation_id).encode_hex(),
             self.sender.encode_hex(),
         )
         .execute(&self.pgpool)
@@ -1138,7 +1138,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                     "#,
             BigDecimal::from(min_timestamp),
             BigDecimal::from(max_timestamp),
-            self.allocation_id.to_string(),
+            self.allocation_id.as_address().encode_hex(),
             &signers,
         )
         .execute(&self.pgpool)
