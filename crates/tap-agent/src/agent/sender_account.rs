@@ -1765,8 +1765,10 @@ pub mod tests {
     }
 
     #[rstest::rstest]
-    #[tokio::test]
+    #[sqlx::test(migrations = "../../migrations")]
+    #[serial]
     async fn test_update_receipt_fees_trigger_rav(
+        #[ignore] _pgpool: PgPool,
         #[future(awt)] mut basic_sender_account: TestSenderAccount,
     ) {
         // create a fake sender allocation
