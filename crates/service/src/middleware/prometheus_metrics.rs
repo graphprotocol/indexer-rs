@@ -83,7 +83,7 @@ where
 
 #[pin_project]
 pub struct PrometheusMetricsFuture<F> {
-    /// Instant at which we started the requst.
+    /// Instant at which we started the request.
     timer: Option<Instant>,
 
     histogram: prometheus::HistogramVec,

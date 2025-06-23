@@ -329,7 +329,7 @@ impl Check<TapReceipt> for MinimumValue {
             value,
             expected_value,
             should_accept,
-            "Evaluating mininum query fee."
+            "Evaluating minimum query fee."
         );
 
         if should_accept {

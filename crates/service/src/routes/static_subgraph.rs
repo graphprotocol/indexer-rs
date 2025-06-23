@@ -42,7 +42,7 @@ impl From<&StaticSubgraphError> for StatusCode {
 
 impl IntoResponse for StaticSubgraphError {
     fn into_response(self) -> axum::response::Response {
-        tracing::error!(%self, "StaticSubgraphError occoured.");
+        tracing::error!(%self, "StaticSubgraphError occurred.");
         (
             StatusCode::from(&self),
             Json(json! {{
