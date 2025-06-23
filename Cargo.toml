@@ -38,8 +38,8 @@ base64 = "0.22.1"
 bigdecimal = "0.4.3"
 bip39 = "2.0.0"
 bon = "3.3"
-build-info = "0.0.40"
-build-info-build = { version = "0.0.40", default-features = false }
+build-info = "0.0.41"
+build-info-build = { version = "0.0.41", default-features = false }
 clap = "4.4.3"
 educe = "0.6.0"
 env_logger = { version = "0.11.0", default-features = false }
