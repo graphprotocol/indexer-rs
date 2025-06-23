@@ -818,7 +818,7 @@ where
         let reciepts_len = receipts.len();
         let mut reciepts_signers = Vec::with_capacity(reciepts_len);
         let mut encoded_signatures = Vec::with_capacity(reciepts_len);
-        let mut allocation_ids = Vec::with_capacity(reciepts_len);
+        let mut collection_ids = Vec::with_capacity(reciepts_len);
         let mut payers = Vec::with_capacity(reciepts_len);
         let mut data_services = Vec::with_capacity(reciepts_len);
         let mut service_providers = Vec::with_capacity(reciepts_len);
@@ -828,7 +828,7 @@ where
         let mut error_logs = Vec::with_capacity(reciepts_len);
 
         for (receipt, receipt_error) in receipts {
-            let allocation_id = receipt.message.allocation_id;
+            let collection_id = receipt.message.collection_id;
             let payer = receipt.message.payer;
             let data_service = receipt.message.data_service;
             let service_provider = receipt.message.service_provider;
@@ -841,13 +841,13 @@ where
                 })?;
             tracing::debug!(
                 "Receipt for allocation {} and signer {} failed reason: {}",
-                allocation_id.encode_hex(),
+                collection_id.encode_hex(),
                 receipt_signer.encode_hex(),
                 receipt_error
             );
             reciepts_signers.push(receipt_signer.encode_hex());
             encoded_signatures.push(encoded_signature);
-            allocation_ids.push(allocation_id.encode_hex());
+            collection_ids.push(collection_id.encode_hex());
             payers.push(payer.encode_hex());
             data_services.push(data_service.encode_hex());
             service_providers.push(service_provider.encode_hex());
@@ -860,7 +860,7 @@ where
             r#"INSERT INTO tap_horizon_receipts_invalid (
                 signer_address,
                 signature,
-                allocation_id,
+                collection_id,
                 payer,
                 data_service,
                 service_provider,
@@ -871,7 +871,7 @@ where
             ) SELECT * FROM UNNEST(
                 $1::CHAR(40)[],
                 $2::BYTEA[],
-                $3::CHAR(40)[],
+                $3::CHAR(64)[],
                 $4::CHAR(40)[],
                 $5::CHAR(40)[],
                 $6::CHAR(40)[],
@@ -882,7 +882,7 @@ where
             )"#,
             &reciepts_signers,
             &encoded_signatures,
-            &allocation_ids,
+            &collection_ids,
             &payers,
             &data_services,
             &service_providers,
@@ -1159,10 +1159,10 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             FROM
                 tap_horizon_receipts_invalid
             WHERE
-                allocation_id = $1
+                collection_id = $1
                 AND signer_address IN (SELECT unnest($2::text[]))
             "#,
-            self.allocation_id.encode_hex(),
+            self.collection_id.encode_hex(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -1205,13 +1205,13 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             FROM
                 tap_horizon_receipts
             WHERE
-                allocation_id = $1
+                collection_id = $1
                 AND service_provider = $2
                 AND id <= $3
                 AND signer_address IN (SELECT unnest($4::text[]))
                 AND timestamp_ns > $5
             "#,
-            self.allocation_id.encode_hex(),
+            self.collection_id.encode_hex(),
             self.indexer_address.encode_hex(),
             last_id,
             &signers,
@@ -1258,11 +1258,11 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 UPDATE tap_horizon_ravs
                     SET last = true
                 WHERE 
-                    allocation_id = $1
+                    collection_id = $1
                     AND payer = $2
                     AND service_provider = $3
             "#,
-            self.allocation_id.encode_hex(),
+            self.collection_id.encode_hex(),
             self.sender.encode_hex(),
             self.indexer_address.encode_hex(),
         )

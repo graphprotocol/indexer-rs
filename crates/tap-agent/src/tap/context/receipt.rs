@@ -12,7 +12,8 @@ use indexer_receipt::TapReceipt;
 use sqlx::{postgres::types::PgRange, types::BigDecimal};
 use tap_core::manager::adapters::{safe_truncate_receipts, ReceiptDelete, ReceiptRead};
 use tap_graph::{Receipt, SignedReceipt};
-use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
+use thegraph_core::alloy::{hex::ToHexExt, primitives::{Address, FixedBytes}};
+use thegraph_core::{CollectionId};
 
 use super::{error::AdapterError, Horizon, Legacy, TapAgentContext};
 use crate::tap::{signers_trimmed, CheckingReceipt};
@@ -227,7 +228,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                 SELECT 
                     id,
                     signature,
-                    allocation_id,
+                    collection_id,
                     payer,
                     data_service,
                     service_provider,
@@ -236,7 +237,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                     value
                 FROM tap_horizon_receipts
                 WHERE
-                    allocation_id = $1
+                    collection_id = $1
                     AND payer = $2
                     AND service_provider = $3
                     AND signer_address IN (SELECT unnest($4::text[]))
@@ -244,7 +245,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                 ORDER BY timestamp_ns ASC
                 LIMIT $6
             "#,
-            self.allocation_id.encode_hex(),
+            CollectionId::from(self.allocation_id).encode_hex(),
             self.sender.encode_hex(),
             self.indexer_address.encode_hex(),
             &signers,
@@ -263,10 +264,10 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                             e
                         ),
                     })?;
-                let allocation_id = Address::from_str(&record.allocation_id).map_err(|e| {
+                let collection_id = FixedBytes::<32>::from_str(&record.collection_id).map_err(|e| {
                     AdapterError::ReceiptRead {
                         error: format!(
-                            "Error decoding allocation_id while retrieving receipt from database: {}",
+                            "Error decoding collection_id while retrieving receipt from database: {}",
                             e
                         ),
                     }
@@ -319,7 +320,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                         payer,
                         data_service,
                         service_provider,
-                        allocation_id,
+                        collection_id,
                         timestamp_ns,
                         nonce,
                         value,
@@ -361,13 +362,13 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
             r#"
                 DELETE FROM tap_horizon_receipts
                 WHERE
-                    allocation_id = $1
+                    collection_id = $1
                     AND signer_address IN (SELECT unnest($2::text[]))
                     AND $3::numrange @> timestamp_ns
                     AND payer = $4
                     AND service_provider = $5
             "#,
-            self.allocation_id.encode_hex(),
+            CollectionId::from(self.allocation_id).encode_hex(),
             &signers,
             rangebounds_to_pgrange(timestamp_ns),
             self.sender.encode_hex(),
@@ -602,7 +603,7 @@ mod test {
                 r#"
                 SELECT 
                     signature,
-                    allocation_id,
+                    collection_id,
                     payer,
                     data_service,
                     service_provider,
@@ -623,7 +624,7 @@ mod test {
                 .into_iter()
                 .map(|record| {
                     let signature = record.signature.as_slice().try_into().unwrap();
-                    let allocation_id = Address::from_str(&record.allocation_id).unwrap();
+                    let collection_id = FixedBytes::<32>::from_str(&record.collection_id).unwrap();
                     let payer = Address::from_str(&record.payer).unwrap();
                     let data_service = Address::from_str(&record.data_service).unwrap();
                     let service_provider = Address::from_str(&record.service_provider).unwrap();
@@ -640,7 +641,7 @@ mod test {
 
                     let signed_receipt = tap_graph::v2::SignedReceipt {
                         message: tap_graph::v2::Receipt {
-                            allocation_id,
+                            collection_id,
                             payer,
                             data_service,
                             service_provider,

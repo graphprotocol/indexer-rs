@@ -19,7 +19,7 @@ use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use reqwest::Url;
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
-use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
+use thegraph_core::alloy::{primitives::{Address, FixedBytes}, sol_types::Eip712Domain};
 use tokio::{select, sync::watch::Receiver};
 
 use super::sender_account::{
@@ -697,16 +697,16 @@ impl State {
         let mut unfinalized_sender_allocations_map: HashMap<Address, HashSet<AllocationId>> =
             HashMap::new();
 
-        let receipts_signer_allocations_in_db = sqlx::query!(
+        let receipts_signer_collections_in_db = sqlx::query!(
             r#"
                 WITH grouped AS (
-                    SELECT signer_address, allocation_id
+                    SELECT signer_address, collection_id
                     FROM tap_horizon_receipts
-                    GROUP BY signer_address, allocation_id
+                    GROUP BY signer_address, collection_id
                 )
                 SELECT 
                     signer_address,
-                    ARRAY_AGG(allocation_id) AS allocation_ids
+                    ARRAY_AGG(collection_id) AS collection_ids
                 FROM grouped
                 GROUP BY signer_address
             "#
@@ -715,15 +715,15 @@ impl State {
         .await
         .expect("should be able to fetch pending V2 receipts from the database");
 
-        for row in receipts_signer_allocations_in_db {
-            let allocation_ids = row
-                .allocation_ids
-                .expect("all receipts V2 should have an allocation_id")
+        for row in receipts_signer_collections_in_db {
+            let collection_ids = row
+                .collection_ids
+                .expect("all receipts V2 should have a collection_id")
                 .iter()
-                .map(|allocation_id| {
-                    AllocationId::Legacy(
-                        Address::from_str(allocation_id)
-                            .expect("allocation_id should be a valid address"),
+                .map(|collection_id| {
+                    AllocationId::Horizon(
+                        FixedBytes::<32>::from_str(collection_id)
+                            .expect("collection_id should be a valid address"),
                     )
                 })
                 .collect::<HashSet<_>>();

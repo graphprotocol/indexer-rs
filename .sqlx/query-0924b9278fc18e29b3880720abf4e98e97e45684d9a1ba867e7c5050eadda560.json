@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                DELETE FROM tap_horizon_receipts\n                WHERE\n                    collection_id = $1\n                    AND signer_address IN (SELECT unnest($2::text[]))\n                    AND $3::numrange @> timestamp_ns\n                    AND payer = $4\n                    AND service_provider = $5\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "TextArray",
+        "NumRange",
+        "Bpchar",
+        "Bpchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0924b9278fc18e29b3880720abf4e98e97e45684d9a1ba867e7c5050eadda560"
+}

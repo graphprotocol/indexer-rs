@@ -2384,7 +2384,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.101",
 ]
 
 [[package]]
@@ -2705,7 +2705,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cea14ef9355e3beab063703aa9dab15afd25f0667c341310c1e5274bb1d0da18"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3808,7 +3808,7 @@ dependencies = [
  "anyhow",
  "indexer-query",
  "serde",
- "thegraph-core",
+ "thegraph-core 0.15.0",
 ]
 
 [[package]]
@@ -3819,7 +3819,7 @@ dependencies = [
  "indexer-allocation",
  "test-assets",
  "test-log",
- "thegraph-core",
+ "thegraph-core 0.15.0",
 ]
 
 [[package]]
@@ -3837,7 +3837,7 @@ dependencies = [
  "serde_test",
  "serde_with",
  "tempfile",
- "thegraph-core",
+ "thegraph-core 0.15.0",
  "toml 0.8.23",
  "tracing",
  "tracing-test",
@@ -3865,7 +3865,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sqlx",
- "thegraph-core",
+ "thegraph-core 0.15.0",
  "thiserror 1.0.69",
  "tokio",
  "tonic",
@@ -3894,7 +3894,7 @@ dependencies = [
  "test-assets",
  "test-log",
  "test-with",
- "thegraph-core",
+ "thegraph-core 0.15.0",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -3908,7 +3908,7 @@ dependencies = [
  "anyhow",
  "graphql_client",
  "serde",
- "thegraph-core",
+ "thegraph-core 0.15.0",
 ]
 
 [[package]]
@@ -3918,7 +3918,7 @@ dependencies = [
  "anyhow",
  "tap_core",
  "tap_graph",
- "thegraph-core",
+ "thegraph-core 0.15.0",
 ]
 
 [[package]]
@@ -3969,7 +3969,7 @@ dependencies = [
  "tap_graph",
  "test-assets",
  "test-log",
- "thegraph-core",
+ "thegraph-core 0.15.0",
  "thegraph-graphql-http",
  "thiserror 1.0.69",
  "tokio",
@@ -4029,7 +4029,7 @@ dependencies = [
  "tempfile",
  "test-assets",
  "test-log",
- "thegraph-core",
+ "thegraph-core 0.15.0",
  "thiserror 1.0.69",
  "tokio",
  "tonic",
@@ -4120,7 +4120,7 @@ dependencies = [
  "serde_json",
  "tap_core",
  "tap_graph",
- "thegraph-core",
+ "thegraph-core 0.15.0",
  "tokio",
 ]
 
@@ -4181,7 +4181,7 @@ checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
 dependencies = [
  "hermit-abi 0.5.1",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5757,7 +5757,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -5956,7 +5956,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6562,7 +6562,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6650,7 +6650,7 @@ dependencies = [
  "security-framework 3.2.0",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7754,9 +7754,9 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tap_aggregator"
-version = "0.5.5"
+version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "396a205d0b37082e143bacb0df2863f012efdb61030c761e4769e565a3682cac"
+checksum = "a285f761794c1f27f3d744cea3adb9860b625a34f0cc4f0637128b6a2c9611ea"
 dependencies = [
  "anyhow",
  "axum",
@@ -7775,7 +7775,7 @@ dependencies = [
  "strum 0.27.1",
  "tap_core",
  "tap_graph",
- "thegraph-core",
+ "thegraph-core 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
  "tonic",
  "tonic-build",
@@ -7795,7 +7795,7 @@ dependencies = [
  "tap_eip712_message",
  "tap_graph",
  "tap_receipt",
- "thegraph-core",
+ "thegraph-core 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 2.0.12",
  "tokio",
 ]
@@ -7807,21 +7807,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e648d9aafebc6835d1bb50398452a82a237539a60d8cb02f3541c1e2d291fc39"
 dependencies = [
  "serde",
- "thegraph-core",
+ "thegraph-core 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 2.0.12",
 ]
 
 [[package]]
 name = "tap_graph"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef92cf034d1da570ad6c2fbb949ef6c481e973854b4123c7ae2cb6f4c35a6a8b"
+checksum = "ff0f8dd640afe0d3a53a6b6ae58f628f0f99267d33f61b7a1264daa9d4307003"
 dependencies = [
  "rand 0.9.1",
  "serde",
  "tap_eip712_message",
  "tap_receipt",
- "thegraph-core",
+ "thegraph-core 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -7835,7 +7835,7 @@ dependencies = [
  "async-trait",
  "serde",
  "tap_eip712_message",
- "thegraph-core",
+ "thegraph-core 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 2.0.12",
 ]
 
@@ -7849,7 +7849,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7864,7 +7864,7 @@ dependencies = [
  "stdext",
  "tap_core",
  "tap_graph",
- "thegraph-core",
+ "thegraph-core 0.15.0",
  "tokio",
 ]
 
@@ -7913,13 +7913,22 @@ dependencies = [
 [[package]]
 name = "thegraph-core"
 version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a19d867e871b28e3b14e6470fefd69e1a4bbb92f2927726028a06e88f438608b"
 dependencies = [
  "alloy",
  "bs58",
  "serde",
  "serde_with",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "thegraph-core"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a19d867e871b28e3b14e6470fefd69e1a4bbb92f2927726028a06e88f438608b"
+dependencies = [
+ "alloy",
+ "bs58",
  "thiserror 2.0.12",
 ]
 
@@ -8931,7 +8940,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

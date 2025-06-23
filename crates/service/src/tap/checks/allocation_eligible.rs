@@ -7,6 +7,7 @@ use anyhow::anyhow;
 use indexer_allocation::Allocation;
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
 use thegraph_core::alloy::primitives::Address;
+use thegraph_core::CollectionId;
 use tokio::sync::watch::Receiver;
 
 use crate::tap::{CheckingReceipt, TapReceipt};
@@ -29,7 +30,10 @@ impl Check<TapReceipt> for AllocationEligible {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let allocation_id = receipt.signed_receipt().allocation_id();
+        let allocation_id = match receipt.signed_receipt() {
+            TapReceipt::V1(receipt) => receipt.message.allocation_id,
+            TapReceipt::V2(receipt) => CollectionId::from(receipt.message.collection_id).as_address(),
+        };
         if !self
             .indexer_allocations
             .borrow()

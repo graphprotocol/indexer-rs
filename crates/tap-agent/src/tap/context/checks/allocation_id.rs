@@ -54,19 +54,20 @@ impl Check<TapReceipt> for AllocationId {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let allocation_id = receipt.signed_receipt().allocation_id();
+        let allocation_id = receipt.signed_receipt().allocation_id()
+            .ok_or_else(|| CheckError::Failed(anyhow!("Receipt does not have an allocation_id")))?;
         // TODO: Remove the if block below? Each TAP Monitor is specific to an allocation
         // ID. So the receipts that are received here should already have been filtered by
         // allocation ID.
         if allocation_id != self.allocation_id {
-            return Err(CheckError::Failed(anyhow!("Receipt allocation_id different from expected: allocation_id: {}, expected_allocation_id: {}", allocation_id, self.allocation_id)));
+            return Err(CheckError::Failed(anyhow!("Receipt allocation_id different from expected: allocation_id: {:?}, expected_allocation_id: {}", allocation_id, self.allocation_id)));
         };
 
         // Check that the allocation ID is not redeemed yet for this consumer
         match *self.tap_allocation_redeemed.borrow() {
             false => Ok(()),
             true => Err(CheckError::Failed(anyhow!(
-                "Allocation {} already redeemed",
+                "Allocation {:?} already redeemed",
                 allocation_id
             ))),
         }

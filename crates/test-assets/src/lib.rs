@@ -17,11 +17,8 @@ use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, SignedReceipt};
 use thegraph_core::{
     alloy::{
-        primitives::{address, Address, U256},
-        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
-        sol_types::Eip712Domain,
-    },
-    deployment_id, DeploymentId,
+        primitives::{address, Address, U256}, signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner}, sol_types::Eip712Domain
+    }, collection_id, deployment_id, CollectionId, DeploymentId
 };
 use tokio::sync::mpsc;
 
@@ -124,6 +121,7 @@ pub const INDEXER_ADDRESS: Address = address!("d75c4dbcb215a6cf9097cfbcc70aab259
 pub const DISPUTE_MANAGER_ADDRESS: Address = address!("deadbeefcafebabedeadbeefcafebabedeadbeef");
 
 pub const ALLOCATION_ID_0: Address = address!("fa44c72b753a66591f241c7dc04e8178c30e13af");
+pub const COLLECTION_ID_0: CollectionId = collection_id!("000000000000000000000000fa44c72b753a66591f241c7dc04e8178c30e13af");
 
 pub const ALLOCATION_ID_1: Address = address!("dd975e30aafebb143e54d215db8a3e8fd916a701");
 
@@ -369,7 +367,7 @@ pub async fn create_signed_receipt(
 /// Function to generate a signed receipt using the TAP_SIGNER wallet.
 #[bon::builder]
 pub async fn create_signed_receipt_v2(
-    #[builder(default = ALLOCATION_ID_0)] allocation_id: Address,
+    #[builder(default = COLLECTION_ID_0)] collection_id: CollectionId,
     #[builder(default)] nonce: u64,
     #[builder(default = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -386,7 +384,7 @@ pub async fn create_signed_receipt_v2(
             payer: TAP_SENDER.1,
             service_provider: INDEXER_ADDRESS,
             data_service: Address::ZERO,
-            allocation_id,
+            collection_id: collection_id.into_inner(),
             nonce,
             timestamp_ns,
             value,
