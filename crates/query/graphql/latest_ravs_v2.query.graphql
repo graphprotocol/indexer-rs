@@ -1,0 +1,19 @@
+query LatestRavs(
+    $payer: ID!
+    $dataService: ID!
+    $serviceProvider: ID!
+    $collectionIds: [ID!]!
+) {
+    latestRavs(
+        where: {
+            payer: $payer
+            dataService: $dataService
+            serviceProvider: $serviceProvider
+            id_in: $collectionIds
+        }
+    ) {
+        id
+        valueAggregate
+        timestamp
+    }
+}
