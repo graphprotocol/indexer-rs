@@ -113,3 +113,7 @@ test-local:
 test-local-v2:
     @cd integration-tests && ./fund_escrow.sh
     @cd integration-tests && cargo run -- rav2
+
+load-test-v2 num_receipts="1000":
+    @cd integration-tests && ./fund_escrow.sh
+    @cd integration-tests && cargo run -- load-v2 --num-receipts {{num_receipts}}
