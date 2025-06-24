@@ -13,7 +13,7 @@ use crate::{
         ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_URL, INDEXER_URL,
         MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT,
     },
-    utils::{create_request, create_tap_receipt, find_allocation},
+    utils::{create_request, create_tap_receipt, create_tap_receipt_v2, find_allocation},
     MetricsChecker,
 };
 
@@ -210,4 +210,187 @@ pub async fn test_invalid_chain_id() -> Result<()> {
     );
 
     Ok(())
+}
+
+// Function to test the TAP RAV generation with V2 receipts
+pub async fn test_tap_rav_v2() -> Result<()> {
+    // Setup HTTP client
+    let http_client = Arc::new(Client::new());
+    let wallet: PrivateKeySigner = ACCOUNT0_SECRET.parse().unwrap();
+
+    // Query the network subgraph to find active allocations
+    let allocation_id = find_allocation(http_client.clone(), GRAPH_URL).await?;
+    let allocation_id = Address::from_str(&allocation_id)?;
+
+    // For V2, we need payer and service provider addresses
+    let payer = wallet.address();
+    let service_provider = allocation_id; // Using allocation_id as service provider for simplicity
+
+    // Create a metrics checker
+    let metrics_checker =
+        MetricsChecker::new(http_client.clone(), TAP_AGENT_METRICS_URL.to_string());
+
+    // First check initial metrics
+    let initial_metrics = metrics_checker.get_current_metrics().await?;
+    let initial_ravs_created =
+        initial_metrics.ravs_created_by_allocation(&allocation_id.to_string());
+    let initial_unaggregated =
+        initial_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
+
+    println!(
+        "\n=== V2 Initial metrics: RAVs created: {}, Unaggregated fees: {} ===",
+        initial_ravs_created, initial_unaggregated
+    );
+
+    println!("\n=== V2 STAGE 1: Sending large receipt batches with small pauses ===");
+
+    // Send multiple V2 receipts in two batches with a gap between them
+    let mut total_successful = 0;
+
+    for batch in 0..BATCHES {
+        println!(
+            "Sending V2 batch {} of 2 with {} receipts each...",
+            batch + 1,
+            NUM_RECEIPTS
+        );
+
+        for i in 0..NUM_RECEIPTS {
+            // Create V2 receipt
+            let receipt = create_tap_receipt_v2(
+                MAX_RECEIPT_VALUE,
+                &allocation_id,
+                TAP_VERIFIER_CONTRACT,
+                CHAIN_ID,
+                &wallet,
+                &payer,
+                &service_provider,
+            )?;
+
+            let receipt_json = serde_json::to_string(&receipt)?;
+
+            let response = create_request(
+                &http_client,
+                &format!("{}/subgraphs/id/{}", INDEXER_URL, SUBGRAPH_ID),
+                &receipt_json,
+                &json!({
+                    "query": "{ _meta { block { number } } }"
+                }),
+            )
+            .send()
+            .await?;
+
+            if response.status().is_success() {
+                total_successful += 1;
+                println!(
+                    "V2 Query {} of batch {} sent successfully",
+                    i + 1,
+                    batch + 1
+                );
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Failed to send V2 query: {}",
+                    response.status()
+                ));
+            }
+
+            // Small pause between queries within batch
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        // Check metrics after batch
+        let batch_metrics = metrics_checker.get_current_metrics().await?;
+        println!(
+            "After V2 batch {}: RAVs created: {}, Unaggregated fees: {}",
+            batch + 1,
+            batch_metrics.ravs_created_by_allocation(&allocation_id.to_string()),
+            batch_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string())
+        );
+
+        // Wait between batches - long enough for first batch to exit buffer
+        if batch < 1 {
+            println!("Waiting for buffer period + 5s...");
+            tokio::time::sleep(Duration::from_secs(WAIT_TIME_BATCHES)).await;
+        }
+    }
+
+    println!("\n=== V2 STAGE 2: Sending continuous trigger receipts ===");
+
+    // Now send a series of regular V2 queries with short intervals until RAV is detected
+    for i in 0..MAX_TRIGGERS {
+        println!("Sending V2 trigger query {}/{}...", i + 1, MAX_TRIGGERS);
+
+        // Create V2 receipt
+        let receipt = create_tap_receipt_v2(
+            MAX_RECEIPT_VALUE / 10, // Smaller value for trigger receipts
+            &allocation_id,
+            TAP_VERIFIER_CONTRACT,
+            CHAIN_ID,
+            &wallet,
+            &payer,
+            &service_provider,
+        )?;
+
+        let receipt_json = serde_json::to_string(&receipt)?;
+
+        let response = create_request(
+            &http_client,
+            &format!("{}/subgraphs/id/{}", INDEXER_URL, SUBGRAPH_ID),
+            &receipt_json,
+            &json!({
+                "query": "{ _meta { block { number } } }"
+            }),
+        )
+        .send()
+        .await?;
+
+        if response.status().is_success() {
+            total_successful += 1;
+            println!("V2 Trigger receipt {} sent successfully", i + 1);
+        } else {
+            return Err(anyhow::anyhow!(
+                "Failed to send V2 trigger query: {}",
+                response.status()
+            ));
+        }
+
+        // Check after each trigger
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let current_metrics = metrics_checker.get_current_metrics().await?;
+        let current_ravs_created =
+            current_metrics.ravs_created_by_allocation(&allocation_id.to_string());
+        let current_unaggregated =
+            current_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
+
+        println!(
+            "After V2 trigger {}: RAVs created: {}, Unaggregated fees: {}",
+            i + 1,
+            current_ravs_created,
+            current_unaggregated
+        );
+
+        // If we've succeeded, exit early
+        if current_ravs_created > initial_ravs_created {
+            println!(
+                "✅ V2 TEST PASSED: RAVs created increased from {} to {}!",
+                initial_ravs_created, current_ravs_created
+            );
+            return Ok(());
+        }
+
+        if current_unaggregated < initial_unaggregated * 0.9 {
+            println!(
+                "✅ V2 TEST PASSED: Unaggregated fees decreased significantly from {} to {}!",
+                initial_unaggregated, current_unaggregated
+            );
+            return Ok(());
+        }
+    }
+
+    println!("\n=== V2 Summary ===");
+    println!("Total V2 queries sent successfully: {}", total_successful);
+
+    // If we got here, test failed
+    println!("❌ V2 TEST FAILED: No RAV generation detected");
+    Err(anyhow::anyhow!("Failed to detect V2 RAV generation"))
 }

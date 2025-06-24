@@ -11,7 +11,7 @@ use anyhow::Result;
 use clap::Parser;
 use load_test::receipt_handler_load_test;
 use metrics::MetricsChecker;
-pub(crate) use rav_tests::{test_invalid_chain_id, test_tap_rav_v1};
+pub(crate) use rav_tests::{test_invalid_chain_id, test_tap_rav_v1, test_tap_rav_v2};
 
 /// Main CLI parser structure
 #[derive(Parser, Debug)]
@@ -24,6 +24,7 @@ struct Cli {
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
     Rav1,
+    Rav2,
 
     #[clap(name = "load")]
     LoadService {
@@ -42,6 +43,10 @@ async fn main() -> Result<()> {
         Commands::Rav1 => {
             test_invalid_chain_id().await?;
             test_tap_rav_v1().await?;
+        }
+        // cargo run -- rav2
+        Commands::Rav2 => {
+            test_tap_rav_v2().await?;
         }
         // cargo run -- load --num-receipts 1000
         Commands::LoadService { num_receipts } => {
