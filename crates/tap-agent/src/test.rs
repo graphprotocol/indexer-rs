@@ -525,21 +525,38 @@ pub async fn store_batch_receipts(
     let mut values = Vec::with_capacity(receipts_len);
 
     for receipt in receipts {
-        let receipt = match receipt.signed_receipt() {
-            TapReceipt::V1(receipt) => receipt,
-            TapReceipt::V2(_) => unimplemented!("V2 receipts not supported"),
+        match receipt.signed_receipt() {
+            TapReceipt::V1(receipt) => {
+                signers.push(
+                    receipt
+                        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                        .unwrap()
+                        .encode_hex(),
+                );
+                signatures.push(receipt.signature.as_bytes().to_vec());
+                allocation_ids.push(receipt.message.allocation_id.encode_hex().to_string());
+                timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
+                nonces.push(BigDecimal::from(receipt.message.nonce));
+                values.push(BigDecimal::from(receipt.message.value));
+            }
+            TapReceipt::V2(receipt) => {
+                use thegraph_core::CollectionId;
+                // For V2, store collection_id in the allocation_id field (as per the database reuse strategy)
+                let collection_id_as_allocation =
+                    CollectionId::from(receipt.message.collection_id).as_address();
+                signers.push(
+                    receipt
+                        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                        .unwrap()
+                        .encode_hex(),
+                );
+                signatures.push(receipt.signature.as_bytes().to_vec());
+                allocation_ids.push(collection_id_as_allocation.encode_hex().to_string());
+                timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
+                nonces.push(BigDecimal::from(receipt.message.nonce));
+                values.push(BigDecimal::from(receipt.message.value));
+            }
         };
-        signers.push(
-            receipt
-                .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
-                .unwrap()
-                .encode_hex(),
-        );
-        signatures.push(receipt.signature.as_bytes().to_vec());
-        allocation_ids.push(receipt.message.allocation_id.encode_hex().to_string());
-        timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
-        nonces.push(BigDecimal::from(receipt.message.nonce));
-        values.push(BigDecimal::from(receipt.message.value));
     }
     let _ = sqlx::query!(
         r#"INSERT INTO scalar_tap_receipts (
@@ -579,7 +596,7 @@ pub async fn store_invalid_receipt(
 ) -> anyhow::Result<u64> {
     match signed_receipt {
         TapReceipt::V1(signed_receipt) => store_invalid_receipt_v1(pgpool, signed_receipt).await,
-        TapReceipt::V2(_) => unimplemented!("V2 not supported"),
+        TapReceipt::V2(signed_receipt) => store_invalid_receipt_v2(pgpool, signed_receipt).await,
     }
 }
 
@@ -601,6 +618,41 @@ pub async fn store_invalid_receipt_v1(
             .encode_hex(),
         encoded_signature,
         signed_receipt.message.allocation_id.encode_hex(),
+        BigDecimal::from(signed_receipt.message.timestamp_ns),
+        BigDecimal::from(signed_receipt.message.nonce),
+        BigDecimal::from(BigInt::from(signed_receipt.message.value)),
+    )
+    .fetch_one(pgpool)
+    .await?;
+
+    // id is BIGSERIAL, so it should be safe to cast to u64.
+    let id: u64 = record.id.try_into()?;
+    Ok(id)
+}
+
+pub async fn store_invalid_receipt_v2(
+    pgpool: &PgPool,
+    signed_receipt: &tap_graph::v2::SignedReceipt,
+) -> anyhow::Result<u64> {
+    use thegraph_core::CollectionId;
+    let encoded_signature = signed_receipt.signature.as_bytes().to_vec();
+
+    // Store collection_id in allocation_id field (database reuse strategy)
+    let collection_id_as_allocation =
+        CollectionId::from(signed_receipt.message.collection_id).as_address();
+
+    let record = sqlx::query!(
+        r#"
+            INSERT INTO scalar_tap_receipts_invalid (signer_address, signature, allocation_id, timestamp_ns, nonce, value)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id
+        "#,
+        signed_receipt
+            .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+            .unwrap()
+            .encode_hex(),
+        encoded_signature,
+        collection_id_as_allocation.encode_hex(),
         BigDecimal::from(signed_receipt.message.timestamp_ns),
         BigDecimal::from(signed_receipt.message.nonce),
         BigDecimal::from(BigInt::from(signed_receipt.message.value)),
