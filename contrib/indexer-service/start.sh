@@ -8,21 +8,27 @@ fi
 cat /opt/.env
 
 # Extract TAPVerifier address from contracts.json
+stdbuf -oL echo "🔍 DEBUG: Extracting TAPVerifier address from contracts.json..."
 VERIFIER_ADDRESS=$(jq -r '."1337".TAPVerifier.address' /opt/contracts.json)
+stdbuf -oL echo "🔍 DEBUG: TAPVerifier address: $VERIFIER_ADDRESS"
 
 # Override with test values taken from test-assets/src/lib.rs
 ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
 
 # Get network subgraph deployment ID
-NETWORK_DEPLOYMENT=$(curl -s "http://graph-node:8000/subgraphs/name/graph-network" \
+stdbuf -oL echo "🔍 DEBUG: Fetching network subgraph deployment ID..."
+NETWORK_DEPLOYMENT=$(curl -s --max-time 10 "http://graph-node:8000/subgraphs/name/graph-network" \
     -H 'content-type: application/json' \
     -d '{"query": "{ _meta { deployment } }"}' | jq -r '.data._meta.deployment' 2>/dev/null)
+stdbuf -oL echo "🔍 DEBUG: Network deployment result: $NETWORK_DEPLOYMENT"
 stdbuf -oL echo "Graph-network subgraph deployment ID: $NETWORK_DEPLOYMENT"
 
 # Get escrow subgraph deployment ID
-ESCROW_DEPLOYMENT=$(curl -s "http://graph-node:8000/subgraphs/name/semiotic/tap" \
+stdbuf -oL echo "🔍 DEBUG: Fetching escrow subgraph deployment ID..."
+ESCROW_DEPLOYMENT=$(curl -s --max-time 10 "http://graph-node:8000/subgraphs/name/semiotic/tap" \
     -H 'content-type: application/json' \
     -d '{"query": "{ _meta { deployment } }"}' | jq -r '.data._meta.deployment' 2>/dev/null)
+stdbuf -oL echo "🔍 DEBUG: Escrow deployment result: $ESCROW_DEPLOYMENT"
 
 stdbuf -oL echo "Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
 stdbuf -oL echo "Using test Network subgraph deployment ID: $NETWORK_DEPLOYMENT"
