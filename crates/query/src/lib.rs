@@ -123,3 +123,37 @@ pub mod closed_allocations {
     variables_derives = "Clone"
 )]
 pub struct TapTransactions;
+
+pub mod latest_ravs_v2 {
+    use graphql_client::GraphQLQuery;
+    type BigInt = String;
+    type Bytes = String;
+
+    #[derive(GraphQLQuery)]
+    #[graphql(
+        schema_path = "graphql/tap_v2.schema.graphql",
+        query_path = "graphql/latest_ravs_v2.query.graphql",
+        response_derives = "Debug",
+        variables_derives = "Clone"
+    )]
+    pub struct LatestRavs;
+
+    pub use latest_ravs::*;
+}
+
+pub mod escrow_account_v2 {
+    use graphql_client::GraphQLQuery;
+    type BigInt = String;
+    type Bytes = String;
+
+    #[derive(GraphQLQuery)]
+    #[graphql(
+        schema_path = "graphql/tap_v2.schema.graphql",
+        query_path = "graphql/escrow_account_v2.query.graphql",
+        response_derives = "Debug",
+        variables_derives = "Clone"
+    )]
+    pub struct EscrowAccountQuery;
+
+    pub use escrow_account_query::Variables;
+}
