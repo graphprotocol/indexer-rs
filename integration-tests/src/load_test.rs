@@ -14,7 +14,10 @@ use crate::{
         ACCOUNT0_SECRET, CHAIN_ID, GRAPH_URL, INDEXER_URL, MAX_RECEIPT_VALUE, SUBGRAPH_ID,
         TAP_VERIFIER_CONTRACT,
     },
-    utils::{create_request, create_tap_receipt, create_tap_receipt_v2, find_allocation},
+    utils::{
+        create_request, create_tap_receipt, create_tap_receipt_v2, encode_v2_receipt,
+        find_allocation,
+    },
 };
 
 // Function to test indexer service component
@@ -233,11 +236,11 @@ async fn create_and_send_receipts_v2(
         &service_provider,
     )?;
 
-    let receipt_json = serde_json::to_string(&receipt).unwrap();
+    let receipt_encoded = encode_v2_receipt(&receipt)?;
     let response = create_request(
         &http_client,
         format!("{}/subgraphs/id/{}", INDEXER_URL, SUBGRAPH_ID).as_str(),
-        &receipt_json,
+        &receipt_encoded,
         &json!({
             "query": "{ _meta { block { number } } }"
         }),

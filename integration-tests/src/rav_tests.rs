@@ -13,7 +13,10 @@ use crate::{
         ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_URL, INDEXER_URL,
         MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT,
     },
-    utils::{create_request, create_tap_receipt, create_tap_receipt_v2, find_allocation},
+    utils::{
+        create_request, create_tap_receipt, create_tap_receipt_v2, encode_v2_receipt,
+        find_allocation,
+    },
     MetricsChecker,
 };
 
@@ -266,12 +269,12 @@ pub async fn test_tap_rav_v2() -> Result<()> {
                 &service_provider,
             )?;
 
-            let receipt_json = serde_json::to_string(&receipt)?;
+            let receipt_encoded = encode_v2_receipt(&receipt)?;
 
             let response = create_request(
                 &http_client,
                 &format!("{}/subgraphs/id/{}", INDEXER_URL, SUBGRAPH_ID),
-                &receipt_json,
+                &receipt_encoded,
                 &json!({
                     "query": "{ _meta { block { number } } }"
                 }),
@@ -330,12 +333,12 @@ pub async fn test_tap_rav_v2() -> Result<()> {
             &service_provider,
         )?;
 
-        let receipt_json = serde_json::to_string(&receipt)?;
+        let receipt_encoded = encode_v2_receipt(&receipt)?;
 
         let response = create_request(
             &http_client,
             &format!("{}/subgraphs/id/{}", INDEXER_URL, SUBGRAPH_ID),
-            &receipt_json,
+            &receipt_encoded,
             &json!({
                 "query": "{ _meta { block { number } } }"
             }),
