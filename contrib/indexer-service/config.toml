@@ -46,4 +46,4 @@ trigger_value_divisor = 500_000
 "ACCOUNT0_ADDRESS_PLACEHOLDER" = "http://tap-aggregator:7610"
 
 [horizon]
-enabled = false
+enabled = true
