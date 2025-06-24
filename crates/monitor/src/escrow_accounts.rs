@@ -9,6 +9,9 @@ use std::{
 
 use anyhow::anyhow;
 use indexer_query::escrow_account::{self, EscrowAccountQuery};
+use indexer_query::escrow_account_v2::{
+    self as escrow_account_v2, EscrowAccountQuery as EscrowAccountQueryV2,
+};
 use thegraph_core::alloy::primitives::{Address, U256};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
@@ -131,7 +134,7 @@ async fn get_escrow_accounts_v2(
     // 4. Service provider (indexer) receives payments from payer's escrow
 
     let response = escrow_subgraph
-        .query::<EscrowAccountQuery, _>(escrow_account::Variables {
+        .query::<EscrowAccountQueryV2, _>(escrow_account_v2::Variables {
             indexer: format!("{:x?}", indexer_address),
             thaw_end_timestamp: if reject_thawing_signers {
                 U256::ZERO.to_string()
@@ -156,13 +159,13 @@ async fn get_escrow_accounts_v2(
             .unwrap_or_else(|| {
                 tracing::warn!(
                     "Balance minus total amount thawing underflowed for V2 account {}. \
-                                 Setting balance to 0, no V2 queries will be served for this sender.",
-                    account.sender.id
+                                 Setting balance to 0, no V2 queries will be served for this payer.",
+                    account.payer.id
                 );
                 U256::from(0)
             });
 
-            Ok((Address::from_str(&account.sender.id)?, balance))
+            Ok((Address::from_str(&account.payer.id)?, balance))
         })
         .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 
@@ -170,15 +173,14 @@ async fn get_escrow_accounts_v2(
         .escrow_accounts
         .into_iter()
         .map(|account| {
-            let sender = Address::from_str(&account.sender.id)?;
+            let payer = Address::from_str(&account.payer.id)?;
             let signers = account
-                .sender
+                .payer
                 .signers
-                .ok_or(anyhow!("Could not find any signers for V2 sender {sender}"))?
                 .iter()
                 .map(|signer| Address::from_str(&signer.id))
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok((sender, signers))
+            Ok((payer, signers))
         })
         .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 
