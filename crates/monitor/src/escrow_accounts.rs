@@ -112,13 +112,77 @@ pub async fn escrow_accounts_v2(
     .await
 }
 
-// TODO implement escrow accounts v2 query
 async fn get_escrow_accounts_v2(
-    _escrow_subgraph: &'static SubgraphClient,
-    _indexer_address: Address,
-    _reject_thawing_signers: bool,
+    escrow_subgraph: &'static SubgraphClient,
+    indexer_address: Address,
+    reject_thawing_signers: bool,
 ) -> anyhow::Result<EscrowAccounts> {
-    Ok(EscrowAccounts::new(HashMap::new(), HashMap::new()))
+    // V2 TAP receipts use different field names (payer/service_provider) but the underlying
+    // escrow account model is identical to V1. Both V1 and V2 receipts reference the same
+    // sender addresses and the same escrow relationships.
+    //
+    // The separation of V1/V2 escrow account watchers allows for potential future differences
+    // in escrow models, but currently both query the same subgraph data with identical logic.
+    //
+    // V2 receipt flow:
+    // 1. V2 receipt contains payer address (equivalent to V1 sender)
+    // 2. Receipt is signed by a signer authorized by the payer
+    // 3. Escrow accounts map: signer -> payer (sender) -> balance
+    // 4. Service provider (indexer) receives payments from payer's escrow
+
+    let response = escrow_subgraph
+        .query::<EscrowAccountQuery, _>(escrow_account::Variables {
+            indexer: format!("{:x?}", indexer_address),
+            thaw_end_timestamp: if reject_thawing_signers {
+                U256::ZERO.to_string()
+            } else {
+                U256::MAX.to_string()
+            },
+        })
+        .await?;
+
+    let response = response?;
+
+    tracing::trace!("V2 Escrow accounts response: {:?}", response);
+
+    let senders_balances: HashMap<Address, U256> = response
+        .escrow_accounts
+        .iter()
+        .map(|account| {
+            let balance = U256::checked_sub(
+                U256::from_str(&account.balance)?,
+                U256::from_str(&account.total_amount_thawing)?,
+            )
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    "Balance minus total amount thawing underflowed for V2 account {}. \
+                                 Setting balance to 0, no V2 queries will be served for this sender.",
+                    account.sender.id
+                );
+                U256::from(0)
+            });
+
+            Ok((Address::from_str(&account.sender.id)?, balance))
+        })
+        .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
+
+    let senders_to_signers = response
+        .escrow_accounts
+        .into_iter()
+        .map(|account| {
+            let sender = Address::from_str(&account.sender.id)?;
+            let signers = account
+                .sender
+                .signers
+                .ok_or(anyhow!("Could not find any signers for V2 sender {sender}"))?
+                .iter()
+                .map(|signer| Address::from_str(&signer.id))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok((sender, signers))
+        })
+        .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
+
+    Ok(EscrowAccounts::new(senders_balances, senders_to_signers))
 }
 
 async fn get_escrow_accounts_v1(
@@ -254,6 +318,56 @@ mod tests {
         .await
         .unwrap();
         accounts.changed().await.unwrap();
+        assert_eq!(
+            accounts.borrow().clone(),
+            EscrowAccounts::new(
+                ESCROW_ACCOUNTS_BALANCES.to_owned(),
+                ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
+            )
+        );
+    }
+
+    #[test(tokio::test)]
+    async fn test_current_accounts_v2() {
+        // Set up a mock escrow subgraph - V2 uses the same subgraph as V1
+        let mock_server = MockServer::start().await;
+        let escrow_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&format!(
+                    "{}/subgraphs/id/{}",
+                    &mock_server.uri(),
+                    test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
+                ))
+                .unwrap(),
+            )
+            .await,
+        ));
+
+        let mock = Mock::given(method("POST"))
+            .and(path(format!(
+                "/subgraphs/id/{}",
+                test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
+            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_raw(test_assets::ESCROW_QUERY_RESPONSE, "application/json"),
+            );
+        mock_server.register(mock).await;
+
+        // Test V2 escrow accounts watcher
+        let mut accounts = escrow_accounts_v2(
+            escrow_subgraph,
+            test_assets::INDEXER_ADDRESS,
+            Duration::from_secs(60),
+            true,
+        )
+        .await
+        .unwrap();
+        accounts.changed().await.unwrap();
+
+        // V2 should produce identical results to V1 since they query the same data
         assert_eq!(
             accounts.borrow().clone(),
             EscrowAccounts::new(

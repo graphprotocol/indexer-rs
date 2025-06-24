@@ -30,6 +30,15 @@ ESCROW_DEPLOYMENT=$(curl -s --max-time 10 "http://graph-node:8000/subgraphs/name
     -d '{"query": "{ _meta { deployment } }"}' | jq -r '.data._meta.deployment' 2>/dev/null)
 stdbuf -oL echo "🔍 DEBUG: Escrow deployment result: $ESCROW_DEPLOYMENT"
 
+# Handle null deployment IDs by removing the lines entirely
+if [ "$NETWORK_DEPLOYMENT" = "null" ] || [ -z "$NETWORK_DEPLOYMENT" ]; then
+    NETWORK_DEPLOYMENT=""
+fi
+
+if [ "$ESCROW_DEPLOYMENT" = "null" ] || [ -z "$ESCROW_DEPLOYMENT" ]; then
+    ESCROW_DEPLOYMENT=""
+fi
+
 stdbuf -oL echo "Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
 stdbuf -oL echo "Using test Network subgraph deployment ID: $NETWORK_DEPLOYMENT"
 stdbuf -oL echo "Using test Verifier address: $VERIFIER_ADDRESS"
@@ -41,8 +50,19 @@ stdbuf -oL echo "Using test Account0 address: $ACCOUNT0_ADDRESS"
 cp /opt/config/config.toml /opt/config.toml
 
 # Replace the placeholders with actual values
-sed -i "s/NETWORK_DEPLOYMENT_PLACEHOLDER/$NETWORK_DEPLOYMENT/g" /opt/config.toml
-sed -i "s/ESCROW_DEPLOYMENT_PLACEHOLDER/$ESCROW_DEPLOYMENT/g" /opt/config.toml
+if [ -n "$NETWORK_DEPLOYMENT" ]; then
+    sed -i "s/NETWORK_DEPLOYMENT_PLACEHOLDER/$NETWORK_DEPLOYMENT/g" /opt/config.toml
+else
+    # Remove the deployment_id line entirely for network subgraph
+    sed -i '/deployment_id = "NETWORK_DEPLOYMENT_PLACEHOLDER"/d' /opt/config.toml
+fi
+
+if [ -n "$ESCROW_DEPLOYMENT" ]; then
+    sed -i "s/ESCROW_DEPLOYMENT_PLACEHOLDER/$ESCROW_DEPLOYMENT/g" /opt/config.toml
+else
+    # Remove the deployment_id line entirely for escrow subgraph
+    sed -i '/deployment_id = "ESCROW_DEPLOYMENT_PLACEHOLDER"/d' /opt/config.toml
+fi
 sed -i "s/VERIFIER_ADDRESS_PLACEHOLDER/$VERIFIER_ADDRESS/g" /opt/config.toml
 sed -i "s/INDEXER_ADDRESS_PLACEHOLDER/$RECEIVER_ADDRESS/g" /opt/config.toml
 sed -i "s/INDEXER_MNEMONIC_PLACEHOLDER/$INDEXER_MNEMONIC/g" /opt/config.toml
