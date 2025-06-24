@@ -372,12 +372,9 @@ where
 
         match message {
             SenderAllocationMessage::NewReceipt(notification) => {
-                let NewReceiptNotification {
-                    id,
-                    value: fees,
-                    timestamp_ns,
-                    ..
-                } = notification;
+                let id = notification.id();
+                let fees = notification.value();
+                let timestamp_ns = notification.timestamp_ns();
                 if id <= unaggregated_fees.last_id {
                     // Unexpected: received a receipt with an ID not greater than the last processed one
                     tracing::warn!(
@@ -803,7 +800,7 @@ where
         )
         .execute(&self.pgpool)
         .await
-        .map_err(|e| {
+        .map_err(|e: sqlx::Error| {
             tracing::error!("Failed to store invalid receipt: {}", e);
             anyhow!(e)
         })?;
@@ -893,7 +890,7 @@ where
         )
         .execute(&self.pgpool)
         .await
-        .map_err(|e| {
+        .map_err(|e: sqlx::Error| {
             tracing::error!("Failed to store invalid receipt: {}", e);
             anyhow!(e)
         })?;
@@ -1131,14 +1128,16 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
     ) -> anyhow::Result<()> {
         sqlx::query!(
             r#"
-                        DELETE FROM scalar_tap_receipts
+                        DELETE FROM tap_horizon_receipts
                         WHERE timestamp_ns BETWEEN $1 AND $2
-                        AND allocation_id = $3
-                        AND signer_address IN (SELECT unnest($4::text[]));
+                        AND collection_id = $3
+                        AND service_provider = $4
+                        AND signer_address IN (SELECT unnest($5::text[]));
                     "#,
             BigDecimal::from(min_timestamp),
             BigDecimal::from(max_timestamp),
-            self.allocation_id.as_address().encode_hex(),
+            self.allocation_id.to_string(),
+            self.indexer_address.encode_hex(),
             &signers,
         )
         .execute(&self.pgpool)
@@ -1331,7 +1330,9 @@ pub mod tests {
     use crate::{
         agent::{
             sender_account::{ReceiptFees, SenderAccountMessage},
-            sender_accounts_manager::{AllocationId, NewReceiptNotification},
+            sender_accounts_manager::{
+                AllocationId, NewReceiptNotification, NewReceiptNotificationV1,
+            },
             sender_allocation::DatabaseInteractions,
         },
         tap::{context::Legacy, CheckingReceipt},
@@ -1565,13 +1566,15 @@ pub mod tests {
         // should validate with id less than last_id
         cast!(
             sender_allocation,
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification {
-                id: 0,
-                value: 10,
-                allocation_id: ALLOCATION_ID_0,
-                signer_address: SIGNER.1,
-                timestamp_ns: 0,
-            })
+            SenderAllocationMessage::NewReceipt(NewReceiptNotification::V1(
+                NewReceiptNotificationV1 {
+                    id: 0,
+                    value: 10,
+                    allocation_id: ALLOCATION_ID_0,
+                    signer_address: SIGNER.1,
+                    timestamp_ns: 0,
+                }
+            ))
         )
         .unwrap();
 
@@ -1582,13 +1585,15 @@ pub mod tests {
 
         cast!(
             sender_allocation,
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification {
-                id: 1,
-                value: 20,
-                allocation_id: ALLOCATION_ID_0,
-                signer_address: SIGNER.1,
-                timestamp_ns,
-            })
+            SenderAllocationMessage::NewReceipt(NewReceiptNotification::V1(
+                NewReceiptNotificationV1 {
+                    id: 1,
+                    value: 20,
+                    allocation_id: ALLOCATION_ID_0,
+                    signer_address: SIGNER.1,
+                    timestamp_ns,
+                }
+            ))
         )
         .unwrap();
 

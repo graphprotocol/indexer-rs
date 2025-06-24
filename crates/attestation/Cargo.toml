@@ -6,7 +6,9 @@ edition = "2021"
 [dependencies]
 anyhow.workspace = true
 indexer-allocation = { path = "../allocation" }
+sha2.workspace = true
 thegraph-core.workspace = true
+tracing.workspace = true
 
 
 [dev-dependencies]

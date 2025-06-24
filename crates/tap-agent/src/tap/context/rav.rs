@@ -153,7 +153,6 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
     type AdapterError = AdapterError;
 
     async fn last_rav(&self) -> Result<Option<tap_graph::v2::SignedRav>, Self::AdapterError> {
-        // TODO add data service filter
         let row = sqlx::query!(
             r#"
                 SELECT 
@@ -169,10 +168,12 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                 WHERE 
                     collection_id = $1 
                     AND payer = $2
-                    AND service_provider = $3
+                    AND data_service = $3
+                    AND service_provider = $4
             "#,
             CollectionId::from(self.allocation_id).encode_hex(),
             self.sender.encode_hex(),
+            self.indexer_address.encode_hex(),
             self.indexer_address.encode_hex()
         )
         .fetch_optional(&self.pgpool)

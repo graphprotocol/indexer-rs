@@ -443,6 +443,18 @@ impl State {
             "SenderAccount is creating allocation."
         );
 
+        // Check if actor already exists to prevent race condition during concurrent creation attempts
+        let actor_name = self.format_sender_allocation(&allocation_id.address());
+        if ActorRef::<SenderAllocationMessage>::where_is(actor_name.clone()).is_some() {
+            tracing::debug!(
+                %self.sender,
+                %allocation_id,
+                actor_name = %actor_name,
+                "SenderAllocation actor already exists, skipping creation"
+            );
+            return Ok(());
+        }
+
         match allocation_id {
             AllocationId::Legacy(id) => {
                 let args = SenderAllocationArgs::builder()
@@ -631,14 +643,6 @@ impl State {
             sender_balance = self.sender_balance.to_u128(),
             "Denying sender."
         );
-        // Check if this is horizon like sender and if it is actually enable,
-        // otherwise just ignore.
-        // FIXME: This should be removed once full horizon support
-        // is implemented!
-        if matches!(self.sender_type, SenderType::Horizon) && !self.config.horizon_enabled {
-            return;
-        }
-
         SenderAccount::deny_sender(self.sender_type, &self.pgpool, self.sender).await;
         self.denied = true;
         SENDER_DENIED
@@ -865,14 +869,85 @@ impl Actor for SenderAccount {
                             _ => vec![],
                         }
                     }
-                    // TODO Implement query for unfinalized v2 transactions
-                    // Depends on Escrow Subgraph Schema
                     SenderType::Horizon => {
                         if config.horizon_enabled {
-                            todo!("Implement query for unfinalized v2 transactions, It depends on Escrow Subgraph Schema")
+                            // V2 doesn't have transaction tracking like V1, but we can check if the RAVs
+                            // we're about to redeem are still the latest ones by querying LatestRavs.
+                            // If the subgraph has newer RAVs, it means ours were already redeemed.
+                            use indexer_query::latest_ravs_v2::{self, LatestRavs};
+
+                            let collection_ids: Vec<String> = last_non_final_ravs
+                                .iter()
+                                .map(|(collection_id, _)| collection_id.clone())
+                                .collect();
+
+                            if !collection_ids.is_empty() {
+                                // For V2, use the indexer address as the data service since the indexer
+                                // is providing the data service for the queries
+                                let data_service = config.indexer_address;
+
+                                match escrow_subgraph
+                                    .query::<LatestRavs, _>(latest_ravs_v2::Variables {
+                                        payer: format!("{:x?}", sender_id),
+                                        data_service: format!("{:x?}", data_service),
+                                        service_provider: format!("{:x?}", config.indexer_address),
+                                        collection_ids: collection_ids.clone(),
+                                    })
+                                    .await
+                                {
+                                    Ok(Ok(response)) => {
+                                        // Create a map of our current RAVs for easy lookup
+                                        let our_ravs: HashMap<String, u128> = last_non_final_ravs
+                                            .iter()
+                                            .map(|(collection_id, value)| {
+                                                let value_u128 = value
+                                                    .to_bigint()
+                                                    .and_then(|v| v.to_u128())
+                                                    .unwrap_or(0);
+                                                (collection_id.clone(), value_u128)
+                                            })
+                                            .collect();
+
+                                        // Check which RAVs have been updated (indicating redemption)
+                                        let mut finalized_allocation_ids = vec![];
+                                        for rav in response.latest_ravs {
+                                            if let Some(&our_value) = our_ravs.get(&rav.id) {
+                                                // If the subgraph RAV has higher value, our RAV was redeemed
+                                                if let Ok(subgraph_value) =
+                                                    rav.value_aggregate.parse::<u128>()
+                                                {
+                                                    if subgraph_value > our_value {
+                                                        // Return collection ID string for filtering
+                                                        finalized_allocation_ids.push(rav.id);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        finalized_allocation_ids
+                                    }
+                                    Ok(Err(e)) => {
+                                        tracing::warn!(
+                                            error = %e,
+                                            sender = %sender_id,
+                                            "Failed to query V2 latest RAVs, assuming none are finalized"
+                                        );
+                                        vec![]
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            error = %e,
+                                            sender = %sender_id,
+                                            "Failed to execute V2 latest RAVs query, assuming none are finalized"
+                                        );
+                                        vec![]
+                                    }
+                                }
+                            } else {
+                                vec![]
+                            }
+                        } else {
+                            vec![]
                         }
-                        // if we have any problems, we don't want to filter out
-                        vec![]
                     }
                 };
 

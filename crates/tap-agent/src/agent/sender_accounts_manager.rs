@@ -20,7 +20,7 @@ use reqwest::Url;
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
 use thegraph_core::{
-    alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain},
+    alloy::{primitives::Address, sol_types::Eip712Domain},
     AllocationId as AllocationIdCore, CollectionId,
 };
 use tokio::{select, sync::watch::Receiver};
@@ -39,14 +39,14 @@ static RECEIPTS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
     .unwrap()
 });
 
-/// Notification received by pgnotify
+/// Notification received by pgnotify for V1 (legacy) receipts
 ///
-/// This contains a list of properties that are sent by postgres when a receipt is inserted
+/// This contains a list of properties that are sent by postgres when a V1 receipt is inserted
 #[derive(Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct NewReceiptNotification {
+pub struct NewReceiptNotificationV1 {
     /// id inside the table
     pub id: u64,
-    /// address of the allocation
+    /// address of the allocation (V1 uses 20-byte allocation_id)
     pub allocation_id: Address,
     /// address of wallet that signed this receipt
     pub signer_address: Address,
@@ -54,6 +54,81 @@ pub struct NewReceiptNotification {
     pub timestamp_ns: u64,
     /// value of the receipt
     pub value: u128,
+}
+
+/// Notification received by pgnotify for V2 (Horizon) receipts
+///
+/// This contains a list of properties that are sent by postgres when a V2 receipt is inserted
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct NewReceiptNotificationV2 {
+    /// id inside the table
+    pub id: u64,
+    /// collection id (V2 uses 32-byte collection_id)
+    pub collection_id: String, // 64-character hex string from database
+    /// address of wallet that signed this receipt
+    pub signer_address: Address,
+    /// timestamp of the receipt
+    pub timestamp_ns: u64,
+    /// value of the receipt
+    pub value: u128,
+}
+
+/// Unified notification that can represent both V1 and V2 receipts
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum NewReceiptNotification {
+    /// V1 (Legacy) receipt notification with allocation_id
+    V1(NewReceiptNotificationV1),
+    /// V2 (Horizon) receipt notification with collection_id
+    V2(NewReceiptNotificationV2),
+}
+
+impl NewReceiptNotification {
+    /// Get the ID regardless of version
+    pub fn id(&self) -> u64 {
+        match self {
+            NewReceiptNotification::V1(n) => n.id,
+            NewReceiptNotification::V2(n) => n.id,
+        }
+    }
+
+    /// Get the signer address regardless of version
+    pub fn signer_address(&self) -> Address {
+        match self {
+            NewReceiptNotification::V1(n) => n.signer_address,
+            NewReceiptNotification::V2(n) => n.signer_address,
+        }
+    }
+
+    /// Get the timestamp regardless of version
+    pub fn timestamp_ns(&self) -> u64 {
+        match self {
+            NewReceiptNotification::V1(n) => n.timestamp_ns,
+            NewReceiptNotification::V2(n) => n.timestamp_ns,
+        }
+    }
+
+    /// Get the value regardless of version
+    pub fn value(&self) -> u128 {
+        match self {
+            NewReceiptNotification::V1(n) => n.value,
+            NewReceiptNotification::V2(n) => n.value,
+        }
+    }
+
+    /// Get the allocation ID as a unified type
+    pub fn allocation_id(&self) -> AllocationId {
+        match self {
+            NewReceiptNotification::V1(n) => {
+                AllocationId::Legacy(AllocationIdCore::from(n.allocation_id))
+            }
+            NewReceiptNotification::V2(n) => {
+                // Convert the hex string to CollectionId
+                let collection_id = CollectionId::from_str(&n.collection_id)
+                    .expect("Valid collection_id in database");
+                AllocationId::Horizon(collection_id)
+            }
+        }
+    }
 }
 
 /// Manager Actor
@@ -739,21 +814,39 @@ impl State {
         .expect("should be able to fetch pending V2 receipts from the database");
 
         for row in receipts_signer_collections_in_db {
-            let collection_ids = row
-                .collection_ids
-                .expect("all receipts V2 should have a collection_id")
-                .iter()
-                .map(|collection_id| {
-                    AllocationId::Horizon(
-                        CollectionId::from_str(collection_id)
-                            .expect("collection_id should be a valid collection ID"),
-                    )
-                })
-                .collect::<HashSet<_>>();
+            let collection_ids =
+                row.collection_ids
+                    .expect("all receipts V2 should have a collection_id")
+                    .iter()
+                    .map(|collection_id| {
+                        let trimmed = collection_id.trim();
+                        let hex_str = if let Some(stripped) = trimmed.strip_prefix("0x") {
+                            stripped
+                        } else {
+                            trimmed
+                        };
+
+                        // For migration period: collection_id in DB is actually a 20-byte address
+                        // that needs to be converted to a 32-byte CollectionId
+                        if hex_str.len() == 40 {
+                            // 20-byte address -> convert to CollectionId using From<Address>
+                            let address = Address::from_str(&format!("0x{hex_str}"))
+                                .unwrap_or_else(|e| panic!("Invalid address '{trimmed}': {e}"));
+                            AllocationId::Horizon(CollectionId::from(address))
+                        } else if hex_str.len() == 64 {
+                            // 32-byte CollectionId
+                            AllocationId::Horizon(CollectionId::from_str(&format!("0x{hex_str}")).unwrap_or_else(|e| {
+                                panic!("Invalid collection_id '{trimmed}': {e}")
+                            }))
+                        } else {
+                            panic!("Invalid collection_id length '{}': expected 40 or 64 hex characters, got {}", trimmed, hex_str.len())
+                        }
+                    })
+                    .collect::<HashSet<_>>();
             let signer_id = Address::from_str(&row.signer_address)
                 .expect("signer_address should be a valid address");
             let sender_id = self
-                .escrow_accounts_v1
+                .escrow_accounts_v2
                 .borrow()
                 .get_sender_for_signer(&signer_id)
                 .expect("should be able to get sender from signer");
@@ -785,10 +878,10 @@ impl State {
             if let Some(allocation_id_strings) = row.allocation_ids {
                 let allocation_ids = allocation_id_strings
                     .iter()
-                    .map(|allocation_id| {
-                        AllocationId::Legacy(
-                            AllocationIdCore::from_str(allocation_id)
-                                .expect("allocation_id should be a valid allocation ID"),
+                    .map(|collection_id| {
+                        AllocationId::Horizon(
+                            CollectionId::from_str(collection_id)
+                                .expect("collection_id should be a valid collection ID"),
                         )
                     })
                     .collect::<HashSet<_>>();
@@ -888,14 +981,43 @@ async fn new_receipts_watcher(
             );
             break;
         };
-        let Ok(new_receipt_notification) =
-            serde_json::from_str::<NewReceiptNotification>(pg_notification.payload())
-        else {
-            tracing::error!(
-                "should be able to deserialize the Postgres Notify event payload as a \
-                        NewReceiptNotification",
-            );
-            break;
+        // Determine notification format based on the channel name
+        let new_receipt_notification = match pg_notification.channel() {
+            "scalar_tap_receipt_notification" => {
+                // V1 notification format
+                match serde_json::from_str::<NewReceiptNotificationV1>(pg_notification.payload()) {
+                    Ok(v1_notif) => NewReceiptNotification::V1(v1_notif),
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to deserialize V1 notification payload: {}, payload: {}",
+                            e,
+                            pg_notification.payload()
+                        );
+                        break;
+                    }
+                }
+            }
+            "tap_horizon_receipt_notification" => {
+                // V2 notification format
+                match serde_json::from_str::<NewReceiptNotificationV2>(pg_notification.payload()) {
+                    Ok(v2_notif) => NewReceiptNotification::V2(v2_notif),
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to deserialize V2 notification payload: {}, payload: {}",
+                            e,
+                            pg_notification.payload()
+                        );
+                        break;
+                    }
+                }
+            }
+            unknown_channel => {
+                tracing::error!(
+                    "Received notification from unknown channel: {}",
+                    unknown_channel
+                );
+                break;
+            }
         };
         if let Err(e) = handle_notification(
             new_receipt_notification,
@@ -939,21 +1061,27 @@ async fn handle_notification(
 
     let Ok(sender_address) = escrow_accounts_rx
         .borrow()
-        .get_sender_for_signer(&new_receipt_notification.signer_address)
+        .get_sender_for_signer(&new_receipt_notification.signer_address())
     else {
         // TODO: save the receipt in the failed receipts table?
         bail!(
             "No sender address found for receipt signer address {}. \
                     This should not happen.",
-            new_receipt_notification.signer_address
+            new_receipt_notification.signer_address()
         );
     };
 
-    let allocation_id = &new_receipt_notification.allocation_id;
-    let allocation_str = &allocation_id.to_string();
+    let allocation_id = new_receipt_notification.allocation_id();
+    let allocation_str = allocation_id.to_hex();
+
+    // For actor lookup, use the address format that matches how actors are created
+    let allocation_for_actor_name = match &allocation_id {
+        AllocationId::Legacy(id) => id.to_string(),
+        AllocationId::Horizon(collection_id) => collection_id.as_address().to_string(),
+    };
 
     let actor_name = format!(
-        "{}{sender_address}:{allocation_id}",
+        "{}{sender_address}:{allocation_for_actor_name}",
         prefix
             .as_ref()
             .map_or(String::default(), |prefix| format!("{prefix}:"))
@@ -985,21 +1113,7 @@ async fn handle_notification(
             );
         };
         sender_account
-            .cast(SenderAccountMessage::NewAllocationId(match sender_type {
-                SenderType::Legacy => AllocationId::Legacy(AllocationIdCore::from(*allocation_id)),
-                SenderType::Horizon => {
-                    // For now, convert Address to CollectionId for Horizon
-                    // This is a temporary fix - in production the notification should contain CollectionId
-                    let collection_id_str = format!(
-                        "000000000000000000000000{}",
-                        allocation_id.encode_hex_with_prefix()
-                    );
-                    AllocationId::Horizon(
-                        CollectionId::from_str(&collection_id_str[2..])
-                            .expect("Failed to convert address to collection ID"),
-                    )
-                }
-            }))
+            .cast(SenderAccountMessage::NewAllocationId(allocation_id))
             .map_err(|e| {
                 anyhow!(
                     "Error while sendeing new allocation id message to sender_account: {:?}",
@@ -1021,7 +1135,7 @@ async fn handle_notification(
         })?;
 
     RECEIPTS_CREATED
-        .with_label_values(&[&sender_address.to_string(), allocation_str])
+        .with_label_values(&[&sender_address.to_string(), &allocation_str])
         .inc();
     Ok(())
 }
@@ -1045,11 +1159,14 @@ mod tests {
         watch,
     };
 
-    use super::{new_receipts_watcher, SenderAccountsManagerMessage, State};
+    use super::{
+        new_receipts_watcher, NewReceiptNotification, NewReceiptNotificationV1,
+        SenderAccountsManagerMessage, State,
+    };
     use crate::{
         agent::{
             sender_account::SenderAccountMessage,
-            sender_accounts_manager::{handle_notification, NewReceiptNotification, SenderType},
+            sender_accounts_manager::{handle_notification, SenderType},
         },
         test::{
             actors::{DummyActor, MockSenderAccount, MockSenderAllocation, TestableActor},
@@ -1347,7 +1464,7 @@ mod tests {
         for i in 1..=receipts_count {
             let receipt = receipts.recv().await.unwrap();
 
-            assert_eq!(i, receipt.id);
+            assert_eq!(i, receipt.id());
         }
         assert_eq!(receipts.try_recv().unwrap_err(), TryRecvError::Empty);
 
@@ -1406,13 +1523,13 @@ mod tests {
         .await
         .unwrap();
 
-        let new_receipt_notification = NewReceiptNotification {
+        let new_receipt_notification = NewReceiptNotification::V1(NewReceiptNotificationV1 {
             id: 1,
             allocation_id: ALLOCATION_ID_0,
             signer_address: SIGNER.1,
             timestamp_ns: 1,
             value: 1,
-        };
+        });
 
         handle_notification(
             new_receipt_notification,
