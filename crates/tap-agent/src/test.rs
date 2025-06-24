@@ -262,14 +262,10 @@ pub async fn create_sender_accounts_manager(
     )
 }
 
-/// Generic implementation of create_rav
+/// Network-version specific RAV creation
 pub trait CreateRav: NetworkVersion {
-    /// This might seem weird at first glance since [Horizon] and [Legacy] implementation have the same
-    /// function signature and don't require &self. The reason is that we can not match over T to get
-    /// all variants because T is a trait and not an enum.
     fn create_rav(
-        allocation_id: Option<Address>,
-        collection_id: Option<FixedBytes<32>>,
+        id: Address,
         signer_wallet: PrivateKeySigner,
         timestamp_ns: u64,
         value_aggregate: u128,
@@ -278,35 +274,25 @@ pub trait CreateRav: NetworkVersion {
 
 impl CreateRav for Legacy {
     fn create_rav(
-        allocation_id: Option<Address>,
-        _collection_id: Option<FixedBytes<32>>,
+        allocation_id: Address,
         signer_wallet: PrivateKeySigner,
         timestamp_ns: u64,
         value_aggregate: u128,
     ) -> Eip712SignedMessage<Self::Rav> {
-        create_rav(
-            allocation_id.unwrap(),
-            signer_wallet,
-            timestamp_ns,
-            value_aggregate,
-        )
+        create_rav(allocation_id, signer_wallet, timestamp_ns, value_aggregate)
     }
 }
 
 impl CreateRav for Horizon {
     fn create_rav(
-        _allocation_id: Option<Address>,
-        collection_id: Option<FixedBytes<32>>,
+        allocation_id: Address,
         signer_wallet: PrivateKeySigner,
         timestamp_ns: u64,
         value_aggregate: u128,
     ) -> Eip712SignedMessage<Self::Rav> {
-        create_rav_v2(
-            collection_id.unwrap(),
-            signer_wallet,
-            timestamp_ns,
-            value_aggregate,
-        )
+        use thegraph_core::CollectionId;
+        let collection_id = *CollectionId::from(allocation_id);
+        create_rav_v2(collection_id, signer_wallet, timestamp_ns, value_aggregate)
     }
 }
 
@@ -352,14 +338,12 @@ pub fn create_rav_v2(
     .unwrap()
 }
 
-/// Generic implementation of create_received_receipt
+/// Network-version specific receipt creation
 pub trait CreateReceipt {
-    /// This might seem weird at first glance since [Horizon] and [Legacy] implementation have the same
-    /// function signature and don't require &self. The reason is that we can not match over T to get
-    /// all variants because T is a trait and not an enum.
+    type Id: Clone + std::fmt::Debug;
+
     fn create_received_receipt(
-        allocation_id: Option<Address>,
-        collection_id: Option<FixedBytes<32>>,
+        id: Self::Id,
         signer_wallet: &PrivateKeySigner,
         nonce: u64,
         timestamp_ns: u64,
@@ -368,18 +352,21 @@ pub trait CreateReceipt {
 }
 
 impl CreateReceipt for Horizon {
+    type Id = Address;
+
     fn create_received_receipt(
-        _allocation_id: Option<Address>,
-        collection_id: Option<FixedBytes<32>>,
+        allocation_id: Self::Id,
         signer_wallet: &PrivateKeySigner,
         nonce: u64,
         timestamp_ns: u64,
         value: u128,
     ) -> CheckingReceipt {
+        use thegraph_core::CollectionId;
+        let collection_id = *CollectionId::from(allocation_id);
         let receipt = Eip712SignedMessage::new(
             &TAP_EIP712_DOMAIN_SEPARATOR,
             tap_graph::v2::Receipt {
-                collection_id: collection_id.unwrap(),
+                collection_id,
                 payer: SENDER.1,
                 service_provider: INDEXER.1,
                 data_service: Address::ZERO,
@@ -395,9 +382,10 @@ impl CreateReceipt for Horizon {
 }
 
 impl CreateReceipt for Legacy {
+    type Id = Address;
+
     fn create_received_receipt(
-        allocation_id: Option<Address>,
-        _collection_id: Option<FixedBytes<32>>,
+        allocation_id: Self::Id,
         signer_wallet: &PrivateKeySigner,
         nonce: u64,
         timestamp_ns: u64,
@@ -406,7 +394,7 @@ impl CreateReceipt for Legacy {
         let receipt = Eip712SignedMessage::new(
             &TAP_EIP712_DOMAIN_SEPARATOR,
             Receipt {
-                allocation_id: allocation_id.unwrap(),
+                allocation_id,
                 nonce,
                 timestamp_ns,
                 value,

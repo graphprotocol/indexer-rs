@@ -462,17 +462,11 @@ mod test {
         #[future(awt)]
         context: TapAgentContext<T>,
     ) where
-        T: CreateReceipt,
+        T: CreateReceipt<Id = Address>,
         TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
     {
-        let received_receipt = T::create_received_receipt(
-            Some(ALLOCATION_ID_0),
-            None,
-            &SIGNER.0,
-            u64::MAX,
-            u64::MAX,
-            u128::MAX,
-        );
+        let received_receipt =
+            T::create_received_receipt(ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX);
 
         // Storing the receipt
         store_receipt(&context.pgpool, received_receipt.signed_receipt())
@@ -508,9 +502,16 @@ mod test {
         let received_receipt_vec: Vec<_> = received_receipt_vec
             .iter()
             .filter(|received_receipt| {
+                use thegraph_core::CollectionId;
+                let expected_collection_id = *CollectionId::from(storage_adapter.allocation_id);
+
+                let id_matches = received_receipt.signed_receipt().allocation_id()
+                    == Some(storage_adapter.allocation_id)
+                    || received_receipt.signed_receipt().collection_id()
+                        == Some(expected_collection_id);
+
                 range.contains(&received_receipt.signed_receipt().timestamp_ns())
-                    && (received_receipt.signed_receipt().allocation_id()
-                        == Some(storage_adapter.allocation_id))
+                    && id_matches
                     && escrow_accounts_snapshot
                         .get_sender_for_signer(
                             &received_receipt
@@ -579,13 +580,15 @@ mod test {
                 .zip(received_receipt_vec.iter())
                 .collect::<Vec<_>>();
 
-            // Remove the received receipts by timestamp range for the correct (allocation_id,
+            // Remove the received receipts by timestamp range for the correct (collection_id,
             // sender)
             let received_receipt_vec: Vec<_> = received_receipt_vec
                 .iter()
                 .filter(|(_, received_receipt)| {
-                    if (received_receipt.signed_receipt().allocation_id()
-                        == Some(storage_adapter.allocation_id))
+                    use thegraph_core::CollectionId;
+                    let expected_collection_id = *CollectionId::from(storage_adapter.allocation_id);
+                    if (received_receipt.signed_receipt().collection_id()
+                        == Some(expected_collection_id))
                         && escrow_accounts_snapshot
                             .get_sender_for_signer(
                                 &received_receipt
@@ -837,14 +840,13 @@ mod test {
         #[future(awt)]
         context: TapAgentContext<T>,
     ) where
-        T: CreateReceipt,
+        T: CreateReceipt<Id = Address>,
         TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
     {
         // Creating 100 receipts with timestamps 42 to 141
         for i in 0..100 {
             let receipt = T::create_received_receipt(
-                Some(ALLOCATION_ID_0),
-                None,
+                ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
@@ -870,8 +872,7 @@ mod test {
         // add a copy in the same timestamp
         for i in 0..100 {
             let receipt = T::create_received_receipt(
-                Some(ALLOCATION_ID_0),
-                None,
+                ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
                 i + 43,
@@ -906,15 +907,14 @@ mod test {
         #[future(awt)]
         context: TapAgentContext<T>,
     ) where
-        T: CreateReceipt,
+        T: CreateReceipt<Id = Address>,
         TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
     {
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();
         for i in 0..10 {
             received_receipt_vec.push(T::create_received_receipt(
-                Some(ALLOCATION_ID_0),
-                None,
+                ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
@@ -923,16 +923,14 @@ mod test {
 
             // Adding irrelevant receipts to make sure they are not retrieved
             received_receipt_vec.push(T::create_received_receipt(
-                Some(ALLOCATION_ID_IRRELEVANT),
-                None,
+                ALLOCATION_ID_IRRELEVANT,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
                 (i + 124).into(),
             ));
             received_receipt_vec.push(T::create_received_receipt(
-                Some(ALLOCATION_ID_0),
-                None,
+                ALLOCATION_ID_0,
                 &SENDER_IRRELEVANT.0,
                 i + 684,
                 i + 42,
@@ -1034,15 +1032,14 @@ mod test {
         #[future(awt)]
         context: TapAgentContext<T>,
     ) where
-        T: CreateReceipt + RemoveRange,
+        T: CreateReceipt<Id = Address> + RemoveRange,
         TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
     {
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();
         for i in 0..10 {
             received_receipt_vec.push(T::create_received_receipt(
-                Some(ALLOCATION_ID_0),
-                None,
+                ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
@@ -1051,16 +1048,14 @@ mod test {
 
             // Adding irrelevant receipts to make sure they are not retrieved
             received_receipt_vec.push(T::create_received_receipt(
-                Some(ALLOCATION_ID_IRRELEVANT),
-                None,
+                ALLOCATION_ID_IRRELEVANT,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
                 (i + 124).into(),
             ));
             received_receipt_vec.push(T::create_received_receipt(
-                Some(ALLOCATION_ID_0),
-                None,
+                ALLOCATION_ID_0,
                 &SENDER_IRRELEVANT.0,
                 i + 684,
                 i + 42,

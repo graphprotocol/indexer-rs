@@ -386,8 +386,7 @@ mod test {
     {
         // Insert a rav
         let mut new_rav = T::create_rav(
-            Some(ALLOCATION_ID_0),
-            None,
+            ALLOCATION_ID_0,
             SIGNER.0.clone(),
             TIMESTAMP_NS,
             VALUE_AGGREGATE,
@@ -403,8 +402,7 @@ mod test {
         // Update the RAV 3 times in quick succession
         for i in 0..3 {
             new_rav = T::create_rav(
-                Some(ALLOCATION_ID_0),
-                None,
+                ALLOCATION_ID_0,
                 SIGNER.0.clone(),
                 TIMESTAMP_NS + i,
                 VALUE_AGGREGATE - (i as u128),
