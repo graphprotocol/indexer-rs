@@ -8,9 +8,12 @@ use std::{
 };
 
 use anyhow::Result;
+use base64::prelude::*;
+use prost::Message;
 use rand::{rng, Rng};
 use reqwest::Client;
 use serde_json::json;
+use tap_aggregator::grpc;
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::Receipt;
 use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner};
@@ -92,6 +95,13 @@ pub fn create_tap_receipt_v2(
     )?;
 
     Ok(receipt)
+}
+
+pub fn encode_v2_receipt(receipt: &Eip712SignedMessage<tap_graph::v2::Receipt>) -> Result<String> {
+    let protobuf_receipt = grpc::v2::SignedReceipt::from(receipt.clone());
+    let encoded = protobuf_receipt.encode_to_vec();
+    let base64_encoded = BASE64_STANDARD.encode(encoded);
+    Ok(base64_encoded)
 }
 
 // Function to create a configured request
