@@ -329,7 +329,7 @@ pub fn create_rav_v2(
             timestampNs: timestamp_ns,
             valueAggregate: value_aggregate,
             payer: SENDER.1,
-            dataService: Address::ZERO,
+            dataService: INDEXER.1, // Use the same indexer address as the context
             serviceProvider: INDEXER.1,
             metadata: Bytes::new(),
         },
@@ -369,7 +369,7 @@ impl CreateReceipt for Horizon {
                 collection_id,
                 payer: SENDER.1,
                 service_provider: INDEXER.1,
-                data_service: Address::ZERO,
+                data_service: INDEXER.1, // Use the same indexer address as the context
                 nonce,
                 timestamp_ns,
                 value,

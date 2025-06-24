@@ -331,7 +331,7 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_current_accounts_v2() {
-        // Set up a mock escrow subgraph - V2 uses the same subgraph as V1
+        // Set up a mock escrow subgraph for V2 with payer fields
         let mock_server = MockServer::start().await;
         let escrow_subgraph = Box::leak(Box::new(
             SubgraphClient::new(
@@ -354,7 +354,7 @@ mod tests {
             )))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_raw(test_assets::ESCROW_QUERY_RESPONSE, "application/json"),
+                    .set_body_raw(test_assets::ESCROW_QUERY_RESPONSE_V2, "application/json"),
             );
         mock_server.register(mock).await;
 
