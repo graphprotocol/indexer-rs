@@ -869,6 +869,7 @@ impl Actor for SenderAccount {
                     // Depends on Escrow Subgraph Schema
                     SenderType::Horizon => {
                         if config.horizon_enabled {
+                            // TODO: Implement query for unfinalized v2 transactions, It depends on Escrow Subgraph Schema
                             todo!("Implement query for unfinalized v2 transactions, It depends on Escrow Subgraph Schema")
                         }
                         // if we have any problems, we don't want to filter out
