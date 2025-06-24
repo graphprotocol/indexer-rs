@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT \n                    id,\n                    signature,\n                    collection_id,\n                    payer,\n                    data_service,\n                    service_provider,\n                    timestamp_ns,\n                    nonce,\n                    value\n                FROM tap_horizon_receipts\n                WHERE\n                    collection_id = $1\n                    AND payer = $2\n                    AND service_provider = $3\n                    AND signer_address IN (SELECT unnest($4::text[]))\n                AND $5::numrange @> timestamp_ns\n                ORDER BY timestamp_ns ASC\n                LIMIT $6\n            ",
+  "query": "\n                SELECT \n                    id,\n                    signature,\n                    collection_id,\n                    payer,\n                    data_service,\n                    service_provider,\n                    timestamp_ns,\n                    nonce,\n                    value\n                FROM tap_horizon_receipts\n                WHERE\n                    collection_id = $1\n                    AND payer = $2\n                    AND data_service = $3\n                    AND service_provider = $4\n                    AND signer_address IN (SELECT unnest($5::text[]))\n                AND $6::numrange @> timestamp_ns\n                ORDER BY timestamp_ns ASC\n                LIMIT $7\n            ",
   "describe": {
     "columns": [
       {
@@ -54,6 +54,7 @@
         "Bpchar",
         "Bpchar",
         "Bpchar",
+        "Bpchar",
         "TextArray",
         "NumRange",
         "Int8"
@@ -71,5 +72,5 @@
       false
     ]
   },
-  "hash": "46cc101d5149337de6e6d7f28fd523ba3e5b034fadec433945e4718032d1b023"
+  "hash": "29a4feaae95487b9964c8b920bbd33b48a06205011edf8b214045c8a0f898b4c"
 }
