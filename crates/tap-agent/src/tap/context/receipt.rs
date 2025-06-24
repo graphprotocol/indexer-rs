@@ -226,8 +226,6 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                 error: format!("{:?}.", e),
             })?;
 
-        // TODO filter by data_service when we have multiple data services
-
         let records = sqlx::query!(
             r#"
                 SELECT 
@@ -244,14 +242,16 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                 WHERE
                     collection_id = $1
                     AND payer = $2
-                    AND service_provider = $3
-                    AND signer_address IN (SELECT unnest($4::text[]))
-                AND $5::numrange @> timestamp_ns
+                    AND data_service = $3
+                    AND service_provider = $4
+                    AND signer_address IN (SELECT unnest($5::text[]))
+                AND $6::numrange @> timestamp_ns
                 ORDER BY timestamp_ns ASC
-                LIMIT $6
+                LIMIT $7
             "#,
             CollectionId::from(self.allocation_id).encode_hex(),
             self.sender.encode_hex(),
+            self.indexer_address.encode_hex(),
             self.indexer_address.encode_hex(),
             &signers,
             rangebounds_to_pgrange(timestamp_range_ns),
@@ -371,12 +371,14 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
                     AND signer_address IN (SELECT unnest($2::text[]))
                     AND $3::numrange @> timestamp_ns
                     AND payer = $4
-                    AND service_provider = $5
+                    AND data_service = $5
+                    AND service_provider = $6
             "#,
             CollectionId::from(self.allocation_id).encode_hex(),
             &signers,
             rangebounds_to_pgrange(timestamp_ns),
             self.sender.encode_hex(),
+            self.indexer_address.encode_hex(),
             self.indexer_address.encode_hex(),
         )
         .execute(&self.pgpool)
