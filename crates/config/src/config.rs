@@ -221,7 +221,7 @@ impl Config {
         if self.tap.rav_request.timestamp_buffer_secs < Duration::from_secs(10) {
             tracing::warn!(
                 "Your `tap.rav_request.timestamp_buffer_secs` value it too low. \
-                You may discart receipts in case of any synchronization issues, \
+                You may discard receipts in case of any synchronization issues, \
                 a recommended value is about 30 seconds."
             );
         }
