@@ -105,19 +105,58 @@ pub async fn run() -> anyhow::Result<()> {
     let indexer_address = config.indexer.indexer_address;
     let ipfs_url = config.service.ipfs_url.clone();
 
-    let router = ServiceRouter::builder()
-        .database(database.clone())
-        .domain_separator(domain_separator.clone())
-        .graph_node(config.graph_node)
-        .http_client(http_client)
-        .release(release)
-        .indexer(config.indexer)
-        .service(config.service)
-        .blockchain(config.blockchain)
-        .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
-        .network_subgraph(network_subgraph, config.subgraphs.network)
-        .escrow_subgraph(escrow_subgraph, config.subgraphs.escrow)
-        .build();
+    // Configure router with escrow watchers based on Horizon setting
+    let router = if config.horizon.enabled {
+        tracing::info!("Horizon support enabled - using escrow accounts v2");
+        // Only create v2 watcher when Horizon is enabled
+        let v2_watcher = indexer_monitor::escrow_accounts_v2(
+            escrow_subgraph,
+            indexer_address,
+            config.subgraphs.escrow.config.syncing_interval_secs,
+            true, // Reject thawing signers eagerly
+        )
+        .await
+        .expect("Error creating escrow_accounts_v2 channel");
+
+        ServiceRouter::builder()
+            .database(database.clone())
+            .domain_separator(domain_separator.clone())
+            .graph_node(config.graph_node)
+            .http_client(http_client)
+            .release(release)
+            .indexer(config.indexer)
+            .service(config.service)
+            .blockchain(config.blockchain)
+            .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
+            .network_subgraph(network_subgraph, config.subgraphs.network)
+            .escrow_accounts_v2(v2_watcher)
+            .build()
+    } else {
+        tracing::info!("Horizon support disabled - using escrow accounts v1");
+        // Only create v1 watcher when Horizon is disabled
+        let v1_watcher = indexer_monitor::escrow_accounts_v1(
+            escrow_subgraph,
+            indexer_address,
+            config.subgraphs.escrow.config.syncing_interval_secs,
+            true, // Reject thawing signers eagerly
+        )
+        .await
+        .expect("Error creating escrow_accounts_v1 channel");
+
+        ServiceRouter::builder()
+            .database(database.clone())
+            .domain_separator(domain_separator.clone())
+            .graph_node(config.graph_node)
+            .http_client(http_client)
+            .release(release)
+            .indexer(config.indexer)
+            .service(config.service)
+            .blockchain(config.blockchain)
+            .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
+            .network_subgraph(network_subgraph, config.subgraphs.network)
+            .escrow_accounts_v1(v1_watcher)
+            .build()
+    };
 
     serve_metrics(config.metrics.get_socket_addr());
 

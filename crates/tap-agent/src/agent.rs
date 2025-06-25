@@ -176,14 +176,12 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
 
     let config = Box::leak(Box::new({
         let mut config = SenderAccountConfig::from_config(&CONFIG);
-        // Enable Horizon support
-        config.horizon_enabled = true;
-        // Add a warning log so operators know their setting was ignore
+        // Use the configuration setting for Horizon support
+        config.horizon_enabled = CONFIG.horizon.enabled;
         if CONFIG.horizon.enabled {
-            tracing::warn!(
-            "Horizon support is configured as enabled but has been forcibly disabled as it's not fully supported yet. \
-            This is a temporary measure until Horizon support is stable."
-        );
+            tracing::info!("Horizon support is enabled");
+        } else {
+            tracing::info!("Horizon support is disabled");
         }
         config
     }));
