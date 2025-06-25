@@ -39,7 +39,20 @@ if [ "$ESCROW_DEPLOYMENT" = "null" ] || [ -z "$ESCROW_DEPLOYMENT" ]; then
     ESCROW_DEPLOYMENT=""
 fi
 
+# Get escrow v2 subgraph deployment ID
+stdbuf -oL echo "🔍 DEBUG: Fetching escrow v2 subgraph deployment ID..."
+ESCROW_V2_DEPLOYMENT=$(curl -s --max-time 10 "http://graph-node:8000/subgraphs/name/semiotic/tap-v2" \
+    -H 'content-type: application/json' \
+    -d '{"query": "{ _meta { deployment } }"}' | jq -r '.data._meta.deployment' 2>/dev/null)
+stdbuf -oL echo "🔍 DEBUG: Escrow v2 deployment result: $ESCROW_V2_DEPLOYMENT"
+
+# Handle null deployment IDs for v2
+if [ "$ESCROW_V2_DEPLOYMENT" = "null" ] || [ -z "$ESCROW_V2_DEPLOYMENT" ]; then
+    ESCROW_V2_DEPLOYMENT=""
+fi
+
 stdbuf -oL echo "Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
+stdbuf -oL echo "Escrow v2 subgraph deployment ID: $ESCROW_V2_DEPLOYMENT"
 stdbuf -oL echo "Using test Network subgraph deployment ID: $NETWORK_DEPLOYMENT"
 stdbuf -oL echo "Using test Verifier address: $VERIFIER_ADDRESS"
 stdbuf -oL echo "Using test Indexer address: $RECEIVER_ADDRESS"
@@ -62,6 +75,13 @@ if [ -n "$ESCROW_DEPLOYMENT" ]; then
 else
     # Remove the deployment_id line entirely for escrow subgraph
     sed -i '/deployment_id = "ESCROW_DEPLOYMENT_PLACEHOLDER"/d' /opt/config.toml
+fi
+
+if [ -n "$ESCROW_V2_DEPLOYMENT" ]; then
+    sed -i "s/ESCROW_V2_DEPLOYMENT_PLACEHOLDER/$ESCROW_V2_DEPLOYMENT/g" /opt/config.toml
+else
+    # Remove the escrow_v2 section if deployment not found
+    sed -i '/\[subgraphs.escrow_v2\]/,/^$/d' /opt/config.toml
 fi
 sed -i "s/VERIFIER_ADDRESS_PLACEHOLDER/$VERIFIER_ADDRESS/g" /opt/config.toml
 sed -i "s/INDEXER_ADDRESS_PLACEHOLDER/$RECEIVER_ADDRESS/g" /opt/config.toml

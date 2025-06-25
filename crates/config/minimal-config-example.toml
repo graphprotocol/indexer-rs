@@ -42,12 +42,17 @@ query_url = "http://example.com/network-subgraph"
 deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 [subgraphs.escrow]
-# Query URL for the Escrow subgraph.
-query_url = "http://example.com/network-subgraph"
+# Query URL for the Escrow subgraph (v1).
+query_url = "http://example.com/escrow-subgraph"
 # Optional, deployment to look for in the local `graph-node`, if locally indexed.
 # Locally indexing the subgraph is recommended.
 # NOTE: Use `query_url` or `deployment_id` only
 deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+[subgraphs.escrow_v2]
+# Query URL for the Escrow v2 subgraph (Horizon).
+query_url = "http://example.com/escrow-v2-subgraph"
+syncing_interval_secs = 30
 
 [blockchain]
 # The chain ID of the network that the graph network is running on
@@ -63,3 +68,6 @@ receipts_verifier_address = "0x2222222222222222222222222222222222222222"
 # Key-Value of all senders and their aggregator endpoints
 0xDDE4cfFd3D9052A9cb618fC05a1Cd02be1f2F467 = "https://tap-aggregator.network.thegraph.com"
 0xDD6a6f76eb36B873C1C184e8b9b9e762FE216490 = "https://tap-aggregator-arbitrum-one.graphops.xyz"
+
+[horizon]
+mode = "transition"

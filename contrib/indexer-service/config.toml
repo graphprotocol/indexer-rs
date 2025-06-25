@@ -12,10 +12,18 @@ status_url = "http://graph-node:8030/graphql"
 [subgraphs.network]
 query_url = "http://graph-node:8000/subgraphs/name/graph-network"
 deployment_id = "NETWORK_DEPLOYMENT_PLACEHOLDER"
+syncing_interval_secs = 30
+recently_closed_allocation_buffer_secs = 60
 
 [subgraphs.escrow]
 query_url = "http://graph-node:8000/subgraphs/name/semiotic/tap"
 deployment_id = "ESCROW_DEPLOYMENT_PLACEHOLDER"
+syncing_interval_secs = 30
+
+[subgraphs.escrow_v2]
+query_url = "http://graph-node:8000/subgraphs/name/semiotic/tap-v2"
+deployment_id = "ESCROW_V2_DEPLOYMENT_PLACEHOLDER"
+syncing_interval_secs = 30
 
 [blockchain]
 chain_id = 1337
@@ -46,4 +54,8 @@ trigger_value_divisor = 500_000
 "ACCOUNT0_ADDRESS_PLACEHOLDER" = "http://tap-aggregator:7610"
 
 [horizon]
-enabled = true
+# Horizon migration mode: legacy | transition | full
+# - legacy: Only v1 TAP receipts supported (pre-migration)
+# - transition: Both v1 and v2 TAP receipts supported (during migration)  
+# - full: Only v2 TAP receipts supported (post-migration)
+mode = "transition"
