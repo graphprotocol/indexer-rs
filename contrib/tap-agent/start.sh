@@ -105,12 +105,43 @@ fi
 
 echo "Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
 
+# Get escrow v2 subgraph deployment ID with retries
+echo "Getting escrow v2 subgraph deployment ID..."
+MAX_ATTEMPTS=30
+ATTEMPT=0
+ESCROW_V2_DEPLOYMENT=""
+
+while [ -z "$ESCROW_V2_DEPLOYMENT" ] || [ "$ESCROW_V2_DEPLOYMENT" = "null" ] && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+    ESCROW_V2_DEPLOYMENT=$(curl -s "http://graph-node:8000/subgraphs/name/semiotic/tap-v2" \
+        -H 'content-type: application/json' \
+        -d '{"query": "{ _meta { deployment } }"}' | jq -r '.data._meta.deployment' 2>/dev/null)
+
+    if [ -z "$ESCROW_V2_DEPLOYMENT" ] || [ "$ESCROW_V2_DEPLOYMENT" = "null" ]; then
+        ATTEMPT=$((ATTEMPT + 1))
+        echo "Waiting for escrow v2 subgraph to be deployed... Attempt $ATTEMPT/$MAX_ATTEMPTS"
+        sleep 5
+    fi
+done
+
+if [ -z "$ESCROW_V2_DEPLOYMENT" ] || [ "$ESCROW_V2_DEPLOYMENT" = "null" ]; then
+    echo "WARNING: Failed to get escrow v2 subgraph deployment ID after $MAX_ATTEMPTS attempts"
+    # Continue without v2 for backward compatibility
+else
+    echo "Escrow v2 subgraph deployment ID: $ESCROW_V2_DEPLOYMENT"
+fi
+
 # Copy the config template
 cp /opt/config/config.toml /opt/config.toml
 
 # Replace the placeholders with actual values
 sed -i "s/NETWORK_DEPLOYMENT_PLACEHOLDER/$NETWORK_DEPLOYMENT/g" /opt/config.toml
 sed -i "s/ESCROW_DEPLOYMENT_PLACEHOLDER/$ESCROW_DEPLOYMENT/g" /opt/config.toml
+if [ ! -z "$ESCROW_V2_DEPLOYMENT" ] && [ "$ESCROW_V2_DEPLOYMENT" != "null" ]; then
+    sed -i "s/ESCROW_V2_DEPLOYMENT_PLACEHOLDER/$ESCROW_V2_DEPLOYMENT/g" /opt/config.toml
+else
+    # Remove the escrow_v2 section if deployment not found
+    sed -i '/\[subgraphs.escrow_v2\]/,/^$/d' /opt/config.toml
+fi
 sed -i "s/VERIFIER_ADDRESS_PLACEHOLDER/$VERIFIER_ADDRESS/g" /opt/config.toml
 sed -i "s/INDEXER_ADDRESS_PLACEHOLDER/$RECEIVER_ADDRESS/g" /opt/config.toml
 sed -i "s/INDEXER_MNEMONIC_PLACEHOLDER/$INDEXER_MNEMONIC/g" /opt/config.toml

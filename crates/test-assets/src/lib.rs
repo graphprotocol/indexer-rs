@@ -461,8 +461,14 @@ pub fn pgpool() -> Pin<Box<dyn Future<Output = PgPool>>> {
         ConnectOptions, Connection,
     };
     Box::pin(async {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let test_path =
+            Box::leak(format!("{}_{}", stdext::function_name!(), timestamp).into_boxed_str());
         let args = TestArgs {
-            test_path: stdext::function_name!(),
+            test_path,
             migrator: Some(&migrate!("../../migrations")),
             fixtures: &[],
         };

@@ -303,6 +303,7 @@ impl MetricsConfig {
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
     pub escrow: EscrowSubgraphConfig,
+    pub escrow_v2: Option<EscrowSubgraphConfig>,
 }
 
 #[serde_as]
@@ -446,13 +447,26 @@ pub struct RavRequestConfig {
     pub max_receipts_per_request: u64,
 }
 
+/// Horizon upgrade mode configuration
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum HorizonMode {
+    /// Legacy mode: Only v1 TAP receipts supported
+    #[default]
+    Legacy,
+    /// Transition mode: Both v1 and v2 TAP receipts supported (for migration)
+    Transition,
+    /// Full mode: Only v2 TAP receipts supported (post-migration)
+    Full,
+}
+
 /// Configuration for the horizon
 /// standard
 #[derive(Debug, Default, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct HorizonConfig {
-    /// Whether the horizon is enabled or not
-    pub enabled: bool,
+    /// Horizon upgrade mode
+    pub mode: HorizonMode,
 }
 
 #[cfg(test)]
