@@ -303,7 +303,7 @@ impl MetricsConfig {
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
     pub escrow: EscrowSubgraphConfig,
-    pub escrow_v2: Option<EscrowSubgraphConfig>,
+    // Note: V2 escrow accounts are in the network subgraph, not a separate escrow_v2 subgraph
 }
 
 #[serde_as]

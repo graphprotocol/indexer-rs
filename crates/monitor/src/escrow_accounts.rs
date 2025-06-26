@@ -9,9 +9,6 @@ use std::{
 
 use anyhow::anyhow;
 use indexer_query::escrow_account::{self, EscrowAccountQuery};
-use indexer_query::escrow_account_v2::{
-    self as escrow_account_v2, EscrowAccountQuery as EscrowAccountQueryV2,
-};
 use thegraph_core::alloy::primitives::{Address, U256};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
@@ -91,6 +88,12 @@ impl EscrowAccounts {
 
 pub type EscrowAccountsWatcher = Receiver<EscrowAccounts>;
 
+pub fn empty_escrow_accounts_watcher() -> EscrowAccountsWatcher {
+    let (_, receiver) =
+        tokio::sync::watch::channel(EscrowAccounts::new(HashMap::new(), HashMap::new()));
+    receiver
+}
+
 pub async fn escrow_accounts_v1(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
@@ -120,22 +123,16 @@ async fn get_escrow_accounts_v2(
     indexer_address: Address,
     reject_thawing_signers: bool,
 ) -> anyhow::Result<EscrowAccounts> {
-    // V2 TAP receipts use different field names (payer/service_provider) but the underlying
-    // escrow account model is identical to V1. Both V1 and V2 receipts reference the same
-    // sender addresses and the same escrow relationships.
-    //
-    // The separation of V1/V2 escrow account watchers allows for potential future differences
-    // in escrow models, but currently both query the same subgraph data with identical logic.
-    //
-    // V2 receipt flow:
-    // 1. V2 receipt contains payer address (equivalent to V1 sender)
-    // 2. Receipt is signed by a signer authorized by the payer
-    // 3. Escrow accounts map: signer -> payer (sender) -> balance
-    // 4. Service provider (indexer) receives payments from payer's escrow
+    // Query V2 escrow accounts from the network subgraph which tracks PaymentsEscrow
+    // and GraphTallyCollector contract events.
+
+    use indexer_query::network_escrow_account_v2::{
+        self as network_escrow_account_v2, NetworkEscrowAccountQueryV2,
+    };
 
     let response = escrow_subgraph
-        .query::<EscrowAccountQueryV2, _>(escrow_account_v2::Variables {
-            indexer: format!("{:x?}", indexer_address),
+        .query::<NetworkEscrowAccountQueryV2, _>(network_escrow_account_v2::Variables {
+            receiver: format!("{:x?}", indexer_address),
             thaw_end_timestamp: if reject_thawing_signers {
                 U256::ZERO.to_string()
             } else {
@@ -146,7 +143,20 @@ async fn get_escrow_accounts_v2(
 
     let response = response?;
 
-    tracing::trace!("V2 Escrow accounts response: {:?}", response);
+    tracing::trace!("Network V2 Escrow accounts response: {:?}", response);
+
+    // V2 TAP receipts use different field names (payer/service_provider) but the underlying
+    // escrow account model is identical to V1. Both V1 and V2 receipts reference the same
+    // sender addresses and the same escrow relationships.
+    //
+    // V1 queries the TAP subgraph while V2 queries the network subgraph, but both return
+    // the same escrow account structure for processing.
+    //
+    // V2 receipt flow:
+    // 1. V2 receipt contains payer address (equivalent to V1 sender)
+    // 2. Receipt is signed by a signer authorized by the payer
+    // 3. Escrow accounts map: signer -> payer (sender) -> balance
+    // 4. Service provider (indexer) receives payments from payer's escrow
 
     let senders_balances: HashMap<Address, U256> = response
         .escrow_accounts
