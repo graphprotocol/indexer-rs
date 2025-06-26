@@ -20,10 +20,7 @@ query_url = "http://graph-node:8000/subgraphs/name/semiotic/tap"
 deployment_id = "ESCROW_DEPLOYMENT_PLACEHOLDER"
 syncing_interval_secs = 30
 
-[subgraphs.escrow_v2]
-query_url = "http://graph-node:8000/subgraphs/name/semiotic/tap-v2"
-deployment_id = "ESCROW_V2_DEPLOYMENT_PLACEHOLDER"
-syncing_interval_secs = 30
+# Note: V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
 
 [blockchain]
 chain_id = 1337

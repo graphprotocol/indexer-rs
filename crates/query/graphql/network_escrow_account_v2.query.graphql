@@ -1,0 +1,33 @@
+# Network Subgraph EscrowAccount Query V2
+# 
+# This query retrieves V2 escrow account information from the network subgraph,
+# which tracks PaymentsEscrow and GraphTallyCollector contract events.
+#
+# Input Variables:
+# - $receiver (Bytes!): The address of the Indexer whose escrow accounts are being queried.
+# - $thawEndTimestamp (BigInt!): A timestamp used to filter signers whose thaw period has ended or is about to end.
+#
+# Query Logic:
+# - Fetches escrow accounts where the `receiver` is the provided indexer address.
+# - Returns the following information for each escrow account:
+#   - `balance`: The current balance of the escrow account.
+#   - `totalAmountThawing`: The total amount currently thawing in the escrow.
+# - Retrieves the payer and filters the payer's `signers` based on:
+#   - `thawEndTimestamp_lte`: Only includes signers whose thaw end timestamp is less than or equal to the provided $thawEndTimestamp.
+#   - `isAuthorized: true`: Only includes signers that are authorized.
+
+query NetworkEscrowAccountQueryV2($receiver: Bytes!, $thawEndTimestamp: BigInt!) {
+    escrowAccounts(where: { receiver: $receiver }) {
+        balance
+        totalAmountThawing
+        payer {
+            id
+            signers(where: {
+                thawEndTimestamp_lte: $thawEndTimestamp
+                isAuthorized: true
+            }) {
+                id
+            }
+        }
+    }
+}

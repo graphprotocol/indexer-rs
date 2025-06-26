@@ -803,7 +803,7 @@ where
         )
         .execute(&self.pgpool)
         .await
-        .map_err(|e| {
+        .map_err(|e: sqlx::Error| {
             tracing::error!("Failed to store invalid receipt: {}", e);
             anyhow!(e)
         })?;
@@ -893,7 +893,7 @@ where
         )
         .execute(&self.pgpool)
         .await
-        .map_err(|e| {
+        .map_err(|e: sqlx::Error| {
             tracing::error!("Failed to store invalid receipt: {}", e);
             anyhow!(e)
         })?;

@@ -98,7 +98,6 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
                                 syncing_interval_secs: escrow_sync_interval,
                             },
                     },
-                escrow_v2,
             },
         tap:
             TapConfig {
@@ -157,29 +156,6 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         .await,
     ));
 
-    // Create v2 escrow subgraph client if configured
-    let escrow_subgraph_v2 = if let Some(ref escrow_v2_config) = escrow_v2 {
-        Some(Box::leak(Box::new(
-            SubgraphClient::new(
-                http_client.clone(),
-                escrow_v2_config.config.deployment_id.map(|deployment| {
-                    DeploymentDetails::for_graph_node_url(
-                        graph_node_status_endpoint.clone(),
-                        graph_node_query_endpoint.clone(),
-                        deployment,
-                    )
-                }),
-                DeploymentDetails::for_query_url_with_token(
-                    escrow_v2_config.config.query_url.clone(),
-                    escrow_v2_config.config.query_auth_token.clone(),
-                ),
-            )
-            .await,
-        )))
-    } else {
-        None
-    };
-
     let escrow_accounts_v1 = escrow_accounts_v1(
         escrow_subgraph,
         *indexer_address,
@@ -189,33 +165,15 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     .await
     .expect("Error creating escrow_accounts channel");
 
-    // Check if v2 is configured before moving the value
-    let has_escrow_v2 = escrow_subgraph_v2.is_some();
-
-    let escrow_accounts_v2 = if let Some(escrow_v2_subgraph) = escrow_subgraph_v2 {
-        let escrow_v2_sync_interval = escrow_v2
-            .as_ref()
-            .map(|c| c.config.syncing_interval_secs)
-            .unwrap_or(*escrow_sync_interval);
-        escrow_accounts_v2(
-            escrow_v2_subgraph,
-            *indexer_address,
-            escrow_v2_sync_interval,
-            false,
-        )
-        .await
-        .expect("Error creating escrow_accounts_v2 channel")
-    } else {
-        // Fall back to v1 subgraph for v2 watcher if no v2 config
-        escrow_accounts_v2(
-            escrow_subgraph,
-            *indexer_address,
-            *escrow_sync_interval,
-            false,
-        )
-        .await
-        .expect("Error creating escrow_accounts_v2 channel")
-    };
+    // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
+    let escrow_accounts_v2 = escrow_accounts_v2(
+        network_subgraph,
+        *indexer_address,
+        *network_sync_interval,
+        false,
+    )
+    .await
+    .expect("Error creating escrow_accounts_v2 channel");
 
     // Configure watchers based on Horizon mode
     use indexer_config::HorizonMode;
@@ -226,11 +184,6 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         }
         HorizonMode::Transition => {
             tracing::info!("Horizon mode: Transition - both v1 and v2 receipts supported");
-            if !has_escrow_v2 {
-                tracing::warn!(
-                    "Horizon mode is Transition but no escrow_v2 configuration provided"
-                );
-            }
             (escrow_accounts_v1, escrow_accounts_v2)
         }
         HorizonMode::Full => {
