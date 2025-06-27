@@ -37,6 +37,7 @@ fi
 GRAPH_TOKEN=$(get_contract_address "horizon.json" "L2GraphToken")
 TAP_ESCROW_V1=$(get_contract_address "tap-contracts.json" "TAPEscrow")
 PAYMENTS_ESCROW_V2=$(get_contract_address "horizon.json" "PaymentsEscrow")
+GRAPH_TALLY_COLLECTOR_V2=$(get_contract_address "horizon.json" "GraphTallyCollector")
 
 # Use environment variables from .env
 SENDER_ADDRESS="$ACCOUNT0_ADDRESS"
@@ -47,6 +48,7 @@ echo "============ FUNDING BOTH V1 AND V2 ESCROWS ============"
 echo "L2GraphToken address: $GRAPH_TOKEN"
 echo "TAPEscrow (v1) address: $TAP_ESCROW_V1"
 echo "PaymentsEscrow (v2) address: $PAYMENTS_ESCROW_V2"
+echo "GraphTallyCollector (v2) address: $GRAPH_TALLY_COLLECTOR_V2"
 echo "Sender address: $SENDER_ADDRESS"
 echo "Amount per escrow: $AMOUNT (10 GRT)"
 echo "======================================================"
@@ -149,12 +151,42 @@ docker exec chain cast send \
 
 # For V2, we also need to authorize the signer
 echo "Authorizing signer for V2..."
-# Try PaymentsEscrow for signer authorization  
+# Create authorization proof: payer authorizes signer (same address in test)
+PROOF_DEADLINE=$(($(date +%s) + 3600))  # 1 hour from now
+echo "Creating authorization proof with deadline: $PROOF_DEADLINE"
+
+# Create the message to sign according to _verifyAuthorizationProof  
+# abi.encodePacked(chainId, contractAddress, "authorizeSignerProof", deadline, authorizer)
+CHAIN_ID_HEX=$(printf "%064x" 1337)                           # uint256: 32 bytes
+CONTRACT_HEX=${GRAPH_TALLY_COLLECTOR_V2:2}                    # address: 20 bytes (remove 0x)
+DOMAIN_HEX=$(echo -n "authorizeSignerProof" | xxd -p)         # string: no length prefix
+DEADLINE_HEX=$(printf "%064x" $PROOF_DEADLINE)                # uint256: 32 bytes  
+AUTHORIZER_HEX=${SENDER_ADDRESS:2}                            # address: 20 bytes (remove 0x)
+
+MESSAGE_DATA="${CHAIN_ID_HEX}${CONTRACT_HEX}${DOMAIN_HEX}${DEADLINE_HEX}${AUTHORIZER_HEX}"
+MESSAGE_HASH=$(docker exec chain cast keccak "0x$MESSAGE_DATA")
+
+# Sign the message with the signer's private key  
+PROOF=$(docker exec chain cast wallet sign --private-key $SENDER_KEY "$MESSAGE_HASH")
+
+echo "Calling authorizeSigner with proof..."
 docker exec chain cast send \
     --rpc-url http://localhost:8545 \
     --private-key $SENDER_KEY \
     --confirmations 1 \
-    $PAYMENTS_ESCROW_V2 "authorizeSigner(address)" $SENDER_ADDRESS || echo "Note: Signer authorization might use different method"
+    $GRAPH_TALLY_COLLECTOR_V2 "authorizeSigner(address,uint256,bytes)" $SENDER_ADDRESS $PROOF_DEADLINE $PROOF 2>/dev/null || {
+    echo "⚠️  Signer authorization failed (likely already authorized)"
+    echo "Checking if signer is already authorized..."
+    IS_AUTHORIZED=$(docker exec chain cast call \
+        --rpc-url http://localhost:8545 \
+        $GRAPH_TALLY_COLLECTOR_V2 "isAuthorized(address,address)(bool)" $SENDER_ADDRESS $SENDER_ADDRESS)
+    if [ "$IS_AUTHORIZED" = "true" ]; then
+        echo "✅ Signer is already authorized"
+    else
+        echo "❌ Signer authorization failed for unknown reason"
+        exit 1
+    fi
+}
 
 # Deposit to V2 escrow with payer, collector, receiver
 echo "Depositing to V2 escrow..."
