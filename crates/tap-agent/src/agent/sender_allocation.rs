@@ -372,12 +372,9 @@ where
 
         match message {
             SenderAllocationMessage::NewReceipt(notification) => {
-                let NewReceiptNotification {
-                    id,
-                    value: fees,
-                    timestamp_ns,
-                    ..
-                } = notification;
+                let id = notification.id();
+                let fees = notification.value();
+                let timestamp_ns = notification.timestamp_ns();
                 if id <= unaggregated_fees.last_id {
                     // Unexpected: received a receipt with an ID not greater than the last processed one
                     tracing::warn!(
@@ -1333,7 +1330,9 @@ pub mod tests {
     use crate::{
         agent::{
             sender_account::{ReceiptFees, SenderAccountMessage},
-            sender_accounts_manager::{AllocationId, NewReceiptNotification},
+            sender_accounts_manager::{
+                AllocationId, NewReceiptNotification, NewReceiptNotificationV1,
+            },
             sender_allocation::DatabaseInteractions,
         },
         tap::{context::Legacy, CheckingReceipt},
@@ -1567,13 +1566,15 @@ pub mod tests {
         // should validate with id less than last_id
         cast!(
             sender_allocation,
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification {
-                id: 0,
-                value: 10,
-                allocation_id: ALLOCATION_ID_0,
-                signer_address: SIGNER.1,
-                timestamp_ns: 0,
-            })
+            SenderAllocationMessage::NewReceipt(NewReceiptNotification::V1(
+                NewReceiptNotificationV1 {
+                    id: 0,
+                    value: 10,
+                    allocation_id: ALLOCATION_ID_0,
+                    signer_address: SIGNER.1,
+                    timestamp_ns: 0,
+                }
+            ))
         )
         .unwrap();
 
@@ -1584,13 +1585,15 @@ pub mod tests {
 
         cast!(
             sender_allocation,
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification {
-                id: 1,
-                value: 20,
-                allocation_id: ALLOCATION_ID_0,
-                signer_address: SIGNER.1,
-                timestamp_ns,
-            })
+            SenderAllocationMessage::NewReceipt(NewReceiptNotification::V1(
+                NewReceiptNotificationV1 {
+                    id: 1,
+                    value: 20,
+                    allocation_id: ALLOCATION_ID_0,
+                    signer_address: SIGNER.1,
+                    timestamp_ns,
+                }
+            ))
         )
         .unwrap();
 

@@ -34,4 +34,4 @@ max_receipts_per_request = 10000
 0xDD6a6f76eb36B873C1C184e8b9b9e762FE216490 = "https://tap-aggregator-arbitrum-one.graphops.xyz"
 
 [horizon]
-enabled = false
+enabled = true
