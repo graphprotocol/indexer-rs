@@ -116,7 +116,7 @@ pub const ESCROW_QUERY_RESPONSE: &str = r#"
 pub const ESCROW_QUERY_RESPONSE_V2: &str = r#"
     {
         "data": {
-            "escrowAccounts": [
+            "paymentsEscrowAccounts": [
                 {
                     "balance": "34",
                     "totalAmountThawing": "10",

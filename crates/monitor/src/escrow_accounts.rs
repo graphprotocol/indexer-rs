@@ -159,7 +159,7 @@ async fn get_escrow_accounts_v2(
     // 4. Service provider (indexer) receives payments from payer's escrow
 
     let senders_balances: HashMap<Address, U256> = response
-        .escrow_accounts
+        .payments_escrow_accounts
         .iter()
         .map(|account| {
             let balance = U256::checked_sub(
@@ -180,7 +180,7 @@ async fn get_escrow_accounts_v2(
         .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 
     let senders_to_signers = response
-        .escrow_accounts
+        .payments_escrow_accounts
         .into_iter()
         .map(|account| {
             let payer = Address::from_str(&account.payer.id)?;
