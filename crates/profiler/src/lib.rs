@@ -1,13 +1,17 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, SystemTime};
+use std::{
+    fs::{self, File},
+    io::Write,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    thread,
+    time::{Duration, SystemTime},
+};
 
 use chrono::{DateTime, Utc};
 use pprof::protos::Message;
@@ -74,7 +78,7 @@ fn generate_filename(
     // Format the datetime (YYYY-MM-DD-HH_MM_SS)
     let formatted_time = datetime.format("%Y-%m-%d-%H_%M_%S").to_string();
 
-    let filename = format!("{}-{}-{}.{}", prefix, formatted_time, counter, extension);
+    let filename = format!("{prefix}-{formatted_time}-{counter}.{extension}");
     Ok(Path::new(base_path).join(filename))
 }
 

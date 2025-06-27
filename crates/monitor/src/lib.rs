@@ -7,6 +7,7 @@ mod client;
 mod deployment_to_allocation;
 mod dispute_manager;
 mod escrow_accounts;
+mod horizon_detection;
 
 pub use crate::{
     allocations::{indexer_allocations, AllocationWatcher},
@@ -15,7 +16,8 @@ pub use crate::{
     deployment_to_allocation::{deployment_to_allocation, DeploymentToAllocationWatcher},
     dispute_manager::{dispute_manager, DisputeManagerWatcher},
     escrow_accounts::{
-        escrow_accounts_v1, escrow_accounts_v2, EscrowAccounts, EscrowAccountsError,
-        EscrowAccountsWatcher,
+        empty_escrow_accounts_watcher, escrow_accounts_v1, escrow_accounts_v2, EscrowAccounts,
+        EscrowAccountsError, EscrowAccountsWatcher,
     },
+    horizon_detection::is_horizon_active,
 };

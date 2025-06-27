@@ -87,7 +87,7 @@ impl Config {
 
         if let Some(path) = filename {
             let mut config_content = std::fs::read_to_string(path)
-                .map_err(|e| format!("Failed to read config file: {}", e))?;
+                .map_err(|e| format!("Failed to read config file: {e}"))?;
             config_content = Self::substitute_env_vars(config_content)?;
             figment_config = figment_config.merge(Toml::string(&config_content));
         }
@@ -134,7 +134,7 @@ impl Config {
                         Ok(value) => value,
                         Err(_) => {
                             missing_vars.push(var_name.to_string());
-                            format!("${{{}}}", var_name)
+                            format!("${{{var_name}}}")
                         }
                     }
                 });
@@ -264,7 +264,7 @@ impl DatabaseConfig {
                 password,
                 database,
             } => {
-                let postgres_url_str = format!("postgres://{}@{}/{}", user, host, database);
+                let postgres_url_str = format!("postgres://{user}@{host}/{database}");
                 let mut postgres_url =
                     Url::parse(&postgres_url_str).expect("Failed to parse database_url");
                 postgres_url
@@ -303,6 +303,7 @@ impl MetricsConfig {
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
     pub escrow: EscrowSubgraphConfig,
+    // Note: V2 escrow accounts are in the network subgraph, not a separate escrow_v2 subgraph
 }
 
 #[serde_as]
@@ -446,12 +447,24 @@ pub struct RavRequestConfig {
     pub max_receipts_per_request: u64,
 }
 
-/// Configuration for the horizon
-/// standard
+/// Configuration for the horizon migration
 #[derive(Debug, Default, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct HorizonConfig {
-    /// Whether the horizon is enabled or not
+    /// Enable Horizon migration support and detection
+    ///
+    /// When enabled (true):
+    /// - System will check if Horizon contracts are active in the network
+    /// - If Horizon contracts are detected: Enable hybrid migration mode
+    ///   * Accept new V2 TAP receipts only  
+    ///   * Continue processing existing V1 receipts for RAV generation
+    ///   * Reject new V1 receipt submissions
+    /// - If Horizon contracts are not detected: Remain in legacy mode
+    ///
+    /// When disabled (false):
+    /// - Pure legacy mode, no Horizon detection performed
+    /// - Only V1 TAP receipts are supported
+    #[serde(default)]
     pub enabled: bool,
 }
 

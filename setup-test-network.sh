@@ -2,9 +2,9 @@
 set -e
 
 # ==============================================================================
-# SETUP LOCAL GRAPH NETWORK FOR TESTING
+# SETUP LOCAL GRAPH NETWORK FOR TESTING (HORIZON VERSION)
 # ==============================================================================
-# This script sets up a local Graph network for testing.
+# This script sets up a local Graph network for testing with horizon upgrade.
 #
 # NOTES:
 # - If you encounter container conflicts, run: docker compose down
@@ -34,13 +34,8 @@ container_running() {
     return $?
 }
 
-# Function to fund the escrow smart contract
-# 1. first read .env variables from local-network/.env
-# 2. then read contract addresses from local-network/contracts.json
-# 3. finally, use the cast command to approve and deposit GRT to the escrow
-# this should be done just after deploying the gateway
-# otherwise it does not move forward in its setup process
-# causing false error during deployment of our local testnet
+# Function to fund the escrow smart contract for horizon
+# Uses L2GraphToken and TAPEscrow from the horizon structure
 fund_escrow() {
     echo "Funding escrow for sender..."
 
@@ -51,11 +46,14 @@ fund_escrow() {
         return 1
     fi
 
-    GRAPH_TOKEN=$(jq -r '."1337".GraphToken.address' local-network/contracts.json)
-    TAP_ESCROW=$(jq -r '."1337".TAPEscrow.address' local-network/contracts.json)
+    # Use L2GraphToken from horizon.json for horizon upgrade
+    GRAPH_TOKEN=$(jq -r '."1337".L2GraphToken.address' local-network/horizon.json)
+    TAP_ESCROW=$(jq -r '."1337".TAPEscrow.address' local-network/tap-contracts.json)
 
-    if [ -z "$GRAPH_TOKEN" ] || [ -z "$TAP_ESCROW" ]; then
-        echo "Error: Could not read contract addresses from contracts.json"
+    if [ -z "$GRAPH_TOKEN" ] || [ -z "$TAP_ESCROW" ] || [ "$GRAPH_TOKEN" == "null" ] || [ "$TAP_ESCROW" == "null" ]; then
+        echo "Error: Could not read contract addresses from horizon.json or tap-contracts.json"
+        echo "GRAPH_TOKEN: $GRAPH_TOKEN"
+        echo "TAP_ESCROW: $TAP_ESCROW"
         return 1
     fi
 
@@ -64,7 +62,7 @@ fund_escrow() {
     SENDER_KEY="$ACCOUNT0_SECRET"
     AMOUNT="10000000000000000000"
 
-    echo "Using GraphToken at: $GRAPH_TOKEN"
+    echo "Using L2GraphToken at: $GRAPH_TOKEN"
     echo "Using TapEscrow at: $TAP_ESCROW"
     echo "Using sender address: $SENDER_ADDRESS"
 
@@ -116,8 +114,8 @@ pwd
 if [ ! -d "local-network" ]; then
     git clone https://github.com/semiotic-ai/local-network.git
     cd local-network
-    # Checkout to a branch with no dipper
-    git checkout suchapalaver/main-no-dipper
+    # Checkout to the horizon branch
+    git checkout suchapalaver/test/horizon
     cd ..
 fi
 
@@ -135,17 +133,17 @@ docker compose up -d graph-contracts
 # Wait for contracts to be deployed
 timeout 300 bash -c 'until docker ps -a | grep graph-contracts | grep -q "Exited (0)"; do sleep 5; done'
 
-# Verify the contracts have code
-graph_token_address=$(jq -r '."1337".GraphToken.address' contracts.json)
-controller_address=$(jq -r '."1337".Controller.address' contracts.json)
+# Verify the contracts have code using horizon structure
+l2_graph_token_address=$(jq -r '."1337".L2GraphToken.address' horizon.json)
+controller_address=$(jq -r '."1337".Controller.address' horizon.json)
 
-echo "Checking GraphToken contract at $graph_token_address"
-code=$(docker exec chain cast code $graph_token_address --rpc-url http://localhost:8545)
+echo "Checking L2GraphToken contract at $l2_graph_token_address"
+code=$(docker exec chain cast code $l2_graph_token_address --rpc-url http://localhost:8545)
 if [ -z "$code" ] || [ "$code" == "0x" ]; then
-    echo "ERROR: GraphToken contract has no code!"
+    echo "ERROR: L2GraphToken contract has no code!"
     exit 1
 fi
-echo "GraphToken contract verified."
+echo "L2GraphToken contract verified."
 
 echo "Checking Controller contract at $controller_address"
 code=$(docker exec chain cast code $controller_address --rpc-url http://localhost:8545)
@@ -233,15 +231,23 @@ timeout 30 bash -c 'until docker ps | grep indexer | grep -q healthy; do sleep 5
 timeout 30 bash -c 'until docker ps | grep tap-agent | grep -q healthy; do sleep 5; done'
 
 echo "Building gateway image..."
+source local-network/.env
 docker build -t local-gateway:latest ./local-network/gateway
 
 echo "Running gateway container..."
+# Updated to use the horizon file structure
 docker run -d --name gateway \
     --network local-network_default \
     -p 7700:7700 \
-    -v $(pwd)/local-network/.env:/opt/.env:ro \
-    -v $(pwd)/local-network/contracts.json:/opt/contracts.json:ro \
+    -v "$(pwd)/local-network/tap-contracts.json":/opt/tap-contracts.json:ro \
+    -v "$(pwd)/local-network/subgraph-service.json":/opt/subgraph-service.json:ro \
     -e RUST_LOG=info,graph_gateway=trace \
+    -e ACCOUNT0_SECRET="$ACCOUNT0_SECRET" \
+    -e ACCOUNT0_ADDRESS="$ACCOUNT0_ADDRESS" \
+    -e GATEWAY_API_KEY="$GATEWAY_API_KEY" \
+    -e GRAPH_NODE_GRAPHQL="$GRAPH_NODE_GRAPHQL" \
+    -e REDPANDA_KAFKA="$REDPANDA_KAFKA" \
+    -e INDEXER_SERVICE="$INDEXER_SERVICE" \
     --restart on-failure:3 \
     local-gateway:latest
 
@@ -269,7 +275,7 @@ END_CONTAINERS_SIZE=$(docker system df --format '{{.ContainersSize}}' 2>/dev/nul
 END_VOLUMES_SIZE=$(docker system df --format '{{.VolumesSize}}' 2>/dev/null || echo "N/A")
 
 echo "All services are now running!"
-echo "You can enjoy your new local network setup for testing."
+echo "You can enjoy your new local network setup for testing with horizon upgrade."
 
 echo "============ FINAL DISK USAGE ============"
 echo "Docker directory usage: $END_SPACE"

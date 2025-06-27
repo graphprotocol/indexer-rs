@@ -19,7 +19,7 @@ use ractor::{ActorRef, ActorStatus};
 use serde_json::json;
 use sqlx::PgPool;
 use test_assets::{assert_while_retry, flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
-use thegraph_core::alloy::primitives::U256;
+use thegraph_core::{alloy::primitives::U256, AllocationId as AllocationIdCore};
 use wiremock::{
     matchers::{body_string_contains, method},
     Mock, MockServer, ResponseTemplate,
@@ -106,9 +106,11 @@ async fn sender_account_manager_layer_test(pgpool: PgPool) {
         .clone()
         .unwrap()
         .cast(SenderAccountMessage::UpdateAllocationIds(
-            vec![AllocationId::Legacy(ALLOCATION_ID_0)]
-                .into_iter()
-                .collect(),
+            vec![AllocationId::Legacy(AllocationIdCore::from(
+                ALLOCATION_ID_0,
+            ))]
+            .into_iter()
+            .collect(),
         ))
         .unwrap();
 

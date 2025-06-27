@@ -105,6 +105,7 @@ fi
 
 echo "Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
 
+
 # Copy the config template
 cp /opt/config/config.toml /opt/config.toml
 

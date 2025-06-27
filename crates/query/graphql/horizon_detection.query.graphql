@@ -1,0 +1,8 @@
+# Query to detect if Horizon (V2) contracts are active in the network
+# This query checks for the existence of PaymentsEscrow accounts which indicate V2 is active
+
+query HorizonDetectionQuery {
+    paymentsEscrowAccounts(first: 1) {
+        id
+    }
+}

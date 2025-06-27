@@ -139,8 +139,8 @@ pub struct SenderAllocationState<T: NetworkVersion> {
     pgpool: PgPool,
     /// Instance of TapManager for our [NetworkVersion] T
     tap_manager: TapManager<T>,
-    /// Current allocation address
-    allocation_id: Address,
+    /// Current allocation/collection identifier
+    allocation_id: T::AllocationId,
     /// Address of the sender responsible for this [SenderAllocation]
     sender: Address,
     /// Address of the indexer
@@ -196,8 +196,8 @@ impl AllocationConfig {
 pub struct SenderAllocationArgs<T: NetworkVersion> {
     /// Database connection
     pub pgpool: PgPool,
-    /// Current allocation address
-    pub allocation_id: Address,
+    /// Current allocation/collection identifier
+    pub allocation_id: T::AllocationId,
     /// Address of the sender responsible for this [SenderAllocation]
     pub sender: Address,
     /// Watcher containing the escrow accounts
@@ -266,14 +266,14 @@ where
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         let sender_account_ref = args.sender_account_ref.clone();
-        let allocation_id = args.allocation_id;
+        let allocation_id = args.allocation_id.clone();
         let mut state = SenderAllocationState::new(args).await?;
 
         // update invalid receipts
         state.invalid_receipts_fees = state.calculate_invalid_receipts_fee().await?;
         if state.invalid_receipts_fees.value > 0 {
             sender_account_ref.cast(SenderAccountMessage::UpdateInvalidReceiptFees(
-                allocation_id,
+                T::to_allocation_id_enum(&allocation_id),
                 state.invalid_receipts_fees,
             ))?;
         }
@@ -282,7 +282,7 @@ where
         state.unaggregated_fees = state.recalculate_all_unaggregated_fees().await?;
 
         sender_account_ref.cast(SenderAccountMessage::UpdateReceiptFees(
-            allocation_id,
+            T::to_allocation_id_enum(&allocation_id),
             ReceiptFees::UpdateValue(state.unaggregated_fees),
         ))?;
 
@@ -372,12 +372,9 @@ where
 
         match message {
             SenderAllocationMessage::NewReceipt(notification) => {
-                let NewReceiptNotification {
-                    id,
-                    value: fees,
-                    timestamp_ns,
-                    ..
-                } = notification;
+                let id = notification.id();
+                let fees = notification.value();
+                let timestamp_ns = notification.timestamp_ns();
                 if id <= unaggregated_fees.last_id {
                     // Unexpected: received a receipt with an ID not greater than the last processed one
                     tracing::warn!(
@@ -407,7 +404,7 @@ where
                 state
                     .sender_account_ref
                     .cast(SenderAccountMessage::UpdateReceiptFees(
-                        state.allocation_id,
+                        T::to_allocation_id_enum(&state.allocation_id),
                         ReceiptFees::NewReceipt(fees, timestamp_ns),
                     ))?;
             }
@@ -420,7 +417,7 @@ where
                 state
                     .sender_account_ref
                     .cast(SenderAccountMessage::UpdateReceiptFees(
-                        state.allocation_id,
+                        T::to_allocation_id_enum(&state.allocation_id),
                         ReceiptFees::RavRequestResponse(
                             state.unaggregated_fees,
                             rav_result.map(|res| res.map(Into::into)),
@@ -469,7 +466,7 @@ where
                     config.indexer_address,
                     config.escrow_polling_interval,
                     sender,
-                    allocation_id,
+                    T::allocation_id_to_address(&allocation_id),
                     escrow_subgraph,
                 )
                 .await,
@@ -481,7 +478,7 @@ where
         ];
         let context = TapAgentContext::builder()
             .pgpool(pgpool.clone())
-            .allocation_id(allocation_id)
+            .allocation_id(T::allocation_id_to_address(&allocation_id))
             .indexer_address(config.indexer_address)
             .sender(sender)
             .escrow_accounts(escrow_accounts.clone())
@@ -732,7 +729,7 @@ where
             });
         self.sender_account_ref
             .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
-                self.allocation_id,
+                T::to_allocation_id_enum(&self.allocation_id),
                 self.invalid_receipts_fees,
             ))?;
 
@@ -803,7 +800,7 @@ where
         )
         .execute(&self.pgpool)
         .await
-        .map_err(|e| {
+        .map_err(|e: sqlx::Error| {
             tracing::error!("Failed to store invalid receipt: {}", e);
             anyhow!(e)
         })?;
@@ -818,7 +815,7 @@ where
         let reciepts_len = receipts.len();
         let mut reciepts_signers = Vec::with_capacity(reciepts_len);
         let mut encoded_signatures = Vec::with_capacity(reciepts_len);
-        let mut allocation_ids = Vec::with_capacity(reciepts_len);
+        let mut collection_ids = Vec::with_capacity(reciepts_len);
         let mut payers = Vec::with_capacity(reciepts_len);
         let mut data_services = Vec::with_capacity(reciepts_len);
         let mut service_providers = Vec::with_capacity(reciepts_len);
@@ -828,7 +825,7 @@ where
         let mut error_logs = Vec::with_capacity(reciepts_len);
 
         for (receipt, receipt_error) in receipts {
-            let allocation_id = receipt.message.allocation_id;
+            let collection_id = receipt.message.collection_id;
             let payer = receipt.message.payer;
             let data_service = receipt.message.data_service;
             let service_provider = receipt.message.service_provider;
@@ -841,13 +838,13 @@ where
                 })?;
             tracing::debug!(
                 "Receipt for allocation {} and signer {} failed reason: {}",
-                allocation_id.encode_hex(),
+                collection_id.encode_hex(),
                 receipt_signer.encode_hex(),
                 receipt_error
             );
             reciepts_signers.push(receipt_signer.encode_hex());
             encoded_signatures.push(encoded_signature);
-            allocation_ids.push(allocation_id.encode_hex());
+            collection_ids.push(collection_id.encode_hex());
             payers.push(payer.encode_hex());
             data_services.push(data_service.encode_hex());
             service_providers.push(service_provider.encode_hex());
@@ -860,7 +857,7 @@ where
             r#"INSERT INTO tap_horizon_receipts_invalid (
                 signer_address,
                 signature,
-                allocation_id,
+                collection_id,
                 payer,
                 data_service,
                 service_provider,
@@ -871,7 +868,7 @@ where
             ) SELECT * FROM UNNEST(
                 $1::CHAR(40)[],
                 $2::BYTEA[],
-                $3::CHAR(40)[],
+                $3::CHAR(64)[],
                 $4::CHAR(40)[],
                 $5::CHAR(40)[],
                 $6::CHAR(40)[],
@@ -882,7 +879,7 @@ where
             )"#,
             &reciepts_signers,
             &encoded_signatures,
-            &allocation_ids,
+            &collection_ids,
             &payers,
             &data_services,
             &service_providers,
@@ -893,7 +890,7 @@ where
         )
         .execute(&self.pgpool)
         .await
-        .map_err(|e| {
+        .map_err(|e: sqlx::Error| {
             tracing::error!("Failed to store invalid receipt: {}", e);
             anyhow!(e)
         })?;
@@ -921,7 +918,7 @@ where
                 )
                 VALUES ($1, $2, $3, $4, $5)
             "#,
-            self.allocation_id.encode_hex(),
+            T::allocation_id_to_address(&self.allocation_id).encode_hex(),
             self.sender.encode_hex(),
             serde_json::to_value(expected_rav)?,
             serde_json::to_value(rav)?,
@@ -977,7 +974,7 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
                     "#,
             BigDecimal::from(min_timestamp),
             BigDecimal::from(max_timestamp),
-            self.allocation_id.encode_hex(),
+            (**self.allocation_id).encode_hex(),
             &signers,
         )
         .execute(&self.pgpool)
@@ -1000,7 +997,7 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
                 allocation_id = $1
                 AND signer_address IN (SELECT unnest($2::text[]))
             "#,
-            self.allocation_id.encode_hex(),
+            (**self.allocation_id).encode_hex(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -1050,7 +1047,7 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
                 AND signer_address IN (SELECT unnest($3::text[]))
                 AND timestamp_ns > $4
             "#,
-            self.allocation_id.encode_hex(),
+            (**self.allocation_id).encode_hex(),
             last_id,
             &signers,
             BigDecimal::from(
@@ -1096,7 +1093,7 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
                         SET last = true
                         WHERE allocation_id = $1 AND sender_address = $2
                     "#,
-            self.allocation_id.encode_hex(),
+            (**self.allocation_id).encode_hex(),
             self.sender.encode_hex(),
         )
         .execute(&self.pgpool)
@@ -1131,14 +1128,16 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
     ) -> anyhow::Result<()> {
         sqlx::query!(
             r#"
-                        DELETE FROM scalar_tap_receipts
+                        DELETE FROM tap_horizon_receipts
                         WHERE timestamp_ns BETWEEN $1 AND $2
-                        AND allocation_id = $3
-                        AND signer_address IN (SELECT unnest($4::text[]));
+                        AND collection_id = $3
+                        AND service_provider = $4
+                        AND signer_address IN (SELECT unnest($5::text[]));
                     "#,
             BigDecimal::from(min_timestamp),
             BigDecimal::from(max_timestamp),
-            self.allocation_id.encode_hex(),
+            self.allocation_id.to_string(),
+            self.indexer_address.encode_hex(),
             &signers,
         )
         .execute(&self.pgpool)
@@ -1159,10 +1158,10 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             FROM
                 tap_horizon_receipts_invalid
             WHERE
-                allocation_id = $1
+                collection_id = $1
                 AND signer_address IN (SELECT unnest($2::text[]))
             "#,
-            self.allocation_id.encode_hex(),
+            self.allocation_id.to_string(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -1205,13 +1204,13 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             FROM
                 tap_horizon_receipts
             WHERE
-                allocation_id = $1
+                collection_id = $1
                 AND service_provider = $2
                 AND id <= $3
                 AND signer_address IN (SELECT unnest($4::text[]))
                 AND timestamp_ns > $5
             "#,
-            self.allocation_id.encode_hex(),
+            self.allocation_id.to_string(),
             self.indexer_address.encode_hex(),
             last_id,
             &signers,
@@ -1258,11 +1257,11 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 UPDATE tap_horizon_ravs
                     SET last = true
                 WHERE 
-                    allocation_id = $1
+                    collection_id = $1
                     AND payer = $2
                     AND service_provider = $3
             "#,
-            self.allocation_id.encode_hex(),
+            self.allocation_id.to_string(),
             self.sender.encode_hex(),
             self.indexer_address.encode_hex(),
         )
@@ -1316,6 +1315,7 @@ pub mod tests {
         flush_messages, pgpool, ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
+    use thegraph_core::AllocationId as AllocationIdCore;
     use tokio::sync::{mpsc, watch};
     use tonic::{transport::Endpoint, Code};
     use wiremock::{
@@ -1330,7 +1330,9 @@ pub mod tests {
     use crate::{
         agent::{
             sender_account::{ReceiptFees, SenderAccountMessage},
-            sender_accounts_manager::NewReceiptNotification,
+            sender_accounts_manager::{
+                AllocationId, NewReceiptNotification, NewReceiptNotificationV1,
+            },
             sender_allocation::DatabaseInteractions,
         },
         tap::{context::Legacy, CheckingReceipt},
@@ -1424,7 +1426,7 @@ pub mod tests {
 
         SenderAllocationArgs::builder()
             .pgpool(pgpool.clone())
-            .allocation_id(ALLOCATION_ID_0)
+            .allocation_id(AllocationIdCore::from(ALLOCATION_ID_0))
             .sender(SENDER.1)
             .escrow_accounts(escrow_accounts_rx)
             .escrow_subgraph(escrow_subgraph)
@@ -1564,13 +1566,15 @@ pub mod tests {
         // should validate with id less than last_id
         cast!(
             sender_allocation,
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification {
-                id: 0,
-                value: 10,
-                allocation_id: ALLOCATION_ID_0,
-                signer_address: SIGNER.1,
-                timestamp_ns: 0,
-            })
+            SenderAllocationMessage::NewReceipt(NewReceiptNotification::V1(
+                NewReceiptNotificationV1 {
+                    id: 0,
+                    value: 10,
+                    allocation_id: ALLOCATION_ID_0,
+                    signer_address: SIGNER.1,
+                    timestamp_ns: 0,
+                }
+            ))
         )
         .unwrap();
 
@@ -1581,13 +1585,15 @@ pub mod tests {
 
         cast!(
             sender_allocation,
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification {
-                id: 1,
-                value: 20,
-                allocation_id: ALLOCATION_ID_0,
-                signer_address: SIGNER.1,
-                timestamp_ns,
-            })
+            SenderAllocationMessage::NewReceipt(NewReceiptNotification::V1(
+                NewReceiptNotificationV1 {
+                    id: 1,
+                    value: 20,
+                    allocation_id: ALLOCATION_ID_0,
+                    signer_address: SIGNER.1,
+                    timestamp_ns,
+                }
+            ))
         )
         .unwrap();
 
@@ -1599,7 +1605,7 @@ pub mod tests {
 
         let last_message_emitted = message_receiver.recv().await.unwrap();
         let expected_message = SenderAccountMessage::UpdateReceiptFees(
-            ALLOCATION_ID_0,
+            AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
             ReceiptFees::NewReceipt(20u128, timestamp_ns),
         );
         assert_eq!(last_message_emitted, expected_message);

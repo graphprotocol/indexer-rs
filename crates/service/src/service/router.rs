@@ -140,32 +140,41 @@ impl ServiceRouter {
         // Monitor escrow accounts v1
         // if not provided, create monitor from subgraph
         let escrow_accounts_v1 = match (self.escrow_accounts_v1, self.escrow_subgraph.as_ref()) {
-            (Some(escrow_account), _) => escrow_account,
-            (_, Some((escrow_subgraph, escrow))) => escrow_accounts_v1(
-                escrow_subgraph,
-                indexer_address,
-                escrow.config.syncing_interval_secs,
-                true, // Reject thawing signers eagerly
-            )
-            .await
-            .expect("Error creating escrow_accounts channel"),
-            (None, None) => panic!("No escrow accounts or escrow subgraph was provided"),
+            (Some(escrow_account), _) => Some(escrow_account),
+            (_, Some((escrow_subgraph, escrow))) => Some(
+                escrow_accounts_v1(
+                    escrow_subgraph,
+                    indexer_address,
+                    escrow.config.syncing_interval_secs,
+                    true, // Reject thawing signers eagerly
+                )
+                .await
+                .expect("Error creating escrow_accounts_v1 channel"),
+            ),
+            (None, None) => None,
         };
 
         // Monitor escrow accounts v2
         // if not provided, create monitor from subgraph
         let escrow_accounts_v2 = match (self.escrow_accounts_v2, self.escrow_subgraph.as_ref()) {
-            (Some(escrow_account), _) => escrow_account,
-            (_, Some((escrow_subgraph, escrow))) => escrow_accounts_v2(
-                escrow_subgraph,
-                indexer_address,
-                escrow.config.syncing_interval_secs,
-                true, // Reject thawing signers eagerly
-            )
-            .await
-            .expect("Error creating escrow_accounts channel"),
-            (None, None) => panic!("No escrow accounts or escrow subgraph was provided"),
+            (Some(escrow_account), _) => Some(escrow_account),
+            (_, Some((escrow_subgraph, escrow))) => Some(
+                escrow_accounts_v2(
+                    escrow_subgraph,
+                    indexer_address,
+                    escrow.config.syncing_interval_secs,
+                    true, // Reject thawing signers eagerly
+                )
+                .await
+                .expect("Error creating escrow_accounts_v2 channel"),
+            ),
+            (None, None) => None,
         };
+
+        // Ensure at least one escrow accounts watcher is available
+        if escrow_accounts_v1.is_none() && escrow_accounts_v2.is_none() {
+            panic!("At least one escrow accounts watcher (v1 or v2) must be provided");
+        }
 
         // Monitor dispute manager address
         // if not provided, create monitor from subgraph

@@ -6,8 +6,8 @@ services:
       - ../target/release/indexer-service-rs:/usr/local/bin/indexer-service-rs
       - ./indexer-service/start.sh:/usr/local/bin/start.sh
       - ./indexer-service/config.toml:/opt/config/config.toml
-      - ../local-network/contracts.json:/opt/contracts.json:ro
-      - ../local-network/.env:/opt/.env:ro
+      - ./local-network/tap-contracts.json:/opt/contracts.json:ro
+      - ./local-network/.env:/opt/.env:ro
       - ../migrations:/opt/migrations:ro
     entrypoint: ["/usr/local/bin/start.sh"]
     environment:
@@ -34,7 +34,7 @@ services:
       - ../target/release/indexer-tap-agent:/usr/local/bin/indexer-tap-agent
       - ./tap-agent:/opt/config:ro
       - ./local-network/.env:/opt/.env:ro
-      - ./local-network/contracts.json:/opt/contracts.json:ro
+      - ./local-network/tap-contracts.json:/opt/contracts.json:ro
       - ../migrations:/opt/migrations:ro
     entrypoint: ["/bin/bash", "-c", "/opt/config/start.sh"]
     environment:

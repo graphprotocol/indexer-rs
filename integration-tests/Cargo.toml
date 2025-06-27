@@ -25,3 +25,6 @@ rand.workspace = true
 indexer-receipt = { path = "../crates/indexer-receipt" }
 num_cpus = "1.16.0"
 clap = { version = "4.0", features = ["derive"] }
+base64 = { workspace = true }
+prost = { workspace = true }
+tap_aggregator = { workspace = true }
