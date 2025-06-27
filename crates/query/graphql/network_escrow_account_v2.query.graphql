@@ -17,7 +17,7 @@
 #   - `isAuthorized: true`: Only includes signers that are authorized.
 
 query NetworkEscrowAccountQueryV2($receiver: Bytes!, $thawEndTimestamp: BigInt!) {
-    escrowAccounts(where: { receiver: $receiver }) {
+    paymentsEscrowAccounts(where: { receiver_: { id: $receiver } }) {
         balance
         totalAmountThawing
         payer {
