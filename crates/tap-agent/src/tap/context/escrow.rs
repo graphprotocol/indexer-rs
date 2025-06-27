@@ -17,7 +17,7 @@ impl<T: NetworkVersion + Send + Sync> SignatureChecker for TapAgentContext<T> {
         let sender = escrow_accounts
             .get_sender_for_signer(&signer)
             .map_err(|_| AdapterError::ValidationError {
-                error: format!("Could not find the sender for the signer {}", signer),
+                error: format!("Could not find the sender for the signer {signer}"),
             })?;
         Ok(sender == self.sender)
     }

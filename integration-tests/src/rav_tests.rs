@@ -47,8 +47,7 @@ pub async fn test_tap_rav_v1() -> Result<()> {
         initial_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
 
     println!(
-        "\n=== Initial metrics: RAVs created: {}, Unaggregated fees: {} ===",
-        initial_ravs_created, initial_unaggregated
+        "\n=== Initial metrics: RAVs created: {initial_ravs_created}, Unaggregated fees: {initial_unaggregated} ==="
     );
 
     println!("\n=== STAGE 1: Sending large receipt batches with small pauses ===");
@@ -65,9 +64,9 @@ pub async fn test_tap_rav_v1() -> Result<()> {
 
         for i in 0..NUM_RECEIPTS {
             let response = http_client
-                .post(format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID))
+                .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
                 .header("Content-Type", "application/json")
-                .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
+                .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
                 .json(&json!({
                     "query": "{ _meta { block { number } } }"
                 }))
@@ -112,9 +111,9 @@ pub async fn test_tap_rav_v1() -> Result<()> {
         println!("Sending trigger query {}/{}...", i + 1, MAX_TRIGGERS);
 
         let response = http_client
-            .post(format!("{}/api/subgraphs/id/{}", GATEWAY_URL, SUBGRAPH_ID))
+            .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", GATEWAY_API_KEY))
+            .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
             .json(&json!({
                 "query": "{ _meta { block { number } } }"
             }))
@@ -151,23 +150,21 @@ pub async fn test_tap_rav_v1() -> Result<()> {
         // If we've succeeded, exit early
         if current_ravs_created > initial_ravs_created {
             println!(
-                "✅ TEST PASSED: RAVs created increased from {} to {}!",
-                initial_ravs_created, current_ravs_created
+                "✅ TEST PASSED: RAVs created increased from {initial_ravs_created} to {current_ravs_created}!"
             );
             return Ok(());
         }
 
         if current_unaggregated < initial_unaggregated * 0.9 {
             println!(
-                "✅ TEST PASSED: Unaggregated fees decreased significantly from {} to {}!",
-                initial_unaggregated, current_unaggregated
+                "✅ TEST PASSED: Unaggregated fees decreased significantly from {initial_unaggregated} to {current_unaggregated}!"
             );
             return Ok(());
         }
     }
 
     println!("\n=== Summary ===");
-    println!("Total queries sent successfully: {}", total_successful);
+    println!("Total queries sent successfully: {total_successful}");
 
     // If we got here, test failed
     println!("❌ TEST FAILED: No RAV generation detected");
@@ -182,7 +179,7 @@ pub async fn test_invalid_chain_id() -> Result<()> {
     let allocation_id = find_allocation(http_client.clone(), GRAPH_URL).await?;
 
     let allocation_id = Address::from_str(&allocation_id)?;
-    println!("Found allocation ID: {}", allocation_id);
+    println!("Found allocation ID: {allocation_id}");
 
     let receipt = create_tap_receipt(
         MAX_RECEIPT_VALUE,
@@ -195,7 +192,7 @@ pub async fn test_invalid_chain_id() -> Result<()> {
     let receipt_json = serde_json::to_string(&receipt).unwrap();
     let response = create_request(
         &http_client,
-        format!("{}/subgraphs/id/{}", INDEXER_URL, SUBGRAPH_ID).as_str(),
+        format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}").as_str(),
         &receipt_json,
         &json!({
             "query": "{ _meta { block { number } } }"

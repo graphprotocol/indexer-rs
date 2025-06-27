@@ -844,7 +844,7 @@ impl Actor for SenderAccount {
                                         .iter()
                                         .map(|rav| rav.0.to_string())
                                         .collect::<Vec<_>>(),
-                                    sender: format!("{:x?}", sender_id),
+                                    sender: format!("{sender_id:x?}"),
                                 },
                             )
                             .await
@@ -882,7 +882,7 @@ impl Actor for SenderAccount {
                         ))
                     })
                     .filter(|(allocation, _value)| {
-                        !redeemed_ravs_allocation_ids.contains(&format!("{:x?}", allocation))
+                        !redeemed_ravs_allocation_ids.contains(&format!("{allocation:x?}"))
                     })
                     .collect::<HashMap<_, _>>();
 

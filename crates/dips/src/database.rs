@@ -22,7 +22,7 @@ pub struct PsqlAgreementStore {
 
 fn uint256_to_bigdecimal(value: &uint256, field: &str) -> Result<BigDecimal, DipsError> {
     BigDecimal::from_str(&value.to_string())
-        .map_err(|e| DipsError::InvalidVoucher(format!("{}: {}", field, e)))
+        .map_err(|e| DipsError::InvalidVoucher(format!("{field}: {e}")))
 }
 
 #[async_trait]
