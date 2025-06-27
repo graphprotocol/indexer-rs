@@ -12,13 +12,13 @@ status_url = "http://graph-node:8030/graphql"
 [subgraphs.network]
 query_url = "http://graph-node:8000/subgraphs/name/graph-network"
 deployment_id = "NETWORK_DEPLOYMENT_PLACEHOLDER"
-syncing_interval_secs = 30
-recently_closed_allocation_buffer_secs = 60
+syncing_interval_secs = 5
+recently_closed_allocation_buffer_secs = 10
 
 [subgraphs.escrow]
 query_url = "http://graph-node:8000/subgraphs/name/semiotic/tap"
 deployment_id = "ESCROW_DEPLOYMENT_PLACEHOLDER"
-syncing_interval_secs = 30
+syncing_interval_secs = 5
 
 # Note: V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
 

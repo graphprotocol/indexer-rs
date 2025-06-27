@@ -126,10 +126,10 @@ echo ""
 echo "========== FUNDING V2 ESCROW =========="
 
 # For V2, we need to specify payer, collector, and receiver
-# In test setup, we'll use the same address for all three
+# Payer is the test account, but receiver must be the indexer address
 PAYER=$SENDER_ADDRESS
-COLLECTOR=$SENDER_ADDRESS
-RECEIVER=$SENDER_ADDRESS
+COLLECTOR=$SENDER_ADDRESS  
+RECEIVER="0xf4EF6650E48d099a4972ea5B414daB86e1998Bd3"  # This must be the indexer address
 
 # Check current V2 escrow balance before funding
 echo "Checking current V2 escrow balance..."
