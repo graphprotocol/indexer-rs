@@ -514,7 +514,7 @@ impl State {
             SenderType::Legacy => "legacy:",
             SenderType::Horizon => "horizon:",
         });
-        sender_allocation_id.push_str(&format!("{}", sender));
+        sender_allocation_id.push_str(&format!("{sender}"));
         sender_allocation_id
     }
 

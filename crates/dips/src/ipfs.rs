@@ -48,12 +48,12 @@ impl IpfsFetcher for IpfsClient {
             .await
             .map_err(|e| {
                 tracing::warn!("Failed to fetch subgraph manifest {}: {}", file, e);
-                DipsError::SubgraphManifestUnavailable(format!("{}: {}", file, e))
+                DipsError::SubgraphManifestUnavailable(format!("{file}: {e}"))
             })?;
 
         let manifest: GraphManifest = serde_yaml::from_slice(&content).map_err(|e| {
             tracing::warn!("Failed to parse subgraph manifest {}: {}", file, e);
-            DipsError::InvalidSubgraphManifest(format!("{}: {}", file, e))
+            DipsError::InvalidSubgraphManifest(format!("{file}: {e}"))
         })?;
 
         Ok(manifest)

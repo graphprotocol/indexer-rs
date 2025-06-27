@@ -22,7 +22,7 @@ pub fn derive_key_pair(
     deployment: &DeploymentId,
     index: u64,
 ) -> Result<PrivateKeySigner, anyhow::Error> {
-    let mut derivation_path = format!("m/{}/", epoch);
+    let mut derivation_path = format!("m/{epoch}/");
     derivation_path.push_str(
         &deployment
             .to_string()
@@ -32,7 +32,7 @@ pub fn derive_key_pair(
             .collect::<Vec<String>>()
             .join("/"),
     );
-    derivation_path.push_str(format!("/{}", index).as_str());
+    derivation_path.push_str(format!("/{index}").as_str());
 
     Ok(MnemonicBuilder::<English>::default()
         .derivation_path(&derivation_path)
