@@ -200,7 +200,7 @@ impl InnerContext {
             ) SELECT * FROM UNNEST(
                 $1::CHAR(40)[],
                 $2::BYTEA[],
-                $3::CHAR(40)[],
+                $3::CHAR(64)[],
                 $4::CHAR(40)[],
                 $5::CHAR(40)[],
                 $6::CHAR(40)[],

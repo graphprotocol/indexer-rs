@@ -814,17 +814,23 @@ impl State {
         .expect("should be able to fetch pending V2 receipts from the database");
 
         for row in receipts_signer_collections_in_db {
-            let collection_ids = row
-                .collection_ids
-                .expect("all receipts V2 should have a collection_id")
-                .iter()
-                .map(|collection_id| {
-                    AllocationId::Horizon(
-                        CollectionId::from_str(collection_id)
-                            .expect("collection_id should be a valid collection ID"),
-                    )
-                })
-                .collect::<HashSet<_>>();
+            let collection_ids =
+                row.collection_ids
+                    .expect("all receipts V2 should have a collection_id")
+                    .iter()
+                    .map(|collection_id| {
+                        let trimmed = collection_id.trim();
+                        let hex_str = if let Some(stripped) = trimmed.strip_prefix("0x") {
+                            stripped
+                        } else {
+                            trimmed
+                        };
+
+                        AllocationId::Horizon(CollectionId::from_str(hex_str).unwrap_or_else(|e| {
+                            panic!("Invalid collection_id '{collection_id}': {e}")
+                        }))
+                    })
+                    .collect::<HashSet<_>>();
             let signer_id = Address::from_str(&row.signer_address)
                 .expect("signer_address should be a valid address");
             let sender_id = self
