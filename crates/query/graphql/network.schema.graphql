@@ -6606,7 +6606,7 @@ enum Pool_orderBy {
 # TAP v2 Entities
 # PaymentsEscrow and GraphTallyCollector contract entities
 
-type EscrowAccount @entity {
+type PaymentsEscrowAccount @entity {
   id: Bytes!
   payer: Payer!
   collector: Collector!
@@ -6616,7 +6616,7 @@ type EscrowAccount @entity {
   thawEndTimestamp: BigInt!
 }
 
-input EscrowAccount_filter {
+input PaymentsEscrowAccount_filter {
   id: Bytes
   id_not: Bytes
   id_in: [Bytes!]
@@ -6665,7 +6665,7 @@ input EscrowAccount_filter {
   or: [EscrowAccount_filter]
 }
 
-enum EscrowAccount_orderBy {
+enum PaymentsEscrowAccount_orderBy {
   id
   payer
   payer__id
@@ -6682,7 +6682,7 @@ enum EscrowAccount_orderBy {
 type Collector @entity {
   id: Bytes!
   type: String
-  escrowAccounts: [EscrowAccount!]! @derivedFrom(field: "collector")
+  escrowAccounts: [PaymentsEscrowAccount!]! @derivedFrom(field: "collector")
 }
 
 input Collector_filter {
@@ -6700,7 +6700,7 @@ input Collector_filter {
   type_not_starts_with: String
   type_ends_with: String
   type_not_ends_with: String
-  escrowAccounts_: EscrowAccount_filter
+  escrowAccounts_: PaymentsEscrowAccount_filter
   _change_block: BlockChangedFilter
   and: [Collector_filter]
   or: [Collector_filter]
@@ -6809,7 +6809,7 @@ enum DataService_orderBy {
 
 type Payer @entity {
   id: Bytes!
-  escrowAccounts: [EscrowAccount!]! @derivedFrom(field: "payer")
+  escrowAccounts: [PaymentsEscrowAccount!]! @derivedFrom(field: "payer")
   signers: [Signer!]! @derivedFrom(field: "payer")
 }
 
@@ -6818,7 +6818,7 @@ input Payer_filter {
   id_not: Bytes
   id_in: [Bytes!]
   id_not_in: [Bytes!]
-  escrowAccounts_: EscrowAccount_filter
+  escrowAccounts_: PaymentsEscrowAccount_filter
   signers_: Signer_filter
   _change_block: BlockChangedFilter
   and: [Payer_filter]
@@ -6833,7 +6833,7 @@ enum Payer_orderBy {
 
 type Receiver @entity {
   id: Bytes!
-  escrowAccounts: [EscrowAccount!]! @derivedFrom(field: "receiver")
+  escrowAccounts: [PaymentsEscrowAccount!]! @derivedFrom(field: "receiver")
 }
 
 input Receiver_filter {
@@ -6841,7 +6841,7 @@ input Receiver_filter {
   id_not: Bytes
   id_in: [Bytes!]
   id_not_in: [Bytes!]
-  escrowAccounts_: EscrowAccount_filter
+  escrowAccounts_: PaymentsEscrowAccount_filter
   _change_block: BlockChangedFilter
   and: [Receiver_filter]
   or: [Receiver_filter]
@@ -8318,7 +8318,7 @@ type Query {
     """
     subgraphError: _SubgraphErrorPolicy_! = deny
   ): [Delegator!]!
-  escrowAccount(
+  paymentsEscrowAccount(
     id: ID!
 
     """
@@ -8335,13 +8335,13 @@ type Query {
     Set to `allow` to receive data even if the subgraph has skipped over errors while syncing.
     """
     subgraphError: _SubgraphErrorPolicy_! = deny
-  ): EscrowAccount
-  escrowAccounts(
+  ): PaymentsEscrowAccount
+  paymentsEscrowAccounts(
     skip: Int = 0
     first: Int = 100
-    orderBy: EscrowAccount_orderBy
+    orderBy: PaymentsEscrowAccount_orderBy
     orderDirection: OrderDirection
-    where: EscrowAccount_filter
+    where: PaymentsEscrowAccount_filter
 
     """
     The block at which the query should be executed. Can either be a `{ hash:
@@ -8357,7 +8357,7 @@ type Query {
     Set to `allow` to receive data even if the subgraph has skipped over errors while syncing.
     """
     subgraphError: _SubgraphErrorPolicy_! = deny
-  ): [EscrowAccount!]!
+  ): [PaymentsEscrowAccount!]!
   collector(
     id: ID!
     block: Block_height
@@ -12368,20 +12368,20 @@ type Subscription {
     """
     subgraphError: _SubgraphErrorPolicy_! = deny
   ): [Transaction!]!
-  escrowAccount(
+  paymentsEscrowAccount(
     id: ID!
     block: Block_height
     subgraphError: _SubgraphErrorPolicy_! = deny
-  ): EscrowAccount
-  escrowAccounts(
+  ): PaymentsEscrowAccount
+  paymentsEscrowAccounts(
     skip: Int = 0
     first: Int = 100
-    orderBy: EscrowAccount_orderBy
+    orderBy: PaymentsEscrowAccount_orderBy
     orderDirection: OrderDirection
-    where: EscrowAccount_filter
+    where: PaymentsEscrowAccount_filter
     block: Block_height
     subgraphError: _SubgraphErrorPolicy_! = deny
-  ): [EscrowAccount!]!
+  ): [PaymentsEscrowAccount!]!
   collector(
     id: ID!
     block: Block_height
