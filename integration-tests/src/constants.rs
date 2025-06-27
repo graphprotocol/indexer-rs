@@ -29,3 +29,7 @@ pub const GRT_DECIMALS: u8 = 18;
 pub const GRT_BASE: u128 = 10u128.pow(GRT_DECIMALS as u32);
 
 pub const MAX_RECEIPT_VALUE: u128 = GRT_BASE / 10_000;
+
+// Data service address for V2 testing
+// For testing, we'll use the indexer address as the data service
+pub const TEST_DATA_SERVICE: &str = "0xf4ef6650e48d099a4972ea5b414dab86e1998bd3"; // indexer address

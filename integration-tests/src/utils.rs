@@ -19,6 +19,8 @@ use tap_graph::Receipt;
 use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use thegraph_core::CollectionId;
 
+use crate::constants::TEST_DATA_SERVICE;
+
 pub fn create_tap_receipt(
     value: u128,
     allocation_id: &Address,
@@ -56,7 +58,7 @@ pub fn create_tap_receipt(
 
 pub fn create_tap_receipt_v2(
     value: u128,
-    allocation_id: &Address,
+    allocation_id: &Address, // Used to derive collection_id in V2
     verifier_contract: &str,
     chain_id: u64,
     wallet: &PrivateKeySigner,
@@ -71,8 +73,9 @@ pub fn create_tap_receipt_v2(
         .as_nanos();
     let timestamp_ns = timestamp as u64;
 
-    // Convert allocation_id to collection_id (as per V2 design)
-    let collection_id = *CollectionId::from(*allocation_id);
+    // In V2, convert the allocation_id to a collection_id
+    // For the migration period, we derive collection_id from allocation_id
+    let collection_id = CollectionId::from(*allocation_id);
 
     // Create domain separator
     let eip712_domain_separator =
@@ -83,10 +86,10 @@ pub fn create_tap_receipt_v2(
     let receipt = Eip712SignedMessage::new(
         &eip712_domain_separator,
         tap_graph::v2::Receipt {
-            collection_id,
+            collection_id: *collection_id,
             payer: *payer,
             service_provider: *service_provider,
-            data_service: Address::ZERO, // Using zero address for data service
+            data_service: Address::from_str(TEST_DATA_SERVICE)?, // Use proper data service
             nonce,
             timestamp_ns,
             value,
