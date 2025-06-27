@@ -61,7 +61,7 @@ pub async fn receipt_handler_load_test(num_receipts: usize, concurrency: usize) 
                 // Check if the send was Ok
                 if let Err(e) = send_result {
                     failed_sends += 1;
-                    eprintln!("Receipt {} failed to send: {:?}", index, e); // Log the specific error
+                    eprintln!("Receipt {index} failed to send: {e:?}"); // Log the specific error
                 } else {
                     successful_sends += 1;
                 }
@@ -69,27 +69,21 @@ pub async fn receipt_handler_load_test(num_receipts: usize, concurrency: usize) 
             Err(join_error) => {
                 // The task panicked or was cancelled
                 failed_sends += 1;
-                eprintln!(
-                    "Receipt {} task execution failed (e.g., panic): {:?}",
-                    index, join_error
-                );
+                eprintln!("Receipt {index} task execution failed (e.g., panic): {join_error:?}");
             }
         }
     }
 
     let duration = start.elapsed();
-    println!(
-        "Completed processing {} requests in {:?}",
-        num_receipts, duration
-    );
+    println!("Completed processing {num_receipts} requests in {duration:?}");
     if num_receipts > 0 {
         println!(
             "Average time per request: {:?}",
             duration / num_receipts as u32
         );
     }
-    println!("Successfully sent receipts: {}", successful_sends);
-    println!("Failed receipts: {}", failed_sends);
+    println!("Successfully sent receipts: {successful_sends}");
+    println!("Failed receipts: {failed_sends}");
 
     if failed_sends > 0 {
         return Err(anyhow::anyhow!(
@@ -117,7 +111,7 @@ async fn create_and_send_receipts(
     let receipt_json = serde_json::to_string(&receipt).unwrap();
     let response = create_request(
         &http_client,
-        format!("{}/subgraphs/id/{}", INDEXER_URL, SUBGRAPH_ID).as_str(),
+        format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}").as_str(),
         &receipt_json,
         &json!({
             "query": "{ _meta { block { number } } }"
@@ -179,7 +173,7 @@ pub async fn receipt_handler_load_test_v2(num_receipts: usize, concurrency: usiz
                 // Check if the send was Ok
                 if let Err(e) = send_result {
                     failed_sends += 1;
-                    eprintln!("V2 Receipt {} failed to send: {:?}", index, e); // Log the specific error
+                    eprintln!("V2 Receipt {index} failed to send: {e:?}"); // Log the specific error
                 } else {
                     successful_sends += 1;
                 }
@@ -187,27 +181,21 @@ pub async fn receipt_handler_load_test_v2(num_receipts: usize, concurrency: usiz
             Err(join_error) => {
                 // The task panicked or was cancelled
                 failed_sends += 1;
-                eprintln!(
-                    "V2 Receipt {} task execution failed (e.g., panic): {:?}",
-                    index, join_error
-                );
+                eprintln!("V2 Receipt {index} task execution failed (e.g., panic): {join_error:?}");
             }
         }
     }
 
     let duration = start.elapsed();
-    println!(
-        "Completed processing {} V2 requests in {:?}",
-        num_receipts, duration
-    );
+    println!("Completed processing {num_receipts} V2 requests in {duration:?}");
     if num_receipts > 0 {
         println!(
             "Average time per V2 request: {:?}",
             duration / num_receipts as u32
         );
     }
-    println!("Successfully sent V2 receipts: {}", successful_sends);
-    println!("Failed V2 receipts: {}", failed_sends);
+    println!("Successfully sent V2 receipts: {successful_sends}");
+    println!("Failed V2 receipts: {failed_sends}");
 
     if failed_sends > 0 {
         return Err(anyhow::anyhow!(
@@ -239,7 +227,7 @@ async fn create_and_send_receipts_v2(
     let receipt_encoded = encode_v2_receipt(&receipt)?;
     let response = create_request(
         &http_client,
-        format!("{}/subgraphs/id/{}", INDEXER_URL, SUBGRAPH_ID).as_str(),
+        format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}").as_str(),
         &receipt_encoded,
         &json!({
             "query": "{ _meta { block { number } } }"

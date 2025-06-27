@@ -55,7 +55,7 @@ mod tests {
         let res = app
             .oneshot(
                 Request::builder()
-                    .uri(format!("/{}", deployment))
+                    .uri(format!("/{deployment}"))
                     .body(Body::empty())
                     .unwrap(),
             )

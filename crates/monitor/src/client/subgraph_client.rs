@@ -83,10 +83,7 @@ impl DeploymentClient {
                     monitor_deployment_status(deployment, url)
                         .await
                         .unwrap_or_else(|_| {
-                            panic!(
-                                "Failed to initialize monitoring for deployment `{}`",
-                                deployment
-                            )
+                            panic!("Failed to initialize monitoring for deployment `{deployment}`")
                         }),
                 ),
                 None => None,
@@ -119,7 +116,7 @@ impl DeploymentClient {
             .json(&body);
 
         if let Some(token) = self.query_auth_token.as_ref() {
-            req = req.header(header::AUTHORIZATION, format!("Bearer {}", token));
+            req = req.header(header::AUTHORIZATION, format!("Bearer {token}"));
         }
 
         let reqwest_response = req.send().await?;
@@ -160,7 +157,7 @@ impl DeploymentClient {
             .body(body);
 
         if let Some(token) = self.query_auth_token.as_ref() {
-            req = req.header(header::AUTHORIZATION, format!("Bearer {}", token));
+            req = req.header(header::AUTHORIZATION, format!("Bearer {token}"));
         }
 
         Ok(req.send().await?)
@@ -335,7 +332,7 @@ mod test {
         mock_server_local
             .register(
                 Mock::given(method("POST"))
-                    .and(path(format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{deployment}")))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {
@@ -350,7 +347,7 @@ mod test {
         mock_server_remote
             .register(
                 Mock::given(method("POST"))
-                    .and(path(format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{deployment}")))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {
@@ -415,7 +412,7 @@ mod test {
         mock_server_local
             .register(
                 Mock::given(method("POST"))
-                    .and(path(format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{deployment}")))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {
@@ -430,7 +427,7 @@ mod test {
         mock_server_remote
             .register(
                 Mock::given(method("POST"))
-                    .and(path(format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{deployment}")))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {
@@ -495,7 +492,7 @@ mod test {
         mock_server_local
             .register(
                 Mock::given(method("POST"))
-                    .and(path(format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{deployment}")))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {
@@ -510,7 +507,7 @@ mod test {
         mock_server_remote
             .register(
                 Mock::given(method("POST"))
-                    .and(path(format!("/subgraphs/id/{}", deployment)))
+                    .and(path(format!("/subgraphs/id/{deployment}")))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "user": {

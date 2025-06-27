@@ -844,7 +844,7 @@ impl Actor for SenderAccount {
                                         .iter()
                                         .map(|rav| rav.0.to_string())
                                         .collect::<Vec<_>>(),
-                                    sender: format!("{:x?}", sender_id),
+                                    sender: format!("{sender_id:x?}"),
                                 },
                             )
                             .await
@@ -880,8 +880,8 @@ impl Actor for SenderAccount {
 
                                 match escrow_subgraph
                                     .query::<LatestRavs, _>(latest_ravs_v2::Variables {
-                                        payer: format!("{:x?}", sender_id),
-                                        data_service: format!("{:x?}", data_service),
+                                        payer: format!("{sender_id:x?}"),
+                                        data_service: format!("{data_service:x?}"),
                                         service_provider: format!("{:x?}", config.indexer_address),
                                         collection_ids: collection_ids.clone(),
                                     })
@@ -953,7 +953,7 @@ impl Actor for SenderAccount {
                         ))
                     })
                     .filter(|(allocation, _value)| {
-                        !redeemed_ravs_allocation_ids.contains(&format!("{:x?}", allocation))
+                        !redeemed_ravs_allocation_ids.contains(&format!("{allocation:x?}"))
                     })
                     .collect::<HashMap<_, _>>();
 

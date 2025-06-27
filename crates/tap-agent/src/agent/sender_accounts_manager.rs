@@ -102,8 +102,8 @@ impl AllocationId {
 impl Display for AllocationId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AllocationId::Legacy(allocation_id) => write!(f, "{}", allocation_id),
-            AllocationId::Horizon(collection_id) => write!(f, "{}", collection_id),
+            AllocationId::Legacy(allocation_id) => write!(f, "{allocation_id}"),
+            AllocationId::Horizon(collection_id) => write!(f, "{collection_id}"),
         }
     }
 }
@@ -537,7 +537,7 @@ impl State {
             SenderType::Legacy => "legacy:",
             SenderType::Horizon => "horizon:",
         });
-        sender_allocation_id.push_str(&format!("{}", sender));
+        sender_allocation_id.push_str(&format!("{sender}"));
         sender_allocation_id
     }
 

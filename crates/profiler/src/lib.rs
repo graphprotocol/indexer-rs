@@ -78,7 +78,7 @@ fn generate_filename(
     // Format the datetime (YYYY-MM-DD-HH_MM_SS)
     let formatted_time = datetime.format("%Y-%m-%d-%H_%M_%S").to_string();
 
-    let filename = format!("{}-{}-{}.{}", prefix, formatted_time, counter, extension);
+    let filename = format!("{prefix}-{formatted_time}-{counter}.{extension}");
     Ok(Path::new(base_path).join(filename))
 }
 

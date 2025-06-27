@@ -52,7 +52,7 @@ pub fn serve_metrics(host_and_port: SocketAddr) {
                         tracing::error!("Error encoding metrics: {}", e);
                         (
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("Error encoding metrics: {}", e),
+                            format!("Error encoding metrics: {e}"),
                         )
                     }
                 }

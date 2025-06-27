@@ -261,7 +261,7 @@ pub async fn run() -> anyhow::Result<()> {
             additional_networks,
         } = dips;
 
-        let addr = format!("{}:{}", host, port)
+        let addr = format!("{host}:{port}")
             .parse()
             .expect("invalid dips host port");
 
