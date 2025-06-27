@@ -23,7 +23,7 @@ impl<ResBody> Bearer<ResBody> {
         ResBody: Default,
     {
         Self {
-            header_value: format!("Bearer {}", token)
+            header_value: format!("Bearer {token}")
                 .parse()
                 .expect("token is not a valid header value"),
             _ty: PhantomData,

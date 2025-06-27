@@ -28,17 +28,17 @@ impl MetricsData {
     // the allocation_id is not exactly the key
     // allocation="0xE8B99E1fD28791fefd421aCB081a8c31Da6f10DA",sender="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     pub fn ravs_created_by_allocation(&self, allocation_id: &str) -> u32 {
-        let key = format!("allocation=\"{}\"", allocation_id);
+        let key = format!("allocation=\"{allocation_id}\"");
         get_value(&self.ravs_created, &key)
     }
 
     pub fn _ravs_created_by_sender(&self, sender: &str) -> u32 {
-        let key = format!("sender=\"{}\"", sender);
+        let key = format!("sender=\"{sender}\"");
         get_value(&self.ravs_created, &key)
     }
 
     pub fn unaggregated_fees_by_allocation(&self, allocation_id: &str) -> f64 {
-        let key = format!("allocation=\"{}\"", allocation_id);
+        let key = format!("allocation=\"{allocation_id}\"");
         get_value(&self.unaggregated_fees, &key)
     }
 }
@@ -120,9 +120,9 @@ fn parse_metric_line(line: &str, map: &mut HashMap<String, f64>) {
                     if !map.contains_key(&key) || map[&key] != value {
                         if map.contains_key(&key) {
                             let old_value = map[&key];
-                            println!("📈 Metric changed: {} ({} → {})", key, old_value, value);
+                            println!("📈 Metric changed: {key} ({old_value} → {value})");
                         } else {
-                            println!("📈 New metric: {} = {}", key, value);
+                            println!("📈 New metric: {key} = {value}");
                         }
                         map.insert(key, value);
                     }
