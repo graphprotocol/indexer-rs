@@ -128,22 +128,16 @@ impl IndexerDipsService for DipsServer {
             Err(e) => match e {
                 // Invalid signature/authorization errors
                 DipsError::InvalidSignature(msg) => Err(Status::invalid_argument(format!(
-                    "invalid signature: {}",
-                    msg
+                    "invalid signature: {msg}"
                 ))),
                 DipsError::PayerNotAuthorised(addr) => Err(Status::invalid_argument(format!(
-                    "payer {} not authorized",
-                    addr
+                    "payer {addr} not authorized"
                 ))),
-                DipsError::UnexpectedPayee { expected, actual } => {
-                    Err(Status::invalid_argument(format!(
-                        "voucher payee {} does not match expected address {}",
-                        actual, expected
-                    )))
-                }
+                DipsError::UnexpectedPayee { expected, actual } => Err(Status::invalid_argument(
+                    format!("voucher payee {actual} does not match expected address {expected}"),
+                )),
                 DipsError::SignerNotAuthorised(addr) => Err(Status::invalid_argument(format!(
-                    "signer {} not authorized",
-                    addr
+                    "signer {addr} not authorized"
                 ))),
 
                 // Deployment/manifest related errors - these should return Reject
@@ -159,8 +153,7 @@ impl IndexerDipsService for DipsServer {
 
                 // Other errors
                 DipsError::AbiDecoding(msg) => Err(Status::invalid_argument(format!(
-                    "invalid request voucher: {}",
-                    msg
+                    "invalid request voucher: {msg}"
                 ))),
                 _ => Err(Status::internal(e.to_string())),
             },

@@ -132,7 +132,7 @@ async fn get_escrow_accounts_v2(
 
     let response = escrow_subgraph
         .query::<NetworkEscrowAccountQueryV2, _>(network_escrow_account_v2::Variables {
-            receiver: format!("{:x?}", indexer_address),
+            receiver: format!("{indexer_address:x?}"),
             thaw_end_timestamp: if reject_thawing_signers {
                 U256::ZERO.to_string()
             } else {
@@ -209,7 +209,7 @@ async fn get_escrow_accounts_v1(
     // payments in the name of the sender.
     let response = escrow_subgraph
         .query::<EscrowAccountQuery, _>(escrow_account::Variables {
-            indexer: format!("{:x?}", indexer_address),
+            indexer: format!("{indexer_address:x?}"),
             thaw_end_timestamp: if reject_thawing_signers {
                 U256::ZERO.to_string()
             } else {

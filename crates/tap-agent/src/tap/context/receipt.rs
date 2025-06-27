@@ -93,7 +93,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Legacy> {
         let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
             .await
             .map_err(|e| AdapterError::ReceiptRead {
-                error: format!("{:?}.", e),
+                error: format!("{e:?}."),
             })?;
 
         let receipts_limit = receipts_limit.map_or(1000, |limit| limit);
@@ -120,15 +120,13 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Legacy> {
                 let signature = record.signature.as_slice().try_into()
                     .map_err(|e| AdapterError::ReceiptRead {
                         error: format!(
-                            "Error decoding signature while retrieving receipt from database: {}",
-                            e
+                            "Error decoding signature while retrieving receipt from database: {e}"
                         ),
                     })?;
                 let allocation_id = Address::from_str(&record.allocation_id).map_err(|e| {
                     AdapterError::ReceiptRead {
                         error: format!(
-                            "Error decoding allocation_id while retrieving receipt from database: {}",
-                            e
+                            "Error decoding allocation_id while retrieving receipt from database: {e}"
                         ),
                     }
                 })?;
@@ -185,7 +183,7 @@ impl ReceiptDelete for TapAgentContext<Legacy> {
         let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
             .await
             .map_err(|e| AdapterError::ReceiptDelete {
-                error: format!("{:?}.", e),
+                error: format!("{e:?}."),
             })?;
 
         sqlx::query!(
@@ -223,7 +221,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
         let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
             .await
             .map_err(|e| AdapterError::ReceiptRead {
-                error: format!("{:?}.", e),
+                error: format!("{e:?}."),
             })?;
 
         let records = sqlx::query!(
@@ -265,23 +263,20 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                 let signature = record.signature.as_slice().try_into()
                     .map_err(|e| AdapterError::ReceiptRead {
                         error: format!(
-                            "Error decoding signature while retrieving receipt from database: {}",
-                            e
+                            "Error decoding signature while retrieving receipt from database: {e}"
                         ),
                     })?;
                 let collection_id = FixedBytes::<32>::from_str(&record.collection_id).map_err(|e| {
                     AdapterError::ReceiptRead {
                         error: format!(
-                            "Error decoding collection_id while retrieving receipt from database: {}",
-                            e
+                            "Error decoding collection_id while retrieving receipt from database: {e}"
                         ),
                     }
                 })?;
                 let payer = Address::from_str(&record.payer).map_err(|e| {
                     AdapterError::ReceiptRead {
                         error: format!(
-                            "Error decoding payer while retrieving receipt from database: {}",
-                            e
+                            "Error decoding payer while retrieving receipt from database: {e}"
                         ),
                     }
                 })?;
@@ -289,8 +284,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                 let data_service = Address::from_str(&record.data_service).map_err(|e| {
                     AdapterError::ReceiptRead {
                         error: format!(
-                            "Error decoding data_service while retrieving receipt from database: {}",
-                            e
+                            "Error decoding data_service while retrieving receipt from database: {e}"
                         ),
                     }
                 })?;
@@ -298,8 +292,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                 let service_provider = Address::from_str(&record.service_provider).map_err(|e| {
                     AdapterError::ReceiptRead {
                         error: format!(
-                            "Error decoding service_provider while retrieving receipt from database: {}",
-                            e
+                            "Error decoding service_provider while retrieving receipt from database: {e}"
                         ),
                     }
                 })?;
@@ -360,7 +353,7 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
         let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
             .await
             .map_err(|e| AdapterError::ReceiptDelete {
-                error: format!("{:?}.", e),
+                error: format!("{e:?}."),
             })?;
 
         sqlx::query!(

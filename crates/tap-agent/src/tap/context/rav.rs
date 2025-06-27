@@ -56,15 +56,13 @@ impl RavRead<ReceiptAggregateVoucher> for TapAgentContext<Legacy> {
                         .try_into()
                         .map_err(|e| AdapterError::RavRead {
                             error: format!(
-                                "Error decoding signature while retrieving RAV from database: {}",
-                                e
+                                "Error decoding signature while retrieving RAV from database: {e}"
                             ),
                         })?;
                 let allocation_id =
                     Address::from_str(&row.allocation_id).map_err(|e| AdapterError::RavRead {
                         error: format!(
-                            "Error decoding allocation_id while retrieving RAV from database: {}",
-                            e
+                            "Error decoding allocation_id while retrieving RAV from database: {e}"
                         ),
                     })?;
                 let timestamp_ns = row.timestamp_ns.to_u64().ok_or(AdapterError::RavRead {
@@ -193,32 +191,28 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                         .try_into()
                         .map_err(|e| AdapterError::RavRead {
                             error: format!(
-                                "Error decoding signature while retrieving RAV from database: {}",
-                                e
+                                "Error decoding signature while retrieving RAV from database: {e}"
                             ),
                         })?;
                 let collection_id =
                     FixedBytes::<32>::from_str(&row.collection_id).map_err(|e| {
                         AdapterError::RavRead {
                             error: format!(
-                            "Error decoding collection_id while retrieving RAV from database: {}",
-                            e
+                            "Error decoding collection_id while retrieving RAV from database: {e}"
                         ),
                         }
                     })?;
 
                 let payer = Address::from_str(&row.payer).map_err(|e| AdapterError::RavRead {
                     error: format!(
-                        "Error decoding payer while retrieving receipt from database: {}",
-                        e
+                        "Error decoding payer while retrieving receipt from database: {e}"
                     ),
                 })?;
 
                 let data_service = Address::from_str(&row.data_service).map_err(|e| {
                     AdapterError::RavRead {
                         error: format!(
-                            "Error decoding data_service while retrieving receipt from database: {}",
-                            e
+                            "Error decoding data_service while retrieving receipt from database: {e}"
                         ),
                     }
                 })?;
@@ -226,8 +220,7 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                 let service_provider = Address::from_str(&row.service_provider).map_err(|e| {
                     AdapterError::RavRead {
                         error: format!(
-                            "Error decoding service_provider while retrieving receipt from database: {}",
-                            e
+                            "Error decoding service_provider while retrieving receipt from database: {e}"
                         ),
                     }
                 })?;

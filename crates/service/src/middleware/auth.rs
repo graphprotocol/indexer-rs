@@ -77,7 +77,7 @@ mod tests {
         let mut req = Request::new(Default::default());
         req.headers_mut().insert(
             header::AUTHORIZATION,
-            format!("Bearer {}", BEARER_TOKEN).parse().unwrap(),
+            format!("Bearer {BEARER_TOKEN}").parse().unwrap(),
         );
         let res = service.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);

@@ -87,7 +87,7 @@ impl Config {
 
         if let Some(path) = filename {
             let mut config_content = std::fs::read_to_string(path)
-                .map_err(|e| format!("Failed to read config file: {}", e))?;
+                .map_err(|e| format!("Failed to read config file: {e}"))?;
             config_content = Self::substitute_env_vars(config_content)?;
             figment_config = figment_config.merge(Toml::string(&config_content));
         }
@@ -134,7 +134,7 @@ impl Config {
                         Ok(value) => value,
                         Err(_) => {
                             missing_vars.push(var_name.to_string());
-                            format!("${{{}}}", var_name)
+                            format!("${{{var_name}}}")
                         }
                     }
                 });
@@ -264,7 +264,7 @@ impl DatabaseConfig {
                 password,
                 database,
             } => {
-                let postgres_url_str = format!("postgres://{}@{}/{}", user, host, database);
+                let postgres_url_str = format!("postgres://{user}@{host}/{database}");
                 let mut postgres_url =
                     Url::parse(&postgres_url_str).expect("Failed to parse database_url");
                 postgres_url
