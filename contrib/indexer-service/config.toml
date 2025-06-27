@@ -51,8 +51,9 @@ trigger_value_divisor = 500_000
 "ACCOUNT0_ADDRESS_PLACEHOLDER" = "http://tap-aggregator:7610"
 
 [horizon]
-# Horizon migration mode: legacy | transition | full
-# - legacy: Only v1 TAP receipts supported (pre-migration)
-# - transition: Both v1 and v2 TAP receipts supported (during migration)  
-# - full: Only v2 TAP receipts supported (post-migration)
-mode = "transition"
+# Enable Horizon migration support and detection
+# When enabled: Check if Horizon contracts are active in the network
+#   - If Horizon contracts detected: Hybrid migration mode (new V2 receipts only, process existing V1 receipts)
+#   - If Horizon contracts not detected: Remain in legacy mode (V1 receipts only)
+# When disabled: Pure legacy mode, no Horizon detection performed
+enabled = true

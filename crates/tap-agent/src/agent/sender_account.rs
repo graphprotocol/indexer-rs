@@ -422,11 +422,7 @@ impl SenderAccountConfig {
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
             tap_sender_timeout: config.tap.sender_timeout_secs,
             trusted_senders: config.tap.trusted_senders.clone(),
-            horizon_enabled: match config.horizon.mode {
-                indexer_config::HorizonMode::Legacy => false,
-                indexer_config::HorizonMode::Transition => true,
-                indexer_config::HorizonMode::Full => true,
-            },
+            horizon_enabled: config.horizon.enabled,
         }
     }
 }

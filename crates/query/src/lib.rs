@@ -174,3 +174,19 @@ pub mod network_escrow_account_v2 {
 
     pub use network_escrow_account_query_v2::Variables;
 }
+
+pub mod horizon_detection {
+    use graphql_client::GraphQLQuery;
+    type Bytes = String;
+
+    #[derive(GraphQLQuery)]
+    #[graphql(
+        schema_path = "graphql/network.schema.graphql",
+        query_path = "graphql/horizon_detection.query.graphql",
+        response_derives = "Debug",
+        variables_derives = "Clone"
+    )]
+    pub struct HorizonDetectionQuery;
+
+    pub use horizon_detection_query::*;
+}
