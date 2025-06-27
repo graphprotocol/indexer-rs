@@ -753,7 +753,7 @@ impl State {
             let signer_id = Address::from_str(&row.signer_address)
                 .expect("signer_address should be a valid address");
             let sender_id = self
-                .escrow_accounts_v1
+                .escrow_accounts_v2
                 .borrow()
                 .get_sender_for_signer(&signer_id)
                 .expect("should be able to get sender from signer");
@@ -785,10 +785,10 @@ impl State {
             if let Some(allocation_id_strings) = row.allocation_ids {
                 let allocation_ids = allocation_id_strings
                     .iter()
-                    .map(|allocation_id| {
-                        AllocationId::Legacy(
-                            AllocationIdCore::from_str(allocation_id)
-                                .expect("allocation_id should be a valid allocation ID"),
+                    .map(|collection_id| {
+                        AllocationId::Horizon(
+                            CollectionId::from_str(collection_id)
+                                .expect("collection_id should be a valid collection ID"),
                         )
                     })
                     .collect::<HashSet<_>>();

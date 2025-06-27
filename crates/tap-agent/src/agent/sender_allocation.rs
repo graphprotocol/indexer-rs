@@ -1131,14 +1131,16 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
     ) -> anyhow::Result<()> {
         sqlx::query!(
             r#"
-                        DELETE FROM scalar_tap_receipts
+                        DELETE FROM tap_horizon_receipts
                         WHERE timestamp_ns BETWEEN $1 AND $2
-                        AND allocation_id = $3
-                        AND signer_address IN (SELECT unnest($4::text[]));
+                        AND collection_id = $3
+                        AND service_provider = $4
+                        AND signer_address IN (SELECT unnest($5::text[]));
                     "#,
             BigDecimal::from(min_timestamp),
             BigDecimal::from(max_timestamp),
-            self.allocation_id.as_address().encode_hex(),
+            self.allocation_id.to_string(),
+            self.indexer_address.encode_hex(),
             &signers,
         )
         .execute(&self.pgpool)

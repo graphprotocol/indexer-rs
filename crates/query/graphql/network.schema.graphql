@@ -6661,8 +6661,8 @@ input PaymentsEscrowAccount_filter {
   thawEndTimestamp_in: [BigInt!]
   thawEndTimestamp_not_in: [BigInt!]
   _change_block: BlockChangedFilter
-  and: [EscrowAccount_filter]
-  or: [EscrowAccount_filter]
+  and: [PaymentsEscrowAccount_filter]
+  or: [PaymentsEscrowAccount_filter]
 }
 
 enum PaymentsEscrowAccount_orderBy {
