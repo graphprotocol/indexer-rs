@@ -443,6 +443,18 @@ impl State {
             "SenderAccount is creating allocation."
         );
 
+        // Check if actor already exists to prevent race condition during concurrent creation attempts
+        let actor_name = self.format_sender_allocation(&allocation_id.address());
+        if ActorRef::<SenderAllocationMessage>::where_is(actor_name.clone()).is_some() {
+            tracing::debug!(
+                %self.sender,
+                %allocation_id,
+                actor_name = %actor_name,
+                "SenderAllocation actor already exists, skipping creation"
+            );
+            return Ok(());
+        }
+
         match allocation_id {
             AllocationId::Legacy(id) => {
                 let args = SenderAllocationArgs::builder()

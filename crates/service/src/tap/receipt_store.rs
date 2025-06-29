@@ -345,7 +345,9 @@ impl DbReceiptV2 {
         receipt: &tap_graph::v2::SignedReceipt,
         separator: &Eip712Domain,
     ) -> anyhow::Result<Self> {
-        let collection_id = receipt.message.collection_id.encode_hex();
+        let collection_id = thegraph_core::CollectionId::from(receipt.message.collection_id)
+            .as_address()
+            .encode_hex();
         let payer = receipt.message.payer.encode_hex();
         let data_service = receipt.message.data_service.encode_hex();
         let service_provider = receipt.message.service_provider.encode_hex();

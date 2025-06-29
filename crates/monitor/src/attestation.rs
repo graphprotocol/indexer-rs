@@ -58,10 +58,19 @@ fn modify_sigers(
     // Create signers for new allocations
     for (id, allocation) in allocations.iter() {
         if !signers.contains_key(id) {
+            tracing::debug!(
+                "Attempting to create attestation signer for allocation {}, deployment {}, createdAtEpoch {}",
+                allocation.id, allocation.subgraph_deployment.id, allocation.created_at_epoch
+            );
+
             let signer =
                 AttestationSigner::new(indexer_mnemonic, allocation, chain_id, *dispute_manager);
             match signer {
                 Ok(signer) => {
+                    tracing::debug!(
+                        "Successfully created attestation signer for allocation {}",
+                        allocation.id
+                    );
                     signers.insert(*id, signer);
                 }
                 Err(e) => {
@@ -69,6 +78,11 @@ fn modify_sigers(
                         "Failed to establish signer for allocation {}, deployment {}, createdAtEpoch {}: {}",
                         allocation.id, allocation.subgraph_deployment.id,
                         allocation.created_at_epoch, e
+                    );
+                    tracing::debug!(
+                        "Signer creation error details for allocation {}: {}",
+                        allocation.id,
+                        e
                     );
                 }
             }

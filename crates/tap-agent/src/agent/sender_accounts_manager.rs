@@ -826,9 +826,21 @@ impl State {
                             trimmed
                         };
 
-                        AllocationId::Horizon(CollectionId::from_str(hex_str).unwrap_or_else(|e| {
-                            panic!("Invalid collection_id '{collection_id}': {e}")
-                        }))
+                        // For migration period: collection_id in DB is actually a 20-byte address
+                        // that needs to be converted to a 32-byte CollectionId
+                        if hex_str.len() == 40 {
+                            // 20-byte address -> convert to CollectionId using From<Address>
+                            let address = Address::from_str(&format!("0x{hex_str}"))
+                                .unwrap_or_else(|e| panic!("Invalid address '{trimmed}': {e}"));
+                            AllocationId::Horizon(CollectionId::from(address))
+                        } else if hex_str.len() == 64 {
+                            // 32-byte CollectionId
+                            AllocationId::Horizon(CollectionId::from_str(&format!("0x{hex_str}")).unwrap_or_else(|e| {
+                                panic!("Invalid collection_id '{trimmed}': {e}")
+                            }))
+                        } else {
+                            panic!("Invalid collection_id length '{}': expected 40 or 64 hex characters, got {}", trimmed, hex_str.len())
+                        }
                     })
                     .collect::<HashSet<_>>();
             let signer_id = Address::from_str(&row.signer_address)
@@ -1062,8 +1074,14 @@ async fn handle_notification(
     let allocation_id = new_receipt_notification.allocation_id();
     let allocation_str = allocation_id.to_hex();
 
+    // For actor lookup, use the address format that matches how actors are created
+    let allocation_for_actor_name = match &allocation_id {
+        AllocationId::Legacy(id) => id.to_string(),
+        AllocationId::Horizon(collection_id) => collection_id.as_address().to_string(),
+    };
+
     let actor_name = format!(
-        "{}{sender_address}:{allocation_id}",
+        "{}{sender_address}:{allocation_for_actor_name}",
         prefix
             .as_ref()
             .map_or(String::default(), |prefix| format!("{prefix}:"))
