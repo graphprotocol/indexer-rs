@@ -23,7 +23,7 @@ use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, ReceiptAggregateVoucher, SignedRav, SignedReceipt};
 use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
 use thegraph_core::alloy::{
-    primitives::{hex::ToHexExt, Address, Bytes, U256},
+    primitives::{hex::ToHexExt, Address, Bytes, FixedBytes, U256},
     signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     sol_types::Eip712Domain,
 };
@@ -262,13 +262,10 @@ pub async fn create_sender_accounts_manager(
     )
 }
 
-/// Generic implementation of create_rav
+/// Network-version specific RAV creation
 pub trait CreateRav: NetworkVersion {
-    /// This might seem weird at first glance since [Horizon] and [Legacy] implementation have the same
-    /// function signature and don't require &self. The reason is that we can not match over T to get
-    /// all variants because T is a trait and not an enum.
     fn create_rav(
-        allocation_id: Address,
+        id: Address,
         signer_wallet: PrivateKeySigner,
         timestamp_ns: u64,
         value_aggregate: u128,
@@ -293,7 +290,9 @@ impl CreateRav for Horizon {
         timestamp_ns: u64,
         value_aggregate: u128,
     ) -> Eip712SignedMessage<Self::Rav> {
-        create_rav_v2(allocation_id, signer_wallet, timestamp_ns, value_aggregate)
+        use thegraph_core::CollectionId;
+        let collection_id = *CollectionId::from(allocation_id);
+        create_rav_v2(collection_id, signer_wallet, timestamp_ns, value_aggregate)
     }
 }
 
@@ -318,7 +317,7 @@ pub fn create_rav(
 
 /// Fixture to generate a RAV using the wallet from `keys()`
 pub fn create_rav_v2(
-    allocation_id: Address,
+    collection_id: FixedBytes<32>,
     signer_wallet: PrivateKeySigner,
     timestamp_ns: u64,
     value_aggregate: u128,
@@ -326,7 +325,7 @@ pub fn create_rav_v2(
     Eip712SignedMessage::new(
         &TAP_EIP712_DOMAIN_SEPARATOR,
         tap_graph::v2::ReceiptAggregateVoucher {
-            allocationId: allocation_id,
+            collectionId: collection_id,
             timestampNs: timestamp_ns,
             valueAggregate: value_aggregate,
             payer: SENDER.1,
@@ -339,13 +338,12 @@ pub fn create_rav_v2(
     .unwrap()
 }
 
-/// Generic implementation of create_received_receipt
+/// Network-version specific receipt creation
 pub trait CreateReceipt {
-    /// This might seem weird at first glance since [Horizon] and [Legacy] implementation have the same
-    /// function signature and don't require &self. The reason is that we can not match over T to get
-    /// all variants because T is a trait and not an enum.
+    type Id: Clone + std::fmt::Debug;
+
     fn create_received_receipt(
-        allocation_id: Address,
+        id: Self::Id,
         signer_wallet: &PrivateKeySigner,
         nonce: u64,
         timestamp_ns: u64,
@@ -354,17 +352,21 @@ pub trait CreateReceipt {
 }
 
 impl CreateReceipt for Horizon {
+    type Id = Address;
+
     fn create_received_receipt(
-        allocation_id: Address,
+        allocation_id: Self::Id,
         signer_wallet: &PrivateKeySigner,
         nonce: u64,
         timestamp_ns: u64,
         value: u128,
     ) -> CheckingReceipt {
+        use thegraph_core::CollectionId;
+        let collection_id = *CollectionId::from(allocation_id);
         let receipt = Eip712SignedMessage::new(
             &TAP_EIP712_DOMAIN_SEPARATOR,
             tap_graph::v2::Receipt {
-                allocation_id,
+                collection_id,
                 payer: SENDER.1,
                 service_provider: INDEXER.1,
                 data_service: Address::ZERO,
@@ -380,8 +382,10 @@ impl CreateReceipt for Horizon {
 }
 
 impl CreateReceipt for Legacy {
+    type Id = Address;
+
     fn create_received_receipt(
-        allocation_id: Address,
+        allocation_id: Self::Id,
         signer_wallet: &PrivateKeySigner,
         nonce: u64,
         timestamp_ns: u64,
@@ -480,7 +484,7 @@ pub async fn store_receipt_v2(
             INSERT INTO tap_horizon_receipts (
                 signer_address,
                 signature,
-                allocation_id,
+                collection_id,
                 payer,
                 data_service,
                 service_provider,
@@ -492,7 +496,7 @@ pub async fn store_receipt_v2(
         "#,
         signer,
         encoded_signature,
-        signed_receipt.message.allocation_id.encode_hex(),
+        signed_receipt.message.collection_id.encode_hex(),
         signed_receipt.message.payer.encode_hex(),
         signed_receipt.message.data_service.encode_hex(),
         signed_receipt.message.service_provider.encode_hex(),
@@ -700,13 +704,13 @@ pub mod actors {
 
     use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
     use test_assets::{ALLOCATION_ID_0, TAP_SIGNER};
-    use thegraph_core::alloy::primitives::Address;
+    use thegraph_core::{alloy::primitives::Address, AllocationId as AllocationIdCore};
     use tokio::sync::{mpsc, watch, Notify};
 
     use super::create_rav;
     use crate::agent::{
         sender_account::{ReceiptFees, SenderAccountMessage},
-        sender_accounts_manager::NewReceiptNotification,
+        sender_accounts_manager::{AllocationId, NewReceiptNotification},
         sender_allocation::SenderAllocationMessage,
         unaggregated_receipts::UnaggregatedReceipts,
     };
@@ -928,7 +932,7 @@ pub mod actors {
                             *self.next_rav_value.borrow(),
                         );
                         sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
-                            ALLOCATION_ID_0,
+                            AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
                             ReceiptFees::RavRequestResponse(
                                 UnaggregatedReceipts {
                                     value: *self.next_unaggregated_fees_value.borrow(),

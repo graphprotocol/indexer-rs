@@ -14,7 +14,10 @@ use tap_core::{
     receipt::{rav::Aggregate, WithValueAndTimestamp},
     signed_message::Eip712SignedMessage,
 };
-use thegraph_core::alloy::{primitives::Address, sol_types::SolStruct};
+use thegraph_core::{
+    alloy::{primitives::Address, sol_types::SolStruct},
+    AllocationId as AllocationIdCore, CollectionId,
+};
 use tokio::sync::watch::Receiver;
 
 pub mod checks;
@@ -35,6 +38,18 @@ use tonic::{transport::Channel, Code, Status};
 /// multiple matches. This way we can keep the code separated and we
 /// can easily add or remove network versions.
 pub trait NetworkVersion: Send + Sync + 'static {
+    /// The type used for allocation identifiers
+    /// Legacy uses AllocationId (20 bytes), Horizon uses CollectionId (32 bytes) for collection IDs
+    type AllocationId: Send + Sync + Clone + std::fmt::Debug + std::fmt::Display;
+
+    /// Extract an Address for legacy compatibility (used for messaging)
+    fn allocation_id_to_address(id: &Self::AllocationId) -> Address;
+
+    /// Convert to the AllocationId enum for messaging
+    fn to_allocation_id_enum(
+        id: &Self::AllocationId,
+    ) -> crate::agent::sender_accounts_manager::AllocationId;
+
     /// Sol struct returned from an aggregation
     ///
     /// Usually this is wrapped around a [Eip712SignedMessage].
@@ -84,9 +99,20 @@ pub enum Legacy {}
 pub enum Horizon {}
 
 impl NetworkVersion for Legacy {
+    type AllocationId = AllocationIdCore;
     type Rav = tap_graph::ReceiptAggregateVoucher;
     type AggregatorClient =
         tap_aggregator::grpc::v1::tap_aggregator_client::TapAggregatorClient<Channel>;
+
+    fn allocation_id_to_address(id: &Self::AllocationId) -> Address {
+        **id // AllocationIdCore derefs to Address
+    }
+
+    fn to_allocation_id_enum(
+        id: &Self::AllocationId,
+    ) -> crate::agent::sender_accounts_manager::AllocationId {
+        crate::agent::sender_accounts_manager::AllocationId::Legacy(*id)
+    }
 
     async fn aggregate(
         client: &mut Self::AggregatorClient,
@@ -117,9 +143,20 @@ impl NetworkVersion for Legacy {
 }
 
 impl NetworkVersion for Horizon {
+    type AllocationId = CollectionId;
     type Rav = tap_graph::v2::ReceiptAggregateVoucher;
     type AggregatorClient =
         tap_aggregator::grpc::v2::tap_aggregator_client::TapAggregatorClient<Channel>;
+
+    fn allocation_id_to_address(id: &Self::AllocationId) -> Address {
+        id.as_address()
+    }
+
+    fn to_allocation_id_enum(
+        id: &Self::AllocationId,
+    ) -> crate::agent::sender_accounts_manager::AllocationId {
+        crate::agent::sender_accounts_manager::AllocationId::Horizon(*id)
+    }
 
     async fn aggregate(
         client: &mut Self::AggregatorClient,
@@ -155,6 +192,8 @@ impl NetworkVersion for Horizon {
 #[derive(Clone, bon::Builder)]
 pub struct TapAgentContext<T> {
     pgpool: PgPool,
+    /// For Legacy network: represents an allocation ID
+    /// For Horizon network: represents a collection ID (stored in collection_id database column)
     #[cfg_attr(test, builder(default = crate::test::ALLOCATION_ID_0))]
     allocation_id: Address,
     #[cfg_attr(test, builder(default = test_assets::TAP_SENDER.1))]

@@ -1,13 +1,16 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use rand::{rng, Rng};
-use serde_json::json;
-use std::time::{Duration, SystemTime};
-use std::{str::FromStr, sync::Arc};
+use std::{
+    str::FromStr,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use anyhow::Result;
+use rand::{rng, Rng};
 use reqwest::Client;
+use serde_json::json;
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::Receipt;
 use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner};
