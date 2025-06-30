@@ -88,7 +88,7 @@ impl InnerContext {
             }
             Err(e) => {
                 // Create error message once
-                let err_msg = format!("Failed to store {} receipts: {}", version, e);
+                let err_msg = format!("Failed to store {version} receipts: {e}");
                 tracing::error!("{}", err_msg);
                 for sender in senders {
                     // Convert to AdapterError for each sender

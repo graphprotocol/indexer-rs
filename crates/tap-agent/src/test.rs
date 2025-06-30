@@ -639,7 +639,7 @@ pub async fn store_rav(
 // TODO use static and check for possible errors with connection refused
 pub async fn get_grpc_url() -> String {
     let (_, addr) = create_grpc_aggregator().await;
-    format!("http://{}", addr)
+    format!("http://{addr}")
 }
 
 /// Function to start a aggregator server for testing
@@ -962,7 +962,7 @@ pub mod actors {
         let (mock_sender_allocation, triggered_rav_request, next_unaggregated_fees) =
             MockSenderAllocation::new_with_triggered_rav_request(sender_actor);
 
-        let name = format!("{}:{}:{}", prefix, sender, allocation);
+        let name = format!("{prefix}:{sender}:{allocation}");
         let (sender_account, _) =
             MockSenderAllocation::spawn(Some(name), mock_sender_allocation, ())
                 .await

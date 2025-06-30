@@ -176,7 +176,7 @@ pub enum DipsError {
 #[cfg(feature = "rpc")]
 impl From<DipsError> for tonic::Status {
     fn from(value: DipsError) -> Self {
-        tonic::Status::internal(format!("{}", value))
+        tonic::Status::internal(format!("{value}"))
     }
 }
 
@@ -679,7 +679,7 @@ mod test {
 
             let res = signed.validate(&domain, &payer_addr);
             match error {
-                Some(_err) => assert!(matches!(res.unwrap_err(), _err), "case: {}", name),
+                Some(_err) => assert!(matches!(res.unwrap_err(), _err), "case: {name}"),
                 None => assert!(res.is_ok(), "case: {}, err: {}", name, res.unwrap_err()),
             }
         }
@@ -904,7 +904,7 @@ mod test {
             match (out, result) {
                 (Ok(a), Ok(b)) => assert_eq!(a.into_bytes(), b),
                 (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string()),
-                (a, b) => panic!("{:?} did not match {:?}", a, b),
+                (a, b) => panic!("{a:?} did not match {b:?}"),
             }
         }
 
