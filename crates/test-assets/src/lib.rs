@@ -113,6 +113,50 @@ pub const ESCROW_QUERY_RESPONSE: &str = r#"
     }
 "#;
 
+pub const ESCROW_QUERY_RESPONSE_V2: &str = r#"
+    {
+        "data": {
+            "paymentsEscrowAccounts": [
+                {
+                    "balance": "34",
+                    "totalAmountThawing": "10",
+                    "payer": {
+                        "id": "0x9858EfFD232B4033E47d90003D41EC34EcaEda94",
+                        "signers": [
+                            {
+                                "id": "0x533661F0fb14d2E8B26223C86a610Dd7D2260892"
+                            },
+                            {
+                                "id": "0x2740f6fA9188cF53ffB6729DDD21575721dE92ce"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "balance": "42",
+                    "totalAmountThawing": "0",
+                    "payer": {
+                        "id": "0x22d491bde2303f2f43325b2108d26f1eaba1e32b",
+                        "signers": [
+                            {
+                                "id": "0x245059163ff6ee14279aa7b35ea8f0fdb967df6e"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "balance": "2987",
+                    "totalAmountThawing": "12",
+                    "payer": {
+                        "id": "0x192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002",
+                        "signers": []
+                    }
+                }
+            ]
+        }
+    }
+"#;
+
 pub const NETWORK_SUBGRAPH_DEPLOYMENT: DeploymentId =
     deployment_id!("QmU7zqJyHSyUP3yFii8sBtHT8FaJn2WmUnRvwjAUTjwMBP");
 
@@ -417,8 +461,14 @@ pub fn pgpool() -> Pin<Box<dyn Future<Output = PgPool>>> {
         ConnectOptions, Connection,
     };
     Box::pin(async {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let test_path =
+            Box::leak(format!("{}_{}", stdext::function_name!(), timestamp).into_boxed_str());
         let args = TestArgs {
-            test_path: stdext::function_name!(),
+            test_path,
             migrator: Some(&migrate!("../../migrations")),
             fixtures: &[],
         };
