@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                MAX(id),\n                SUM(value),\n                COUNT(*)\n            FROM\n                tap_horizon_receipts\n            WHERE\n                allocation_id = $1\n                AND service_provider = $2\n                AND id <= $3\n                AND signer_address IN (SELECT unnest($4::text[]))\n                AND timestamp_ns > $5\n            ",
+  "query": "\n            SELECT\n                MAX(id),\n                SUM(value),\n                COUNT(*)\n            FROM\n                tap_horizon_receipts\n            WHERE\n                collection_id = $1\n                AND service_provider = $2\n                AND id <= $3\n                AND signer_address IN (SELECT unnest($4::text[]))\n                AND timestamp_ns > $5\n            ",
   "describe": {
     "columns": [
       {
@@ -34,5 +34,5 @@
       null
     ]
   },
-  "hash": "fa31900971e23fdf98dd48fcd649e04328fb1e758a0b538319c5fb132251a7ed"
+  "hash": "bb4ba42f2eb9357b0dbad6aeed8aac18e3ce8b5f750cbf9525813724ad5f06f4"
 }
