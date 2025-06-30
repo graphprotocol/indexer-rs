@@ -88,6 +88,12 @@ impl EscrowAccounts {
 
 pub type EscrowAccountsWatcher = Receiver<EscrowAccounts>;
 
+pub fn empty_escrow_accounts_watcher() -> EscrowAccountsWatcher {
+    let (_, receiver) =
+        tokio::sync::watch::channel(EscrowAccounts::new(HashMap::new(), HashMap::new()));
+    receiver
+}
+
 pub async fn escrow_accounts_v1(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
@@ -112,13 +118,83 @@ pub async fn escrow_accounts_v2(
     .await
 }
 
-// TODO implement escrow accounts v2 query
 async fn get_escrow_accounts_v2(
-    _escrow_subgraph: &'static SubgraphClient,
-    _indexer_address: Address,
-    _reject_thawing_signers: bool,
+    escrow_subgraph: &'static SubgraphClient,
+    indexer_address: Address,
+    reject_thawing_signers: bool,
 ) -> anyhow::Result<EscrowAccounts> {
-    Ok(EscrowAccounts::new(HashMap::new(), HashMap::new()))
+    // Query V2 escrow accounts from the network subgraph which tracks PaymentsEscrow
+    // and GraphTallyCollector contract events.
+
+    use indexer_query::network_escrow_account_v2::{
+        self as network_escrow_account_v2, NetworkEscrowAccountQueryV2,
+    };
+
+    let response = escrow_subgraph
+        .query::<NetworkEscrowAccountQueryV2, _>(network_escrow_account_v2::Variables {
+            receiver: format!("{indexer_address:x?}"),
+            thaw_end_timestamp: if reject_thawing_signers {
+                U256::ZERO.to_string()
+            } else {
+                U256::MAX.to_string()
+            },
+        })
+        .await?;
+
+    let response = response?;
+
+    tracing::trace!("Network V2 Escrow accounts response: {:?}", response);
+
+    // V2 TAP receipts use different field names (payer/service_provider) but the underlying
+    // escrow account model is identical to V1. Both V1 and V2 receipts reference the same
+    // sender addresses and the same escrow relationships.
+    //
+    // V1 queries the TAP subgraph while V2 queries the network subgraph, but both return
+    // the same escrow account structure for processing.
+    //
+    // V2 receipt flow:
+    // 1. V2 receipt contains payer address (equivalent to V1 sender)
+    // 2. Receipt is signed by a signer authorized by the payer
+    // 3. Escrow accounts map: signer -> payer (sender) -> balance
+    // 4. Service provider (indexer) receives payments from payer's escrow
+
+    let senders_balances: HashMap<Address, U256> = response
+        .payments_escrow_accounts
+        .iter()
+        .map(|account| {
+            let balance = U256::checked_sub(
+                U256::from_str(&account.balance)?,
+                U256::from_str(&account.total_amount_thawing)?,
+            )
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    "Balance minus total amount thawing underflowed for V2 account {}. \
+                                 Setting balance to 0, no V2 queries will be served for this payer.",
+                    account.payer.id
+                );
+                U256::from(0)
+            });
+
+            Ok((Address::from_str(&account.payer.id)?, balance))
+        })
+        .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
+
+    let senders_to_signers = response
+        .payments_escrow_accounts
+        .into_iter()
+        .map(|account| {
+            let payer = Address::from_str(&account.payer.id)?;
+            let signers = account
+                .payer
+                .signers
+                .iter()
+                .map(|signer| Address::from_str(&signer.id))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok((payer, signers))
+        })
+        .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
+
+    Ok(EscrowAccounts::new(senders_balances, senders_to_signers))
 }
 
 async fn get_escrow_accounts_v1(
@@ -254,6 +330,56 @@ mod tests {
         .await
         .unwrap();
         accounts.changed().await.unwrap();
+        assert_eq!(
+            accounts.borrow().clone(),
+            EscrowAccounts::new(
+                ESCROW_ACCOUNTS_BALANCES.to_owned(),
+                ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
+            )
+        );
+    }
+
+    #[test(tokio::test)]
+    async fn test_current_accounts_v2() {
+        // Set up a mock escrow subgraph for V2 with payer fields
+        let mock_server = MockServer::start().await;
+        let escrow_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&format!(
+                    "{}/subgraphs/id/{}",
+                    &mock_server.uri(),
+                    test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
+                ))
+                .unwrap(),
+            )
+            .await,
+        ));
+
+        let mock = Mock::given(method("POST"))
+            .and(path(format!(
+                "/subgraphs/id/{}",
+                test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
+            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_raw(test_assets::ESCROW_QUERY_RESPONSE_V2, "application/json"),
+            );
+        mock_server.register(mock).await;
+
+        // Test V2 escrow accounts watcher
+        let mut accounts = escrow_accounts_v2(
+            escrow_subgraph,
+            test_assets::INDEXER_ADDRESS,
+            Duration::from_secs(60),
+            true,
+        )
+        .await
+        .unwrap();
+        accounts.changed().await.unwrap();
+
+        // V2 should produce identical results to V1 since they query the same data
         assert_eq!(
             accounts.borrow().clone(),
             EscrowAccounts::new(
