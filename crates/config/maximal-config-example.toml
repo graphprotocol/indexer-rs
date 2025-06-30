@@ -67,8 +67,9 @@ recently_closed_allocation_buffer_secs = 3600
 
 [subgraphs.escrow]
 # NOTE: It is heavily recomended to use both `query_url` and `deployment_id`,
-# Query URL for the Escrow subgraph.
-query_url = "http://example.com/network-subgraph"
+# Query URL for the Escrow subgraph (v1). This is the old escrow subgraph.
+# NOTE: This is not used in v2, as the escrow subgraph is now in the network subgraph.
+query_url = "http://example.com/escrow-subgraph"
 # Optional, Auth token will used a "bearer auth"
 # query_auth_token = "super-secret"
 
@@ -77,6 +78,8 @@ query_url = "http://example.com/network-subgraph"
 deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Refreshing interval for the Escrow contracts information from the Escrow subgraph.
 syncing_interval_secs = 60
+
+# NOTE: V2 escrow accounts are now in the network subgraph, not a separate escrow_v2 subgraph
 
 [blockchain]
 # The chain ID of the network that the graph network is running on
@@ -170,4 +173,9 @@ hardhat = "100"
 "eip155:1337" = "hardhat"
 
 [horizon]
-enabled = false
+# Enable Horizon migration support and detection
+# When enabled: Check if Horizon contracts are active in the network
+#   - If Horizon contracts detected: Hybrid migration mode (new V2 receipts only, process existing V1 receipts)
+#   - If Horizon contracts not detected: Remain in legacy mode (V1 receipts only)
+# When disabled: Pure legacy mode, no Horizon detection performed
+enabled = true
