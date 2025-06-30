@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tap_horizon_receipts (\n                signer_address,\n                signature,\n                collection_id,\n                payer,\n                data_service,\n                service_provider,\n                timestamp_ns,\n                nonce,\n                value\n            ) SELECT * FROM UNNEST(\n                $1::CHAR(40)[],\n                $2::BYTEA[],\n                $3::CHAR(64)[],\n                $4::CHAR(40)[],\n                $5::CHAR(40)[],\n                $6::CHAR(40)[],\n                $7::NUMERIC(20)[],\n                $8::NUMERIC(20)[],\n                $9::NUMERIC(40)[]\n            )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "BpcharArray",
+        "ByteaArray",
+        "BpcharArray",
+        "BpcharArray",
+        "BpcharArray",
+        "BpcharArray",
+        "NumericArray",
+        "NumericArray",
+        "NumericArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ff1c4e68e51d5a5dce96d594bb55dd07d642bff324018ef44e398785f85152c1"
+}

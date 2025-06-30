@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT\n                    payer,\n                    ARRAY_AGG(DISTINCT allocation_id) FILTER (WHERE NOT last) AS allocation_ids\n                FROM tap_horizon_ravs\n                GROUP BY payer\n            ",
+  "query": "\n                SELECT\n                    payer,\n                    ARRAY_AGG(DISTINCT collection_id) FILTER (WHERE NOT last) AS allocation_ids\n                FROM tap_horizon_ravs\n                GROUP BY payer\n            ",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       null
     ]
   },
-  "hash": "386e6b18da62b478ccdba5439490817f582abaec68e1ba01d55daee1e1edcbbd"
+  "hash": "7c7ebe97ae6a5b65fc438715a428b82b2a2dc5e1f0f29f4e6c7b2e498f3b1d82"
 }
