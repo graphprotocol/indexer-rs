@@ -11,7 +11,6 @@ status_url = "http://graph-node:8030/graphql"
 
 [subgraphs.network]
 query_url = "http://graph-node:8000/subgraphs/name/graph-network"
-deployment_id = "NETWORK_DEPLOYMENT_PLACEHOLDER"
 syncing_interval_secs = 5
 recently_closed_allocation_buffer_secs = 10
 
