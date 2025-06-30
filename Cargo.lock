@@ -3877,9 +3877,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "indexer-allocation",
+ "sha2",
  "test-assets",
  "test-log",
  "thegraph-core",
+ "tracing",
 ]
 
 [[package]]
