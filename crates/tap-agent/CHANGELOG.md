@@ -4,6 +4,18 @@
 
 
 
+## [1.10.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.9.7...indexer-tap-agent-v1.10.0) (2025-07-02)
+
+
+### Features
+
+* support horizon ([#752](https://github.com/graphprotocol/indexer-rs/issues/752)) ([e8474bb](https://github.com/graphprotocol/indexer-rs/commit/e8474bb265ecce8d8be9859ae2b2044c6d2224b0))
+
+
+### Bug Fixes
+
+* **integration-tests:** fund v1 and v2 escrow in test setup ([e8474bb](https://github.com/graphprotocol/indexer-rs/commit/e8474bb265ecce8d8be9859ae2b2044c6d2224b0))
+
 ## [1.9.7](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.9.6...indexer-tap-agent-v1.9.7) (2025-05-29)
 
 ## [1.9.6](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.9.5...indexer-tap-agent-v1.9.6) (2025-05-28)
