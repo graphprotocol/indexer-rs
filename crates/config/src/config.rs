@@ -303,6 +303,7 @@ impl MetricsConfig {
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
     pub escrow: EscrowSubgraphConfig,
+    // Note: V2 escrow accounts are in the network subgraph, not a separate escrow_v2 subgraph
 }
 
 #[serde_as]
@@ -446,12 +447,24 @@ pub struct RavRequestConfig {
     pub max_receipts_per_request: u64,
 }
 
-/// Configuration for the horizon
-/// standard
+/// Configuration for the horizon migration
 #[derive(Debug, Default, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct HorizonConfig {
-    /// Whether the horizon is enabled or not
+    /// Enable Horizon migration support and detection
+    ///
+    /// When enabled (true):
+    /// - System will check if Horizon contracts are active in the network
+    /// - If Horizon contracts are detected: Enable hybrid migration mode
+    ///   * Accept new V2 TAP receipts only  
+    ///   * Continue processing existing V1 receipts for RAV generation
+    ///   * Reject new V1 receipt submissions
+    /// - If Horizon contracts are not detected: Remain in legacy mode
+    ///
+    /// When disabled (false):
+    /// - Pure legacy mode, no Horizon detection performed
+    /// - Only V1 TAP receipts are supported
+    #[serde(default)]
     pub enabled: bool,
 }
 

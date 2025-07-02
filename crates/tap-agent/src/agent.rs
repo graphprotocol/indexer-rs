@@ -165,28 +165,58 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     .await
     .expect("Error creating escrow_accounts channel");
 
+    // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
     let escrow_accounts_v2 = escrow_accounts_v2(
-        escrow_subgraph,
+        network_subgraph,
         *indexer_address,
-        *escrow_sync_interval,
+        *network_sync_interval,
         false,
     )
     .await
-    .expect("Error creating escrow_accounts channel");
+    .expect("Error creating escrow_accounts_v2 channel");
+
+    // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
+    // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
+    // - If horizon.enabled = true: Check if Horizon contracts are active in the network
+    let is_horizon_enabled = if CONFIG.horizon.enabled {
+        tracing::info!("Horizon migration support enabled - checking if Horizon contracts are active in the network");
+        match indexer_monitor::is_horizon_active(network_subgraph).await {
+            Ok(active) => {
+                if active {
+                    tracing::info!("Horizon contracts detected in network subgraph - enabling hybrid migration mode");
+                    tracing::info!("TAP Agent Mode: Process existing V1 receipts for RAVs, accept new V2 receipts");
+                } else {
+                    tracing::info!("Horizon contracts not yet active in network subgraph - remaining in legacy mode");
+                }
+                active
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to detect Horizon contracts: {}. Remaining in legacy mode.",
+                    e
+                );
+                false
+            }
+        }
+    } else {
+        tracing::info!(
+            "Horizon migration support disabled in configuration - using pure legacy mode"
+        );
+        false
+    };
+
+    // In both modes we need both watchers for the hybrid processing
+    let (escrow_accounts_v1_final, escrow_accounts_v2_final) = if is_horizon_enabled {
+        tracing::info!("TAP Agent: Horizon migration mode - processing existing V1 receipts and new V2 receipts");
+        (escrow_accounts_v1, escrow_accounts_v2)
+    } else {
+        tracing::info!("TAP Agent: Legacy mode - V1 receipts only");
+        (escrow_accounts_v1, escrow_accounts_v2) // Still keep V2 watcher for consistency
+    };
 
     let config = Box::leak(Box::new({
         let mut config = SenderAccountConfig::from_config(&CONFIG);
-        // FIXME: This is a temporary measure to disable
-        // Horizon, even if enabled through our configuration file.
-        // Force disable Horizon support
-        config.horizon_enabled = false;
-        // Add a warning log so operators know their setting was ignore
-        if CONFIG.horizon.enabled {
-            tracing::warn!(
-            "Horizon support is configured as enabled but has been forcibly disabled as it's not fully supported yet. \
-            This is a temporary measure until Horizon support is stable."
-        );
-        }
+        config.horizon_enabled = is_horizon_enabled;
         config
     }));
 
@@ -195,8 +225,8 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         domain_separator: EIP_712_DOMAIN.clone(),
         pgpool,
         indexer_allocations,
-        escrow_accounts_v1,
-        escrow_accounts_v2,
+        escrow_accounts_v1: escrow_accounts_v1_final,
+        escrow_accounts_v2: escrow_accounts_v2_final,
         escrow_subgraph,
         network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),

@@ -42,8 +42,8 @@ query_url = "http://example.com/network-subgraph"
 deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 [subgraphs.escrow]
-# Query URL for the Escrow subgraph.
-query_url = "http://example.com/network-subgraph"
+# Query URL for the Escrow subgraph (v1).
+query_url = "http://example.com/escrow-subgraph"
 # Optional, deployment to look for in the local `graph-node`, if locally indexed.
 # Locally indexing the subgraph is recommended.
 # NOTE: Use `query_url` or `deployment_id` only
@@ -63,3 +63,11 @@ receipts_verifier_address = "0x2222222222222222222222222222222222222222"
 # Key-Value of all senders and their aggregator endpoints
 0xDDE4cfFd3D9052A9cb618fC05a1Cd02be1f2F467 = "https://tap-aggregator.network.thegraph.com"
 0xDD6a6f76eb36B873C1C184e8b9b9e762FE216490 = "https://tap-aggregator-arbitrum-one.graphops.xyz"
+
+[horizon]
+# Enable Horizon migration support and detection
+# When enabled: Check if Horizon contracts are active in the network
+#   - If Horizon contracts detected: Hybrid migration mode (new V2 receipts only, process existing V1 receipts)
+#   - If Horizon contracts not detected: Remain in legacy mode (V1 receipts only)
+# When disabled: Pure legacy mode, no Horizon detection performed
+enabled = true

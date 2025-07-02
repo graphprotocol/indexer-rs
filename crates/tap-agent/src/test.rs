@@ -23,7 +23,7 @@ use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, ReceiptAggregateVoucher, SignedRav, SignedReceipt};
 use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
 use thegraph_core::alloy::{
-    primitives::{hex::ToHexExt, Address, Bytes, U256},
+    primitives::{hex::ToHexExt, Address, Bytes, FixedBytes, U256},
     signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
     sol_types::Eip712Domain,
 };
@@ -262,13 +262,10 @@ pub async fn create_sender_accounts_manager(
     )
 }
 
-/// Generic implementation of create_rav
+/// Network-version specific RAV creation
 pub trait CreateRav: NetworkVersion {
-    /// This might seem weird at first glance since [Horizon] and [Legacy] implementation have the same
-    /// function signature and don't require &self. The reason is that we can not match over T to get
-    /// all variants because T is a trait and not an enum.
     fn create_rav(
-        allocation_id: Address,
+        id: Address,
         signer_wallet: PrivateKeySigner,
         timestamp_ns: u64,
         value_aggregate: u128,
@@ -293,7 +290,9 @@ impl CreateRav for Horizon {
         timestamp_ns: u64,
         value_aggregate: u128,
     ) -> Eip712SignedMessage<Self::Rav> {
-        create_rav_v2(allocation_id, signer_wallet, timestamp_ns, value_aggregate)
+        use thegraph_core::CollectionId;
+        let collection_id = *CollectionId::from(allocation_id);
+        create_rav_v2(collection_id, signer_wallet, timestamp_ns, value_aggregate)
     }
 }
 
@@ -318,7 +317,7 @@ pub fn create_rav(
 
 /// Fixture to generate a RAV using the wallet from `keys()`
 pub fn create_rav_v2(
-    allocation_id: Address,
+    collection_id: FixedBytes<32>,
     signer_wallet: PrivateKeySigner,
     timestamp_ns: u64,
     value_aggregate: u128,
@@ -326,11 +325,11 @@ pub fn create_rav_v2(
     Eip712SignedMessage::new(
         &TAP_EIP712_DOMAIN_SEPARATOR,
         tap_graph::v2::ReceiptAggregateVoucher {
-            allocationId: allocation_id,
+            collectionId: collection_id,
             timestampNs: timestamp_ns,
             valueAggregate: value_aggregate,
             payer: SENDER.1,
-            dataService: Address::ZERO,
+            dataService: INDEXER.1, // Use the same indexer address as the context
             serviceProvider: INDEXER.1,
             metadata: Bytes::new(),
         },
@@ -339,13 +338,12 @@ pub fn create_rav_v2(
     .unwrap()
 }
 
-/// Generic implementation of create_received_receipt
+/// Network-version specific receipt creation
 pub trait CreateReceipt {
-    /// This might seem weird at first glance since [Horizon] and [Legacy] implementation have the same
-    /// function signature and don't require &self. The reason is that we can not match over T to get
-    /// all variants because T is a trait and not an enum.
+    type Id: Clone + std::fmt::Debug;
+
     fn create_received_receipt(
-        allocation_id: Address,
+        id: Self::Id,
         signer_wallet: &PrivateKeySigner,
         nonce: u64,
         timestamp_ns: u64,
@@ -354,20 +352,24 @@ pub trait CreateReceipt {
 }
 
 impl CreateReceipt for Horizon {
+    type Id = Address;
+
     fn create_received_receipt(
-        allocation_id: Address,
+        allocation_id: Self::Id,
         signer_wallet: &PrivateKeySigner,
         nonce: u64,
         timestamp_ns: u64,
         value: u128,
     ) -> CheckingReceipt {
+        use thegraph_core::CollectionId;
+        let collection_id = *CollectionId::from(allocation_id);
         let receipt = Eip712SignedMessage::new(
             &TAP_EIP712_DOMAIN_SEPARATOR,
             tap_graph::v2::Receipt {
-                allocation_id,
+                collection_id,
                 payer: SENDER.1,
                 service_provider: INDEXER.1,
-                data_service: Address::ZERO,
+                data_service: INDEXER.1, // Use the same indexer address as the context
                 nonce,
                 timestamp_ns,
                 value,
@@ -380,8 +382,10 @@ impl CreateReceipt for Horizon {
 }
 
 impl CreateReceipt for Legacy {
+    type Id = Address;
+
     fn create_received_receipt(
-        allocation_id: Address,
+        allocation_id: Self::Id,
         signer_wallet: &PrivateKeySigner,
         nonce: u64,
         timestamp_ns: u64,
@@ -480,7 +484,7 @@ pub async fn store_receipt_v2(
             INSERT INTO tap_horizon_receipts (
                 signer_address,
                 signature,
-                allocation_id,
+                collection_id,
                 payer,
                 data_service,
                 service_provider,
@@ -492,7 +496,7 @@ pub async fn store_receipt_v2(
         "#,
         signer,
         encoded_signature,
-        signed_receipt.message.allocation_id.encode_hex(),
+        signed_receipt.message.collection_id.encode_hex(),
         signed_receipt.message.payer.encode_hex(),
         signed_receipt.message.data_service.encode_hex(),
         signed_receipt.message.service_provider.encode_hex(),
@@ -521,21 +525,38 @@ pub async fn store_batch_receipts(
     let mut values = Vec::with_capacity(receipts_len);
 
     for receipt in receipts {
-        let receipt = match receipt.signed_receipt() {
-            TapReceipt::V1(receipt) => receipt,
-            TapReceipt::V2(_) => unimplemented!("V2 receipts not supported"),
+        match receipt.signed_receipt() {
+            TapReceipt::V1(receipt) => {
+                signers.push(
+                    receipt
+                        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                        .unwrap()
+                        .encode_hex(),
+                );
+                signatures.push(receipt.signature.as_bytes().to_vec());
+                allocation_ids.push(receipt.message.allocation_id.encode_hex().to_string());
+                timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
+                nonces.push(BigDecimal::from(receipt.message.nonce));
+                values.push(BigDecimal::from(receipt.message.value));
+            }
+            TapReceipt::V2(receipt) => {
+                use thegraph_core::CollectionId;
+                // For V2, store collection_id in the allocation_id field (as per the database reuse strategy)
+                let collection_id_as_allocation =
+                    CollectionId::from(receipt.message.collection_id).as_address();
+                signers.push(
+                    receipt
+                        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                        .unwrap()
+                        .encode_hex(),
+                );
+                signatures.push(receipt.signature.as_bytes().to_vec());
+                allocation_ids.push(collection_id_as_allocation.encode_hex().to_string());
+                timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
+                nonces.push(BigDecimal::from(receipt.message.nonce));
+                values.push(BigDecimal::from(receipt.message.value));
+            }
         };
-        signers.push(
-            receipt
-                .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
-                .unwrap()
-                .encode_hex(),
-        );
-        signatures.push(receipt.signature.as_bytes().to_vec());
-        allocation_ids.push(receipt.message.allocation_id.encode_hex().to_string());
-        timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
-        nonces.push(BigDecimal::from(receipt.message.nonce));
-        values.push(BigDecimal::from(receipt.message.value));
     }
     let _ = sqlx::query!(
         r#"INSERT INTO scalar_tap_receipts (
@@ -575,7 +596,7 @@ pub async fn store_invalid_receipt(
 ) -> anyhow::Result<u64> {
     match signed_receipt {
         TapReceipt::V1(signed_receipt) => store_invalid_receipt_v1(pgpool, signed_receipt).await,
-        TapReceipt::V2(_) => unimplemented!("V2 not supported"),
+        TapReceipt::V2(signed_receipt) => store_invalid_receipt_v2(pgpool, signed_receipt).await,
     }
 }
 
@@ -597,6 +618,41 @@ pub async fn store_invalid_receipt_v1(
             .encode_hex(),
         encoded_signature,
         signed_receipt.message.allocation_id.encode_hex(),
+        BigDecimal::from(signed_receipt.message.timestamp_ns),
+        BigDecimal::from(signed_receipt.message.nonce),
+        BigDecimal::from(BigInt::from(signed_receipt.message.value)),
+    )
+    .fetch_one(pgpool)
+    .await?;
+
+    // id is BIGSERIAL, so it should be safe to cast to u64.
+    let id: u64 = record.id.try_into()?;
+    Ok(id)
+}
+
+pub async fn store_invalid_receipt_v2(
+    pgpool: &PgPool,
+    signed_receipt: &tap_graph::v2::SignedReceipt,
+) -> anyhow::Result<u64> {
+    use thegraph_core::CollectionId;
+    let encoded_signature = signed_receipt.signature.as_bytes().to_vec();
+
+    // Store collection_id in allocation_id field (database reuse strategy)
+    let collection_id_as_allocation =
+        CollectionId::from(signed_receipt.message.collection_id).as_address();
+
+    let record = sqlx::query!(
+        r#"
+            INSERT INTO scalar_tap_receipts_invalid (signer_address, signature, allocation_id, timestamp_ns, nonce, value)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id
+        "#,
+        signed_receipt
+            .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+            .unwrap()
+            .encode_hex(),
+        encoded_signature,
+        collection_id_as_allocation.encode_hex(),
         BigDecimal::from(signed_receipt.message.timestamp_ns),
         BigDecimal::from(signed_receipt.message.nonce),
         BigDecimal::from(BigInt::from(signed_receipt.message.value)),
@@ -700,13 +756,13 @@ pub mod actors {
 
     use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
     use test_assets::{ALLOCATION_ID_0, TAP_SIGNER};
-    use thegraph_core::alloy::primitives::Address;
+    use thegraph_core::{alloy::primitives::Address, AllocationId as AllocationIdCore};
     use tokio::sync::{mpsc, watch, Notify};
 
     use super::create_rav;
     use crate::agent::{
         sender_account::{ReceiptFees, SenderAccountMessage},
-        sender_accounts_manager::NewReceiptNotification,
+        sender_accounts_manager::{AllocationId, NewReceiptNotification},
         sender_allocation::SenderAllocationMessage,
         unaggregated_receipts::UnaggregatedReceipts,
     };
@@ -928,7 +984,7 @@ pub mod actors {
                             *self.next_rav_value.borrow(),
                         );
                         sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
-                            ALLOCATION_ID_0,
+                            AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
                             ReceiptFees::RavRequestResponse(
                                 UnaggregatedReceipts {
                                     value: *self.next_unaggregated_fees_value.borrow(),

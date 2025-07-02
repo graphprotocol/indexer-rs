@@ -21,7 +21,7 @@ use thegraph_core::{
         signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
         sol_types::Eip712Domain,
     },
-    deployment_id, DeploymentId,
+    collection_id, deployment_id, CollectionId, DeploymentId,
 };
 use tokio::sync::mpsc;
 
@@ -113,6 +113,50 @@ pub const ESCROW_QUERY_RESPONSE: &str = r#"
     }
 "#;
 
+pub const ESCROW_QUERY_RESPONSE_V2: &str = r#"
+    {
+        "data": {
+            "paymentsEscrowAccounts": [
+                {
+                    "balance": "34",
+                    "totalAmountThawing": "10",
+                    "payer": {
+                        "id": "0x9858EfFD232B4033E47d90003D41EC34EcaEda94",
+                        "signers": [
+                            {
+                                "id": "0x533661F0fb14d2E8B26223C86a610Dd7D2260892"
+                            },
+                            {
+                                "id": "0x2740f6fA9188cF53ffB6729DDD21575721dE92ce"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "balance": "42",
+                    "totalAmountThawing": "0",
+                    "payer": {
+                        "id": "0x22d491bde2303f2f43325b2108d26f1eaba1e32b",
+                        "signers": [
+                            {
+                                "id": "0x245059163ff6ee14279aa7b35ea8f0fdb967df6e"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "balance": "2987",
+                    "totalAmountThawing": "12",
+                    "payer": {
+                        "id": "0x192c3B6e0184Fa0Cc5B9D2bDDEb6B79Fb216a002",
+                        "signers": []
+                    }
+                }
+            ]
+        }
+    }
+"#;
+
 pub const NETWORK_SUBGRAPH_DEPLOYMENT: DeploymentId =
     deployment_id!("QmU7zqJyHSyUP3yFii8sBtHT8FaJn2WmUnRvwjAUTjwMBP");
 
@@ -124,6 +168,8 @@ pub const INDEXER_ADDRESS: Address = address!("d75c4dbcb215a6cf9097cfbcc70aab259
 pub const DISPUTE_MANAGER_ADDRESS: Address = address!("deadbeefcafebabedeadbeefcafebabedeadbeef");
 
 pub const ALLOCATION_ID_0: Address = address!("fa44c72b753a66591f241c7dc04e8178c30e13af");
+pub const COLLECTION_ID_0: CollectionId =
+    collection_id!("000000000000000000000000fa44c72b753a66591f241c7dc04e8178c30e13af");
 
 pub const ALLOCATION_ID_1: Address = address!("dd975e30aafebb143e54d215db8a3e8fd916a701");
 
@@ -369,7 +415,7 @@ pub async fn create_signed_receipt(
 /// Function to generate a signed receipt using the TAP_SIGNER wallet.
 #[bon::builder]
 pub async fn create_signed_receipt_v2(
-    #[builder(default = ALLOCATION_ID_0)] allocation_id: Address,
+    #[builder(default = COLLECTION_ID_0)] collection_id: CollectionId,
     #[builder(default)] nonce: u64,
     #[builder(default = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -386,7 +432,7 @@ pub async fn create_signed_receipt_v2(
             payer: TAP_SENDER.1,
             service_provider: INDEXER_ADDRESS,
             data_service: Address::ZERO,
-            allocation_id,
+            collection_id: collection_id.into_inner(),
             nonce,
             timestamp_ns,
             value,
@@ -415,8 +461,14 @@ pub fn pgpool() -> Pin<Box<dyn Future<Output = PgPool>>> {
         ConnectOptions, Connection,
     };
     Box::pin(async {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let test_path =
+            Box::leak(format!("{}_{}", stdext::function_name!(), timestamp).into_boxed_str());
         let args = TestArgs {
-            test_path: stdext::function_name!(),
+            test_path,
             migrator: Some(&migrate!("../../migrations")),
             fixtures: &[],
         };

@@ -11,11 +11,15 @@ status_url = "http://graph-node:8030/graphql"
 
 [subgraphs.network]
 query_url = "http://graph-node:8000/subgraphs/name/graph-network"
-deployment_id = "NETWORK_DEPLOYMENT_PLACEHOLDER"
+syncing_interval_secs = 5
+recently_closed_allocation_buffer_secs = 10
 
 [subgraphs.escrow]
 query_url = "http://graph-node:8000/subgraphs/name/semiotic/tap"
 deployment_id = "ESCROW_DEPLOYMENT_PLACEHOLDER"
+syncing_interval_secs = 5
+
+# Note: V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
 
 [blockchain]
 chain_id = 1337
@@ -46,4 +50,9 @@ trigger_value_divisor = 500_000
 "ACCOUNT0_ADDRESS_PLACEHOLDER" = "http://tap-aggregator:7610"
 
 [horizon]
-enabled = false
+# Enable Horizon migration support and detection
+# When enabled: Check if Horizon contracts are active in the network
+#   - If Horizon contracts detected: Hybrid migration mode (new V2 receipts only, process existing V1 receipts)
+#   - If Horizon contracts not detected: Remain in legacy mode (V1 receipts only)
+# When disabled: Pure legacy mode, no Horizon detection performed
+enabled = true

@@ -11,7 +11,7 @@ use ractor::concurrency::Duration;
 use serde_json::json;
 use sqlx::PgPool;
 use test_assets::{ALLOCATION_ID_0, TAP_SIGNER as SIGNER};
-use thegraph_core::alloy::hex::ToHexExt;
+use thegraph_core::{alloy::hex::ToHexExt, AllocationId as AllocationIdCore};
 use wiremock::{
     matchers::{body_string_contains, method},
     Mock, MockServer, ResponseTemplate,
@@ -48,7 +48,9 @@ async fn sender_account_layer_test(pgpool: PgPool) {
         .await;
 
     // we expect it to create a sender allocation
-    let allocation_ids = HashSet::from_iter([AllocationId::Legacy(ALLOCATION_ID_0)]);
+    let allocation_ids = HashSet::from_iter([AllocationId::Legacy(AllocationIdCore::from(
+        ALLOCATION_ID_0,
+    ))]);
     sender_account
         .cast(SenderAccountMessage::UpdateAllocationIds(
             allocation_ids.clone(),

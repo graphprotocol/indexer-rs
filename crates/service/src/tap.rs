@@ -51,8 +51,8 @@ impl IndexerTapContext {
     pub async fn get_checks(
         pgpool: PgPool,
         indexer_allocations: Receiver<HashMap<Address, Allocation>>,
-        escrow_accounts_v1: Receiver<EscrowAccounts>,
-        escrow_accounts_v2: Receiver<EscrowAccounts>,
+        escrow_accounts_v1: Option<Receiver<EscrowAccounts>>,
+        escrow_accounts_v2: Option<Receiver<EscrowAccounts>>,
         timestamp_error_tolerance: Duration,
         receipt_max_value: u128,
     ) -> Vec<ReceiptCheck<TapReceipt>> {

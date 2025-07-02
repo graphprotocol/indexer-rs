@@ -6,7 +6,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use indexer_monitor::EscrowAccounts;
+use indexer_monitor::{EscrowAccounts, EscrowAccountsError};
 use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
 use tokio::sync::watch;
 
@@ -18,9 +18,9 @@ pub struct SenderState {
     /// Used to recover the signer address
     pub domain_separator: Eip712Domain,
     /// Used to get the sender address given the signer address if v1 receipt
-    pub escrow_accounts_v1: watch::Receiver<EscrowAccounts>,
+    pub escrow_accounts_v1: Option<watch::Receiver<EscrowAccounts>>,
     /// Used to get the sender address given the signer address if v2 receipt
-    pub escrow_accounts_v2: watch::Receiver<EscrowAccounts>,
+    pub escrow_accounts_v2: Option<watch::Receiver<EscrowAccounts>>,
 }
 
 /// The current query Sender address
@@ -48,14 +48,24 @@ pub async fn sender_middleware(
     if let Some(receipt) = request.extensions().get::<TapReceipt>() {
         let signer = receipt.recover_signer(&state.domain_separator)?;
         let sender = match receipt {
-            TapReceipt::V1(_) => state
-                .escrow_accounts_v1
-                .borrow()
-                .get_sender_for_signer(&signer)?,
-            TapReceipt::V2(_) => state
-                .escrow_accounts_v2
-                .borrow()
-                .get_sender_for_signer(&signer)?,
+            TapReceipt::V1(_) => {
+                if let Some(ref escrow_accounts_v1) = state.escrow_accounts_v1 {
+                    escrow_accounts_v1.borrow().get_sender_for_signer(&signer)?
+                } else {
+                    return Err(IndexerServiceError::EscrowAccount(
+                        EscrowAccountsError::NoSenderFound { signer },
+                    ));
+                }
+            }
+            TapReceipt::V2(_) => {
+                if let Some(ref escrow_accounts_v2) = state.escrow_accounts_v2 {
+                    escrow_accounts_v2.borrow().get_sender_for_signer(&signer)?
+                } else {
+                    return Err(IndexerServiceError::EscrowAccount(
+                        EscrowAccountsError::NoSenderFound { signer },
+                    ));
+                }
+            }
         };
         request.extensions_mut().insert(Sender(sender));
     }
@@ -100,8 +110,8 @@ mod tests {
 
         let state = SenderState {
             domain_separator: test_assets::TAP_EIP712_DOMAIN.clone(),
-            escrow_accounts_v1,
-            escrow_accounts_v2,
+            escrow_accounts_v1: Some(escrow_accounts_v1),
+            escrow_accounts_v2: Some(escrow_accounts_v2),
         };
 
         let middleware = from_fn_with_state(state, sender_middleware);

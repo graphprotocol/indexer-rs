@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE tap_horizon_ravs\n                    SET last = true\n                WHERE \n                    collection_id = $1\n                    AND payer = $2\n                    AND service_provider = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Bpchar",
+        "Bpchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cb8f0add5e9dd8122cdced4c89836f542234c06c237f7fa8aa84602cb75b0622"
+}

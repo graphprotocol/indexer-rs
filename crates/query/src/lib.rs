@@ -123,3 +123,53 @@ pub mod closed_allocations {
     variables_derives = "Clone"
 )]
 pub struct TapTransactions;
+
+pub mod network_escrow_account_v2 {
+    use graphql_client::GraphQLQuery;
+    type BigInt = String;
+    type Bytes = String;
+
+    #[derive(GraphQLQuery)]
+    #[graphql(
+        schema_path = "graphql/network.schema.graphql",
+        query_path = "graphql/network_escrow_account_v2.query.graphql",
+        response_derives = "Debug",
+        variables_derives = "Clone"
+    )]
+    pub struct NetworkEscrowAccountQueryV2;
+
+    pub use network_escrow_account_query_v2::Variables;
+}
+
+pub mod horizon_detection {
+    use graphql_client::GraphQLQuery;
+    type Bytes = String;
+
+    #[derive(GraphQLQuery)]
+    #[graphql(
+        schema_path = "graphql/network.schema.graphql",
+        query_path = "graphql/horizon_detection.query.graphql",
+        response_derives = "Debug",
+        variables_derives = "Clone"
+    )]
+    pub struct HorizonDetectionQuery;
+
+    pub use horizon_detection_query::*;
+}
+
+pub mod latest_ravs_v2 {
+    use graphql_client::GraphQLQuery;
+    type BigInt = String;
+    type Bytes = String;
+
+    #[derive(GraphQLQuery)]
+    #[graphql(
+        schema_path = "graphql/network.schema.graphql",
+        query_path = "graphql/latest_ravs_v2.query.graphql",
+        response_derives = "Debug",
+        variables_derives = "Clone"
+    )]
+    pub struct LatestRavs;
+
+    pub use latest_ravs::*;
+}
