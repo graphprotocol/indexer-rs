@@ -26,7 +26,7 @@ jobs:
         id: release-please
         uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.RELEASE_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   builds-linux:
     runs-on: ubuntu-latest
