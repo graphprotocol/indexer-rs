@@ -4,6 +4,13 @@
 
 
 
+## [1.10.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.10.0...indexer-tap-agent-v1.10.1) (2025-07-16)
+
+
+### Bug Fixes
+
+* **tap-agent:** check horizon is active before checking for escrow ([#776](https://github.com/graphprotocol/indexer-rs/issues/776)) ([e15ea7a](https://github.com/graphprotocol/indexer-rs/commit/e15ea7a65d13bdefe3ab86cd563636a48901b354))
+
 ## [1.10.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.9.7...indexer-tap-agent-v1.10.0) (2025-07-02)
 
 
