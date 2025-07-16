@@ -40,7 +40,8 @@ use indexer_config::{
     SubgraphConfig, SubgraphsConfig, TapConfig,
 };
 use indexer_monitor::{
-    escrow_accounts_v1, escrow_accounts_v2, indexer_allocations, DeploymentDetails, SubgraphClient,
+    empty_escrow_accounts_watcher, escrow_accounts_v1, escrow_accounts_v2, indexer_allocations,
+    DeploymentDetails, SubgraphClient,
 };
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use sender_account::SenderAccountConfig;
@@ -165,16 +166,6 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     .await
     .expect("Error creating escrow_accounts channel");
 
-    // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
-    let escrow_accounts_v2 = escrow_accounts_v2(
-        network_subgraph,
-        *indexer_address,
-        *network_sync_interval,
-        false,
-    )
-    .await
-    .expect("Error creating escrow_accounts_v2 channel");
-
     // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
     // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
     // - If horizon.enabled = true: Check if Horizon contracts are active in the network
@@ -205,13 +196,29 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         false
     };
 
+    // Create V2 escrow accounts watcher only if Horizon is active
+    // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
+    let escrow_accounts_v2 = if is_horizon_enabled {
+        escrow_accounts_v2(
+            network_subgraph,
+            *indexer_address,
+            *network_sync_interval,
+            false,
+        )
+        .await
+        .expect("Error creating escrow_accounts_v2 channel")
+    } else {
+        // Create a dummy watcher that never updates for consistency
+        empty_escrow_accounts_watcher()
+    };
+
     // In both modes we need both watchers for the hybrid processing
     let (escrow_accounts_v1_final, escrow_accounts_v2_final) = if is_horizon_enabled {
         tracing::info!("TAP Agent: Horizon migration mode - processing existing V1 receipts and new V2 receipts");
         (escrow_accounts_v1, escrow_accounts_v2)
     } else {
         tracing::info!("TAP Agent: Legacy mode - V1 receipts only");
-        (escrow_accounts_v1, escrow_accounts_v2) // Still keep V2 watcher for consistency
+        (escrow_accounts_v1, escrow_accounts_v2)
     };
 
     let config = Box::leak(Box::new({
