@@ -4187,6 +4187,7 @@ dependencies = [
  "tap_core",
  "tap_graph",
  "thegraph-core",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
