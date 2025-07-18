@@ -28,3 +28,4 @@ clap = { version = "4.0", features = ["derive"] }
 base64 = { workspace = true }
 prost = { workspace = true }
 tap_aggregator = { workspace = true }
+thiserror = { workspace = true }

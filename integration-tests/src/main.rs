@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod constants;
+mod enhanced_tests;
 mod load_test;
 mod metrics;
 mod rav_tests;
+mod test_context;
+mod test_utils;
 mod utils;
 
 use anyhow::Result;
 use clap::Parser;
+use enhanced_tests::run_enhanced_tests;
 use load_test::{receipt_handler_load_test, receipt_handler_load_test_v2};
 use metrics::MetricsChecker;
 pub(crate) use rav_tests::{test_invalid_chain_id, test_tap_rav_v1, test_tap_rav_v2};
@@ -39,6 +43,9 @@ enum Commands {
         #[clap(long, short, value_parser)]
         num_receipts: usize,
     },
+
+    #[clap(name = "test-with-context")]
+    TestWithContext,
 }
 
 #[tokio::main]
@@ -64,6 +71,10 @@ async fn main() -> Result<()> {
         Commands::LoadServiceV2 { num_receipts } => {
             let concurrency = num_cpus::get();
             receipt_handler_load_test_v2(num_receipts, concurrency).await?;
+        }
+        // cargo run -- test-with-context
+        Commands::TestWithContext => {
+            run_enhanced_tests().await?;
         }
     }
 
