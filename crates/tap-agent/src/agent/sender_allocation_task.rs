@@ -527,4 +527,68 @@ mod tests {
             SenderAccountMessage::UpdateInvalidReceiptFees(..)
         ));
     }
+
+    #[tokio::test]
+    async fn test_get_unaggregated_receipts() {
+        let lifecycle = LifecycleManager::new();
+
+        // Create a dummy parent handle for testing
+        let (parent_tx, mut parent_rx) = mpsc::channel(10);
+        let parent_handle = TaskHandle::new_for_test(
+            parent_tx,
+            Some("test_parent".to_string()),
+            std::sync::Arc::new(lifecycle.clone()),
+        );
+
+        let allocation_id =
+            AllocationId::Legacy(thegraph_core::AllocationId::new([1u8; 20].into()));
+
+        let task_handle = SenderAllocationTask::<Legacy>::spawn_simple(
+            &lifecycle,
+            Some("test_allocation".to_string()),
+            allocation_id,
+            parent_handle,
+        )
+        .await
+        .unwrap();
+
+        // Consume the initial message from task initialization
+        let _initial_message = parent_rx.recv().await.unwrap();
+
+        // Send a few valid receipts to build up state
+        for i in 1..=3 {
+            let notification = NewReceiptNotification::V1(
+                super::super::sender_accounts_manager::NewReceiptNotificationV1 {
+                    id: i * 100,
+                    allocation_id: thegraph_core::AllocationId::new([1u8; 20].into()).into_inner(),
+                    signer_address: thegraph_core::alloy::primitives::Address::from([1u8; 20]),
+                    timestamp_ns: i * 1000,
+                    value: (i * 100) as u128,
+                },
+            );
+
+            task_handle
+                .cast(SenderAllocationMessage::NewReceipt(notification))
+                .await
+                .unwrap();
+
+            // Consume the parent notification
+            let _parent_message = parent_rx.recv().await.unwrap();
+        }
+
+        // Now test the GetUnaggregatedReceipts functionality
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        task_handle
+            .cast(SenderAllocationMessage::GetUnaggregatedReceipts(reply_tx))
+            .await
+            .unwrap();
+
+        // Get the response
+        let unaggregated_receipts = reply_rx.await.unwrap();
+
+        // Verify the state is correct
+        assert_eq!(unaggregated_receipts.counter, 3);
+        assert_eq!(unaggregated_receipts.value, 100 + 200 + 300); // 600 total
+        assert_eq!(unaggregated_receipts.last_id, 300); // Last receipt ID
+    }
 }
