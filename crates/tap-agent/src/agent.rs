@@ -59,6 +59,8 @@ pub mod sender_account;
 pub mod sender_accounts_manager;
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_allocation::SenderAllocation]
 pub mod sender_allocation;
+/// Tokio task-based replacement for SenderAllocation actor
+pub mod sender_allocation_task;
 /// Unaggregated receipts containing total value and last id stored in the table
 pub mod unaggregated_receipts;
 

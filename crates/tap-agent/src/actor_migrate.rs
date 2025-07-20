@@ -25,7 +25,7 @@ use tokio::{
 pub struct TaskId(u64);
 
 impl TaskId {
-    fn new() -> Self {
+    pub fn new() -> Self {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         TaskId(COUNTER.fetch_add(1, Ordering::Relaxed))
@@ -76,6 +76,21 @@ impl<T> Clone for TaskHandle<T> {
 }
 
 impl<T> TaskHandle<T> {
+    /// Create a new task handle for testing
+    #[cfg(any(test, feature = "test"))]
+    pub fn new_for_test(
+        tx: mpsc::Sender<T>,
+        name: Option<String>,
+        lifecycle: Arc<LifecycleManager>,
+    ) -> Self {
+        Self {
+            tx,
+            task_id: TaskId::new(),
+            name,
+            lifecycle,
+        }
+    }
+
     /// Send a message to the task (fire-and-forget)
     pub async fn cast(&self, msg: T) -> Result<()> {
         self.tx
