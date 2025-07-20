@@ -37,10 +37,12 @@ pub struct SenderAllocationTask<T: NetworkVersion> {
     _phantom: PhantomData<T>,
 }
 
-/// Simple state structure for the task (will be enhanced incrementally)
+/// Enhanced state structure for the task with invalid receipts tracking
 struct TaskState {
     /// Sum of all receipt fees for the current allocation
     unaggregated_fees: UnaggregatedReceipts,
+    /// Sum of all invalid receipt fees
+    invalid_receipts_fees: UnaggregatedReceipts,
     /// Handle to communicate with parent SenderAccount
     sender_account_handle: TaskHandle<SenderAccountMessage>,
     /// Current allocation ID
@@ -57,6 +59,7 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
     ) -> anyhow::Result<TaskHandle<SenderAllocationMessage>> {
         let state = TaskState {
             unaggregated_fees: UnaggregatedReceipts::default(),
+            invalid_receipts_fees: UnaggregatedReceipts::default(),
             sender_account_handle,
             allocation_id,
         };
@@ -115,14 +118,14 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
         Ok(())
     }
 
-    /// Handle new receipt - with basic validation
+    /// Handle new receipt - with basic validation and invalid receipt tracking
     async fn handle_new_receipt(
         state: &mut TaskState,
         notification: NewReceiptNotification,
     ) -> anyhow::Result<()> {
-        let (id, value, timestamp_ns) = match notification {
-            NewReceiptNotification::V1(ref n) => (n.id, n.value, n.timestamp_ns),
-            NewReceiptNotification::V2(ref n) => (n.id, n.value, n.timestamp_ns),
+        let (id, value, timestamp_ns, signer_address) = match notification {
+            NewReceiptNotification::V1(ref n) => (n.id, n.value, n.timestamp_ns, n.signer_address),
+            NewReceiptNotification::V2(ref n) => (n.id, n.value, n.timestamp_ns, n.signer_address),
         };
 
         // Basic receipt ID validation - reject already processed receipts
@@ -136,29 +139,84 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
             return Ok(()); // Silently ignore duplicate/old receipts
         }
 
-        // Update local state with new receipt
-        state.unaggregated_fees.value += value;
-        state.unaggregated_fees.counter += 1;
-        state.unaggregated_fees.last_id = id;
+        // Simulate basic receipt validation (in production this would be TAP manager)
+        let is_valid = Self::validate_receipt_basic(id, value, signer_address);
 
-        tracing::debug!(
-            allocation_id = ?state.allocation_id,
-            receipt_id = id,
-            value = value,
-            new_total = state.unaggregated_fees.value,
-            "Processed new receipt"
-        );
+        if is_valid {
+            // Valid receipt - update state and notify parent
+            state.unaggregated_fees.value += value;
+            state.unaggregated_fees.counter += 1;
+            state.unaggregated_fees.last_id = id;
 
-        // Notify parent
-        state
-            .sender_account_handle
-            .cast(SenderAccountMessage::UpdateReceiptFees(
-                state.allocation_id,
-                ReceiptFees::NewReceipt(value, timestamp_ns),
-            ))
-            .await?;
+            tracing::debug!(
+                allocation_id = ?state.allocation_id,
+                receipt_id = id,
+                value = value,
+                new_total = state.unaggregated_fees.value,
+                "Processed valid receipt"
+            );
+
+            // Notify parent of valid receipt
+            state
+                .sender_account_handle
+                .cast(SenderAccountMessage::UpdateReceiptFees(
+                    state.allocation_id,
+                    ReceiptFees::NewReceipt(value, timestamp_ns),
+                ))
+                .await?;
+        } else {
+            // Invalid receipt - track separately
+            state.invalid_receipts_fees.value += value;
+            state.invalid_receipts_fees.counter += 1;
+            state.invalid_receipts_fees.last_id = id;
+
+            tracing::warn!(
+                allocation_id = ?state.allocation_id,
+                receipt_id = id,
+                value = value,
+                signer = %signer_address,
+                total_invalid_value = state.invalid_receipts_fees.value,
+                "Receipt failed validation - tracked as invalid"
+            );
+
+            // Notify parent of invalid receipt fees
+            state
+                .sender_account_handle
+                .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
+                    state.allocation_id,
+                    state.invalid_receipts_fees,
+                ))
+                .await?;
+        }
 
         Ok(())
+    }
+
+    /// Basic receipt validation (placeholder for TAP manager integration)
+    fn validate_receipt_basic(
+        id: u64,
+        value: u128,
+        signer_address: thegraph_core::alloy::primitives::Address,
+    ) -> bool {
+        // Simple validation rules for demonstration:
+        // 1. Reject receipts with zero value
+        // 2. Reject receipts from zero address (obviously invalid signer)
+        // 3. Reject receipts with suspicious patterns (e.g., ID ending in 666)
+
+        if value == 0 {
+            return false;
+        }
+
+        if signer_address == thegraph_core::alloy::primitives::Address::ZERO {
+            return false;
+        }
+
+        // Simulate some receipts being invalid due to signature issues
+        if id % 1000 == 666 {
+            return false; // Simulate signature validation failure
+        }
+
+        true // Most receipts are valid
     }
 
     /// Handle RAV request - enhanced but still simplified version
@@ -310,11 +368,14 @@ mod tests {
             super::super::sender_accounts_manager::NewReceiptNotificationV1 {
                 id: 100,
                 allocation_id: thegraph_core::AllocationId::new([1u8; 20].into()).into_inner(),
-                signer_address: thegraph_core::alloy::primitives::Address::ZERO,
+                signer_address: thegraph_core::alloy::primitives::Address::from([1u8; 20]), // Valid signer
                 timestamp_ns: 1000,
                 value: 100,
             },
         );
+
+        // Consume the initial message from task initialization
+        let _initial_message = parent_rx.recv().await.unwrap();
 
         task_handle
             .cast(SenderAllocationMessage::NewReceipt(notification1))
@@ -329,7 +390,7 @@ mod tests {
             super::super::sender_accounts_manager::NewReceiptNotificationV1 {
                 id: 100, // Same ID - should be rejected
                 allocation_id: thegraph_core::AllocationId::new([1u8; 20].into()).into_inner(),
-                signer_address: thegraph_core::alloy::primitives::Address::ZERO,
+                signer_address: thegraph_core::alloy::primitives::Address::from([1u8; 20]), // Valid signer
                 timestamp_ns: 2000,
                 value: 200,
             },
@@ -345,7 +406,7 @@ mod tests {
             super::super::sender_accounts_manager::NewReceiptNotificationV1 {
                 id: 101, // Higher ID - should be accepted
                 allocation_id: thegraph_core::AllocationId::new([1u8; 20].into()).into_inner(),
-                signer_address: thegraph_core::alloy::primitives::Address::ZERO,
+                signer_address: thegraph_core::alloy::primitives::Address::from([1u8; 20]), // Valid signer
                 timestamp_ns: 3000,
                 value: 300,
             },
@@ -357,6 +418,7 @@ mod tests {
             .unwrap();
 
         // Should only receive one more message (for the third receipt)
+        // The second receipt should be silently ignored, so we should get the third receipt's message
         let second_message =
             tokio::time::timeout(std::time::Duration::from_millis(100), parent_rx.recv())
                 .await
@@ -366,6 +428,103 @@ mod tests {
         assert!(matches!(
             second_message,
             SenderAccountMessage::UpdateReceiptFees(..)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_invalid_receipt_tracking() {
+        let lifecycle = LifecycleManager::new();
+
+        // Create a dummy parent handle for testing
+        let (parent_tx, mut parent_rx) = mpsc::channel(10);
+        let parent_handle = TaskHandle::new_for_test(
+            parent_tx,
+            Some("test_parent".to_string()),
+            std::sync::Arc::new(lifecycle.clone()),
+        );
+
+        let allocation_id =
+            AllocationId::Legacy(thegraph_core::AllocationId::new([1u8; 20].into()));
+
+        let task_handle = SenderAllocationTask::<Legacy>::spawn_simple(
+            &lifecycle,
+            Some("test_allocation".to_string()),
+            allocation_id,
+            parent_handle,
+        )
+        .await
+        .unwrap();
+
+        // Consume the initial message from task initialization
+        let _initial_message = parent_rx.recv().await.unwrap();
+
+        // Send valid receipt
+        let valid_notification = NewReceiptNotification::V1(
+            super::super::sender_accounts_manager::NewReceiptNotificationV1 {
+                id: 100,
+                allocation_id: thegraph_core::AllocationId::new([1u8; 20].into()).into_inner(),
+                signer_address: thegraph_core::alloy::primitives::Address::from([1u8; 20]), // Valid signer
+                timestamp_ns: 1000,
+                value: 100,
+            },
+        );
+
+        task_handle
+            .cast(SenderAllocationMessage::NewReceipt(valid_notification))
+            .await
+            .unwrap();
+
+        // Should receive UpdateReceiptFees for valid receipt
+        let valid_message = parent_rx.recv().await.unwrap();
+        assert!(matches!(
+            valid_message,
+            SenderAccountMessage::UpdateReceiptFees(..)
+        ));
+
+        // Send invalid receipt (zero value)
+        let invalid_notification = NewReceiptNotification::V1(
+            super::super::sender_accounts_manager::NewReceiptNotificationV1 {
+                id: 101,
+                allocation_id: thegraph_core::AllocationId::new([1u8; 20].into()).into_inner(),
+                signer_address: thegraph_core::alloy::primitives::Address::from([1u8; 20]),
+                timestamp_ns: 2000,
+                value: 0, // Invalid: zero value
+            },
+        );
+
+        task_handle
+            .cast(SenderAllocationMessage::NewReceipt(invalid_notification))
+            .await
+            .unwrap();
+
+        // Should receive UpdateInvalidReceiptFees for invalid receipt
+        let invalid_message = parent_rx.recv().await.unwrap();
+        assert!(matches!(
+            invalid_message,
+            SenderAccountMessage::UpdateInvalidReceiptFees(..)
+        ));
+
+        // Send receipt with suspicious ID pattern
+        let suspicious_notification = NewReceiptNotification::V1(
+            super::super::sender_accounts_manager::NewReceiptNotificationV1 {
+                id: 1666, // ID ending in 666 - should be marked invalid
+                allocation_id: thegraph_core::AllocationId::new([1u8; 20].into()).into_inner(),
+                signer_address: thegraph_core::alloy::primitives::Address::from([1u8; 20]),
+                timestamp_ns: 3000,
+                value: 200,
+            },
+        );
+
+        task_handle
+            .cast(SenderAllocationMessage::NewReceipt(suspicious_notification))
+            .await
+            .unwrap();
+
+        // Should receive UpdateInvalidReceiptFees for suspicious receipt
+        let suspicious_message = parent_rx.recv().await.unwrap();
+        assert!(matches!(
+            suspicious_message,
+            SenderAccountMessage::UpdateInvalidReceiptFees(..)
         ));
     }
 }
