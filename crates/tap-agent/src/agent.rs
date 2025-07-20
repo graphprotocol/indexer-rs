@@ -54,6 +54,8 @@ use crate::{
 
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_account::SenderAccount]
 pub mod sender_account;
+/// Tokio task-based replacement for SenderAccount actor
+pub mod sender_account_task;
 /// Actor, Arguments, State, Messages and implementation for
 /// [crate::agent::sender_accounts_manager::SenderAccountsManager]
 pub mod sender_accounts_manager;

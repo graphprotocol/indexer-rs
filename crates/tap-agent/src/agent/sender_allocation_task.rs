@@ -8,7 +8,7 @@
 
 use std::{marker::PhantomData, time::Instant};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use super::{
     sender_account::{RavInformation, ReceiptFees, SenderAccountMessage},
@@ -29,7 +29,7 @@ pub enum SenderAllocationMessage {
     TriggerRavRequest,
     #[cfg(any(test, feature = "test"))]
     /// Return the internal state (used for tests)
-    GetUnaggregatedReceipts(oneshot::Sender<UnaggregatedReceipts>),
+    GetUnaggregatedReceipts(tokio::sync::oneshot::Sender<UnaggregatedReceipts>),
 }
 
 /// Tokio task-based replacement for SenderAllocation actor
