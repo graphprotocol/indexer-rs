@@ -191,7 +191,7 @@ fn wallet_for_allocation(
 
             let wallet_address = wallet.address();
 
-            if i < 5 || (i % 20 == 0) {
+            if i < 5 || i.is_multiple_of(20) {
                 // Log first 5 attempts and every 20th attempt
                 tracing::debug!(
                     "Derivation attempt: epoch={}, index={}, derived_address={}, target_allocation={}",

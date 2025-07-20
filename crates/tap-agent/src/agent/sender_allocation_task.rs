@@ -81,7 +81,7 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
             .sender_account_handle
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 state.allocation_id,
-                ReceiptFees::UpdateValue(state.unaggregated_fees.clone()),
+                ReceiptFees::UpdateValue(state.unaggregated_fees),
             ))
             .await?;
 
@@ -107,7 +107,7 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
                 }
                 #[cfg(any(test, feature = "test"))]
                 SenderAllocationMessage::GetUnaggregatedReceipts(reply) => {
-                    let _ = reply.send(state.unaggregated_fees.clone());
+                    let _ = reply.send(state.unaggregated_fees);
                 }
             }
         }
@@ -176,10 +176,7 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
             .sender_account_handle
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 state.allocation_id,
-                ReceiptFees::RavRequestResponse(
-                    state.unaggregated_fees.clone(),
-                    Ok(Some(rav_info)),
-                ),
+                ReceiptFees::RavRequestResponse(state.unaggregated_fees, Ok(Some(rav_info))),
             ))
             .await?;
 

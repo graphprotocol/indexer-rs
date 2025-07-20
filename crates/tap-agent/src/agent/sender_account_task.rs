@@ -9,8 +9,10 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
-    time::Duration,
 };
+
+#[cfg(test)]
+use std::time::Duration;
 
 use anyhow::Result;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
@@ -47,6 +49,7 @@ struct TaskState {
     /// Tracker for all non-redeemed RAVs
     rav_tracker: SimpleFeeTracker,
     /// Tracker for all invalid receipts
+    #[allow(dead_code)]
     invalid_receipts_tracker: SimpleFeeTracker,
     /// Set of current active allocations
     allocation_ids: HashSet<AllocationId>,
@@ -59,18 +62,26 @@ struct TaskState {
     /// Lifecycle manager for child tasks
     lifecycle: Arc<LifecycleManager>,
     /// Configuration
+    #[allow(dead_code)]
     config: &'static SenderAccountConfig,
     /// Other required fields for spawning child tasks
+    #[allow(dead_code)]
     pgpool: sqlx::PgPool,
+    #[allow(dead_code)]
     escrow_accounts: Receiver<EscrowAccounts>,
+    #[allow(dead_code)]
     escrow_subgraph: &'static SubgraphClient,
+    #[allow(dead_code)]
     network_subgraph: &'static SubgraphClient,
+    #[allow(dead_code)]
     domain_separator: Eip712Domain,
+    #[allow(dead_code)]
     sender_aggregator_endpoint: reqwest::Url,
 }
 
 impl SenderAccountTask {
     /// Spawn a new SenderAccount task
+    #[allow(clippy::too_many_arguments)]
     pub async fn spawn(
         lifecycle: &LifecycleManager,
         name: Option<String>,
@@ -322,7 +333,7 @@ impl SenderAccountTask {
             }
         };
 
-        name.push_str(&format!("{}:{}", sender, addr));
+        name.push_str(&format!("{sender}:{addr}"));
         name
     }
 
@@ -405,11 +416,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_sender_account_task_creation() {
-        let lifecycle = LifecycleManager::new();
-        let sender = Address::ZERO;
+        let _lifecycle = LifecycleManager::new();
+        let _sender = Address::ZERO;
 
         // Create minimal config for testing
-        let config = Box::leak(Box::new(SenderAccountConfig {
+        let _config = Box::leak(Box::new(SenderAccountConfig {
             rav_request_buffer: Duration::from_secs(10),
             max_amount_willing_to_lose_grt: 1000,
             trigger_value: 100,
@@ -425,10 +436,6 @@ mod tests {
         // Create dummy database pool and watchers
         // In a real test, these would be properly initialized
         // For now, just skip the actual test since we don't have a database
-        return;
-        let (_tx, escrow_rx) =
-            tokio::sync::watch::channel(indexer_monitor::EscrowAccounts::default());
-
         // This is a compilation test more than a functional test
         // since we don't have a real database setup
     }

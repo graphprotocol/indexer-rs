@@ -59,6 +59,8 @@ pub mod sender_account_task;
 /// Actor, Arguments, State, Messages and implementation for
 /// [crate::agent::sender_accounts_manager::SenderAccountsManager]
 pub mod sender_accounts_manager;
+/// Tokio task-based replacement for SenderAccountsManager actor
+pub mod sender_accounts_manager_task;
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_allocation::SenderAllocation]
 pub mod sender_allocation;
 /// Tokio task-based replacement for SenderAllocation actor

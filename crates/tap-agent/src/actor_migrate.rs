@@ -6,13 +6,7 @@
 //! This module provides a compatibility layer that allows gradual migration
 //! from ractor actors to tokio tasks while maintaining the same API.
 
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    future::Future,
-    sync::{Arc, Weak},
-    time::Duration,
-};
+use std::{collections::HashMap, fmt::Debug, future::Future, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use tokio::{
@@ -23,6 +17,12 @@ use tokio::{
 /// Unique identifier for a task
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TaskId(u64);
+
+impl Default for TaskId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl TaskId {
     pub fn new() -> Self {
@@ -116,11 +116,13 @@ impl<T> TaskHandle<T> {
 }
 
 /// RPC-style message that expects a response
+#[allow(dead_code)]
 pub trait RpcMessage: Send {
     type Response: Send;
 }
 
 /// Extension trait for TaskHandle to support RPC calls
+#[allow(dead_code)]
 pub trait TaskHandleExt<T> {
     /// Send a message and wait for response
     async fn call<M>(&self, msg: M) -> Result<M::Response>
@@ -130,11 +132,14 @@ pub trait TaskHandleExt<T> {
 
 /// Information about a running task
 struct TaskInfo {
+    #[allow(dead_code)]
     name: Option<String>,
     status: TaskStatus,
     restart_policy: RestartPolicy,
     handle: Option<JoinHandle<Result<()>>>,
+    #[allow(dead_code)]
     restart_count: u32,
+    #[allow(dead_code)]
     last_restart: Option<std::time::Instant>,
 }
 
@@ -305,6 +310,7 @@ impl TaskRegistry {
     }
 
     /// Look up a task by name
+    #[allow(dead_code)]
     pub async fn lookup<T>(&self, name: &str) -> Option<TaskHandle<T>>
     where
         T: Send + Sync + 'static,
@@ -323,6 +329,7 @@ pub mod compat {
     use ractor::ActorRef;
 
     /// Trait to unify ActorRef and TaskHandle APIs
+    #[allow(dead_code)]
     pub trait MessageSender<T>: Clone + Send + Sync {
         fn cast(&self, msg: T) -> impl Future<Output = Result<()>> + Send;
         fn stop(&self, reason: Option<String>);
@@ -343,8 +350,9 @@ pub mod compat {
             ractor::ActorRef::cast(self, msg).map_err(|e| anyhow!("Actor error: {:?}", e))
         }
 
-        fn stop(&self, reason: Option<String>) {
-            ractor::ActorRef::stop(self, reason)
+        #[allow(unconditional_recursion)]
+        fn stop(&self, _reason: Option<String>) {
+            ractor::ActorRef::stop(self, _reason)
         }
     }
 }
