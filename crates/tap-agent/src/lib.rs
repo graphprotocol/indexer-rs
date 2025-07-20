@@ -28,6 +28,7 @@ pub static EIP_712_DOMAIN: LazyLock<Eip712Domain> = LazyLock::new(|| {
     )
 });
 
+mod actor_migrate;
 pub mod adaptative_concurrency;
 pub mod agent;
 pub mod backoff;
