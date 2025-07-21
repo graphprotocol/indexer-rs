@@ -42,7 +42,4 @@ pub mod tap;
 /// Test utils to interact with Tap Actors
 #[cfg(any(test, feature = "test"))]
 pub mod test;
-/// Test utilities for database setup
-#[cfg(test)]
-pub mod test_utils;
 pub mod tracker;
