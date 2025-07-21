@@ -88,6 +88,7 @@ tap_core = { version = "4.1.4", default-features = false }
 tap_graph = { version = "0.3.4", features = ["v2"] }
 tempfile = "3.8.0"
 test-log = { version = "0.2.12", default-features = false }
+testcontainers-modules = { version = "0.12.1", features = ["postgres"] }
 test-with = "0.14.6"
 thegraph-core = { version = "0.15.1", features = [
     "attestation",

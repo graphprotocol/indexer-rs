@@ -380,13 +380,10 @@ impl DbReceiptV2 {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, sync::LazyLock};
+    use std::path::PathBuf;
 
     use futures::future::BoxFuture;
-    use sqlx::{
-        migrate::{MigrationSource, Migrator},
-        PgPool,
-    };
+    use sqlx::migrate::{MigrationSource, Migrator};
     use test_assets::{
         create_signed_receipt, create_signed_receipt_v2, SignedReceiptRequest, INDEXER_ALLOCATIONS,
         TAP_EIP712_DOMAIN,
@@ -442,15 +439,17 @@ mod tests {
         #[case(ProcessedReceipt::V1, async { vec![create_v1().await] })]
         #[case(ProcessedReceipt::V2, async { vec![create_v2().await] })]
         #[case(ProcessedReceipt::Both, async { vec![create_v2().await, create_v1().await] })]
-        #[sqlx::test(migrations = "../../migrations")]
+        #[tokio::test]
         async fn v1_and_v2_are_processed_successfully(
-            #[ignore] pgpool: PgPool,
             #[case] expected: ProcessedReceipt,
             #[future(awt)]
             #[case]
             receipts: Vec<DatabaseReceipt>,
         ) {
-            let context = InnerContext { pgpool };
+            let test_db = test_assets::setup_shared_test_db().await;
+            let context = InnerContext {
+                pgpool: test_db.pool,
+            };
             let (receipts, _rxs) = attach_oneshot_channels(receipts);
 
             let res = context.process_db_receipts(receipts).await.unwrap();
@@ -462,18 +461,26 @@ mod tests {
     mod when_horizon_migrations_are_ignored {
         use super::*;
 
-        #[sqlx::test(migrator = "WITHOUT_HORIZON_MIGRATIONS")]
-        async fn test_empty_receipts_are_processed_successfully(pgpool: PgPool) {
-            let context = InnerContext { pgpool };
+        #[tokio::test]
+        async fn test_empty_receipts_are_processed_successfully() {
+            let migrator = create_migrator();
+            let test_db = test_assets::setup_test_db_with_migrator(migrator).await;
+            let context = InnerContext {
+                pgpool: test_db.pool,
+            };
 
             let res = context.process_db_receipts(vec![]).await.unwrap();
 
             assert_eq!(res, ProcessedReceipt::None);
         }
 
-        #[sqlx::test(migrator = "WITHOUT_HORIZON_MIGRATIONS")]
-        async fn test_v1_receipts_are_processed_successfully(pgpool: PgPool) {
-            let context = InnerContext { pgpool };
+        #[tokio::test]
+        async fn test_v1_receipts_are_processed_successfully() {
+            let migrator = create_migrator();
+            let test_db = test_assets::setup_test_db_with_migrator(migrator).await;
+            let context = InnerContext {
+                pgpool: test_db.pool,
+            };
 
             let v1 = create_v1().await;
 
@@ -488,14 +495,20 @@ mod tests {
         #[rstest::rstest]
         #[case(async { vec![create_v2().await] })]
         #[case(async { vec![create_v2().await, create_v1().await] })]
-        #[sqlx::test(migrator = "WITHOUT_HORIZON_MIGRATIONS")]
+        #[tokio::test]
         async fn test_cases_with_v2_receipts_fails_to_process(
-            #[ignore] pgpool: PgPool,
             #[future(awt)]
             #[case]
             receipts: Vec<DatabaseReceipt>,
         ) {
-            let context = InnerContext { pgpool };
+            // Create a database without horizon migrations by running a custom migrator
+            // that excludes horizon-related migrations
+            let migrator = create_migrator();
+            let test_db = test_assets::setup_test_db_with_migrator(migrator).await;
+
+            let context = InnerContext {
+                pgpool: test_db.pool,
+            };
 
             let (receipts, _rxs) = attach_oneshot_channels(receipts);
             let error = context.process_db_receipts(receipts).await.unwrap_err();
@@ -510,8 +523,6 @@ mod tests {
                 "error returned from database: relation \"tap_horizon_receipts\" does not exist"
             );
         }
-
-        pub static WITHOUT_HORIZON_MIGRATIONS: LazyLock<Migrator> = LazyLock::new(create_migrator);
 
         pub fn create_migrator() -> Migrator {
             futures::executor::block_on(Migrator::new(MigrationRunner::new(

@@ -39,6 +39,8 @@ serde_json.workspace = true
 [dev-dependencies]
 rand.workspace = true
 indexer-watcher = { path = "../watcher" }
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+test-assets = { path = "../test-assets" }
 
 [build-dependencies]
 tonic-build = { workspace = true, optional = true }

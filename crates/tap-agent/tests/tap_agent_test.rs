@@ -113,8 +113,10 @@ pub async fn start_agent(
     (receiver, Actor::spawn(None, actor, args).await.unwrap())
 }
 
-#[sqlx::test(migrations = "../../migrations")]
-async fn test_start_tap_agent(pgpool: PgPool) {
+#[tokio::test]
+async fn test_start_tap_agent() {
+    let test_db = test_assets::setup_shared_test_db().await;
+    let pgpool = test_db.pool;
     let (mut msg_receiver, (_actor_ref, _handle)) = start_agent(pgpool.clone()).await;
     flush_messages(&mut msg_receiver).await;
 

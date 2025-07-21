@@ -1548,10 +1548,8 @@ pub mod tests {
     use indexer_monitor::EscrowAccounts;
     use ractor::{call, Actor, ActorRef, ActorStatus};
     use serde_json::json;
-    use serial_test::serial;
-    use sqlx::PgPool;
     use test_assets::{
-        flush_messages, pgpool, ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER,
+        flush_messages, ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER,
         TAP_SIGNER as SIGNER,
     };
     use thegraph_core::{
@@ -1582,8 +1580,7 @@ pub mod tests {
     const BUFFER_DURATION: Duration = Duration::from_millis(100);
     const RETRY_DURATION: Duration = Duration::from_millis(1000);
 
-    #[rstest::fixture]
-    async fn mock_escrow_subgraph() -> MockServer {
+    async fn setup_mock_escrow_subgraph() -> MockServer {
         let mock_escrow_subgraph_server: MockServer = MockServer::start().await;
         mock_escrow_subgraph_server
                 .register(
@@ -1605,24 +1602,11 @@ pub mod tests {
         prefix: String,
     }
 
-    #[rstest::fixture]
-    async fn basic_sender_account(#[future(awt)] pgpool: PgPool) -> TestSenderAccount {
-        let (sender_account, msg_receiver, prefix, _) =
-            create_sender_account().pgpool(pgpool).call().await;
-        TestSenderAccount {
-            sender_account,
-            msg_receiver,
-            prefix,
-        }
-    }
-
-    #[rstest::rstest]
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_update_allocation_ids(
-        #[ignore] pgpool: PgPool,
-        #[future(awt)] mock_escrow_subgraph: MockServer,
-    ) {
+    #[tokio::test]
+    async fn test_update_allocation_ids() {
+        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
 
@@ -1709,13 +1693,11 @@ pub mod tests {
         assert!(actor_ref.is_none());
     }
 
-    #[rstest::rstest]
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_new_allocation_id(
-        #[ignore] pgpool: PgPool,
-        #[future(awt)] mock_escrow_subgraph: MockServer,
-    ) {
+    #[tokio::test]
+    async fn test_new_allocation_id() {
+        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
 
@@ -1826,11 +1808,17 @@ pub mod tests {
             .as_nanos() as u64
     }
 
-    #[rstest::rstest]
     #[tokio::test]
-    async fn test_update_receipt_fees_no_rav(
-        #[future(awt)] basic_sender_account: TestSenderAccount,
-    ) {
+    async fn test_update_receipt_fees_no_rav() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+        let (sender_account, msg_receiver, prefix, _) =
+            create_sender_account().pgpool(pgpool).call().await;
+        let basic_sender_account = TestSenderAccount {
+            sender_account,
+            msg_receiver,
+            prefix,
+        };
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
             basic_sender_account.prefix,
@@ -1854,13 +1842,17 @@ pub mod tests {
         assert_not_triggered!(&triggered_rav_request);
     }
 
-    #[rstest::rstest]
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_update_receipt_fees_trigger_rav(
-        #[ignore] _pgpool: PgPool,
-        #[future(awt)] mut basic_sender_account: TestSenderAccount,
-    ) {
+    #[tokio::test]
+    async fn test_update_receipt_fees_trigger_rav() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+        let (sender_account, msg_receiver, prefix, _) =
+            create_sender_account().pgpool(pgpool).call().await;
+        let mut basic_sender_account = TestSenderAccount {
+            sender_account,
+            msg_receiver,
+            prefix,
+        };
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
             basic_sender_account.prefix,
@@ -1896,9 +1888,10 @@ pub mod tests {
         assert_triggered!(&triggered_rav_request);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_counter_greater_limit_trigger_rav(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_counter_greater_limit_trigger_rav() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .rav_request_receipt_limit(2)
@@ -1947,12 +1940,11 @@ pub mod tests {
     }
 
     #[rstest::rstest]
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_remove_sender_account(
-        #[ignore] pgpool: PgPool,
-        #[future(awt)] mock_escrow_subgraph: MockServer,
-    ) {
+    #[tokio::test]
+    async fn test_remove_sender_account() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let (sender_account, _, prefix, _) = create_sender_account()
             .pgpool(pgpool)
             .initial_allocation(
@@ -1987,8 +1979,9 @@ pub mod tests {
     /// Test that the deny status is correctly loaded from the DB at the start of the actor
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
-    async fn test_init_deny(#[future(awt)] pgpool: PgPool) {
+    async fn test_init_deny() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         sqlx::query!(
             r#"
                 INSERT INTO scalar_tap_denylist (sender_address)
@@ -2019,9 +2012,11 @@ pub mod tests {
         assert!(deny);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_retry_unaggregated_fees(pgpool: PgPool) {
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_retry_unaggregated_fees() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // we set to zero to block the sender, no matter the fee
         let max_unaggregated_fees_per_sender: u128 = 0;
 
@@ -2060,9 +2055,10 @@ pub mod tests {
         assert_triggered!(triggered_rav_request);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_deny_allow(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_deny_allow() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         async fn get_deny_status(sender_account: &ActorRef<SenderAccountMessage>) -> bool {
             call!(sender_account, SenderAccountMessage::GetDeny).unwrap()
         }
@@ -2156,9 +2152,10 @@ pub mod tests {
         sender_account.stop_and_wait(None, None).await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_initialization_with_pending_ravs_over_the_limit(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_initialization_with_pending_ravs_over_the_limit() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // add last non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
         store_rav_with_options()
@@ -2181,9 +2178,10 @@ pub mod tests {
         assert!(deny);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_unaggregated_fees_over_balance(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_unaggregated_fees_over_balance() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // add last non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
         store_rav_with_options()
@@ -2285,9 +2283,10 @@ pub mod tests {
         sender_account.stop_and_wait(None, None).await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_trusted_sender(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_trusted_sender() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let max_amount_willing_to_lose_grt = ESCROW_VALUE / 10;
         // initialize with no trigger value and no max receipt deny
         let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
@@ -2356,9 +2355,10 @@ pub mod tests {
         sender_account.stop_and_wait(None, None).await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_pending_rav_already_redeemed_and_redeem(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_pending_rav_already_redeemed_and_redeem() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
 
@@ -2442,9 +2442,10 @@ pub mod tests {
         sender_account.stop_and_wait(None, None).await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_thawing_deposit_process(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_thawing_deposit_process() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // add last non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
         store_rav_with_options()
@@ -2495,9 +2496,10 @@ pub mod tests {
         sender_account.stop_and_wait(None, None).await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_sender_denied_close_allocation_stop_retry(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_sender_denied_close_allocation_stop_retry() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // we set to 1 to block the sender on a really low value
         let max_unaggregated_fees_per_sender: u128 = 1;
 

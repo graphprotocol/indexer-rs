@@ -251,8 +251,10 @@ pub(crate) mod test {
         ]
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn success_cost_models(pool: PgPool) {
+    #[tokio::test]
+    async fn success_cost_models() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pool = test_db.pool;
         let test_models = test_data();
         let test_deployments = test_models
             .iter()
@@ -313,8 +315,10 @@ pub(crate) mod test {
         }
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn global_fallback_cost_models(pool: PgPool) {
+    #[tokio::test]
+    async fn global_fallback_cost_models() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pool = test_db.pool;
         let test_models = test_data();
         let test_deployments = test_models
             .iter()
@@ -403,8 +407,10 @@ pub(crate) mod test {
         assert_eq!(missing_model.model, global_model.model);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn success_cost_model(pool: PgPool) {
+    #[tokio::test]
+    async fn success_cost_model() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pool = test_db.pool;
         add_cost_models(&pool, to_db_models(test_data())).await;
 
         let deployment_id_from_bytes = DeploymentId::from_str(
@@ -425,8 +431,10 @@ pub(crate) mod test {
         assert_eq!(model.model, Some("default => 0.00025;".to_string()));
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn global_fallback_cost_model(pool: PgPool) {
+    #[tokio::test]
+    async fn global_fallback_cost_model() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pool = test_db.pool;
         let test_models = test_data();
         let global_model = global_cost_model();
 

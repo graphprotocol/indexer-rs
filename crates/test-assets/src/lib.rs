@@ -12,6 +12,7 @@ use std::{
 
 use bip39::Mnemonic;
 use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
+use sqlx::migrate::Migrator;
 use sqlx::{migrate, PgPool, Postgres};
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, SignedReceipt};
@@ -500,4 +501,149 @@ pub fn pgpool() -> Pin<Box<dyn Future<Output = PgPool>>> {
             .await
             .expect("failed to connect test pool")
     })
+}
+
+// Testcontainers utilities for SQLX_OFFLINE compatibility
+
+use testcontainers_modules::{
+    postgres,
+    testcontainers::{runners::AsyncRunner, ContainerAsync},
+};
+
+/// Container handle returned by setup functions to keep container alive
+pub struct TestDatabase {
+    pub pool: sqlx::PgPool,
+    pub url: String,
+    _container: ContainerAsync<postgres::Postgres>,
+}
+
+/// Set up a test database using testcontainers
+///
+/// This creates an isolated PostgreSQL container and database for testing.
+/// The container will be kept alive as long as the returned TestDatabase
+/// instance is not dropped.
+pub async fn setup_shared_test_db() -> TestDatabase {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static DB_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    // Create unique database name for this test
+    let db_id = DB_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let unique_db_name = format!("test_db_{db_id}");
+
+    // Start PostgreSQL container
+    let pg_container = postgres::Postgres::default()
+        .start()
+        .await
+        .expect("Failed to start PostgreSQL container");
+
+    let host_port = pg_container
+        .get_host_port_ipv4(5432)
+        .await
+        .expect("Failed to get container port");
+
+    // Connect to postgres database first to create our test database
+    let admin_connection_string =
+        format!("postgres://postgres:postgres@localhost:{host_port}/postgres");
+    let admin_pool = sqlx::PgPool::connect(&admin_connection_string)
+        .await
+        .expect("Failed to connect to admin database");
+
+    // Create unique database for this test
+    sqlx::query(&format!("CREATE DATABASE \"{unique_db_name}\""))
+        .execute(&admin_pool)
+        .await
+        .expect("Failed to create test database");
+
+    // Connect to our test database
+    let connection_string =
+        format!("postgres://postgres:postgres@localhost:{host_port}/{unique_db_name}");
+    let pool = sqlx::PgPool::connect(&connection_string)
+        .await
+        .expect("Failed to connect to test database");
+
+    // Run migrations to set up the database schema
+    // This matches the production architecture where indexer-agent runs migrations
+    sqlx::migrate!("../../migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run database migrations");
+
+    tracing::debug!(
+        "Isolated test PostgreSQL database created: {}",
+        connection_string
+    );
+
+    // Close admin pool
+    admin_pool.close().await;
+
+    TestDatabase {
+        pool,
+        url: connection_string,
+        _container: pg_container,
+    }
+}
+
+/// Set up a test database using testcontainers with a custom migrator
+///
+/// This creates an isolated PostgreSQL container and database for testing,
+/// using the provided migrator to run migrations. This is useful for testing
+/// scenarios where only certain migrations should be applied.
+pub async fn setup_test_db_with_migrator(migrator: Migrator) -> TestDatabase {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static DB_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    // Create unique database name for this test
+    let db_id = DB_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let unique_db_name = format!("test_db_custom_{db_id}");
+
+    // Start PostgreSQL container
+    let pg_container = postgres::Postgres::default()
+        .start()
+        .await
+        .expect("Failed to start PostgreSQL container");
+
+    let host_port = pg_container
+        .get_host_port_ipv4(5432)
+        .await
+        .expect("Failed to get container port");
+
+    // Connect to postgres database first to create our test database
+    let admin_connection_string =
+        format!("postgres://postgres:postgres@localhost:{host_port}/postgres");
+    let admin_pool = sqlx::PgPool::connect(&admin_connection_string)
+        .await
+        .expect("Failed to connect to admin database");
+
+    // Create unique database for this test
+    sqlx::query(&format!("CREATE DATABASE \"{unique_db_name}\""))
+        .execute(&admin_pool)
+        .await
+        .expect("Failed to create test database");
+
+    // Connect to our test database
+    let connection_string =
+        format!("postgres://postgres:postgres@localhost:{host_port}/{unique_db_name}");
+    let pool = sqlx::PgPool::connect(&connection_string)
+        .await
+        .expect("Failed to connect to test database");
+
+    // Run migrations using the custom migrator
+    migrator
+        .run(&pool)
+        .await
+        .expect("Failed to run database migrations with custom migrator");
+
+    tracing::debug!(
+        "Isolated test PostgreSQL database created with custom migrator: {}",
+        connection_string
+    );
+
+    // Close admin pool
+    admin_pool.close().await;
+
+    TestDatabase {
+        pool,
+        url: connection_string,
+        _container: pg_container,
+    }
 }

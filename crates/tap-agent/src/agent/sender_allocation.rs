@@ -1304,7 +1304,6 @@ pub mod tests {
     use ractor::{call, cast, Actor, ActorRef, ActorStatus};
     use ruint::aliases::U256;
     use serde_json::json;
-    use serial_test::serial;
     use sqlx::PgPool;
     use tap_aggregator::grpc::v1::{tap_aggregator_client::TapAggregatorClient, RavResponse};
     use tap_core::receipt::{
@@ -1312,7 +1311,7 @@ pub mod tests {
         Context,
     };
     use test_assets::{
-        flush_messages, pgpool, ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
+        flush_messages, ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
     use thegraph_core::AllocationId as AllocationIdCore;
@@ -1349,19 +1348,46 @@ pub mod tests {
     }
 
     #[rstest::fixture]
+    async fn pgpool() -> test_assets::TestDatabase {
+        test_assets::setup_shared_test_db().await
+    }
+
+    struct StateWithContainer {
+        state: SenderAllocationState<Legacy>,
+        _test_db: test_assets::TestDatabase,
+    }
+
+    impl std::ops::Deref for StateWithContainer {
+        type Target = SenderAllocationState<Legacy>;
+        fn deref(&self) -> &Self::Target {
+            &self.state
+        }
+    }
+
+    impl std::ops::DerefMut for StateWithContainer {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.state
+        }
+    }
+
+    #[rstest::fixture]
     async fn state(
-        #[future(awt)] pgpool: PgPool,
+        #[future(awt)] pgpool: test_assets::TestDatabase,
         #[future(awt)] mock_escrow_subgraph_server: (MockServer, MockGuard),
-    ) -> SenderAllocationState<Legacy> {
+    ) -> StateWithContainer {
         let (mock_escrow_subgraph_server, _mock_escrow_subgraph_guard) =
             mock_escrow_subgraph_server;
         let args = create_sender_allocation_args()
-            .pgpool(pgpool.clone())
+            .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .call()
             .await;
 
-        SenderAllocationState::new(args).await.unwrap()
+        let state = SenderAllocationState::new(args).await.unwrap();
+        StateWithContainer {
+            state,
+            _test_db: pgpool,
+        }
     }
 
     async fn mock_escrow_subgraph() -> (MockServer, MockGuard) {
@@ -1472,22 +1498,21 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
     async fn should_update_unaggregated_fees_on_start(
-        #[future(awt)] pgpool: PgPool,
+        #[future(awt)] pgpool: test_assets::TestDatabase,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         let (mut last_message_emitted, sender_account) = create_mock_sender_account().await;
         // Add receipts to the database.
         for i in 1..=10 {
             let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_receipt(&pgpool, receipt.signed_receipt())
+            store_receipt(&pgpool.pool, receipt.signed_receipt())
                 .await
                 .unwrap();
         }
 
         let (sender_allocation, _notify) = create_sender_allocation()
-            .pgpool(pgpool.clone())
+            .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
@@ -1509,22 +1534,21 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
     async fn should_return_invalid_receipts_on_startup(
-        #[future(awt)] pgpool: PgPool,
+        #[future(awt)] pgpool: test_assets::TestDatabase,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
         // Add receipts to the database.
         for i in 1..=10 {
             let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_invalid_receipt(&pgpool, receipt.signed_receipt())
+            store_invalid_receipt(&pgpool.pool, receipt.signed_receipt())
                 .await
                 .unwrap();
         }
 
         let (sender_allocation, _notify) = create_sender_allocation()
-            .pgpool(pgpool.clone())
+            .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
@@ -1549,15 +1573,14 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
     async fn test_receive_new_receipt(
-        #[future(awt)] pgpool: PgPool,
+        #[future(awt)] pgpool: test_assets::TestDatabase,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         let (sender_allocation, mut msg_receiver) = create_sender_allocation()
-            .pgpool(pgpool.clone())
+            .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
@@ -1611,9 +1634,10 @@ pub mod tests {
         assert_eq!(last_message_emitted, expected_message);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_trigger_rav_request(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_trigger_rav_request() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
 
@@ -1731,9 +1755,10 @@ pub mod tests {
         insta::assert_debug_snapshot!(startup_msg);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_several_receipts_rav_request(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_several_receipts_rav_request() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         const AMOUNT_OF_RECEIPTS: u64 = 1000;
         execute(pgpool, |pgpool| async move {
             // Add receipts to the database.
@@ -1749,9 +1774,10 @@ pub mod tests {
         .await;
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_several_receipts_batch_insert_rav_request(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_several_receipts_batch_insert_rav_request() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // Add batch receipts to the database.
         const AMOUNT_OF_RECEIPTS: u64 = 1000;
         execute(pgpool, |pgpool| async move {
@@ -1770,16 +1796,15 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
     async fn test_close_allocation_no_pending_fees(
-        #[future(awt)] pgpool: PgPool,
+        #[future(awt)] pgpool: test_assets::TestDatabase,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // create allocation
         let (sender_allocation, _notify) = create_sender_allocation()
-            .pgpool(pgpool.clone())
+            .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
@@ -1799,8 +1824,10 @@ pub mod tests {
         wiremock_grpc::generate!("tap_aggregator.v1.TapAggregator", MockTapAggregator);
     }
 
-    #[test_log::test(sqlx::test(migrations = "../../migrations"))]
-    async fn test_close_allocation_with_pending_fees(pgpool: PgPool) {
+    #[test_log::test(tokio::test)]
+    async fn test_close_allocation_with_pending_fees() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         use wiremock_gen::MockTapAggregator;
         let mut mock_aggregator = MockTapAggregator::start_default().await;
 
@@ -1867,13 +1894,12 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
     async fn should_return_unaggregated_fees_without_rav(
-        #[future(awt)] pgpool: PgPool,
+        #[future(awt)] pgpool: test_assets::TestDatabase,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         let args = create_sender_allocation_args()
-            .pgpool(pgpool.clone())
+            .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .call()
             .await;
@@ -1882,7 +1908,7 @@ pub mod tests {
         // Add receipts to the database.
         for i in 1..10 {
             let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_receipt(&pgpool, receipt.signed_receipt())
+            store_receipt(&pgpool.pool, receipt.signed_receipt())
                 .await
                 .unwrap();
         }
@@ -1896,13 +1922,12 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
     async fn should_calculate_invalid_receipts_fee(
-        #[future(awt)] pgpool: PgPool,
+        #[future(awt)] pgpool: test_assets::TestDatabase,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         let args = create_sender_allocation_args()
-            .pgpool(pgpool.clone())
+            .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .call()
             .await;
@@ -1911,7 +1936,7 @@ pub mod tests {
         // Add receipts to the database.
         for i in 1..10 {
             let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_invalid_receipt(&pgpool, receipt.signed_receipt())
+            store_invalid_receipt(&pgpool.pool, receipt.signed_receipt())
                 .await
                 .unwrap();
         }
@@ -1931,13 +1956,12 @@ pub mod tests {
     /// than the RAV's timestamp.
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
     async fn should_return_unaggregated_fees_with_rav(
-        #[future(awt)] pgpool: PgPool,
+        #[future(awt)] pgpool: test_assets::TestDatabase,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         let args = create_sender_allocation_args()
-            .pgpool(pgpool.clone())
+            .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .call()
             .await;
@@ -1946,12 +1970,12 @@ pub mod tests {
         // This RAV has timestamp 4. The sender_allocation should only consider receipts
         // with a timestamp greater than 4.
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
-        store_rav(&pgpool, signed_rav, SENDER.1).await.unwrap();
+        store_rav(&pgpool.pool, signed_rav, SENDER.1).await.unwrap();
 
         // Add receipts to the database.
         for i in 1..10 {
             let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_receipt(&pgpool, receipt.signed_receipt())
+            store_receipt(&pgpool.pool, receipt.signed_receipt())
                 .await
                 .unwrap();
         }
@@ -1964,8 +1988,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
-    async fn test_store_failed_rav(#[future[awt]] state: SenderAllocationState<Legacy>) {
+    async fn test_store_failed_rav(#[future[awt]] state: StateWithContainer) {
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
 
         // just unit test if it is working
@@ -1978,8 +2001,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
-    async fn test_store_invalid_receipts(#[future[awt]] mut state: SenderAllocationState<Legacy>) {
+    async fn test_store_invalid_receipts(#[future[awt]] mut state: StateWithContainer) {
         struct FailingCheck;
 
         #[async_trait::async_trait]
@@ -2022,8 +2044,7 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
-    async fn test_mark_rav_last(#[future[awt]] state: SenderAllocationState<Legacy>) {
+    async fn test_mark_rav_last(#[future[awt]] state: StateWithContainer) {
         // mark rav as final
         let result = state.mark_rav_last().await;
 
@@ -2033,16 +2054,15 @@ pub mod tests {
 
     #[rstest::rstest]
     #[tokio::test]
-    #[serial]
     async fn test_failed_rav_request(
-        #[future(awt)] pgpool: PgPool,
+        #[future(awt)] pgpool: test_assets::TestDatabase,
         #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         // Add receipts to the database.
         for i in 0..10 {
             let receipt =
                 create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, u64::MAX, i.into());
-            store_receipt(&pgpool, receipt.signed_receipt())
+            store_receipt(&pgpool.pool, receipt.signed_receipt())
                 .await
                 .unwrap();
         }
@@ -2051,7 +2071,7 @@ pub mod tests {
 
         // Create a sender_allocation.
         let (sender_allocation, mut notify) = create_sender_allocation()
-            .pgpool(pgpool.clone())
+            .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
@@ -2081,9 +2101,10 @@ pub mod tests {
         //assert_eq!(total_unaggregated_fees.value, 45u128);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_rav_request_when_all_receipts_invalid(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_rav_request_when_all_receipts_invalid() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
 

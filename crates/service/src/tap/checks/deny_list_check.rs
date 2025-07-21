@@ -262,8 +262,10 @@ mod tests {
         DenyListCheck::new(pgpool).await
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_sender_denylist(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_sender_denylist() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // Add the sender to the denylist
         sqlx::query!(
             r#"
@@ -292,8 +294,10 @@ mod tests {
             .is_err());
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_sender_denylist_updates(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_sender_denylist_updates() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let signed_receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
 
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;

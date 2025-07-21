@@ -17,7 +17,6 @@ use indexer_tap_agent::{
 };
 use ractor::{ActorRef, ActorStatus};
 use serde_json::json;
-use sqlx::PgPool;
 use test_assets::{assert_while_retry, flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
 use thegraph_core::{alloy::primitives::U256, AllocationId as AllocationIdCore};
 use wiremock::{
@@ -29,8 +28,10 @@ const TRIGGER_VALUE: u128 = 100;
 
 // This test should ensure the full flow starting from
 // sender account manager layer to work, up to closing an allocation
-#[test_log::test(sqlx::test(migrations = "../../migrations"))]
-async fn sender_account_manager_layer_test(pgpool: PgPool) {
+#[test_log::test(tokio::test)]
+async fn sender_account_manager_layer_test() {
+    let test_db = test_assets::setup_shared_test_db().await;
+    let pgpool = test_db.pool;
     let mock_network_subgraph_server: MockServer = MockServer::start().await;
     mock_network_subgraph_server
         .register(

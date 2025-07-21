@@ -368,7 +368,6 @@ enum CostModelNotification {
 mod tests {
     use std::time::Duration;
 
-    use sqlx::PgPool;
     use tap_core::receipt::{checks::Check, Context};
     use test_assets::{create_signed_receipt, flush_messages, SignedReceiptRequest};
     use tokio::time::sleep;
@@ -379,14 +378,18 @@ mod tests {
         tap::{CheckingReceipt, TapReceipt},
     };
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn initialize_check(pgpool: PgPool) {
+    #[tokio::test]
+    async fn initialize_check() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let check = MinimumValue::new(pgpool, Duration::from_secs(0)).await;
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn should_initialize_check_with_models(pgpool: PgPool) {
+    #[tokio::test]
+    async fn should_initialize_check_with_models() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // insert 2 cost models for different deployment_id
         let test_models = test::test_data();
 
@@ -399,8 +402,10 @@ mod tests {
         assert!(check.global_model.read().unwrap().is_none());
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn should_watch_model_insert(pgpool: PgPool) {
+    #[tokio::test]
+    async fn should_watch_model_insert() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let mut check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
 
@@ -416,8 +421,10 @@ mod tests {
         );
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn should_watch_model_remove(pgpool: PgPool) {
+    #[tokio::test]
+    async fn should_watch_model_remove() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // insert 2 cost models for different deployment_id
         let test_models = test::test_data();
         add_cost_models(&pgpool, to_db_models(test_models.clone())).await;
@@ -436,8 +443,10 @@ mod tests {
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn should_start_global_model(pgpool: PgPool) {
+    #[tokio::test]
+    async fn should_start_global_model() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let global_model = global_cost_model();
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
 
@@ -445,8 +454,10 @@ mod tests {
         assert!(check.global_model.read().unwrap().is_some());
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn should_watch_global_model(pgpool: PgPool) {
+    #[tokio::test]
+    async fn should_watch_global_model() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let mut check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
 
         let global_model = global_cost_model();
@@ -457,8 +468,10 @@ mod tests {
         assert!(check.global_model.read().unwrap().is_some());
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn should_remove_global_model(pgpool: PgPool) {
+    #[tokio::test]
+    async fn should_remove_global_model() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let global_model = global_cost_model();
         add_cost_models(&pgpool, vec![global_model.clone()]).await;
 
@@ -475,8 +488,10 @@ mod tests {
         assert_eq!(check.cost_model_map.read().unwrap().len(), 0);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn should_check_minimal_value(pgpool: PgPool) {
+    #[tokio::test]
+    async fn should_check_minimal_value() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // insert cost models for different deployment_id
         let test_models = test::test_data();
 
@@ -565,8 +580,10 @@ mod tests {
             .expect("should accept more than minimal");
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn should_check_using_global(pgpool: PgPool) {
+    #[tokio::test]
+    async fn should_check_using_global() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         // insert cost models for different deployment_id
         let test_models = test::test_data();
         let global_model = global_cost_model();
