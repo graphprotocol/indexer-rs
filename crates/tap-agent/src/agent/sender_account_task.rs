@@ -274,6 +274,7 @@ impl SenderAccountTask {
                         Some(task_name.clone()),
                         allocation_id,
                         self_handle,
+                        state.pgpool.clone(),
                     )
                     .await?
                 }
@@ -283,6 +284,7 @@ impl SenderAccountTask {
                         Some(task_name.clone()),
                         allocation_id,
                         self_handle,
+                        state.pgpool.clone(),
                     )
                     .await?
                 }

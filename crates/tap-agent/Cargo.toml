@@ -67,3 +67,4 @@ test-log = { workspace = true, features = ["trace"] }
 rstest.workspace = true
 stdext.workspace = true
 insta.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
