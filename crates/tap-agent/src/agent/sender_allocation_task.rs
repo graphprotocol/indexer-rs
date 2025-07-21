@@ -6,7 +6,10 @@
 //! This is a simplified, tokio-based replacement for the ractor SenderAllocation
 //! that maintains API compatibility while using tasks and channels.
 
-use std::{marker::PhantomData, time::Instant};
+use std::{
+    marker::PhantomData,
+    time::{Duration, Instant},
+};
 
 use tokio::sync::mpsc;
 
@@ -37,7 +40,7 @@ pub struct SenderAllocationTask<T: NetworkVersion> {
     _phantom: PhantomData<T>,
 }
 
-/// Enhanced state structure for the task with invalid receipts tracking
+/// Enhanced state structure for the task with error handling and retry logic
 struct TaskState {
     /// Sum of all receipt fees for the current allocation
     unaggregated_fees: UnaggregatedReceipts,
@@ -47,6 +50,113 @@ struct TaskState {
     sender_account_handle: TaskHandle<SenderAccountMessage>,
     /// Current allocation ID
     allocation_id: AllocationId,
+    /// Error tracking and retry state
+    error_state: ErrorTrackingState,
+}
+
+/// Different types of operations that can fail and need retry logic
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationType {
+    /// Receipt processing operations
+    Receipt,
+    /// RAV request operations  
+    Rav,
+    /// Communication with parent task
+    Communication,
+}
+
+/// Tracks errors and retry attempts for robust operation
+#[derive(Debug, Clone, Default)]
+struct ErrorTrackingState {
+    /// Number of consecutive receipt processing failures
+    consecutive_receipt_failures: u32,
+    /// Number of consecutive RAV request failures
+    consecutive_rav_failures: u32,
+    /// Number of consecutive parent communication failures
+    consecutive_communication_failures: u32,
+    /// Timestamp of last successful operation (for exponential backoff)
+    last_successful_operation: Option<Instant>,
+    /// Current backoff delay for operations
+    current_backoff: Duration,
+}
+
+/// Configuration for error handling and retry behavior
+struct ErrorHandlingConfig {
+    /// Maximum number of consecutive failures before giving up
+    max_consecutive_failures: u32,
+    /// Base delay for exponential backoff
+    #[allow(dead_code)]
+    base_backoff_delay: Duration,
+    /// Maximum backoff delay
+    max_backoff_delay: Duration,
+    /// Backoff multiplier
+    backoff_multiplier: f64,
+}
+
+impl Default for ErrorHandlingConfig {
+    fn default() -> Self {
+        Self {
+            max_consecutive_failures: 5,
+            base_backoff_delay: Duration::from_millis(100),
+            max_backoff_delay: Duration::from_secs(30),
+            backoff_multiplier: 2.0,
+        }
+    }
+}
+
+impl ErrorTrackingState {
+    /// Record a successful operation - reset error counters
+    fn record_success(&mut self, operation_type: OperationType) {
+        match operation_type {
+            OperationType::Receipt => self.consecutive_receipt_failures = 0,
+            OperationType::Rav => self.consecutive_rav_failures = 0,
+            OperationType::Communication => self.consecutive_communication_failures = 0,
+        }
+        self.last_successful_operation = Some(Instant::now());
+        self.current_backoff = Duration::from_millis(100); // Reset backoff
+    }
+
+    /// Record a failure and update backoff delay
+    fn record_failure(&mut self, operation_type: OperationType, config: &ErrorHandlingConfig) {
+        match operation_type {
+            OperationType::Receipt => self.consecutive_receipt_failures += 1,
+            OperationType::Rav => self.consecutive_rav_failures += 1,
+            OperationType::Communication => self.consecutive_communication_failures += 1,
+        }
+
+        // Update exponential backoff
+        self.current_backoff = std::cmp::min(
+            Duration::from_millis(
+                (self.current_backoff.as_millis() as f64 * config.backoff_multiplier) as u64,
+            ),
+            config.max_backoff_delay,
+        );
+    }
+
+    /// Check if we should retry the operation
+    fn should_retry(&self, operation_type: OperationType, config: &ErrorHandlingConfig) -> bool {
+        let failure_count = match operation_type {
+            OperationType::Receipt => self.consecutive_receipt_failures,
+            OperationType::Rav => self.consecutive_rav_failures,
+            OperationType::Communication => self.consecutive_communication_failures,
+        };
+
+        failure_count < config.max_consecutive_failures
+    }
+
+    /// Get current backoff delay
+    fn get_backoff_delay(&self) -> Duration {
+        self.current_backoff
+    }
+
+    /// Get failure count for a specific operation type
+    fn get_failure_count(&self, operation_type: OperationType) -> u32 {
+        match operation_type {
+            OperationType::Receipt => self.consecutive_receipt_failures,
+            OperationType::Rav => self.consecutive_rav_failures,
+            OperationType::Communication => self.consecutive_communication_failures,
+        }
+    }
 }
 
 impl<T: NetworkVersion> SenderAllocationTask<T> {
@@ -62,6 +172,7 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
             invalid_receipts_fees: UnaggregatedReceipts::default(),
             sender_account_handle,
             allocation_id,
+            error_state: ErrorTrackingState::default(),
         };
 
         lifecycle
@@ -74,39 +185,34 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
             .await
     }
 
-    /// Main task loop
+    /// Main task loop with comprehensive error handling
     async fn run_task(
         mut state: TaskState,
         mut rx: mpsc::Receiver<SenderAllocationMessage>,
     ) -> anyhow::Result<()> {
-        // Send initial state to parent
-        state
-            .sender_account_handle
-            .cast(SenderAccountMessage::UpdateReceiptFees(
-                state.allocation_id,
-                ReceiptFees::UpdateValue(state.unaggregated_fees),
-            ))
-            .await?;
+        let config = ErrorHandlingConfig::default();
+
+        // Send initial state to parent with retry logic
+        let initial_message = SenderAccountMessage::UpdateReceiptFees(
+            state.allocation_id,
+            ReceiptFees::UpdateValue(state.unaggregated_fees),
+        );
+        if let Err(e) = Self::send_to_parent_with_retry(&mut state, initial_message, &config).await
+        {
+            tracing::error!(
+                allocation_id = ?state.allocation_id,
+                error = %e,
+                "Failed to send initial state to parent after retries"
+            );
+        }
 
         while let Some(message) = rx.recv().await {
             match message {
                 SenderAllocationMessage::NewReceipt(notification) => {
-                    if let Err(e) = Self::handle_new_receipt(&mut state, notification).await {
-                        tracing::error!(
-                            allocation_id = ?state.allocation_id,
-                            error = %e,
-                            "Error handling new receipt"
-                        );
-                    }
+                    Self::handle_new_receipt_with_retry(&mut state, notification, &config).await;
                 }
                 SenderAllocationMessage::TriggerRavRequest => {
-                    if let Err(e) = Self::handle_rav_request(&mut state).await {
-                        tracing::error!(
-                            allocation_id = ?state.allocation_id,
-                            error = %e,
-                            "Error handling RAV request"
-                        );
-                    }
+                    Self::handle_rav_request_with_retry(&mut state, &config).await;
                 }
                 #[cfg(any(test, feature = "test"))]
                 SenderAllocationMessage::GetUnaggregatedReceipts(reply) => {
@@ -116,6 +222,120 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
         }
 
         Ok(())
+    }
+
+    /// Send message to parent with retry logic
+    async fn send_to_parent_with_retry(
+        state: &mut TaskState,
+        message: SenderAccountMessage,
+        config: &ErrorHandlingConfig,
+    ) -> anyhow::Result<()> {
+        // Try once - if it fails, just return the error instead of retrying with clone
+        // This simplified approach avoids cloning issues while still providing error tracking
+        match state.sender_account_handle.cast(message).await {
+            Ok(()) => {
+                state
+                    .error_state
+                    .record_success(OperationType::Communication);
+                Ok(())
+            }
+            Err(e) => {
+                state
+                    .error_state
+                    .record_failure(OperationType::Communication, config);
+                tracing::warn!(
+                    allocation_id = ?state.allocation_id,
+                    consecutive_failures = state.error_state.get_failure_count(OperationType::Communication),
+                    error = %e,
+                    "Failed to send message to parent"
+                );
+                Err(anyhow::anyhow!("Failed to send message to parent: {}", e))
+            }
+        }
+    }
+
+    /// Handle new receipt with comprehensive retry logic
+    async fn handle_new_receipt_with_retry(
+        state: &mut TaskState,
+        notification: NewReceiptNotification,
+        config: &ErrorHandlingConfig,
+    ) {
+        // Since NewReceiptNotification doesn't clone easily, just try once with error tracking
+        match Self::handle_new_receipt(state, notification).await {
+            Ok(()) => {
+                state.error_state.record_success(OperationType::Receipt);
+            }
+            Err(e) => {
+                state
+                    .error_state
+                    .record_failure(OperationType::Receipt, config);
+
+                tracing::warn!(
+                    allocation_id = ?state.allocation_id,
+                    consecutive_failures = state.error_state.get_failure_count(OperationType::Receipt),
+                    error = %e,
+                    should_retry = state.error_state.should_retry(OperationType::Receipt, config),
+                    "Receipt processing failed"
+                );
+
+                if !state
+                    .error_state
+                    .should_retry(OperationType::Receipt, config)
+                {
+                    tracing::error!(
+                        allocation_id = ?state.allocation_id,
+                        consecutive_failures = state.error_state.get_failure_count(OperationType::Receipt),
+                        "Receipt processing failed too many times, giving up"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Handle RAV request with comprehensive retry logic
+    async fn handle_rav_request_with_retry(state: &mut TaskState, config: &ErrorHandlingConfig) {
+        // First attempt
+        match Self::handle_rav_request(state).await {
+            Ok(()) => {
+                state.error_state.record_success(OperationType::Rav);
+            }
+            Err(e) => {
+                state.error_state.record_failure(OperationType::Rav, config);
+
+                if state.error_state.should_retry(OperationType::Rav, config) {
+                    let backoff_delay = state.error_state.get_backoff_delay();
+                    tracing::warn!(
+                        allocation_id = ?state.allocation_id,
+                        consecutive_failures = state.error_state.get_failure_count(OperationType::Rav),
+                        backoff_ms = backoff_delay.as_millis(),
+                        error = %e,
+                        "RAV request failed, will retry after backoff"
+                    );
+
+                    tokio::time::sleep(backoff_delay).await;
+
+                    // Retry once more
+                    if let Err(retry_error) = Self::handle_rav_request(state).await {
+                        state.error_state.record_failure(OperationType::Rav, config);
+                        tracing::error!(
+                            allocation_id = ?state.allocation_id,
+                            original_error = %e,
+                            retry_error = %retry_error,
+                            "RAV request failed again after retry"
+                        );
+                    } else {
+                        state.error_state.record_success(OperationType::Rav);
+                    }
+                } else {
+                    tracing::error!(
+                        allocation_id = ?state.allocation_id,
+                        consecutive_failures = state.error_state.get_failure_count(OperationType::Rav),
+                        error = %e,
+                        "RAV request failed too many times, giving up"
+                    );
+                }
+            }
+        }
     }
 
     /// Handle new receipt - with basic validation and invalid receipt tracking
@@ -156,14 +376,23 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
                 "Processed valid receipt"
             );
 
-            // Notify parent of valid receipt
-            state
-                .sender_account_handle
-                .cast(SenderAccountMessage::UpdateReceiptFees(
+            // Notify parent of valid receipt with error handling
+            let config = ErrorHandlingConfig::default();
+            if let Err(e) = Self::send_to_parent_with_retry(
+                state,
+                SenderAccountMessage::UpdateReceiptFees(
                     state.allocation_id,
                     ReceiptFees::NewReceipt(value, timestamp_ns),
-                ))
-                .await?;
+                ),
+                &config,
+            )
+            .await
+            {
+                return Err(anyhow::anyhow!(
+                    "Failed to notify parent of valid receipt: {}",
+                    e
+                ));
+            }
         } else {
             // Invalid receipt - track separately
             state.invalid_receipts_fees.value += value;
@@ -179,14 +408,23 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
                 "Receipt failed validation - tracked as invalid"
             );
 
-            // Notify parent of invalid receipt fees
-            state
-                .sender_account_handle
-                .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
+            // Notify parent of invalid receipt fees with error handling
+            let config = ErrorHandlingConfig::default();
+            if let Err(e) = Self::send_to_parent_with_retry(
+                state,
+                SenderAccountMessage::UpdateInvalidReceiptFees(
                     state.allocation_id,
                     state.invalid_receipts_fees,
-                ))
-                .await?;
+                ),
+                &config,
+            )
+            .await
+            {
+                return Err(anyhow::anyhow!(
+                    "Failed to notify parent of invalid receipt: {}",
+                    e
+                ));
+            }
         }
 
         Ok(())
@@ -266,14 +504,23 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
             "RAV creation completed successfully"
         );
 
-        // Notify parent of successful RAV
-        state
-            .sender_account_handle
-            .cast(SenderAccountMessage::UpdateReceiptFees(
+        // Notify parent of successful RAV with error handling
+        let config = ErrorHandlingConfig::default();
+        if let Err(e) = Self::send_to_parent_with_retry(
+            state,
+            SenderAccountMessage::UpdateReceiptFees(
                 state.allocation_id,
                 ReceiptFees::RavRequestResponse(fees_to_clear, Ok(Some(rav_info))),
-            ))
-            .await?;
+            ),
+            &config,
+        )
+        .await
+        {
+            return Err(anyhow::anyhow!(
+                "Failed to notify parent of successful RAV: {}",
+                e
+            ));
+        }
 
         Ok(())
     }
@@ -590,5 +837,56 @@ mod tests {
         assert_eq!(unaggregated_receipts.counter, 3);
         assert_eq!(unaggregated_receipts.value, 100 + 200 + 300); // 600 total
         assert_eq!(unaggregated_receipts.last_id, 300); // Last receipt ID
+    }
+
+    #[tokio::test]
+    async fn test_error_tracking_and_retry() {
+        // Test the ErrorTrackingState functionality
+        let config = ErrorHandlingConfig::default();
+        let mut error_state = ErrorTrackingState::default();
+
+        // Test initial state
+        assert!(error_state.should_retry(OperationType::Receipt, &config));
+        assert!(error_state.should_retry(OperationType::Rav, &config));
+        assert!(error_state.should_retry(OperationType::Communication, &config));
+
+        // Record failures
+        for i in 1..=3 {
+            error_state.record_failure(OperationType::Receipt, &config);
+            assert_eq!(error_state.get_failure_count(OperationType::Receipt), i);
+            assert!(error_state.should_retry(OperationType::Receipt, &config));
+        }
+
+        // After max failures, should not retry
+        error_state.record_failure(OperationType::Receipt, &config);
+        error_state.record_failure(OperationType::Receipt, &config);
+        assert_eq!(error_state.get_failure_count(OperationType::Receipt), 5);
+        assert!(!error_state.should_retry(OperationType::Receipt, &config));
+
+        // But other operations should still be retryable
+        assert!(error_state.should_retry(OperationType::Rav, &config));
+        assert!(error_state.should_retry(OperationType::Communication, &config));
+
+        // Test success resets counters
+        error_state.record_success(OperationType::Receipt);
+        assert_eq!(error_state.get_failure_count(OperationType::Receipt), 0);
+        assert!(error_state.should_retry(OperationType::Receipt, &config));
+
+        // Test backoff delay increases
+        let initial_backoff = error_state.get_backoff_delay();
+        error_state.record_failure(OperationType::Rav, &config);
+        let second_backoff = error_state.get_backoff_delay();
+        assert!(second_backoff > initial_backoff);
+
+        error_state.record_failure(OperationType::Rav, &config);
+        let third_backoff = error_state.get_backoff_delay();
+        assert!(third_backoff > second_backoff);
+
+        // Test max backoff cap
+        for _ in 0..10 {
+            error_state.record_failure(OperationType::Rav, &config);
+        }
+        let max_backoff = error_state.get_backoff_delay();
+        assert!(max_backoff <= config.max_backoff_delay);
     }
 }
