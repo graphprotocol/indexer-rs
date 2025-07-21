@@ -636,7 +636,7 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
         );
 
         // Simulate potential aggregator communication failure (5% chance)
-        if state.unaggregated_fees.counter.is_multiple_of(20) {
+        if state.unaggregated_fees.counter % 20 == 0 {
             return Err(anyhow::anyhow!(
                 "Simulated aggregator communication timeout"
             ));
