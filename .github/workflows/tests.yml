@@ -41,6 +41,8 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Install libsasl2-dev
         run: apt-get update && apt-get install -y libsasl2-dev
+      - name: Install protobuf compiler
+        run: apt-get update && apt-get install protobuf-compiler -y
       - name: Cache dependencies
         uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2.7.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -52,8 +54,6 @@ jobs:
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
-      - name: Install protobuf compiler
-        run: apt-get update && apt-get install protobuf-compiler -y
       - name: Install sqlx
         run: cargo install sqlx-cli --no-default-features --features postgres
       - name: Run the test sqlx migrations
@@ -73,6 +73,8 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Install libsasl2-dev
         run: apt-get update && apt-get install -y libsasl2-dev
+      - name: Install protobuf compiler
+        run: apt-get update && apt-get install protobuf-compiler -y
       - name: Cache dependencies
         uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2.7.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -84,8 +86,6 @@ jobs:
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
-      - name: Install protobuf compiler
-        run: apt-get update && apt-get install protobuf-compiler -y
       - run: |
           rustup component add clippy
           # Temporarily allowing dead-code, while denying all other warnings
@@ -94,31 +94,28 @@ jobs:
   test-and-coverage:
     name: cargo test and coverage
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      actions: read
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_HOST_AUTH_METHOD: trust
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
     container:
       image: rust:1.86-bookworm
+      options: --privileged -v /var/run/docker.sock:/var/run/docker.sock
     env:
-      DATABASE_URL: postgres://postgres@postgres:5432
       CI: true
+      SQLX_OFFLINE: true
+      DOCKER_HOST: unix:///var/run/docker.sock
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Install Docker CLI and verify
+        run: |
+          apt-get update
+          apt-get install -y docker.io
+          # Verify Docker is accessible
+          docker version
+          docker ps
+          # Pre-pull the postgres:15 image to avoid timeouts
+          docker pull postgres:15
       - name: Install libsasl2-dev
         run: apt-get update && apt-get install -y libsasl2-dev
+      - name: Install protobuf compiler
+        run: apt-get update && apt-get install protobuf-compiler -y
       - name: Cache dependencies
         uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2.7.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -127,17 +124,11 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
-      - name: Install protobuf compiler
-        run: apt-get update && apt-get install protobuf-compiler -y
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Install sqlx
-        run: cargo install sqlx-cli --no-default-features --features postgres
-      - name: Run the test sqlx migrations
-        run: cargo sqlx migrate run
       - name: Run tests and generate coverage report
         run: cargo llvm-cov test --all-features --workspace --lcov --output-path lcov.info
       - name: Upload coverage to Coveralls
@@ -149,30 +140,27 @@ jobs:
   test-docs:
     name: cargo test docs code snippets
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      actions: read
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_HOST_AUTH_METHOD: trust
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
     container:
       image: rust:1.86-bookworm
+      options: --privileged -v /var/run/docker.sock:/var/run/docker.sock
     env:
-      DATABASE_URL: postgres://postgres@postgres:5432
+      SQLX_OFFLINE: true
+      DOCKER_HOST: unix:///var/run/docker.sock
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Install Docker CLI and verify
+        run: |
+          apt-get update
+          apt-get install -y docker.io
+          # Verify Docker is accessible
+          docker version
+          docker ps
+          # Pre-pull the postgres:15 image to avoid timeouts
+          docker pull postgres:15
       - name: Install libsasl2-dev
         run: apt-get update && apt-get install -y libsasl2-dev
+      - name: Install protobuf compiler
+        run: apt-get update && apt-get install protobuf-compiler -y
       - name: Cache dependencies
         uses: Swatinem/rust-cache@f0deed1e0edfc6a9be95417288c0e1099b1eeec3 # v2.7.7
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
@@ -181,14 +169,8 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
-      - name: Install protobuf compiler
-        run: apt-get update && apt-get install protobuf-compiler -y
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
-      - name: Install sqlx
-        run: cargo install sqlx-cli --no-default-features --features postgres
-      - name: Run the test sqlx migrations
-        run: cargo sqlx migrate run
       - name: Test documentation code snippets
         run: cargo test --doc --all-features --workspace
