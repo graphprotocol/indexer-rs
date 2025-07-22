@@ -391,7 +391,7 @@ mod test {
 
     use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
     use indexer_monitor::EscrowAccounts;
-    use rstest::{fixture, rstest};
+    use rstest::fixture;
     use sqlx::PgPool;
     use tap_core::{
         manager::adapters::{ReceiptDelete, ReceiptRead},
@@ -446,17 +446,28 @@ mod test {
 
     /// Insert a single receipt and retrieve it from the database using the adapter.
     /// The point here it to test the deserialization of large numbers.
-    #[rstest]
-    #[case(legacy_adapter(_pgpool.clone(), _escrow.clone()))]
-    #[case(horizon_adapter(_pgpool.clone(), _escrow.clone()))]
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn insert_and_retrieve_single_receipt<T>(
-        #[ignore] _pgpool: PgPool,
-        #[from(escrow_accounts)] _escrow: Receiver<EscrowAccounts>,
-        #[case]
-        #[future(awt)]
-        context: TapAgentContext<T>,
-    ) where
+    #[tokio::test]
+    async fn insert_and_retrieve_single_receipt_legacy() {
+        // Set up test database with testcontainers
+        let test_db = test_assets::setup_shared_test_db().await;
+        let escrow_accounts = escrow_accounts();
+        let context = legacy_adapter(test_db.pool, escrow_accounts).await;
+
+        insert_and_retrieve_single_receipt_impl(context).await;
+    }
+
+    #[tokio::test]
+    async fn insert_and_retrieve_single_receipt_horizon() {
+        // Set up test database with testcontainers
+        let test_db = test_assets::setup_shared_test_db().await;
+        let escrow_accounts = escrow_accounts();
+        let context = horizon_adapter(test_db.pool, escrow_accounts).await;
+
+        insert_and_retrieve_single_receipt_impl(context).await;
+    }
+
+    async fn insert_and_retrieve_single_receipt_impl<T>(context: TapAgentContext<T>)
+    where
         T: CreateReceipt<Id = Address>,
         TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
     {
@@ -824,23 +835,37 @@ mod test {
         }
     }
 
-    #[rstest]
-    #[case(legacy_adapter(_pgpool.clone(), _escrow.clone()))]
-    #[case(horizon_adapter(_pgpool.clone(), _escrow.clone()))]
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn retrieve_receipts_with_limit<T>(
-        #[ignore] _pgpool: PgPool,
-        #[from(escrow_accounts)] _escrow: Receiver<EscrowAccounts>,
-        #[case]
-        #[future(awt)]
+    struct TestContextWithContainer<T> {
         context: TapAgentContext<T>,
-    ) where
-        T: CreateReceipt<Id = Address>,
-        TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
-    {
+        _test_db: test_assets::TestDatabase,
+    }
+
+    impl<T> std::ops::Deref for TestContextWithContainer<T> {
+        type Target = TapAgentContext<T>;
+        fn deref(&self) -> &Self::Target {
+            &self.context
+        }
+    }
+
+    #[tokio::test]
+    async fn retrieve_receipts_with_limit_legacy() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let escrow_accounts = watch::channel(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, U256::from(1000))]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ))
+        .1;
+        let context_wrapper: TestContextWithContainer<Legacy> = TestContextWithContainer {
+            context: TapAgentContext::builder()
+                .pgpool(test_db.pool.clone())
+                .escrow_accounts(escrow_accounts)
+                .build(),
+            _test_db: test_db,
+        };
+        let context = &context_wrapper.context;
         // Creating 100 receipts with timestamps 42 to 141
         for i in 0..100 {
-            let receipt = T::create_received_receipt(
+            let receipt = Legacy::create_received_receipt(
                 ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
@@ -866,7 +891,7 @@ mod test {
 
         // add a copy in the same timestamp
         for i in 0..100 {
-            let receipt = T::create_received_receipt(
+            let receipt = Legacy::create_received_receipt(
                 ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
@@ -891,24 +916,96 @@ mod test {
         assert_eq!(recovered_received_receipt_vec.len(), 49);
     }
 
-    #[rstest]
-    #[case(legacy_adapter(pgpool.clone(), escrow_accounts.clone()))]
-    #[case(horizon_adapter(pgpool.clone(), escrow_accounts.clone()))]
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn retrieve_receipts_in_timestamp_range<T>(
-        #[ignore] pgpool: PgPool,
-        #[from(escrow_accounts)] escrow_accounts: Receiver<EscrowAccounts>,
-        #[case]
-        #[future(awt)]
-        context: TapAgentContext<T>,
-    ) where
-        T: CreateReceipt<Id = Address>,
-        TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
-    {
+    #[tokio::test]
+    async fn retrieve_receipts_with_limit_horizon() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let escrow_accounts = watch::channel(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, U256::from(1000))]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ))
+        .1;
+        let context_wrapper: TestContextWithContainer<Horizon> = TestContextWithContainer {
+            context: TapAgentContext::builder()
+                .pgpool(test_db.pool.clone())
+                .escrow_accounts(escrow_accounts)
+                .build(),
+            _test_db: test_db,
+        };
+        let context = &context_wrapper.context;
+
+        // Creating 100 receipts with timestamps 42 to 141
+        for i in 0..100 {
+            let receipt = Horizon::create_received_receipt(
+                ALLOCATION_ID_0,
+                &SIGNER.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            );
+            store_receipt(&context.pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
+
+        let recovered_received_receipt_vec = context
+            .retrieve_receipts_in_timestamp_range(0..141, Some(10))
+            .await
+            .unwrap();
+        assert_eq!(recovered_received_receipt_vec.len(), 10);
+
+        let recovered_received_receipt_vec = context
+            .retrieve_receipts_in_timestamp_range(0..141, Some(50))
+            .await
+            .unwrap();
+        assert_eq!(recovered_received_receipt_vec.len(), 50);
+
+        // add a copy in the same timestamp
+        for i in 0..100 {
+            let receipt = Horizon::create_received_receipt(
+                ALLOCATION_ID_0,
+                &SIGNER.0,
+                i + 684,
+                i + 43,
+                (i + 124).into(),
+            );
+            store_receipt(&context.pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
+
+        let recovered_received_receipt_vec = context
+            .retrieve_receipts_in_timestamp_range(0..141, Some(10))
+            .await
+            .unwrap();
+        assert_eq!(recovered_received_receipt_vec.len(), 9);
+
+        let recovered_received_receipt_vec = context
+            .retrieve_receipts_in_timestamp_range(0..141, Some(50))
+            .await
+            .unwrap();
+        assert_eq!(recovered_received_receipt_vec.len(), 49);
+    }
+
+    #[tokio::test]
+    async fn retrieve_receipts_in_timestamp_range_legacy() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let escrow_accounts = watch::channel(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, U256::from(1000))]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ))
+        .1;
+        let context_wrapper: TestContextWithContainer<Legacy> = TestContextWithContainer {
+            context: TapAgentContext::builder()
+                .pgpool(test_db.pool.clone())
+                .escrow_accounts(escrow_accounts.clone())
+                .build(),
+            _test_db: test_db,
+        };
+        let context = &context_wrapper.context;
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();
         for i in 0..10 {
-            received_receipt_vec.push(T::create_received_receipt(
+            received_receipt_vec.push(Legacy::create_received_receipt(
                 ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
@@ -917,14 +1014,14 @@ mod test {
             ));
 
             // Adding irrelevant receipts to make sure they are not retrieved
-            received_receipt_vec.push(T::create_received_receipt(
+            received_receipt_vec.push(Legacy::create_received_receipt(
                 ALLOCATION_ID_IRRELEVANT,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
                 (i + 124).into(),
             ));
-            received_receipt_vec.push(T::create_received_receipt(
+            received_receipt_vec.push(Legacy::create_received_receipt(
                 ALLOCATION_ID_0,
                 &SENDER_IRRELEVANT.0,
                 i + 684,
@@ -937,7 +1034,7 @@ mod test {
         let mut received_receipt_id_vec = Vec::new();
         for received_receipt in received_receipt_vec.iter() {
             received_receipt_id_vec.push(
-                store_receipt(&pgpool, received_receipt.signed_receipt())
+                store_receipt(&context.pgpool, received_receipt.signed_receipt())
                     .await
                     .unwrap(),
             );
@@ -1016,24 +1113,27 @@ mod test {
         }
     }
 
-    #[rstest]
-    #[case(legacy_adapter(_pgpool.clone(), escrow_accounts.clone()))]
-    #[case(horizon_adapter(_pgpool.clone(), escrow_accounts.clone()))]
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn remove_receipts_in_timestamp_range<T>(
-        #[ignore] _pgpool: PgPool,
-        #[from(escrow_accounts)] escrow_accounts: Receiver<EscrowAccounts>,
-        #[case]
-        #[future(awt)]
-        context: TapAgentContext<T>,
-    ) where
-        T: CreateReceipt<Id = Address> + RemoveRange,
-        TapAgentContext<T>: ReceiptRead<TapReceipt> + ReceiptDelete,
-    {
+    #[tokio::test]
+    async fn retrieve_receipts_in_timestamp_range_horizon() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let escrow_accounts = watch::channel(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, U256::from(1000))]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ))
+        .1;
+        let context_wrapper: TestContextWithContainer<Horizon> = TestContextWithContainer {
+            context: TapAgentContext::builder()
+                .pgpool(test_db.pool.clone())
+                .escrow_accounts(escrow_accounts.clone())
+                .build(),
+            _test_db: test_db,
+        };
+        let context = &context_wrapper.context;
+
         // Creating 10 receipts with timestamps 42 to 51
         let mut received_receipt_vec = Vec::new();
         for i in 0..10 {
-            received_receipt_vec.push(T::create_received_receipt(
+            received_receipt_vec.push(Horizon::create_received_receipt(
                 ALLOCATION_ID_0,
                 &SIGNER.0,
                 i + 684,
@@ -1042,14 +1142,141 @@ mod test {
             ));
 
             // Adding irrelevant receipts to make sure they are not retrieved
-            received_receipt_vec.push(T::create_received_receipt(
+            received_receipt_vec.push(Horizon::create_received_receipt(
                 ALLOCATION_ID_IRRELEVANT,
                 &SIGNER.0,
                 i + 684,
                 i + 42,
                 (i + 124).into(),
             ));
-            received_receipt_vec.push(T::create_received_receipt(
+            received_receipt_vec.push(Horizon::create_received_receipt(
+                ALLOCATION_ID_0,
+                &SENDER_IRRELEVANT.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
+        }
+
+        // Storing the receipts
+        let mut received_receipt_id_vec = Vec::new();
+        for received_receipt in received_receipt_vec.iter() {
+            received_receipt_id_vec.push(
+                store_receipt(&context.pgpool, received_receipt.signed_receipt())
+                    .await
+                    .unwrap(),
+            );
+        }
+
+        macro_rules! test_ranges{
+            ($($arg: expr), +) => {
+                {
+                    $(
+                        assert!(
+                        retrieve_range_and_check(&context, escrow_accounts.clone(), &received_receipt_vec, $arg)
+                            .await
+                            .is_ok());
+                    )+
+                }
+            };
+        }
+
+        #[allow(clippy::reversed_empty_ranges)]
+        {
+            test_ranges!(
+                ..,
+                ..41,
+                ..42,
+                ..43,
+                ..50,
+                ..51,
+                ..52,
+                ..=41,
+                ..=42,
+                ..=43,
+                ..=50,
+                ..=51,
+                ..=52,
+                21..=41,
+                21..=42,
+                21..=43,
+                21..=50,
+                21..=51,
+                21..=52,
+                41..=41,
+                41..=42,
+                41..=43,
+                41..=50,
+                50..=48,
+                41..=51,
+                41..=52,
+                51..=51,
+                51..=52,
+                21..41,
+                21..42,
+                21..43,
+                21..50,
+                21..51,
+                21..52,
+                41..41,
+                41..42,
+                41..43,
+                41..50,
+                50..48,
+                41..51,
+                41..52,
+                51..51,
+                51..52,
+                41..,
+                42..,
+                43..,
+                50..,
+                51..,
+                52..,
+                (Bound::Excluded(42), Bound::Excluded(43)),
+                (Bound::Excluded(43), Bound::Excluded(43)),
+                (Bound::Excluded(43), Bound::Excluded(44)),
+                (Bound::Excluded(43), Bound::Excluded(45))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn remove_receipts_in_timestamp_range_legacy() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let escrow_accounts = watch::channel(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, U256::from(1000))]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ))
+        .1;
+        let context_wrapper: TestContextWithContainer<Legacy> = TestContextWithContainer {
+            context: TapAgentContext::builder()
+                .pgpool(test_db.pool.clone())
+                .escrow_accounts(escrow_accounts.clone())
+                .build(),
+            _test_db: test_db,
+        };
+        let context = &context_wrapper.context;
+        // Creating 10 receipts with timestamps 42 to 51
+        let mut received_receipt_vec = Vec::new();
+        for i in 0..10 {
+            received_receipt_vec.push(Legacy::create_received_receipt(
+                ALLOCATION_ID_0,
+                &SIGNER.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
+
+            // Adding irrelevant receipts to make sure they are not retrieved
+            received_receipt_vec.push(Legacy::create_received_receipt(
+                ALLOCATION_ID_IRRELEVANT,
+                &SIGNER.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
+            received_receipt_vec.push(Legacy::create_received_receipt(
                 ALLOCATION_ID_0,
                 &SENDER_IRRELEVANT.0,
                 i + 684,
@@ -1063,7 +1290,125 @@ mod test {
                 {
                     $(
                         assert!(
-                            T::remove_range_and_check(&context, escrow_accounts.clone(), &received_receipt_vec, $arg)
+                            Legacy::remove_range_and_check(&context, escrow_accounts.clone(), &received_receipt_vec, $arg)
+                            .await.is_ok()
+                        );
+                    ) +
+                }
+            };
+        }
+
+        #[allow(clippy::reversed_empty_ranges)]
+        {
+            test_ranges!(
+                ..,
+                ..41,
+                ..42,
+                ..43,
+                ..50,
+                ..51,
+                ..52,
+                ..=41,
+                ..=42,
+                ..=43,
+                ..=50,
+                ..=51,
+                ..=52,
+                21..=41,
+                21..=42,
+                21..=43,
+                21..=50,
+                21..=51,
+                21..=52,
+                41..=41,
+                41..=42,
+                41..=43,
+                41..=50,
+                50..=48,
+                41..=51,
+                41..=52,
+                51..=51,
+                51..=52,
+                21..41,
+                21..42,
+                21..43,
+                21..50,
+                21..51,
+                21..52,
+                41..41,
+                41..42,
+                41..43,
+                41..50,
+                50..48,
+                41..51,
+                41..52,
+                51..51,
+                51..52,
+                41..,
+                42..,
+                43..,
+                50..,
+                51..,
+                52..,
+                (Bound::Excluded(42), Bound::Excluded(43)),
+                (Bound::Excluded(43), Bound::Excluded(43)),
+                (Bound::Excluded(43), Bound::Excluded(44)),
+                (Bound::Excluded(43), Bound::Excluded(45))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn remove_receipts_in_timestamp_range_horizon() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let escrow_accounts = watch::channel(EscrowAccounts::new(
+            HashMap::from([(SENDER.1, U256::from(1000))]),
+            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+        ))
+        .1;
+        let context_wrapper: TestContextWithContainer<Horizon> = TestContextWithContainer {
+            context: TapAgentContext::builder()
+                .pgpool(test_db.pool.clone())
+                .escrow_accounts(escrow_accounts.clone())
+                .build(),
+            _test_db: test_db,
+        };
+        let context = &context_wrapper.context;
+
+        // Creating 10 receipts with timestamps 42 to 51
+        let mut received_receipt_vec = Vec::new();
+        for i in 0..10 {
+            received_receipt_vec.push(Horizon::create_received_receipt(
+                ALLOCATION_ID_0,
+                &SIGNER.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
+
+            // Adding irrelevant receipts to make sure they are not retrieved
+            received_receipt_vec.push(Horizon::create_received_receipt(
+                ALLOCATION_ID_IRRELEVANT,
+                &SIGNER.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
+            received_receipt_vec.push(Horizon::create_received_receipt(
+                ALLOCATION_ID_0,
+                &SENDER_IRRELEVANT.0,
+                i + 684,
+                i + 42,
+                (i + 124).into(),
+            ));
+        }
+
+        macro_rules! test_ranges{
+            ($($arg: expr), +) => {
+                {
+                    $(
+                        assert!(
+                            Horizon::remove_range_and_check(&context, escrow_accounts.clone(), &received_receipt_vec, $arg)
                             .await.is_ok()
                         );
                     ) +

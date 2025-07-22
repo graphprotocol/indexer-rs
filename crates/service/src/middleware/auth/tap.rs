@@ -164,12 +164,10 @@ mod tests {
     }
 
     #[rstest]
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_tap_valid_receipt(
-        metric: &'static prometheus::CounterVec,
-        #[ignore] pgpool: PgPool,
-    ) {
-        let mut service = service(metric, pgpool.clone()).await;
+    #[tokio::test]
+    async fn test_tap_valid_receipt(metric: &'static prometheus::CounterVec) {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let mut service = service(metric, test_db.pool.clone()).await;
 
         let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
 
@@ -182,7 +180,7 @@ mod tests {
         // verify receipts
         assert_while_retry!({
             sqlx::query!("SELECT * FROM scalar_tap_receipts")
-                .fetch_all(&pgpool)
+                .fetch_all(&test_db.pool)
                 .await
                 .unwrap()
                 .is_empty()
@@ -190,12 +188,10 @@ mod tests {
     }
 
     #[rstest]
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_invalid_receipt_with_failed_metric(
-        metric: &'static prometheus::CounterVec,
-        #[ignore] pgpool: PgPool,
-    ) {
-        let mut service = service(metric, pgpool.clone()).await;
+    #[tokio::test]
+    async fn test_invalid_receipt_with_failed_metric(metric: &'static prometheus::CounterVec) {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let mut service = service(metric, test_db.pool.clone()).await;
         // if it fails tap receipt, should return failed to process payment + tap message
 
         assert_eq!(metric.collect().first().unwrap().get_metric().len(), 0);
@@ -224,12 +220,10 @@ mod tests {
     }
 
     #[rstest]
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_tap_missing_signed_receipt(
-        metric: &'static prometheus::CounterVec,
-        #[ignore] pgpool: PgPool,
-    ) {
-        let mut service = service(metric, pgpool.clone()).await;
+    #[tokio::test]
+    async fn test_tap_missing_signed_receipt(metric: &'static prometheus::CounterVec) {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let mut service = service(metric, test_db.pool.clone()).await;
         // if it doesnt contain the signed receipt
         // should return payment required
         let req = Request::new(Body::default());

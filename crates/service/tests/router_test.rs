@@ -12,7 +12,6 @@ use indexer_service_rs::{
     QueryBody,
 };
 use reqwest::{Method, StatusCode, Url};
-use sqlx::PgPool;
 use test_assets::{
     create_signed_receipt, SignedReceiptRequest, INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN,
 };
@@ -24,8 +23,10 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-#[sqlx::test(migrations = "../../migrations")]
-async fn full_integration_test(database: PgPool) {
+#[tokio::test]
+async fn full_integration_test() {
+    let test_db = test_assets::setup_shared_test_db().await;
+    let database = test_db.pool;
     let http_client = reqwest::Client::builder()
         .tcp_nodelay(true)
         .build()

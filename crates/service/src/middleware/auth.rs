@@ -69,9 +69,10 @@ mod tests {
         service
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_composition_header_valid(pgpool: PgPool) {
-        let mut service = service(pgpool.clone()).await;
+    #[tokio::test]
+    async fn test_composition_header_valid() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let mut service = service(test_db.pool.clone()).await;
         // should allow queries that contains the free token
         // if the token does not match, return payment required
         let mut req = Request::new(Default::default());
@@ -83,9 +84,10 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_composition_header_invalid(pgpool: PgPool) {
-        let mut service = service(pgpool.clone()).await;
+    #[tokio::test]
+    async fn test_composition_header_invalid() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let mut service = service(test_db.pool.clone()).await;
 
         // if the token exists but is wrong, try the receipt
         let mut req = Request::new(Default::default());
@@ -96,9 +98,10 @@ mod tests {
         assert_eq!(res.status(), StatusCode::PAYMENT_REQUIRED);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_composition_with_receipt(pgpool: PgPool) {
-        let mut service = service(pgpool.clone()).await;
+    #[tokio::test]
+    async fn test_composition_with_receipt() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let mut service = service(test_db.pool.clone()).await;
 
         let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
 
@@ -111,16 +114,17 @@ mod tests {
         // verify receipts
         assert_while_retry!({
             let result = sqlx::query!("SELECT * FROM scalar_tap_receipts")
-                .fetch_all(&pgpool)
+                .fetch_all(&test_db.pool)
                 .await
                 .unwrap();
             result.is_empty()
         });
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_composition_without_header_or_receipt(pgpool: PgPool) {
-        let mut service = service(pgpool.clone()).await;
+    #[tokio::test]
+    async fn test_composition_without_header_or_receipt() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let mut service = service(test_db.pool.clone()).await;
         // if it has neither, should return payment required
         let req = Request::new(Default::default());
         let res = service.call(req).await.unwrap();

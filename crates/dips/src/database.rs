@@ -135,7 +135,6 @@ pub(crate) mod test {
     use std::sync::Arc;
 
     use build_info::chrono::Duration;
-    use sqlx::PgPool;
     use thegraph_core::alloy::{
         primitives::{ruint::aliases::U256, Address},
         sol_types::SolValue,
@@ -145,9 +144,10 @@ pub(crate) mod test {
     use super::*;
     use crate::{CancellationRequest, IndexingAgreementVoucher};
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_store_agreement(pool: PgPool) {
-        let store = Arc::new(PsqlAgreementStore { pool });
+    #[tokio::test]
+    async fn test_store_agreement() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let store = Arc::new(PsqlAgreementStore { pool: test_db.pool });
         let id = Uuid::now_v7();
 
         // Create metadata first
@@ -196,9 +196,10 @@ pub(crate) mod test {
         assert_eq!(row.subgraph_deployment_id, "Qm123");
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_get_agreement_by_id(pool: PgPool) {
-        let store = Arc::new(PsqlAgreementStore { pool });
+    #[tokio::test]
+    async fn test_get_agreement_by_id() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let store = Arc::new(PsqlAgreementStore { pool: test_db.pool });
         let id = Uuid::parse_str("a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7d9").unwrap();
 
         // Create metadata first
@@ -277,9 +278,10 @@ pub(crate) mod test {
         assert!(!stored_agreement.cancelled);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_cancel_agreement(pool: PgPool) {
-        let store = Arc::new(PsqlAgreementStore { pool });
+    #[tokio::test]
+    async fn test_cancel_agreement() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let store = Arc::new(PsqlAgreementStore { pool: test_db.pool });
         let id = Uuid::parse_str("a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7e9").unwrap();
 
         // Create metadata first

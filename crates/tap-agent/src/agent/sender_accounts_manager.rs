@@ -1148,10 +1148,9 @@ mod tests {
     use ractor::{Actor, ActorRef, ActorStatus};
     use reqwest::Url;
     use ruint::aliases::U256;
-    use serial_test::serial;
     use sqlx::{postgres::PgListener, PgPool};
     use test_assets::{
-        assert_while_retry, flush_messages, pgpool, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
+        assert_while_retry, flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
     use thegraph_core::alloy::hex::ToHexExt;
     use tokio::sync::{
@@ -1192,43 +1191,26 @@ mod tests {
     struct TestState {
         prefix: String,
         state: State,
+        _test_db: test_assets::TestDatabase,
     }
 
-    #[rstest::fixture]
-    async fn state(#[future(awt)] pgpool: PgPool) -> TestState {
-        let (prefix, state) = create_state(pgpool.clone()).await;
-        TestState { prefix, state }
-    }
-    #[rstest::fixture]
-    async fn receipts(#[future(awt)] pgpool: PgPool) {
-        for i in 1..=10 {
-            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_receipt(&pgpool.clone(), receipt.signed_receipt())
-                .await
-                .unwrap();
+    async fn setup_state() -> TestState {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let (prefix, state) = create_state(test_db.pool.clone()).await;
+        TestState {
+            prefix,
+            state,
+            _test_db: test_db,
         }
     }
-    #[rstest::fixture]
-    async fn supervisor() -> ActorRef<()> {
+    async fn setup_supervisor() -> ActorRef<()> {
         DummyActor::spawn().await
     }
 
-    #[rstest::fixture]
-    pub async fn pglistener(#[future(awt)] pgpool: PgPool) -> PgListener {
-        let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
-        pglistener
-            .listen("scalar_tap_receipt_notification")
-            .await
-            .expect(
-                "should be able to subscribe to Postgres Notify events on the channel \
-                'scalar_tap_receipt_notification'",
-            );
-        pglistener
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_create_sender_accounts_manager(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_create_sender_accounts_manager() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let (_, _, (actor, join_handle)) =
             create_sender_accounts_manager().pgpool(pgpool).call().await;
         actor.stop_and_wait(None, None).await.unwrap();
@@ -1265,10 +1247,10 @@ mod tests {
         )
     }
 
-    #[rstest::rstest]
     #[tokio::test]
-    #[serial]
-    async fn test_pending_sender_allocations(#[future(awt)] pgpool: PgPool) {
+    async fn test_pending_sender_allocations() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let (_, state) = create_state(pgpool.clone()).await;
         // add receipts to the database
         for i in 1..=10 {
@@ -1289,9 +1271,10 @@ mod tests {
         assert_eq!(pending_allocation_id.get(&SENDER.1).unwrap().len(), 2);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    #[serial]
-    async fn test_update_sender_account(pgpool: PgPool) {
+    #[tokio::test]
+    async fn test_update_sender_account() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let (prefix, mut notify, (actor, join_handle)) =
             create_sender_accounts_manager().pgpool(pgpool).call().await;
 
@@ -1338,13 +1321,10 @@ mod tests {
         join_handle.await.unwrap();
     }
 
-    #[rstest::rstest]
     #[tokio::test]
-    #[serial]
-    async fn test_create_sender_account(
-        #[future(awt)] state: TestState,
-        #[future(awt)] supervisor: ActorRef<()>,
-    ) {
+    async fn test_create_sender_account() {
+        let state = setup_state().await;
+        let supervisor = setup_supervisor().await;
         // we wait to check if the sender is created
         state
             .state
@@ -1364,13 +1344,11 @@ mod tests {
         assert!(actor_ref.is_some());
     }
 
-    #[rstest::rstest]
     #[tokio::test]
-    #[serial]
-    async fn test_deny_sender_account_on_failure(
-        #[future(awt)] pgpool: PgPool,
-        #[future(awt)] supervisor: ActorRef<()>,
-    ) {
+    async fn test_deny_sender_account_on_failure() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+        let supervisor = DummyActor::spawn().await;
         let (_prefix, state) = create_state(pgpool.clone()).await;
         state
             .create_or_deny_sender(
@@ -1400,10 +1378,10 @@ mod tests {
         assert!(denied, "Sender was not denied after failing.");
     }
 
-    #[rstest::rstest]
     #[tokio::test]
-    #[serial]
-    async fn test_receive_notifications(#[future(awt)] pgpool: PgPool) {
+    async fn test_receive_notifications() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let prefix = generate_random_prefix();
         // create dummy allocation
 
@@ -1471,10 +1449,10 @@ mod tests {
         new_receipts_watcher_handle.abort();
     }
 
-    #[rstest::rstest]
     #[tokio::test]
-    #[serial]
-    async fn test_manager_killed_in_database_connection(#[future(awt)] pgpool: PgPool) {
+    async fn test_manager_killed_in_database_connection() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
         let mut pglistener = PgListener::connect_with(&pgpool).await.unwrap();
         pglistener
             .listen("scalar_tap_receipt_notification")
@@ -1503,7 +1481,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_create_allocation_id() {
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
         let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);

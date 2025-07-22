@@ -323,7 +323,6 @@ mod test {
 
     use indexer_monitor::EscrowAccounts;
     use rstest::rstest;
-    use sqlx::PgPool;
     use tap_core::signed_message::Eip712SignedMessage;
     use test_assets::TAP_SIGNER as SIGNER;
     use tokio::sync::watch;
@@ -349,31 +348,52 @@ mod test {
     const TIMESTAMP_NS: u64 = u64::MAX - 10;
     const VALUE_AGGREGATE: u128 = u128::MAX;
 
-    async fn legacy_adapter(pgpool: PgPool) -> TapAgentContext<Legacy> {
-        TapAgentContext::builder()
-            .pgpool(pgpool)
-            .escrow_accounts(watch::channel(EscrowAccounts::default()).1)
-            .build()
+    struct TestContextWithContainer<T> {
+        context: TapAgentContext<T>,
+        _test_db: test_assets::TestDatabase,
     }
 
-    async fn horizon_adapter(pgpool: PgPool) -> TapAgentContext<Horizon> {
-        TapAgentContext::builder()
-            .pgpool(pgpool)
+    impl<T> std::ops::Deref for TestContextWithContainer<T> {
+        type Target = TapAgentContext<T>;
+        fn deref(&self) -> &Self::Target {
+            &self.context
+        }
+    }
+
+    async fn legacy_adapter_with_testcontainers() -> TestContextWithContainer<Legacy> {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let context = TapAgentContext::builder()
+            .pgpool(test_db.pool.clone())
             .escrow_accounts(watch::channel(EscrowAccounts::default()).1)
-            .build()
+            .build();
+        TestContextWithContainer {
+            context,
+            _test_db: test_db,
+        }
+    }
+
+    async fn horizon_adapter_with_testcontainers() -> TestContextWithContainer<Horizon> {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let context = TapAgentContext::builder()
+            .pgpool(test_db.pool.clone())
+            .escrow_accounts(watch::channel(EscrowAccounts::default()).1)
+            .build();
+        TestContextWithContainer {
+            context,
+            _test_db: test_db,
+        }
     }
 
     /// Insert a single receipt and retrieve it from the database using the adapter.
     /// The point here it to test the deserialization of large numbers.
     #[rstest]
-    #[case(legacy_adapter(_pgpool.clone()))]
-    #[case(horizon_adapter(_pgpool.clone()))]
-    #[sqlx::test(migrations = "../../migrations")]
+    #[case(legacy_adapter_with_testcontainers())]
+    #[case(horizon_adapter_with_testcontainers())]
+    #[tokio::test]
     async fn update_and_retrieve_rav<T>(
-        #[ignore] _pgpool: PgPool,
         #[case]
         #[future(awt)]
-        context: TapAgentContext<T>,
+        context: TestContextWithContainer<T>,
     ) where
         T: CreateRav + std::fmt::Debug,
         TapAgentContext<T>: RavRead<T::Rav> + RavStore<T::Rav>,
