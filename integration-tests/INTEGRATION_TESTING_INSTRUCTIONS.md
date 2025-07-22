@@ -245,6 +245,20 @@ just down
    - RAV generation depends on receipt volume and timing
    - Check service health with `docker ps`
 
+5. **TAP Agent panic on receipt processing** ✅ **FULLY RESOLVED**:
+   - **Symptom**: Receipts are stored but no unaggregated fees accumulate, system crashes
+   - **Root Cause**: Collection ID parsing errors with `.expect()` causing panics in notification handler + database padding from `character(64)` fields
+   - **Fix Applied**:
+     - Added error handling to prevent panics on malformed collection IDs
+     - Added `.trim()` to handle padded collection IDs from fixed-length database fields
+     - Added debug logging for notification processing
+   - **Status**: ✅ **COMPLETELY FIXED** - system processes receipts and accumulates fees correctly
+   - **Verification**:
+     - ✅ Logs show successful notification processing: `Successfully handled notification`
+     - ✅ Metrics show accumulated fees: `tap_unaggregated_fees_grt_total` > 0
+     - ✅ Load tests process 50+ receipts without errors
+     - ✅ No panics or crashes during continuous operation
+
 ### Debug Commands
 
 **Check contract deployment**:
@@ -266,6 +280,48 @@ docker exec chain cast block-number --rpc-url http://localhost:8545
 ```bash
 # Check for TAP receipts
 docker exec postgres psql -U postgres -d indexer_components_1 -c "SELECT COUNT(*) FROM scalar_tap_receipts;"
+docker exec postgres psql -U postgres -d indexer_components_1 -c "SELECT COUNT(*) FROM tap_horizon_receipts;"
+```
+
+**Service restart after issues**:
+
+If you encounter notification processing issues or panics, restart the services:
+
+```bash
+# Restart both indexer-service and tap-agent
+cd contrib && docker compose -f docker-compose.dev.yml restart indexer-service tap-agent
+
+# Or rebuild and restart (if code changes were made)
+just reload
+```
+
+**Verify notification listeners**:
+
+```bash
+# Check that both notification channels are being listened to
+docker logs tap-agent 2>&1 | grep "LISTEN"
+# Should show:
+# LISTEN "scalar_tap_receipt_notification"      (V1/Legacy)
+# LISTEN "tap_horizon_receipt_notification"     (V2/Horizon)
+```
+
+**Check receipt processing is working**:
+
+```bash
+# Verify receipts are being processed into unaggregated fees (should show non-zero values)
+curl -s http://localhost:7300/metrics | grep -E "tap_unaggregated_fees|tap_ravs_created"
+
+# Check database for stored receipts
+docker exec postgres psql -U postgres -d indexer_components_1 -c "SELECT COUNT(*), SUM(value) FROM tap_horizon_receipts;"
+
+# Verify successful notification processing (should show "Successfully handled notification")
+docker logs tap-agent --tail 20 | grep -E "(Successfully handled notification|Received notification)"
+
+# Verify no recent panics in logs (should report "No recent panics")
+docker logs tap-agent --since="5m" 2>&1 | grep -i panic || echo "No recent panics - system healthy"
+
+# Quick load test to verify processing (should show 50 successful receipts)
+cd integration-tests && cargo run -- load --num-receipts 50
 ```
 
 ## Test Success Criteria
@@ -281,6 +337,8 @@ docker exec postgres psql -U postgres -d indexer_components_1 -c "SELECT COUNT(*
 - ✅ V2 receipts are accepted without "402 Payment Required" errors
 - ✅ System runs in Horizon hybrid migration mode
 - ✅ Collection IDs are properly handled
+- ✅ Unaggregated fees accumulate correctly (receipts are processed)
+- ⚠️ RAV generation may require additional configuration (trigger thresholds, timing)
 
 ### Load Tests
 
@@ -305,3 +363,60 @@ After successful testing, consider:
 3. **Contribute improvements**: Follow the refactoring roadmap for better testing infrastructure
 
 This testing infrastructure provides a solid foundation for developing and testing both V1 and V2 TAP functionality in indexer-rs.
+
+## TAP Receipt Processing Investigation Guide
+
+If you encounter issues where receipts are stored but not processed (unaggregated fees remain 0), follow this systematic debugging approach:
+
+### Step 1: Check System Health
+
+```bash
+# Look for panics that crash the notification system
+docker logs tap-agent 2>&1 | grep -E "(panic|PANIC)" | tail -5
+
+# Verify receipt watchers are running
+docker logs tap-agent | grep "receipts watcher started" | tail -2
+```
+
+### Step 2: Test Notification System
+
+```bash
+# Send test notification to verify the system receives them
+docker exec postgres psql -U postgres -d indexer_components_1 -c "NOTIFY tap_horizon_receipt_notification, '{\"id\": 1, \"collection_id\": \"5819cd0eb33a614e8426cf3bceaced9d47e178c8\", \"signer_address\": \"0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266\", \"timestamp_ns\": 1000000000, \"value\": 100}';"
+
+# Check if notification was processed (should see logs)
+docker logs tap-agent --tail 20
+```
+
+### Step 3: Verify Database Triggers
+
+```bash
+# Check trigger function exists
+docker exec postgres psql -U postgres -d indexer_components_1 -c "SELECT pg_get_functiondef(oid) FROM pg_proc WHERE proname = 'tap_horizon_receipt_notify';"
+
+# Verify trigger is attached
+docker exec postgres psql -U postgres -d indexer_components_1 -c "SELECT tgname, relname FROM pg_trigger JOIN pg_class ON tgrelid = pg_class.oid WHERE tgname LIKE '%notify%';"
+```
+
+### Step 4: Clear Problematic Data (if needed)
+
+```bash
+# If malformed data causes issues, clear and restart
+docker exec postgres psql -U postgres -d indexer_components_1 -c "TRUNCATE tap_horizon_receipts CASCADE;"
+docker exec postgres psql -U postgres -d indexer_components_1 -c "TRUNCATE scalar_tap_receipts CASCADE;"
+just reload
+```
+
+### Expected Behavior
+
+- ✅ Receipt watchers start without panics
+- ✅ Test notifications are received and logged
+- ✅ Database triggers send properly formatted notifications
+- ✅ Receipts are processed into unaggregated fees
+- ✅ System runs continuously without crashes
+
+### Key Files for TAP Processing
+
+- `crates/tap-agent/src/agent/sender_accounts_manager.rs`: Notification handling
+- Database triggers: `tap_horizon_receipt_notify()` and `scalar_tap_receipt_notify()`
+- Metrics endpoint: <http://localhost:7300/metrics>
