@@ -69,7 +69,7 @@ pub async fn test_v2_receipt_processing_enhanced() -> Result<()> {
     let rav_result = MetricsUtils::wait_for_rav_generation(
         &ctx,
         &allocation.id,
-        initial_ravs as u32,
+        initial_ravs,
         Duration::from_secs(30),
     )
     .await;
@@ -77,7 +77,7 @@ pub async fn test_v2_receipt_processing_enhanced() -> Result<()> {
     let fee_result = MetricsUtils::wait_for_fee_aggregation(
         &ctx,
         &allocation.id,
-        initial_fees as f64,
+        initial_fees,
         Duration::from_secs(30),
     )
     .await;
