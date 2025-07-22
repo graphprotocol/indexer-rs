@@ -122,10 +122,23 @@ impl NewReceiptNotification {
                 AllocationId::Legacy(AllocationIdCore::from(n.allocation_id))
             }
             NewReceiptNotification::V2(n) => {
-                // Convert the hex string to CollectionId
-                let collection_id = CollectionId::from_str(&n.collection_id)
-                    .expect("Valid collection_id in database");
-                AllocationId::Horizon(collection_id)
+                // Convert the hex string to CollectionId (trim spaces from fixed-length DB field)
+                let trimmed_collection_id = n.collection_id.trim();
+                match CollectionId::from_str(trimmed_collection_id) {
+                    Ok(collection_id) => AllocationId::Horizon(collection_id),
+                    Err(e) => {
+                        tracing::error!(
+                            collection_id = %n.collection_id,
+                            trimmed_collection_id = %trimmed_collection_id,
+                            error = %e,
+                            "Failed to parse collection_id from database notification"
+                        );
+                        // Fall back to treating as address for now
+                        let fallback_address =
+                            trimmed_collection_id.parse().unwrap_or(Address::ZERO);
+                        AllocationId::Legacy(AllocationIdCore::from(fallback_address))
+                    }
+                }
             }
         }
     }
@@ -185,7 +198,7 @@ impl Display for AllocationId {
 
 /// Type used in [SenderAccountsManager] and [SenderAccount] to route the correct escrow queries
 /// and to use the correct set of tables
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum SenderType {
     /// SenderAccounts that are found in Escrow Subgraph v1 (Legacy)
     Legacy,
@@ -973,7 +986,15 @@ async fn new_receipts_watcher(
                 );
         }
     }
+
+    tracing::info!(
+        "New receipts watcher started and listening for notifications, sender_type: {:?}, prefix: {:?}",
+        sender_type, prefix
+    );
+
     loop {
+        tracing::debug!("Waiting for notification from pglistener...");
+
         let Ok(pg_notification) = pglistener.recv().await else {
             tracing::error!(
                 "should be able to receive Postgres Notify events on the channel \
@@ -981,6 +1002,12 @@ async fn new_receipts_watcher(
             );
             break;
         };
+
+        tracing::info!(
+            channel = pg_notification.channel(),
+            payload = pg_notification.payload(),
+            "Received notification from database"
+        );
         // Determine notification format based on the channel name
         let new_receipt_notification = match pg_notification.channel() {
             "scalar_tap_receipt_notification" => {
@@ -1019,7 +1046,7 @@ async fn new_receipts_watcher(
                 break;
             }
         };
-        if let Err(e) = handle_notification(
+        match handle_notification(
             new_receipt_notification,
             escrow_accounts_rx.clone(),
             sender_type,
@@ -1027,7 +1054,12 @@ async fn new_receipts_watcher(
         )
         .await
         {
-            tracing::error!("{}", e);
+            Ok(()) => {
+                tracing::debug!("Successfully handled notification");
+            }
+            Err(e) => {
+                tracing::error!("Error handling notification: {}", e);
+            }
         }
     }
     // shutdown the whole system
