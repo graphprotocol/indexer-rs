@@ -530,7 +530,6 @@ pub async fn setup_shared_test_db() -> TestDatabase {
     let db_id = DB_COUNTER.fetch_add(1, Ordering::SeqCst);
     let unique_db_name = format!("test_db_{db_id}");
 
-    // Start PostgreSQL container
     let pg_container = postgres::Postgres::default()
         .start()
         .await
@@ -541,9 +540,25 @@ pub async fn setup_shared_test_db() -> TestDatabase {
         .await
         .expect("Failed to get container port");
 
+    // In CI environments, we might need to use the container's IP instead of localhost
+    let host = if std::env::var("CI").is_ok() {
+        pg_container
+            .get_host()
+            .await
+            .expect("Failed to get container host")
+            .to_string()
+    } else {
+        "localhost".to_string()
+    };
+
     // Connect to postgres database first to create our test database
     let admin_connection_string =
-        format!("postgres://postgres:postgres@localhost:{host_port}/postgres");
+        format!("postgres://postgres:postgres@{host}:{host_port}/postgres");
+
+    tracing::debug!(
+        "Attempting to connect to admin database: {}",
+        admin_connection_string
+    );
     let admin_pool = sqlx::PgPool::connect(&admin_connection_string)
         .await
         .expect("Failed to connect to admin database");
@@ -556,7 +571,7 @@ pub async fn setup_shared_test_db() -> TestDatabase {
 
     // Connect to our test database
     let connection_string =
-        format!("postgres://postgres:postgres@localhost:{host_port}/{unique_db_name}");
+        format!("postgres://postgres:postgres@{host}:{host_port}/{unique_db_name}");
     let pool = sqlx::PgPool::connect(&connection_string)
         .await
         .expect("Failed to connect to test database");
@@ -596,7 +611,6 @@ pub async fn setup_test_db_with_migrator(migrator: Migrator) -> TestDatabase {
     let db_id = DB_COUNTER.fetch_add(1, Ordering::SeqCst);
     let unique_db_name = format!("test_db_custom_{db_id}");
 
-    // Start PostgreSQL container
     let pg_container = postgres::Postgres::default()
         .start()
         .await
@@ -607,9 +621,25 @@ pub async fn setup_test_db_with_migrator(migrator: Migrator) -> TestDatabase {
         .await
         .expect("Failed to get container port");
 
+    // In CI environments, we might need to use the container's IP instead of localhost
+    let host = if std::env::var("CI").is_ok() {
+        pg_container
+            .get_host()
+            .await
+            .expect("Failed to get container host")
+            .to_string()
+    } else {
+        "localhost".to_string()
+    };
+
     // Connect to postgres database first to create our test database
     let admin_connection_string =
-        format!("postgres://postgres:postgres@localhost:{host_port}/postgres");
+        format!("postgres://postgres:postgres@{host}:{host_port}/postgres");
+
+    tracing::debug!(
+        "Attempting to connect to admin database: {}",
+        admin_connection_string
+    );
     let admin_pool = sqlx::PgPool::connect(&admin_connection_string)
         .await
         .expect("Failed to connect to admin database");
@@ -622,7 +652,7 @@ pub async fn setup_test_db_with_migrator(migrator: Migrator) -> TestDatabase {
 
     // Connect to our test database
     let connection_string =
-        format!("postgres://postgres:postgres@localhost:{host_port}/{unique_db_name}");
+        format!("postgres://postgres:postgres@{host}:{host_port}/{unique_db_name}");
     let pool = sqlx::PgPool::connect(&connection_string)
         .await
         .expect("Failed to connect to test database");

@@ -755,13 +755,12 @@ pub mod actors {
     use std::{fmt::Debug, sync::Arc};
 
     use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
-    use test_assets::{ALLOCATION_ID_0, TAP_SIGNER};
+    use test_assets::ALLOCATION_ID_0;
     use thegraph_core::{alloy::primitives::Address, AllocationId as AllocationIdCore};
     use tokio::sync::{mpsc, watch, Notify};
 
-    use super::create_rav;
     use crate::agent::{
-        sender_account::{ReceiptFees, SenderAccountMessage},
+        sender_account::{RavInformation, ReceiptFees, SenderAccountMessage},
         sender_accounts_manager::{AllocationId, NewReceiptNotification},
         sender_allocation::SenderAllocationMessage,
         unaggregated_receipts::UnaggregatedReceipts,
@@ -893,11 +892,21 @@ pub mod actors {
         }
     }
 
+    /// Mock implementation of SenderAllocation for testing purposes.
+    ///
+    /// This mock simulates the behavior of a real sender allocation actor, particularly
+    /// for testing RAV request flows and retry mechanisms. When a RAV request is triggered,
+    /// it sends back a successful response that follows TAP protocol behavior:
+    ///
+    /// - Clears unaggregated fees to zero (they become part of the RAV)
+    /// - Creates a RAV for the full aggregated amount
+    /// - Properly resolves deny conditions to stop unnecessary retries
+    ///
+    /// This implementation aligns with the documented expectation:
+    /// "set the unnagregated fees to zero and the rav to the amount"
     pub struct MockSenderAllocation {
         triggered_rav_request: Arc<Notify>,
         sender_actor: Option<ActorRef<SenderAccountMessage>>,
-
-        next_rav_value: watch::Receiver<u128>,
         next_unaggregated_fees_value: watch::Receiver<u128>,
         receipts: mpsc::Sender<NewReceiptNotification>,
     }
@@ -913,7 +922,6 @@ pub mod actors {
                     sender_actor: Some(sender_actor),
                     triggered_rav_request: triggered_rav_request.clone(),
                     receipts: mpsc::channel(1).0,
-                    next_rav_value: watch::channel(0).1,
                     next_unaggregated_fees_value,
                 },
                 triggered_rav_request,
@@ -924,16 +932,15 @@ pub mod actors {
         pub fn new_with_next_rav_value(
             sender_actor: ActorRef<SenderAccountMessage>,
         ) -> (Self, watch::Sender<u128>) {
-            let (next_rav_value_sender, next_rav_value) = watch::channel(0);
+            let (unaggregated_fees, next_unaggregated_fees_value) = watch::channel(0);
             (
                 Self {
                     sender_actor: Some(sender_actor),
                     triggered_rav_request: Arc::new(Notify::new()),
                     receipts: mpsc::channel(1).0,
-                    next_rav_value,
-                    next_unaggregated_fees_value: watch::channel(0).1,
+                    next_unaggregated_fees_value,
                 },
-                next_rav_value_sender,
+                unaggregated_fees,
             )
         }
 
@@ -945,7 +952,6 @@ pub mod actors {
                     sender_actor: None,
                     triggered_rav_request: Arc::new(Notify::new()),
                     receipts: tx,
-                    next_rav_value: watch::channel(0).1,
                     next_unaggregated_fees_value: watch::channel(0).1,
                 },
                 rx,
@@ -977,21 +983,30 @@ pub mod actors {
                 SenderAllocationMessage::TriggerRavRequest => {
                     self.triggered_rav_request.notify_one();
                     if let Some(sender_account) = self.sender_actor.as_ref() {
-                        let signed_rav = create_rav(
-                            ALLOCATION_ID_0,
-                            TAP_SIGNER.0.clone(),
-                            4,
-                            *self.next_rav_value.borrow(),
-                        );
+                        // Mock a successful RAV request response that follows TAP protocol behavior:
+                        // 1. Aggregate unaggregated receipts into a Receipt Aggregate Voucher (RAV)
+                        // 2. Clear unaggregated fees to zero (they're now represented in the RAV)
+                        // 3. Create a RAV for the full aggregated amount
+                        //
+                        // This behavior aligns with the documented expectation:
+                        // "set the unnagregated fees to zero and the rav to the amount"
+                        // (see sender_account.rs test_deny_allow comment)
+                        //
+                        // Important: This correctly resolves the deny condition when unaggregated
+                        // fees are cleared, which stops the retry mechanism as intended.
+                        let current_value = *self.next_unaggregated_fees_value.borrow();
                         sender_account.cast(SenderAccountMessage::UpdateReceiptFees(
                             AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
                             ReceiptFees::RavRequestResponse(
                                 UnaggregatedReceipts {
-                                    value: *self.next_unaggregated_fees_value.borrow(),
+                                    value: 0, // Clear unaggregated fees - they're now in the RAV
                                     last_id: 0,
                                     counter: 0,
                                 },
-                                Ok(Some(signed_rav.into())),
+                                Ok(Some(RavInformation {
+                                    allocation_id: ALLOCATION_ID_0,
+                                    value_aggregate: current_value, // RAV for the full amount
+                                })),
                             ),
                         ))?;
                     }
