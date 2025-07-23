@@ -54,7 +54,7 @@ jsonrpsee = { version = "0.24.0", features = ["http-client", "tracing"] }
 prometheus = "0.13.3"
 prost = "0.13.4"
 prost-types = "0.13.3"
-ractor = { version = "0.14", features = [
+ractor = { version = "0.15.6", features = [
     "async-trait",
 ], default-features = false }
 rand = "0.9.0"
