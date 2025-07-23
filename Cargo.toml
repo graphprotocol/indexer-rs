@@ -101,7 +101,7 @@ thegraph-core = { version = "0.15.1", features = [
     "serde",
 ] }
 thegraph-graphql-http = { version = "0.3.2", features = ["reqwest"] }
-thiserror = "1.0.49"
+thiserror = "2.0.12"
 tokio = "1.40"
 tokio-test = "0.4.4"
 tonic = { version = "0.13.0", features = ["tls-native-roots", "gzip"] }
