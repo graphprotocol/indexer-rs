@@ -25,14 +25,18 @@ use tokio::sync::{mpsc, watch::Receiver};
 use super::{
     sender_account::{RavInformation, ReceiptFees, SenderAccountConfig, SenderAccountMessage},
     sender_accounts_manager::AllocationId,
-    sender_allocation_task::SenderAllocationTask,
     unaggregated_receipts::UnaggregatedReceipts,
 };
 use crate::{
     actor_migrate::{LifecycleManager, RestartPolicy, TaskHandle, TaskRegistry},
-    tap::context::{Horizon, Legacy},
     tracker::{SenderFeeTracker, SimpleFeeTracker},
 };
+
+#[cfg(any(test, feature = "test"))]
+use super::sender_allocation_task::SenderAllocationTask;
+
+#[cfg(any(test, feature = "test"))]
+use crate::tap::context::{Horizon, Legacy};
 
 type Balance = U256;
 type RavMap = HashMap<Address, u128>;
@@ -58,8 +62,10 @@ struct TaskState {
     /// Current sender balance
     sender_balance: U256,
     /// Registry for managing child tasks
+    #[allow(dead_code)]
     child_registry: TaskRegistry,
     /// Lifecycle manager for child tasks
+    #[allow(dead_code)]
     lifecycle: Arc<LifecycleManager>,
     /// Configuration
     #[allow(dead_code)]
@@ -339,10 +345,22 @@ impl SenderAccountTask {
 
         #[cfg(not(any(test, feature = "test")))]
         {
-            // In production, we'd need a proper way to create a self-reference
-            // For now, just log that this isn't implemented yet
+            // TODO: Implement production child task spawning
+            // This requires proper integration with the actual SenderAllocationTask spawn method
+            // that includes TAP manager, aggregator client, etc.
+            //
+            // For now, we'll skip this to maintain build compatibility
+            // The proper implementation would look like:
+            //
+            // 1. Create aggregator client for this sender
+            // 2. Set up TAP manager with proper configuration
+            // 3. Spawn SenderAllocationTask with full parameters
+            // 4. Set up proper parent-child communication channel
+
             tracing::warn!(
-                "Production sender allocation spawning not fully implemented yet - child task communication needs work"
+                sender = %state.sender,
+                allocation_id = ?allocation_id,
+                "Production sender allocation spawning not yet implemented - requires TAP manager integration"
             );
         }
 
@@ -412,11 +430,28 @@ impl SenderAccountTask {
 
     /// Handle invalid receipt fee updates
     async fn handle_update_invalid_receipt_fees(
-        _state: &mut TaskState,
-        _allocation_id: AllocationId,
-        _unaggregated_fees: UnaggregatedReceipts,
+        state: &mut TaskState,
+        allocation_id: AllocationId,
+        unaggregated_fees: UnaggregatedReceipts,
     ) -> Result<()> {
-        // Simplified implementation
+        let addr = match allocation_id {
+            AllocationId::Legacy(id) => id.into_inner(),
+            AllocationId::Horizon(id) => thegraph_core::AllocationId::from(id).into_inner(),
+        };
+
+        // Track invalid receipt fees in the tracker
+        state
+            .invalid_receipts_tracker
+            .update(addr, unaggregated_fees.value);
+
+        tracing::debug!(
+            sender = %state.sender,
+            allocation_id = ?allocation_id,
+            invalid_value = unaggregated_fees.value,
+            invalid_count = unaggregated_fees.counter,
+            "Updated invalid receipt fees for allocation"
+        );
+
         Ok(())
     }
 

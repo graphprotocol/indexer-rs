@@ -24,10 +24,19 @@ use crate::{
 };
 use indexer_receipt::TapReceipt;
 use tap_core::{
-    manager::Manager as TapManager,
-    receipt::{checks::CheckList, Context, WithValueAndTimestamp},
+    manager::{adapters::SignatureChecker, Manager as TapManager},
+    receipt::{Context, WithValueAndTimestamp},
 };
+
+#[cfg(any(test, feature = "test"))]
+use tap_core::receipt::checks::CheckList;
 use thegraph_core::alloy::primitives::Address;
+
+/// Trait for creating dummy aggregator clients in tests
+#[cfg(any(test, feature = "test"))]
+trait DummyAggregatorProvider: NetworkVersion {
+    fn create_dummy_aggregator() -> Self::AggregatorClient;
+}
 
 /// Message types for SenderAllocationTask - matches original SenderAllocationMessage
 #[derive(Debug)]
@@ -60,14 +69,23 @@ struct TaskState<T: NetworkVersion> {
     error_state: ErrorTrackingState,
     /// TAP Manager instance for receipt validation and RAV creation
     tap_manager: TapManager<TapAgentContext<T>, TapReceipt>,
+    /// TAP Agent context for direct access to validation functions
+    tap_context: TapAgentContext<T>,
     /// Database connection pool
+    #[allow(dead_code)]
     pgpool: sqlx::PgPool,
     /// Allocation/collection identifier for TAP operations
+    #[allow(dead_code)]
     tap_allocation_id: Address,
     /// Sender address
+    #[allow(dead_code)]
     sender: Address,
     /// Indexer address
+    #[allow(dead_code)]
     indexer_address: Address,
+    /// Aggregator client for signing RAVs
+    #[allow(dead_code)]
+    sender_aggregator: T::AggregatorClient,
 }
 
 /// Different types of operations that can fail and need retry logic
@@ -186,13 +204,17 @@ where
 {
     /// Spawn a new SenderAllocationTask with minimal arguments (for testing)
     #[cfg(any(test, feature = "test"))]
+    #[allow(private_bounds)]
     pub async fn spawn_simple(
         lifecycle: &LifecycleManager,
         name: Option<String>,
         allocation_id: AllocationId,
         sender_account_handle: TaskHandle<SenderAccountMessage>,
         pgpool: sqlx::PgPool,
-    ) -> anyhow::Result<TaskHandle<SenderAllocationMessage>> {
+    ) -> anyhow::Result<TaskHandle<SenderAllocationMessage>>
+    where
+        T: DummyAggregatorProvider,
+    {
         // Create dummy TAP manager components for testing
 
         let tap_allocation_id = match allocation_id {
@@ -209,14 +231,26 @@ where
             .allocation_id(tap_allocation_id)
             .sender(Address::ZERO)
             .indexer_address(Address::ZERO)
+            .escrow_accounts(escrow_rx.clone())
+            .build();
+
+        let tap_context_for_manager = TapAgentContext::builder()
+            .pgpool(pgpool.clone())
+            .allocation_id(tap_allocation_id)
+            .sender(Address::ZERO)
+            .indexer_address(Address::ZERO)
             .escrow_accounts(escrow_rx)
             .build();
 
         let tap_manager = TapManager::new(
             thegraph_core::alloy::sol_types::Eip712Domain::default(),
-            tap_context,
+            tap_context_for_manager,
             CheckList::empty(),
         );
+
+        // Create a dummy aggregator client for testing
+        // This will panic if RAV creation is attempted, which is acceptable for unit tests
+        let sender_aggregator = Self::create_dummy_aggregator_generic();
 
         Self::spawn_with_tap_manager(
             lifecycle,
@@ -224,14 +258,35 @@ where
             allocation_id,
             sender_account_handle,
             tap_manager,
+            tap_context,
             pgpool,
             tap_allocation_id,
             Address::ZERO, // sender
             Address::ZERO, // indexer_address
+            sender_aggregator,
         )
         .await
     }
 
+    /// Create a dummy aggregator client for testing - generic version
+    #[cfg(any(test, feature = "test"))]
+    fn create_dummy_aggregator_generic() -> T::AggregatorClient
+    where
+        T: DummyAggregatorProvider,
+    {
+        T::create_dummy_aggregator()
+    }
+}
+
+impl<T> SenderAllocationTask<T>
+where
+    T: NetworkVersion,
+    TapAgentContext<T>: tap_core::manager::adapters::ReceiptRead<TapReceipt>
+        + tap_core::manager::adapters::ReceiptDelete
+        + tap_core::manager::adapters::RavRead<T::Rav>
+        + tap_core::manager::adapters::RavStore<T::Rav>
+        + tap_core::manager::adapters::SignatureChecker,
+{
     /// Spawn a new SenderAllocationTask with full TAP manager integration
     #[allow(clippy::too_many_arguments)] // Complex initialization requires many parameters
     pub async fn spawn_with_tap_manager(
@@ -240,10 +295,12 @@ where
         allocation_id: AllocationId,
         sender_account_handle: TaskHandle<SenderAccountMessage>,
         tap_manager: TapManager<TapAgentContext<T>, TapReceipt>,
+        tap_context: TapAgentContext<T>,
         pgpool: sqlx::PgPool,
         tap_allocation_id: Address,
         sender: Address,
         indexer_address: Address,
+        sender_aggregator: T::AggregatorClient,
     ) -> anyhow::Result<TaskHandle<SenderAllocationMessage>> {
         let state = TaskState {
             unaggregated_fees: UnaggregatedReceipts::default(),
@@ -252,10 +309,12 @@ where
             allocation_id,
             error_state: ErrorTrackingState::default(),
             tap_manager,
+            tap_context,
             pgpool,
             tap_allocation_id,
             sender,
             indexer_address,
+            sender_aggregator,
         };
 
         lifecycle
@@ -542,32 +601,28 @@ where
             return false;
         }
 
-        // TODO: Use real TAP manager signature verification
-        // Currently, the TAP manager integration requires implementing several trait bounds
-        // that are complex to set up in the test environment. For now, we use enhanced
-        // basic validation that simulates TAP manager behavior.
-        //
-        // Real implementation would use:
-        // - state.tap_manager for signature checking
-        // - state.pgpool for database queries
-        // - state.sender for authorization validation
-        // - state.indexer_address for indexer verification
-
-        // Simulate TAP manager signature verification
-        let signature_valid = Self::simulate_tap_signature_verification(id, signer_address);
-
-        // Reference the fields to suppress unused field warnings during development
-        let _tap_manager = &state.tap_manager;
-        let _pgpool = &state.pgpool;
-        let _sender = &state.sender;
-        let _indexer_address = &state.indexer_address;
+        // Use TAP context for signature verification
+        // The TAP context implements SignatureChecker trait which validates signers
+        let signature_valid = match state.tap_context.verify_signer(signer_address).await {
+            Ok(is_valid) => is_valid,
+            Err(e) => {
+                tracing::debug!(
+                    allocation_id = ?state.allocation_id,
+                    receipt_id = id,
+                    signer = ?signer_address,
+                    error = %e,
+                    "Receipt rejected: signature verification failed"
+                );
+                return false;
+            }
+        };
 
         if !signature_valid {
             tracing::debug!(
                 allocation_id = ?state.allocation_id,
                 receipt_id = id,
                 signer = ?signer_address,
-                "Receipt rejected: invalid signature (simulated TAP manager check)"
+                "Receipt rejected: signer not authorized"
             );
             return false;
         }
@@ -581,29 +636,6 @@ where
         );
 
         true
-    }
-
-    /// Simulate TAP manager signature verification logic
-    /// TODO: Replace with real TAP manager integration
-    fn simulate_tap_signature_verification(
-        id: u64,
-        signer_address: thegraph_core::alloy::primitives::Address,
-    ) -> bool {
-        // Simulate various signature validation scenarios:
-        // 1. Some specific patterns fail signature verification
-        // 2. Most receipts pass validation
-
-        // Simulate signature verification failure for some patterns
-        if id % 1000 == 666 {
-            return false; // Simulate signature validation failure
-        }
-
-        // Simulate invalid signer scenarios
-        if signer_address.to_string().ends_with("dead") {
-            return false; // Simulate unauthorized signer
-        }
-
-        true // Most receipts have valid signatures
     }
 
     /// Create RAV using the real TAP manager
@@ -679,24 +711,72 @@ where
             "TAP manager created RAV request"
         );
 
-        // TODO: Send to aggregator for signing
-        // For now, we'll return the unsigned RAV info
-        let rav_info = RavInformation {
-            allocation_id: state.tap_allocation_id,
-            value_aggregate: expected_rav.value(),
-        };
+        // Send to aggregator for signing
+        tracing::debug!(
+            allocation_id = ?state.allocation_id,
+            "Sending RAV to aggregator for signing"
+        );
 
-        // TODO: Once we have the signed RAV from aggregator:
-        // state.tap_manager.verify_and_store_rav(expected_rav, signed_rav).await?;
+        // Extract actual receipts from ReceiptWithState wrappers
+        #[allow(unused_variables)] // Used in non-test code
+        let valid_receipts: Vec<TapReceipt> = rav_request
+            .valid_receipts
+            .into_iter()
+            .map(|receipt_with_state| receipt_with_state.signed_receipt().clone())
+            .collect();
 
-        // Clean up processed receipts
-        state
-            .tap_manager
-            .remove_obsolete_receipts()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to remove obsolete receipts: {}", e))?;
+        // TODO: For now, we'll skip aggregator in tests but implement it in production
+        // This allows tests to compile while we implement proper mocking
+        #[cfg(not(test))]
+        let signed_rav = T::aggregate(
+            &mut state.sender_aggregator,
+            valid_receipts,
+            rav_request.previous_rav,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Aggregator failed to sign RAV: {}", e))?;
 
-        Ok(rav_info)
+        #[cfg(test)]
+        {
+            tracing::warn!("Test mode: Skipping aggregator integration");
+            #[allow(clippy::needless_return)]
+            return Err(anyhow::anyhow!(
+                "Test mode: Aggregator integration not implemented in tests"
+            ));
+        }
+
+        #[cfg(not(test))]
+        {
+            tracing::info!(
+                allocation_id = ?state.allocation_id,
+                rav_value = signed_rav.value(),
+                "RAV successfully signed by aggregator"
+            );
+        }
+
+        #[cfg(not(test))]
+        {
+            // Verify and store the signed RAV
+            state
+                .tap_manager
+                .verify_and_store_rav(expected_rav, signed_rav.clone())
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to verify and store RAV: {}", e))?;
+
+            let rav_info = RavInformation {
+                allocation_id: state.tap_allocation_id,
+                value_aggregate: signed_rav.value(),
+            };
+
+            // Clean up processed receipts
+            state
+                .tap_manager
+                .remove_obsolete_receipts()
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to remove obsolete receipts: {}", e))?;
+
+            Ok(rav_info)
+        }
     }
 
     /// Store invalid receipts for tracking
@@ -789,6 +869,32 @@ where
         }
 
         Ok(())
+    }
+}
+
+// Implement DummyAggregatorProvider for Legacy (V1) network
+#[cfg(any(test, feature = "test"))]
+impl DummyAggregatorProvider for crate::tap::context::Legacy {
+    fn create_dummy_aggregator() -> Self::AggregatorClient {
+        // Create a disconnected gRPC client for testing
+        // This creates a client that will fail gracefully when used
+        let endpoint = tonic::transport::Endpoint::from_static("http://test.invalid:1234");
+        tap_aggregator::grpc::v1::tap_aggregator_client::TapAggregatorClient::new(
+            tonic::transport::Channel::builder(endpoint.uri().clone()).connect_lazy(),
+        )
+    }
+}
+
+// Implement DummyAggregatorProvider for Horizon (V2) network
+#[cfg(any(test, feature = "test"))]
+impl DummyAggregatorProvider for crate::tap::context::Horizon {
+    fn create_dummy_aggregator() -> Self::AggregatorClient {
+        // Create a disconnected gRPC client for testing
+        // This creates a client that will fail gracefully when used
+        let endpoint = tonic::transport::Endpoint::from_static("http://test.invalid:1234");
+        tap_aggregator::grpc::v2::tap_aggregator_client::TapAggregatorClient::new(
+            tonic::transport::Channel::builder(endpoint.uri().clone()).connect_lazy(),
+        )
     }
 }
 

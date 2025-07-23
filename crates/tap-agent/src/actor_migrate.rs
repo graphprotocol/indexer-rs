@@ -99,6 +99,11 @@ impl<T> TaskHandle<T> {
             .map_err(|_| anyhow!("Task channel closed"))
     }
 
+    /// Send a message to the task (alias for cast)
+    pub async fn send(&self, msg: T) -> Result<()> {
+        self.cast(msg).await
+    }
+
     /// Stop the task
     pub fn stop(&self, _reason: Option<String>) {
         self.lifecycle.stop_task(self.task_id);
@@ -284,6 +289,7 @@ pub struct TaskContext {
 }
 
 /// Global task registry for named lookups
+#[derive(Clone)]
 pub struct TaskRegistry {
     registry: Arc<RwLock<HashMap<String, Box<dyn std::any::Any + Send + Sync>>>>,
 }
@@ -302,6 +308,7 @@ impl TaskRegistry {
     }
 
     /// Register a task handle
+    #[allow(dead_code)]
     pub async fn register<T>(&self, name: String, handle: TaskHandle<T>)
     where
         T: Send + Sync + 'static,
@@ -319,6 +326,14 @@ impl TaskRegistry {
         registry
             .get(name)
             .and_then(|any| any.downcast_ref::<TaskHandle<T>>().cloned())
+    }
+
+    /// Get a task by name (alias for lookup)
+    pub async fn get_task<T>(&self, name: &str) -> Option<TaskHandle<T>>
+    where
+        T: Send + Sync + 'static,
+    {
+        self.lookup(name).await
     }
 }
 

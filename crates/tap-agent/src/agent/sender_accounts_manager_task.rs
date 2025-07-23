@@ -13,17 +13,39 @@ use std::{
 
 use anyhow::Result;
 use indexer_monitor::SubgraphClient;
-use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
+use serde::Deserialize;
+use sqlx::postgres::PgListener;
+use thegraph_core::{
+    alloy::{primitives::Address, sol_types::Eip712Domain},
+    CollectionId,
+};
 use tokio::sync::mpsc;
 
 use super::{
-    sender_account::SenderAccountConfig, sender_account_task::SenderAccountTask,
-    sender_accounts_manager::SenderAccountsManagerMessage,
+    sender_account::SenderAccountConfig,
+    sender_accounts_manager::{AllocationId, SenderAccountsManagerMessage},
 };
+
+#[cfg(any(test, feature = "test"))]
+use super::sender_account_task::SenderAccountTask;
 use crate::actor_migrate::{LifecycleManager, RestartPolicy, TaskHandle, TaskRegistry};
 
 /// Tokio task-based replacement for SenderAccountsManager actor
 pub struct SenderAccountsManagerTask;
+
+/// V1 receipt notification payload structure
+#[derive(Debug, Deserialize)]
+struct V1ReceiptNotification {
+    sender: Address,
+    allocation_id: Address,
+}
+
+/// V2 receipt notification payload structure
+#[derive(Debug, Deserialize)]
+struct V2ReceiptNotification {
+    sender: Address,
+    collection_id: CollectionId,
+}
 
 /// State for the SenderAccountsManager task
 struct TaskState {
@@ -34,16 +56,25 @@ struct TaskState {
     /// Registry for managing child sender account tasks
     child_registry: TaskRegistry,
     /// Lifecycle manager for child tasks
+    #[allow(dead_code)]
     lifecycle: Arc<LifecycleManager>,
     /// Configuration
     config: &'static SenderAccountConfig,
     /// Other fields needed for spawning child tasks
     pgpool: sqlx::PgPool,
+    #[allow(dead_code)]
     escrow_subgraph: &'static SubgraphClient,
+    #[allow(dead_code)]
     network_subgraph: &'static SubgraphClient,
+    #[allow(dead_code)]
     domain_separator: Eip712Domain,
+    #[allow(dead_code)]
     sender_aggregator_endpoints: HashMap<Address, reqwest::Url>,
     prefix: Option<String>,
+    /// Handle for V1 receipt notification watcher task
+    notification_watcher_v1_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Handle for V2 receipt notification watcher task  
+    notification_watcher_v2_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl SenderAccountsManagerTask {
@@ -72,6 +103,8 @@ impl SenderAccountsManagerTask {
             domain_separator,
             sender_aggregator_endpoints,
             prefix,
+            notification_watcher_v1_handle: None,
+            notification_watcher_v2_handle: None,
         };
 
         lifecycle
@@ -89,6 +122,14 @@ impl SenderAccountsManagerTask {
         mut state: TaskState,
         mut rx: mpsc::Receiver<SenderAccountsManagerMessage>,
     ) -> Result<()> {
+        // Start PostgreSQL notification watchers
+        if let Err(e) = Self::start_notification_watchers(&mut state).await {
+            tracing::error!(
+                error = %e,
+                "Failed to start PostgreSQL notification watchers"
+            );
+        }
+
         while let Some(message) = rx.recv().await {
             if let Err(e) = Self::handle_message(&mut state, message).await {
                 tracing::error!(
@@ -96,6 +137,14 @@ impl SenderAccountsManagerTask {
                     "Error handling SenderAccountsManager message"
                 );
             }
+        }
+
+        // Clean up notification watchers on shutdown
+        if let Some(handle) = &state.notification_watcher_v1_handle {
+            handle.abort();
+        }
+        if let Some(handle) = &state.notification_watcher_v2_handle {
+            handle.abort();
         }
 
         Ok(())
@@ -287,6 +336,226 @@ impl SenderAccountsManagerTask {
         }
         name.push_str(&format!("sender_account_{version}_{sender}"));
         name
+    }
+
+    /// Start PostgreSQL notification watchers for both V1 and V2 receipts
+    async fn start_notification_watchers(state: &mut TaskState) -> Result<()> {
+        // Start V1 notification watcher
+        let pglistener_v1 = PgListener::connect_with(&state.pgpool).await?;
+        let child_registry_v1 = state.child_registry.clone();
+        state.notification_watcher_v1_handle = Some(tokio::spawn(Self::notification_watcher_v1(
+            pglistener_v1,
+            child_registry_v1,
+        )));
+
+        // Start V2 notification watcher (only if horizon is enabled)
+        if state.config.horizon_enabled {
+            let pglistener_v2 = PgListener::connect_with(&state.pgpool).await?;
+            let child_registry_v2 = state.child_registry.clone();
+            state.notification_watcher_v2_handle = Some(tokio::spawn(
+                Self::notification_watcher_v2(pglistener_v2, child_registry_v2),
+            ));
+        }
+
+        tracing::info!("Started PostgreSQL notification watchers");
+        Ok(())
+    }
+
+    /// V1 notification watcher task
+    async fn notification_watcher_v1(mut pglistener: PgListener, child_registry: TaskRegistry) {
+        if let Err(e) = pglistener.listen("scalar_tap_receipt_notification").await {
+            tracing::error!(
+                error = %e,
+                "Failed to listen to scalar_tap_receipt_notification channel"
+            );
+            return;
+        }
+
+        tracing::info!("V1 notification watcher started, listening for receipt notifications");
+
+        loop {
+            match pglistener.recv().await {
+                Ok(notification) => {
+                    tracing::debug!(
+                        channel = notification.channel(),
+                        payload = notification.payload(),
+                        "Received V1 receipt notification"
+                    );
+
+                    if let Err(e) = Self::parse_and_forward_v1_notification(
+                        &child_registry,
+                        notification.payload(),
+                    )
+                    .await
+                    {
+                        tracing::error!(
+                            error = %e,
+                            payload = notification.payload(),
+                            "Failed to parse and forward V1 notification"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        "Error receiving V1 receipt notification"
+                    );
+                    break;
+                }
+            }
+        }
+
+        tracing::info!("V1 notification watcher stopped");
+    }
+
+    /// V2 notification watcher task
+    async fn notification_watcher_v2(mut pglistener: PgListener, child_registry: TaskRegistry) {
+        if let Err(e) = pglistener.listen("tap_horizon_receipt_notification").await {
+            tracing::error!(
+                error = %e,
+                "Failed to listen to tap_horizon_receipt_notification channel"
+            );
+            return;
+        }
+
+        tracing::info!("V2 notification watcher started, listening for receipt notifications");
+
+        loop {
+            match pglistener.recv().await {
+                Ok(notification) => {
+                    tracing::debug!(
+                        channel = notification.channel(),
+                        payload = notification.payload(),
+                        "Received V2 receipt notification"
+                    );
+
+                    if let Err(e) = Self::parse_and_forward_v2_notification(
+                        &child_registry,
+                        notification.payload(),
+                    )
+                    .await
+                    {
+                        tracing::error!(
+                            error = %e,
+                            payload = notification.payload(),
+                            "Failed to parse and forward V2 notification"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        "Error receiving V2 receipt notification"
+                    );
+                    break;
+                }
+            }
+        }
+
+        tracing::info!("V2 notification watcher stopped");
+    }
+
+    /// Parse V1 notification payload and forward to appropriate sender account task
+    async fn parse_and_forward_v1_notification(
+        child_registry: &TaskRegistry,
+        payload: &str,
+    ) -> Result<()> {
+        // Parse the notification payload
+        // Expected format: JSON with sender address and allocation ID
+        let notification: V1ReceiptNotification = serde_json::from_str(payload)
+            .map_err(|e| anyhow::anyhow!("Failed to parse V1 notification payload: {}", e))?;
+
+        tracing::debug!(
+            sender = %notification.sender,
+            allocation_id = %notification.allocation_id,
+            "Parsed V1 receipt notification"
+        );
+
+        // Look up the sender account task and forward the notification
+        let task_name = format!("sender_account_v1_{}", notification.sender);
+        if let Some(task_handle) = child_registry.get_task(&task_name).await {
+            // Convert to AllocationId enum
+            let allocation_id =
+                AllocationId::Legacy(thegraph_core::AllocationId::new(notification.allocation_id));
+
+            // Create a NewAllocationId message to trigger receipt processing
+            let message =
+                super::sender_account::SenderAccountMessage::NewAllocationId(allocation_id);
+
+            if let Err(e) = task_handle.send(message).await {
+                tracing::error!(
+                    sender = %notification.sender,
+                    allocation_id = %allocation_id,
+                    error = %e,
+                    "Failed to forward V1 notification to sender account task"
+                );
+            } else {
+                tracing::trace!(
+                    sender = %notification.sender,
+                    allocation_id = %allocation_id,
+                    "Successfully forwarded V1 notification to sender account task"
+                );
+            }
+        } else {
+            tracing::warn!(
+                sender = %notification.sender,
+                task_name = %task_name,
+                "No sender account task found for V1 notification"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Parse V2 notification payload and forward to appropriate sender account task
+    async fn parse_and_forward_v2_notification(
+        child_registry: &TaskRegistry,
+        payload: &str,
+    ) -> Result<()> {
+        // Parse the notification payload
+        // Expected format: JSON with sender address and collection ID
+        let notification: V2ReceiptNotification = serde_json::from_str(payload)
+            .map_err(|e| anyhow::anyhow!("Failed to parse V2 notification payload: {}", e))?;
+
+        tracing::debug!(
+            sender = %notification.sender,
+            collection_id = %notification.collection_id,
+            "Parsed V2 receipt notification"
+        );
+
+        // Look up the sender account task and forward the notification
+        let task_name = format!("sender_account_v2_{}", notification.sender);
+        if let Some(task_handle) = child_registry.get_task(&task_name).await {
+            // Convert to AllocationId enum
+            let allocation_id = AllocationId::Horizon(notification.collection_id);
+
+            // Create a NewAllocationId message to trigger receipt processing
+            let message =
+                super::sender_account::SenderAccountMessage::NewAllocationId(allocation_id);
+
+            if let Err(e) = task_handle.send(message).await {
+                tracing::error!(
+                    sender = %notification.sender,
+                    collection_id = %notification.collection_id,
+                    error = %e,
+                    "Failed to forward V2 notification to sender account task"
+                );
+            } else {
+                tracing::trace!(
+                    sender = %notification.sender,
+                    collection_id = %notification.collection_id,
+                    "Successfully forwarded V2 notification to sender account task"
+                );
+            }
+        } else {
+            tracing::warn!(
+                sender = %notification.sender,
+                task_name = %task_name,
+                "No sender account task found for V2 notification"
+            );
+        }
+
+        Ok(())
     }
 }
 
