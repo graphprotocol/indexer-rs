@@ -23,7 +23,10 @@ use crate::{
     tap::context::{NetworkVersion, TapAgentContext},
 };
 use indexer_receipt::TapReceipt;
-use tap_core::{manager::Manager as TapManager, receipt::checks::CheckList};
+use tap_core::{
+    manager::Manager as TapManager,
+    receipt::{checks::CheckList, Context, WithValueAndTimestamp},
+};
 use thegraph_core::alloy::primitives::Address;
 
 /// Message types for SenderAllocationTask - matches original SenderAllocationMessage
@@ -172,7 +175,15 @@ impl ErrorTrackingState {
     }
 }
 
-impl<T: NetworkVersion> SenderAllocationTask<T> {
+impl<T> SenderAllocationTask<T>
+where
+    T: NetworkVersion,
+    TapAgentContext<T>: tap_core::manager::adapters::ReceiptRead<TapReceipt>
+        + tap_core::manager::adapters::ReceiptDelete
+        + tap_core::manager::adapters::RavRead<T::Rav>
+        + tap_core::manager::adapters::RavStore<T::Rav>
+        + tap_core::manager::adapters::SignatureChecker,
+{
     /// Spawn a new SenderAllocationTask with minimal arguments (for testing)
     #[cfg(any(test, feature = "test"))]
     pub async fn spawn_simple(
@@ -595,75 +606,119 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
         true // Most receipts have valid signatures
     }
 
-    /// Simulate TAP manager RAV creation workflow
-    /// TODO: Replace with real TAP manager.create_rav_request() call
-    async fn create_rav_with_tap_manager_simulation(
-        state: &TaskState<T>,
+    /// Create RAV using the real TAP manager
+    async fn create_rav_with_tap_manager(
+        state: &mut TaskState<T>,
     ) -> anyhow::Result<RavInformation> {
         tracing::debug!(
             allocation_id = ?state.allocation_id,
             receipt_count = state.unaggregated_fees.counter,
             total_value = state.unaggregated_fees.value,
-            "TAP manager simulation: Starting RAV creation"
+            "Creating RAV request via TAP manager"
         );
 
-        // Simulate TAP manager workflow:
-        // 1. Retrieve receipts from database (simulated)
-        // 2. Validate receipts (simulated)
-        // 3. Create aggregation request to sender's aggregator (simulated)
-        // 4. Handle aggregator response (simulated)
+        // Call TAP manager to create RAV request
+        // The TAP manager will:
+        // 1. Retrieve receipts from database based on timestamp range
+        // 2. Validate receipts (signatures, values, etc.)
+        // 3. Separate valid and invalid receipts
+        // 4. Create an expected RAV from valid receipts
+        let rav_request_result = state
+            .tap_manager
+            .create_rav_request(
+                &Context::new(),
+                0,    // timestamp_buffer_ns - use 0 for no buffer
+                None, // rav_request_receipt_limit - process all receipts
+            )
+            .await;
 
-        // Step 1: Simulate database receipt retrieval
-        tracing::debug!(
-            allocation_id = ?state.allocation_id,
-            "TAP manager simulation: Retrieving receipts from database"
-        );
-        // In real implementation: state.tap_manager.retrieve_receipts_in_timestamp_range()
-        // Database connection available: state.pgpool
-
-        // Step 2: Simulate receipt validation
-        tracing::debug!(
-            allocation_id = ?state.allocation_id,
-            "TAP manager simulation: Validating receipts"
-        );
-        // In real implementation: TAP manager handles signature verification automatically
-        // Uses sender address (state.sender) and indexer address (state.indexer_address) for validation
-
-        // Step 3: Simulate aggregator communication
-        tracing::debug!(
-            allocation_id = ?state.allocation_id,
-            "TAP manager simulation: Sending aggregation request to aggregator"
-        );
-
-        // Simulate potential aggregator communication failure (5% chance)
-        if state.unaggregated_fees.counter % 20 == 0 {
-            return Err(anyhow::anyhow!(
-                "Simulated aggregator communication timeout"
-            ));
-        }
-
-        // Step 4: Simulate successful RAV creation
-        let rav_info = RavInformation {
-            allocation_id: state.tap_allocation_id,
-            value_aggregate: state.unaggregated_fees.value,
+        let rav_request = match rav_request_result {
+            Ok(request) => request,
+            Err(e) => {
+                tracing::error!(
+                    allocation_id = ?state.allocation_id,
+                    error = %e,
+                    "TAP manager failed to create RAV request"
+                );
+                return Err(anyhow::anyhow!("TAP manager error: {}", e));
+            }
         };
 
-        tracing::debug!(
+        // Check if we have an expected RAV
+        let expected_rav = match rav_request.expected_rav {
+            Ok(rav) => rav,
+            Err(e) => {
+                tracing::debug!(
+                    allocation_id = ?state.allocation_id,
+                    valid_receipts = rav_request.valid_receipts.len(),
+                    invalid_receipts = rav_request.invalid_receipts.len(),
+                    error = %e,
+                    "RAV aggregation failed"
+                );
+
+                // Store invalid receipts if any
+                if !rav_request.invalid_receipts.is_empty() {
+                    Self::store_invalid_receipts(state, rav_request.invalid_receipts).await?;
+                }
+
+                return Err(anyhow::anyhow!("RAV aggregation failed: {}", e));
+            }
+        };
+
+        // Store invalid receipts if any
+        let invalid_receipts_count = rav_request.invalid_receipts.len();
+        if !rav_request.invalid_receipts.is_empty() {
+            Self::store_invalid_receipts(state, rav_request.invalid_receipts).await?;
+        }
+
+        tracing::info!(
             allocation_id = ?state.allocation_id,
-            rav_value = rav_info.value_aggregate,
-            "TAP manager simulation: RAV creation successful"
+            valid_receipts = rav_request.valid_receipts.len(),
+            invalid_receipts = invalid_receipts_count,
+            rav_value = expected_rav.value(),
+            "TAP manager created RAV request"
         );
 
-        // Simulate database operations for RAV storage
-        tracing::debug!(
-            allocation_id = ?state.allocation_id,
-            "TAP manager simulation: Storing RAV and cleaning up processed receipts"
-        );
-        // In real implementation:
-        // - state.tap_manager.update_last_rav() - stores RAV in database via state.pgpool
-        // - state.tap_manager.remove_obsolete_receipts() - cleans up processed receipts
+        // TODO: Send to aggregator for signing
+        // For now, we'll return the unsigned RAV info
+        let rav_info = RavInformation {
+            allocation_id: state.tap_allocation_id,
+            value_aggregate: expected_rav.value(),
+        };
+
+        // TODO: Once we have the signed RAV from aggregator:
+        // state.tap_manager.verify_and_store_rav(expected_rav, signed_rav).await?;
+
+        // Clean up processed receipts
+        state
+            .tap_manager
+            .remove_obsolete_receipts()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to remove obsolete receipts: {}", e))?;
 
         Ok(rav_info)
+    }
+
+    /// Store invalid receipts for tracking
+    async fn store_invalid_receipts(
+        state: &TaskState<T>,
+        invalid_receipts: Vec<
+            tap_core::receipt::ReceiptWithState<tap_core::receipt::state::Failed, TapReceipt>,
+        >,
+    ) -> anyhow::Result<()> {
+        // For now, just log the invalid receipts
+        // TODO: Store in database table for tracking
+        for receipt_with_state in invalid_receipts {
+            // Access the receipt through the correct field name
+            let receipt = receipt_with_state.signed_receipt();
+            tracing::warn!(
+                allocation_id = ?state.allocation_id,
+                receipt_value = receipt.value(),
+                receipt_timestamp = receipt.timestamp_ns(),
+                "Invalid receipt detected"
+            );
+        }
+        Ok(())
     }
 
     /// Handle RAV request - with real TAP manager integration
@@ -686,8 +741,8 @@ impl<T: NetworkVersion> SenderAllocationTask<T> {
             "Creating RAV for aggregated receipts"
         );
 
-        // Enhanced TAP manager simulation - mimics real TAP workflow
-        let rav_result = Self::create_rav_with_tap_manager_simulation(state).await;
+        // Use real TAP manager to create RAV
+        let rav_result = Self::create_rav_with_tap_manager(state).await;
 
         let rav_info = match rav_result {
             Ok(rav) => rav,
