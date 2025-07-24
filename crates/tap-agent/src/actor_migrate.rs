@@ -1,10 +1,10 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Abstraction layer for migrating from ractor actors to tokio tasks
+//! Task management and lifecycle abstractions for the tokio-based TAP agent
 //!
-//! This module provides a compatibility layer that allows gradual migration
-//! from ractor actors to tokio tasks while maintaining the same API.
+//! This module provides task spawning, lifecycle management, and communication
+//! abstractions for the tokio-based TAP agent architecture.
 
 use std::{collections::HashMap, fmt::Debug, future::Future, sync::Arc, time::Duration};
 
@@ -541,8 +541,6 @@ impl TaskRegistry {
         self.lookup(name).await
     }
 }
-
-// Compatibility module removed - tokio migration complete! 🎉
 
 #[cfg(test)]
 mod tests {

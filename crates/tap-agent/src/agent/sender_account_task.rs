@@ -1,10 +1,10 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Tokio-based replacement for SenderAccount actor
+//! SenderAccount task implementation
 //!
-//! This module provides a drop-in replacement for the ractor-based SenderAccount
-//! that uses tokio tasks and channels for message passing.
+//! This module provides the SenderAccount task that manages receipts and fees
+//! across allocations using tokio tasks and channels for message passing.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -47,7 +47,7 @@ use crate::tap::context::{Horizon, Legacy};
 type Balance = U256;
 type RavMap = HashMap<Address, u128>;
 
-/// Tokio task-based replacement for SenderAccount actor
+/// SenderAccount task for managing receipts and fees across allocations
 pub struct SenderAccountTask;
 
 /// State for the SenderAccount task
@@ -477,8 +477,7 @@ impl SenderAccountTask {
 
         #[cfg(not(any(test, feature = "test")))]
         {
-            // 🎯 PRODUCTION TAP MANAGER INTEGRATION
-            // Create proper TAP manager and aggregator client for production deployment
+            // Create TAP manager and aggregator client for production deployment
 
             // Create a self-reference handle for the child to communicate back
             let (self_tx, self_rx) = mpsc::channel::<SenderAccountMessage>(10);

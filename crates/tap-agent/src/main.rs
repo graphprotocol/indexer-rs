@@ -42,7 +42,6 @@ async fn main() -> anyhow::Result<()> {
     // If we're here, we've received a signal to exit.
     tracing::info!("Shutting down...");
 
-    // 🎯 TOKIO MIGRATION: Use TaskHandle methods instead of ActorRef methods
     if manager.get_status().await == TaskStatus::Running {
         tracing::info!("Stopping sender accounts manager task...");
         manager.stop(Some("Shutdown signal received".to_string()));

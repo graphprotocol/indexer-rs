@@ -54,24 +54,24 @@ use crate::{
 
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_account::SenderAccount]
 pub mod sender_account;
-/// Tokio task-based replacement for SenderAccount actor
+/// SenderAccount task implementation
 pub mod sender_account_task;
 /// Actor, Arguments, State, Messages and implementation for
 /// [crate::agent::sender_accounts_manager::SenderAccountsManager]
 pub mod sender_accounts_manager;
-/// Tokio task-based replacement for SenderAccountsManager actor
+/// SenderAccountsManager task implementation
 pub mod sender_accounts_manager_task;
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_allocation::SenderAllocation]
 pub mod sender_allocation;
-/// Tokio task-based replacement for SenderAllocation actor
+/// SenderAllocation task implementation
 pub mod sender_allocation_task;
 /// Tests for task lifecycle monitoring and health checks
 #[cfg(test)]
 mod test_lifecycle_monitoring;
-/// Comprehensive tests for tokio migration
+/// Comprehensive integration tests
 #[cfg(test)]
 mod test_tokio_migration;
-/// Regression tests comparing ractor vs tokio behavior
+/// Regression tests for system behavior
 #[cfg(test)]
 mod test_tokio_regression;
 /// Unaggregated receipts containing total value and last id stored in the table
@@ -83,7 +83,9 @@ use crate::actor_migrate::TaskHandle;
 ///
 /// It uses the static [crate::CONFIG] to configure the agent.
 ///
-/// 🎯 TOKIO MIGRATION: Now returns TaskHandle instead of ActorRef
+/// Returns:
+/// - TaskHandle for the main SenderAccountsManagerTask
+/// - JoinHandle for the system health monitoring task that triggers shutdown on critical failures
 pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHandle<()>) {
     let Config {
         indexer: IndexerConfig {
@@ -246,7 +248,7 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
         config
     }));
 
-    // 🎯 TOKIO MIGRATION: Using SenderAccountsManagerTask instead of ractor SenderAccountsManager
+    // Initialize the tokio-based sender accounts manager
     let lifecycle = LifecycleManager::new();
 
     let task_handle = SenderAccountsManagerTask::spawn(
@@ -263,15 +265,60 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
     .await
     .expect("Failed to start sender accounts manager task.");
 
-    // Create a dummy JoinHandle for compatibility with main.rs
-    // In the tokio model, the lifecycle manager handles task monitoring
-    let dummy_handle = tokio::spawn(async {
-        // This task runs indefinitely until the application shuts down
-        // The actual work is done by the SenderAccountsManagerTask and its children
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    // Create a proper system monitoring task that integrates with LifecycleManager
+    // This task monitors overall system health and can trigger graceful shutdown
+    let monitoring_handle = tokio::spawn({
+        let lifecycle_clone = lifecycle.clone();
+        async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            let mut consecutive_unhealthy_checks = 0;
+            const MAX_UNHEALTHY_CHECKS: u32 = 12; // 60 seconds of unhealthy state
+
+            loop {
+                interval.tick().await;
+
+                // Monitor system health
+                let system_health = lifecycle_clone.get_system_health().await;
+
+                if !system_health.overall_healthy {
+                    consecutive_unhealthy_checks += 1;
+                    tracing::warn!(
+                        "System unhealthy: {}/{} healthy tasks, {} failed, {} restarting (check {}/{})",
+                        system_health.healthy_tasks,
+                        system_health.total_tasks,
+                        system_health.failed_tasks,
+                        system_health.restarting_tasks,
+                        consecutive_unhealthy_checks,
+                        MAX_UNHEALTHY_CHECKS
+                    );
+
+                    // If system has been unhealthy for too long, trigger shutdown
+                    if consecutive_unhealthy_checks >= MAX_UNHEALTHY_CHECKS {
+                        tracing::error!(
+                            "System has been unhealthy for {} checks, initiating graceful shutdown",
+                            consecutive_unhealthy_checks
+                        );
+                        break;
+                    }
+                } else {
+                    // Reset counter on healthy check
+                    if consecutive_unhealthy_checks > 0 {
+                        tracing::info!(
+                            "System health recovered: {}/{} healthy tasks",
+                            system_health.healthy_tasks,
+                            system_health.total_tasks
+                        );
+                        consecutive_unhealthy_checks = 0;
+                    }
+                }
+
+                // Perform periodic health checks on all tasks
+                lifecycle_clone.perform_health_check().await;
+            }
+
+            tracing::info!("System monitoring task shutting down");
         }
     });
 
-    (task_handle, dummy_handle)
+    (task_handle, monitoring_handle)
 }
