@@ -59,7 +59,6 @@ struct TaskState {
     /// Tracker for all non-redeemed RAVs
     rav_tracker: SimpleFeeTracker,
     /// Tracker for all invalid receipts
-    #[allow(dead_code)]
     invalid_receipts_tracker: SimpleFeeTracker,
     /// Set of current active allocations
     allocation_ids: HashSet<AllocationId>,
@@ -68,29 +67,26 @@ struct TaskState {
     /// Current sender balance
     sender_balance: U256,
     /// Registry for managing child tasks
-    #[allow(dead_code)]
     child_registry: TaskRegistry,
     /// Lifecycle manager for child tasks
-    #[allow(dead_code)]
     lifecycle: Arc<LifecycleManager>,
     /// Configuration
-    #[allow(dead_code)]
+    #[cfg(not(any(test, feature = "test")))]
     config: &'static SenderAccountConfig,
     /// Handle to send messages back to this task's main loop
     #[cfg(not(any(test, feature = "test")))]
     parent_tx: mpsc::Sender<SenderAccountMessage>,
     /// Other required fields for spawning child tasks
-    #[allow(dead_code)]
     pgpool: sqlx::PgPool,
-    #[allow(dead_code)]
+    #[cfg(not(any(test, feature = "test")))]
     escrow_accounts: Receiver<EscrowAccounts>,
-    #[allow(dead_code)]
+    #[cfg(not(any(test, feature = "test")))]
     escrow_subgraph: &'static SubgraphClient,
-    #[allow(dead_code)]
+    #[cfg(not(any(test, feature = "test")))]
     network_subgraph: &'static SubgraphClient,
-    #[allow(dead_code)]
+    #[cfg(not(any(test, feature = "test")))]
     domain_separator: Eip712Domain,
-    #[allow(dead_code)]
+    #[cfg(not(any(test, feature = "test")))]
     sender_aggregator_endpoint: reqwest::Url,
 }
 
@@ -103,11 +99,11 @@ impl SenderAccountTask {
         sender: Address,
         config: &'static SenderAccountConfig,
         pgpool: sqlx::PgPool,
-        escrow_accounts: Receiver<EscrowAccounts>,
-        escrow_subgraph: &'static SubgraphClient,
-        network_subgraph: &'static SubgraphClient,
-        domain_separator: Eip712Domain,
-        sender_aggregator_endpoint: reqwest::Url,
+        _escrow_accounts: Receiver<EscrowAccounts>,
+        _escrow_subgraph: &'static SubgraphClient,
+        _network_subgraph: &'static SubgraphClient,
+        _domain_separator: Eip712Domain,
+        _sender_aggregator_endpoint: reqwest::Url,
         prefix: Option<String>,
     ) -> Result<TaskHandle<SenderAccountMessage>> {
         // Create a separate channel for parent-child communication
@@ -128,13 +124,7 @@ impl SenderAccountTask {
             sender_balance: U256::ZERO,
             child_registry: TaskRegistry::new(),
             lifecycle: Arc::new(lifecycle.clone()),
-            config,
             pgpool,
-            escrow_accounts,
-            escrow_subgraph,
-            network_subgraph,
-            domain_separator,
-            sender_aggregator_endpoint,
         };
 
         #[cfg(not(any(test, feature = "test")))]
