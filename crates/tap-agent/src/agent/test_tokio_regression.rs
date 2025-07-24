@@ -19,11 +19,11 @@ mod tests {
         test::{store_receipt, CreateReceipt},
     };
     use indexer_monitor::{DeploymentDetails, SubgraphClient};
-    use sqlx::PgPool;
     use std::{collections::HashMap, time::Duration};
     use tap_core::tap_eip712_domain;
     use test_assets::{
-        pgpool, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER_ADDRESS, TAP_SIGNER, VERIFIER_ADDRESS,
+        setup_shared_test_db, TestDatabase, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER_ADDRESS,
+        TAP_SIGNER, VERIFIER_ADDRESS,
     };
     use thegraph_core::alloy::{hex::ToHexExt, sol_types::Eip712Domain};
     use tokio::time::sleep;
@@ -52,13 +52,12 @@ mod tests {
 
     /// Helper to setup test environment
     async fn setup_test_env() -> (
-        PgPool,
+        TestDatabase,
         LifecycleManager,
         &'static SubgraphClient,
         &'static SubgraphClient,
     ) {
-        let pgpool_future = pgpool();
-        let pgpool = pgpool_future.await;
+        let test_db = setup_shared_test_db().await;
 
         let lifecycle = LifecycleManager::new();
 
@@ -81,14 +80,15 @@ mod tests {
             .await,
         ));
 
-        (pgpool, lifecycle, escrow_subgraph, network_subgraph)
+        (test_db, lifecycle, escrow_subgraph, network_subgraph)
     }
 
     /// Test that single allocation receipt processing works consistently
     /// This was a core functionality in ractor that must work in tokio
     #[tokio::test]
     async fn test_single_allocation_receipt_processing_regression() {
-        let (pgpool, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let (test_db, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let pgpool = test_db.pool.clone();
         let config = create_test_config();
         let domain = create_test_eip712_domain();
 
@@ -160,7 +160,8 @@ mod tests {
     /// This tests the scenario that could trigger "Missing allocation was not closed yet"
     #[tokio::test]
     async fn test_multiple_allocation_interleaved_receipts_regression() {
-        let (pgpool, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let (test_db, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let pgpool = test_db.pool.clone();
         let config = create_test_config();
         let domain = create_test_eip712_domain();
 
@@ -257,7 +258,8 @@ mod tests {
     /// This tests the system's ability to handle high-throughput scenarios
     #[tokio::test]
     async fn test_rapid_receipt_burst_regression() {
-        let (pgpool, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let (test_db, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let pgpool = test_db.pool.clone();
         let config = create_test_config();
         let domain = create_test_eip712_domain();
 
@@ -333,7 +335,8 @@ mod tests {
     /// This ensures the tokio implementation properly manages task lifecycles
     #[tokio::test]
     async fn test_task_lifecycle_regression() {
-        let (pgpool, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let (test_db, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let pgpool = test_db.pool.clone();
         let config = create_test_config();
         let domain = create_test_eip712_domain();
 
@@ -388,7 +391,8 @@ mod tests {
     /// This ensures the tokio implementation handles errors gracefully
     #[tokio::test]
     async fn test_error_resilience_regression() {
-        let (pgpool, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let (test_db, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let pgpool = test_db.pool.clone();
         let config = create_test_config();
         let domain = create_test_eip712_domain();
 

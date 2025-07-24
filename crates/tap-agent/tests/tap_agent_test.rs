@@ -19,11 +19,10 @@ use indexer_tap_agent::{
     test::{store_receipt, CreateReceipt},
 };
 use serde_json::json;
-use sqlx::PgPool;
 use tap_core::tap_eip712_domain;
 use test_assets::{
-    pgpool, ALLOCATION_ID_0, ALLOCATION_ID_1, ALLOCATION_ID_2, INDEXER_ADDRESS, TAP_SIGNER,
-    VERIFIER_ADDRESS,
+    setup_shared_test_db, TestDatabase, ALLOCATION_ID_0, ALLOCATION_ID_1, ALLOCATION_ID_2,
+    INDEXER_ADDRESS, TAP_SIGNER, VERIFIER_ADDRESS,
 };
 use thegraph_core::alloy::{hex::ToHexExt, sol_types::Eip712Domain};
 use tokio::time::sleep;
@@ -52,10 +51,12 @@ fn create_high_throughput_config() -> &'static SenderAccountConfig {
 }
 
 /// Helper to setup test environment with mock servers
-async fn setup_high_throughput_test_env(
-) -> (PgPool, &'static SubgraphClient, &'static SubgraphClient) {
-    let pgpool_future = pgpool();
-    let pgpool = pgpool_future.await;
+async fn setup_high_throughput_test_env() -> (
+    TestDatabase,
+    &'static SubgraphClient,
+    &'static SubgraphClient,
+) {
+    let test_db = setup_shared_test_db().await;
 
     // Setup mock escrow subgraph
     let escrow_subgraph_mock_server = MockServer::start().await;
@@ -105,14 +106,15 @@ async fn setup_high_throughput_test_env(
         .await,
     ));
 
-    (pgpool, network_subgraph, escrow_subgraph)
+    (test_db, network_subgraph, escrow_subgraph)
 }
 
 /// High-throughput integration test for complete TAP agent using tokio infrastructure
 /// This test verifies the system can handle thousands of receipts across multiple allocations
 #[tokio::test]
 async fn tokio_high_throughput_tap_agent_test() {
-    let (pgpool, network_subgraph, escrow_subgraph) = setup_high_throughput_test_env().await;
+    let (test_db, network_subgraph, escrow_subgraph) = setup_high_throughput_test_env().await;
+    let pgpool = test_db.pool.clone();
     let config = create_high_throughput_config();
     let domain = create_test_eip712_domain();
     let lifecycle = LifecycleManager::new();

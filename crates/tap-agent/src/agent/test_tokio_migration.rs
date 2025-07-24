@@ -19,10 +19,12 @@ mod tests {
         test::{store_receipt, CreateReceipt},
     };
     use indexer_monitor::{DeploymentDetails, SubgraphClient};
-    use sqlx::PgPool;
     use std::{collections::HashMap, time::Duration};
     use tap_core::tap_eip712_domain;
-    use test_assets::{pgpool, ALLOCATION_ID_0, INDEXER_ADDRESS, TAP_SIGNER, VERIFIER_ADDRESS};
+    use test_assets::{
+        setup_shared_test_db, TestDatabase, ALLOCATION_ID_0, INDEXER_ADDRESS, TAP_SIGNER,
+        VERIFIER_ADDRESS,
+    };
     use thegraph_core::alloy::sol_types::Eip712Domain;
     use tokio::time::sleep;
     use tracing::{debug, info};
@@ -50,13 +52,12 @@ mod tests {
 
     /// Helper to setup test environment
     async fn setup_test_env() -> (
-        PgPool,
+        TestDatabase,
         LifecycleManager,
         &'static SubgraphClient,
         &'static SubgraphClient,
     ) {
-        let pgpool_future = pgpool();
-        let pgpool = pgpool_future.await;
+        let test_db = setup_shared_test_db().await;
 
         let lifecycle = LifecycleManager::new();
 
@@ -79,13 +80,14 @@ mod tests {
             .await,
         ));
 
-        (pgpool, lifecycle, escrow_subgraph, network_subgraph)
+        (test_db, lifecycle, escrow_subgraph, network_subgraph)
     }
 
     /// Test the basic infrastructure setup and receipt storage
     #[tokio::test]
     async fn test_basic_tokio_infrastructure() {
-        let (pgpool, _lifecycle, _escrow_subgraph, _network_subgraph) = setup_test_env().await;
+        let (test_db, _lifecycle, _escrow_subgraph, _network_subgraph) = setup_test_env().await;
+        let pgpool = test_db.pool.clone();
 
         // Test that we can create and store a receipt
         let receipt = Legacy::create_received_receipt(
@@ -116,7 +118,8 @@ mod tests {
     /// Test SenderAccountsManagerTask can be spawned
     #[tokio::test]
     async fn test_sender_accounts_manager_task_spawn() {
-        let (pgpool, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let (test_db, lifecycle, escrow_subgraph, network_subgraph) = setup_test_env().await;
+        let pgpool = test_db.pool.clone();
         let config = create_test_config();
         let domain = create_test_eip712_domain();
 
@@ -144,7 +147,8 @@ mod tests {
     /// Test PostgreSQL NOTIFY handling with tokio implementation
     #[tokio::test]
     async fn test_postgres_notify_handling_tokio() {
-        let (pgpool, _lifecycle, _escrow_subgraph, _network_subgraph) = setup_test_env().await;
+        let (test_db, _lifecycle, _escrow_subgraph, _network_subgraph) = setup_test_env().await;
+        let pgpool = test_db.pool.clone();
 
         // Start a separate PgListener to monitor notifications
         let mut listener = sqlx::postgres::PgListener::connect_with(&pgpool)
@@ -176,7 +180,7 @@ mod tests {
     /// Test that tasks can be created and managed
     #[tokio::test]
     async fn test_task_lifecycle_management() {
-        let (_pgpool, _lifecycle, _escrow_subgraph, _network_subgraph) = setup_test_env().await;
+        let (_test_db, _lifecycle, _escrow_subgraph, _network_subgraph) = setup_test_env().await;
 
         // Test that we can track task lifecycle
         // This is a basic test of the lifecycle management infrastructure
@@ -194,7 +198,8 @@ mod tests {
     /// Test the "Missing allocation was not closed yet" regression scenario
     #[tokio::test]
     async fn test_missing_allocation_regression_basic() {
-        let (pgpool, _lifecycle, _escrow_subgraph, _network_subgraph) = setup_test_env().await;
+        let (test_db, _lifecycle, _escrow_subgraph, _network_subgraph) = setup_test_env().await;
+        let pgpool = test_db.pool.clone();
 
         // Create multiple receipts for the same allocation
         // This simulates the scenario that could trigger the "missing allocation" issue
@@ -231,7 +236,8 @@ mod tests {
     /// Test graceful shutdown behavior
     #[tokio::test]
     async fn test_graceful_shutdown_preparation() {
-        let (pgpool, _lifecycle, _escrow_subgraph, _network_subgraph) = setup_test_env().await;
+        let (test_db, _lifecycle, _escrow_subgraph, _network_subgraph) = setup_test_env().await;
+        let pgpool = test_db.pool.clone();
 
         // Create some test data
         let receipt =

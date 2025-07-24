@@ -19,10 +19,10 @@ use indexer_tap_agent::{
     test::{store_receipt, CreateReceipt},
 };
 use serde_json::json;
-use sqlx::PgPool;
 use tap_core::tap_eip712_domain;
 use test_assets::{
-    pgpool, ALLOCATION_ID_0, INDEXER_ADDRESS, TAP_SIGNER as SIGNER, VERIFIER_ADDRESS,
+    setup_shared_test_db, TestDatabase, ALLOCATION_ID_0, INDEXER_ADDRESS, TAP_SIGNER as SIGNER,
+    VERIFIER_ADDRESS,
 };
 use thegraph_core::alloy::{hex::ToHexExt, sol_types::Eip712Domain};
 use tokio::time::sleep;
@@ -57,14 +57,13 @@ fn create_test_config() -> &'static SenderAccountConfig {
 
 /// Helper to setup test environment with mock subgraphs
 async fn setup_test_env_with_mocks() -> (
-    PgPool,
+    TestDatabase,
     MockServer,
     MockServer,
     &'static SubgraphClient,
     &'static SubgraphClient,
 ) {
-    let pgpool_future = pgpool();
-    let pgpool = pgpool_future.await;
+    let test_db = setup_shared_test_db().await;
 
     // Setup mock network subgraph
     let mock_network_subgraph_server = MockServer::start().await;
@@ -121,7 +120,7 @@ async fn setup_test_env_with_mocks() -> (
     ));
 
     (
-        pgpool,
+        test_db,
         mock_network_subgraph_server,
         mock_escrow_subgraph_server,
         network_subgraph,
@@ -133,8 +132,9 @@ async fn setup_test_env_with_mocks() -> (
 /// This test verifies the full flow from receipt processing to RAV generation
 #[tokio::test]
 async fn tokio_sender_account_manager_layer_test() {
-    let (pgpool, _mock_network, _mock_escrow, network_subgraph, escrow_subgraph) =
+    let (test_db, _mock_network, _mock_escrow, network_subgraph, escrow_subgraph) =
         setup_test_env_with_mocks().await;
+    let pgpool = test_db.pool.clone();
     let config = create_test_config();
     let domain = create_test_eip712_domain();
     let lifecycle = LifecycleManager::new();

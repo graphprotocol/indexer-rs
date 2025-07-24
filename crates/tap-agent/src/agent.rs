@@ -39,10 +39,7 @@ use indexer_config::{
     Config, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
     SubgraphConfig, SubgraphsConfig, TapConfig,
 };
-use indexer_monitor::{
-    empty_escrow_accounts_watcher, escrow_accounts_v1, escrow_accounts_v2, indexer_allocations,
-    DeploymentDetails, SubgraphClient,
-};
+use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use sender_account::SenderAccountConfig;
 use sender_accounts_manager_task::SenderAccountsManagerTask;
 use tokio::task::JoinHandle;
@@ -88,9 +85,7 @@ use crate::actor_migrate::TaskHandle;
 /// - JoinHandle for the system health monitoring task that triggers shutdown on critical failures
 pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHandle<()>) {
     let Config {
-        indexer: IndexerConfig {
-            indexer_address, ..
-        },
+        indexer: IndexerConfig { .. },
         graph_node:
             GraphNodeConfig {
                 status_url: graph_node_status_endpoint,
@@ -106,9 +101,9 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
                                 query_url: network_query_url,
                                 query_auth_token: network_query_auth_token,
                                 deployment_id: network_deployment_id,
-                                syncing_interval_secs: network_sync_interval,
+                                ..
                             },
-                        recently_closed_allocation_buffer_secs: recently_closed_allocation_buffer,
+                        ..
                     },
                 escrow:
                     EscrowSubgraphConfig {
@@ -117,7 +112,7 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
                                 query_url: escrow_query_url,
                                 query_auth_token: escrow_query_auth_token,
                                 deployment_id: escrow_deployment_id,
-                                syncing_interval_secs: escrow_sync_interval,
+                                ..
                             },
                     },
             },
@@ -151,14 +146,8 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
         .await,
     ));
 
-    let _indexer_allocations = indexer_allocations(
-        network_subgraph,
-        *indexer_address,
-        *network_sync_interval,
-        *recently_closed_allocation_buffer,
-    )
-    .await
-    .expect("Failed to initialize indexer_allocations watcher");
+    // Note: indexer_allocations watcher is not needed here as SenderAccountsManagerTask
+    // creates its own PostgreSQL notification listeners for receipt events
 
     let escrow_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
@@ -177,15 +166,6 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
         )
         .await,
     ));
-
-    let escrow_accounts_v1 = escrow_accounts_v1(
-        escrow_subgraph,
-        *indexer_address,
-        *escrow_sync_interval,
-        false,
-    )
-    .await
-    .expect("Error creating escrow_accounts channel");
 
     // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
     // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
@@ -217,30 +197,15 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
         false
     };
 
-    // Create V2 escrow accounts watcher only if Horizon is active
-    // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
-    let escrow_accounts_v2 = if is_horizon_enabled {
-        escrow_accounts_v2(
-            network_subgraph,
-            *indexer_address,
-            *network_sync_interval,
-            false,
-        )
-        .await
-        .expect("Error creating escrow_accounts_v2 channel")
-    } else {
-        // Create a dummy watcher that never updates for consistency
-        empty_escrow_accounts_watcher()
-    };
-
-    // In both modes we need both watchers for the hybrid processing
-    let (_escrow_accounts_v1_final, _escrow_accounts_v2_final) = if is_horizon_enabled {
+    // Log the TAP Agent mode based on Horizon detection
+    if is_horizon_enabled {
         tracing::info!("TAP Agent: Horizon migration mode - processing existing V1 receipts and new V2 receipts");
-        (escrow_accounts_v1, escrow_accounts_v2)
     } else {
         tracing::info!("TAP Agent: Legacy mode - V1 receipts only");
-        (escrow_accounts_v1, escrow_accounts_v2)
-    };
+    }
+
+    // Note: escrow_accounts watchers are not needed here as SenderAccountsManagerTask
+    // handles escrow account monitoring through its own internal mechanisms
 
     let config = Box::leak(Box::new({
         let mut config = SenderAccountConfig::from_config(&CONFIG);
