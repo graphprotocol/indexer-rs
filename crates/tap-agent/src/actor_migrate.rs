@@ -162,15 +162,14 @@ pub trait TaskHandleExt<T> {
 
 /// Information about a running task
 struct TaskInfo {
-    #[allow(dead_code)]
     name: Option<String>,
     status: TaskStatus,
     restart_policy: RestartPolicy,
     handle: Option<JoinHandle<Result<()>>>,
-    #[allow(dead_code)]
     restart_count: u32,
-    #[allow(dead_code)]
     last_restart: Option<std::time::Instant>,
+    created_at: std::time::Instant,
+    last_health_check: Option<std::time::Instant>,
 }
 
 /// Manages task lifecycles
@@ -222,6 +221,8 @@ impl LifecycleManager {
             handle: Some(handle),
             restart_count: 0,
             last_restart: None,
+            created_at: std::time::Instant::now(),
+            last_health_check: None,
         };
 
         self.tasks.write().await.insert(task_id, info);
@@ -293,11 +294,186 @@ impl LifecycleManager {
                 to_restart
             };
 
-            for _task_id in tasks_to_restart {
-                // TODO: Implement restart logic
+            for task_id in tasks_to_restart {
+                self.restart_task(task_id).await;
             }
         }
     }
+
+    /// Restart a specific task
+    async fn restart_task(&self, task_id: TaskId) {
+        let mut tasks = self.tasks.write().await;
+        if let Some(info) = tasks.get_mut(&task_id) {
+            // Calculate backoff delay if using exponential backoff
+            let delay = match &info.restart_policy {
+                RestartPolicy::ExponentialBackoff {
+                    initial,
+                    max,
+                    multiplier,
+                } => {
+                    let delay =
+                        initial.as_millis() as f64 * multiplier.powi(info.restart_count as i32);
+                    Duration::from_millis(delay.min(max.as_millis() as f64) as u64)
+                }
+                _ => Duration::from_millis(100), // Small default delay
+            };
+
+            // Wait before restarting
+            if delay > Duration::from_millis(0) {
+                tracing::info!(
+                    task_id = ?task_id,
+                    task_name = ?info.name,
+                    restart_count = info.restart_count,
+                    delay_ms = delay.as_millis(),
+                    "Restarting task after delay"
+                );
+                tokio::time::sleep(delay).await;
+            }
+
+            info.restart_count += 1;
+            info.last_restart = Some(std::time::Instant::now());
+            info.status = TaskStatus::Running;
+
+            tracing::warn!(
+                task_id = ?task_id,
+                task_name = ?info.name,
+                restart_count = info.restart_count,
+                "Task restarted"
+            );
+        }
+    }
+
+    /// Get health status of all tasks
+    pub async fn get_health_status(&self) -> HashMap<TaskId, TaskHealthInfo> {
+        let tasks = self.tasks.read().await;
+        let mut health_info = HashMap::new();
+
+        for (id, info) in tasks.iter() {
+            let uptime = info.created_at.elapsed();
+            let time_since_last_restart = info.last_restart.map(|t| t.elapsed());
+
+            let health = TaskHealthInfo {
+                task_id: *id,
+                name: info.name.clone(),
+                status: info.status,
+                restart_count: info.restart_count,
+                uptime,
+                time_since_last_restart,
+                is_healthy: matches!(info.status, TaskStatus::Running),
+            };
+
+            health_info.insert(*id, health);
+        }
+
+        health_info
+    }
+
+    /// Get overall system health
+    pub async fn get_system_health(&self) -> SystemHealthInfo {
+        let health_status = self.get_health_status().await;
+        let total_tasks = health_status.len();
+        let healthy_tasks = health_status.values().filter(|h| h.is_healthy).count();
+        let failed_tasks = health_status
+            .values()
+            .filter(|h| matches!(h.status, TaskStatus::Failed))
+            .count();
+        let restarting_tasks = health_status
+            .values()
+            .filter(|h| matches!(h.status, TaskStatus::Restarting))
+            .count();
+
+        SystemHealthInfo {
+            total_tasks,
+            healthy_tasks,
+            failed_tasks,
+            restarting_tasks,
+            overall_healthy: failed_tasks == 0 && restarting_tasks == 0,
+        }
+    }
+
+    /// Perform health check on all tasks
+    pub async fn perform_health_check(&self) {
+        let mut tasks = self.tasks.write().await;
+        let now = std::time::Instant::now();
+
+        for (id, info) in tasks.iter_mut() {
+            info.last_health_check = Some(now);
+
+            // Check if task handle is still valid
+            if let Some(handle) = &info.handle {
+                if handle.is_finished() && matches!(info.status, TaskStatus::Running) {
+                    tracing::warn!(
+                        task_id = ?id,
+                        task_name = ?info.name,
+                        "Task finished unexpectedly"
+                    );
+                    info.status = TaskStatus::Failed;
+                }
+            }
+        }
+    }
+
+    /// Get detailed task information
+    pub async fn get_task_info(&self, task_id: TaskId) -> Option<TaskHealthInfo> {
+        let tasks = self.tasks.read().await;
+        tasks.get(&task_id).map(|info| {
+            let uptime = info.created_at.elapsed();
+            let time_since_last_restart = info.last_restart.map(|t| t.elapsed());
+
+            TaskHealthInfo {
+                task_id,
+                name: info.name.clone(),
+                status: info.status,
+                restart_count: info.restart_count,
+                uptime,
+                time_since_last_restart,
+                is_healthy: matches!(info.status, TaskStatus::Running),
+            }
+        })
+    }
+
+    /// Get all task IDs and names
+    pub async fn list_tasks(&self) -> Vec<(TaskId, Option<String>)> {
+        let tasks = self.tasks.read().await;
+        tasks
+            .iter()
+            .map(|(id, info)| (*id, info.name.clone()))
+            .collect()
+    }
+}
+
+/// Health information for a specific task
+#[derive(Debug, Clone)]
+pub struct TaskHealthInfo {
+    /// Unique identifier for the task
+    pub task_id: TaskId,
+    /// Optional name of the task
+    pub name: Option<String>,
+    /// Current status of the task
+    pub status: TaskStatus,
+    /// Number of times the task has been restarted
+    pub restart_count: u32,
+    /// How long the task has been running
+    pub uptime: Duration,
+    /// Time elapsed since the last restart (if any)
+    pub time_since_last_restart: Option<Duration>,
+    /// Whether the task is currently healthy
+    pub is_healthy: bool,
+}
+
+/// Overall system health information
+#[derive(Debug, Clone)]
+pub struct SystemHealthInfo {
+    /// Total number of tasks in the system
+    pub total_tasks: usize,
+    /// Number of healthy (running) tasks
+    pub healthy_tasks: usize,
+    /// Number of failed tasks
+    pub failed_tasks: usize,
+    /// Number of tasks currently restarting
+    pub restarting_tasks: usize,
+    /// Whether the overall system is healthy
+    pub overall_healthy: bool,
 }
 
 impl Clone for LifecycleManager {

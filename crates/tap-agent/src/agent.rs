@@ -65,6 +65,9 @@ pub mod sender_accounts_manager_task;
 pub mod sender_allocation;
 /// Tokio task-based replacement for SenderAllocation actor
 pub mod sender_allocation_task;
+/// Tests for task lifecycle monitoring and health checks
+#[cfg(test)]
+mod test_lifecycle_monitoring;
 /// Comprehensive tests for tokio migration
 #[cfg(test)]
 mod test_tokio_migration;
