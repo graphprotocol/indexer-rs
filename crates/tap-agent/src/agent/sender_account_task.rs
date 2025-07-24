@@ -28,7 +28,7 @@ use super::{
     unaggregated_receipts::UnaggregatedReceipts,
 };
 use crate::{
-    actor_migrate::{LifecycleManager, RestartPolicy, TaskHandle, TaskRegistry},
+    task_lifecycle::{LifecycleManager, RestartPolicy, TaskHandle, TaskRegistry},
     tracker::{SenderFeeTracker, SimpleFeeTracker},
 };
 

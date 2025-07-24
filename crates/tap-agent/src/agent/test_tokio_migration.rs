@@ -11,11 +11,11 @@
 mod tests {
     use crate::tap::context::Legacy;
     use crate::{
-        actor_migrate::LifecycleManager,
         agent::{
             sender_account::SenderAccountConfig,
             sender_accounts_manager_task::SenderAccountsManagerTask,
         },
+        task_lifecycle::LifecycleManager,
         test::{store_receipt, CreateReceipt},
     };
     use indexer_monitor::{DeploymentDetails, SubgraphClient};

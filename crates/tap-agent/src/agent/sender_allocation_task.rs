@@ -19,8 +19,8 @@ use super::{
     unaggregated_receipts::UnaggregatedReceipts,
 };
 use crate::{
-    actor_migrate::{LifecycleManager, RestartPolicy, TaskHandle},
     tap::context::{NetworkVersion, TapAgentContext},
+    task_lifecycle::{LifecycleManager, RestartPolicy, TaskHandle},
 };
 use indexer_receipt::TapReceipt;
 use tap_core::{

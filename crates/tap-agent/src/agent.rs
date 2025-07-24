@@ -45,8 +45,8 @@ use sender_accounts_manager_task::SenderAccountsManagerTask;
 use tokio::task::JoinHandle;
 
 use crate::{
-    actor_migrate::LifecycleManager, agent::sender_accounts_manager::SenderAccountsManagerMessage,
-    database, CONFIG, EIP_712_DOMAIN,
+    agent::sender_accounts_manager::SenderAccountsManagerMessage, database,
+    task_lifecycle::LifecycleManager, CONFIG, EIP_712_DOMAIN,
 };
 
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_account::SenderAccount]
@@ -74,7 +74,7 @@ mod test_tokio_regression;
 /// Unaggregated receipts containing total value and last id stored in the table
 pub mod unaggregated_receipts;
 
-use crate::actor_migrate::TaskHandle;
+use crate::task_lifecycle::TaskHandle;
 
 /// This is the main entrypoint for starting up tap-agent
 ///

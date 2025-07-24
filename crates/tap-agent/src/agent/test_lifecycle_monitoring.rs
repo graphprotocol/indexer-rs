@@ -8,7 +8,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::actor_migrate::{LifecycleManager, RestartPolicy, TaskStatus};
+    use crate::task_lifecycle::{LifecycleManager, RestartPolicy, TaskStatus};
     use anyhow::Result;
     use std::time::Duration;
     use tokio::time::sleep;

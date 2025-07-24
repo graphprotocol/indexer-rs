@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use indexer_tap_agent::actor_migrate::TaskStatus;
+use indexer_tap_agent::task_lifecycle::TaskStatus;
 use indexer_tap_agent::{agent, metrics, CONFIG};
 use tokio::signal::unix::{signal, SignalKind};
 

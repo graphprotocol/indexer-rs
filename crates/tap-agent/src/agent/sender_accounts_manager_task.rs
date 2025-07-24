@@ -28,7 +28,7 @@ use super::{
 
 #[cfg(any(test, feature = "test"))]
 use super::sender_account_task::SenderAccountTask;
-use crate::actor_migrate::{LifecycleManager, RestartPolicy, TaskHandle, TaskRegistry};
+use crate::task_lifecycle::{LifecycleManager, RestartPolicy, TaskHandle, TaskRegistry};
 
 /// Tokio task-based replacement for SenderAccountsManager actor
 pub struct SenderAccountsManagerTask;

@@ -10,12 +10,12 @@ use std::{collections::HashMap, time::Duration};
 
 use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use indexer_tap_agent::{
-    actor_migrate::LifecycleManager,
     agent::{
         sender_account::SenderAccountConfig,
         sender_accounts_manager_task::SenderAccountsManagerTask,
     },
     tap::context::Legacy,
+    task_lifecycle::LifecycleManager,
     test::{store_receipt, CreateReceipt},
 };
 use serde_json::json;

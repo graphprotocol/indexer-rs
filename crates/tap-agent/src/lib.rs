@@ -28,7 +28,6 @@ pub static EIP_712_DOMAIN: LazyLock<Eip712Domain> = LazyLock::new(|| {
     )
 });
 
-pub mod actor_migrate;
 pub mod adaptative_concurrency;
 pub mod agent;
 pub mod backoff;
@@ -38,6 +37,7 @@ pub mod database;
 /// Prometheus Metrics server
 pub mod metrics;
 pub mod tap;
+pub mod task_lifecycle;
 
 /// Test utils to interact with Tap Actors
 #[cfg(any(test, feature = "test"))]
