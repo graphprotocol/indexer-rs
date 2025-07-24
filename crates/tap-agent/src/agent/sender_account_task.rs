@@ -36,7 +36,10 @@ use crate::{
 use super::sender_allocation_task::SenderAllocationTask;
 
 #[cfg(not(any(test, feature = "test")))]
-use tap_core::receipt::checks::CheckList;
+use tap_core::receipt::checks::{Check, CheckList};
+
+#[cfg(not(any(test, feature = "test")))]
+use crate::tap::context::checks::{AllocationId as AllocationIdCheck, Signature};
 
 #[cfg(any(test, feature = "test"))]
 use super::sender_allocation_task::SenderAllocationTask;
@@ -397,7 +400,7 @@ impl SenderAccountTask {
         #[cfg(any(test, feature = "test"))]
         {
             // Create a self-reference handle for the child to communicate back
-            let (self_tx, mut self_rx) = mpsc::channel::<SenderAccountMessage>(10);
+            let (self_tx, _self_rx) = mpsc::channel::<SenderAccountMessage>(10);
             let self_handle = TaskHandle::new(
                 self_tx,
                 Some(format!("sender_account_{}", state.sender)),
@@ -430,49 +433,6 @@ impl SenderAccountTask {
 
             // Register the child task
             state.child_registry.register(task_name, child_handle).await;
-
-            // Create a proper message forwarder that handles child->parent communication
-            // This simulates the child sending messages back to the parent task
-            tokio::spawn(async move {
-                while let Some(msg) = self_rx.recv().await {
-                    tracing::debug!(
-                        message = ?msg,
-                        "Child allocation task sent message to parent"
-                    );
-
-                    // In production, this would route the message back to the parent's
-                    // main message handling loop. For our current proof-of-concept,
-                    // we just log that proper communication is happening.
-                    match msg {
-                        SenderAccountMessage::UpdateReceiptFees(allocation_id, _receipt_fees) => {
-                            tracing::debug!(
-                                allocation_id = ?allocation_id,
-                                "Child reported receipt fee update"
-                            );
-                        }
-                        SenderAccountMessage::UpdateInvalidReceiptFees(
-                            allocation_id,
-                            invalid_fees,
-                        ) => {
-                            tracing::debug!(
-                                allocation_id = ?allocation_id,
-                                invalid_value = invalid_fees.value,
-                                "Child reported invalid receipt fees"
-                            );
-                        }
-                        SenderAccountMessage::UpdateRav(rav_info) => {
-                            tracing::debug!(
-                                allocation_id = %rav_info.allocation_id,
-                                rav_value = rav_info.value_aggregate,
-                                "Child reported new RAV"
-                            );
-                        }
-                        _ => {
-                            tracing::debug!("Child sent other message type");
-                        }
-                    }
-                }
-            });
         }
 
         #[cfg(not(any(test, feature = "test")))]
@@ -520,11 +480,29 @@ impl SenderAccountTask {
                     .escrow_accounts(state.escrow_accounts.clone())
                     .build();
 
+                    // Create proper receipt validation checks for Legacy (V1) network
+                    let required_checks: Vec<Arc<dyn Check<crate::tap::TapReceipt> + Send + Sync>> = vec![
+                        Arc::new(
+                            AllocationIdCheck::new(
+                                state.config.indexer_address,
+                                state.config.escrow_polling_interval,
+                                state.sender,
+                                tap_allocation_id,
+                                state.escrow_subgraph,
+                            )
+                            .await,
+                        ),
+                        Arc::new(Signature::new(
+                            state.domain_separator.clone(),
+                            state.escrow_accounts.clone(),
+                        )),
+                    ];
+
                     // Create TAP manager with proper domain separator and checks
                     let tap_manager = tap_core::manager::Manager::new(
                         state.domain_separator.clone(),
                         tap_context_for_manager,
-                        CheckList::empty(), // TODO: Add proper checks in future iteration
+                        CheckList::new(required_checks),
                     );
 
                     // Create Legacy (V1) aggregator client
@@ -576,11 +554,29 @@ impl SenderAccountTask {
                     .escrow_accounts(state.escrow_accounts.clone())
                     .build();
 
+                    // Create proper receipt validation checks for Horizon (V2) network
+                    let required_checks: Vec<Arc<dyn Check<crate::tap::TapReceipt> + Send + Sync>> = vec![
+                        Arc::new(
+                            AllocationIdCheck::new(
+                                state.config.indexer_address,
+                                state.config.escrow_polling_interval,
+                                state.sender,
+                                tap_allocation_id,
+                                state.escrow_subgraph,
+                            )
+                            .await,
+                        ),
+                        Arc::new(Signature::new(
+                            state.domain_separator.clone(),
+                            state.escrow_accounts.clone(),
+                        )),
+                    ];
+
                     // Create TAP manager with proper domain separator and checks
                     let tap_manager = tap_core::manager::Manager::new(
                         state.domain_separator.clone(),
                         tap_context_for_manager,
-                        CheckList::empty(), // TODO: Add proper checks in future iteration
+                        CheckList::new(required_checks),
                     );
 
                     // Create Horizon (V2) aggregator client
