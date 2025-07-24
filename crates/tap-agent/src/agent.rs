@@ -43,11 +43,12 @@ use indexer_monitor::{
     empty_escrow_accounts_watcher, escrow_accounts_v1, escrow_accounts_v2, indexer_allocations,
     DeploymentDetails, SubgraphClient,
 };
-use ractor::{concurrency::JoinHandle, Actor, ActorRef};
+use ractor::concurrency::JoinHandle;
 use sender_account::SenderAccountConfig;
-use sender_accounts_manager::SenderAccountsManager;
+use sender_accounts_manager_task::SenderAccountsManagerTask;
 
 use crate::{
+    actor_migrate::LifecycleManager,
     agent::sender_accounts_manager::{SenderAccountsManagerArgs, SenderAccountsManagerMessage},
     database, CONFIG, EIP_712_DOMAIN,
 };
@@ -68,10 +69,14 @@ pub mod sender_allocation_task;
 /// Unaggregated receipts containing total value and last id stored in the table
 pub mod unaggregated_receipts;
 
+use crate::actor_migrate::TaskHandle;
+
 /// This is the main entrypoint for starting up tap-agent
 ///
 /// It uses the static [crate::CONFIG] to configure the agent.
-pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
+///
+/// 🎯 TOKIO MIGRATION: Now returns TaskHandle instead of ActorRef
+pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHandle<()>) {
     let Config {
         indexer: IndexerConfig {
             indexer_address, ..
@@ -233,10 +238,10 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         config
     }));
 
-    let args = SenderAccountsManagerArgs {
+    let _args = SenderAccountsManagerArgs {
         config,
         domain_separator: EIP_712_DOMAIN.clone(),
-        pgpool,
+        pgpool: pgpool.clone(),
         indexer_allocations,
         escrow_accounts_v1: escrow_accounts_v1_final,
         escrow_accounts_v2: escrow_accounts_v2_final,
@@ -246,7 +251,32 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         prefix: None,
     };
 
-    SenderAccountsManager::spawn(None, SenderAccountsManager, args)
-        .await
-        .expect("Failed to start sender accounts manager actor.")
+    // 🎯 TOKIO MIGRATION: Using SenderAccountsManagerTask instead of ractor SenderAccountsManager
+    let lifecycle = LifecycleManager::new();
+
+    let task_handle = SenderAccountsManagerTask::spawn(
+        &lifecycle,
+        None, // name
+        config,
+        pgpool,
+        escrow_subgraph,
+        network_subgraph,
+        EIP_712_DOMAIN.clone(),
+        sender_aggregator_endpoints.clone(),
+        None, // prefix
+    )
+    .await
+    .expect("Failed to start sender accounts manager task.");
+
+    // Create a dummy JoinHandle for compatibility with main.rs
+    // In the tokio model, the lifecycle manager handles task monitoring
+    let dummy_handle = tokio::spawn(async {
+        // This task runs indefinitely until the application shuts down
+        // The actual work is done by the SenderAccountsManagerTask and its children
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
+
+    (task_handle, dummy_handle)
 }

@@ -25,6 +25,7 @@ impl Default for TaskId {
 }
 
 impl TaskId {
+    /// Create a new unique task identifier
     pub fn new() -> Self {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -35,9 +36,13 @@ impl TaskId {
 /// Task status
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskStatus {
+    /// Task is currently running
     Running,
+    /// Task has been stopped
     Stopped,
+    /// Task failed and cannot continue
     Failed,
+    /// Task is restarting after failure
     Restarting,
 }
 
@@ -50,8 +55,11 @@ pub enum RestartPolicy {
     Always,
     /// Restart with exponential backoff
     ExponentialBackoff {
+        /// Initial backoff duration
         initial: Duration,
+        /// Maximum backoff duration
         max: Duration,
+        /// Backoff multiplier factor
         multiplier: f64,
     },
 }
@@ -123,11 +131,13 @@ impl<T> TaskHandle<T> {
 /// RPC-style message that expects a response
 #[allow(dead_code)]
 pub trait RpcMessage: Send {
+    /// The response type for this message
     type Response: Send;
 }
 
 /// Extension trait for TaskHandle to support RPC calls
 #[allow(dead_code)]
+#[allow(async_fn_in_trait)]
 pub trait TaskHandleExt<T> {
     /// Send a message and wait for response
     async fn call<M>(&self, msg: M) -> Result<M::Response>
@@ -160,6 +170,7 @@ impl Default for LifecycleManager {
 }
 
 impl LifecycleManager {
+    /// Create a new lifecycle manager
     pub fn new() -> Self {
         Self {
             tasks: Arc::new(RwLock::new(HashMap::new())),
@@ -284,7 +295,9 @@ impl Clone for LifecycleManager {
 
 /// Context provided to tasks
 pub struct TaskContext {
+    /// Unique task identifier
     pub id: TaskId,
+    /// Shared lifecycle manager
     pub lifecycle: Arc<LifecycleManager>,
 }
 
@@ -301,6 +314,7 @@ impl Default for TaskRegistry {
 }
 
 impl TaskRegistry {
+    /// Create a new task registry
     pub fn new() -> Self {
         Self {
             registry: Arc::new(RwLock::new(HashMap::new())),
@@ -346,7 +360,9 @@ pub mod compat {
     /// Trait to unify ActorRef and TaskHandle APIs
     #[allow(dead_code)]
     pub trait MessageSender<T>: Clone + Send + Sync {
+        /// Send a message to the target
         fn cast(&self, msg: T) -> impl Future<Output = Result<()>> + Send;
+        /// Stop the target with optional reason
         fn stop(&self, reason: Option<String>);
     }
 
