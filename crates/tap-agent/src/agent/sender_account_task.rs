@@ -306,6 +306,8 @@ impl SenderAccountTask {
             }
             #[cfg(test)]
             SenderAccountMessage::GetSenderFeeTracker(reply) => {
+                // Note: This is the ractor-based interface for legacy tests
+                // The reply.send() is compatible since ractor RpcReplyPort has a send method
                 let _ = reply.send(state.sender_fee_tracker.clone());
             }
             #[cfg(test)]

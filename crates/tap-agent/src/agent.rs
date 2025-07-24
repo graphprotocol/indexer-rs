@@ -43,9 +43,9 @@ use indexer_monitor::{
     empty_escrow_accounts_watcher, escrow_accounts_v1, escrow_accounts_v2, indexer_allocations,
     DeploymentDetails, SubgraphClient,
 };
-use ractor::concurrency::JoinHandle;
 use sender_account::SenderAccountConfig;
 use sender_accounts_manager_task::SenderAccountsManagerTask;
+use tokio::task::JoinHandle;
 
 use crate::{
     actor_migrate::LifecycleManager,

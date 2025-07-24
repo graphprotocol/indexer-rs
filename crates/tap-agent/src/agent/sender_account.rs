@@ -18,6 +18,7 @@ use indexer_query::{
 };
 use indexer_watcher::watch_pipe;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
+#[cfg(any(test, feature = "test"))]
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use reqwest::Url;
 use sqlx::PgPool;
@@ -327,6 +328,7 @@ impl PartialEq for SenderAccountMessage {
 #[cfg(any(test, feature = "test"))]
 impl Eq for SenderAccountMessage {}
 
+#[cfg(any(test, feature = "test"))]
 /// A SenderAccount manages the receipts accounting between the indexer and the sender across
 /// multiple allocations.
 ///
@@ -338,6 +340,7 @@ impl Eq for SenderAccountMessage {}
 /// - Requesting the last RAV from the sender's TAP aggregator for all EOL allocations.
 pub struct SenderAccount;
 
+#[cfg(any(test, feature = "test"))]
 /// Arguments received in startup while spawing [SenderAccount] actor
 pub struct SenderAccountArgs {
     /// Configuration derived from config.toml
@@ -371,6 +374,7 @@ pub struct SenderAccountArgs {
     pub sender_type: SenderType,
 }
 
+#[cfg(any(test, feature = "test"))]
 /// State used by the actor
 ///
 /// This is a separate instance that makes it easier to have mutable
@@ -845,6 +849,7 @@ impl State {
     }
 }
 
+#[cfg(any(test, feature = "test"))]
 /// Actor implementation for [SenderAccount]
 #[async_trait::async_trait]
 impl Actor for SenderAccount {
