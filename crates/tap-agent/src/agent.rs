@@ -68,6 +68,9 @@ pub mod sender_allocation_task;
 /// Comprehensive tests for tokio migration
 #[cfg(test)]
 mod test_tokio_migration;
+/// Regression tests comparing ractor vs tokio behavior
+#[cfg(test)]
+mod test_tokio_regression;
 /// Unaggregated receipts containing total value and last id stored in the table
 pub mod unaggregated_receipts;
 
