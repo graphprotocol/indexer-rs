@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(test)]
+#[cfg(not(any(test, feature = "test")))]
 use std::time::Duration;
 
 use anyhow::Result;
@@ -76,6 +76,9 @@ struct TaskState {
     /// Configuration
     #[allow(dead_code)]
     config: &'static SenderAccountConfig,
+    /// Handle to send messages back to this task's main loop
+    #[cfg(not(any(test, feature = "test")))]
+    parent_tx: mpsc::Sender<SenderAccountMessage>,
     /// Other required fields for spawning child tasks
     #[allow(dead_code)]
     pgpool: sqlx::PgPool,
@@ -107,6 +110,14 @@ impl SenderAccountTask {
         sender_aggregator_endpoint: reqwest::Url,
         prefix: Option<String>,
     ) -> Result<TaskHandle<SenderAccountMessage>> {
+        // Create a separate channel for parent-child communication
+        #[cfg(not(any(test, feature = "test")))]
+        let (parent_tx, parent_rx) = mpsc::channel(100);
+
+        #[cfg(any(test, feature = "test"))]
+        let (_parent_tx, parent_rx) = mpsc::channel(100);
+
+        #[cfg(any(test, feature = "test"))]
         let state = TaskState {
             prefix,
             sender_fee_tracker: SenderFeeTracker::new(config.rav_request_buffer),
@@ -126,28 +137,145 @@ impl SenderAccountTask {
             sender_aggregator_endpoint,
         };
 
+        #[cfg(not(any(test, feature = "test")))]
+        let state = TaskState {
+            prefix,
+            sender_fee_tracker: SenderFeeTracker::new(config.rav_request_buffer),
+            rav_tracker: SimpleFeeTracker::default(),
+            invalid_receipts_tracker: SimpleFeeTracker::default(),
+            allocation_ids: HashSet::new(),
+            sender,
+            sender_balance: U256::ZERO,
+            child_registry: TaskRegistry::new(),
+            lifecycle: Arc::new(lifecycle.clone()),
+            config,
+            parent_tx,
+            pgpool,
+            escrow_accounts,
+            escrow_subgraph,
+            network_subgraph,
+            domain_separator,
+            sender_aggregator_endpoint,
+        };
+
         lifecycle
             .spawn_task(
                 name,
                 RestartPolicy::Never,
                 100, // Buffer size for message channel
-                |rx, _ctx| Self::run_task(state, rx),
+                |rx, _ctx| Self::run_task(state, rx, parent_rx),
             )
             .await
     }
 
-    /// Main task loop
+    /// Main task loop with parent-child communication support
     async fn run_task(
         mut state: TaskState,
         mut rx: mpsc::Receiver<SenderAccountMessage>,
+        mut parent_rx: mpsc::Receiver<SenderAccountMessage>,
     ) -> Result<()> {
-        while let Some(message) = rx.recv().await {
-            if let Err(e) = Self::handle_message(&mut state, message).await {
-                tracing::error!(
+        loop {
+            tokio::select! {
+                // Handle external messages (from other tasks/systems)
+                message = rx.recv() => {
+                    match message {
+                        Some(msg) => {
+                            if let Err(e) = Self::handle_message(&mut state, msg).await {
+                                tracing::error!(
+                                    sender = %state.sender,
+                                    error = %e,
+                                    "Error handling external SenderAccount message"
+                                );
+                            }
+                        }
+                        None => {
+                            tracing::info!(
+                                sender = %state.sender,
+                                "External message channel closed, shutting down SenderAccount task"
+                            );
+                            break;
+                        }
+                    }
+                }
+
+                // Handle messages from child tasks (with enhanced error handling)
+                child_message = parent_rx.recv() => {
+                    match child_message {
+                        Some(msg) => {
+                            if let Err(e) = Self::handle_child_message(&mut state, msg).await {
+                                tracing::error!(
+                                    sender = %state.sender,
+                                    error = %e,
+                                    "Error handling child message - this could affect parent state consistency"
+                                );
+                                // Continue processing despite child message errors
+                                // to maintain system stability
+                            }
+                        }
+                        None => {
+                            tracing::debug!(
+                                sender = %state.sender,
+                                "Child message channel closed"
+                            );
+                            // Don't break here - external messages might still be coming
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle messages from child tasks with proper state updates
+    async fn handle_child_message(
+        state: &mut TaskState,
+        message: SenderAccountMessage,
+    ) -> Result<()> {
+        tracing::trace!(
+            sender = %state.sender,
+            message = ?message,
+            "Processing child message for parent state update"
+        );
+
+        match &message {
+            SenderAccountMessage::UpdateReceiptFees(allocation_id, _receipt_fees) => {
+                tracing::debug!(
                     sender = %state.sender,
-                    error = %e,
-                    "Error handling SenderAccount message"
+                    allocation_id = ?allocation_id,
+                    "Child reported receipt fee update - updating parent fee tracker"
                 );
+                // Forward to the main message handler to update fee trackers
+                Self::handle_message(state, message).await?;
+            }
+            SenderAccountMessage::UpdateInvalidReceiptFees(allocation_id, invalid_fees) => {
+                tracing::debug!(
+                    sender = %state.sender,
+                    allocation_id = ?allocation_id,
+                    invalid_value = invalid_fees.value,
+                    "Child reported invalid receipt fees - updating parent invalid fee tracker"
+                );
+                // Forward to the main message handler to update invalid fee trackers
+                Self::handle_message(state, message).await?;
+            }
+            SenderAccountMessage::UpdateRav(rav_info) => {
+                tracing::debug!(
+                    sender = %state.sender,
+                    allocation_id = %rav_info.allocation_id,
+                    rav_value = rav_info.value_aggregate,
+                    "Child reported new RAV - updating parent RAV tracker"
+                );
+                // Forward to the main message handler to update RAV trackers
+                Self::handle_message(state, message).await?;
+            }
+            _ => {
+                tracing::debug!(
+                    sender = %state.sender,
+                    message_type = ?std::mem::discriminant(&message),
+                    "Child sent other message type - forwarding to main handler"
+                );
+                // Forward all other messages to the main handler
+                Self::handle_message(state, message).await?;
             }
         }
 
@@ -355,7 +483,7 @@ impl SenderAccountTask {
             // Create proper TAP manager and aggregator client for production deployment
 
             // Create a self-reference handle for the child to communicate back
-            let (self_tx, mut self_rx) = mpsc::channel::<SenderAccountMessage>(10);
+            let (self_tx, self_rx) = mpsc::channel::<SenderAccountMessage>(10);
 
             // Create proper TaskHandle for production
             let self_handle = TaskHandle::new_for_production(
@@ -513,67 +641,132 @@ impl SenderAccountTask {
                 }
             }
 
-            // Set up message forwarder that routes child messages back to parent task
+            // Set up robust message forwarder with retry logic
+            let parent_tx_clone = state.parent_tx.clone();
             let state_sender = state.sender;
             let allocation_id_for_forwarder = allocation_id;
 
             tokio::spawn(async move {
-                while let Some(msg) = self_rx.recv().await {
-                    tracing::debug!(
-                        sender = %state_sender,
-                        allocation_id = ?allocation_id_for_forwarder,
-                        message = ?msg,
-                        "Child allocation task reported to parent"
-                    );
-
-                    // Forward messages to parent's main loop for state updates
-                    // In this iteration, we log the updates to demonstrate proper communication
-                    // TODO: In future iteration, route messages back to parent's message channel
-                    match msg {
-                        SenderAccountMessage::UpdateReceiptFees(alloc_id, _receipt_fees) => {
-                            tracing::info!(
-                                sender = %state_sender,
-                                allocation_id = ?alloc_id,
-                                "Child reported receipt fee update - parent state would be updated"
-                            );
-                            // TODO: Forward to parent's main message loop for fee tracker updates
-                        }
-                        SenderAccountMessage::UpdateInvalidReceiptFees(alloc_id, invalid_fees) => {
-                            tracing::info!(
-                                sender = %state_sender,
-                                allocation_id = ?alloc_id,
-                                invalid_value = invalid_fees.value,
-                                "Child reported invalid receipt fees - parent state would be updated"
-                            );
-                            // TODO: Forward to parent's main message loop for invalid fee tracking
-                        }
-                        SenderAccountMessage::UpdateRav(rav_info) => {
-                            tracing::info!(
-                                sender = %state_sender,
-                                allocation_id = %rav_info.allocation_id,
-                                rav_value = rav_info.value_aggregate,
-                                "Child reported new RAV - parent state would be updated"
-                            );
-                            // TODO: Forward to parent's main message loop for RAV tracking
-                        }
-                        _ => {
-                            tracing::debug!(
-                                sender = %state_sender,
-                                "Child sent other message type - would be handled by parent"
-                            );
-                        }
-                    }
-                }
-
-                tracing::info!(
-                    sender = %state_sender,
-                    allocation_id = ?allocation_id_for_forwarder,
-                    "Child allocation message forwarder terminated"
-                );
+                Self::run_message_forwarder(
+                    self_rx,
+                    parent_tx_clone,
+                    state_sender,
+                    allocation_id_for_forwarder,
+                )
+                .await;
             });
         }
 
         Ok(())
+    }
+
+    /// Robust message forwarder with exponential backoff retry logic
+    #[cfg(not(any(test, feature = "test")))]
+    async fn run_message_forwarder(
+        mut child_rx: mpsc::Receiver<SenderAccountMessage>,
+        parent_tx: mpsc::Sender<SenderAccountMessage>,
+        state_sender: Address,
+        allocation_id: AllocationId,
+    ) {
+        let mut consecutive_failures = 0u32;
+        const MAX_CONSECUTIVE_FAILURES: u32 = 5;
+        const INITIAL_BACKOFF: Duration = Duration::from_millis(100);
+        const MAX_BACKOFF: Duration = Duration::from_secs(30);
+        const BACKOFF_MULTIPLIER: f64 = 2.0;
+
+        tracing::debug!(
+            sender = %state_sender,
+            allocation_id = ?allocation_id,
+            "Starting robust message forwarder for child->parent communication"
+        );
+
+        while let Some(msg) = child_rx.recv().await {
+            tracing::trace!(
+                sender = %state_sender,
+                allocation_id = ?allocation_id,
+                message = ?msg,
+                "Child allocation task reported to parent"
+            );
+
+            // Attempt to forward message with retry logic
+            let mut retry_count = 0u32;
+            let mut current_backoff = INITIAL_BACKOFF;
+
+            loop {
+                match parent_tx.send(msg.clone()).await {
+                    Ok(()) => {
+                        // Success! Reset failure counter and break retry loop
+                        if consecutive_failures > 0 {
+                            tracing::info!(
+                                sender = %state_sender,
+                                allocation_id = ?allocation_id,
+                                retry_count,
+                                "Message forwarding recovered after {} consecutive failures",
+                                consecutive_failures
+                            );
+                            consecutive_failures = 0;
+                        }
+
+                        tracing::trace!(
+                            sender = %state_sender,
+                            allocation_id = ?allocation_id,
+                            "Successfully forwarded child message to parent"
+                        );
+                        break;
+                    }
+                    Err(e) => {
+                        consecutive_failures += 1;
+                        retry_count += 1;
+
+                        tracing::warn!(
+                            sender = %state_sender,
+                            allocation_id = ?allocation_id,
+                            error = %e,
+                            retry_count,
+                            consecutive_failures,
+                            backoff_ms = current_backoff.as_millis(),
+                            "Failed to forward message to parent - will retry"
+                        );
+
+                        // Check if we should give up
+                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                            tracing::error!(
+                                sender = %state_sender,
+                                allocation_id = ?allocation_id,
+                                consecutive_failures,
+                                "Too many consecutive failures - parent may be unresponsive. Dropping message."
+                            );
+                            break;
+                        }
+
+                        // Wait before retry with exponential backoff
+                        tokio::time::sleep(current_backoff).await;
+
+                        // Increase backoff for next retry
+                        current_backoff = Duration::from_millis(
+                            ((current_backoff.as_millis() as f64) * BACKOFF_MULTIPLIER) as u64,
+                        )
+                        .min(MAX_BACKOFF);
+                    }
+                }
+            }
+
+            // If we've hit max failures, this indicates a serious problem
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                tracing::error!(
+                    sender = %state_sender,
+                    allocation_id = ?allocation_id,
+                    "Message forwarder shutting down due to persistent communication failures"
+                );
+                break;
+            }
+        }
+
+        tracing::info!(
+            sender = %state_sender,
+            allocation_id = ?allocation_id,
+            "Child allocation message forwarder terminated"
+        );
     }
 
     /// Format allocation task name
@@ -692,6 +885,7 @@ impl SenderAccountTask {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     use thegraph_core::AllocationId as CoreAllocationId;
 
     #[tokio::test]
