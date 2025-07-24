@@ -99,6 +99,21 @@ impl<T> TaskHandle<T> {
         }
     }
 
+    /// Create a new task handle for production use
+    #[cfg(not(any(test, feature = "test")))]
+    pub fn new_for_production(
+        tx: mpsc::Sender<T>,
+        name: Option<String>,
+        lifecycle: Arc<LifecycleManager>,
+    ) -> Self {
+        Self {
+            tx,
+            task_id: TaskId::new(),
+            name,
+            lifecycle,
+        }
+    }
+
     /// Send a message to the task (fire-and-forget)
     pub async fn cast(&self, msg: T) -> Result<()> {
         self.tx
