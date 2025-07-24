@@ -366,42 +366,7 @@ impl TaskRegistry {
     }
 }
 
-/// Compatibility wrapper to make ractor ActorRef work with our abstraction
-#[cfg(any(test, feature = "test"))]
-pub mod compat {
-    use super::*;
-    use ractor::ActorRef;
-
-    /// Trait to unify ActorRef and TaskHandle APIs
-    #[allow(dead_code)]
-    pub trait MessageSender<T>: Clone + Send + Sync {
-        /// Send a message to the target
-        fn cast(&self, msg: T) -> impl Future<Output = Result<()>> + Send;
-        /// Stop the target with optional reason
-        fn stop(&self, reason: Option<String>);
-    }
-
-    impl<T: Send + 'static> MessageSender<T> for TaskHandle<T> {
-        async fn cast(&self, msg: T) -> Result<()> {
-            TaskHandle::cast(self, msg).await
-        }
-
-        fn stop(&self, reason: Option<String>) {
-            TaskHandle::stop(self, reason)
-        }
-    }
-
-    impl<T: Send + 'static> MessageSender<T> for ActorRef<T> {
-        async fn cast(&self, msg: T) -> Result<()> {
-            ractor::ActorRef::cast(self, msg).map_err(|e| anyhow!("Actor error: {:?}", e))
-        }
-
-        #[allow(unconditional_recursion)]
-        fn stop(&self, _reason: Option<String>) {
-            ractor::ActorRef::stop(self, _reason)
-        }
-    }
-}
+// Compatibility module removed - tokio migration complete! 🎉
 
 #[cfg(test)]
 mod tests {
