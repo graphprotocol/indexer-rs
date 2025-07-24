@@ -1095,7 +1095,7 @@ mod tests {
 
         // Create a dummy parent handle for testing
         let (parent_tx, mut parent_rx) = mpsc::channel(10);
-        let parent_handle = TaskHandle::new_for_test(
+        let parent_handle = TaskHandle::new(
             parent_tx,
             Some("test_parent".to_string()),
             std::sync::Arc::new(lifecycle.clone()),
@@ -1157,7 +1157,7 @@ mod tests {
 
         // Create a dummy parent handle for testing
         let (parent_tx, mut parent_rx) = mpsc::channel(10);
-        let parent_handle = TaskHandle::new_for_test(
+        let parent_handle = TaskHandle::new(
             parent_tx,
             Some("test_parent".to_string()),
             std::sync::Arc::new(lifecycle.clone()),
@@ -1257,7 +1257,7 @@ mod tests {
 
         // Create a dummy parent handle for testing
         let (parent_tx, mut parent_rx) = mpsc::channel(10);
-        let parent_handle = TaskHandle::new_for_test(
+        let parent_handle = TaskHandle::new(
             parent_tx,
             Some("test_parent".to_string()),
             std::sync::Arc::new(lifecycle.clone()),
@@ -1362,7 +1362,7 @@ mod tests {
 
         // Create a dummy parent handle for testing
         let (parent_tx, mut parent_rx) = mpsc::channel(10);
-        let parent_handle = TaskHandle::new_for_test(
+        let parent_handle = TaskHandle::new(
             parent_tx,
             Some("test_parent".to_string()),
             std::sync::Arc::new(lifecycle.clone()),

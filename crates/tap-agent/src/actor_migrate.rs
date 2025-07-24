@@ -84,24 +84,8 @@ impl<T> Clone for TaskHandle<T> {
 }
 
 impl<T> TaskHandle<T> {
-    /// Create a new task handle for testing
-    #[cfg(any(test, feature = "test"))]
-    pub fn new_for_test(
-        tx: mpsc::Sender<T>,
-        name: Option<String>,
-        lifecycle: Arc<LifecycleManager>,
-    ) -> Self {
-        Self {
-            tx,
-            task_id: TaskId::new(),
-            name,
-            lifecycle,
-        }
-    }
-
-    /// Create a new task handle for production use
-    #[cfg(not(any(test, feature = "test")))]
-    pub fn new_for_production(
+    /// Create a new task handle
+    pub fn new(
         tx: mpsc::Sender<T>,
         name: Option<String>,
         lifecycle: Arc<LifecycleManager>,

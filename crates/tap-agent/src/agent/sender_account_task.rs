@@ -398,7 +398,7 @@ impl SenderAccountTask {
         {
             // Create a self-reference handle for the child to communicate back
             let (self_tx, mut self_rx) = mpsc::channel::<SenderAccountMessage>(10);
-            let self_handle = TaskHandle::new_for_test(
+            let self_handle = TaskHandle::new(
                 self_tx,
                 Some(format!("sender_account_{}", state.sender)),
                 state.lifecycle.clone(),
@@ -482,8 +482,8 @@ impl SenderAccountTask {
             // Create a self-reference handle for the child to communicate back
             let (self_tx, self_rx) = mpsc::channel::<SenderAccountMessage>(10);
 
-            // Create proper TaskHandle for production
-            let self_handle = TaskHandle::new_for_production(
+            // Create TaskHandle for production
+            let self_handle = TaskHandle::new(
                 self_tx,
                 Some(format!("sender_account_{}", state.sender)),
                 state.lifecycle.clone(),
