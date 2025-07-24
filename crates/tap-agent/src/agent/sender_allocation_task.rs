@@ -30,7 +30,7 @@ use tap_core::{
 
 #[cfg(any(test, feature = "test"))]
 use tap_core::receipt::checks::CheckList;
-use thegraph_core::alloy::primitives::Address;
+use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
 
 /// Trait for creating dummy aggregator clients in tests
 #[cfg(any(test, feature = "test"))]
@@ -72,10 +72,9 @@ struct TaskState<T: NetworkVersion> {
     /// TAP Agent context for direct access to validation functions
     tap_context: TapAgentContext<T>,
     /// Database connection pool
-    #[allow(dead_code)]
     pgpool: sqlx::PgPool,
     /// Allocation/collection identifier for TAP operations
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used in production code paths only
     tap_allocation_id: Address,
     /// Sender address
     #[allow(dead_code)]
@@ -637,7 +636,7 @@ where
                 }
             }
         };
-        
+
         #[cfg(not(test))]
         let signature_valid = match state.tap_context.verify_signer(signer_address).await {
             Ok(is_valid) => is_valid,
@@ -822,18 +821,148 @@ where
             tap_core::receipt::ReceiptWithState<tap_core::receipt::state::Failed, TapReceipt>,
         >,
     ) -> anyhow::Result<()> {
-        // For now, just log the invalid receipts
-        // TODO: Store in database table for tracking
-        for receipt_with_state in invalid_receipts {
-            // Access the receipt through the correct field name
-            let receipt = receipt_with_state.signed_receipt();
-            tracing::warn!(
-                allocation_id = ?state.allocation_id,
-                receipt_value = receipt.value(),
-                receipt_timestamp = receipt.timestamp_ns(),
-                "Invalid receipt detected"
-            );
+        if invalid_receipts.is_empty() {
+            return Ok(());
         }
+
+        // Collect data for batch insert
+        let mut signer_addresses = Vec::new();
+        let mut signatures = Vec::new();
+        let mut allocation_ids = Vec::new();
+        let mut timestamps = Vec::new();
+        let mut nonces = Vec::new();
+        let mut values = Vec::new();
+        let mut error_logs = Vec::new();
+
+        for receipt_with_state in &invalid_receipts {
+            let receipt = receipt_with_state.signed_receipt();
+            // Get the failed checks error message
+            let error_message = format!("Failed validation: {receipt_with_state:?}");
+
+            // Extract receipt details based on version
+            match receipt {
+                TapReceipt::V1(v1_receipt) => {
+                    // For V1, we'll store the signer from the notification or use a placeholder
+                    // In a real implementation, we'd recover the signer using domain separator
+                    let signer = Address::ZERO; // TODO: Get actual signer from notification
+                    signer_addresses.push(signer.encode_hex());
+                    signatures.push(v1_receipt.signature.as_bytes().to_vec());
+                    allocation_ids.push(v1_receipt.message.allocation_id.encode_hex());
+                    timestamps.push(v1_receipt.message.timestamp_ns as i64);
+                    nonces.push(v1_receipt.message.nonce as i64);
+                    values.push(v1_receipt.message.value as i64);
+                    error_logs.push(error_message.clone());
+                }
+                TapReceipt::V2(v2_receipt) => {
+                    // For V2, we'll store the signer from the notification or use a placeholder
+                    // In a real implementation, we'd recover the signer using domain separator
+                    let signer = Address::ZERO; // TODO: Get actual signer from notification
+                    signer_addresses.push(signer.encode_hex());
+                    signatures.push(v2_receipt.signature.as_bytes().to_vec());
+                    // For V2, we need the collection_id from the message
+                    allocation_ids.push(v2_receipt.message.collection_id.to_string());
+                    timestamps.push(v2_receipt.message.timestamp_ns as i64);
+                    nonces.push(v2_receipt.message.nonce as i64);
+                    values.push(v2_receipt.message.value as i64);
+                    error_logs.push(error_message.clone());
+                }
+            }
+        }
+
+        // Store in appropriate table based on version
+        match state.allocation_id {
+            AllocationId::Legacy(_) => {
+                // Store in scalar_tap_receipts_invalid table for V1 receipts
+                if !signer_addresses.is_empty() {
+                    let result = sqlx::query!(
+                        r#"
+                        INSERT INTO scalar_tap_receipts_invalid 
+                        (signer_address, signature, allocation_id, timestamp_ns, nonce, value, error_log)
+                        SELECT * FROM UNNEST($1::text[], $2::bytea[], $3::text[], $4::bigint[], $5::bigint[], $6::bigint[], $7::text[])
+                        "#,
+                        &signer_addresses,
+                        &signatures,
+                        &allocation_ids,
+                        &timestamps,
+                        &nonces,
+                        &values,
+                        &error_logs
+                    )
+                    .execute(&state.pgpool)
+                    .await;
+
+                    match result {
+                        Ok(_) => {
+                            tracing::debug!(
+                                allocation_id = ?state.allocation_id,
+                                count = invalid_receipts.len(),
+                                "Stored invalid V1 receipts in scalar_tap_receipts_invalid"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                allocation_id = ?state.allocation_id,
+                                error = %e,
+                                "Failed to store invalid V1 receipts"
+                            );
+                            return Err(anyhow::anyhow!(
+                                "Database error storing invalid V1 receipts: {}",
+                                e
+                            ));
+                        }
+                    }
+                }
+            }
+            AllocationId::Horizon(_) => {
+                // Store in tap_horizon_receipts_invalid table for V2 receipts
+                if !signer_addresses.is_empty() {
+                    let result = sqlx::query!(
+                        r#"
+                        INSERT INTO tap_horizon_receipts_invalid 
+                        (signer_address, signature, collection_id, timestamp_ns, nonce, value, error_log)
+                        SELECT * FROM UNNEST($1::text[], $2::bytea[], $3::text[], $4::bigint[], $5::bigint[], $6::bigint[], $7::text[])
+                        "#,
+                        &signer_addresses,
+                        &signatures,
+                        &allocation_ids,
+                        &timestamps,
+                        &nonces,
+                        &values,
+                        &error_logs
+                    )
+                    .execute(&state.pgpool)
+                    .await;
+
+                    match result {
+                        Ok(_) => {
+                            tracing::debug!(
+                                allocation_id = ?state.allocation_id,
+                                count = invalid_receipts.len(),
+                                "Stored invalid V2 receipts in tap_horizon_receipts_invalid"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                allocation_id = ?state.allocation_id,
+                                error = %e,
+                                "Failed to store invalid V2 receipts"
+                            );
+                            return Err(anyhow::anyhow!(
+                                "Database error storing invalid V2 receipts: {}",
+                                e
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::info!(
+            allocation_id = ?state.allocation_id,
+            count = invalid_receipts.len(),
+            "Stored invalid receipts in database"
+        );
+
         Ok(())
     }
 

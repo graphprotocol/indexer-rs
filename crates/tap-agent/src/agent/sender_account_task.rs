@@ -345,23 +345,44 @@ impl SenderAccountTask {
 
         #[cfg(not(any(test, feature = "test")))]
         {
-            // TODO: Implement production child task spawning
-            // This requires proper integration with the actual SenderAllocationTask spawn method
-            // that includes TAP manager, aggregator client, etc.
-            //
-            // For now, we'll skip this to maintain build compatibility
-            // The proper implementation would look like:
-            //
-            // 1. Create aggregator client for this sender
-            // 2. Set up TAP manager with proper configuration
-            // 3. Spawn SenderAllocationTask with full parameters
-            // 4. Set up proper parent-child communication channel
+            // Create a self-reference handle for the child to communicate back
+            let (self_tx, mut self_rx) = mpsc::channel::<SenderAccountMessage>(10);
 
+            // In production, we need to create a proper handle without test methods
+            // For now, we'll create a simple wrapper that can send messages
+            // This is a placeholder until full TAP manager integration
+
+            // Convert allocation_id to Address for TAP context
+            let tap_allocation_id = match allocation_id {
+                AllocationId::Legacy(id) => id.into_inner(),
+                AllocationId::Horizon(id) => thegraph_core::AllocationId::from(id).into_inner(),
+            };
+
+            // TODO: In production, we need proper TAP manager and aggregator client creation
+            // This would require:
+            // 1. Create TapAgentContext with proper configuration
+            // 2. Create TapManager with domain separator and required checks
+            // 3. Create aggregator client using sender_aggregator_endpoint
+            // 4. Handle both Legacy and Horizon network versions properly
+            //
+            // For now, we'll log that production spawning needs implementation
             tracing::warn!(
                 sender = %state.sender,
                 allocation_id = ?allocation_id,
-                "Production sender allocation spawning not yet implemented - requires TAP manager integration"
+                tap_allocation_id = %tap_allocation_id,
+                "Production sender allocation spawning requires TAP manager integration - not yet implemented"
             );
+
+            // Set up the message forwarder for when production implementation is complete
+            tokio::spawn(async move {
+                while let Some(msg) = self_rx.recv().await {
+                    tracing::debug!(
+                        message = ?msg,
+                        "Production child allocation task would send message to parent"
+                    );
+                    // In production, this would route messages back to the parent task
+                }
+            });
         }
 
         Ok(())
