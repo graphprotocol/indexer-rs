@@ -40,10 +40,11 @@ use tracing::Level;
 
 use super::{
     sender_accounts_manager::{AllocationId, SenderType},
-    sender_allocation::{
-        AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
-    },
+    sender_allocation::{AllocationConfig, SenderAllocationMessage},
 };
+
+#[cfg(any(test, feature = "test"))]
+use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
 use crate::{
     adaptative_concurrency::AdaptiveLimiter,
     agent::unaggregated_receipts::UnaggregatedReceipts,
@@ -516,6 +517,7 @@ impl SenderAccountConfig {
     }
 }
 
+#[cfg(any(test, feature = "test"))]
 impl State {
     /// Spawn a sender allocation given the allocation_id
     ///
@@ -1609,6 +1611,7 @@ impl Actor for SenderAccount {
     }
 }
 
+#[cfg(any(test, feature = "test"))]
 impl SenderAccount {
     /// Deny sender by giving `sender` [Address]
     pub async fn deny_sender(sender_type: SenderType, pool: &PgPool, sender: Address) {

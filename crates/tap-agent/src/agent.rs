@@ -48,8 +48,7 @@ use sender_accounts_manager_task::SenderAccountsManagerTask;
 use tokio::task::JoinHandle;
 
 use crate::{
-    actor_migrate::LifecycleManager,
-    agent::sender_accounts_manager::{SenderAccountsManagerArgs, SenderAccountsManagerMessage},
+    actor_migrate::LifecycleManager, agent::sender_accounts_manager::SenderAccountsManagerMessage,
     database, CONFIG, EIP_712_DOMAIN,
 };
 
@@ -66,6 +65,9 @@ pub mod sender_accounts_manager_task;
 pub mod sender_allocation;
 /// Tokio task-based replacement for SenderAllocation actor
 pub mod sender_allocation_task;
+/// Comprehensive tests for tokio migration
+#[cfg(test)]
+mod test_tokio_migration;
 /// Unaggregated receipts containing total value and last id stored in the table
 pub mod unaggregated_receipts;
 
@@ -141,7 +143,7 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
         .await,
     ));
 
-    let indexer_allocations = indexer_allocations(
+    let _indexer_allocations = indexer_allocations(
         network_subgraph,
         *indexer_address,
         *network_sync_interval,
@@ -224,7 +226,7 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
     };
 
     // In both modes we need both watchers for the hybrid processing
-    let (escrow_accounts_v1_final, escrow_accounts_v2_final) = if is_horizon_enabled {
+    let (_escrow_accounts_v1_final, _escrow_accounts_v2_final) = if is_horizon_enabled {
         tracing::info!("TAP Agent: Horizon migration mode - processing existing V1 receipts and new V2 receipts");
         (escrow_accounts_v1, escrow_accounts_v2)
     } else {
@@ -237,19 +239,6 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
         config.horizon_enabled = is_horizon_enabled;
         config
     }));
-
-    let _args = SenderAccountsManagerArgs {
-        config,
-        domain_separator: EIP_712_DOMAIN.clone(),
-        pgpool: pgpool.clone(),
-        indexer_allocations,
-        escrow_accounts_v1: escrow_accounts_v1_final,
-        escrow_accounts_v2: escrow_accounts_v2_final,
-        escrow_subgraph,
-        network_subgraph,
-        sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
-        prefix: None,
-    };
 
     // 🎯 TOKIO MIGRATION: Using SenderAccountsManagerTask instead of ractor SenderAccountsManager
     let lifecycle = LifecycleManager::new();

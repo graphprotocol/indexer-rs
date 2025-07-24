@@ -13,6 +13,7 @@ use bigdecimal::{num_bigint::BigInt, ToPrimitive};
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use itertools::{Either, Itertools};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
+#[cfg(any(test, feature = "test"))]
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use sqlx::{types::BigDecimal, PgPool};
 use tap_core::{
@@ -117,7 +118,9 @@ type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
 ///
 /// T is used in SenderAllocationState<T> and SenderAllocationArgs<T> to store the
 /// correct Rav type and the correct aggregator client
+#[cfg(any(test, feature = "test"))]
 pub struct SenderAllocation<T>(PhantomData<T>);
+#[cfg(any(test, feature = "test"))]
 impl<T: NetworkVersion> Default for SenderAllocation<T> {
     fn default() -> Self {
         Self(PhantomData)
@@ -125,6 +128,7 @@ impl<T: NetworkVersion> Default for SenderAllocation<T> {
 }
 
 /// State for [SenderAllocation] actor
+#[cfg(any(test, feature = "test"))]
 pub struct SenderAllocationState<T: NetworkVersion> {
     /// Sum of all receipt fees for the current allocation
     unaggregated_fees: UnaggregatedReceipts,
@@ -192,6 +196,7 @@ impl AllocationConfig {
 }
 
 /// Arguments used to initialize [SenderAllocation]
+#[cfg(any(test, feature = "test"))]
 #[derive(bon::Builder)]
 pub struct SenderAllocationArgs<T: NetworkVersion> {
     /// Database connection
@@ -245,6 +250,7 @@ pub enum SenderAllocationMessage {
 /// We use some bounds so [TapAgentContext] implements all parts needed for the given
 /// [crate::tap::context::NetworkVersion]
 #[async_trait::async_trait]
+#[cfg(any(test, feature = "test"))]
 impl<T> Actor for SenderAllocation<T>
 where
     SenderAllocationState<T>: DatabaseInteractions,
@@ -438,6 +444,7 @@ where
 
 /// We use some bounds so [TapAgentContext] implements all parts needed for the given
 /// [crate::tap::context::NetworkVersion]
+#[cfg(any(test, feature = "test"))]
 impl<T> SenderAllocationState<T>
 where
     T: NetworkVersion,
@@ -958,6 +965,7 @@ pub trait DatabaseInteractions {
     fn mark_rav_last(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
+#[cfg(any(test, feature = "test"))]
 impl DatabaseInteractions for SenderAllocationState<Legacy> {
     async fn delete_receipts_between(
         &self,
@@ -1119,6 +1127,7 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
     }
 }
 
+#[cfg(any(test, feature = "test"))]
 impl DatabaseInteractions for SenderAllocationState<Horizon> {
     async fn delete_receipts_between(
         &self,

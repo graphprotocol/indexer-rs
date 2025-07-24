@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-test = ["dep:test-assets", "dep:rand"]
+test = ["dep:test-assets", "dep:rand", "dep:ractor"]
 profiling = ["profiler"]
 
 [dependencies]
@@ -43,7 +43,7 @@ graphql_client.workspace = true
 ruint.workspace = true
 futures-util.workspace = true
 jsonrpsee.workspace = true
-ractor.workspace = true
+ractor = { workspace = true, optional = true }
 tap_aggregator.workspace = true
 futures.workspace = true
 bon.workspace = true
