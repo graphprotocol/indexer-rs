@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.5.0...indexer-config-v1.5.1) (2025-07-24)
+
+
+### Bug Fixes
+
+* trigger release-please after branch cleanup ([#794](https://github.com/graphprotocol/indexer-rs/issues/794)) ([400af6d](https://github.com/graphprotocol/indexer-rs/commit/400af6d4102f23a643f10778f01509f7d1f120dd))
+
 ## [1.5.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.4.0...indexer-config-v1.5.0) (2025-07-02)
 
 

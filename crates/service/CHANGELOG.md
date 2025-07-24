@@ -6,6 +6,13 @@
 
 
 
+## [1.6.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.6.0...indexer-service-rs-v1.6.1) (2025-07-24)
+
+
+### Bug Fixes
+
+* trigger release-please after branch cleanup ([#794](https://github.com/graphprotocol/indexer-rs/issues/794)) ([400af6d](https://github.com/graphprotocol/indexer-rs/commit/400af6d4102f23a643f10778f01509f7d1f120dd))
+
 ## [1.6.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.5.7...indexer-service-rs-v1.6.0) (2025-07-02)
 
 
