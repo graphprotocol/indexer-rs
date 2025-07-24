@@ -99,11 +99,17 @@ impl SenderAccountTask {
         sender: Address,
         config: &'static SenderAccountConfig,
         pgpool: sqlx::PgPool,
-        _escrow_accounts: Receiver<EscrowAccounts>,
-        _escrow_subgraph: &'static SubgraphClient,
-        _network_subgraph: &'static SubgraphClient,
-        _domain_separator: Eip712Domain,
-        _sender_aggregator_endpoint: reqwest::Url,
+        #[cfg_attr(any(test, feature = "test"), allow(unused_variables))] escrow_accounts: Receiver<
+            EscrowAccounts,
+        >,
+        #[cfg_attr(any(test, feature = "test"), allow(unused_variables))]
+        escrow_subgraph: &'static SubgraphClient,
+        #[cfg_attr(any(test, feature = "test"), allow(unused_variables))]
+        network_subgraph: &'static SubgraphClient,
+        #[cfg_attr(any(test, feature = "test"), allow(unused_variables))]
+        domain_separator: Eip712Domain,
+        #[cfg_attr(any(test, feature = "test"), allow(unused_variables))]
+        sender_aggregator_endpoint: reqwest::Url,
         prefix: Option<String>,
     ) -> Result<TaskHandle<SenderAccountMessage>> {
         // Create a separate channel for parent-child communication
