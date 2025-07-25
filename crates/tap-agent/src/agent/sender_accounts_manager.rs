@@ -1,36 +1,50 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+#[allow(unused_imports)] // HashMap/HashSet used for sender management data structures
 use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     str::FromStr,
     sync::LazyLock,
-    time::Duration,
 };
 
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use anyhow::{anyhow, bail};
+#[allow(unused_imports)] // Used for streaming operations in production
 use futures::{stream, StreamExt};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use indexer_allocation::Allocation;
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
+#[allow(unused_imports)] // Used for allocation watching in production
 use indexer_watcher::{map_watcher, watch_pipe};
 use prometheus::{register_counter_vec, CounterVec};
 #[cfg(any(test, feature = "test"))]
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
+#[allow(unused_imports)] // Used for aggregator endpoints in production
 use reqwest::Url;
 use serde::Deserialize;
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use sqlx::{postgres::PgListener, PgPool};
+#[allow(unused_imports)] // Used for retry timing in production
+use std::time::Duration;
+#[allow(unused_imports)] // sol_types::Eip712Domain used for EIP-712 domain separator
 use thegraph_core::{
     alloy::{primitives::Address, sol_types::Eip712Domain},
     AllocationId as AllocationIdCore, CollectionId,
 };
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use tokio::{select, sync::watch::Receiver};
 
 #[cfg(any(test, feature = "test"))]
-use super::sender_account::{SenderAccount, SenderAccountArgs};
-use super::sender_account::{SenderAccountConfig, SenderAccountMessage};
-use crate::agent::sender_allocation::SenderAllocationMessage;
+use super::sender_account::{
+    SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
+};
+#[cfg(any(test, feature = "test"))]
+use super::sender_allocation::SenderAllocationMessage;
 
+#[allow(dead_code)] // Prometheus counter used in production receipt tracking
 static RECEIPTS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_receipts_received_total",

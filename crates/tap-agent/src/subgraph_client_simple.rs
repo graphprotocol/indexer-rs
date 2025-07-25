@@ -1,3 +1,6 @@
+// Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Simple SubgraphClient Abstraction for Testing
 //!
 //! This provides a minimal abstraction to enable Layer 2 integration testing

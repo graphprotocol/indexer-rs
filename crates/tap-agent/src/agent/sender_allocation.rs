@@ -8,14 +8,21 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use anyhow::{anyhow, ensure};
-use bigdecimal::{num_bigint::BigInt, ToPrimitive};
+#[allow(unused_imports)] // Used in different conditional compilation modes
+use bigdecimal::ToPrimitive;
+#[allow(unused_imports)] // Used in database operations
+use bigdecimal::{num_bigint::BigInt, BigDecimal};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use itertools::{Either, Itertools};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 #[cfg(any(test, feature = "test"))]
 use ractor::{Actor, ActorProcessingErr, ActorRef};
-use sqlx::{types::BigDecimal, PgPool};
+#[allow(unused_imports)] // Used for database operations in production
+use sqlx::PgPool;
 use tap_core::{
     manager::adapters::{RavRead, RavStore, ReceiptDelete, ReceiptRead},
     rav_request::RavRequest,
@@ -27,8 +34,10 @@ use tap_core::{
     },
     signed_message::Eip712SignedMessage,
 };
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use thegraph_core::alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain};
 use thiserror::Error;
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use tokio::sync::watch::Receiver;
 
 use super::sender_account::SenderAccountConfig;
@@ -40,7 +49,7 @@ use crate::{
     },
     tap::{
         context::{
-            checks::{AllocationId, Signature},
+            checks::{AllocationId as AllocationIdCheck, Signature},
             Horizon, Legacy, NetworkVersion, TapAgentContext,
         },
         signers_trimmed, TapReceipt,
@@ -469,7 +478,7 @@ where
     ) -> anyhow::Result<Self> {
         let required_checks: Vec<Arc<dyn Check<TapReceipt> + Send + Sync>> = vec![
             Arc::new(
-                AllocationId::new(
+                AllocationIdCheck::new(
                     config.indexer_address,
                     config.escrow_polling_interval,
                     sender,

@@ -1,6 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+#[allow(unused_imports)] // str::FromStr used in production code paths
 use std::{
     collections::{HashMap, HashSet},
     str::FromStr,
@@ -8,24 +9,37 @@ use std::{
     time::Duration,
 };
 
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use anyhow::Context;
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
-use futures::{stream, StreamExt};
+#[allow(unused_imports)] // Used in different conditional compilation modes
+use futures::stream;
+#[allow(unused_imports)] // Used for stream operations
+use futures::StreamExt;
+#[allow(unused_imports)] // Used in production config structs
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use indexer_query::{
     closed_allocations::{self, ClosedAllocations},
-    unfinalized_transactions, UnfinalizedTransactions,
+    unfinalized_transactions::{self},
+    UnfinalizedTransactions,
 };
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use indexer_watcher::watch_pipe;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
 #[cfg(any(test, feature = "test"))]
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
+#[allow(unused_imports)] // Used in production config structs
 use reqwest::Url;
+#[allow(unused_imports)] // Used in production config structs
 use sqlx::PgPool;
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use tap_aggregator::grpc::{
     v1::tap_aggregator_client::TapAggregatorClient as AggregatorV1,
     v2::tap_aggregator_client::TapAggregatorClient as AggregatorV2,
 };
+#[allow(unused_imports)] // hex::ToHexExt and sol_types::Eip712Domain used in production
 use thegraph_core::{
     alloy::{
         hex::ToHexExt,
@@ -34,17 +48,21 @@ use thegraph_core::{
     },
     AllocationId as AllocationIdCore, CollectionId,
 };
+#[allow(unused_imports)] // Used in production config structs
 use tokio::{sync::watch::Receiver, task::JoinHandle};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use tonic::transport::{Channel, Endpoint};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use tracing::Level;
 
-use super::{
-    sender_accounts_manager::{AllocationId, SenderType},
-    sender_allocation::{AllocationConfig, SenderAllocationMessage},
-};
+#[allow(unused_imports)] // SenderType used for Legacy/Horizon differentiation in production
+use super::sender_accounts_manager::{AllocationId, SenderType};
 
 #[cfg(any(test, feature = "test"))]
-use super::sender_allocation::{SenderAllocation, SenderAllocationArgs};
+use super::sender_allocation::{
+    AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
+};
+#[allow(unused_imports)] // Production-only imports for rate limiting, backoff, network types, tracking
 use crate::{
     adaptative_concurrency::AdaptiveLimiter,
     agent::unaggregated_receipts::UnaggregatedReceipts,
@@ -53,9 +71,11 @@ use crate::{
     tracker::{SenderFeeTracker, SimpleFeeTracker},
 };
 
+#[allow(dead_code)] // Prometheus metrics used in production, not in test builds
 static SENDER_DENIED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     register_int_gauge_vec!("tap_sender_denied", "Sender is denied", &["sender"]).unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_sender_escrow_balance_grt_total",
@@ -64,6 +84,7 @@ static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_unaggregated_fees_grt_total",
@@ -72,6 +93,7 @@ static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_sender_fee_tracker_grt_total",
@@ -80,6 +102,7 @@ static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static INVALID_RECEIPT_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_invalid_receipt_fees_grt_total",
@@ -88,6 +111,7 @@ static INVALID_RECEIPT_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static PENDING_RAV: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_pending_rav_grt_total",
@@ -96,6 +120,7 @@ static PENDING_RAV: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static MAX_FEE_PER_SENDER: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_max_fee_per_sender_grt_total",
@@ -104,6 +129,7 @@ static MAX_FEE_PER_SENDER: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_rav_request_trigger_value",
@@ -113,6 +139,7 @@ static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+#[allow(dead_code)] // Used by AdaptiveLimiter in production code paths
 const INITIAL_RAV_REQUEST_CONCURRENT: usize = 1;
 
 type RavMap = HashMap<Address, u128>;

@@ -1,3 +1,6 @@
+// Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Layer 2 Integration Tests - Production Component Testing
 //!
 //! These tests exercise real production components while maintaining test reliability
