@@ -13,7 +13,7 @@ use anyhow::Result;
 use indexer_monitor::EscrowAccounts;
 use indexer_tap_agent::{
     agent::sender_account::SenderAccountConfig,
-    subgraph_client_simple::{SimpleSubgraphClient, SimpleSubgraphMock},
+    subgraph_client_abstraction::{SimpleSubgraphClient, SimpleSubgraphMock},
     task_lifecycle::LifecycleManager,
 };
 use sqlx::Row;
