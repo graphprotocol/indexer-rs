@@ -2337,12 +2337,21 @@ pub mod tests {
         let trigger_rav_request = ESCROW_VALUE * 2;
 
         // initialize with no trigger value and no max receipt deny
-        let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
-            .pgpool(pgpool.clone())
-            .rav_request_trigger_value(trigger_rav_request)
-            .max_amount_willing_to_lose_grt(u128::MAX)
-            .call()
-            .await;
+        let (sender_account, mut msg_receiver, prefix, escrow_accounts_tx) =
+            create_sender_account()
+                .pgpool(pgpool.clone())
+                .rav_request_trigger_value(trigger_rav_request)
+                .max_amount_willing_to_lose_grt(u128::MAX)
+                .call()
+                .await;
+
+        // Set up proper escrow balance for the test
+        escrow_accounts_tx
+            .send(EscrowAccounts::new(
+                HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
+                HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+            ))
+            .unwrap();
 
         let (mock_sender_allocation, next_rav_value) =
             MockSenderAllocation::new_with_next_rav_value(sender_account.clone());
