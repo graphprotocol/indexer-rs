@@ -13,7 +13,7 @@ use anyhow::Result;
 use indexer_monitor::EscrowAccounts;
 use indexer_tap_agent::{
     agent::sender_account::SenderAccountConfig,
-    subgraph_client_abstraction::{SimpleSubgraphClient, SimpleSubgraphMock},
+    subgraph_client_abstraction::{TapSubgraphClient, TapSubgraphMock},
     task_lifecycle::LifecycleManager,
 };
 use sqlx::Row;
@@ -105,10 +105,10 @@ impl ProductionTestEnvironment {
     async fn spawn_production_sender_account(
         &self,
         sender: Address,
-        mock_client: SimpleSubgraphMock,
+        mock_client: TapSubgraphMock,
     ) -> Result<()> {
         // SUCCESS: We can now create controlled mock instances using the simple wrapper!
-        let client = SimpleSubgraphClient::mock(mock_client);
+        let client = TapSubgraphClient::mock(mock_client);
 
         // Validate that the mock works as expected
         let is_healthy = client.is_healthy().await;
@@ -124,7 +124,7 @@ impl ProductionTestEnvironment {
     }
 }
 
-// Note: SimpleSubgraphMock is now provided by the simple abstraction layer
+// Note: TapSubgraphMock is now provided by the simple abstraction layer
 // This solves the architectural limitation we discovered with a clean, working approach!
 
 /// Test production database operations with real SQL (this works!)
@@ -169,11 +169,11 @@ async fn test_subgraph_client_abstraction_solution() -> Result<()> {
     let env = ProductionTestEnvironment::new(ProductionTestConfig::default()).await?;
 
     // ✅ SOLVED: We can now create controlled mock instances
-    let mock_config = SimpleSubgraphMock::new()
+    let mock_config = TapSubgraphMock::new()
         .with_allocation_validation(true)
         .with_health_status(true);
 
-    let client = SimpleSubgraphClient::mock(mock_config.clone());
+    let client = TapSubgraphClient::mock(mock_config.clone());
 
     // ✅ SOLVED: Test allocation validation with controlled behavior
     let test_address = Address::from([0x42; 20]);

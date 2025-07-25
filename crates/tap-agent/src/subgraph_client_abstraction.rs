@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Simple SubgraphClient Abstraction for Testing
+//! TAP SubgraphClient Abstraction for Testing
 //!
 //! This provides a minimal abstraction to enable Layer 2 integration testing
 //! without the complexity of async trait objects.
@@ -12,24 +12,24 @@ use indexer_monitor::SubgraphClient;
 use serde_json;
 use std::sync::Arc;
 
-/// Simple enum wrapper for different SubgraphClient implementations
+/// TAP-specific enum wrapper for different SubgraphClient implementations
 /// This solves the dependency injection problem for testing
 #[derive(Clone)]
-pub enum SimpleSubgraphClient {
+pub enum TapSubgraphClient {
     /// Production implementation using real SubgraphClient
     Production(Arc<SubgraphClient>),
     /// Mock implementation for testing
-    Mock(SimpleSubgraphMock),
+    Mock(TapSubgraphMock),
 }
 
-impl SimpleSubgraphClient {
+impl TapSubgraphClient {
     /// Create a production client wrapper
     pub fn production(client: Arc<SubgraphClient>) -> Self {
         Self::Production(client)
     }
 
     /// Create a mock client for testing
-    pub fn mock(mock: SimpleSubgraphMock) -> Self {
+    pub fn mock(mock: TapSubgraphMock) -> Self {
         Self::Mock(mock)
     }
 
@@ -188,16 +188,16 @@ impl SimpleSubgraphClient {
     }
 }
 
-/// Simple mock for testing SubgraphClient behavior
+/// TAP-specific mock for testing SubgraphClient behavior
 #[derive(Clone)]
-pub struct SimpleSubgraphMock {
+pub struct TapSubgraphMock {
     /// Controls whether allocation validation succeeds
     pub should_validate_allocation: bool,
     /// Controls whether the client appears healthy
     pub is_healthy: bool,
 }
 
-impl SimpleSubgraphMock {
+impl TapSubgraphMock {
     /// Create a new mock with default settings
     pub fn new() -> Self {
         Self {
@@ -219,7 +219,7 @@ impl SimpleSubgraphMock {
     }
 }
 
-impl Default for SimpleSubgraphMock {
+impl Default for TapSubgraphMock {
     fn default() -> Self {
         Self::new()
     }
@@ -233,8 +233,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_allocation_validation_success() {
-        let mock = SimpleSubgraphMock::new().with_allocation_validation(true);
-        let client = SimpleSubgraphClient::mock(mock);
+        let mock = TapSubgraphMock::new().with_allocation_validation(true);
+        let client = TapSubgraphClient::mock(mock);
 
         let test_address = Address::from([0x42; 20]);
         let allocation_id = AllocationId::Legacy(test_address.into());
@@ -245,8 +245,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_allocation_validation_failure() {
-        let mock = SimpleSubgraphMock::new().with_allocation_validation(false);
-        let client = SimpleSubgraphClient::mock(mock);
+        let mock = TapSubgraphMock::new().with_allocation_validation(false);
+        let client = TapSubgraphClient::mock(mock);
 
         let test_address = Address::from([0x42; 20]);
         let allocation_id = AllocationId::Legacy(test_address.into());
@@ -257,11 +257,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_health_check() {
-        let healthy_mock = SimpleSubgraphMock::new().with_health_status(true);
-        let healthy_client = SimpleSubgraphClient::mock(healthy_mock);
+        let healthy_mock = TapSubgraphMock::new().with_health_status(true);
+        let healthy_client = TapSubgraphClient::mock(healthy_mock);
 
-        let unhealthy_mock = SimpleSubgraphMock::new().with_health_status(false);
-        let unhealthy_client = SimpleSubgraphClient::mock(unhealthy_mock);
+        let unhealthy_mock = TapSubgraphMock::new().with_health_status(false);
+        let unhealthy_client = TapSubgraphClient::mock(unhealthy_mock);
 
         assert!(healthy_client.is_healthy().await);
         assert!(!unhealthy_client.is_healthy().await);
