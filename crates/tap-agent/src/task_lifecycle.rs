@@ -505,6 +505,12 @@ impl TaskRegistry {
         self.registry.write().await.insert(name, Box::new(handle));
     }
 
+    /// Unregister a task by name
+    #[allow(dead_code)]
+    pub async fn unregister(&self, name: &str) -> Option<Box<dyn std::any::Any + Send + Sync>> {
+        self.registry.write().await.remove(name)
+    }
+
     /// Look up a task by name
     #[allow(dead_code)]
     pub async fn lookup<T>(&self, name: &str) -> Option<TaskHandle<T>>

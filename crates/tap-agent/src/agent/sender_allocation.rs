@@ -1,6 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+#[allow(unused_imports)]
+// PhantomData, Arc, Instant used for type safety and performance metrics
 use std::{
     future::Future,
     marker::PhantomData,

@@ -62,7 +62,8 @@ use super::sender_accounts_manager::{AllocationId, SenderType};
 use super::sender_allocation::{
     AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
 };
-#[allow(unused_imports)] // Production-only imports for rate limiting, backoff, network types, tracking
+#[allow(unused_imports)]
+// Production-only imports for rate limiting, backoff, network types, tracking
 use crate::{
     adaptative_concurrency::AdaptiveLimiter,
     agent::unaggregated_receipts::UnaggregatedReceipts,

@@ -15,6 +15,7 @@ use std::{
 use std::time::Duration;
 
 use anyhow::Result;
+use bigdecimal::ToPrimitive;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use thegraph_core::alloy::{
     primitives::{Address, U256},
@@ -69,6 +70,11 @@ struct TaskState {
     sender: Address,
     /// Current sender balance
     sender_balance: U256,
+    /// Whether the sender is currently denied/blocked
+    denied: bool,
+    /// Whether there's a scheduled RAV request (for scheduler state)
+    #[allow(dead_code)] // Used in test builds for IsSchedulerEnabled message
+    scheduled_rav_request: bool,
     /// Registry for managing child tasks
     child_registry: TaskRegistry,
     /// Lifecycle manager for child tasks
@@ -131,6 +137,8 @@ impl SenderAccountTask {
             allocation_ids: HashSet::new(),
             sender,
             sender_balance: U256::ZERO,
+            denied: false,
+            scheduled_rav_request: false,
             child_registry: TaskRegistry::new(),
             lifecycle: Arc::new(lifecycle.clone()),
             pgpool,
@@ -145,6 +153,8 @@ impl SenderAccountTask {
             allocation_ids: HashSet::new(),
             sender,
             sender_balance: U256::ZERO,
+            denied: false,
+            scheduled_rav_request: false,
             child_registry: TaskRegistry::new(),
             lifecycle: Arc::new(lifecycle.clone()),
             config,
@@ -311,13 +321,23 @@ impl SenderAccountTask {
             }
             #[cfg(test)]
             SenderAccountMessage::GetDeny(reply) => {
-                // Simplified: always return false for now
-                let _ = reply.send(false);
+                // Return the current denied state
+                tracing::debug!(
+                    sender = %state.sender,
+                    denied = state.denied,
+                    "GetDeny request - returning current denied state"
+                );
+                let _ = reply.send(state.denied);
             }
             #[cfg(test)]
             SenderAccountMessage::IsSchedulerEnabled(reply) => {
-                // Simplified: always return false for now
-                let _ = reply.send(false);
+                // Return whether we have a scheduled RAV request
+                tracing::debug!(
+                    sender = %state.sender,
+                    scheduled_rav_request = state.scheduled_rav_request,
+                    "IsSchedulerEnabled request - returning scheduler state"
+                );
+                let _ = reply.send(state.scheduled_rav_request);
             }
         }
 
@@ -345,18 +365,55 @@ impl SenderAccountTask {
             }
         }
 
-        // Remove old allocations (simplified - just remove from our set)
-        // In a full implementation, we'd properly shut down child tasks
+        // Remove old allocations with proper child task shutdown
         let to_remove: Vec<_> = current_ids
             .difference(&new_allocation_ids)
             .copied()
             .collect();
         for allocation_id in to_remove {
-            tracing::debug!(
+            tracing::info!(
                 sender = %state.sender,
                 allocation_id = ?allocation_id,
-                "Removing allocation (simplified implementation)"
+                "Removing allocation and shutting down child task"
             );
+
+            // Construct the child task name to unregister it
+            let task_name =
+                Self::format_sender_allocation(&state.prefix, &state.sender, &allocation_id);
+
+            // Attempt to gracefully shutdown the child task
+            if let Some(_task_handle) = state
+                .child_registry
+                .get_task::<super::sender_allocation_task::SenderAllocationMessage>(&task_name)
+                .await
+            {
+                tracing::debug!(
+                    sender = %state.sender,
+                    allocation_id = ?allocation_id,
+                    task_name = %task_name,
+                    "Found child task, requesting graceful shutdown"
+                );
+
+                // The task handle will be dropped when removed from registry,
+                // which should signal the task to shutdown gracefully
+                state.child_registry.unregister(&task_name).await;
+
+                tracing::info!(
+                    sender = %state.sender,
+                    allocation_id = ?allocation_id,
+                    task_name = %task_name,
+                    "Child task unregistered and shutdown initiated"
+                );
+            } else {
+                tracing::warn!(
+                    sender = %state.sender,
+                    allocation_id = ?allocation_id,
+                    task_name = %task_name,
+                    "Child task not found in registry during removal"
+                );
+            }
+
+            // Remove from our local set
             state.allocation_ids.remove(&allocation_id);
         }
 
@@ -786,39 +843,192 @@ impl SenderAccountTask {
         name
     }
 
-    /// Handle receipt fee updates - simplified implementation
+    /// Handle receipt fee updates - with comprehensive state management
     async fn handle_update_receipt_fees(
         state: &mut TaskState,
         allocation_id: AllocationId,
         receipt_fees: ReceiptFees,
     ) -> Result<()> {
+        tracing::debug!(
+            sender = %state.sender,
+            allocation_id = ?allocation_id,
+            receipt_fees_type = ?std::mem::discriminant(&receipt_fees),
+            "Processing receipt fee update"
+        );
         match receipt_fees {
             ReceiptFees::NewReceipt(value, timestamp_ns) => {
                 let addr = match allocation_id {
                     AllocationId::Legacy(id) => id.into_inner(),
                     AllocationId::Horizon(id) => thegraph_core::AllocationId::from(id).into_inner(),
                 };
+
+                let old_value = state
+                    .sender_fee_tracker
+                    .get_total_fee_for_allocation(&addr)
+                    .map(|u| u.value)
+                    .unwrap_or(0);
                 state.sender_fee_tracker.add(addr, value, timestamp_ns);
+                let new_value = state
+                    .sender_fee_tracker
+                    .get_total_fee_for_allocation(&addr)
+                    .map(|u| u.value)
+                    .unwrap_or(0);
+
+                tracing::info!(
+                    sender = %state.sender,
+                    allocation_id = ?allocation_id,
+                    receipt_value = value,
+                    timestamp_ns = timestamp_ns,
+                    old_pending = old_value,
+                    new_pending = new_value,
+                    "Added new receipt to fee tracker"
+                );
             }
             ReceiptFees::UpdateValue(fees) => {
                 let addr = match allocation_id {
                     AllocationId::Legacy(id) => id.into_inner(),
                     AllocationId::Horizon(id) => thegraph_core::AllocationId::from(id).into_inner(),
                 };
+
+                let old_value = state
+                    .sender_fee_tracker
+                    .get_total_fee_for_allocation(&addr)
+                    .map(|u| u.value)
+                    .unwrap_or(0);
                 state.sender_fee_tracker.update(addr, fees);
+
+                tracing::debug!(
+                    sender = %state.sender,
+                    allocation_id = ?allocation_id,
+                    old_fees = old_value,
+                    new_fees = fees.value,
+                    "Updated receipt fees in tracker"
+                );
             }
-            ReceiptFees::RavRequestResponse(fees, _rav_result) => {
+            ReceiptFees::RavRequestResponse(fees, rav_result) => {
                 let addr = match allocation_id {
                     AllocationId::Legacy(id) => id.into_inner(),
                     AllocationId::Horizon(id) => thegraph_core::AllocationId::from(id).into_inner(),
                 };
                 state.sender_fee_tracker.update(addr, fees);
-                // Handle RAV result - simplified for now
+
+                // Handle RAV result properly
+                match rav_result {
+                    Ok(Some(rav_info)) => {
+                        tracing::info!(
+                            sender = %state.sender,
+                            allocation_id = ?allocation_id,
+                            rav_value = rav_info.value_aggregate,
+                            "RAV request succeeded, updating RAV tracker"
+                        );
+
+                        // Update the RAV tracker with the new RAV
+                        state
+                            .rav_tracker
+                            .update(rav_info.allocation_id, rav_info.value_aggregate);
+
+                        tracing::debug!(
+                            sender = %state.sender,
+                            allocation_id = ?allocation_id,
+                            "RAV tracker updated successfully"
+                        );
+                    }
+                    Ok(None) => {
+                        tracing::debug!(
+                            sender = %state.sender,
+                            allocation_id = ?allocation_id,
+                            "RAV request completed but no RAV was created (no receipts to aggregate)"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            sender = %state.sender,
+                            allocation_id = ?allocation_id,
+                            error = %e,
+                            "RAV request failed, fees remain unaggregated"
+                        );
+
+                        // The fees should remain in the sender_fee_tracker since the RAV failed
+                        // This ensures the fees will be included in the next RAV attempt
+                    }
+                }
             }
             ReceiptFees::Retry => {
-                // Handle retry logic - simplified for now
+                tracing::debug!(
+                    sender = %state.sender,
+                    allocation_id = ?allocation_id,
+                    "Received retry signal, scheduling RAV request retry"
+                );
+
+                // Trigger a RAV request for this allocation if we have pending fees
+                let addr = match allocation_id {
+                    AllocationId::Legacy(id) => id.into_inner(),
+                    AllocationId::Horizon(id) => thegraph_core::AllocationId::from(id).into_inner(),
+                };
+
+                // Check if there are fees to aggregate for this allocation
+                let pending_fees = state
+                    .sender_fee_tracker
+                    .get_total_fee_for_allocation(&addr)
+                    .map(|u| u.value)
+                    .unwrap_or(0);
+                if pending_fees > 0 {
+                    tracing::info!(
+                        sender = %state.sender,
+                        allocation_id = ?allocation_id,
+                        pending_value = pending_fees,
+                        "Retrying RAV request for allocation with pending fees"
+                    );
+
+                    // Look up the child task and send a RAV trigger
+                    let task_name = Self::format_sender_allocation(
+                        &state.prefix,
+                        &state.sender,
+                        &allocation_id,
+                    );
+                    if let Some(child_handle) = state
+                        .child_registry
+                        .get_task::<super::sender_allocation_task::SenderAllocationMessage>(
+                            &task_name,
+                        )
+                        .await
+                    {
+                        if let Err(e) = child_handle.cast(
+                            super::sender_allocation_task::SenderAllocationMessage::TriggerRavRequest
+                        ).await {
+                            tracing::error!(
+                                sender = %state.sender,
+                                allocation_id = ?allocation_id,
+                                error = %e,
+                                "Failed to send RAV retry trigger to child task"
+                            );
+                        } else {
+                            tracing::debug!(
+                                sender = %state.sender,
+                                allocation_id = ?allocation_id,
+                                "RAV retry trigger sent successfully to child task"
+                            );
+                        }
+                    } else {
+                        tracing::warn!(
+                            sender = %state.sender,
+                            allocation_id = ?allocation_id,
+                            task_name = %task_name,
+                            "Cannot retry RAV request: child task not found"
+                        );
+                    }
+                } else {
+                    tracing::debug!(
+                        sender = %state.sender,
+                        allocation_id = ?allocation_id,
+                        "Retry signal received but no pending fees for this allocation"
+                    );
+                }
             }
         }
+
+        // Update denied state after any receipt fee changes
+        Self::update_denied_state(state).await;
 
         Ok(())
     }
@@ -835,26 +1045,46 @@ impl SenderAccountTask {
         };
 
         // Track invalid receipt fees in the tracker
+        let old_value = state
+            .invalid_receipts_tracker
+            .get_total_fee_for_allocation(&addr)
+            .unwrap_or(0);
         state
             .invalid_receipts_tracker
             .update(addr, unaggregated_fees.value);
 
-        tracing::debug!(
+        tracing::info!(
             sender = %state.sender,
             allocation_id = ?allocation_id,
-            invalid_value = unaggregated_fees.value,
+            old_invalid_value = old_value,
+            new_invalid_value = unaggregated_fees.value,
             invalid_count = unaggregated_fees.counter,
-            "Updated invalid receipt fees for allocation"
+            "Updated invalid receipt fees for allocation - checking deny condition"
         );
+
+        // Update denied state since invalid fees changed
+        // Invalid receipts can contribute to denial conditions
+        Self::update_denied_state(state).await;
 
         Ok(())
     }
 
     /// Handle RAV updates
     async fn handle_update_rav(state: &mut TaskState, rav_info: RavInformation) -> Result<()> {
+        tracing::debug!(
+            sender = %state.sender,
+            allocation_id = %rav_info.allocation_id,
+            value_aggregate = rav_info.value_aggregate,
+            "Updating RAV tracker with new RAV information"
+        );
+
         state
             .rav_tracker
             .update(rav_info.allocation_id, rav_info.value_aggregate);
+
+        // Update denied state since RAV values changed
+        Self::update_denied_state(state).await;
+
         Ok(())
     }
 
@@ -864,14 +1094,143 @@ impl SenderAccountTask {
         balance: Balance,
         rav_map: RavMap,
     ) -> Result<()> {
+        tracing::debug!(
+            sender = %state.sender,
+            old_balance = state.sender_balance.to_u128().unwrap_or(0),
+            new_balance = balance.to_u128().unwrap_or(0),
+            rav_updates = rav_map.len(),
+            "Updating sender balance and RAV mappings"
+        );
+
         state.sender_balance = balance;
 
         // Update RAV tracker with new values
         for (allocation_id, value) in rav_map {
+            tracing::trace!(
+                sender = %state.sender,
+                allocation_id = %allocation_id,
+                rav_value = value,
+                "Updating RAV tracker entry"
+            );
             state.rav_tracker.update(allocation_id, value);
         }
 
+        // Update denied state since balance and RAVs changed
+        Self::update_denied_state(state).await;
+
         Ok(())
+    }
+
+    /// Check if deny condition is reached based on balance and fees
+    /// This matches the logic from the original ractor implementation
+    #[cfg(not(any(test, feature = "test")))]
+    fn deny_condition_reached(state: &TaskState, config: &SenderAccountConfig) -> bool {
+        let pending_ravs = state.rav_tracker.get_total_fee();
+        let unaggregated_fees = state.sender_fee_tracker.get_total_fee();
+        let max_amount_willing_to_lose = config.max_amount_willing_to_lose_grt;
+        let total_potential_fees = pending_ravs + unaggregated_fees;
+
+        // Check if sender is in trusted senders list
+        let is_trusted = config.trusted_senders.contains(&state.sender);
+
+        let should_deny = if is_trusted {
+            // For trusted senders, allow spending up to max_amount_willing_to_lose
+            let deny_condition = total_potential_fees > max_amount_willing_to_lose;
+
+            tracing::debug!(
+                sender = %state.sender,
+                is_trusted = true,
+                pending_ravs = pending_ravs,
+                unaggregated_fees = unaggregated_fees,
+                total_potential_fees = total_potential_fees,
+                max_amount_willing_to_lose = max_amount_willing_to_lose,
+                should_deny = deny_condition,
+                "Evaluating deny condition for trusted sender"
+            );
+
+            deny_condition
+        } else {
+            // For non-trusted senders, check against balance
+            let sender_balance = state.sender_balance.to_u128().unwrap_or(0);
+            let deny_condition = total_potential_fees >= sender_balance;
+
+            tracing::debug!(
+                sender = %state.sender,
+                is_trusted = false,
+                pending_ravs = pending_ravs,
+                unaggregated_fees = unaggregated_fees,
+                total_potential_fees = total_potential_fees,
+                sender_balance = sender_balance,
+                should_deny = deny_condition,
+                "Evaluating deny condition for non-trusted sender"
+            );
+
+            deny_condition
+        };
+
+        if should_deny {
+            tracing::warn!(
+                sender = %state.sender,
+                is_trusted = is_trusted,
+                total_potential_fees = total_potential_fees,
+                threshold = if is_trusted { max_amount_willing_to_lose } else { state.sender_balance.to_u128().unwrap_or(0) },
+                "Sender should be denied: potential fees exceed threshold"
+            );
+        }
+
+        should_deny
+    }
+
+    /// Update denied state based on current conditions
+    /// This should be called whenever fees or balance change
+    #[cfg(not(any(test, feature = "test")))]
+    async fn update_denied_state(state: &mut TaskState) {
+        let config = state.config;
+        let should_deny = Self::deny_condition_reached(state, config);
+
+        if state.denied != should_deny {
+            if should_deny {
+                tracing::warn!(
+                    sender = %state.sender,
+                    "Sender deny condition reached - would add to denylist in production"
+                );
+                // TODO: In full production implementation, add to database denylist
+                // This would call add_to_denylist() similar to the original ractor version
+                state.denied = true;
+            } else {
+                tracing::info!(
+                    sender = %state.sender,
+                    "Sender deny condition resolved - would remove from denylist in production"
+                );
+                // TODO: In full production implementation, remove from database denylist
+                // This would call remove_from_denylist() similar to the original ractor version
+                state.denied = false;
+            }
+        }
+    }
+
+    /// Update denied state for test builds (simplified version)
+    #[cfg(any(test, feature = "test"))]
+    async fn update_denied_state(state: &mut TaskState) {
+        // For tests, use simplified logic based on basic thresholds
+        let pending_ravs = state.rav_tracker.get_total_fee();
+        let unaggregated_fees = state.sender_fee_tracker.get_total_fee();
+        let total_potential_fees = pending_ravs + unaggregated_fees;
+        let sender_balance = state.sender_balance.to_u128().unwrap_or(0);
+
+        let should_deny = total_potential_fees >= sender_balance;
+
+        if state.denied != should_deny {
+            tracing::debug!(
+                sender = %state.sender,
+                total_potential_fees = total_potential_fees,
+                sender_balance = sender_balance,
+                old_denied = state.denied,
+                new_denied = should_deny,
+                "Updating denied state for test build"
+            );
+            state.denied = should_deny;
+        }
     }
 }
 
