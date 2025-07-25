@@ -19,7 +19,10 @@ use super::{
     unaggregated_receipts::UnaggregatedReceipts,
 };
 use crate::{
-    tap::context::{NetworkVersion, TapAgentContext},
+    tap::{
+        context::{NetworkVersion, TapAgentContext},
+        CheckingReceipt,
+    },
     task_lifecycle::{LifecycleManager, RestartPolicy, TaskHandle},
 };
 use indexer_receipt::TapReceipt;
@@ -85,6 +88,9 @@ struct TaskState<T: NetworkVersion> {
     /// Aggregator client for signing RAVs
     #[allow(dead_code)]
     sender_aggregator: T::AggregatorClient,
+    /// EIP-712 domain separator for signature recovery
+    #[allow(dead_code)]
+    domain_separator: thegraph_core::alloy::sol_types::Eip712Domain,
 }
 
 /// Different types of operations that can fail and need retry logic
@@ -314,6 +320,7 @@ where
             sender,
             indexer_address,
             sender_aggregator,
+            domain_separator: thegraph_core::alloy::sol_types::Eip712Domain::default(), // TODO: Get real domain separator
         };
 
         lifecycle
@@ -842,9 +849,28 @@ where
             // Extract receipt details based on version
             match receipt {
                 TapReceipt::V1(v1_receipt) => {
-                    // For V1, we'll store the signer from the notification or use a placeholder
-                    // In a real implementation, we'd recover the signer using domain separator
-                    let signer = Address::ZERO; // TODO: Get actual signer from notification
+                    // Recover the actual signer address from the V1 receipt signature
+                    let signer = match CheckingReceipt::new(TapReceipt::V1(v1_receipt.clone()))
+                        .signed_receipt()
+                        .recover_signer(&state.domain_separator)
+                    {
+                        Ok(recovered_signer) => {
+                            tracing::debug!(
+                                signer = %recovered_signer,
+                                allocation_id = %v1_receipt.message.allocation_id,
+                                "Successfully recovered signer from V1 receipt signature"
+                            );
+                            recovered_signer
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                allocation_id = %v1_receipt.message.allocation_id,
+                                "Failed to recover signer from V1 receipt signature, using zero address"
+                            );
+                            Address::ZERO
+                        }
+                    };
                     signer_addresses.push(signer.encode_hex());
                     signatures.push(v1_receipt.signature.as_bytes().to_vec());
                     allocation_ids.push(v1_receipt.message.allocation_id.encode_hex());
@@ -854,9 +880,28 @@ where
                     error_logs.push(error_message.clone());
                 }
                 TapReceipt::V2(v2_receipt) => {
-                    // For V2, we'll store the signer from the notification or use a placeholder
-                    // In a real implementation, we'd recover the signer using domain separator
-                    let signer = Address::ZERO; // TODO: Get actual signer from notification
+                    // Recover the actual signer address from the V2 receipt signature
+                    let signer = match CheckingReceipt::new(TapReceipt::V2(v2_receipt.clone()))
+                        .signed_receipt()
+                        .recover_signer(&state.domain_separator)
+                    {
+                        Ok(recovered_signer) => {
+                            tracing::debug!(
+                                signer = %recovered_signer,
+                                collection_id = %v2_receipt.message.collection_id,
+                                "Successfully recovered signer from V2 receipt signature"
+                            );
+                            recovered_signer
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                collection_id = %v2_receipt.message.collection_id,
+                                "Failed to recover signer from V2 receipt signature, using zero address"
+                            );
+                            Address::ZERO
+                        }
+                    };
                     signer_addresses.push(signer.encode_hex());
                     signatures.push(v2_receipt.signature.as_bytes().to_vec());
                     // For V2, we need the collection_id from the message
