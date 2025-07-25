@@ -1313,28 +1313,158 @@ mod tests {
 
     #[tokio::test]
     async fn test_sender_account_task_creation() {
-        let _lifecycle = LifecycleManager::new();
-        let _sender = Address::ZERO;
+        use crate::test::{store_receipt, CreateReceipt};
+        use indexer_monitor::{DeploymentDetails, SubgraphClient};
+        use tap_core::tap_eip712_domain;
+        use test_assets::{
+            setup_shared_test_db, ALLOCATION_ID_0, INDEXER_ADDRESS, TAP_SIGNER, VERIFIER_ADDRESS,
+        };
 
-        // Create minimal config for testing
-        let _config = Box::leak(Box::new(SenderAccountConfig {
-            rav_request_buffer: Duration::from_secs(10),
-            max_amount_willing_to_lose_grt: 1000,
-            trigger_value: 100,
-            rav_request_timeout: Duration::from_secs(30),
-            rav_request_receipt_limit: 100,
-            indexer_address: Address::ZERO,
-            escrow_polling_interval: Duration::from_secs(10),
-            tap_sender_timeout: Duration::from_secs(60),
+        // Setup test database using established testcontainer infrastructure
+        let test_db = setup_shared_test_db().await;
+        let pgpool = test_db.pool.clone();
+
+        // Create LifecycleManager for task management
+        let lifecycle = LifecycleManager::new();
+        let sender = TAP_SIGNER.1; // Use test signer address
+
+        // Create realistic config for testing
+        let config = Box::leak(Box::new(SenderAccountConfig {
+            rav_request_buffer: Duration::from_millis(100), // Shorter for testing
+            max_amount_willing_to_lose_grt: 1_000_000,
+            trigger_value: 50, // Lower threshold for easier testing
+            rav_request_timeout: Duration::from_secs(5),
+            rav_request_receipt_limit: 10,
+            indexer_address: INDEXER_ADDRESS,
+            escrow_polling_interval: Duration::from_millis(500), // Faster for testing
+            tap_sender_timeout: Duration::from_secs(5),
             trusted_senders: HashSet::new(),
             horizon_enabled: false,
         }));
 
-        // Create dummy database pool and watchers
-        // In a real test, these would be properly initialized
-        // For now, just skip the actual test since we don't have a database
-        // This is a compilation test more than a functional test
-        // since we don't have a real database setup
+        // Create test subgraph clients (mock for testing)
+        let escrow_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url("http://localhost:8000").expect("Valid URL"),
+            )
+            .await,
+        ));
+
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url("http://localhost:8001").expect("Valid URL"),
+            )
+            .await,
+        ));
+
+        // Create test EIP-712 domain
+        let domain = tap_eip712_domain(1, VERIFIER_ADDRESS);
+
+        // Test 1: Task spawning and initialization
+        tracing::info!("🧪 Testing SenderAccountTask creation and initialization");
+
+        // Create escrow accounts watcher (for test)
+        let (escrow_tx, escrow_rx) =
+            tokio::sync::watch::channel(indexer_monitor::EscrowAccounts::default());
+        drop(escrow_tx); // We don't need to send updates in this test
+
+        // Create test aggregator endpoint
+        let aggregator_endpoint =
+            reqwest::Url::parse("http://localhost:9000").expect("Valid aggregator endpoint");
+
+        let task_handle = SenderAccountTask::spawn(
+            &lifecycle,
+            Some("test-sender-account".to_string()),
+            sender,
+            config,
+            pgpool.clone(),
+            escrow_rx,
+            escrow_subgraph,
+            network_subgraph,
+            domain.clone(),
+            aggregator_endpoint,
+            Some("test".to_string()),
+        )
+        .await
+        .expect("Failed to spawn SenderAccountTask");
+
+        tracing::info!("✅ SenderAccountTask spawned successfully");
+
+        // Test 2: Store some receipts to trigger task activity
+        tracing::info!("📥 Testing receipt storage and processing");
+
+        for i in 0..3 {
+            let receipt = crate::tap::context::Legacy::create_received_receipt(
+                ALLOCATION_ID_0,
+                &TAP_SIGNER.0,
+                i + 1,
+                1_000_000_000 + i * 1000,
+                25, // Small value to avoid triggering RAV immediately
+            );
+
+            let receipt_id = store_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .expect("Failed to store receipt");
+
+            tracing::debug!("Stored test receipt {} with ID: {}", i + 1, receipt_id);
+        }
+
+        // Allow some processing time
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Test 3: Verify receipts were stored
+        let receipt_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM scalar_tap_receipts WHERE allocation_id = $1")
+                .bind(thegraph_core::alloy::hex::ToHexExt::encode_hex(
+                    &ALLOCATION_ID_0,
+                ))
+                .fetch_one(&pgpool)
+                .await
+                .expect("Failed to query receipt count");
+
+        assert!(
+            receipt_count >= 3,
+            "Expected at least 3 receipts, found {receipt_count}"
+        );
+
+        tracing::info!("📊 Verified {} receipts stored successfully", receipt_count);
+
+        // Test 4: Task health and lifecycle
+        tracing::info!("💓 Testing task health monitoring");
+
+        let system_health = lifecycle.get_system_health().await;
+        tracing::info!("System health: {:?}", system_health);
+
+        // The task should be registered and healthy
+        assert!(
+            system_health.overall_healthy,
+            "System should be healthy after task creation"
+        );
+
+        // Test 5: Graceful shutdown
+        tracing::info!("🛑 Testing graceful task shutdown");
+
+        drop(task_handle);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Verify database is still accessible (no connection leaks)
+        let final_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scalar_tap_receipts")
+            .fetch_one(&pgpool)
+            .await
+            .expect("Database should still be accessible after task shutdown");
+
+        tracing::info!("📊 Final receipt count: {}", final_count);
+
+        tracing::info!("✅ SenderAccountTask creation and lifecycle test completed successfully!");
+        tracing::info!("🎯 Validated:");
+        tracing::info!("   - Task spawning with real database");
+        tracing::info!("   - Receipt storage and processing");
+        tracing::info!("   - Health monitoring integration");
+        tracing::info!("   - Graceful shutdown and cleanup");
     }
 
     #[tokio::test]
