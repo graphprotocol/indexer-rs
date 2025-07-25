@@ -28,6 +28,9 @@ use super::{
 
 #[cfg(any(test, feature = "test"))]
 use super::sender_account_task::SenderAccountTask;
+
+#[cfg(not(any(test, feature = "test")))]
+use super::sender_account_task::SenderAccountTask;
 use crate::task_lifecycle::{LifecycleManager, RestartPolicy, TaskHandle, TaskRegistry};
 
 /// Tokio task-based replacement for SenderAccountsManager actor
@@ -274,7 +277,58 @@ impl SenderAccountsManagerTask {
 
         #[cfg(not(any(test, feature = "test")))]
         {
-            tracing::warn!("Production V1 sender account spawning not fully implemented yet");
+            // For production, create real escrow account monitoring via subgraph queries
+            let escrow_rx = indexer_monitor::escrow_accounts_v1(
+                state.escrow_subgraph,
+                state.config.indexer_address,
+                state.config.escrow_polling_interval,
+                true, // reject_thawing_signers
+            )
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to create V1 escrow accounts watcher for sender {}: {}",
+                    sender,
+                    e
+                )
+            })?;
+
+            let child_handle = SenderAccountTask::spawn(
+                &state.lifecycle,
+                Some(task_name.clone()),
+                sender,
+                state.config,
+                state.pgpool.clone(),
+                escrow_rx,
+                state.escrow_subgraph,
+                state.network_subgraph,
+                state.domain_separator.clone(),
+                state
+                    .sender_aggregator_endpoints
+                    .get(&sender)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        tracing::warn!(
+                            sender = %sender,
+                            "No aggregator endpoint configured for sender, using default"
+                        );
+                        "http://localhost:8080".parse().unwrap()
+                    }),
+                state.prefix.clone(),
+            )
+            .await?;
+
+            // Register the child task
+            state
+                .child_registry
+                .register(task_name.clone(), child_handle)
+                .await;
+
+            tracing::info!(
+                sender = %sender,
+                task_name = %task_name,
+                "Production V1 sender account task with real escrow monitoring spawned successfully"
+            );
         }
 
         Ok(())
@@ -321,7 +375,58 @@ impl SenderAccountsManagerTask {
 
         #[cfg(not(any(test, feature = "test")))]
         {
-            tracing::warn!("Production V2 sender account spawning not fully implemented yet");
+            // For production, create real escrow account monitoring via subgraph queries
+            let escrow_rx = indexer_monitor::escrow_accounts_v2(
+                state.escrow_subgraph,
+                state.config.indexer_address,
+                state.config.escrow_polling_interval,
+                true, // reject_thawing_signers
+            )
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to create V2 escrow accounts watcher for sender {}: {}",
+                    sender,
+                    e
+                )
+            })?;
+
+            let child_handle = SenderAccountTask::spawn(
+                &state.lifecycle,
+                Some(task_name.clone()),
+                sender,
+                state.config,
+                state.pgpool.clone(),
+                escrow_rx,
+                state.escrow_subgraph,
+                state.network_subgraph,
+                state.domain_separator.clone(),
+                state
+                    .sender_aggregator_endpoints
+                    .get(&sender)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        tracing::warn!(
+                            sender = %sender,
+                            "No aggregator endpoint configured for sender, using default"
+                        );
+                        "http://localhost:8080".parse().unwrap()
+                    }),
+                state.prefix.clone(),
+            )
+            .await?;
+
+            // Register the child task
+            state
+                .child_registry
+                .register(task_name.clone(), child_handle)
+                .await;
+
+            tracing::info!(
+                sender = %sender,
+                task_name = %task_name,
+                "Production V2 sender account task with real escrow monitoring spawned successfully"
+            );
         }
 
         Ok(())

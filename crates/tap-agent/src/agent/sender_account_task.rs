@@ -11,6 +11,8 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::Context;
+
 #[cfg(not(any(test, feature = "test")))]
 use std::time::Duration;
 
@@ -18,6 +20,7 @@ use anyhow::Result;
 use bigdecimal::ToPrimitive;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use thegraph_core::alloy::{
+    hex::ToHexExt,
     primitives::{Address, U256},
     sol_types::Eip712Domain,
 };
@@ -1192,18 +1195,32 @@ impl SenderAccountTask {
             if should_deny {
                 tracing::warn!(
                     sender = %state.sender,
-                    "Sender deny condition reached - would add to denylist in production"
+                    "Sender deny condition reached - adding to database denylist"
                 );
-                // TODO: In full production implementation, add to database denylist
-                // This would call add_to_denylist() similar to the original ractor version
+
+                // Add to database denylist
+                if let Err(e) = Self::add_to_denylist(&state.pgpool, state.sender).await {
+                    tracing::error!(
+                        sender = %state.sender,
+                        error = %e,
+                        "Failed to add sender to database denylist, updating local state only"
+                    );
+                }
                 state.denied = true;
             } else {
                 tracing::info!(
                     sender = %state.sender,
-                    "Sender deny condition resolved - would remove from denylist in production"
+                    "Sender deny condition resolved - removing from database denylist"
                 );
-                // TODO: In full production implementation, remove from database denylist
-                // This would call remove_from_denylist() similar to the original ractor version
+
+                // Remove from database denylist
+                if let Err(e) = Self::remove_from_denylist(&state.pgpool, state.sender).await {
+                    tracing::error!(
+                        sender = %state.sender,
+                        error = %e,
+                        "Failed to remove sender from database denylist, updating local state only"
+                    );
+                }
                 state.denied = false;
             }
         }
@@ -1231,6 +1248,60 @@ impl SenderAccountTask {
             );
             state.denied = should_deny;
         }
+    }
+
+    /// Add sender to database denylist
+    #[allow(dead_code)] // Used in production code only
+    async fn add_to_denylist(pgpool: &sqlx::PgPool, sender: Address) -> Result<()> {
+        tracing::info!(
+            sender = %sender,
+            "Adding sender to database denylist"
+        );
+
+        sqlx::query!(
+            r#"
+                INSERT INTO scalar_tap_denylist (sender_address)
+                VALUES ($1) ON CONFLICT DO NOTHING
+            "#,
+            sender.encode_hex(),
+        )
+        .execute(pgpool)
+        .await
+        .context("Failed to insert sender into denylist")?;
+
+        tracing::debug!(
+            sender = %sender,
+            "Successfully added sender to database denylist"
+        );
+
+        Ok(())
+    }
+
+    /// Remove sender from database denylist
+    #[allow(dead_code)] // Used in production code only
+    async fn remove_from_denylist(pgpool: &sqlx::PgPool, sender: Address) -> Result<()> {
+        tracing::info!(
+            sender = %sender,
+            "Removing sender from database denylist"
+        );
+
+        sqlx::query!(
+            r#"
+                DELETE FROM scalar_tap_denylist
+                WHERE sender_address = $1
+            "#,
+            sender.encode_hex(),
+        )
+        .execute(pgpool)
+        .await
+        .context("Failed to remove sender from denylist")?;
+
+        tracing::debug!(
+            sender = %sender,
+            "Successfully removed sender from database denylist"
+        );
+
+        Ok(())
     }
 }
 
