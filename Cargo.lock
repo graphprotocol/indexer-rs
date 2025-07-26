@@ -4243,6 +4243,7 @@ dependencies = [
  "tempfile",
  "test-assets",
  "test-log",
+ "testcontainers-modules",
  "thegraph-core",
  "thiserror 2.0.12",
  "tokio",

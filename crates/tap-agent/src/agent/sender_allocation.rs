@@ -1,6 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+#[allow(unused_imports)]
+// PhantomData, Arc, Instant used for type safety and performance metrics
 use std::{
     future::Future,
     marker::PhantomData,
@@ -8,13 +10,21 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use anyhow::{anyhow, ensure};
-use bigdecimal::{num_bigint::BigInt, ToPrimitive};
+#[allow(unused_imports)] // Used in different conditional compilation modes
+use bigdecimal::ToPrimitive;
+#[allow(unused_imports)] // Used in database operations
+use bigdecimal::{num_bigint::BigInt, BigDecimal};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use itertools::{Either, Itertools};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
+#[cfg(any(test, feature = "test"))]
 use ractor::{Actor, ActorProcessingErr, ActorRef};
-use sqlx::{types::BigDecimal, PgPool};
+#[allow(unused_imports)] // Used for database operations in production
+use sqlx::PgPool;
 use tap_core::{
     manager::adapters::{RavRead, RavStore, ReceiptDelete, ReceiptRead},
     rav_request::RavRequest,
@@ -26,8 +36,10 @@ use tap_core::{
     },
     signed_message::Eip712SignedMessage,
 };
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use thegraph_core::alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain};
 use thiserror::Error;
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use tokio::sync::watch::Receiver;
 
 use super::sender_account::SenderAccountConfig;
@@ -39,7 +51,7 @@ use crate::{
     },
     tap::{
         context::{
-            checks::{AllocationId, Signature},
+            checks::{AllocationId as AllocationIdCheck, Signature},
             Horizon, Legacy, NetworkVersion, TapAgentContext,
         },
         signers_trimmed, TapReceipt,
@@ -117,7 +129,9 @@ type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
 ///
 /// T is used in SenderAllocationState<T> and SenderAllocationArgs<T> to store the
 /// correct Rav type and the correct aggregator client
+#[cfg(any(test, feature = "test"))]
 pub struct SenderAllocation<T>(PhantomData<T>);
+#[cfg(any(test, feature = "test"))]
 impl<T: NetworkVersion> Default for SenderAllocation<T> {
     fn default() -> Self {
         Self(PhantomData)
@@ -125,6 +139,7 @@ impl<T: NetworkVersion> Default for SenderAllocation<T> {
 }
 
 /// State for [SenderAllocation] actor
+#[cfg(any(test, feature = "test"))]
 pub struct SenderAllocationState<T: NetworkVersion> {
     /// Sum of all receipt fees for the current allocation
     unaggregated_fees: UnaggregatedReceipts,
@@ -192,6 +207,7 @@ impl AllocationConfig {
 }
 
 /// Arguments used to initialize [SenderAllocation]
+#[cfg(any(test, feature = "test"))]
 #[derive(bon::Builder)]
 pub struct SenderAllocationArgs<T: NetworkVersion> {
     /// Database connection
@@ -245,6 +261,7 @@ pub enum SenderAllocationMessage {
 /// We use some bounds so [TapAgentContext] implements all parts needed for the given
 /// [crate::tap::context::NetworkVersion]
 #[async_trait::async_trait]
+#[cfg(any(test, feature = "test"))]
 impl<T> Actor for SenderAllocation<T>
 where
     SenderAllocationState<T>: DatabaseInteractions,
@@ -438,6 +455,7 @@ where
 
 /// We use some bounds so [TapAgentContext] implements all parts needed for the given
 /// [crate::tap::context::NetworkVersion]
+#[cfg(any(test, feature = "test"))]
 impl<T> SenderAllocationState<T>
 where
     T: NetworkVersion,
@@ -462,7 +480,7 @@ where
     ) -> anyhow::Result<Self> {
         let required_checks: Vec<Arc<dyn Check<TapReceipt> + Send + Sync>> = vec![
             Arc::new(
-                AllocationId::new(
+                AllocationIdCheck::new(
                     config.indexer_address,
                     config.escrow_polling_interval,
                     sender,
@@ -958,6 +976,7 @@ pub trait DatabaseInteractions {
     fn mark_rav_last(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
+#[cfg(any(test, feature = "test"))]
 impl DatabaseInteractions for SenderAllocationState<Legacy> {
     async fn delete_receipts_between(
         &self,
@@ -1119,6 +1138,7 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
     }
 }
 
+#[cfg(any(test, feature = "test"))]
 impl DatabaseInteractions for SenderAllocationState<Horizon> {
     async fn delete_receipts_between(
         &self,

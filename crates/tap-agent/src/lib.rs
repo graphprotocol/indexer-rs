@@ -36,7 +36,9 @@ pub mod cli;
 pub mod database;
 /// Prometheus Metrics server
 pub mod metrics;
+pub mod subgraph_client_abstraction;
 pub mod tap;
+pub mod task_lifecycle;
 
 /// Test utils to interact with Tap Actors
 #[cfg(any(test, feature = "test"))]

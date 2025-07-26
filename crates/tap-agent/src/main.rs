@@ -1,8 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use indexer_tap_agent::task_lifecycle::TaskStatus;
 use indexer_tap_agent::{agent, metrics, CONFIG};
-use ractor::ActorStatus;
 use tokio::signal::unix::{signal, SignalKind};
 
 #[tokio::main]
@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
     // initialize LazyLock'd config
     _ = &*CONFIG;
 
-    let (manager, handler) = agent::start_agent().await;
+    let (mut manager, handler) = agent::start_agent().await;
     tracing::info!("TAP Agent started.");
 
     tokio::spawn(metrics::run_server(CONFIG.metrics.port));
@@ -42,12 +42,14 @@ async fn main() -> anyhow::Result<()> {
     // If we're here, we've received a signal to exit.
     tracing::info!("Shutting down...");
 
-    // We don't want our actor to run any shutdown logic, so we kill it.
-    if manager.get_status() == ActorStatus::Running {
+    if manager.get_status().await == TaskStatus::Running {
+        tracing::info!("Stopping sender accounts manager task...");
         manager
-            .kill_and_wait(None)
-            .await
-            .expect("Failed to kill manager.");
+            .stop(Some("Shutdown signal received".to_string()))
+            .await;
+
+        // Give the task a moment to shut down gracefully
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
     // Stop the server and wait for it to finish gracefully.

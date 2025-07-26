@@ -39,37 +39,62 @@ use indexer_config::{
     Config, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
     SubgraphConfig, SubgraphsConfig, TapConfig,
 };
-use indexer_monitor::{
-    empty_escrow_accounts_watcher, escrow_accounts_v1, escrow_accounts_v2, indexer_allocations,
-    DeploymentDetails, SubgraphClient,
-};
-use ractor::{concurrency::JoinHandle, Actor, ActorRef};
+use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use sender_account::SenderAccountConfig;
-use sender_accounts_manager::SenderAccountsManager;
+use sender_accounts_manager_task::SenderAccountsManagerTask;
+use tokio::task::JoinHandle;
 
 use crate::{
-    agent::sender_accounts_manager::{SenderAccountsManagerArgs, SenderAccountsManagerMessage},
-    database, CONFIG, EIP_712_DOMAIN,
+    agent::sender_accounts_manager::SenderAccountsManagerMessage, database,
+    task_lifecycle::LifecycleManager, CONFIG, EIP_712_DOMAIN,
 };
 
+/// PostgreSQL event source for stream processing
+pub mod postgres_source;
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_account::SenderAccount]
 pub mod sender_account;
+/// SenderAccount task implementation
+pub mod sender_account_task;
 /// Actor, Arguments, State, Messages and implementation for
 /// [crate::agent::sender_accounts_manager::SenderAccountsManager]
 pub mod sender_accounts_manager;
+/// SenderAccountsManager task implementation
+pub mod sender_accounts_manager_task;
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_allocation::SenderAllocation]
 pub mod sender_allocation;
+/// SenderAllocation task implementation
+pub mod sender_allocation_task;
+/// Stream-based TAP processing pipeline
+pub mod stream_processor;
+/// Actor, Arguments, State, Messages and implementation for [crate::agent::tap_agent::TapAgent]
+pub mod tap_agent;
+/// Tests for task lifecycle monitoring and health checks
+#[cfg(test)]
+mod test_lifecycle_monitoring;
+/// Integration tests for SenderAccountsManagerTask
+#[cfg(test)]
+mod test_sender_accounts_manager_integration;
+/// Comprehensive integration tests
+#[cfg(test)]
+mod test_tokio_migration;
+/// Regression tests for system behavior
+#[cfg(test)]
+mod test_tokio_regression;
 /// Unaggregated receipts containing total value and last id stored in the table
 pub mod unaggregated_receipts;
+
+use crate::task_lifecycle::TaskHandle;
 
 /// This is the main entrypoint for starting up tap-agent
 ///
 /// It uses the static [crate::CONFIG] to configure the agent.
-pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
+///
+/// Returns:
+/// - TaskHandle for the main SenderAccountsManagerTask
+/// - JoinHandle for the system health monitoring task that triggers shutdown on critical failures
+pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHandle<()>) {
     let Config {
-        indexer: IndexerConfig {
-            indexer_address, ..
-        },
+        indexer: IndexerConfig { .. },
         graph_node:
             GraphNodeConfig {
                 status_url: graph_node_status_endpoint,
@@ -85,9 +110,9 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
                                 query_url: network_query_url,
                                 query_auth_token: network_query_auth_token,
                                 deployment_id: network_deployment_id,
-                                syncing_interval_secs: network_sync_interval,
+                                ..
                             },
-                        recently_closed_allocation_buffer_secs: recently_closed_allocation_buffer,
+                        ..
                     },
                 escrow:
                     EscrowSubgraphConfig {
@@ -96,7 +121,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
                                 query_url: escrow_query_url,
                                 query_auth_token: escrow_query_auth_token,
                                 deployment_id: escrow_deployment_id,
-                                syncing_interval_secs: escrow_sync_interval,
+                                ..
                             },
                     },
             },
@@ -130,15 +155,14 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         .await,
     ));
 
-    let indexer_allocations = indexer_allocations(
-        network_subgraph,
-        *indexer_address,
-        *network_sync_interval,
-        *recently_closed_allocation_buffer,
-    )
-    .await
-    .expect("Failed to initialize indexer_allocations watcher");
+    // Note: indexer_allocations watcher is not needed here as SenderAccountsManagerTask
+    // creates its own PostgreSQL notification listeners for receipt events
 
+    // TODO: in v2 the escrow subgraph is incorporated into the network subgraph.
+    // This is a temporary workaround to maintain compatibility with existing deployments.
+    // This behavior depends on whether horizon is enabled or not, but also on whether the contracts are active.
+    // If horizon is enabled, we use the network subgraph to monitor escrow accounts.
+    // If horizon is not enabled, we use the escrow subgraph directly.
     let escrow_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
             http_client.clone(),
@@ -156,15 +180,6 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         )
         .await,
     ));
-
-    let escrow_accounts_v1 = escrow_accounts_v1(
-        escrow_subgraph,
-        *indexer_address,
-        *escrow_sync_interval,
-        false,
-    )
-    .await
-    .expect("Error creating escrow_accounts channel");
 
     // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
     // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
@@ -196,30 +211,15 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         false
     };
 
-    // Create V2 escrow accounts watcher only if Horizon is active
-    // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
-    let escrow_accounts_v2 = if is_horizon_enabled {
-        escrow_accounts_v2(
-            network_subgraph,
-            *indexer_address,
-            *network_sync_interval,
-            false,
-        )
-        .await
-        .expect("Error creating escrow_accounts_v2 channel")
-    } else {
-        // Create a dummy watcher that never updates for consistency
-        empty_escrow_accounts_watcher()
-    };
-
-    // In both modes we need both watchers for the hybrid processing
-    let (escrow_accounts_v1_final, escrow_accounts_v2_final) = if is_horizon_enabled {
+    // Log the TAP Agent mode based on Horizon detection
+    if is_horizon_enabled {
         tracing::info!("TAP Agent: Horizon migration mode - processing existing V1 receipts and new V2 receipts");
-        (escrow_accounts_v1, escrow_accounts_v2)
     } else {
         tracing::info!("TAP Agent: Legacy mode - V1 receipts only");
-        (escrow_accounts_v1, escrow_accounts_v2)
-    };
+    }
+
+    // Note: escrow_accounts watchers are not needed here as SenderAccountsManagerTask
+    // handles escrow account monitoring through its own internal mechanisms
 
     let config = Box::leak(Box::new({
         let mut config = SenderAccountConfig::from_config(&CONFIG);
@@ -227,20 +227,76 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         config
     }));
 
-    let args = SenderAccountsManagerArgs {
+    // Initialize the tokio-based sender accounts manager
+    let lifecycle = LifecycleManager::new();
+
+    let task_handle = SenderAccountsManagerTask::spawn(
+        &lifecycle,
+        None, // name
         config,
-        domain_separator: EIP_712_DOMAIN.clone(),
         pgpool,
-        indexer_allocations,
-        escrow_accounts_v1: escrow_accounts_v1_final,
-        escrow_accounts_v2: escrow_accounts_v2_final,
         escrow_subgraph,
         network_subgraph,
-        sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
-        prefix: None,
-    };
+        EIP_712_DOMAIN.clone(),
+        sender_aggregator_endpoints.clone(),
+        None, // prefix
+    )
+    .await
+    .expect("Failed to start sender accounts manager task.");
 
-    SenderAccountsManager::spawn(None, SenderAccountsManager, args)
-        .await
-        .expect("Failed to start sender accounts manager actor.")
+    // Create a proper system monitoring task that integrates with LifecycleManager
+    // This task monitors overall system health and can trigger graceful shutdown
+    let monitoring_handle = tokio::spawn({
+        let lifecycle_clone = lifecycle.clone();
+        async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            let mut consecutive_unhealthy_checks = 0;
+            const MAX_UNHEALTHY_CHECKS: u32 = 12; // 60 seconds of unhealthy state
+
+            loop {
+                interval.tick().await;
+
+                // Monitor system health
+                let system_health = lifecycle_clone.get_system_health().await;
+
+                if !system_health.overall_healthy {
+                    consecutive_unhealthy_checks += 1;
+                    tracing::warn!(
+                        "System unhealthy: {}/{} healthy tasks, {} failed (check {}/{})",
+                        system_health.healthy_tasks,
+                        system_health.total_tasks,
+                        system_health.failed_tasks,
+                        consecutive_unhealthy_checks,
+                        MAX_UNHEALTHY_CHECKS
+                    );
+
+                    // If system has been unhealthy for too long, trigger shutdown
+                    if consecutive_unhealthy_checks >= MAX_UNHEALTHY_CHECKS {
+                        tracing::error!(
+                            "System has been unhealthy for {} checks, initiating graceful shutdown",
+                            consecutive_unhealthy_checks
+                        );
+                        break;
+                    }
+                } else {
+                    // Reset counter on healthy check
+                    if consecutive_unhealthy_checks > 0 {
+                        tracing::info!(
+                            "System health recovered: {}/{} healthy tasks",
+                            system_health.healthy_tasks,
+                            system_health.total_tasks
+                        );
+                        consecutive_unhealthy_checks = 0;
+                    }
+                }
+
+                // Perform periodic health checks on all tasks
+                lifecycle_clone.perform_health_check().await;
+            }
+
+            tracing::info!("System monitoring task shutting down");
+        }
+    });
+
+    (task_handle, monitoring_handle)
 }

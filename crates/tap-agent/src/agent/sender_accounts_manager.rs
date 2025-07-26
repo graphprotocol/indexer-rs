@@ -1,35 +1,50 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+#[allow(unused_imports)] // HashMap/HashSet used for sender management data structures
 use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     str::FromStr,
     sync::LazyLock,
-    time::Duration,
 };
 
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use anyhow::{anyhow, bail};
+#[allow(unused_imports)] // Used for streaming operations in production
 use futures::{stream, StreamExt};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use indexer_allocation::Allocation;
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
+#[allow(unused_imports)] // Used for allocation watching in production
 use indexer_watcher::{map_watcher, watch_pipe};
 use prometheus::{register_counter_vec, CounterVec};
+#[cfg(any(test, feature = "test"))]
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
+#[allow(unused_imports)] // Used for aggregator endpoints in production
 use reqwest::Url;
 use serde::Deserialize;
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use sqlx::{postgres::PgListener, PgPool};
+#[allow(unused_imports)] // Used for retry timing in production
+use std::time::Duration;
+#[allow(unused_imports)] // sol_types::Eip712Domain used for EIP-712 domain separator
 use thegraph_core::{
     alloy::{primitives::Address, sol_types::Eip712Domain},
     AllocationId as AllocationIdCore, CollectionId,
 };
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use tokio::{select, sync::watch::Receiver};
 
+#[cfg(any(test, feature = "test"))]
 use super::sender_account::{
     SenderAccount, SenderAccountArgs, SenderAccountConfig, SenderAccountMessage,
 };
-use crate::agent::sender_allocation::SenderAllocationMessage;
+#[cfg(any(test, feature = "test"))]
+use super::sender_allocation::SenderAllocationMessage;
 
+#[allow(dead_code)] // Prometheus counter used in production receipt tracking
 static RECEIPTS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_receipts_received_total",
@@ -144,6 +159,7 @@ impl NewReceiptNotification {
     }
 }
 
+#[cfg(any(test, feature = "test"))]
 /// Manager Actor
 #[derive(Debug, Clone)]
 pub struct SenderAccountsManager;
@@ -223,6 +239,7 @@ pub enum SenderAccountsManagerMessage {
     UpdateSenderAccountsV2(HashSet<Address>),
 }
 
+#[cfg(any(test, feature = "test"))]
 /// Arguments received in startup while spawing [SenderAccount] actor
 pub struct SenderAccountsManagerArgs {
     /// Config forwarded to [SenderAccount]
@@ -253,6 +270,7 @@ pub struct SenderAccountsManagerArgs {
 ///
 /// This is a separate instance that makes it easier to have mutable
 /// reference, for more information check ractor library
+#[cfg(any(test, feature = "test"))]
 pub struct State {
     sender_ids_v1: HashSet<Address>,
     sender_ids_v2: HashSet<Address>,
@@ -274,6 +292,7 @@ pub struct State {
 }
 
 #[async_trait::async_trait]
+#[cfg(any(test, feature = "test"))]
 impl Actor for SenderAccountsManager {
     type Msg = SenderAccountsManagerMessage;
     type State = State;
@@ -614,6 +633,7 @@ impl Actor for SenderAccountsManager {
     }
 }
 
+#[cfg(any(test, feature = "test"))]
 impl State {
     fn format_sender_account(&self, sender: &Address, sender_type: SenderType) -> String {
         let mut sender_allocation_id = String::new();
@@ -636,6 +656,7 @@ impl State {
     ///
     /// In case there's an error creating it, deny so it
     /// can no longer send queries
+    #[cfg(any(test, feature = "test"))]
     async fn create_or_deny_sender(
         &self,
         supervisor: ActorCell,
@@ -661,6 +682,7 @@ impl State {
     /// It takes the current [SenderAccountsManager] cell to use it
     /// as supervisor, sender address and a list of initial allocations
     ///
+    #[cfg(any(test, feature = "test"))]
     async fn create_sender_account(
         &self,
         supervisor: ActorCell,
@@ -922,6 +944,7 @@ impl State {
     ///
     /// Fails if the provided sender_id is not present
     /// in the sender_aggregator_endpoints map
+    #[cfg(any(test, feature = "test"))]
     fn new_sender_account_args(
         &self,
         sender_id: &Address,
@@ -958,6 +981,7 @@ impl State {
 
 /// Continuously listens for new receipt notifications from Postgres and forwards them to the
 /// corresponding SenderAccount.
+#[cfg(any(test, feature = "test"))]
 #[bon::builder]
 async fn new_receipts_watcher(
     actor_cell: ActorCell,
@@ -1080,6 +1104,7 @@ async fn new_receipts_watcher(
 /// After a request to create allocation, we don't need to do anything
 /// since the startup script is going to recalculate the receipt in the
 /// database
+#[cfg(any(test, feature = "test"))]
 async fn handle_notification(
     new_receipt_notification: NewReceiptNotification,
     escrow_accounts_rx: Receiver<EscrowAccounts>,

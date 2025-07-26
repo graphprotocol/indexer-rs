@@ -1,6 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+#[allow(unused_imports)] // str::FromStr used in production code paths
 use std::{
     collections::{HashMap, HashSet},
     str::FromStr,
@@ -8,23 +9,37 @@ use std::{
     time::Duration,
 };
 
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use anyhow::Context;
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
-use futures::{stream, StreamExt};
+#[allow(unused_imports)] // Used in different conditional compilation modes
+use futures::stream;
+#[allow(unused_imports)] // Used for stream operations
+use futures::StreamExt;
+#[allow(unused_imports)] // Used in production config structs
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use indexer_query::{
     closed_allocations::{self, ClosedAllocations},
-    unfinalized_transactions, UnfinalizedTransactions,
+    unfinalized_transactions::{self},
+    UnfinalizedTransactions,
 };
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use indexer_watcher::watch_pipe;
 use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
+#[cfg(any(test, feature = "test"))]
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
+#[allow(unused_imports)] // Used in production config structs
 use reqwest::Url;
+#[allow(unused_imports)] // Used in production config structs
 use sqlx::PgPool;
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use tap_aggregator::grpc::{
     v1::tap_aggregator_client::TapAggregatorClient as AggregatorV1,
     v2::tap_aggregator_client::TapAggregatorClient as AggregatorV2,
 };
+#[allow(unused_imports)] // hex::ToHexExt and sol_types::Eip712Domain used in production
 use thegraph_core::{
     alloy::{
         hex::ToHexExt,
@@ -33,16 +48,22 @@ use thegraph_core::{
     },
     AllocationId as AllocationIdCore, CollectionId,
 };
+#[allow(unused_imports)] // Used in production config structs
 use tokio::{sync::watch::Receiver, task::JoinHandle};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use tonic::transport::{Channel, Endpoint};
+#[allow(unused_imports)] // Used in different conditional compilation modes
 use tracing::Level;
 
-use super::{
-    sender_accounts_manager::{AllocationId, SenderType},
-    sender_allocation::{
-        AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
-    },
+#[allow(unused_imports)] // SenderType used for Legacy/Horizon differentiation in production
+use super::sender_accounts_manager::{AllocationId, SenderType};
+
+#[cfg(any(test, feature = "test"))]
+use super::sender_allocation::{
+    AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
 };
+#[allow(unused_imports)]
+// Production-only imports for rate limiting, backoff, network types, tracking
 use crate::{
     adaptative_concurrency::AdaptiveLimiter,
     agent::unaggregated_receipts::UnaggregatedReceipts,
@@ -51,9 +72,11 @@ use crate::{
     tracker::{SenderFeeTracker, SimpleFeeTracker},
 };
 
+#[allow(dead_code)] // Prometheus metrics used in production, not in test builds
 static SENDER_DENIED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     register_int_gauge_vec!("tap_sender_denied", "Sender is denied", &["sender"]).unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_sender_escrow_balance_grt_total",
@@ -62,6 +85,7 @@ static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_unaggregated_fees_grt_total",
@@ -70,6 +94,7 @@ static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_sender_fee_tracker_grt_total",
@@ -78,6 +103,7 @@ static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static INVALID_RECEIPT_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_invalid_receipt_fees_grt_total",
@@ -86,6 +112,7 @@ static INVALID_RECEIPT_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static PENDING_RAV: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_pending_rav_grt_total",
@@ -94,6 +121,7 @@ static PENDING_RAV: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static MAX_FEE_PER_SENDER: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_max_fee_per_sender_grt_total",
@@ -102,6 +130,7 @@ static MAX_FEE_PER_SENDER: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+#[allow(dead_code)] // Used in production code
 static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_rav_request_trigger_value",
@@ -111,14 +140,14 @@ static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+#[allow(dead_code)] // Used by AdaptiveLimiter in production code paths
 const INITIAL_RAV_REQUEST_CONCURRENT: usize = 1;
 
 type RavMap = HashMap<Address, u128>;
 type Balance = U256;
 
 /// Information for Ravs that are abstracted away from the SignedRav itself
-#[derive(Debug, Default, PartialEq, Eq)]
-#[cfg_attr(any(test, feature = "test"), derive(Clone))]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct RavInformation {
     /// Allocation Id of a Rav
     pub allocation_id: Address,
@@ -159,7 +188,7 @@ impl From<&tap_graph::v2::SignedRav> for RavInformation {
 /// It has different logic depending on the variant
 #[derive(Debug)]
 #[cfg_attr(any(test, feature = "test"), derive(educe::Educe))]
-#[cfg_attr(any(test, feature = "test"), educe(PartialEq, Eq, Clone))]
+#[cfg_attr(any(test, feature = "test"), educe(PartialEq, Eq))]
 pub enum ReceiptFees {
     /// Adds the receipt value to the fee tracker
     ///
@@ -175,10 +204,7 @@ pub enum ReceiptFees {
     /// If not, signalize the fee_tracker to apply proper backoff
     RavRequestResponse(
         UnaggregatedReceipts,
-        #[cfg_attr(
-            any(test, feature = "test"),
-            educe(PartialEq(ignore), Clone(method(clone_rav_result)))
-        )]
+        #[cfg_attr(any(test, feature = "test"), educe(PartialEq(ignore)))]
         anyhow::Result<Option<RavInformation>>,
     ),
     /// Ignores all logic and simply retry Allow/Deny and Rav Request logic
@@ -189,20 +215,29 @@ pub enum ReceiptFees {
     Retry,
 }
 
-#[cfg(any(test, feature = "test"))]
-fn clone_rav_result(
-    res: &anyhow::Result<Option<RavInformation>>,
-) -> anyhow::Result<Option<RavInformation>> {
-    match res {
-        Ok(val) => Ok(val.clone()),
-        Err(_) => Err(anyhow::anyhow!("Some error")),
+impl Clone for ReceiptFees {
+    fn clone(&self) -> Self {
+        match self {
+            ReceiptFees::NewReceipt(value, timestamp) => {
+                ReceiptFees::NewReceipt(*value, *timestamp)
+            }
+            ReceiptFees::UpdateValue(receipts) => ReceiptFees::UpdateValue(*receipts),
+            ReceiptFees::RavRequestResponse(receipts, result) => {
+                // For the Result<Option<RavInformation>>, we need to handle it carefully
+                // since anyhow::Error doesn't implement Clone
+                let cloned_result = match result {
+                    Ok(val) => Ok(val.clone()),
+                    Err(_) => Err(anyhow::anyhow!("Cloned error from original anyhow result")),
+                };
+                ReceiptFees::RavRequestResponse(*receipts, cloned_result)
+            }
+            ReceiptFees::Retry => ReceiptFees::Retry,
+        }
     }
 }
 
 /// Enum containing all types of messages that a [SenderAccount] can receive
 #[derive(Debug)]
-#[cfg_attr(any(test, feature = "test"), derive(educe::Educe))]
-#[cfg_attr(any(test, feature = "test"), educe(PartialEq, Eq, Clone))]
 pub enum SenderAccountMessage {
     /// Updates the sender balance and
     UpdateBalanceAndLastRavs(Balance, RavMap),
@@ -224,24 +259,105 @@ pub enum SenderAccountMessage {
     UpdateRav(RavInformation),
     #[cfg(test)]
     /// Returns the sender fee tracker, used for tests
-    GetSenderFeeTracker(
-        #[educe(PartialEq(ignore), Clone(method(crate::test::actors::clone_rpc_reply)))]
-        ractor::RpcReplyPort<SenderFeeTracker>,
-    ),
+    GetSenderFeeTracker(ractor::RpcReplyPort<SenderFeeTracker>),
     #[cfg(test)]
     /// Returns the Deny status, used for tests
-    GetDeny(
-        #[educe(PartialEq(ignore), Clone(method(crate::test::actors::clone_rpc_reply)))]
-        ractor::RpcReplyPort<bool>,
-    ),
+    GetDeny(ractor::RpcReplyPort<bool>),
     #[cfg(test)]
     /// Returns if the scheduler is enabled, used for tests
-    IsSchedulerEnabled(
-        #[educe(PartialEq(ignore), Clone(method(crate::test::actors::clone_rpc_reply)))]
-        ractor::RpcReplyPort<bool>,
-    ),
+    IsSchedulerEnabled(ractor::RpcReplyPort<bool>),
 }
 
+// Manual Clone implementation to handle RpcReplyPort fields properly
+impl Clone for SenderAccountMessage {
+    fn clone(&self) -> Self {
+        match self {
+            SenderAccountMessage::UpdateBalanceAndLastRavs(balance, rav_map) => {
+                SenderAccountMessage::UpdateBalanceAndLastRavs(*balance, rav_map.clone())
+            }
+            SenderAccountMessage::UpdateAllocationIds(ids) => {
+                SenderAccountMessage::UpdateAllocationIds(ids.clone())
+            }
+            SenderAccountMessage::NewAllocationId(id) => SenderAccountMessage::NewAllocationId(*id),
+            SenderAccountMessage::UpdateReceiptFees(id, fees) => {
+                SenderAccountMessage::UpdateReceiptFees(*id, fees.clone())
+            }
+            SenderAccountMessage::UpdateInvalidReceiptFees(id, fees) => {
+                SenderAccountMessage::UpdateInvalidReceiptFees(*id, *fees)
+            }
+            SenderAccountMessage::UpdateRav(rav) => SenderAccountMessage::UpdateRav(rav.clone()),
+            #[cfg(test)]
+            SenderAccountMessage::GetSenderFeeTracker(_reply_port) => {
+                // For tests, create a dummy reply port - this is needed for message forwarding but
+                // the actual reply port can't be meaningfully cloned
+                let (tx, _rx) = tokio::sync::oneshot::channel();
+                SenderAccountMessage::GetSenderFeeTracker(ractor::RpcReplyPort::from(tx))
+            }
+            #[cfg(test)]
+            SenderAccountMessage::GetDeny(_reply_port) => {
+                // For tests, create a dummy reply port
+                let (tx, _rx) = tokio::sync::oneshot::channel();
+                SenderAccountMessage::GetDeny(ractor::RpcReplyPort::from(tx))
+            }
+            #[cfg(test)]
+            SenderAccountMessage::IsSchedulerEnabled(_reply_port) => {
+                // For tests, create a dummy reply port
+                let (tx, _rx) = tokio::sync::oneshot::channel();
+                SenderAccountMessage::IsSchedulerEnabled(ractor::RpcReplyPort::from(tx))
+            }
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test"))]
+impl PartialEq for SenderAccountMessage {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                SenderAccountMessage::UpdateBalanceAndLastRavs(balance1, rav_map1),
+                SenderAccountMessage::UpdateBalanceAndLastRavs(balance2, rav_map2),
+            ) => balance1 == balance2 && rav_map1 == rav_map2,
+            (
+                SenderAccountMessage::UpdateAllocationIds(ids1),
+                SenderAccountMessage::UpdateAllocationIds(ids2),
+            ) => ids1 == ids2,
+            (
+                SenderAccountMessage::NewAllocationId(id1),
+                SenderAccountMessage::NewAllocationId(id2),
+            ) => id1 == id2,
+            (
+                SenderAccountMessage::UpdateReceiptFees(id1, fees1),
+                SenderAccountMessage::UpdateReceiptFees(id2, fees2),
+            ) => id1 == id2 && fees1 == fees2,
+            (
+                SenderAccountMessage::UpdateInvalidReceiptFees(id1, fees1),
+                SenderAccountMessage::UpdateInvalidReceiptFees(id2, fees2),
+            ) => id1 == id2 && fees1 == fees2,
+            (SenderAccountMessage::UpdateRav(rav1), SenderAccountMessage::UpdateRav(rav2)) => {
+                rav1 == rav2
+            }
+            #[cfg(test)]
+            // For RpcReplyPort messages, we ignore the reply port in comparison (like educe did)
+            (
+                SenderAccountMessage::GetSenderFeeTracker(_),
+                SenderAccountMessage::GetSenderFeeTracker(_),
+            ) => true,
+            #[cfg(test)]
+            (SenderAccountMessage::GetDeny(_), SenderAccountMessage::GetDeny(_)) => true,
+            #[cfg(test)]
+            (
+                SenderAccountMessage::IsSchedulerEnabled(_),
+                SenderAccountMessage::IsSchedulerEnabled(_),
+            ) => true,
+            _ => false,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test"))]
+impl Eq for SenderAccountMessage {}
+
+#[cfg(any(test, feature = "test"))]
 /// A SenderAccount manages the receipts accounting between the indexer and the sender across
 /// multiple allocations.
 ///
@@ -253,6 +369,7 @@ pub enum SenderAccountMessage {
 /// - Requesting the last RAV from the sender's TAP aggregator for all EOL allocations.
 pub struct SenderAccount;
 
+#[cfg(any(test, feature = "test"))]
 /// Arguments received in startup while spawing [SenderAccount] actor
 pub struct SenderAccountArgs {
     /// Configuration derived from config.toml
@@ -286,6 +403,7 @@ pub struct SenderAccountArgs {
     pub sender_type: SenderType,
 }
 
+#[cfg(any(test, feature = "test"))]
 /// State used by the actor
 ///
 /// This is a separate instance that makes it easier to have mutable
@@ -427,6 +545,7 @@ impl SenderAccountConfig {
     }
 }
 
+#[cfg(any(test, feature = "test"))]
 impl State {
     /// Spawn a sender allocation given the allocation_id
     ///
@@ -760,6 +879,7 @@ impl State {
     }
 }
 
+#[cfg(any(test, feature = "test"))]
 /// Actor implementation for [SenderAccount]
 #[async_trait::async_trait]
 impl Actor for SenderAccount {
@@ -1519,6 +1639,7 @@ impl Actor for SenderAccount {
     }
 }
 
+#[cfg(any(test, feature = "test"))]
 impl SenderAccount {
     /// Deny sender by giving `sender` [Address]
     pub async fn deny_sender(sender_type: SenderType, pool: &PgPool, sender: Address) {
@@ -2244,12 +2365,21 @@ pub mod tests {
         let trigger_rav_request = ESCROW_VALUE * 2;
 
         // initialize with no trigger value and no max receipt deny
-        let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
-            .pgpool(pgpool.clone())
-            .rav_request_trigger_value(trigger_rav_request)
-            .max_amount_willing_to_lose_grt(u128::MAX)
-            .call()
-            .await;
+        let (sender_account, mut msg_receiver, prefix, escrow_accounts_tx) =
+            create_sender_account()
+                .pgpool(pgpool.clone())
+                .rav_request_trigger_value(trigger_rav_request)
+                .max_amount_willing_to_lose_grt(u128::MAX)
+                .call()
+                .await;
+
+        // Set up proper escrow balance for the test
+        escrow_accounts_tx
+            .send(EscrowAccounts::new(
+                HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
+                HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+            ))
+            .unwrap();
 
         let (mock_sender_allocation, next_rav_value) =
             MockSenderAllocation::new_with_next_rav_value(sender_account.clone());
