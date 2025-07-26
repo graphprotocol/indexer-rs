@@ -49,6 +49,8 @@ use crate::{
     task_lifecycle::LifecycleManager, CONFIG, EIP_712_DOMAIN,
 };
 
+/// PostgreSQL event source for stream processing
+pub mod postgres_source;
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_account::SenderAccount]
 pub mod sender_account;
 /// SenderAccount task implementation
@@ -62,9 +64,16 @@ pub mod sender_accounts_manager_task;
 pub mod sender_allocation;
 /// SenderAllocation task implementation
 pub mod sender_allocation_task;
+/// Stream-based TAP processing pipeline
+pub mod stream_processor;
+/// Actor, Arguments, State, Messages and implementation for [crate::agent::tap_agent::TapAgent]
+pub mod tap_agent;
 /// Tests for task lifecycle monitoring and health checks
 #[cfg(test)]
 mod test_lifecycle_monitoring;
+/// Integration tests for SenderAccountsManagerTask
+#[cfg(test)]
+mod test_sender_accounts_manager_integration;
 /// Comprehensive integration tests
 #[cfg(test)]
 mod test_tokio_migration;
@@ -149,6 +158,11 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
     // Note: indexer_allocations watcher is not needed here as SenderAccountsManagerTask
     // creates its own PostgreSQL notification listeners for receipt events
 
+    // TODO: in v2 the escrow subgraph is incorporated into the network subgraph.
+    // This is a temporary workaround to maintain compatibility with existing deployments.
+    // This behavior depends on whether horizon is enabled or not, but also on whether the contracts are active.
+    // If horizon is enabled, we use the network subgraph to monitor escrow accounts.
+    // If horizon is not enabled, we use the escrow subgraph directly.
     let escrow_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
             http_client.clone(),
@@ -248,11 +262,10 @@ pub async fn start_agent() -> (TaskHandle<SenderAccountsManagerMessage>, JoinHan
                 if !system_health.overall_healthy {
                     consecutive_unhealthy_checks += 1;
                     tracing::warn!(
-                        "System unhealthy: {}/{} healthy tasks, {} failed, {} restarting (check {}/{})",
+                        "System unhealthy: {}/{} healthy tasks, {} failed (check {}/{})",
                         system_health.healthy_tasks,
                         system_health.total_tasks,
                         system_health.failed_tasks,
-                        system_health.restarting_tasks,
                         consecutive_unhealthy_checks,
                         MAX_UNHEALTHY_CHECKS
                     );

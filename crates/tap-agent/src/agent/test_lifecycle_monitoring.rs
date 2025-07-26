@@ -8,7 +8,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::task_lifecycle::{LifecycleManager, RestartPolicy, TaskStatus};
+    use crate::task_lifecycle::{LifecycleManager, TaskStatus};
     use anyhow::Result;
     use std::time::Duration;
     use tokio::time::sleep;
@@ -23,7 +23,6 @@ mod tests {
         let _task_handle = lifecycle
             .spawn_task::<(), _, _>(
                 Some("test-health-task".to_string()),
-                RestartPolicy::Never,
                 10,
                 |mut _rx, _ctx| async {
                     // Task that runs for a short time
@@ -70,7 +69,6 @@ mod tests {
         let task_handle = lifecycle
             .spawn_task::<(), _, _>(
                 Some("long-running-task".to_string()),
-                RestartPolicy::Never,
                 10,
                 |mut _rx, _ctx| async {
                     // Task that runs indefinitely
@@ -92,10 +90,9 @@ mod tests {
         let task_health = health_status.values().next().unwrap();
         assert_eq!(task_health.name, Some("long-running-task".to_string()));
         assert_eq!(task_health.status, TaskStatus::Running);
-        assert_eq!(task_health.restart_count, 0);
         assert!(task_health.is_healthy);
         assert!(task_health.uptime > Duration::from_millis(0));
-        assert!(task_health.time_since_last_restart.is_none());
+        // Note: restart_count and time_since_last_restart fields no longer exist
 
         // Test task info retrieval by ID
         let task_info = lifecycle.get_task_info(task_health.task_id).await;
@@ -120,11 +117,6 @@ mod tests {
         let _task_handle = lifecycle
             .spawn_task::<(), _, _>(
                 Some("failing-task".to_string()),
-                RestartPolicy::ExponentialBackoff {
-                    initial: Duration::from_millis(10),
-                    max: Duration::from_millis(100),
-                    multiplier: 2.0,
-                },
                 10,
                 |mut _rx, _ctx| async {
                     // Task that fails immediately
@@ -146,8 +138,8 @@ mod tests {
         assert_eq!(task_health.name, Some("failing-task".to_string()));
 
         info!(
-            "Task status: {:?}, restart count: {}",
-            task_health.status, task_health.restart_count
+            "Task status: {:?}, is_healthy: {}",
+            task_health.status, task_health.is_healthy
         );
 
         info!("✅ Exponential backoff restart test completed successfully");
@@ -164,17 +156,12 @@ mod tests {
 
         for name in &task_names {
             let handle = lifecycle
-                .spawn_task::<(), _, _>(
-                    Some(name.to_string()),
-                    RestartPolicy::Never,
-                    10,
-                    |mut _rx, _ctx| async {
-                        // Long-running task
-                        loop {
-                            sleep(Duration::from_millis(100)).await;
-                        }
-                    },
-                )
+                .spawn_task::<(), _, _>(Some(name.to_string()), 10, |mut _rx, _ctx| async {
+                    // Long-running task
+                    loop {
+                        sleep(Duration::from_millis(100)).await;
+                    }
+                })
                 .await
                 .expect("Failed to spawn task");
             _handles.push(handle);
@@ -216,7 +203,6 @@ mod tests {
         let _healthy_task = lifecycle
             .spawn_task::<(), _, _>(
                 Some("healthy-task".to_string()),
-                RestartPolicy::Never,
                 10,
                 |mut _rx, _ctx| async {
                     // Long-running healthy task
@@ -231,7 +217,6 @@ mod tests {
         let _failing_task = lifecycle
             .spawn_task::<(), _, _>(
                 Some("failing-task".to_string()),
-                RestartPolicy::Never,
                 10,
                 |mut _rx, _ctx| async {
                     // Task that fails quickly

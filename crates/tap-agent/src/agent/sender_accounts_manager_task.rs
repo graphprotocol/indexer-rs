@@ -22,7 +22,7 @@ use thegraph_core::{
 use tokio::sync::mpsc;
 
 use super::{
-    sender_account::SenderAccountConfig,
+    sender_account::{SenderAccountConfig, SenderAccountMessage},
     sender_accounts_manager::{AllocationId, SenderAccountsManagerMessage},
 };
 
@@ -31,7 +31,7 @@ use super::sender_account_task::SenderAccountTask;
 
 #[cfg(not(any(test, feature = "test")))]
 use super::sender_account_task::SenderAccountTask;
-use crate::task_lifecycle::{LifecycleManager, RestartPolicy, TaskHandle, TaskRegistry};
+use crate::task_lifecycle::{LifecycleManager, TaskHandle, TaskRegistry};
 
 /// Tokio task-based replacement for SenderAccountsManager actor
 pub struct SenderAccountsManagerTask;
@@ -94,13 +94,46 @@ impl SenderAccountsManagerTask {
         sender_aggregator_endpoints: HashMap<Address, reqwest::Url>,
         prefix: Option<String>,
     ) -> Result<TaskHandle<SenderAccountsManagerMessage>> {
-        let state = TaskState {
+        lifecycle
+            .spawn_task(
+                name,
+                100, // Buffer size for message channel
+                move |rx, _ctx| {
+                    Self::run_task(
+                        rx,
+                        config,
+                        pgpool.clone(),
+                        escrow_subgraph,
+                        network_subgraph,
+                        domain_separator.clone(),
+                        sender_aggregator_endpoints.clone(),
+                        prefix.clone(),
+                    )
+                },
+            )
+            .await
+    }
+
+    /// Main task loop
+    #[allow(clippy::too_many_arguments)]
+    async fn run_task(
+        mut rx: mpsc::Receiver<SenderAccountsManagerMessage>,
+        config: &'static SenderAccountConfig,
+        pgpool: sqlx::PgPool,
+        escrow_subgraph: &'static SubgraphClient,
+        network_subgraph: &'static SubgraphClient,
+        domain_separator: Eip712Domain,
+        sender_aggregator_endpoints: HashMap<Address, reqwest::Url>,
+        prefix: Option<String>,
+    ) -> Result<()> {
+        // Create the actual task state inside the task
+        let mut state = TaskState {
             sender_accounts_v1: HashSet::new(),
             sender_accounts_v2: HashSet::new(),
             child_registry: TaskRegistry::new(),
-            lifecycle: Arc::new(lifecycle.clone()),
+            lifecycle: Arc::new(LifecycleManager::new()),
             config,
-            pgpool,
+            pgpool: pgpool.clone(),
             escrow_subgraph,
             network_subgraph,
             domain_separator,
@@ -109,22 +142,6 @@ impl SenderAccountsManagerTask {
             notification_watcher_v1_handle: None,
             notification_watcher_v2_handle: None,
         };
-
-        lifecycle
-            .spawn_task(
-                name,
-                RestartPolicy::Never,
-                100, // Buffer size for message channel
-                |rx, _ctx| Self::run_task(state, rx),
-            )
-            .await
-    }
-
-    /// Main task loop
-    async fn run_task(
-        mut state: TaskState,
-        mut rx: mpsc::Receiver<SenderAccountsManagerMessage>,
-    ) -> Result<()> {
         // Start PostgreSQL notification watchers
         if let Err(e) = Self::start_notification_watchers(&mut state).await {
             tracing::error!(
@@ -133,12 +150,36 @@ impl SenderAccountsManagerTask {
             );
         }
 
-        while let Some(message) = rx.recv().await {
-            if let Err(e) = Self::handle_message(&mut state, message).await {
-                tracing::error!(
-                    error = %e,
-                    "Error handling SenderAccountsManager message"
-                );
+        // Create interval for periodic health checks
+        let mut health_check_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        health_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                // Handle incoming messages
+                Some(message) = rx.recv() => {
+                    if let Err(e) = Self::handle_message(&mut state, message).await {
+                        tracing::error!(
+                            error = %e,
+                            "Error handling SenderAccountsManager message"
+                        );
+                    }
+                }
+                // Periodic health check
+                _ = health_check_interval.tick() => {
+                    tracing::debug!("Performing periodic child task health check");
+                    if let Err(e) = Self::monitor_child_tasks(&mut state).await {
+                        tracing::error!(
+                            error = %e,
+                            "Error monitoring child tasks"
+                        );
+                    }
+                }
+                // Channel closed
+                else => {
+                    tracing::info!("SenderAccountsManager channel closed, shutting down");
+                    break;
+                }
             }
         }
 
@@ -148,6 +189,21 @@ impl SenderAccountsManagerTask {
         }
         if let Some(handle) = &state.notification_watcher_v2_handle {
             handle.abort();
+        }
+
+        // Gracefully shut down all child tasks
+        tracing::info!("Shutting down all child tasks");
+        let tasks = state.lifecycle.list_tasks().await;
+        for (_task_id, task_name) in tasks {
+            if let Some(task_name) = task_name {
+                if let Err(e) = Self::shutdown_child_task(&mut state, &task_name).await {
+                    tracing::error!(
+                        task_name = %task_name,
+                        error = %e,
+                        "Failed to shut down child task during manager shutdown"
+                    );
+                }
+            }
         }
 
         Ok(())
@@ -189,14 +245,35 @@ impl SenderAccountsManagerTask {
             }
         }
 
-        // Remove old sender accounts (simplified - just remove from our set)
-        // In a full implementation, we'd properly shut down child tasks
+        // Remove old sender accounts - properly shut down child tasks
         let to_remove: Vec<_> = current_senders.difference(&new_senders).copied().collect();
         for sender in to_remove {
-            tracing::debug!(
-                sender = %sender,
-                "Removing V1 sender account (simplified implementation)"
+            let task_name = format!(
+                "sender_account_v1_{}{}",
+                sender,
+                state
+                    .prefix
+                    .as_ref()
+                    .map(|p| format!("_{p}"))
+                    .unwrap_or_default()
             );
+
+            tracing::info!(
+                sender = %sender,
+                task_name = %task_name,
+                "Removing V1 sender account and shutting down child task"
+            );
+
+            // Shut down the child task gracefully
+            if let Err(e) = Self::shutdown_child_task(state, &task_name).await {
+                tracing::error!(
+                    sender = %sender,
+                    task_name = %task_name,
+                    error = %e,
+                    "Failed to shut down V1 sender account task"
+                );
+            }
+
             state.sender_accounts_v1.remove(&sender);
         }
 
@@ -222,14 +299,35 @@ impl SenderAccountsManagerTask {
             }
         }
 
-        // Remove old sender accounts (simplified - just remove from our set)
-        // In a full implementation, we'd properly shut down child tasks
+        // Remove old sender accounts - properly shut down child tasks
         let to_remove: Vec<_> = current_senders.difference(&new_senders).copied().collect();
         for sender in to_remove {
-            tracing::debug!(
-                sender = %sender,
-                "Removing V2 sender account (simplified implementation)"
+            let task_name = format!(
+                "sender_account_v2_{}{}",
+                sender,
+                state
+                    .prefix
+                    .as_ref()
+                    .map(|p| format!("_{p}"))
+                    .unwrap_or_default()
             );
+
+            tracing::info!(
+                sender = %sender,
+                task_name = %task_name,
+                "Removing V2 sender account and shutting down child task"
+            );
+
+            // Shut down the child task gracefully
+            if let Err(e) = Self::shutdown_child_task(state, &task_name).await {
+                tracing::error!(
+                    sender = %sender,
+                    task_name = %task_name,
+                    error = %e,
+                    "Failed to shut down V2 sender account task"
+                );
+            }
+
             state.sender_accounts_v2.remove(&sender);
         }
 
@@ -657,6 +755,127 @@ impl SenderAccountsManagerTask {
                 sender = %notification.sender,
                 task_name = %task_name,
                 "No sender account task found for V2 notification"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Monitor health of child tasks and respawn failed ones
+    async fn monitor_child_tasks(state: &mut TaskState) -> Result<()> {
+        // Get all registered child tasks
+        let tasks = state.lifecycle.list_tasks().await;
+
+        for (task_id, task_name) in tasks {
+            if let Some(task_name) = task_name {
+                // Extract sender type and address from task name
+                // Format: "sender_account_{type}_{address}"
+                let parts: Vec<&str> = task_name.split('_').collect();
+                if parts.len() >= 4 && parts[0] == "sender" && parts[1] == "account" {
+                    let sender_type = parts[2];
+                    let sender_str = parts[3];
+
+                    // Try to parse the sender address
+                    if let Ok(sender) = sender_str.parse::<Address>() {
+                        // Check if task is still healthy
+                        let task_info = state.lifecycle.get_task_info(task_id).await;
+
+                        match task_info {
+                            Some(info) if !info.is_healthy => {
+                                tracing::warn!(
+                                    task_id = ?task_id,
+                                    task_name = %task_name,
+                                    status = ?info.status,
+                                    "Child task is unhealthy, attempting to respawn"
+                                );
+
+                                // Unregister the dead task
+                                state.child_registry.unregister(&task_name).await;
+
+                                // Respawn based on type
+                                match sender_type {
+                                    "v1" => {
+                                        if state.sender_accounts_v1.contains(&sender) {
+                                            if let Err(e) =
+                                                Self::create_sender_account_v1(state, sender).await
+                                            {
+                                                tracing::error!(
+                                                    sender = %sender,
+                                                    error = %e,
+                                                    "Failed to respawn V1 sender account task"
+                                                );
+                                            }
+                                        }
+                                    }
+                                    "v2" => {
+                                        if state.sender_accounts_v2.contains(&sender) {
+                                            if let Err(e) =
+                                                Self::create_sender_account_v2(state, sender).await
+                                            {
+                                                tracing::error!(
+                                                    sender = %sender,
+                                                    error = %e,
+                                                    "Failed to respawn V2 sender account task"
+                                                );
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        tracing::warn!(
+                                            task_name = %task_name,
+                                            "Unknown sender account type in task name"
+                                        );
+                                    }
+                                }
+                            }
+                            Some(info) => {
+                                tracing::trace!(
+                                    task_name = %task_name,
+                                    status = ?info.status,
+                                    uptime_secs = info.uptime.as_secs(),
+                                    "Child task is healthy"
+                                );
+                            }
+                            None => {
+                                tracing::warn!(
+                                    task_id = ?task_id,
+                                    task_name = %task_name,
+                                    "Child task not found in lifecycle manager, removing from registry"
+                                );
+                                state.child_registry.unregister(&task_name).await;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Properly shut down a child task
+    async fn shutdown_child_task(state: &mut TaskState, task_name: &str) -> Result<()> {
+        // Get the task handle from registry
+        if let Some(mut handle) = state.child_registry.unregister(task_name).await {
+            // Attempt to downcast to the correct type
+            if let Some(task_handle) = handle.downcast_mut::<TaskHandle<SenderAccountMessage>>() {
+                tracing::info!(
+                    task_name = %task_name,
+                    "Shutting down child task gracefully"
+                );
+                task_handle
+                    .stop(Some("Parent requested shutdown".to_string()))
+                    .await;
+            } else {
+                tracing::warn!(
+                    task_name = %task_name,
+                    "Failed to downcast child task handle for graceful shutdown"
+                );
+            }
+        } else {
+            tracing::debug!(
+                task_name = %task_name,
+                "Child task not found in registry"
             );
         }
 

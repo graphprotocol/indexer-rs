@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
     // initialize LazyLock'd config
     _ = &*CONFIG;
 
-    let (manager, handler) = agent::start_agent().await;
+    let (mut manager, handler) = agent::start_agent().await;
     tracing::info!("TAP Agent started.");
 
     tokio::spawn(metrics::run_server(CONFIG.metrics.port));
@@ -44,7 +44,9 @@ async fn main() -> anyhow::Result<()> {
 
     if manager.get_status().await == TaskStatus::Running {
         tracing::info!("Stopping sender accounts manager task...");
-        manager.stop(Some("Shutdown signal received".to_string()));
+        manager
+            .stop(Some("Shutdown signal received".to_string()))
+            .await;
 
         // Give the task a moment to shut down gracefully
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
