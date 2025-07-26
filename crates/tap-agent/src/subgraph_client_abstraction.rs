@@ -6,7 +6,7 @@
 //! This provides a minimal abstraction to enable Layer 2 integration testing
 //! without the complexity of async trait objects.
 
-use crate::agent::sender_accounts_manager::AllocationId;
+use crate::agent::allocation_id::AllocationId;
 use anyhow::Result;
 use indexer_monitor::SubgraphClient;
 use serde_json;
@@ -228,7 +228,7 @@ impl Default for TapSubgraphMock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::sender_accounts_manager::AllocationId;
+    use crate::agent::allocation_id::AllocationId;
     use thegraph_core::alloy::primitives::Address;
 
     #[tokio::test]
