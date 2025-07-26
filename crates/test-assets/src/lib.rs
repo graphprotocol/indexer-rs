@@ -535,6 +535,9 @@ pub async fn setup_shared_test_db() -> TestDatabase {
         .await
         .expect("Failed to start PostgreSQL container");
 
+    // Give PostgreSQL time to fully initialize
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
     let host_port = pg_container
         .get_host_port_ipv4(5432)
         .await
@@ -559,7 +562,10 @@ pub async fn setup_shared_test_db() -> TestDatabase {
         "Attempting to connect to admin database: {}",
         admin_connection_string
     );
-    let admin_pool = sqlx::PgPool::connect(&admin_connection_string)
+    let admin_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5) // Small pool for admin operations
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .connect(&admin_connection_string)
         .await
         .expect("Failed to connect to admin database");
 
@@ -569,12 +575,41 @@ pub async fn setup_shared_test_db() -> TestDatabase {
         .await
         .expect("Failed to create test database");
 
-    // Connect to our test database
+    // Connect to our test database with optimized pool settings for testing
     let connection_string =
         format!("postgres://postgres:postgres@{host}:{host_port}/{unique_db_name}");
-    let pool = sqlx::PgPool::connect(&connection_string)
-        .await
-        .expect("Failed to connect to test database");
+
+    // Configure pool with higher connection limits for parallel test execution
+    // Implement retry logic for test database connections per TDD philosophy
+    let mut retry_count = 0;
+    let max_retries = 3;
+    let pool = loop {
+        match sqlx::postgres::PgPoolOptions::new()
+            .max_connections(20) // Increase from default 10 for parallel tests
+            .min_connections(2) // Keep some connections ready
+            .acquire_timeout(std::time::Duration::from_secs(10)) // Longer timeout for test stability
+            .idle_timeout(Some(std::time::Duration::from_secs(60))) // Prevent idle connection drops
+            .test_before_acquire(true) // Test connections before use
+            .connect(&connection_string)
+            .await
+        {
+            Ok(pool) => break pool,
+            Err(e) => {
+                retry_count += 1;
+                if retry_count >= max_retries {
+                    panic!("Failed to connect to test database after {max_retries} attempts: {e}");
+                }
+                tracing::warn!(
+                    "Database connection attempt {}/{} failed: {}, retrying...",
+                    retry_count,
+                    max_retries,
+                    e
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(500 * retry_count as u64))
+                    .await;
+            }
+        }
+    };
 
     // Run migrations to set up the database schema
     // This matches the production architecture where indexer-agent runs migrations
@@ -616,6 +651,9 @@ pub async fn setup_test_db_with_migrator(migrator: Migrator) -> TestDatabase {
         .await
         .expect("Failed to start PostgreSQL container");
 
+    // Give PostgreSQL time to fully initialize
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
     let host_port = pg_container
         .get_host_port_ipv4(5432)
         .await
@@ -640,7 +678,10 @@ pub async fn setup_test_db_with_migrator(migrator: Migrator) -> TestDatabase {
         "Attempting to connect to admin database: {}",
         admin_connection_string
     );
-    let admin_pool = sqlx::PgPool::connect(&admin_connection_string)
+    let admin_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5) // Small pool for admin operations
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .connect(&admin_connection_string)
         .await
         .expect("Failed to connect to admin database");
 
@@ -650,12 +691,41 @@ pub async fn setup_test_db_with_migrator(migrator: Migrator) -> TestDatabase {
         .await
         .expect("Failed to create test database");
 
-    // Connect to our test database
+    // Connect to our test database with optimized pool settings for testing
     let connection_string =
         format!("postgres://postgres:postgres@{host}:{host_port}/{unique_db_name}");
-    let pool = sqlx::PgPool::connect(&connection_string)
-        .await
-        .expect("Failed to connect to test database");
+
+    // Configure pool with higher connection limits for parallel test execution
+    // Implement retry logic for test database connections per TDD philosophy
+    let mut retry_count = 0;
+    let max_retries = 3;
+    let pool = loop {
+        match sqlx::postgres::PgPoolOptions::new()
+            .max_connections(20) // Increase from default 10 for parallel tests
+            .min_connections(2) // Keep some connections ready
+            .acquire_timeout(std::time::Duration::from_secs(10)) // Longer timeout for test stability
+            .idle_timeout(Some(std::time::Duration::from_secs(60))) // Prevent idle connection drops
+            .test_before_acquire(true) // Test connections before use
+            .connect(&connection_string)
+            .await
+        {
+            Ok(pool) => break pool,
+            Err(e) => {
+                retry_count += 1;
+                if retry_count >= max_retries {
+                    panic!("Failed to connect to test database after {max_retries} attempts: {e}");
+                }
+                tracing::warn!(
+                    "Database connection attempt {}/{} failed: {}, retrying...",
+                    retry_count,
+                    max_retries,
+                    e
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(500 * retry_count as u64))
+                    .await;
+            }
+        }
+    };
 
     // Run migrations using the custom migrator
     migrator

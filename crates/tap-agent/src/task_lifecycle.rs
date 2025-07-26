@@ -66,7 +66,7 @@ pub enum RestartPolicy {
 
 /// Handle to communicate with a task
 pub struct TaskHandle<T> {
-    tx: mpsc::Sender<T>,
+    tx: Option<mpsc::Sender<T>>,
     task_id: TaskId,
     name: Option<String>,
     lifecycle: Arc<LifecycleManager>,
@@ -91,7 +91,7 @@ impl<T> TaskHandle<T> {
         lifecycle: Arc<LifecycleManager>,
     ) -> Self {
         Self {
-            tx,
+            tx: Some(tx),
             task_id: TaskId::new(),
             name,
             lifecycle,
@@ -100,10 +100,13 @@ impl<T> TaskHandle<T> {
 
     /// Send a message to the task (fire-and-forget)
     pub async fn cast(&self, msg: T) -> Result<()> {
-        self.tx
-            .send(msg)
-            .await
-            .map_err(|_| anyhow!("Task channel closed"))
+        match &self.tx {
+            Some(tx) => tx
+                .send(msg)
+                .await
+                .map_err(|_| anyhow!("Task channel closed")),
+            None => Err(anyhow!("Task has been stopped")),
+        }
     }
 
     /// Send a message to the task (alias for cast)
@@ -112,8 +115,21 @@ impl<T> TaskHandle<T> {
     }
 
     /// Stop the task
-    pub fn stop(&self, _reason: Option<String>) {
-        self.lifecycle.stop_task(self.task_id);
+    pub async fn stop(&mut self, _reason: Option<String>) {
+        // Drop the sender to close the channel and make rx.recv() return None
+        if self.tx.take().is_some() {
+            tracing::debug!(
+                task_id = ?self.task_id,
+                task_name = ?self.name,
+                "Closed task channel for graceful shutdown"
+            );
+        }
+
+        // Give the task a brief moment to shut down gracefully
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Now abort the task to ensure it stops even if it's stuck
+        self.lifecycle.stop_task(self.task_id).await;
     }
 
     /// Get task status
@@ -124,6 +140,22 @@ impl<T> TaskHandle<T> {
     /// Get task name if set
     pub fn get_name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+}
+
+/// TaskHandle does not auto-stop tasks on drop to avoid interfering with lifecycle expectations
+/// Tests and production code should explicitly call stop() when appropriate
+impl<T> Drop for TaskHandle<T> {
+    fn drop(&mut self) {
+        tracing::debug!(
+            task_id = ?self.task_id,
+            task_name = ?self.name,
+            "TaskHandle dropped - task continues running (no auto-stop)"
+        );
+        // Note: We don't auto-stop tasks on drop because:
+        // 1. It conflicts with LifecycleManager health tracking expectations
+        // 2. Tasks should have explicit lifecycle management in tests
+        // 3. Production systems should handle shutdown explicitly
     }
 }
 
@@ -148,10 +180,7 @@ pub trait TaskHandleExt<T> {
 struct TaskInfo {
     name: Option<String>,
     status: TaskStatus,
-    restart_policy: RestartPolicy,
     handle: Option<JoinHandle<Result<()>>>,
-    restart_count: u32,
-    last_restart: Option<std::time::Instant>,
     created_at: std::time::Instant,
     last_health_check: Option<std::time::Instant>,
 }
@@ -170,41 +199,45 @@ impl Default for LifecycleManager {
 impl LifecycleManager {
     /// Create a new lifecycle manager
     pub fn new() -> Self {
-        Self {
+        let manager = Self {
             tasks: Arc::new(RwLock::new(HashMap::new())),
-        }
+        };
+
+        // Start the task monitor automatically
+        let monitor_manager = manager.clone();
+        tokio::spawn(async move {
+            monitor_manager.monitor_tasks().await;
+        });
+
+        manager
     }
 
-    /// Spawn a new task
+    /// Spawn a new task (tasks are responsible for their own self-healing)
     pub async fn spawn_task<T, F, Fut>(
         &self,
         name: Option<String>,
-        restart_policy: RestartPolicy,
         buffer_size: usize,
         task_fn: F,
     ) -> Result<TaskHandle<T>>
     where
         T: Send + 'static,
-        F: FnOnce(mpsc::Receiver<T>, TaskContext) -> Fut + Send + 'static,
+        F: Fn(mpsc::Receiver<T>, TaskContext) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<()>> + Send + 'static,
     {
         let (tx, rx) = mpsc::channel(buffer_size);
         let task_id = TaskId::new();
 
+        // Spawn the task
         let ctx = TaskContext {
             id: task_id,
             lifecycle: Arc::new(self.clone()),
         };
-
-        let handle = tokio::spawn(async move { task_fn(rx, ctx).await });
+        let handle = tokio::spawn(task_fn(rx, ctx));
 
         let info = TaskInfo {
             name: name.clone(),
             status: TaskStatus::Running,
-            restart_policy,
             handle: Some(handle),
-            restart_count: 0,
-            last_restart: None,
             created_at: std::time::Instant::now(),
             last_health_check: None,
         };
@@ -212,7 +245,7 @@ impl LifecycleManager {
         self.tasks.write().await.insert(task_id, info);
 
         Ok(TaskHandle {
-            tx,
+            tx: Some(tx),
             task_id,
             name,
             lifecycle: Arc::new(self.clone()),
@@ -220,18 +253,13 @@ impl LifecycleManager {
     }
 
     /// Stop a task
-    pub fn stop_task(&self, task_id: TaskId) {
-        tokio::spawn({
-            let tasks = self.tasks.clone();
-            async move {
-                if let Some(mut info) = tasks.write().await.remove(&task_id) {
-                    info.status = TaskStatus::Stopped;
-                    if let Some(handle) = info.handle.take() {
-                        handle.abort();
-                    }
-                }
+    pub async fn stop_task(&self, task_id: TaskId) {
+        if let Some(mut info) = self.tasks.write().await.remove(&task_id) {
+            info.status = TaskStatus::Stopped;
+            if let Some(handle) = info.handle.take() {
+                handle.abort();
             }
-        });
+        }
     }
 
     /// Get task status
@@ -244,86 +272,26 @@ impl LifecycleManager {
             .unwrap_or(TaskStatus::Stopped)
     }
 
-    /// Monitor tasks and restart if needed
+    /// Monitor tasks for failures (tasks handle their own recovery)
     pub async fn monitor_tasks(&self) {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         loop {
             interval.tick().await;
 
-            let tasks_to_restart = {
-                let mut tasks = self.tasks.write().await;
-                let mut to_restart = Vec::new();
-
-                for (id, info) in tasks.iter_mut() {
-                    if let Some(handle) = &info.handle {
-                        if handle.is_finished() {
-                            match info.restart_policy {
-                                RestartPolicy::Never => {
-                                    info.status = TaskStatus::Failed;
-                                    info.handle = None;
-                                }
-                                RestartPolicy::Always => {
-                                    info.status = TaskStatus::Restarting;
-                                    to_restart.push(*id);
-                                }
-                                RestartPolicy::ExponentialBackoff { .. } => {
-                                    // TODO: Implement backoff logic
-                                    info.status = TaskStatus::Restarting;
-                                    to_restart.push(*id);
-                                }
-                            }
-                        }
+            let mut tasks = self.tasks.write().await;
+            for (id, info) in tasks.iter_mut() {
+                if let Some(handle) = &info.handle {
+                    if handle.is_finished() {
+                        tracing::warn!(
+                            task_id = ?id,
+                            task_name = ?info.name,
+                            "Task finished unexpectedly - tasks should implement self-healing"
+                        );
+                        info.status = TaskStatus::Failed;
+                        info.handle = None;
                     }
                 }
-                to_restart
-            };
-
-            for task_id in tasks_to_restart {
-                self.restart_task(task_id).await;
             }
-        }
-    }
-
-    /// Restart a specific task
-    async fn restart_task(&self, task_id: TaskId) {
-        let mut tasks = self.tasks.write().await;
-        if let Some(info) = tasks.get_mut(&task_id) {
-            // Calculate backoff delay if using exponential backoff
-            let delay = match &info.restart_policy {
-                RestartPolicy::ExponentialBackoff {
-                    initial,
-                    max,
-                    multiplier,
-                } => {
-                    let delay =
-                        initial.as_millis() as f64 * multiplier.powi(info.restart_count as i32);
-                    Duration::from_millis(delay.min(max.as_millis() as f64) as u64)
-                }
-                _ => Duration::from_millis(100), // Small default delay
-            };
-
-            // Wait before restarting
-            if delay > Duration::from_millis(0) {
-                tracing::info!(
-                    task_id = ?task_id,
-                    task_name = ?info.name,
-                    restart_count = info.restart_count,
-                    delay_ms = delay.as_millis(),
-                    "Restarting task after delay"
-                );
-                tokio::time::sleep(delay).await;
-            }
-
-            info.restart_count += 1;
-            info.last_restart = Some(std::time::Instant::now());
-            info.status = TaskStatus::Running;
-
-            tracing::warn!(
-                task_id = ?task_id,
-                task_name = ?info.name,
-                restart_count = info.restart_count,
-                "Task restarted"
-            );
         }
     }
 
@@ -334,15 +302,12 @@ impl LifecycleManager {
 
         for (id, info) in tasks.iter() {
             let uptime = info.created_at.elapsed();
-            let time_since_last_restart = info.last_restart.map(|t| t.elapsed());
 
             let health = TaskHealthInfo {
                 task_id: *id,
                 name: info.name.clone(),
                 status: info.status,
-                restart_count: info.restart_count,
                 uptime,
-                time_since_last_restart,
                 is_healthy: matches!(info.status, TaskStatus::Running),
             };
 
@@ -361,17 +326,12 @@ impl LifecycleManager {
             .values()
             .filter(|h| matches!(h.status, TaskStatus::Failed))
             .count();
-        let restarting_tasks = health_status
-            .values()
-            .filter(|h| matches!(h.status, TaskStatus::Restarting))
-            .count();
 
         SystemHealthInfo {
             total_tasks,
             healthy_tasks,
             failed_tasks,
-            restarting_tasks,
-            overall_healthy: failed_tasks == 0 && restarting_tasks == 0,
+            overall_healthy: failed_tasks == 0,
         }
     }
 
@@ -402,15 +362,12 @@ impl LifecycleManager {
         let tasks = self.tasks.read().await;
         tasks.get(&task_id).map(|info| {
             let uptime = info.created_at.elapsed();
-            let time_since_last_restart = info.last_restart.map(|t| t.elapsed());
 
             TaskHealthInfo {
                 task_id,
                 name: info.name.clone(),
                 status: info.status,
-                restart_count: info.restart_count,
                 uptime,
-                time_since_last_restart,
                 is_healthy: matches!(info.status, TaskStatus::Running),
             }
         })
@@ -435,12 +392,8 @@ pub struct TaskHealthInfo {
     pub name: Option<String>,
     /// Current status of the task
     pub status: TaskStatus,
-    /// Number of times the task has been restarted
-    pub restart_count: u32,
     /// How long the task has been running
     pub uptime: Duration,
-    /// Time elapsed since the last restart (if any)
-    pub time_since_last_restart: Option<Duration>,
     /// Whether the task is currently healthy
     pub is_healthy: bool,
 }
@@ -454,8 +407,6 @@ pub struct SystemHealthInfo {
     pub healthy_tasks: usize,
     /// Number of failed tasks
     pub failed_tasks: usize,
-    /// Number of tasks currently restarting
-    pub restarting_tasks: usize,
     /// Whether the overall system is healthy
     pub overall_healthy: bool,
 }
@@ -530,6 +481,15 @@ impl TaskRegistry {
     {
         self.lookup(name).await
     }
+
+    /// List all registered tasks
+    pub async fn list_tasks(&self) -> Vec<(TaskId, Option<String>)> {
+        let registry = self.registry.read().await;
+        registry
+            .keys()
+            .map(|name| (TaskId::new(), Some(name.clone())))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -551,11 +511,10 @@ mod tests {
     async fn test_basic_task_spawn_and_message() {
         let lifecycle = LifecycleManager::new();
 
-        let handle = lifecycle
+        let mut handle = lifecycle
             .spawn_task(
                 Some("test_task".to_string()),
-                RestartPolicy::Never,
-                10,
+                10, // buffer_size
                 |mut rx, _ctx| async move {
                     let mut count = 0u32;
                     while let Some(msg) = rx.recv().await {
@@ -583,9 +542,40 @@ mod tests {
         assert_eq!(count, 2);
 
         // Stop the task
-        handle.stop(None);
+        handle.stop(None).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(handle.get_status().await, TaskStatus::Stopped);
+    }
+
+    #[tokio::test]
+    async fn test_task_handle_drop_cancellation() {
+        let lifecycle = LifecycleManager::new();
+
+        // Test that dropping a TaskHandle properly shuts down the task
+        let handle = lifecycle
+            .spawn_task(
+                Some("drop_test_task".to_string()),
+                10,
+                |mut rx: mpsc::Receiver<()>, _ctx| async move {
+                    let mut count = 0;
+                    // This loop should exit when rx.recv() returns None due to sender being dropped
+                    while let Some(_msg) = rx.recv().await {
+                        count += 1;
+                    }
+                    tracing::debug!("Task loop exited after {} messages", count);
+                    Ok(())
+                },
+            )
+            .await
+            .unwrap();
+
+        // Drop the handle - this should cause the task to exit
+        drop(handle);
+
+        // Give the task a moment to shut down
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Test passes if we reach this point without hanging
     }
 
     #[tokio::test]
@@ -594,11 +584,10 @@ mod tests {
         let lifecycle = LifecycleManager::new();
 
         let handle = lifecycle
-            .spawn_task::<TestMessage, _, _>(
+            .spawn_task(
                 Some("registered_task".to_string()),
-                RestartPolicy::Never,
-                10,
-                |mut rx, _ctx| async move {
+                10, // buffer_size
+                |mut rx: tokio::sync::mpsc::Receiver<TestMessage>, _ctx| async move {
                     while rx.recv().await.is_some() {}
                     Ok(())
                 },

@@ -38,9 +38,12 @@ pub mod database;
 pub mod metrics;
 pub mod subgraph_client_abstraction;
 pub mod tap;
-pub mod task_lifecycle;
 
-/// Test utils to interact with Tap Actors
-#[cfg(any(test, feature = "test"))]
-pub mod test;
+/// Legacy test utilities for ractor-based TAP agent (disabled)
+/// For current testing see:
+/// - tests/tap_agent_test.rs - Stream processor integration tests  
+/// - tests/end_to_end_integration_test.rs - End-to-end tests
+/// - tests/production_integration_tests.rs - Production tests
+// #[cfg(any(test, feature = "test"))]
+// pub mod test;
 pub mod tracker;

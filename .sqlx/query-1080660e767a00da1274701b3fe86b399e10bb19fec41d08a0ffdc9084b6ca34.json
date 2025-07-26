@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT DISTINCT collection_id \n                FROM tap_horizon_receipts \n                ORDER BY collection_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "collection_id",
+        "type_info": "Bpchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1080660e767a00da1274701b3fe86b399e10bb19fec41d08a0ffdc9084b6ca34"
+}

@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT sender_address, allocation_id, value_aggregate \n            FROM scalar_tap_ravs \n            WHERE allocation_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sender_address",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "allocation_id",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "value_aggregate",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8219177726959d176530f2b5ecff27ff7ff21e9c40b4fb7f228b9ec64ddf55ff"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "NOTIFY test_channel, 'test_message'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a2ade0b676cf84ae5e7cc944c8e89fa295e9687d40e68176727054c2488c4c45"
+}
