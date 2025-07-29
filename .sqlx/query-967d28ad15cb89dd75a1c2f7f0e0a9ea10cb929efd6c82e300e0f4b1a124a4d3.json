@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "NOTIFY scalar_tap_receipt_notification",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "967d28ad15cb89dd75a1c2f7f0e0a9ea10cb929efd6c82e300e0f4b1a124a4d3"
+}
