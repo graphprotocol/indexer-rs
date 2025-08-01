@@ -18,6 +18,14 @@ service GatewayDipsService {
    * and receive payment for the indexing work done.
    */
   rpc CollectPayment(CollectPaymentRequest) returns (CollectPaymentResponse);
+
+  /**
+   * Get the status of a payment receipt by ID.
+   *
+   * This method allows the indexer to poll for the status of a previously
+   * initiated payment collection.
+   */
+  rpc GetReceiptById(GetReceiptByIdRequest) returns (GetReceiptByIdResponse);
 }
 
 
@@ -58,7 +66,9 @@ message CollectPaymentRequest {
 message CollectPaymentResponse {
   uint64 version = 1;
   CollectPaymentStatus status = 2;
-  bytes tap_receipt = 3;
+  string receipt_id = 3;        // Receipt ID for polling
+  string amount = 4;            // Payment amount in GRT
+  string payment_status = 5;    // Initial status: "PENDING"
 }
 
 /**
@@ -70,4 +80,29 @@ enum CollectPaymentStatus {
   ERR_TOO_LATE = 2; /// The payment request was done after max epochs passed
   ERR_AMOUNT_OUT_OF_BOUNDS = 3; /// The payment request is for too large an amount
   ERR_UNKNOWN = 99; /// Something else went terribly wrong
+}
+
+/**
+ * A request to get receipt status by ID.
+ *
+ * See the `GatewayDipsService.GetReceiptById` method.
+ */
+message GetReceiptByIdRequest {
+  uint64 version = 1;
+  string receipt_id = 2;
+}
+
+/**
+ * A response containing the receipt status.
+ *
+ * See the `GatewayDipsService.GetReceiptById` method.
+ */
+message GetReceiptByIdResponse {
+  uint64 version = 1;
+  string receipt_id = 2;
+  string status = 3;            // "PENDING" | "SUBMITTED" | "FAILED"
+  string transaction_hash = 4;  // Present when SUBMITTED
+  string error_message = 5;     // Present when FAILED
+  string amount = 6;
+  string payment_submitted_at = 7;  // ISO timestamp when SUBMITTED
 }
