@@ -45,6 +45,17 @@ jobs:
       #     registry: ghcr.io
       #     username: ${{ github.actor }}
       #     password: ${{ secrets.GITHUB_TOKEN }}
+      # TODO: Improve this later
+      # evaluate if it makes sense to use a git submodule instead
+      - name: Clone local-network dependency for Docker builds
+        run: |
+          cd contrib/
+          if [ ! -d "local-network" ]; then
+            git clone https://github.com/semiotic-ai/local-network.git
+            cd local-network
+            git checkout suchapalaver/test/horizon
+          fi
+
       - name: Build indexer-service image with Docker Compose
         run: docker compose -f contrib/docker-compose.yml build indexer-service
 
