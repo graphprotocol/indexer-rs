@@ -5,11 +5,10 @@ services:
       dockerfile: ./contrib/indexer-service/Dockerfile
     container_name: indexer-service
     volumes:
-      - ./indexer-service:/opt/config:ro # From contrib dir to indexer-service dir
       - ./local-network/tap-contracts.json:/opt/contracts.json:ro
+      - ./local-network/horizon.json:/opt/horizon.json:ro
       - ./local-network/.env:/opt/.env:ro
       - ../migrations:/opt/migrations:ro
-    entrypoint: ["/bin/bash", "-c", "/opt/config/start.sh"]
     environment:
       - RUST_BACKTRACE=1
       - RUST_LOG=debug
@@ -23,6 +22,11 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+    cap_add:
+      - SYS_ADMIN
+    privileged: true
+    security_opt:
+      - seccomp:unconfined
 
   tap-agent:
     build:
@@ -33,16 +37,16 @@ services:
       indexer-service:
         condition: service_healthy
     volumes:
-      - ./tap-agent:/opt/config:ro # From contrib dir to tap-agent dir
+      - ./profiling:/opt/profiling:rw
       - ./local-network/.env:/opt/.env:ro
       - ./local-network/tap-contracts.json:/opt/contracts.json:ro
+      - ./local-network/horizon.json:/opt/horizon.json:ro
       - ../migrations:/opt/migrations:ro
-    entrypoint: ["/bin/bash", "-c", "/opt/config/start.sh"]
     environment:
       - RUST_BACKTRACE=1
       - RUST_LOG=debug
+      - PROFILER=${PROFILER:-none}
     ports:
-      # to expose the metrics port
       - "7300:7300"
     networks:
       - local-network
