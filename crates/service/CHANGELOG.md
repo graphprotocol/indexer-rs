@@ -6,6 +6,13 @@
 
 
 
+## [1.6.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.6.1...indexer-service-rs-v1.6.2) (2025-08-11)
+
+
+### Bug Fixes
+
+* trigger tap agent and service releases ([#809](https://github.com/graphprotocol/indexer-rs/issues/809)) ([2da2bd7](https://github.com/graphprotocol/indexer-rs/commit/2da2bd780c35cc5f71fe5aa509ce8378d296570a))
+
 ## [1.6.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.6.0...indexer-service-rs-v1.6.1) (2025-07-24)
 
 
