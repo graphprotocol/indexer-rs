@@ -37,7 +37,12 @@ where
             time_interval.tick().await;
             let result = function().await;
             match result {
-                Ok(value) => tx.send(value).expect("Failed to update channel"),
+                Ok(value) => {
+                    if tx.send(value).is_err() {
+                        tracing::debug!("Watcher channel closed, stopping watcher task");
+                        break;
+                    }
+                }
                 Err(err) => {
                     // TODO mark it as delayed
                     tracing::warn!(error = %err, "There was an error while updating watcher");
@@ -79,7 +84,10 @@ where
             let current_val_1 = receiver_1.borrow().clone();
             let current_val_2 = receiver_2.borrow().clone();
             let mapped_value = map_function((current_val_1, current_val_2));
-            tx.send(mapped_value).expect("Failed to update channel");
+            if tx.send(mapped_value).is_err() {
+                tracing::debug!("Watcher channel closed, stopping combined watcher task");
+                break;
+            }
         }
     });
     rx
@@ -138,7 +146,10 @@ where
 
             let current_val = receiver.borrow().clone();
             let mapped_value = map_function(current_val);
-            tx.send(mapped_value).expect("Failed to update channel");
+            if tx.send(mapped_value).is_err() {
+                tracing::debug!("Watcher channel closed, stopping mapped watcher task");
+                break;
+            }
         }
     });
     rx
