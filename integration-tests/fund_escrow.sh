@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 # ==============================================================================
 # FUND ESCROW FOR BOTH V1 AND V2 (HORIZON)
@@ -29,20 +28,20 @@ get_contract_address() {
 if [ -f ".env" ]; then
     source .env
 else
-    echo "Error: .env file not found. Please run from local-network directory."
+    echo "Error: .env file not found. Please run from integration-tests directory."
     exit 1
 fi
 
-# Get contract addresses
-GRAPH_TOKEN=$(get_contract_address "horizon.json" "L2GraphToken")
-TAP_ESCROW_V1=$(get_contract_address "tap-contracts.json" "TAPEscrow")
-PAYMENTS_ESCROW_V2=$(get_contract_address "horizon.json" "PaymentsEscrow")
-GRAPH_TALLY_COLLECTOR_V2=$(get_contract_address "horizon.json" "GraphTallyCollector")
+# Get contract addresses - Updated paths to local-network directory
+GRAPH_TOKEN=$(get_contract_address "../contrib/local-network/horizon.json" "L2GraphToken")
+TAP_ESCROW_V1=$(get_contract_address "../contrib/local-network/tap-contracts.json" "TAPEscrow")
+PAYMENTS_ESCROW_V2=$(get_contract_address "../contrib/local-network/horizon.json" "PaymentsEscrow")
+GRAPH_TALLY_COLLECTOR_V2=$(get_contract_address "../contrib/local-network/horizon.json" "GraphTallyCollector")
 
 # Use environment variables from .env
 SENDER_ADDRESS="$ACCOUNT0_ADDRESS"
 SENDER_KEY="$ACCOUNT0_SECRET"
-AMOUNT="10000000000000000000"  # 10 GRT per escrow
+AMOUNT="10000000000000000000" # 10 GRT per escrow
 
 echo "============ FUNDING BOTH V1 AND V2 ESCROWS ============"
 echo "L2GraphToken address: $GRAPH_TOKEN"
@@ -128,8 +127,8 @@ echo "========== FUNDING V2 ESCROW =========="
 # For V2, we need to specify payer, collector, and receiver
 # Payer is the test account, but receiver must be the indexer address
 PAYER=$SENDER_ADDRESS
-COLLECTOR=$SENDER_ADDRESS  
-RECEIVER="0xf4EF6650E48d099a4972ea5B414daB86e1998Bd3"  # This must be the indexer address
+COLLECTOR=$SENDER_ADDRESS
+RECEIVER="0xf4EF6650E48d099a4972ea5B414daB86e1998Bd3" # This must be the indexer address
 
 # Check current V2 escrow balance before funding
 echo "Checking current V2 escrow balance..."
@@ -152,21 +151,21 @@ docker exec chain cast send \
 # For V2, we also need to authorize the signer
 echo "Authorizing signer for V2..."
 # Create authorization proof: payer authorizes signer (same address in test)
-PROOF_DEADLINE=$(($(date +%s) + 3600))  # 1 hour from now
+PROOF_DEADLINE=$(($(date +%s) + 3600)) # 1 hour from now
 echo "Creating authorization proof with deadline: $PROOF_DEADLINE"
 
-# Create the message to sign according to _verifyAuthorizationProof  
+# Create the message to sign according to _verifyAuthorizationProof
 # abi.encodePacked(chainId, contractAddress, "authorizeSignerProof", deadline, authorizer)
-CHAIN_ID_HEX=$(printf "%064x" 1337)                           # uint256: 32 bytes
-CONTRACT_HEX=${GRAPH_TALLY_COLLECTOR_V2:2}                    # address: 20 bytes (remove 0x)
-DOMAIN_HEX=$(echo -n "authorizeSignerProof" | xxd -p)         # string: no length prefix
-DEADLINE_HEX=$(printf "%064x" $PROOF_DEADLINE)                # uint256: 32 bytes  
-AUTHORIZER_HEX=${SENDER_ADDRESS:2}                            # address: 20 bytes (remove 0x)
+CHAIN_ID_HEX=$(printf "%064x" 1337)                   # uint256: 32 bytes
+CONTRACT_HEX=${GRAPH_TALLY_COLLECTOR_V2:2}            # address: 20 bytes (remove 0x)
+DOMAIN_HEX=$(echo -n "authorizeSignerProof" | xxd -p) # string: no length prefix
+DEADLINE_HEX=$(printf "%064x" $PROOF_DEADLINE)        # uint256: 32 bytes
+AUTHORIZER_HEX=${SENDER_ADDRESS:2}                    # address: 20 bytes (remove 0x)
 
 MESSAGE_DATA="${CHAIN_ID_HEX}${CONTRACT_HEX}${DOMAIN_HEX}${DEADLINE_HEX}${AUTHORIZER_HEX}"
 MESSAGE_HASH=$(docker exec chain cast keccak "0x$MESSAGE_DATA")
 
-# Sign the message with the signer's private key  
+# Sign the message with the signer's private key
 PROOF=$(docker exec chain cast wallet sign --private-key $SENDER_KEY "$MESSAGE_HASH")
 
 echo "Calling authorizeSigner with proof..."
@@ -203,7 +202,7 @@ ESCROW_BALANCE_V2="(check via subgraph)"
 # Since we can't easily check balance via contract call, we'll verify via transaction success
 echo "✅ V2 escrow deposit transaction completed!"
 echo "   Payer: $PAYER"
-echo "   Collector: $COLLECTOR"  
+echo "   Collector: $COLLECTOR"
 echo "   Receiver: $RECEIVER"
 echo "   Amount: $AMOUNT"
 echo ""
@@ -211,3 +210,4 @@ echo "Note: V2 escrow balance can be verified via the TAP V2 subgraph"
 
 echo ""
 echo "✅ Successfully funded both V1 and V2 escrows!"
+

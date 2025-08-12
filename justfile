@@ -53,21 +53,50 @@ setup-integration-env:
 setup:
     ./setup-test-network.sh
 
-# Rebuild binaries and restart services after code changes
-# Assumes local network is already running (run 'just setup' if not)
-reload: setup-integration-env
-    ./dev-reload.sh
-
-# Watch log output from services
-# Assumes local network is already running (run 'just setup' if not)
-logs:
-    @cd contrib && docker compose -f docker-compose.dev.yml logs -f
-
 # Stop all services
 down:
-    @cd contrib && docker compose -f docker-compose.dev.yml down
-    @cd contrib/local-network && docker compose down
+    cd contrib && docker compose -f docker-compose.yml down --remove-orphans
+    cd contrib && docker compose -f docker-compose.dev.yml down --remove-orphans
+    cd contrib/local-network && docker compose down --remove-orphans
     docker rm -f indexer-service tap-agent gateway block-oracle indexer-agent graph-node redpanda tap-aggregator tap-escrow-manager 2>/dev/null || true
+    docker network prune -f
+
+
+# Check status of all project services
+services-status:
+    @echo "🔍 Checking project services status..."
+    @echo ""
+    @echo "=== Project Containers ==="
+    @docker ps --format 'table {{{{.Names}}}}\t{{{{.Status}}}}\t{{{{.Ports}}}}' | grep -E "(indexer-service|tap-agent|gateway|graph-node|chain|block-oracle|indexer-agent|redpanda|tap-aggregator|tap-escrow-manager)" || echo "No project containers running"
+    @echo ""
+    @echo "=== Docker Compose Services ==="
+    @cd contrib && docker compose -f docker-compose.yml ps 2>/dev/null || echo "Production compose not running"
+    @cd contrib && docker compose -f docker-compose.dev.yml ps 2>/dev/null || echo "Dev compose not running"
+    @cd contrib/local-network && docker compose ps 2>/dev/null || echo "Local network compose not running"
+    @echo ""
+    @echo "=== Active Networks ==="
+    @docker network ls | grep -E "(contrib|local-network)" || echo "No project networks found"
+
+# Restart production services (uses Docker-built binaries)
+# Assumes local network is already running (run 'just setup' if not)
+reload: setup-integration-env
+    ./reload.sh
+
+# Rebuild binaries and restart development services (compiles and mounts host binaries)
+# Assumes local network is already running (run 'just setup' if not)
+reload-dev: setup-integration-env
+    ./dev-reload.sh
+
+# Watch log output from services (production mode)
+# Assumes local network is already running (run 'just setup' if not)
+logs:
+    @cd contrib && docker compose -f docker-compose.yml logs -f
+
+# Watch log output from services (development mode)
+# Assumes local network is already running (run 'just setup' if not)
+logs-dev:
+    @cd contrib && docker compose -f docker-compose.dev.yml logs -f
+
 
 # Profiling commands
 # -----------------------------
@@ -75,42 +104,44 @@ down:
 # Assumes local network is already running (run 'just setup' if not)
 profile-flamegraph: setup-integration-env
     @mkdir -p contrib/profiling/output
-    ./prof-reload.sh flamegraph
+    ./dev-reload.sh flamegraph
 
 # Profile indexer-service with valgrind
 # Assumes local network is already running (run 'just setup' if not)
 profile-valgrind: setup-integration-env
     @mkdir -p contrib/profiling/output
-    ./prof-reload.sh valgrind
+    ./dev-reload.sh valgrind
 
 # Profile indexer-service with strace
 # Assumes local network is already running (run 'just setup' if not)
 profile-strace: setup-integration-env
     @mkdir -p contrib/profiling/output
-    ./prof-reload.sh strace
+    ./dev-reload.sh strace
 
 # Profile indexer-service with callgrind
 # Assumes local network is already running (run 'just setup' if not)  
 profile-callgrind: setup-integration-env
     @mkdir -p contrib/profiling/output
-    ./prof-reload.sh callgrind
+    ./dev-reload.sh callgrind
 
 # Stop the running indexer-service (useful after profiling)
 # This sends SIGTERM, allowing the trap in start-perf.sh to handle cleanup (e.g., generate flamegraph)
 stop-profiling:
     @echo "🛑 Stopping the indexer-service container (allowing profiling data generation)..."
-    cd contrib && docker compose -f docker-compose.prof.yml stop indexer-service tap-agent
+    cd contrib && docker compose -f docker-compose.dev.yml stop indexer-service tap-agent
     @echo "✅ Service stop signal sent. Check profiling output directory."
 
 # Restore normal service (without profiling)
 profile-restore:
     @echo "🔄 Restoring normal service..."
-    cd contrib && docker compose -f docker-compose.prof.yml up -d --force-recreate indexer-service tap-agent
+    cd contrib && docker compose -f docker-compose.dev.yml up -d --force-recreate indexer-service tap-agent
     @echo "✅ Normal service restored"
 
 # Integration test commands (assume local network is already running)
 # For fresh setup, run 'just setup' first to deploy all infrastructure
 # -----------------------------------------------------------------------------
+fund-escrow: setup-integration-env
+    @cd integration-tests && ./fund_escrow.sh
 
 # Test RAV v1 receipts (legacy TAP) 
 # Assumes local network is running - run 'just setup' if services are not available
@@ -123,8 +154,7 @@ test-local: setup-integration-env
 # Assumes local network is running - run 'just setup' if services are not available  
 test-local-v2: setup-integration-env
     @echo "Running RAV v2 integration tests (assumes local network is running)..."
-    @cd integration-tests && ./fund_escrow.sh
-    @cd integration-tests && cargo run -- rav2
+    @cd integration-tests && bash -x ./fund_escrow.sh && cargo run -- rav2
 
 # Load test with v2 receipts
 # Assumes local network is running - run 'just setup' if services are not available
@@ -132,3 +162,5 @@ load-test-v2 num_receipts="1000": setup-integration-env
     @echo "Running load test with {{num_receipts}} receipts (assumes local network is running)..."
     @cd integration-tests && ./fund_escrow.sh
     @cd integration-tests && cargo run -- load-v2 --num-receipts {{num_receipts}}
+
+

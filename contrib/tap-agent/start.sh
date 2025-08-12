@@ -3,60 +3,39 @@ set -eu
 
 # Source environment variables from .env file
 if [ -f /opt/.env ]; then
-    echo "Sourcing environment variables from .env file"
+    stdbuf -oL echo "Sourcing environment variables from .env file"
     . /opt/.env
 fi
 
-# Extract TAPVerifier address from contracts.json
-VERIFIER_ADDRESS=$(jq -r '."1337".TAPVerifier.address' /opt/contracts.json)
+cat /opt/.env
+
+# Extract GraphTallyCollector address from horizon.json
+stdbuf -oL echo "🔍 DEBUG: Extracting GraphTallyCollector address from horizon.json..."
+GRAPH_TALLY_VERIFIER=$(jq -r '."1337".GraphTallyCollector.address' /opt/horizon.json)
+stdbuf -oL echo "🔍 DEBUG: GraphTallyCollector address: $GRAPH_TALLY_VERIFIER"
+
+# Override with test values taken from test-assets/src/lib.rs
 ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
 
-# Wait for postgres to be ready with timeout
-echo "Waiting for postgres to be ready..."
-MAX_ATTEMPTS=30
-ATTEMPT=0
-until pg_isready -h postgres -U postgres -d indexer_components_1 || [ $ATTEMPT -eq $MAX_ATTEMPTS ]; do
-    echo "Waiting for postgres... Attempt $((ATTEMPT + 1))/$MAX_ATTEMPTS"
-    ATTEMPT=$((ATTEMPT + 1))
+# Wait for postgres to be ready
+stdbuf -oL echo "🔍 DEBUG: Waiting for postgres to be ready..."
+until pg_isready -h postgres -U postgres -d indexer_components_1; do
+    stdbuf -oL echo "Waiting for postgres..."
     sleep 2
 done
 
-if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
-    echo "ERROR: Failed to connect to postgres after $MAX_ATTEMPTS attempts"
-    exit 1
-fi
-
-echo "Postgres is ready!"
-
-# Wait for indexer-service to be ready with timeout
-echo "Waiting for indexer-service to be ready..."
-MAX_ATTEMPTS=30
-ATTEMPT=0
-until curl -s http://indexer-service:7601/ >/dev/null 2>&1 || [ $ATTEMPT -eq $MAX_ATTEMPTS ]; do
-    echo "Waiting for indexer-service... Attempt $((ATTEMPT + 1))/$MAX_ATTEMPTS"
-    ATTEMPT=$((ATTEMPT + 1))
-    sleep 2
-done
-
-if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
-    echo "ERROR: Failed to connect to indexer-service after $MAX_ATTEMPTS attempts"
-    exit 1
-fi
-
-echo "Indexer-service is ready!"
-
-echo "Checking if required services are available..."
+stdbuf -oL echo "Checking if required services are available..."
 for service in postgres graph-node tap-aggregator; do
     if getent hosts $service >/dev/null 2>&1; then
         IP=$(getent hosts $service | awk '{ print $1 }')
-        echo "✅ $service resolves to $IP"
+        stdbuf -oL echo "✅ $service resolves to $IP"
     else
-        echo "❌ Cannot resolve $service hostname"
+        stdbuf -oL echo "❌ Cannot resolve $service hostname"
     fi
 done
 
 # Get network subgraph deployment ID with retries
-echo "Getting network subgraph deployment ID..."
+stdbuf -oL echo "🔍 DEBUG: Getting network subgraph deployment ID..."
 MAX_ATTEMPTS=30
 ATTEMPT=0
 NETWORK_DEPLOYMENT=""
@@ -78,10 +57,10 @@ if [ -z "$NETWORK_DEPLOYMENT" ] || [ "$NETWORK_DEPLOYMENT" = "null" ]; then
     exit 1
 fi
 
-echo "Network subgraph deployment ID: $NETWORK_DEPLOYMENT"
+stdbuf -oL echo "🔍 DEBUG: Network subgraph deployment ID: $NETWORK_DEPLOYMENT"
 
 # Get escrow subgraph deployment ID with retries
-echo "Getting escrow subgraph deployment ID..."
+stdbuf -oL echo "🔍 DEBUG: Getting escrow subgraph deployment ID..."
 MAX_ATTEMPTS=30
 ATTEMPT=0
 ESCROW_DEPLOYMENT=""
@@ -99,34 +78,146 @@ while [ -z "$ESCROW_DEPLOYMENT" ] || [ "$ESCROW_DEPLOYMENT" = "null" ] && [ $ATT
 done
 
 if [ -z "$ESCROW_DEPLOYMENT" ] || [ "$ESCROW_DEPLOYMENT" = "null" ]; then
-    echo "ERROR: Failed to get escrow subgraph deployment ID after $MAX_ATTEMPTS attempts"
+    stdbuf -oL echo "ERROR: Failed to get escrow subgraph deployment ID after $MAX_ATTEMPTS attempts"
     exit 1
 fi
 
-echo "Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
+stdbuf -oL echo "🔍 DEBUG: Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
 
+stdbuf -oL echo "🔍 DEBUG: Using GraphTallyCollector address: $GRAPH_TALLY_VERIFIER"
+stdbuf -oL echo "🔍 DEBUG: Using Indexer address: $RECEIVER_ADDRESS"
+stdbuf -oL echo "🔍 DEBUG: Using Account0 address: $ACCOUNT0_ADDRESS"
 
-# Copy the config template
-cp /opt/config/config.toml /opt/config.toml
+# Create endpoints.yaml file (matching the updated run.sh pattern)
+cd /opt
+cat >endpoints.yaml <<-EOF
+${ACCOUNT0_ADDRESS}: "http://tap-aggregator:${TAP_AGGREGATOR}"
+EOF
 
-# Replace the placeholders with actual values
-sed -i "s/NETWORK_DEPLOYMENT_PLACEHOLDER/$NETWORK_DEPLOYMENT/g" /opt/config.toml
-sed -i "s/ESCROW_DEPLOYMENT_PLACEHOLDER/$ESCROW_DEPLOYMENT/g" /opt/config.toml
-sed -i "s/VERIFIER_ADDRESS_PLACEHOLDER/$VERIFIER_ADDRESS/g" /opt/config.toml
-sed -i "s/INDEXER_ADDRESS_PLACEHOLDER/$RECEIVER_ADDRESS/g" /opt/config.toml
-sed -i "s/INDEXER_MNEMONIC_PLACEHOLDER/$INDEXER_MNEMONIC/g" /opt/config.toml
-sed -i "s/ACCOUNT0_ADDRESS_PLACEHOLDER/$ACCOUNT0_ADDRESS/g" /opt/config.toml
-sed -i "s/TAP_AGGREGATOR_PORT_PLACEHOLDER/$TAP_AGGREGATOR/g" /opt/config.toml
-sed -i "s/POSTGRES_PORT_PLACEHOLDER/$POSTGRES/g" /opt/config.toml
-sed -i "s/GRAPH_NODE_GRAPHQL_PORT_PLACEHOLDER/$GRAPH_NODE_GRAPHQL/g" /opt/config.toml
-sed -i "s/GRAPH_NODE_STATUS_PORT_PLACEHOLDER/$GRAPH_NODE_STATUS/g" /opt/config.toml
-sed -i "s/INDEXER_SERVICE_PORT_PLACEHOLDER/$INDEXER_SERVICE/g" /opt/config.toml
+# Create config file inline (matching the updated run.sh pattern)
+cat >config.toml <<-EOF
+[indexer]
+indexer_address = "${RECEIVER_ADDRESS}"
+operator_mnemonic = "${INDEXER_MNEMONIC}"
 
-echo "Starting tap-agent with config:"
-cat /opt/config.toml
+[database]
+postgres_url = "postgresql://postgres@postgres:${POSTGRES}/indexer_components_1"
+
+[graph_node]
+query_url = "http://graph-node:${GRAPH_NODE_GRAPHQL}"
+status_url = "http://graph-node:${GRAPH_NODE_STATUS}/graphql"
+
+[subgraphs.network]
+query_url = "http://graph-node:${GRAPH_NODE_GRAPHQL}/subgraphs/name/graph-network"$(if [ -n "$NETWORK_DEPLOYMENT" ] && [ "$NETWORK_DEPLOYMENT" != "null" ]; then echo "
+deployment_id = \"$NETWORK_DEPLOYMENT\""; fi)
+recently_closed_allocation_buffer_secs = 60
+syncing_interval_secs = 30
+
+[subgraphs.escrow]
+query_url = "http://graph-node:${GRAPH_NODE_GRAPHQL}/subgraphs/name/semiotic/tap"$(if [ -n "$ESCROW_DEPLOYMENT" ] && [ "$ESCROW_DEPLOYMENT" != "null" ]; then echo "
+deployment_id = \"$ESCROW_DEPLOYMENT\""; fi)
+syncing_interval_secs = 30
+
+[blockchain]
+chain_id = 1337
+receipts_verifier_address = "${GRAPH_TALLY_VERIFIER}"
+
+[service]
+host_and_port = "0.0.0.0:${INDEXER_SERVICE}"
+url_prefix = "/"
+serve_network_subgraph = false
+serve_escrow_subgraph = false
+
+[tap]
+max_amount_willing_to_lose_grt = 1000
+
+[tap.rav_request]
+timestamp_buffer_secs = 1000
+
+[tap.sender_aggregator_endpoints]
+${ACCOUNT0_ADDRESS} = "http://tap-aggregator:${TAP_AGGREGATOR}"
+
+[horizon]
+# Enable Horizon migration support and detection
+# When enabled: Check if Horizon contracts are active in the network
+#   - If Horizon contracts detected: Hybrid migration mode (new V2 receipts only, process existing V1 receipts)
+#   - If Horizon contracts not detected: Remain in legacy mode (V1 receipts only)
+# When disabled: Pure legacy mode, no Horizon detection performed
+enabled = true
+EOF
+
+stdbuf -oL echo "Starting tap-agent with config:"
+cat config.toml
+
+# Set profiling tool based on environment variable
+# Default is no profiling
+PROFILER="${PROFILER:-none}"
+stdbuf -oL echo "🔍 DEBUG: Profiling with: $PROFILER"
 
 # Run agent with enhanced logging
-echo "Starting tap-agent..."
+stdbuf -oL echo "🔍 DEBUG: Starting tap-agent..."
 export RUST_BACKTRACE=full
-export RUST_LOG=debug
-exec /usr/local/bin/indexer-tap-agent --config /opt/config.toml
+export RUST_LOG="${RUST_LOG:-debug}"
+
+# Create output directory if it doesn't exist
+mkdir -p /opt/profiling/tap-agent
+chmod 777 /opt/profiling
+chmod 777 /opt/profiling/tap-agent
+
+stdbuf -oL echo "📁 DEBUG: Profiling output directory: $(ls -la /opt/profiling)"
+
+case "$PROFILER" in
+flamegraph)
+    stdbuf -oL echo "🔥 Starting with profiler..."
+    stdbuf -oL echo "🚀 Starting service..."
+    exec /usr/local/bin/indexer-tap-agent --config /opt/config.toml
+    ;;
+strace)
+    stdbuf -oL echo "🔍 Starting with strace..."
+    # -f: follow child processes
+    # -tt: print timestamps with microsecond precision
+    # -T: show time spent in each syscall
+    # -e trace=all: trace all system calls
+    # -s 256: show up to 256 characters per string
+    # -o: output file
+    exec strace -f -tt -T -e trace=all -s 256 -o /opt/profiling/tap-agent/strace.log /usr/local/bin/indexer-tap-agent --config /opt/config.toml
+    ;;
+valgrind)
+    stdbuf -oL echo "🔍 Starting with Valgrind profiling..."
+    # Start with Massif memory profiler
+    stdbuf -oL echo "🔄 Starting Valgrind Massif memory profiling..."
+    exec valgrind --tool=massif \
+        --massif-out-file=/opt/profiling/tap-agent/massif.out \
+        --time-unit=B \
+        --detailed-freq=10 \
+        --max-snapshots=100 \
+        --threshold=0.5 \
+        /usr/local/bin/indexer-tap-agent --config /opt/config.toml
+    ;;
+# Use callgrind_annotate tap-agent.callgrind.out
+# or KcacheGrind viewer
+# for human friendly report
+# Ideally you should set:
+# [profile.release.package."*"]
+# debug = true
+# force-frame-pointers = true
+# in the Cargo.toml
+callgrind)
+    stdbuf -oL echo "🔍 Starting with Callgrind CPU profiling..."
+    exec valgrind --tool=callgrind \
+        --callgrind-out-file=/opt/profiling/tap-agent/callgrind.out \
+        --cache-sim=yes \
+        --branch-sim=yes \
+        --collect-jumps=yes \
+        --collect-systime=yes \
+        --collect-bus=yes \
+        --dump-instr=yes \
+        --dump-line=yes \
+        --compress-strings=no \
+        /usr/local/bin/indexer-tap-agent --config /opt/config.toml
+    ;;
+none)
+    stdbuf -oL echo "🔍 Starting without profiling..."
+    exec /usr/local/bin/indexer-tap-agent --config /opt/config.toml
+    ;;
+esac

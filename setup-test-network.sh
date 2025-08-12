@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+# set -e
 
 # ==============================================================================
 # SETUP LOCAL GRAPH NETWORK FOR TESTING (HORIZON VERSION)
@@ -15,12 +15,39 @@ set -e
 #
 # - The script checks for existing services and skips those already running
 # ==============================================================================
-#
+
+get_docker_sizes() {
+    local df_output=$(docker system df 2>/dev/null)
+
+    # Extract sizes using awk (more reliable)
+    local images_size=$(echo "$df_output" | awk '/Images/ {print $4}' | head -1)
+    local containers_size=$(echo "$df_output" | awk '/Containers/ {print $4}' | head -1)
+    local volumes_size=$(echo "$df_output" | awk '/Local Volumes/ {print $5}' | head -1)
+
+    # If awk fails, try alternative method
+    if [ -z "$images_size" ] || [ -z "$containers_size" ] || [ -z "$volumes_size" ]; then
+        # Method 2: Use docker system df --format table and parse
+        images_size=$(docker system df --format "table {{.Type}}\t{{.TotalCount}}\t{{.Size}}" 2>/dev/null | grep "Images" | awk '{print $4}' || echo "N/A")
+        containers_size=$(docker system df --format "table {{.Type}}\t{{.TotalCount}}\t{{.Size}}" 2>/dev/null | grep "Containers" | awk '{print $4}' || echo "N/A")
+        volumes_size=$(docker system df --format "table {{.Type}}\t{{.TotalCount}}\t{{.Size}}" 2>/dev/null | grep "Local Volumes" | awk '{print $5}' || echo "N/A")
+    fi
+
+    # Set defaults if still empty
+    images_size=${images_size:-"N/A"}
+    containers_size=${containers_size:-"N/A"}
+    volumes_size=${volumes_size:-"N/A"}
+
+    echo "$images_size $containers_size $volumes_size"
+}
+
+# Track build times
+SCRIPT_START_TIME=$(date +%s)
 # Save the starting disk usage
 START_SPACE=$(df -h --output=used /var/lib/docker | tail -1)
-START_IMAGES_SIZE=$(docker system df --format '{{.ImagesSize}}' 2>/dev/null || echo "N/A")
-START_CONTAINERS_SIZE=$(docker system df --format '{{.ContainersSize}}' 2>/dev/null || echo "N/A")
-START_VOLUMES_SIZE=$(docker system df --format '{{.VolumesSize}}' 2>/dev/null || echo "N/A")
+START_SIZES=($(get_docker_sizes))
+START_IMAGES_SIZE=${START_SIZES[0]}
+START_CONTAINERS_SIZE=${START_SIZES[1]}
+START_VOLUMES_SIZE=${START_SIZES[2]}
 
 echo "============ STARTING DISK USAGE ============"
 echo "Docker directory usage: $START_SPACE"
@@ -107,8 +134,6 @@ if container_running "indexer-service" && container_running "tap-agent" && conta
 fi
 
 cd contrib/
-ls
-pwd
 
 # Clone local-network repo if it doesn't exist
 if [ ! -d "local-network" ]; then
@@ -239,15 +264,10 @@ echo "Running gateway container..."
 docker run -d --name gateway \
     --network local-network_default \
     -p 7700:7700 \
-    -v "$(pwd)/local-network/tap-contracts.json":/opt/tap-contracts.json:ro \
+    -v "$(pwd)/local-network/horizon.json":/opt/horizon.json:ro \
     -v "$(pwd)/local-network/subgraph-service.json":/opt/subgraph-service.json:ro \
+    -v "$(pwd)/local-network/.env":/opt/.env:ro \
     -e RUST_LOG=info,graph_gateway=trace \
-    -e ACCOUNT0_SECRET="$ACCOUNT0_SECRET" \
-    -e ACCOUNT0_ADDRESS="$ACCOUNT0_ADDRESS" \
-    -e GATEWAY_API_KEY="$GATEWAY_API_KEY" \
-    -e GRAPH_NODE_GRAPHQL="$GRAPH_NODE_GRAPHQL" \
-    -e REDPANDA_KAFKA="$REDPANDA_KAFKA" \
-    -e INDEXER_SERVICE="$INDEXER_SERVICE" \
     --restart on-failure:3 \
     local-gateway:latest
 
@@ -268,15 +288,21 @@ done
 # Ensure gateway is ready before testing
 timeout 100 bash -c 'until curl -f http://localhost:7700/ > /dev/null 2>&1; do echo "Waiting for gateway service..."; sleep 5; done'
 
-# After all services are running, measure the disk space used
+# Calculate timing and final reports
+SCRIPT_END_TIME=$(date +%s)
+TOTAL_DURATION=$((SCRIPT_END_TIME - SCRIPT_START_TIME))
+MINUTES=$((TOTAL_DURATION / 60))
+SECONDS=$((TOTAL_DURATION % 60))
+
 END_SPACE=$(df -h --output=used /var/lib/docker | tail -1)
-END_IMAGES_SIZE=$(docker system df --format '{{.ImagesSize}}' 2>/dev/null || echo "N/A")
-END_CONTAINERS_SIZE=$(docker system df --format '{{.ContainersSize}}' 2>/dev/null || echo "N/A")
-END_VOLUMES_SIZE=$(docker system df --format '{{.VolumesSize}}' 2>/dev/null || echo "N/A")
+END_SIZES=($(get_docker_sizes))
+END_IMAGES_SIZE=${END_SIZES[0]}
+END_CONTAINERS_SIZE=${END_SIZES[1]}
+END_VOLUMES_SIZE=${END_SIZES[2]}
 
-echo "All services are now running!"
-echo "You can enjoy your new local network setup for testing with horizon upgrade."
-
+echo "============ SETUP COMPLETED ============"
+echo "Total setup time: ${MINUTES}m ${SECONDS}s"
+echo ""
 echo "============ FINAL DISK USAGE ============"
 echo "Docker directory usage: $END_SPACE"
 echo "Images size: $END_IMAGES_SIZE"
