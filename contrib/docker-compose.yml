@@ -22,11 +22,6 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
-    cap_add:
-      - SYS_ADMIN
-    privileged: true
-    security_opt:
-      - seccomp:unconfined
 
   tap-agent:
     build:
@@ -37,7 +32,6 @@ services:
       indexer-service:
         condition: service_healthy
     volumes:
-      - ./profiling:/opt/profiling:rw
       - ./local-network/.env:/opt/.env:ro
       - ./local-network/tap-contracts.json:/opt/contracts.json:ro
       - ./local-network/horizon.json:/opt/horizon.json:ro
