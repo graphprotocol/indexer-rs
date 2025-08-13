@@ -69,7 +69,7 @@ receipts_verifier_address = "${GRAPH_TALLY_VERIFIER}"
 
 [service]
 free_query_auth_token = "freestuff"
-host_and_port = "0.0.0.0:7600"
+host_and_port = "0.0.0.0:7601"
 url_prefix = "/"
 serve_network_subgraph = false
 serve_escrow_subgraph = false

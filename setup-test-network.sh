@@ -260,11 +260,26 @@ source local-network/.env
 docker build -t local-gateway:latest ./local-network/gateway
 
 echo "Running gateway container..."
-# Updated to use the horizon file structure
+# Verify required files exist before starting gateway
+if [ ! -f "local-network/horizon.json" ]; then
+    echo "ERROR: local-network/horizon.json not found!"
+    exit 1
+fi
+if [ ! -f "local-network/tap-contracts.json" ]; then
+    echo "ERROR: local-network/tap-contracts.json not found!"
+    exit 1
+fi
+if [ ! -f "local-network/subgraph-service.json" ]; then
+    echo "ERROR: local-network/subgraph-service.json not found!"
+    exit 1
+fi
+
+# Updated to use the horizon file structure and include tap-contracts.json
 docker run -d --name gateway \
     --network local-network_default \
     -p 7700:7700 \
     -v "$(pwd)/local-network/horizon.json":/opt/horizon.json:ro \
+    -v "$(pwd)/local-network/tap-contracts.json":/opt/tap-contracts.json:ro \
     -v "$(pwd)/local-network/subgraph-service.json":/opt/subgraph-service.json:ro \
     -v "$(pwd)/local-network/.env":/opt/.env:ro \
     -e RUST_LOG=info,graph_gateway=trace \

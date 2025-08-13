@@ -17,6 +17,9 @@ pub const TAP_AGENT_METRICS_URL: &str = "http://localhost:7300/metrics";
 // and the signing key account0_secret
 // they must match otherwise receipts would be rejected
 pub const TAP_VERIFIER_CONTRACT: &str = "0xC9a43158891282A2B1475592D5719c001986Aaec";
+
+// V2 GraphTallyCollector contract address (for Horizon receipts)
+pub const GRAPH_TALLY_COLLECTOR_CONTRACT: &str = "0xB0D4afd8879eD9F52b28595d31B441D079B2Ca07";
 pub const ACCOUNT0_SECRET: &str =
     "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 pub const CHAIN_ID: u64 = 1337;

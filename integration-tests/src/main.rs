@@ -5,6 +5,7 @@ mod constants;
 mod load_test;
 mod metrics;
 mod rav_tests;
+mod signature_test;
 mod utils;
 
 use anyhow::Result;
@@ -39,6 +40,9 @@ enum Commands {
         #[clap(long, short, value_parser)]
         num_receipts: usize,
     },
+
+    #[clap(name = "debug")]
+    Debug,
 }
 
 #[tokio::main]
@@ -64,6 +68,10 @@ async fn main() -> Result<()> {
         Commands::LoadServiceV2 { num_receipts } => {
             let concurrency = num_cpus::get();
             receipt_handler_load_test_v2(num_receipts, concurrency).await?;
+        }
+        // cargo run -- debug
+        Commands::Debug => {
+            signature_test::test_v2_signature_recovery().await?;
         }
     }
 
