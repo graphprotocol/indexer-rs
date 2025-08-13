@@ -19,7 +19,7 @@ use tap_graph::Receipt;
 use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use thegraph_core::CollectionId;
 
-use crate::constants::TEST_DATA_SERVICE;
+use crate::constants::{GRAPH_TALLY_COLLECTOR_CONTRACT, TEST_DATA_SERVICE};
 
 pub fn create_tap_receipt(
     value: u128,
@@ -58,8 +58,8 @@ pub fn create_tap_receipt(
 
 pub fn create_tap_receipt_v2(
     value: u128,
-    allocation_id: &Address, // Used to derive collection_id in V2
-    verifier_contract: &str,
+    allocation_id: &Address,  // Used to derive collection_id in V2
+    _verifier_contract: &str, // V2 uses GraphTallyCollector, not TAPVerifier
     chain_id: u64,
     wallet: &PrivateKeySigner,
     payer: &Address,
@@ -77,12 +77,21 @@ pub fn create_tap_receipt_v2(
     // For the migration period, we derive collection_id from allocation_id
     let collection_id = CollectionId::from(*allocation_id);
 
-    // Create domain separator
+    // Create domain separator - V2 uses GraphTallyCollector
     let eip712_domain_separator =
-        tap_eip712_domain(chain_id, Address::from_str(verifier_contract)?);
+        tap_eip712_domain(chain_id, Address::from_str(GRAPH_TALLY_COLLECTOR_CONTRACT)?);
 
+    let wallet_address = wallet.address();
     // Create and sign V2 receipt
     println!("Creating and signing V2 receipt...");
+    println!("V2 Receipt details:");
+    println!("  Payer (from wallet): {payer:?}");
+    println!("  Service provider: {service_provider:?}");
+    println!("  Data service: {TEST_DATA_SERVICE}");
+    println!("  Collection ID: {collection_id:?}");
+    println!("  Wallet address: {wallet_address:?}");
+    println!("  Using GraphTallyCollector: {GRAPH_TALLY_COLLECTOR_CONTRACT}");
+
     let receipt = Eip712SignedMessage::new(
         &eip712_domain_separator,
         tap_graph::v2::Receipt {
