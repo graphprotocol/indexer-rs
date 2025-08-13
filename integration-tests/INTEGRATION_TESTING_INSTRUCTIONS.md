@@ -145,7 +145,36 @@ just load-test-v2 1000
 
 This sends 1000 V2 receipts to test system performance.
 
-## Step 10: Observe and Debug
+## Step 10: Run Enhanced Integration Tests (New Infrastructure)
+
+**Test the new structured testing infrastructure**:
+
+```bash
+cd integration-tests
+cargo run -- test-with-context
+```
+
+**What this tests**:
+- V2 receipt processing with detailed error diagnostics
+- Insufficient escrow scenario handling
+- Batch processing with real-time monitoring
+- Automatic test isolation and cleanup
+
+**Expected behavior**:
+- Each test runs with a unique ID for isolation
+- Detailed progress logging with structured error messages
+- Automatic resource cleanup even if tests fail
+- Better diagnostics for debugging issues
+
+**Benefits over existing tests**:
+- Structured error types provide specific failure contexts
+- Test isolation prevents interference between tests
+- Reusable utilities reduce code duplication
+- Enhanced observability into test execution
+
+See `TESTING_INFRASTRUCTURE_IMPROVEMENT.md` for detailed documentation on the new testing capabilities.
+
+## Step 11: Observe and Debug
 
 ### Check Network Subgraph
 
@@ -196,7 +225,7 @@ docker logs tap-agent -f
 curl -s http://localhost:7300/metrics | grep -E "(tap_ravs_created|tap_unaggregated_fees)"
 ```
 
-## Step 11: Development Workflow
+## Step 12: Development Workflow
 
 ### Hot Reloading
 
@@ -359,8 +388,9 @@ cd integration-tests && cargo run -- load --num-receipts 50
 After successful testing, consider:
 
 1. **Run comprehensive test suite**: `just ci` (includes format, lint, test, sqlx-prepare)
-2. **Explore refactoring opportunities**: Review `INTEGRATION_TESTING_IMPROVEMENTS.md`
-3. **Contribute improvements**: Follow the refactoring roadmap for better testing infrastructure
+2. **Use the new testing infrastructure**: Try `cargo run -- test-with-context` for enhanced testing capabilities
+3. **Explore refactoring opportunities**: Review `TESTING_INFRASTRUCTURE_IMPROVEMENT.md`
+4. **Contribute improvements**: Follow the refactoring roadmap for better testing infrastructure
 
 This testing infrastructure provides a solid foundation for developing and testing both V1 and V2 TAP functionality in indexer-rs.
 
@@ -419,4 +449,4 @@ just reload
 
 - `crates/tap-agent/src/agent/sender_accounts_manager.rs`: Notification handling
 - Database triggers: `tap_horizon_receipt_notify()` and `scalar_tap_receipt_notify()`
-- Metrics endpoint: <http://localhost:7300/metrics>
+- Metrics endpoint: <http://localhost:7300/metrics> The new enhanced testing infrastructure adds structured error handling, test isolation, and better observability for more reliable and debuggable integration tests.
