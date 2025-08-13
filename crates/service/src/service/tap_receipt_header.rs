@@ -31,19 +31,40 @@ impl Header for TapHeader {
     {
         let mut execute = || -> anyhow::Result<TapHeader> {
             let raw_receipt = values.next().ok_or(headers::Error::invalid())?;
+            tracing::debug!(
+                raw_receipt_length = raw_receipt.len(),
+                "Processing TAP receipt header"
+            );
 
             // we first try to decode a v2 receipt since it's cheaper and fail earlier than using
             // serde
             match BASE64_STANDARD.decode(raw_receipt) {
                 Ok(raw_receipt) => {
-                    tracing::debug!("Decoded v2");
-                    let receipt = grpc::v2::SignedReceipt::decode(raw_receipt.as_ref())?;
-                    Ok(TapHeader(TapReceipt::V2(receipt.try_into()?)))
+                    tracing::debug!(
+                        decoded_length = raw_receipt.len(),
+                        "Successfully base64 decoded v2 receipt"
+                    );
+                    let receipt =
+                        grpc::v2::SignedReceipt::decode(raw_receipt.as_ref()).map_err(|e| {
+                            tracing::debug!(error = %e, "Failed to protobuf decode v2 receipt");
+                            e
+                        })?;
+                    tracing::debug!("Successfully protobuf decoded v2 receipt");
+                    let converted_receipt = receipt.try_into().map_err(|e: anyhow::Error| {
+                        tracing::debug!(error = %e, "Failed to convert v2 receipt");
+                        e
+                    })?;
+                    tracing::debug!("Successfully converted v2 receipt to TapReceipt::V2");
+                    Ok(TapHeader(TapReceipt::V2(converted_receipt)))
                 }
-                Err(_) => {
-                    tracing::debug!("Could not decode v2, trying v1");
+                Err(e) => {
+                    tracing::debug!(error = %e, "Could not base64 decode v2 receipt, trying v1");
                     let parsed_receipt: SignedReceipt =
-                        serde_json::from_slice(raw_receipt.as_ref())?;
+                        serde_json::from_slice(raw_receipt.as_ref()).map_err(|e| {
+                            tracing::debug!(error = %e, "Failed to JSON decode v1 receipt");
+                            e
+                        })?;
+                    tracing::debug!("Successfully decoded v1 receipt");
                     Ok(TapHeader(TapReceipt::V1(parsed_receipt)))
                 }
             }

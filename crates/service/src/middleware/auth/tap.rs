@@ -55,21 +55,42 @@ where
 
         async move {
             let execute = || async {
-                let receipt = receipt.ok_or(IndexerServiceError::ReceiptNotFound)?;
+                let receipt = receipt.ok_or_else(|| {
+                    tracing::debug!(
+                        "TAP receipt validation failed: receipt not found in request extensions"
+                    );
+                    IndexerServiceError::ReceiptNotFound
+                })?;
+
+                let version = match &receipt {
+                    TapReceipt::V1(_) => "V1",
+                    TapReceipt::V2(_) => "V2",
+                };
+                tracing::debug!(receipt_version = version, "Starting TAP receipt validation");
+
                 // Verify the receipt and store it in the database
                 tap_manager
                     .verify_and_store_receipt(&ctx.unwrap_or_default(), receipt)
                     .await
-                    .inspect_err(|_| {
-                        if let Some(labels) = labels {
+                    .inspect_err(|err| {
+                        tracing::debug!(error = %err, receipt_version = version, "TAP receipt validation failed");
+                        if let Some(labels) = &labels {
                             failed_receipt_metric
                                 .with_label_values(&labels.get_labels())
                                 .inc()
                         }
                     })?;
+
+                tracing::debug!(
+                    receipt_version = version,
+                    "TAP receipt validation successful"
+                );
                 Ok::<_, IndexerServiceError>(request)
             };
-            execute().await.map_err(|error| error.into_response())
+            execute().await.map_err(|error| {
+                tracing::debug!(error = %error, "TAP authorization failed, returning HTTP error response");
+                error.into_response()
+            })
         }
     }
 }
