@@ -10,8 +10,9 @@ use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner
 
 use crate::{
     constants::{
-        ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_URL, INDEXER_URL,
-        MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT,
+        ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_TALLY_COLLECTOR_CONTRACT,
+        GRAPH_URL, INDEXER_URL, MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL,
+        TAP_VERIFIER_CONTRACT,
     },
     utils::{
         create_request, create_tap_receipt, create_tap_receipt_v2, encode_v2_receipt,
@@ -264,7 +265,7 @@ pub async fn test_tap_rav_v2() -> Result<()> {
             let receipt = create_tap_receipt_v2(
                 MAX_RECEIPT_VALUE,
                 &allocation_id,
-                TAP_VERIFIER_CONTRACT,
+                GRAPH_TALLY_COLLECTOR_CONTRACT,
                 CHAIN_ID,
                 &wallet,
                 &payer,
@@ -336,7 +337,7 @@ pub async fn test_tap_rav_v2() -> Result<()> {
         let receipt = create_tap_receipt_v2(
             MAX_RECEIPT_VALUE / 10, // Smaller value for trigger receipts
             &allocation_id,
-            TAP_VERIFIER_CONTRACT,
+            GRAPH_TALLY_COLLECTOR_CONTRACT,
             CHAIN_ID,
             &wallet,
             &payer,
