@@ -24,7 +24,7 @@ pub const ACCOUNT0_SECRET: &str =
     "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 pub const CHAIN_ID: u64 = 1337;
 
-pub const SUBGRAPH_ID: &str = "Qmc2CbqucMvaS4GFvt2QUZWvRwSZ3K5ipeGvbC6UUBf616";
+pub const SUBGRAPH_ID: &str = "QmRcucmbxAXLaAZkkCR8Bdj1X7QGPLjfRmQ5H6tFhGqiHX";
 
 pub const GRAPH_URL: &str = "http://localhost:8000/subgraphs/name/graph-network";
 

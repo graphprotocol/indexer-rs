@@ -10,14 +10,10 @@ use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner
 
 use crate::{
     constants::{
-        ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_TALLY_COLLECTOR_CONTRACT,
-        GRAPH_URL, INDEXER_URL, MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL,
-        TAP_VERIFIER_CONTRACT,
+        ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_URL, INDEXER_URL,
+        MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT,
     },
-    utils::{
-        create_request, create_tap_receipt, create_tap_receipt_v2, encode_v2_receipt,
-        find_allocation,
-    },
+    utils::{create_request, create_tap_receipt, find_allocation},
     MetricsChecker,
 };
 
@@ -217,15 +213,10 @@ pub async fn test_invalid_chain_id() -> Result<()> {
 pub async fn test_tap_rav_v2() -> Result<()> {
     // Setup HTTP client
     let http_client = Arc::new(Client::new());
-    let wallet: PrivateKeySigner = ACCOUNT0_SECRET.parse().unwrap();
 
     // Query the network subgraph to find active allocations
     let allocation_id = find_allocation(http_client.clone(), GRAPH_URL).await?;
     let allocation_id = Address::from_str(&allocation_id)?;
-
-    // For V2, we need payer and service provider addresses
-    let payer = wallet.address();
-    let service_provider = allocation_id; // Using allocation_id as service provider for simplicity
 
     // Create a metrics checker
     let metrics_checker =
@@ -261,24 +252,11 @@ pub async fn test_tap_rav_v2() -> Result<()> {
         println!("Sending V2 batch {batch} of {BATCHES} with {NUM_RECEIPTS} receipts each...",);
 
         for i in 0..NUM_RECEIPTS {
-            // Create V2 receipt
-            let receipt = create_tap_receipt_v2(
-                MAX_RECEIPT_VALUE,
-                &allocation_id,
-                GRAPH_TALLY_COLLECTOR_CONTRACT,
-                CHAIN_ID,
-                &wallet,
-                &payer,
-                &service_provider,
-            )?;
-
-            let receipt_encoded = encode_v2_receipt(&receipt)?;
-
+            // Send plain GraphQL query to gateway - let gateway generate V2 receipt
             let response = http_client
                 .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
-                .header("Tap-Receipt", receipt_encoded)
                 .json(&json!({
                     "query": "{ _meta { block { number } } }"
                 }))
@@ -333,24 +311,11 @@ pub async fn test_tap_rav_v2() -> Result<()> {
     for i in 0..MAX_TRIGGERS {
         println!("Sending V2 trigger query {}/{}...", i + 1, MAX_TRIGGERS);
 
-        // Create V2 receipt
-        let receipt = create_tap_receipt_v2(
-            MAX_RECEIPT_VALUE / 10, // Smaller value for trigger receipts
-            &allocation_id,
-            GRAPH_TALLY_COLLECTOR_CONTRACT,
-            CHAIN_ID,
-            &wallet,
-            &payer,
-            &service_provider,
-        )?;
-
-        let receipt_encoded = encode_v2_receipt(&receipt)?;
-
+        // Send plain GraphQL query to gateway - let gateway generate V2 receipt
         let response = http_client
             .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
-            .header("Tap-Receipt", receipt_encoded)
             .json(&json!({
                 "query": "{ _meta { block { number } } }"
             }))
