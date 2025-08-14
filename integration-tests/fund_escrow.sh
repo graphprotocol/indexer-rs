@@ -124,10 +124,27 @@ fi
 echo ""
 echo "========== FUNDING V2 ESCROW =========="
 
+# Query the network subgraph to find the current allocation ID
+echo "Querying network subgraph for current allocation ID..."
+ALLOCATION_QUERY_RESULT=$(curl -s -X POST http://localhost:8000/subgraphs/name/graph-network \
+    -H "Content-Type: application/json" \
+    -d '{"query": "{ allocations(where: { status: Active }) { id indexer { id } subgraphDeployment { id } } }"}')
+
+# Extract allocation ID from the JSON response
+CURRENT_ALLOCATION_ID=$(echo "$ALLOCATION_QUERY_RESULT" | jq -r '.data.allocations[0].id')
+
+if [ "$CURRENT_ALLOCATION_ID" == "null" ] || [ -z "$CURRENT_ALLOCATION_ID" ]; then
+    echo "❌ Failed to find current allocation ID from network subgraph"
+    echo "Response: $ALLOCATION_QUERY_RESULT"
+    exit 1
+fi
+
+echo "✅ Found current allocation ID: $CURRENT_ALLOCATION_ID"
+
 # For V2, we need to specify payer, collector, and receiver
-# Payer is the test account, but receiver must be the indexer address
+# Payer is the test account, collector is the allocation ID, receiver is the indexer
 PAYER=$SENDER_ADDRESS
-COLLECTOR=$SENDER_ADDRESS
+COLLECTOR=$CURRENT_ALLOCATION_ID
 RECEIVER="0xf4EF6650E48d099a4972ea5B414daB86e1998Bd3" # This must be the indexer address
 
 # Check current V2 escrow balance before funding
