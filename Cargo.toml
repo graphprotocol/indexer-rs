@@ -84,7 +84,9 @@ sqlx = { version = "0.8.2", features = [
     "uuid",
 ], default-features = false }
 stdext = "0.3.3"
-tap_aggregator = { version = "0.5.8", default-features = false, features = ["v2"] }
+tap_aggregator = { version = "0.5.8", default-features = false, features = [
+    "v2",
+] }
 tap_core = { version = "4.1.4", default-features = false }
 tap_graph = { version = "0.3.4", features = ["v2"] }
 tempfile = "3.8.0"
