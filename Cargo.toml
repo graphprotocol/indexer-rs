@@ -52,8 +52,8 @@ insta = "1.42.2"
 itertools = "0.14.0"
 jsonrpsee = { version = "0.24.0", features = ["http-client", "tracing"] }
 prometheus = "0.13.3"
-prost = "0.13.4"
-prost-types = "0.13.3"
+prost = "0.14.1"
+prost-types = "0.14.1"
 ractor = { version = "0.15.7", features = [
     "async-trait",
     "tokio_runtime",
@@ -84,7 +84,9 @@ sqlx = { version = "0.8.2", features = [
     "uuid",
 ], default-features = false }
 stdext = "0.3.3"
-tap_aggregator = { version = "0.5.6", default-features = false, features = ["v2"] }
+tap_aggregator = { version = "0.5.8", default-features = false, features = [
+    "v2",
+] }
 tap_core = { version = "4.1.4", default-features = false }
 tap_graph = { version = "0.3.4", features = ["v2"] }
 tempfile = "3.8.0"
@@ -105,8 +107,10 @@ thegraph-graphql-http = { version = "0.3.2", features = ["reqwest"] }
 thiserror = "2.0.12"
 tokio = "1.40"
 tokio-test = "0.4.4"
-tonic = { version = "0.13.0", features = ["tls-native-roots", "gzip"] }
-tonic-build = "0.13.0"
+tonic = { version = "0.14.1", features = ["tls-native-roots", "gzip"] }
+tonic-build = "0.14.1"
+tonic-prost = "0.14.1"
+tonic-prost-build = "0.14.1"
 tower-service = "0.3.3"
 tower-test = "0.4.0"
 tracing = { version = "0.1.40", default-features = false }
@@ -117,7 +121,7 @@ tracing-subscriber = { version = "0.3", features = [
 ], default-features = false }
 uuid = { version = "1.11.0", features = ["v7"] }
 wiremock = "0.6.1"
-wiremock-grpc = "0.1.0"
+wiremock-grpc = { git = "https://github.com/suchapalaver/wiremock-grpc-rs.git", branch = "main" }
 
 # Insta benefits from being compiled in release mode, even as dev dependency
 # see https://insta.rs/docs/quickstart

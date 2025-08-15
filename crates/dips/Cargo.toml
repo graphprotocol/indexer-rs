@@ -5,7 +5,14 @@ edition = "2021"
 
 [features]
 default = ["rpc", "db"]
-rpc = ["dep:prost", "dep:tonic", "dep:tonic-build", "dep:bytes"]
+rpc = [
+    "dep:prost",
+    "dep:tonic",
+    "dep:tonic-build",
+    "dep:tonic-prost",
+    "dep:tonic-prost-build",
+    "dep:bytes",
+]
 db = ["dep:sqlx"]
 
 [dependencies]
@@ -34,6 +41,7 @@ serde_yaml.workspace = true
 serde.workspace = true
 sqlx = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
+tonic-prost = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [dev-dependencies]
@@ -44,3 +52,4 @@ test-assets = { path = "../test-assets" }
 
 [build-dependencies]
 tonic-build = { workspace = true, optional = true }
+tonic-prost-build = { workspace = true, optional = true }
