@@ -10,10 +10,10 @@ use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner
 
 use crate::{
     constants::{
-        ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_URL, INDEXER_URL,
-        MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT,
+        ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_URL, MAX_RECEIPT_VALUE,
+        SUBGRAPH_ID, TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT,
     },
-    utils::{create_request, create_tap_receipt, find_allocation},
+    utils::{create_request_with_api_key, create_tap_receipt, find_allocation},
     MetricsChecker,
 };
 
@@ -64,7 +64,7 @@ pub async fn test_tap_rav_v1() -> Result<()> {
 
         for i in 0..NUM_RECEIPTS {
             let response = http_client
-                .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
+                .post(format!("{GATEWAY_URL}/api/deployments/id/{SUBGRAPH_ID}"))
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
                 .json(&json!({
@@ -111,7 +111,7 @@ pub async fn test_tap_rav_v1() -> Result<()> {
         println!("Sending trigger query {}/{}...", i + 1, MAX_TRIGGERS);
 
         let response = http_client
-            .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
+            .post(format!("{GATEWAY_URL}/api/deployments/id/{SUBGRAPH_ID}"))
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
             .json(&json!({
@@ -190,13 +190,14 @@ pub async fn test_invalid_chain_id() -> Result<()> {
     )?;
 
     let receipt_json = serde_json::to_string(&receipt).unwrap();
-    let response = create_request(
+    let response = create_request_with_api_key(
         &http_client,
-        format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}").as_str(),
+        format!("{GATEWAY_URL}/api/deployments/id/{SUBGRAPH_ID}").as_str(),
         &receipt_json,
         &json!({
             "query": "{ _meta { block { number } } }"
         }),
+        GATEWAY_API_KEY,
     )
     .send()
     .await?;
@@ -254,7 +255,7 @@ pub async fn test_tap_rav_v2() -> Result<()> {
         for i in 0..NUM_RECEIPTS {
             // Send plain GraphQL query to gateway - let gateway generate V2 receipt
             let response = http_client
-                .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
+                .post(format!("{GATEWAY_URL}/api/deployments/id/{SUBGRAPH_ID}"))
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
                 .json(&json!({
@@ -313,7 +314,7 @@ pub async fn test_tap_rav_v2() -> Result<()> {
 
         // Send plain GraphQL query to gateway - let gateway generate V2 receipt
         let response = http_client
-            .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
+            .post(format!("{GATEWAY_URL}/api/deployments/id/{SUBGRAPH_ID}"))
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
             .json(&json!({

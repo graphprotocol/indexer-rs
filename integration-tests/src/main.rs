@@ -43,6 +43,9 @@ enum Commands {
 
     #[clap(name = "debug")]
     Debug,
+
+    #[clap(name = "verify")]
+    VerifyGateway,
 }
 
 #[tokio::main]
@@ -72,6 +75,10 @@ async fn main() -> Result<()> {
         // cargo run -- debug
         Commands::Debug => {
             signature_test::test_v2_signature_recovery().await?;
+        }
+        // cargo run -- verify
+        Commands::VerifyGateway => {
+            utils::verify_gateway_routing().await?;
         }
     }
 

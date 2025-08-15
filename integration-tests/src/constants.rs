@@ -5,7 +5,8 @@
 //! Constants used in the integration tests for the TAP RAV generation
 //! their value is taken from local-network .env variable
 
-pub const INDEXER_URL: &str = "http://localhost:7601";
+// Keep for backwards compatibility if needed
+// pub const INDEXER_URL: &str = "http://localhost:7601";
 
 pub const GATEWAY_API_KEY: &str = "deadbeefdeadbeefdeadbeefdeadbeef";
 pub const GATEWAY_URL: &str = "http://localhost:7700";
@@ -24,7 +25,11 @@ pub const ACCOUNT0_SECRET: &str =
     "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 pub const CHAIN_ID: u64 = 1337;
 
+// Use the test subgraph ID for TAP receipt generation testing
 pub const SUBGRAPH_ID: &str = "QmRcucmbxAXLaAZkkCR8Bdj1X7QGPLjfRmQ5H6tFhGqiHX";
+
+// Network subgraph ID - used by gateway for network information
+pub const NETWORK_SUBGRAPH_ID: &str = "Qmc2CbqucMvaS4GFvt2QUZWvRwSZ3K5ipeGvbC6UUBf616";
 
 pub const GRAPH_URL: &str = "http://localhost:8000/subgraphs/name/graph-network";
 

@@ -19,7 +19,9 @@ use tap_graph::Receipt;
 use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use thegraph_core::CollectionId;
 
-use crate::constants::{GRAPH_TALLY_COLLECTOR_CONTRACT, TEST_DATA_SERVICE};
+use crate::constants::{
+    GATEWAY_API_KEY, GATEWAY_URL, GRAPH_TALLY_COLLECTOR_CONTRACT, SUBGRAPH_ID, TEST_DATA_SERVICE,
+};
 
 pub fn create_tap_receipt(
     value: u128,
@@ -116,7 +118,8 @@ pub fn encode_v2_receipt(receipt: &Eip712SignedMessage<tap_graph::v2::Receipt>) 
     Ok(base64_encoded)
 }
 
-// Function to create a configured request
+// Function to create a configured request (currently unused - kept for compatibility)
+#[allow(dead_code)]
 pub fn create_request(
     client: &reqwest::Client,
     url: &str,
@@ -126,7 +129,24 @@ pub fn create_request(
     client
         .post(url)
         .header("Content-Type", "application/json")
-        .header("Tap-Receipt", receipt_json)
+        .header("tap-receipt", receipt_json)
+        .json(query)
+        .timeout(Duration::from_secs(10))
+}
+
+// Function to create a configured request with gateway API key
+pub fn create_request_with_api_key(
+    client: &reqwest::Client,
+    url: &str,
+    receipt_json: &str,
+    query: &serde_json::Value,
+    api_key: &str,
+) -> reqwest::RequestBuilder {
+    client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("tap-receipt", receipt_json)
+        .header("Authorization", format!("Bearer {api_key}"))
         .json(query)
         .timeout(Duration::from_secs(10))
 }
@@ -161,4 +181,70 @@ pub async fn find_allocation(http_client: Arc<Client>, url: &str) -> Result<Stri
         .and_then(|id| id.as_str())
         .map(|id| id.to_string())
         .ok_or_else(|| anyhow::anyhow!("No valid allocation ID found"))
+}
+
+pub async fn verify_gateway_routing() -> Result<()> {
+    println!("🔍 Verifying gateway routing configuration...");
+
+    let client = Arc::new(Client::new());
+
+    // Test 1: Verify gateway is responding
+    println!("📡 Testing gateway availability...");
+    let gateway_response = client
+        .get(format!("{GATEWAY_URL}/health"))
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await;
+
+    match gateway_response {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                println!("✅ Gateway is responding at {GATEWAY_URL}");
+            } else {
+                println!("⚠️  Gateway responded with status: {}", resp.status());
+            }
+        }
+        Err(e) => {
+            println!("❌ Gateway not reachable: {e}");
+            return Err(anyhow::anyhow!("Gateway not reachable: {}", e));
+        }
+    }
+
+    // Test 2: Try a simple GraphQL query through the gateway
+    println!("📊 Testing subgraph query routing through gateway...");
+    let query_response = client
+        .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
+        .json(&json!({
+            "query": "{ _meta { block { number } } }"
+        }))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await?;
+
+    let status = query_response.status();
+    let response_text = query_response.text().await?;
+
+    println!("📋 Gateway response status: {status}");
+    println!("📋 Gateway response body: {response_text}");
+
+    if status.is_success() {
+        println!("✅ Gateway successfully routed query to subgraph {SUBGRAPH_ID}");
+    } else if status == 404 && response_text.contains("subgraph not found") {
+        println!(
+            "❌ Gateway routing issue: Subgraph {SUBGRAPH_ID} not found in gateway's routing table"
+        );
+        println!(
+            "💡 This confirms the root cause - gateway cannot route to the specified subgraph ID"
+        );
+        return Err(anyhow::anyhow!(
+            "Gateway routing verification failed: subgraph not found"
+        ));
+    } else {
+        println!("⚠️  Unexpected gateway response: {status} - {response_text}");
+    }
+
+    println!("🎯 Gateway routing verification complete!");
+    Ok(())
 }
