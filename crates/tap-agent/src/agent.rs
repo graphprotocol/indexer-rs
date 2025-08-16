@@ -1,75 +1,109 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-//! # agent
+//! # TAP Agent
 //!
-//! The agent is a set of 3 actors:
-//! - [sender_accounts_manager::SenderAccountsManager]
-//! - [sender_account::SenderAccount]
-//! - [sender_allocation::SenderAllocation]
+//! The TAP (Timeline Aggregation Protocol) Agent is a service that processes micropayment
+//! receipts from gateways and aggregates them into Receipt Aggregate Vouchers (RAVs) for
+//! efficient on-chain settlement.
 //!
-//! They run under a supervision tree and it goes like the following:
+//! ## Architecture Overview
 //!
-//! [sender_accounts_manager::SenderAccountsManager] monitors allocations provided
-//! by the subgraph via a [Watcher](::indexer_watcher). Every time it detects a
-//! new escrow account created, it automatically spawns a [sender_account::SenderAccount].
+//! The agent uses a stream-based processing architecture built on tokio with the following
+//! key components:
 //!
-//! Manager is also responsible for spawning an pgnotify task that monitors new receipts.
+//! ### Stream Processing Pipeline
 //!
-//! [sender_account::SenderAccount] is then responsible for keeping track of all fees
-//! distributed across different allocations and also spawning [sender_allocation::SenderAllocation]s
-//! that are going to process receipts and RAV requests.
+//! 1. **PostgreSQL Event Source**: Listens for database notifications when new receipts arrive
+//! 2. **Validation Service**: Verifies receipt signatures and checks sender account balances  
+//! 3. **Processing Pipeline**: Aggregates receipts by allocation until thresholds are met
+//! 4. **RAV Creation**: Coordinates with sender aggregator services to sign RAVs
+//! 5. **Persistence Service**: Stores completed RAVs in database for indexer-agent redemption
 //!
-//! [sender_allocation::SenderAllocation] receives notifications from the spawned task and then
-//! it updates its state an notifies its parent actor.
+//! ### Dual Protocol Support
 //!
-//! Once [sender_account::SenderAccount] gets enough receipts, it uses its tracker to decide
-//! what is the allocation with the most amount of fees and send a message to trigger a RavRequest.
+//! The agent supports both Legacy (v1) and Horizon (v2) TAP protocols:
+//! - **Legacy**: Uses 20-byte allocation IDs and separate TAP subgraph
+//! - **Horizon**: Uses 32-byte collection IDs integrated with network subgraph
 //!
-//! When the allocation is closed by the indexer, [sender_allocation::SenderAllocation] is
-//! responsible for triggering the last rav, that will flush all pending receipts and mark the rav
-//! as last to be redeemed by indexer-agent.
-//!
-//! ## Actors
-//! Actors are implemented using the [ractor] library and contain their own message queue.
-//! They process one message at a time and that's why concurrent primitives like
-//! [std::sync::Mutex]s aren't needed.
+//! The agent automatically detects which protocol version is active and processes
+//! both types during migration periods.
 
+use bigdecimal::ToPrimitive;
 use indexer_config::{
     Config, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
     SubgraphConfig, SubgraphsConfig, TapConfig,
 };
-use indexer_monitor::{
-    empty_escrow_accounts_watcher, escrow_accounts_v1, escrow_accounts_v2, indexer_allocations,
-    DeploymentDetails, SubgraphClient,
-};
-use ractor::{concurrency::JoinHandle, Actor, ActorRef};
-use sender_account::SenderAccountConfig;
-use sender_accounts_manager::SenderAccountsManager;
+use indexer_monitor::{DeploymentDetails, SubgraphClient};
 
-use crate::{
-    agent::sender_accounts_manager::{SenderAccountsManagerArgs, SenderAccountsManagerMessage},
-    database, CONFIG, EIP_712_DOMAIN,
-};
+use crate::database;
 
-/// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_account::SenderAccount]
-pub mod sender_account;
-/// Actor, Arguments, State, Messages and implementation for
-/// [crate::agent::sender_accounts_manager::SenderAccountsManager]
-pub mod sender_accounts_manager;
-/// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_allocation::SenderAllocation]
-pub mod sender_allocation;
+// Import stream processor for production implementation
+use crate::agent::tap_agent::{run_tap_agent, TapAgentConfig};
+
+/// AllocationId wrapper enum for dual Legacy/Horizon support
+pub mod allocation_id;
+/// PostgreSQL event source for stream processing
+pub mod postgres_source;
+/// Stream-based TAP processing pipeline
+pub mod stream_processor;
+/// Actor, Arguments, State, Messages and implementation for [crate::agent::tap_agent::TapAgent]
+pub mod tap_agent;
 /// Unaggregated receipts containing total value and last id stored in the table
 pub mod unaggregated_receipts;
 
-/// This is the main entrypoint for starting up tap-agent
+/// Start the TAP Agent with stream-based processing architecture
 ///
-/// It uses the static [crate::CONFIG] to configure the agent.
-pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
+/// This function initializes and runs the complete TAP (Timeline Aggregation Protocol)
+/// processing system that handles micropayment receipts from gateways and aggregates
+/// them into Receipt Aggregate Vouchers (RAVs) for on-chain redemption.
+///
+/// ## Processing Pipeline
+///
+/// The TAP Agent processes receipts through the following pipeline:
+/// 1. **Receipt Ingestion**: PostgreSQL notifications trigger processing of new receipts
+/// 2. **Validation**: Receipts are validated using EIP-712 signature verification
+/// 3. **Aggregation**: Valid receipts are aggregated per allocation until threshold is reached
+/// 4. **RAV Creation**: Aggregated receipts are signed by sender's aggregator service
+/// 5. **Persistence**: Completed RAVs are stored for indexer-agent to redeem on-chain
+///
+/// ## Key Features
+///
+/// - **Dual Protocol Support**: Handles both Legacy (v1) and Horizon (v2) TAP protocols
+/// - **Real-time Processing**: Event-driven architecture using PostgreSQL LISTEN/NOTIFY
+/// - **Escrow Protection**: Monitors sender account balances to prevent overdrafts
+/// - **Graceful Shutdown**: Cleanly completes in-flight work before termination
+/// - **High Throughput**: Stream-based design with configurable buffer sizes
+///
+/// **Production Entry Point**: Uses global configuration for production deployment.
+/// For testing with dependency injection, use `start_stream_based_agent_with_config()`.
+pub async fn start_stream_based_agent() -> anyhow::Result<()> {
+    use crate::{CONFIG, EIP_712_DOMAIN};
+    start_stream_based_agent_with_config(&CONFIG, &EIP_712_DOMAIN).await
+}
+
+/// Start the TAP Agent with dependency-injected configuration
+///
+/// This is the core implementation that accepts configuration for proper
+/// dependency injection, enabling testability and avoiding the global config antipattern.
+///
+/// ## Architecture Benefits
+///
+/// - **Testability**: Tests can inject complete test configurations
+/// - **Isolation**: No dependency on global configuration statics
+/// - **Functional Design**: Pure function with explicit dependencies
+/// - **Production Compatible**: Uses exact same code path as production
+///
+/// ## Parameters
+///
+/// - `config`: Complete indexer configuration (database, subgraphs, TAP settings)
+/// - `eip712_domain`: EIP-712 domain for receipt signature verification
+pub async fn start_stream_based_agent_with_config(
+    config: &Config,
+    eip712_domain: &thegraph_core::alloy::sol_types::Eip712Domain,
+) -> anyhow::Result<()> {
     let Config {
-        indexer: IndexerConfig {
-            indexer_address, ..
-        },
+        indexer: IndexerConfig { .. },
         graph_node:
             GraphNodeConfig {
                 status_url: graph_node_status_endpoint,
@@ -85,9 +119,9 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
                                 query_url: network_query_url,
                                 query_auth_token: network_query_auth_token,
                                 deployment_id: network_deployment_id,
-                                syncing_interval_secs: network_sync_interval,
+                                ..
                             },
-                        recently_closed_allocation_buffer_secs: recently_closed_allocation_buffer,
+                        ..
                     },
                 escrow:
                     EscrowSubgraphConfig {
@@ -96,22 +130,22 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
                                 query_url: escrow_query_url,
                                 query_auth_token: escrow_query_auth_token,
                                 deployment_id: escrow_deployment_id,
-                                syncing_interval_secs: escrow_sync_interval,
+                                ..
                             },
                     },
             },
-        tap:
-            TapConfig {
-                // TODO: replace with a proper implementation once the gateway registry contract is ready
-                sender_aggregator_endpoints,
-                ..
-            },
+        tap: TapConfig {
+            sender_aggregator_endpoints,
+            ..
+        },
         ..
-    } = &*CONFIG;
-    let pgpool = database::connect(database.clone()).await;
+    } = config;
 
+    // Connect to database using provided configuration
+    let pgpool = database::connect(database.clone()).await;
     let http_client = reqwest::Client::new();
 
+    // Create network subgraph client
     let network_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
             http_client.clone(),
@@ -130,15 +164,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         .await,
     ));
 
-    let indexer_allocations = indexer_allocations(
-        network_subgraph,
-        *indexer_address,
-        *network_sync_interval,
-        *recently_closed_allocation_buffer,
-    )
-    .await
-    .expect("Failed to initialize indexer_allocations watcher");
-
+    // Create escrow subgraph client
     let escrow_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
             http_client.clone(),
@@ -157,19 +183,8 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         .await,
     ));
 
-    let escrow_accounts_v1 = escrow_accounts_v1(
-        escrow_subgraph,
-        *indexer_address,
-        *escrow_sync_interval,
-        false,
-    )
-    .await
-    .expect("Error creating escrow_accounts channel");
-
-    // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
-    // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
-    // - If horizon.enabled = true: Check if Horizon contracts are active in the network
-    let is_horizon_enabled = if CONFIG.horizon.enabled {
+    // Determine Horizon support
+    let is_horizon_enabled = if config.horizon.enabled {
         tracing::info!("Horizon migration support enabled - checking if Horizon contracts are active in the network");
         match indexer_monitor::is_horizon_active(network_subgraph).await {
             Ok(active) => {
@@ -196,51 +211,66 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         false
     };
 
-    // Create V2 escrow accounts watcher only if Horizon is active
-    // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
-    let escrow_accounts_v2 = if is_horizon_enabled {
-        escrow_accounts_v2(
-            network_subgraph,
-            *indexer_address,
-            *network_sync_interval,
-            false,
-        )
-        .await
-        .expect("Error creating escrow_accounts_v2 channel")
-    } else {
-        // Create a dummy watcher that never updates for consistency
-        empty_escrow_accounts_watcher()
-    };
-
-    // In both modes we need both watchers for the hybrid processing
-    let (escrow_accounts_v1_final, escrow_accounts_v2_final) = if is_horizon_enabled {
+    // Log the TAP Agent mode based on Horizon detection
+    if is_horizon_enabled {
         tracing::info!("TAP Agent: Horizon migration mode - processing existing V1 receipts and new V2 receipts");
-        (escrow_accounts_v1, escrow_accounts_v2)
     } else {
         tracing::info!("TAP Agent: Legacy mode - V1 receipts only");
-        (escrow_accounts_v1, escrow_accounts_v2)
-    };
+    }
 
-    let config = Box::leak(Box::new({
-        let mut config = SenderAccountConfig::from_config(&CONFIG);
-        config.horizon_enabled = is_horizon_enabled;
-        config
-    }));
+    // Create TapAgentConfig for stream processor
+    // Calculate RAV threshold from max_amount_willing_to_lose_grt and trigger_value_divisor
+    let max_willing_to_lose = config.tap.max_amount_willing_to_lose_grt.get_value(); // Already in wei (u128)
+    let trigger_divisor = config
+        .tap
+        .rav_request
+        .trigger_value_divisor
+        .to_u128()
+        .unwrap_or(10u128);
+    let rav_threshold = max_willing_to_lose / trigger_divisor;
 
-    let args = SenderAccountsManagerArgs {
-        config,
-        domain_separator: EIP_712_DOMAIN.clone(),
+    let tap_config = TapAgentConfig {
         pgpool,
-        indexer_allocations,
-        escrow_accounts_v1: escrow_accounts_v1_final,
-        escrow_accounts_v2: escrow_accounts_v2_final,
-        escrow_subgraph,
-        network_subgraph,
+        rav_threshold,
+        rav_request_interval: config.tap.rav_request.timestamp_buffer_secs,
+        event_buffer_size: 1000,
+        result_buffer_size: 1000,
+        rav_buffer_size: 100,
+
+        // Escrow configuration
+        escrow_subgraph_v1: Some(escrow_subgraph),
+        escrow_subgraph_v2: if is_horizon_enabled {
+            Some(network_subgraph)
+        } else {
+            None
+        },
+        indexer_address: config.indexer.indexer_address,
+        escrow_syncing_interval: std::time::Duration::from_secs(60),
+        reject_thawing_signers: true,
+
+        // Network subgraph configuration
+        network_subgraph: Some(network_subgraph),
+        allocation_syncing_interval: std::time::Duration::from_secs(120),
+        recently_closed_allocation_buffer: std::time::Duration::from_secs(300),
+
+        // TAP Manager configuration
+        domain_separator: Some(eip712_domain.clone()),
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
-        prefix: None,
     };
 
-    SenderAccountsManager::spawn(None, SenderAccountsManager, args)
-        .await
-        .expect("Failed to start sender accounts manager actor.")
+    tracing::info!("🚀 Starting stream-based TAP agent (production implementation)");
+    tracing::info!("📊 Configuration:");
+    tracing::info!("  • RAV threshold: {}", tap_config.rav_threshold);
+    tracing::info!(
+        "  • RAV request interval: {:?}",
+        tap_config.rav_request_interval
+    );
+    tracing::info!("  • Horizon enabled: {}", is_horizon_enabled);
+    tracing::info!(
+        "  • Aggregator endpoints: {}",
+        tap_config.sender_aggregator_endpoints.len()
+    );
+
+    // Run the stream-based TAP agent
+    run_tap_agent(tap_config).await
 }

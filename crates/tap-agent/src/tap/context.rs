@@ -46,9 +46,7 @@ pub trait NetworkVersion: Send + Sync + 'static {
     fn allocation_id_to_address(id: &Self::AllocationId) -> Address;
 
     /// Convert to the AllocationId enum for messaging
-    fn to_allocation_id_enum(
-        id: &Self::AllocationId,
-    ) -> crate::agent::sender_accounts_manager::AllocationId;
+    fn to_allocation_id_enum(id: &Self::AllocationId) -> crate::agent::allocation_id::AllocationId;
 
     /// Sol struct returned from an aggregation
     ///
@@ -85,7 +83,7 @@ pub trait NetworkVersion: Send + Sync + 'static {
 ///
 /// A simple `struct Legacy;` would be able to instantiate and pass as
 /// value, while having size 1.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Legacy {}
 /// 0-sized marker for horizon network
 ///
@@ -95,7 +93,7 @@ pub enum Legacy {}
 ///
 /// A simple `struct Legacy;` would be able to instantiate and pass as
 /// value, while having size 1.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Horizon {}
 
 impl NetworkVersion for Legacy {
@@ -108,10 +106,8 @@ impl NetworkVersion for Legacy {
         **id // AllocationIdCore derefs to Address
     }
 
-    fn to_allocation_id_enum(
-        id: &Self::AllocationId,
-    ) -> crate::agent::sender_accounts_manager::AllocationId {
-        crate::agent::sender_accounts_manager::AllocationId::Legacy(*id)
+    fn to_allocation_id_enum(id: &Self::AllocationId) -> crate::agent::allocation_id::AllocationId {
+        crate::agent::allocation_id::AllocationId::Legacy(*id)
     }
 
     async fn aggregate(
@@ -152,10 +148,8 @@ impl NetworkVersion for Horizon {
         id.as_address()
     }
 
-    fn to_allocation_id_enum(
-        id: &Self::AllocationId,
-    ) -> crate::agent::sender_accounts_manager::AllocationId {
-        crate::agent::sender_accounts_manager::AllocationId::Horizon(*id)
+    fn to_allocation_id_enum(id: &Self::AllocationId) -> crate::agent::allocation_id::AllocationId {
+        crate::agent::allocation_id::AllocationId::Horizon(*id)
     }
 
     async fn aggregate(
@@ -194,11 +188,11 @@ pub struct TapAgentContext<T> {
     pgpool: PgPool,
     /// For Legacy network: represents an allocation ID
     /// For Horizon network: represents a collection ID (stored in collection_id database column)
-    #[cfg_attr(test, builder(default = crate::test::ALLOCATION_ID_0))]
+    #[cfg_attr(test, builder(default = test_assets::ALLOCATION_ID_0))]
     allocation_id: Address,
     #[cfg_attr(test, builder(default = test_assets::TAP_SENDER.1))]
     sender: Address,
-    #[cfg_attr(test, builder(default = crate::test::INDEXER.1))]
+    #[cfg_attr(test, builder(default = test_assets::INDEXER_ADDRESS))]
     indexer_address: Address,
     escrow_accounts: Receiver<EscrowAccounts>,
     /// We use phantom data as a marker since it's
