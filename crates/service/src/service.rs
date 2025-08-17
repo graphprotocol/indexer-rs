@@ -21,7 +21,7 @@ use indexer_dips::{
 use indexer_monitor::{escrow_accounts_v1, escrow_accounts_v2, DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
 use reqwest::Url;
-use tap_core::tap_eip712_domain;
+use tap_core::{tap_eip712_domain, TapVersion};
 use tokio::{net::TcpListener, signal};
 use tower_http::normalize_path::NormalizePath;
 use tracing::info;
@@ -90,12 +90,6 @@ pub async fn run() -> anyhow::Result<()> {
     let database =
         database::connect(config.database.clone().get_formated_postgres_url().as_ref()).await;
 
-    let domain_separator = tap_eip712_domain(
-        config.blockchain.chain_id as u64,
-        config.blockchain.receipts_verifier_address,
-    );
-    let chain_id = config.blockchain.chain_id as u64;
-
     let host_and_port = config.service.host_and_port;
     let indexer_address = config.indexer.indexer_address;
     let ipfs_url = config.service.ipfs_url.clone();
@@ -108,7 +102,7 @@ pub async fn run() -> anyhow::Result<()> {
     // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
     // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
     // - If horizon.enabled = true: Check if Horizon contracts are active in the network
-    let is_horizon_active = if config.horizon.enabled {
+    let horizon_is_active = if config.horizon.enabled {
         tracing::info!("Horizon migration support enabled - checking if Horizon contracts are active in the network");
         match indexer_monitor::is_horizon_active(network_subgraph).await {
             Ok(active) => {
@@ -135,8 +129,20 @@ pub async fn run() -> anyhow::Result<()> {
         false
     };
 
+    let chain_id = config.blockchain.chain_id as u64;
+
+    let domain_separator = tap_eip712_domain(
+        chain_id,
+        config.blockchain.receipts_verifier_address,
+        if horizon_is_active {
+            TapVersion::V2
+        } else {
+            TapVersion::V1
+        },
+    );
+
     // Configure router with escrow watchers based on automatic Horizon detection
-    let router = if is_horizon_active {
+    let router = if horizon_is_active {
         tracing::info!("Horizon contracts detected - using Horizon migration mode: V2 receipts only, but processing existing V1 receipts");
 
         // Create V1 escrow watcher for processing existing receipts

@@ -11,11 +11,11 @@ use tokio::{sync::Semaphore, task, time::Instant};
 
 use crate::{
     constants::{
-        ACCOUNT0_SECRET, CHAIN_ID, GRAPH_URL, INDEXER_URL, MAX_RECEIPT_VALUE, SUBGRAPH_ID,
-        TAP_VERIFIER_CONTRACT,
+        ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_URL, MAX_RECEIPT_VALUE,
+        SUBGRAPH_ID, TAP_VERIFIER_CONTRACT,
     },
     utils::{
-        create_request, create_tap_receipt, create_tap_receipt_v2, encode_v2_receipt,
+        create_request_with_api_key, create_tap_receipt, create_tap_receipt_v2, encode_v2_receipt,
         find_allocation,
     },
 };
@@ -109,13 +109,14 @@ async fn create_and_send_receipts(
     )?;
 
     let receipt_json = serde_json::to_string(&receipt).unwrap();
-    let response = create_request(
+    let response = create_request_with_api_key(
         &http_client,
-        format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}").as_str(),
+        format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}").as_str(),
         &receipt_json,
         &json!({
             "query": "{ _meta { block { number } } }"
         }),
+        GATEWAY_API_KEY,
     )
     .send()
     .await?;
@@ -225,13 +226,14 @@ async fn create_and_send_receipts_v2(
     )?;
 
     let receipt_encoded = encode_v2_receipt(&receipt)?;
-    let response = create_request(
+    let response = create_request_with_api_key(
         &http_client,
-        format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}").as_str(),
+        format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}").as_str(),
         &receipt_encoded,
         &json!({
             "query": "{ _meta { block { number } } }"
         }),
+        GATEWAY_API_KEY,
     )
     .send()
     .await?;

@@ -19,7 +19,7 @@ use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Url;
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::server::run_server;
-use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
+use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain, TapVersion};
 use tap_graph::{Receipt, ReceiptAggregateVoucher, SignedRav, SignedReceipt};
 use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
 use thegraph_core::alloy::{
@@ -56,7 +56,7 @@ use crate::{
 pub static SENDER_2: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wallet(1));
 pub static INDEXER: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wallet(3));
 pub static TAP_EIP712_DOMAIN_SEPARATOR: LazyLock<Eip712Domain> =
-    LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20])));
+    LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20]), TapVersion::V1));
 
 pub const TRIGGER_VALUE: u128 = 500;
 pub const RECEIPT_LIMIT: u64 = 10000;
