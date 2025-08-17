@@ -14,7 +14,7 @@ use rand::{rng, Rng};
 use reqwest::Client;
 use serde_json::json;
 use tap_aggregator::grpc;
-use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
+use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain, TapVersion};
 use tap_graph::Receipt;
 use thegraph_core::alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use thegraph_core::CollectionId;
@@ -39,8 +39,11 @@ pub fn create_tap_receipt(
     let timestamp_ns = timestamp as u64;
 
     // Create domain separator
-    let eip712_domain_separator =
-        tap_eip712_domain(chain_id, Address::from_str(verifier_contract)?);
+    let eip712_domain_separator = tap_eip712_domain(
+        chain_id,
+        Address::from_str(verifier_contract)?,
+        TapVersion::V1,
+    );
 
     // Create and sign receipt
     println!("Creating and signing receipt...");
@@ -80,8 +83,11 @@ pub fn create_tap_receipt_v2(
     let collection_id = CollectionId::from(*allocation_id);
 
     // Create domain separator - V2 uses GraphTallyCollector
-    let eip712_domain_separator =
-        tap_eip712_domain(chain_id, Address::from_str(GRAPH_TALLY_COLLECTOR_CONTRACT)?);
+    let eip712_domain_separator = tap_eip712_domain(
+        chain_id,
+        Address::from_str(GRAPH_TALLY_COLLECTOR_CONTRACT)?,
+        TapVersion::V2,
+    );
 
     let wallet_address = wallet.address();
     // Create and sign V2 receipt

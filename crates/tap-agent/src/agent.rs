@@ -49,7 +49,7 @@ use sender_accounts_manager::SenderAccountsManager;
 
 use crate::{
     agent::sender_accounts_manager::{SenderAccountsManagerArgs, SenderAccountsManagerMessage},
-    database, CONFIG, EIP_712_DOMAIN,
+    database, CONFIG,
 };
 
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_account::SenderAccount]
@@ -169,7 +169,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
     // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
     // - If horizon.enabled = true: Check if Horizon contracts are active in the network
-    let is_horizon_enabled = if CONFIG.horizon.enabled {
+    let horizon_is_enabled = if CONFIG.horizon.enabled {
         tracing::info!("Horizon migration support enabled - checking if Horizon contracts are active in the network");
         match indexer_monitor::is_horizon_active(network_subgraph).await {
             Ok(active) => {
@@ -198,7 +198,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
 
     // Create V2 escrow accounts watcher only if Horizon is active
     // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
-    let escrow_accounts_v2 = if is_horizon_enabled {
+    let escrow_accounts_v2 = if horizon_is_enabled {
         escrow_accounts_v2(
             network_subgraph,
             *indexer_address,
@@ -213,7 +213,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     };
 
     // In both modes we need both watchers for the hybrid processing
-    let (escrow_accounts_v1_final, escrow_accounts_v2_final) = if is_horizon_enabled {
+    let (escrow_accounts_v1_final, escrow_accounts_v2_final) = if horizon_is_enabled {
         tracing::info!("TAP Agent: Horizon migration mode - processing existing V1 receipts and new V2 receipts");
         (escrow_accounts_v1, escrow_accounts_v2)
     } else {
@@ -223,13 +223,23 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
 
     let config = Box::leak(Box::new({
         let mut config = SenderAccountConfig::from_config(&CONFIG);
-        config.horizon_enabled = is_horizon_enabled;
+        config.horizon_enabled = horizon_is_enabled;
         config
     }));
 
+    let domain_separator = tap_core::tap_eip712_domain(
+        CONFIG.blockchain.chain_id as u64,
+        CONFIG.blockchain.receipts_verifier_address,
+        if horizon_is_enabled {
+            tap_core::TapVersion::V2
+        } else {
+            tap_core::TapVersion::V1
+        },
+    );
+
     let args = SenderAccountsManagerArgs {
         config,
-        domain_separator: EIP_712_DOMAIN.clone(),
+        domain_separator,
         pgpool,
         indexer_allocations,
         escrow_accounts_v1: escrow_accounts_v1_final,
