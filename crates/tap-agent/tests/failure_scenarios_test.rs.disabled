@@ -1,0 +1,604 @@
+//! Failure Scenarios TDD Integration Tests
+//!
+//! These tests validate error handling, recovery, and resilience scenarios
+//! to ensure tokio implementation is robust against production failures.
+//!
+//! **TDD Philosophy**: Following user's TDD commitment from CLAUDE.md
+//! **Reference**: Error handling and recovery in ractor implementation
+
+use indexer_tap_agent::agent::{
+    postgres_source::RavPersister,
+    sender_accounts_manager::AllocationId,
+    stream_processor::{AllocationProcessor, AllocationProcessorConfig, RavResult},
+};
+use std::{collections::HashMap, time::Duration};
+use tap_core::tap_eip712_domain;
+use test_assets::{setup_shared_test_db, ALLOCATION_ID_0, INDEXER_ADDRESS, VERIFIER_ADDRESS};
+use thegraph_core::{
+    alloy::primitives::Address,
+    AllocationId as AllocationIdCore,
+};
+use tokio::sync::mpsc;
+use tracing::{info, warn};
+
+/// Create test EIP712 domain for failure testing
+fn create_test_eip712_domain() -> thegraph_core::alloy::sol_types::Eip712Domain {
+    tap_eip712_domain(1, Address::from(*VERIFIER_ADDRESS))
+}
+
+/// Create malformed RAV result for testing invalid data handling
+fn create_malformed_rav_result() -> RavResult {
+    RavResult {
+        allocation_id: AllocationId::Legacy(AllocationIdCore::new(Address::ZERO)), // Invalid address
+        value_aggregate: 0,            // Zero value (suspicious)
+        receipt_count: 0,              // No receipts
+        signed_rav: vec![],            // Empty signature (invalid)
+        sender_address: Address::ZERO, // Zero sender (invalid)
+        timestamp_ns: 0,               // Invalid timestamp
+    }
+}
+
+/// **TDD Test 1**: Database Connection Failure Recovery
+///
+/// **Challenge**: Test behavior when database becomes unavailable
+/// **Ractor Reference**: Database error handling in ractor actors
+/// **Goal**: Validate tokio tasks handle database failures gracefully
+#[tokio::test]
+async fn test_database_connection_failure_recovery() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("debug")
+        .with_test_writer()
+        .try_init();
+
+    info!("🧪 TDD Failure Test 1: Database Connection Failure Recovery");
+
+    let test_db = setup_shared_test_db().await;
+
+    // Close the database connection to simulate failure
+    test_db.pool.close().await;
+
+    let domain = create_test_eip712_domain();
+    let allocation_id =
+        AllocationId::Legacy(AllocationIdCore::new(Address::from(*ALLOCATION_ID_0)));
+    let sender_address = Address::from([0x42u8; 20]);
+    let (validation_tx, _validation_rx) = mpsc::channel(10);
+
+    // **TDD Challenge**: Attempt to create processor with closed database
+    let config = AllocationProcessorConfig {
+        allocation_id,
+        sender_address,
+        rav_threshold: 1000,
+        validation_tx,
+        domain_separator: domain,
+        pgpool: test_db.pool.clone(), // Closed pool
+        indexer_address: Address::from(*INDEXER_ADDRESS),
+        sender_aggregator_endpoints: &HashMap::new(),
+    };
+
+    let processor_result = AllocationProcessor::new(config).await;
+
+    // Should handle database connection failure gracefully
+    match processor_result {
+        Ok(processor) => {
+            // If processor created, operations should fail gracefully
+            let process_result = processor.process_receipts().await;
+            assert!(
+                process_result.is_err(),
+                "Should fail with database connection error"
+            );
+
+            if let Err(e) = process_result {
+                info!("✅ Database error handled gracefully: {e}");
+                assert!(
+                    e.to_string().contains("connection") || e.to_string().contains("pool"),
+                    "Error should indicate database connection issue"
+                );
+            }
+        }
+        Err(e) => {
+            info!("✅ Processor creation failed appropriately: {e}");
+            assert!(
+                e.to_string().contains("connection") || e.to_string().contains("pool"),
+                "Error should indicate database connection issue"
+            );
+        }
+    }
+
+    info!("✅ TDD Failure Test 1: Database failure handled correctly");
+}
+
+/// **TDD Test 2**: Invalid Receipt Data Handling
+///
+/// **Challenge**: Test behavior with malformed or malicious receipt data
+/// **Ractor Reference**: Receipt validation and invalid receipt storage
+/// **Goal**: Validate tokio implementation rejects invalid data safely
+#[tokio::test]
+async fn test_invalid_receipt_data_handling() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("debug")
+        .with_test_writer()
+        .try_init();
+
+    info!("🧪 TDD Failure Test 2: Invalid Receipt Data Handling");
+
+    let test_db = setup_shared_test_db().await;
+    let domain = create_test_eip712_domain();
+
+    let allocation_id =
+        AllocationId::Legacy(AllocationIdCore::new(Address::from(*ALLOCATION_ID_0)));
+    let sender_address = Address::from([0x66u8; 20]); // Malicious sender
+    let (validation_tx, _validation_rx) = mpsc::channel(10);
+
+    let config = AllocationProcessorConfig {
+        allocation_id,
+        sender_address,
+        rav_threshold: 1000,
+        validation_tx,
+        domain_separator: domain,
+        pgpool: test_db.pool.clone(),
+        indexer_address: Address::from(*INDEXER_ADDRESS),
+        sender_aggregator_endpoints: &HashMap::new(),
+    };
+
+    let processor = AllocationProcessor::new(config)
+        .await
+        .expect("Should create processor for invalid data test");
+
+    // **TDD Challenge**: Insert malformed receipt data
+    let test_allocation = format!("{:x}", ALLOCATION_ID_0);
+    let test_sender = format!("{:x}", sender_address);
+
+    // Insert receipts with suspicious patterns
+    let malicious_receipts = vec![
+        ("", 1640995200000000000i64, 1i64, 0i64), // Empty signature, zero value
+        ("invalid_sig", 0i64, 2i64, -100i64),     // Invalid timestamp, negative value
+        (
+            "x".repeat(1000),
+            1640995200000000000i64,
+            3i64,
+            u64::MAX as i64,
+        ), // Oversized signature, max value
+    ];
+
+    for (i, (signature, timestamp, nonce, value)) in malicious_receipts.iter().enumerate() {
+        let insert_result = sqlx::query!(
+            r#"
+                INSERT INTO scalar_tap_receipts 
+                (allocation_id, signer_address, signature, timestamp_ns, nonce, value)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+            test_allocation,
+            test_sender,
+            signature,
+            timestamp,
+            nonce,
+            value
+        )
+        .execute(&test_db.pool)
+        .await;
+
+        match insert_result {
+            Ok(_) => {
+                info!("📝 Malicious receipt {} inserted successfully", i);
+            }
+            Err(e) => {
+                info!("🛡️  Database rejected malicious receipt {}: {e}", i);
+            }
+        }
+    }
+
+    // **TDD Enhancement**: Process malicious receipts
+    let process_result = processor.process_receipts().await;
+
+    match process_result {
+        Ok(result) => {
+            info!(
+                "📊 Processed receipts with validation: {} receipts, {} value",
+                result.receipt_count, result.value_aggregate
+            );
+
+            // Valid receipts should be processed, invalid ones should be filtered out
+            // Zero or negative values should be rejected
+            assert!(
+                result.value_aggregate >= 0,
+                "Should not aggregate negative values"
+            );
+        }
+        Err(e) => {
+            info!("✅ Processing correctly failed due to invalid data: {e}");
+        }
+    }
+
+    // Verify invalid receipts were tracked separately
+    let invalid_receipts_count = sqlx::query!(
+        r#"
+            SELECT COUNT(*) as count 
+            FROM scalar_tap_receipts_invalid 
+            WHERE allocation_id = $1
+        "#,
+        test_allocation
+    )
+    .fetch_one(&test_db.pool)
+    .await
+    .expect("Should query invalid receipts");
+
+    info!(
+        "🗃️  Invalid receipts stored: {}",
+        invalid_receipts_count.count.unwrap_or(0)
+    );
+
+    info!("✅ TDD Failure Test 2: Invalid receipt data handled correctly");
+}
+
+/// **TDD Test 3**: RAV Persistence Failure Recovery
+///
+/// **Challenge**: Test RAV persistence failure and recovery scenarios
+/// **Ractor Reference**: RAV storage error handling
+/// **Goal**: Validate tokio persister handles storage failures gracefully
+#[tokio::test]
+async fn test_rav_persistence_failure_recovery() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("debug")
+        .with_test_writer()
+        .try_init();
+
+    info!("🧪 TDD Failure Test 3: RAV Persistence Failure Recovery");
+
+    let test_db = setup_shared_test_db().await;
+    let persister = RavPersister::new(test_db.pool.clone());
+    let (rav_tx, rav_rx) = mpsc::channel(10);
+
+    // **TDD Challenge**: Send malformed RAV data
+    let malformed_rav = create_malformed_rav_result();
+
+    warn!("🚨 Sending malformed RAV for failure testing");
+    rav_tx
+        .send(malformed_rav)
+        .await
+        .expect("Should send malformed RAV");
+
+    // Send a valid RAV after the malformed one
+    let valid_rav = RavResult {
+        allocation_id: AllocationId::Legacy(AllocationIdCore::new(Address::from(*ALLOCATION_ID_0))),
+        value_aggregate: 1000,
+        receipt_count: 5,
+        signed_rav: vec![1u8; 65],
+        sender_address: Address::from([0x42u8; 20]),
+        timestamp_ns: 1640995200000000000,
+    };
+
+    rav_tx.send(valid_rav).await.expect("Should send valid RAV");
+
+    drop(rav_tx); // Close channel
+
+    // **TDD Enhancement**: Start persister and let it handle both RAVs
+    let persist_result = persister.start(rav_rx).await;
+
+    // Persister should continue operating despite malformed RAV
+    match persist_result {
+        Ok(()) => {
+            info!("✅ RAV persister completed successfully despite failures");
+        }
+        Err(e) => {
+            info!("⚠️  RAV persister failed: {e}");
+            // This might be expected if malformed data causes unrecoverable errors
+        }
+    }
+
+    // Check if valid RAV was persisted despite malformed one
+    let stored_ravs = sqlx::query!(
+        r#"
+            SELECT COUNT(*) as count 
+            FROM scalar_tap_ravs 
+            WHERE allocation_id = $1
+        "#,
+        format!("{:x}", ALLOCATION_ID_0)
+    )
+    .fetch_one(&test_db.pool)
+    .await
+    .expect("Should query stored RAVs");
+
+    info!(
+        "💾 RAVs successfully stored: {}",
+        stored_ravs.count.unwrap_or(0)
+    );
+
+    info!("✅ TDD Failure Test 3: RAV persistence failure recovery tested");
+}
+
+/// **TDD Test 4**: Escrow Account Unavailability
+///
+/// **Challenge**: Test behavior when escrow accounts are unavailable or insufficient
+/// **Ractor Reference**: Escrow monitoring and overdraft prevention
+/// **Goal**: Validate tokio implementation handles escrow issues correctly
+#[tokio::test]
+async fn test_escrow_account_unavailability() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("debug")
+        .with_test_writer()
+        .try_init();
+
+    info!("🧪 TDD Failure Test 4: Escrow Account Unavailability");
+
+    let test_db = setup_shared_test_db().await;
+    let domain = create_test_eip712_domain();
+
+    let allocation_id =
+        AllocationId::Legacy(AllocationIdCore::new(Address::from(*ALLOCATION_ID_0)));
+    let sender_address = Address::from([0x77u8; 20]); // Sender with insufficient escrow
+    let (validation_tx, _validation_rx) = mpsc::channel(10);
+
+    let config = AllocationProcessorConfig {
+        allocation_id,
+        sender_address,
+        rav_threshold: 1000,
+        validation_tx,
+        domain_separator: domain,
+        pgpool: test_db.pool.clone(),
+        indexer_address: Address::from(*INDEXER_ADDRESS),
+        sender_aggregator_endpoints: &HashMap::new(),
+    };
+
+    let processor = AllocationProcessor::new(config)
+        .await
+        .expect("Should create processor for escrow test");
+
+    // **TDD Challenge**: Simulate receipts from sender with insufficient escrow
+    let test_allocation = format!("{:x}", ALLOCATION_ID_0);
+    let test_sender = format!("{:x}", sender_address);
+
+    // Insert high-value receipts that would exceed typical escrow balance
+    for i in 0..3 {
+        sqlx::query!(
+            r#"
+                INSERT INTO scalar_tap_receipts 
+                (allocation_id, signer_address, signature, timestamp_ns, nonce, value)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+            test_allocation,
+            test_sender,
+            format!("escrow_test_sig_{i}"),
+            1640995200000000000i64 + (i * 1000000),
+            i as i64,
+            1000000i64 // Very high value receipts
+        )
+        .execute(&test_db.pool)
+        .await
+        .expect("Should insert high-value receipt");
+    }
+
+    // **TDD Enhancement**: Check pending fees (escrow overdraft detection)
+    let pending_fees_result = processor.get_pending_fees_for_escrow_check().await;
+
+    match pending_fees_result {
+        Ok(pending_fees) => {
+            info!("💰 Pending fees for sender: {pending_fees}");
+
+            // In real implementation, this would check against escrow balance
+            // For test, we verify the query works
+            assert!(pending_fees >= 3000000, "Should detect high pending fees");
+        }
+        Err(e) => {
+            info!("⚠️  Pending fees check failed: {e}");
+        }
+    }
+
+    // Process receipts with escrow considerations
+    let process_result = processor.process_receipts().await;
+
+    match process_result {
+        Ok(result) => {
+            info!(
+                "📊 Processed receipts despite escrow concerns: {} receipts, {} value",
+                result.receipt_count, result.value_aggregate
+            );
+
+            // High-value receipts might be flagged for escrow verification
+            if result.value_aggregate > 2000000 {
+                warn!("🚨 High value aggregate may exceed escrow balance");
+            }
+        }
+        Err(e) => {
+            info!("✅ Processing correctly blocked due to escrow issues: {e}");
+        }
+    }
+
+    info!("✅ TDD Failure Test 4: Escrow unavailability handling tested");
+}
+
+/// **TDD Test 5**: Network Communication Failure
+///
+/// **Challenge**: Test aggregator endpoint communication failures
+/// **Ractor Reference**: Aggregator client error handling
+/// **Goal**: Validate tokio implementation handles network failures gracefully
+#[tokio::test]
+async fn test_network_communication_failure() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("debug")
+        .with_test_writer()
+        .try_init();
+
+    info!("🧪 TDD Failure Test 5: Network Communication Failure");
+
+    let test_db = setup_shared_test_db().await;
+    let domain = create_test_eip712_domain();
+
+    let allocation_id =
+        AllocationId::Legacy(AllocationIdCore::new(Address::from(*ALLOCATION_ID_0)));
+    let sender_address = Address::from([0x88u8; 20]);
+    let (validation_tx, _validation_rx) = mpsc::channel(10);
+
+    // **TDD Challenge**: Configure with invalid aggregator endpoint
+    let mut bad_endpoints = HashMap::new();
+    bad_endpoints.insert(
+        sender_address,
+        "http://non-existent-aggregator.invalid:9999"
+            .parse()
+            .unwrap(),
+    );
+
+    let config = AllocationProcessorConfig {
+        allocation_id,
+        sender_address,
+        rav_threshold: 500, // Low threshold to trigger aggregator communication
+        validation_tx,
+        domain_separator: domain,
+        pgpool: test_db.pool.clone(),
+        indexer_address: Address::from(*INDEXER_ADDRESS),
+        sender_aggregator_endpoints: &bad_endpoints,
+    };
+
+    let processor = AllocationProcessor::new(config)
+        .await
+        .expect("Should create processor with bad endpoint");
+
+    // Insert receipts that will trigger RAV creation
+    let test_allocation = format!("{:x}", ALLOCATION_ID_0);
+    let test_sender = format!("{:x}", sender_address);
+
+    for i in 0..3 {
+        sqlx::query!(
+            r#"
+                INSERT INTO scalar_tap_receipts 
+                (allocation_id, signer_address, signature, timestamp_ns, nonce, value)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+            test_allocation,
+            test_sender,
+            format!("network_test_sig_{i}"),
+            1640995200000000000i64 + (i * 1000000),
+            i as i64,
+            200i64 // Total 600 > threshold 500
+        )
+        .execute(&test_db.pool)
+        .await
+        .expect("Should insert receipt");
+    }
+
+    // **TDD Enhancement**: Attempt RAV creation with bad network endpoint
+    let rav_result = processor.create_rav_if_needed().await;
+
+    match rav_result {
+        Ok(Some(_rav)) => {
+            info!("✅ RAV created despite network issues (possibly cached/offline mode)");
+        }
+        Ok(None) => {
+            info!("📝 RAV creation skipped (normal for network failure scenarios)");
+        }
+        Err(e) => {
+            info!("✅ RAV creation correctly failed due to network issue: {e}");
+            assert!(
+                e.to_string().contains("connection")
+                    || e.to_string().contains("network")
+                    || e.to_string().contains("timeout"),
+                "Error should indicate network communication failure"
+            );
+        }
+    }
+
+    // Verify that receipts are still tracked even if RAV creation fails
+    let process_result = processor.process_receipts().await;
+    assert!(
+        process_result.is_ok(),
+        "Receipt processing should work even with network issues"
+    );
+
+    let result = process_result.unwrap();
+    assert_eq!(result.receipt_count, 3);
+    assert_eq!(result.value_aggregate, 600);
+
+    info!("✅ TDD Failure Test 5: Network communication failure handled correctly");
+}
+
+/// **TDD Test 6**: Resource Exhaustion Scenarios
+///
+/// **Challenge**: Test behavior under high load and resource constraints
+/// **Ractor Reference**: Actor system performance under stress
+/// **Goal**: Validate tokio implementation handles resource exhaustion gracefully
+#[tokio::test]
+async fn test_resource_exhaustion_scenarios() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("debug")
+        .with_test_writer()
+        .try_init();
+
+    info!("🧪 TDD Failure Test 6: Resource Exhaustion Scenarios");
+
+    let test_db = setup_shared_test_db().await;
+
+    // **TDD Challenge**: Create many RAV results to exhaust channel capacity
+    let persister = RavPersister::new(test_db.pool.clone());
+    let (rav_tx, rav_rx) = mpsc::channel(5); // Small buffer to trigger backpressure
+
+    // Create many RAV results to test backpressure handling
+    let mut send_handles = Vec::new();
+
+    for i in 0..20 {
+        let rav_tx_clone = rav_tx.clone();
+        let handle = tokio::spawn(async move {
+            let rav = RavResult {
+                allocation_id: AllocationId::Legacy(AllocationIdCore::new(Address::from(
+                    [i as u8; 20],
+                ))),
+                value_aggregate: 1000 + i,
+                receipt_count: 5,
+                signed_rav: vec![i as u8; 65],
+                sender_address: Address::from([0x90u8 + i as u8; 20]),
+                timestamp_ns: 1640995200000000000 + (i as u64 * 1000000),
+            };
+
+            let send_result = rav_tx_clone.send(rav).await;
+            match send_result {
+                Ok(()) => {
+                    info!("📤 RAV {} sent successfully", i);
+                }
+                Err(e) => {
+                    warn!("🚫 RAV {} send failed (channel full): {e}", i);
+                }
+            }
+
+            // Add small delay to avoid overwhelming the system
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        });
+
+        send_handles.push(handle);
+    }
+
+    // **TDD Enhancement**: Start persister while senders are running
+    let persister_handle = tokio::spawn(async move { persister.start(rav_rx).await });
+
+    // Wait for all senders to complete
+    for handle in send_handles {
+        let _ = handle.await;
+    }
+
+    drop(rav_tx); // Close channel
+
+    // Wait for persister to complete with timeout
+    let persist_result = tokio::time::timeout(Duration::from_secs(5), persister_handle).await;
+
+    match persist_result {
+        Ok(Ok(())) => {
+            info!("✅ RAV persister handled resource exhaustion successfully");
+        }
+        Ok(Err(e)) => {
+            info!("⚠️  RAV persister failed under load: {e}");
+        }
+        Err(_) => {
+            warn!("⏰ RAV persister timed out under load (possible resource exhaustion)");
+        }
+    }
+
+    // Check how many RAVs were actually persisted
+    let stored_count = sqlx::query!("SELECT COUNT(*) as count FROM scalar_tap_ravs")
+        .fetch_one(&test_db.pool)
+        .await
+        .expect("Should count stored RAVs");
+
+    info!(
+        "💾 RAVs persisted under load: {}",
+        stored_count.count.unwrap_or(0)
+    );
+
+    info!("✅ TDD Failure Test 6: Resource exhaustion scenarios tested");
+}

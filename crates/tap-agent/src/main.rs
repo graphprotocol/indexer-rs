@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use indexer_tap_agent::{agent, metrics, CONFIG};
-use ractor::ActorStatus;
 use tokio::signal::unix::{signal, SignalKind};
 
 #[tokio::main]
@@ -25,32 +24,38 @@ async fn main() -> anyhow::Result<()> {
     // initialize LazyLock'd config
     _ = &*CONFIG;
 
-    let (manager, handler) = agent::start_agent().await;
-    tracing::info!("TAP Agent started.");
-
+    // 🚀 PRODUCTION IMPLEMENTATION: Stream-based TAP agent (TAP_AGENT_TOKIO_DESIGN.md)
     tokio::spawn(metrics::run_server(CONFIG.metrics.port));
     tracing::info!("Metrics port opened");
+
+    // Run the stream-based TAP agent directly - our production implementation
+    let agent_task = tokio::spawn(agent::start_stream_based_agent());
+
+    tracing::info!("🚀 Stream-based TAP Agent started (production implementation)");
 
     // Have tokio wait for SIGTERM or SIGINT.
     let mut signal_sigint = signal(SignalKind::interrupt())?;
     let mut signal_sigterm = signal(SignalKind::terminate())?;
+
     tokio::select! {
-        _ = handler => tracing::error!("SenderAccountsManager stopped"),
-        _ = signal_sigint.recv() => tracing::debug!("Received SIGINT."),
-        _ = signal_sigterm.recv() => tracing::debug!("Received SIGTERM."),
-    }
-    // If we're here, we've received a signal to exit.
-    tracing::info!("Shutting down...");
-
-    // We don't want our actor to run any shutdown logic, so we kill it.
-    if manager.get_status() == ActorStatus::Running {
-        manager
-            .kill_and_wait(None)
-            .await
-            .expect("Failed to kill manager.");
+        result = agent_task => {
+            match result {
+                Ok(Ok(())) => tracing::info!("TAP Agent completed successfully"),
+                Ok(Err(e)) => tracing::error!(error = %e, "TAP Agent failed"),
+                Err(e) => tracing::error!(error = %e, "TAP Agent task panicked"),
+            }
+        }
+        _ = signal_sigint.recv() => tracing::info!("Received SIGINT - initiating graceful shutdown"),
+        _ = signal_sigterm.recv() => tracing::info!("Received SIGTERM - initiating graceful shutdown"),
     }
 
-    // Stop the server and wait for it to finish gracefully.
-    tracing::debug!("Goodbye!");
+    // If we're here, we've received a signal to exit or the agent completed
+    tracing::info!("TAP Agent shutting down gracefully...");
+
+    // The stream-based agent handles its own graceful shutdown via channel closure semantics
+    // Give it a moment to complete any in-flight work
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    tracing::info!("✅ TAP Agent shutdown complete - goodbye!");
     Ok(())
 }
