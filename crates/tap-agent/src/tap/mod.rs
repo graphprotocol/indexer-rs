@@ -24,10 +24,14 @@ pub async fn signers_trimmed(
     sender: Address,
 ) -> Result<Vec<String>, anyhow::Error> {
     let escrow_accounts = escrow_accounts_rx.borrow();
+
+    tracing::info!("signers_trimmed called for sender: {}", sender);
+
     let signers = escrow_accounts
         .get_signers_for_sender(&sender)
         .iter()
-        .map(|s| s.encode_hex())
+        .map(|s| s.encode_hex().trim_start_matches("0x").to_string())
         .collect::<Vec<String>>();
+
     Ok(signers)
 }
