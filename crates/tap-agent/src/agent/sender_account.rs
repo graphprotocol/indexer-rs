@@ -510,6 +510,7 @@ impl State {
         sender_allocation_id
     }
 
+    #[tracing::instrument(skip(self), level = "trace")]
     async fn rav_request_for_heaviest_allocation(&mut self) -> anyhow::Result<()> {
         let allocation_id = self
             .sender_fee_tracker
@@ -1159,8 +1160,74 @@ impl Actor for SenderAccount {
                 }
             }
             SenderAccountMessage::UpdateReceiptFees(allocation_id, receipt_fees) => {
+                tracing::info!(
+                    "SenderAccount {} ({:?}) received receipt for allocation: {} (variant: {:?})",
+                    state.sender,
+                    state.sender_type,
+                    allocation_id,
+                    match allocation_id {
+                        AllocationId::Legacy(_) => "Legacy",
+                        AllocationId::Horizon(_) => "Horizon",
+                    }
+                );
+
+                tracing::debug!(
+                    "Checking fee tracker for allocation_id.address(): {} (from variant: {:?})",
+                    allocation_id.address(),
+                    match allocation_id {
+                        AllocationId::Legacy(_) => "Legacy",
+                        AllocationId::Horizon(_) => "Horizon",
+                    }
+                );
+
+                // Log the raw allocation ID details for comparison
+                match &allocation_id {
+                    AllocationId::Legacy(core_id) => {
+                        tracing::debug!(
+                            "Legacy allocation details: core_id={}, address={}",
+                            core_id,
+                            core_id.as_ref()
+                        );
+                    }
+                    AllocationId::Horizon(collection_id) => {
+                        tracing::debug!(
+                            "Horizon allocation details: collection_id={}, as_address()={}",
+                            collection_id,
+                            collection_id.as_address()
+                        );
+                    }
+                }
+                let tracked_allocations: Vec<_> =
+                    state.sender_fee_tracker.id_to_fee.keys().collect();
+                tracing::debug!("Currently tracked allocations: {:?}", tracked_allocations);
+
+                tracing::debug!("Receipt fees details: {:?}", receipt_fees);
+
+                // Check if allocation exists in tracker
+                let has_allocation = state
+                    .sender_fee_tracker
+                    .id_to_fee
+                    .contains_key(&allocation_id.address());
+                tracing::debug!(
+                    "Allocation {} exists in fee tracker: {}",
+                    allocation_id,
+                    has_allocation
+                );
+
+                if !has_allocation {
+                    tracing::warn!(
+                        "Received receipt for unknown allocation {}, tracked allocations: {:?}",
+                        allocation_id,
+                        state
+                            .sender_fee_tracker
+                            .id_to_fee
+                            .keys()
+                            .collect::<Vec<_>>()
+                    );
+                }
                 // If we're here because of a new receipt, abort any scheduled UpdateReceiptFees
                 if let Some(scheduled_rav_request) = state.scheduled_rav_request.take() {
+                    tracing::debug!("Aborting scheduled RAV request for sender {}", state.sender);
                     scheduled_rav_request.abort();
                 }
 
@@ -1234,7 +1301,28 @@ impl Actor for SenderAccount {
                     let counter_greater_receipt_limit = total_counter_for_allocation
                         >= state.config.rav_request_receipt_limit
                         && can_trigger_rav;
-                    let rav_result = if !state.backoff_info.in_backoff()
+
+                    // Enhanced RAV trigger debugging
+                    let total_fee = state.sender_fee_tracker.get_total_fee();
+                    let in_backoff = state.backoff_info.in_backoff();
+                    let buffered_fee = total_fee.saturating_sub(total_fee_outside_buffer);
+
+                    tracing::debug!(
+                        allocation_id = %allocation_id.address(),
+                        total_fee = %total_fee,
+                        total_fee_outside_buffer = %total_fee_outside_buffer,
+                        buffered_fee = %buffered_fee,
+                        trigger_value = %state.config.trigger_value,
+                        total_counter_for_allocation = %total_counter_for_allocation,
+                        receipt_limit = %state.config.rav_request_receipt_limit,
+                        can_trigger_rav = %can_trigger_rav,
+                        counter_greater_receipt_limit = %counter_greater_receipt_limit,
+                        in_backoff = %in_backoff,
+                        fee_trigger_condition = %(total_fee_outside_buffer >= state.config.trigger_value),
+                        "RAV trigger condition analysis"
+                    );
+
+                    let rav_result = if !in_backoff
                         && total_fee_outside_buffer >= state.config.trigger_value
                     {
                         tracing::debug!(
@@ -1293,6 +1381,17 @@ impl Actor for SenderAccount {
             }
             SenderAccountMessage::UpdateAllocationIds(allocation_ids) => {
                 // Create new sender allocations
+                tracing::info!(
+                    "SenderAccount {} ({:?}) updating allocations: {} → {}",
+                    state.sender,
+                    state.sender_type,
+                    state.allocation_ids.len(),
+                    allocation_ids.len()
+                );
+
+                tracing::debug!("Old allocations: {:?}", state.allocation_ids);
+                tracing::debug!("New allocations: {:?}", allocation_ids);
+
                 let mut new_allocation_ids = state.allocation_ids.clone();
                 for allocation_id in allocation_ids.difference(&state.allocation_ids) {
                     if let Err(error) = state
