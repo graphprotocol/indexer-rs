@@ -19,6 +19,17 @@ impl<T: NetworkVersion + Send + Sync> SignatureChecker for TapAgentContext<T> {
             .map_err(|_| AdapterError::ValidationError {
                 error: format!("Could not find the sender for the signer {signer}"),
             })?;
-        Ok(sender == self.sender)
+
+        let res = sender == self.sender;
+
+        if !res {
+            tracing::warn!(
+                signer = %signer,
+                expected_sender = %self.sender,
+                "Signature verification failed",
+            );
+        }
+
+        Ok(res)
     }
 }
