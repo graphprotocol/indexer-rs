@@ -128,11 +128,25 @@ url_prefix = "/"
 serve_network_subgraph = false
 serve_escrow_subgraph = false
 
+
+[service.tap]
+max_receipt_value_grt = "0.001"
+
 [tap]
-max_amount_willing_to_lose_grt = 1000
+max_amount_willing_to_lose_grt = 10000
 
 [tap.rav_request]
-timestamp_buffer_secs = 1000
+# Set a lower timestamp buffer threshold
+timestamp_buffer_secs = 30
+
+# The trigger value divisor is used to calculate the trigger value for the RAV request.
+# using the formula:
+# trigger_value = max_amount_willing_to_lose_grt / trigger_value_divisor
+# where the default value for max_amount_willing_to_lose_grt is 1000
+# the idea to set this for trigger_value to be 0.002
+# requiring the sender to send at least 20 receipts of 0.0001 grt
+trigger_value_divisor = 500_000
+
 
 [tap.sender_aggregator_endpoints]
 ${ACCOUNT0_ADDRESS} = "http://tap-aggregator:${TAP_AGGREGATOR}"
