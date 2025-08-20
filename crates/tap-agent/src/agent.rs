@@ -157,6 +157,10 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         .await,
     ));
 
+    tracing::info!(
+        "Initializing V1 escrow accounts watcher with indexer {}",
+        indexer_address
+    );
     let escrow_accounts_v1 = escrow_accounts_v1(
         escrow_subgraph,
         *indexer_address,
@@ -165,6 +169,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     )
     .await
     .expect("Error creating escrow_accounts channel");
+    tracing::info!("V1 escrow accounts watcher initialized successfully");
 
     // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
     // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
@@ -199,15 +204,22 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     // Create V2 escrow accounts watcher only if Horizon is active
     // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
     let escrow_accounts_v2 = if is_horizon_enabled {
-        escrow_accounts_v2(
+        tracing::info!(
+            "Initializing V2 escrow accounts watcher with indexer {}",
+            indexer_address
+        );
+        let watcher = escrow_accounts_v2(
             network_subgraph,
             *indexer_address,
             *network_sync_interval,
             false,
         )
         .await
-        .expect("Error creating escrow_accounts_v2 channel")
+        .expect("Error creating escrow_accounts_v2 channel");
+        tracing::info!("V2 escrow accounts watcher initialized successfully");
+        watcher
     } else {
+        tracing::info!("Creating empty V2 escrow accounts watcher (Horizon disabled)");
         // Create a dummy watcher that never updates for consistency
         empty_escrow_accounts_watcher()
     };
@@ -215,9 +227,11 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     // In both modes we need both watchers for the hybrid processing
     let (escrow_accounts_v1_final, escrow_accounts_v2_final) = if is_horizon_enabled {
         tracing::info!("TAP Agent: Horizon migration mode - processing existing V1 receipts and new V2 receipts");
+        tracing::info!("Escrow account watchers: V1 (active) + V2 (active)");
         (escrow_accounts_v1, escrow_accounts_v2)
     } else {
         tracing::info!("TAP Agent: Legacy mode - V1 receipts only");
+        tracing::info!("Escrow account watchers: V1 (active) + V2 (empty)");
         (escrow_accounts_v1, escrow_accounts_v2)
     };
 
