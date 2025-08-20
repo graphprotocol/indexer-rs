@@ -36,9 +36,9 @@ where
     G: GlobalTracker<U>,
     F: AllocationStats<U> + DefaultFromExtra<E>,
 {
-    pub(super) global: G,
-    pub(super) id_to_fee: HashMap<Address, F>,
-    pub(super) extra_data: E,
+    pub(crate) global: G,
+    pub(crate) id_to_fee: HashMap<Address, F>,
+    pub(crate) extra_data: E,
 
     _update: PhantomData<U>,
 }
@@ -76,24 +76,110 @@ where
         }
     }
 
+    #[tracing::instrument(skip(self), ret, level = "trace")]
     pub fn get_heaviest_allocation_id(&mut self) -> Option<Address> {
-        // just loop over and get the biggest fee
-        self.id_to_fee
+        let total_allocations = self.id_to_fee.len();
+        tracing::debug!(
+            %total_allocations,
+            "Evaluating allocations for RAV request",
+        );
+
+        if total_allocations == 0 {
+            tracing::warn!("No allocations found in fee tracker");
+            return None;
+        }
+
+        let mut eligible_count = 0;
+        let mut zero_valid_fee_count = 0;
+
+        let result = self
+            .id_to_fee
             .iter_mut()
-            .filter(|(_, fee)| fee.is_allowed_to_trigger_rav_request())
+            .filter(|(addr, fee)| {
+                let allowed = fee.is_allowed_to_trigger_rav_request();
+                if allowed {
+                    eligible_count += 1;
+                }
+
+                tracing::trace!(
+                    allocation = %addr,
+                    allowed = %allowed,
+                    "Allocation eligibility check"
+                );
+
+                allowed
+            })
             .fold(None, |acc: Option<(&Address, u128)>, (addr, value)| {
-                if let Some((_, max_fee)) = acc {
-                    if value.get_valid_fee() > max_fee {
-                        Some((addr, value.get_valid_fee()))
+                let current_fee = value.get_valid_fee();
+
+                tracing::trace!(
+                    allocation = %addr,
+                    valid_fee = %current_fee,
+                    "Checking allocation valid fees"
+                );
+
+                if current_fee == 0 {
+                    zero_valid_fee_count += 1;
+                }
+
+                if let Some((current_addr, max_fee)) = acc {
+                    if current_fee > max_fee {
+                        tracing::trace!(
+                            "New heaviest: {} (fee={}) replaces {} (fee={})",
+                            addr,
+                            current_fee,
+                            current_addr,
+                            max_fee
+                        );
+                        Some((addr, current_fee))
                     } else {
                         acc
                     }
+                } else if current_fee > 0 {
+                    tracing::trace!("First valid allocation: {} (fee={})", addr, current_fee);
+                    Some((addr, current_fee))
                 } else {
-                    Some((addr, value.get_valid_fee()))
+                    acc
                 }
             })
-            .filter(|(_, fee)| *fee > 0)
-            .map(|(&id, _)| id)
+            .filter(|(_, fee)| {
+                let valid = *fee > 0;
+                tracing::trace!("Final fee check: {} > 0 = {}", fee, valid);
+                valid
+            })
+            .map(|(&id, fee)| {
+                tracing::info!("Selected heaviest allocation: {} with fee={}", id, fee);
+                id
+            });
+
+        if result.is_none() {
+            tracing::warn!(
+                "No valid allocation found: {} total, {} eligible, {} with zero valid fees",
+                total_allocations,
+                eligible_count,
+                zero_valid_fee_count
+            );
+
+            // Additional logging for SenderFeeTracker specifically
+            if std::any::type_name::<F>().contains("SenderFeeStats") {
+                tracing::debug!("This appears to be a SenderFeeTracker - checking buffer status");
+                for (addr, fee) in &mut self.id_to_fee {
+                    let total_fee = fee.get_total_fee();
+                    let valid_fee = fee.get_valid_fee();
+                    let buffered_fee = total_fee - valid_fee;
+
+                    tracing::debug!(
+                        allocation = %addr,
+                        total_fee = %total_fee,
+                        valid_fee = %valid_fee,
+                        buffered_fee = %buffered_fee,
+                        "Allocation fee breakdown"
+                    );
+                }
+            }
+        }
+
+        result
     }
 
     pub fn get_list_of_allocation_ids(&self) -> HashSet<Address> {
