@@ -39,6 +39,8 @@ static RECEIPTS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+const RETRY_INTERVAL: Duration = Duration::from_secs(30);
+
 /// Notification received by pgnotify for V1 (legacy) receipts
 ///
 /// This contains a list of properties that are sent by postgres when a V1 receipt is inserted
@@ -231,6 +233,9 @@ pub struct SenderAccountsManagerArgs {
     /// Domain separator used for tap
     pub domain_separator: Eip712Domain,
 
+    /// Domain separator used for tap v2 (Horizon)
+    pub domain_separator_v2: Eip712Domain,
+
     /// Database connection
     pub pgpool: PgPool,
     /// Watcher that returns a map of open and recently closed allocation ids
@@ -262,6 +267,7 @@ pub struct State {
 
     config: &'static SenderAccountConfig,
     domain_separator: Eip712Domain,
+    domain_separator_v2: Eip712Domain,
     pgpool: PgPool,
     indexer_allocations: Receiver<HashSet<AllocationId>>,
     /// Watcher containing the escrow accounts for v1
@@ -289,6 +295,7 @@ impl Actor for SenderAccountsManager {
         SenderAccountsManagerArgs {
             config,
             domain_separator,
+            domain_separator_v2,
             indexer_allocations,
             pgpool,
             escrow_accounts_v1,
@@ -299,32 +306,15 @@ impl Actor for SenderAccountsManager {
             prefix,
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let is_horizon_active = if config.horizon_enabled {
-            match indexer_monitor::is_horizon_active(network_subgraph).await {
-                Ok(active) => {
-                    if active {
-                        tracing::info!(
-                            "Horizon contracts detected - allocations will use Horizon type"
-                        );
-                    } else {
-                        tracing::info!(
-                            "Horizon contracts not active - allocations will use Legacy type"
-                        );
-                    }
-                    active
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to detect Horizon contracts: {}. Using Legacy type",
-                        e
-                    );
-                    false
-                }
-            }
+        // we can use config.horizon_enabled directly
+        // because agent_start method does the horizon smart contract/subgraph validation
+        // and updates the passed in config accordingly
+        let is_horizon_active = config.horizon_enabled;
+        if is_horizon_active {
+            tracing::info!("Horizon enabled in config - allocations will use Horizon type");
         } else {
             tracing::info!("Horizon disabled in config - allocations will use Legacy type");
-            false
-        };
+        }
 
         let indexer_allocations = map_watcher(indexer_allocations, move |allocation_id| {
             let allocations: HashSet<_> = allocation_id
@@ -403,6 +393,7 @@ impl Actor for SenderAccountsManager {
         let mut state = State {
             config,
             domain_separator,
+            domain_separator_v2,
             sender_ids_v1: HashSet::new(),
             sender_ids_v2: HashSet::new(),
             new_receipts_watcher_handle_v1: None,
@@ -998,18 +989,21 @@ impl State {
         allocation_ids: HashSet<AllocationId>,
         sender_type: SenderType,
     ) -> anyhow::Result<SenderAccountArgs> {
+        let escrow_accounts = match sender_type {
+            SenderType::Legacy => self.escrow_accounts_v1.clone(),
+            SenderType::Horizon => self.escrow_accounts_v2.clone(),
+        };
+
         Ok(SenderAccountArgs {
             config: self.config,
             pgpool: self.pgpool.clone(),
             sender_id: *sender_id,
-            escrow_accounts: match sender_type {
-                SenderType::Legacy => self.escrow_accounts_v1.clone(),
-                SenderType::Horizon => self.escrow_accounts_v2.clone(),
-            },
+            escrow_accounts,
             indexer_allocations: self.indexer_allocations.clone(),
             escrow_subgraph: self.escrow_subgraph,
             network_subgraph: self.network_subgraph,
             domain_separator: self.domain_separator.clone(),
+            domain_separator_v2: self.domain_separator_v2.clone(),
             sender_aggregator_endpoint: self
                 .sender_aggregator_endpoints
                 .get(sender_id)
@@ -1020,7 +1014,7 @@ impl State {
                 .clone(),
             allocation_ids,
             prefix: self.prefix.clone(),
-            retry_interval: Duration::from_secs(30),
+            retry_interval: RETRY_INTERVAL,
             sender_type,
         })
     }
@@ -1356,7 +1350,7 @@ mod tests {
             create_rav, create_received_receipt, create_sender_accounts_manager,
             generate_random_prefix, get_grpc_url, get_sender_account_config, store_rav,
             store_receipt, ALLOCATION_ID_0, ALLOCATION_ID_1, INDEXER, SENDER_2,
-            TAP_EIP712_DOMAIN_SEPARATOR,
+            TAP_EIP712_DOMAIN_SEPARATOR, TAP_EIP712_DOMAIN_SEPARATOR_V2,
         },
     };
     const DUMMY_URL: &str = "http://localhost:1234";
@@ -1412,6 +1406,7 @@ mod tests {
             State {
                 config,
                 domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+                domain_separator_v2: TAP_EIP712_DOMAIN_SEPARATOR_V2.clone(),
                 sender_ids_v1: HashSet::new(),
                 sender_ids_v2: HashSet::new(),
                 new_receipts_watcher_handle_v1: None,
