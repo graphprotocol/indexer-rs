@@ -66,6 +66,7 @@ async fn full_integration_test() {
     let router = ServiceRouter::builder()
         .database(database)
         .domain_separator(TAP_EIP712_DOMAIN.clone())
+        .domain_separator_v2(test_assets::TAP_EIP712_DOMAIN_V2.clone())
         .http_client(http_client)
         .graph_node(GraphNodeConfig {
             query_url: graph_node_url.clone(),
