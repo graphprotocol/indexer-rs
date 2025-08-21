@@ -49,7 +49,7 @@ use sender_accounts_manager::SenderAccountsManager;
 
 use crate::{
     agent::sender_accounts_manager::{SenderAccountsManagerArgs, SenderAccountsManagerMessage},
-    database, CONFIG, EIP_712_DOMAIN,
+    database, CONFIG, EIP_712_DOMAIN, EIP_712_DOMAIN_V2,
 };
 
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_account::SenderAccount]
@@ -244,6 +244,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     let args = SenderAccountsManagerArgs {
         config,
         domain_separator: EIP_712_DOMAIN.clone(),
+        domain_separator_v2: EIP_712_DOMAIN_V2.clone(),
         pgpool,
         indexer_allocations,
         escrow_accounts_v1: escrow_accounts_v1_final,
