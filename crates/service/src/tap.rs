@@ -34,6 +34,7 @@ const GRACE_PERIOD: u64 = 60;
 #[derive(Clone)]
 pub struct IndexerTapContext {
     domain_separator: Arc<Eip712Domain>,
+    domain_separator_v2: Arc<Eip712Domain>,
     receipt_producer: Sender<(
         DatabaseReceipt,
         tokio::sync::oneshot::Sender<Result<(), AdapterError>>,
@@ -69,7 +70,11 @@ impl IndexerTapContext {
         ]
     }
 
-    pub async fn new(pgpool: PgPool, domain_separator: Eip712Domain) -> Self {
+    pub async fn new(
+        pgpool: PgPool,
+        domain_separator: Eip712Domain,
+        domain_separator_v2: Eip712Domain,
+    ) -> Self {
         const MAX_RECEIPT_QUEUE_SIZE: usize = 1000;
         let (tx, rx) = mpsc::channel(MAX_RECEIPT_QUEUE_SIZE);
         let cancelation_token = CancellationToken::new();
@@ -80,6 +85,7 @@ impl IndexerTapContext {
             cancelation_token,
             receipt_producer: tx,
             domain_separator: Arc::new(domain_separator),
+            domain_separator_v2: Arc::new(domain_separator_v2),
         }
     }
 }
