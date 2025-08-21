@@ -17,6 +17,8 @@ use crate::{error::IndexerServiceError, tap::TapReceipt};
 pub struct SenderState {
     /// Used to recover the signer address
     pub domain_separator: Eip712Domain,
+    /// Used to recoer the signer addres for V2 receipts(Horizon)
+    pub domain_separator_v2: Eip712Domain,
     /// Used to get the sender address given the signer address if v1 receipt
     pub escrow_accounts_v1: Option<watch::Receiver<EscrowAccounts>>,
     /// Used to get the sender address given the signer address if v2 receipt
@@ -46,9 +48,9 @@ pub async fn sender_middleware(
     next: Next,
 ) -> Result<Response, IndexerServiceError> {
     if let Some(receipt) = request.extensions().get::<TapReceipt>() {
-        let signer = receipt.recover_signer(&state.domain_separator)?;
         let sender = match receipt {
             TapReceipt::V1(_) => {
+                let signer = receipt.recover_signer(&state.domain_separator)?;
                 if let Some(ref escrow_accounts_v1) = state.escrow_accounts_v1 {
                     escrow_accounts_v1.borrow().get_sender_for_signer(&signer)?
                 } else {
@@ -58,6 +60,7 @@ pub async fn sender_middleware(
                 }
             }
             TapReceipt::V2(_) => {
+                let signer = receipt.recover_signer(&state.domain_separator_v2)?;
                 if let Some(ref escrow_accounts_v2) = state.escrow_accounts_v2 {
                     escrow_accounts_v2.borrow().get_sender_for_signer(&signer)?
                 } else {
@@ -110,6 +113,7 @@ mod tests {
 
         let state = SenderState {
             domain_separator: test_assets::TAP_EIP712_DOMAIN.clone(),
+            domain_separator_v2: test_assets::TAP_EIP712_DOMAIN_V2.clone(),
             escrow_accounts_v1: Some(escrow_accounts_v1),
             escrow_accounts_v2: Some(escrow_accounts_v2),
         };
