@@ -148,7 +148,11 @@ pub struct SenderAllocationState<T: NetworkVersion> {
 
     /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
-    /// Domain separator used for tap
+    /// Domain separator used for tap/horizon
+    /// depending if SenderAllocationState<Legacy> or SenderAllocationState<Horizon>??
+    /// TODO: Double check if we actually need to add an additional domain_sepparator_v2 field
+    /// at first glance it seems like each sender allocation will deal only with one allocation
+    /// type. not both
     domain_separator: Eip712Domain,
     /// Reference to [super::sender_account::SenderAccount] actor
     ///
