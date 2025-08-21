@@ -90,9 +90,19 @@ pub async fn run() -> anyhow::Result<()> {
     let database =
         database::connect(config.database.clone().get_formated_postgres_url().as_ref()).await;
 
+    // FIXME: V1 and V2 domains separator use their own smart contract verifier
+    // We need to add a new additional verifier address for V1, the current in pplace here
+    // is assume to be for horizon
     let domain_separator = tap_eip712_domain(
         config.blockchain.chain_id as u64,
         config.blockchain.receipts_verifier_address,
+        tap_core::TapVersion::V1,
+    );
+
+    let domain_separator_v2 = tap_eip712_domain(
+        config.blockchain.chain_id as u64,
+        config.blockchain.receipts_verifier_address,
+        tap_core::TapVersion::V2,
     );
     let chain_id = config.blockchain.chain_id as u64;
 
@@ -181,6 +191,7 @@ pub async fn run() -> anyhow::Result<()> {
         ServiceRouter::builder()
             .database(database.clone())
             .domain_separator(domain_separator.clone())
+            .domain_separator_v2(domain_separator_v2.clone())
             .graph_node(config.graph_node)
             .http_client(http_client)
             .release(release)
@@ -216,6 +227,7 @@ pub async fn run() -> anyhow::Result<()> {
         ServiceRouter::builder()
             .database(database.clone())
             .domain_separator(domain_separator.clone())
+            .domain_separator_v2(domain_separator_v2.clone())
             .graph_node(config.graph_node)
             .http_client(http_client)
             .release(release)
