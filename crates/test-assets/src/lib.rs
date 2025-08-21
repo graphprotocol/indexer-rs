@@ -372,7 +372,10 @@ pub static TAP_SIGNER: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| 
 });
 
 pub static TAP_EIP712_DOMAIN: LazyLock<Eip712Domain> =
-    LazyLock::new(|| tap_eip712_domain(1, VERIFIER_ADDRESS));
+    LazyLock::new(|| tap_eip712_domain(1, VERIFIER_ADDRESS, tap_core::TapVersion::V1));
+
+pub static TAP_EIP712_DOMAIN_V2: LazyLock<Eip712Domain> =
+    LazyLock::new(|| tap_eip712_domain(1, VERIFIER_ADDRESS, tap_core::TapVersion::V2));
 
 #[derive(bon::Builder)]
 pub struct SignedReceiptRequest {
