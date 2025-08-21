@@ -272,6 +272,9 @@ pub struct SenderAccountArgs {
     pub network_subgraph: &'static SubgraphClient,
     /// Domain separator used for tap
     pub domain_separator: Eip712Domain,
+    // TODO: check if we need this
+    /// Domain separator used for horizon
+    pub domain_separator_v2: Eip712Domain,
     /// Endpoint URL for aggregator server
     pub sender_aggregator_endpoint: Url,
     /// List of allocation ids that must created at startup
@@ -349,6 +352,8 @@ pub struct State {
 
     /// Domain separator used for tap
     domain_separator: Eip712Domain,
+    /// Domain separator used for horizon
+    domain_separator_v2: Eip712Domain,
     /// Database connection
     pgpool: PgPool,
     /// Aggregator client for V1
@@ -483,7 +488,7 @@ impl State {
                     .sender(self.sender)
                     .escrow_accounts(self.escrow_accounts.clone())
                     .escrow_subgraph(self.escrow_subgraph)
-                    .domain_separator(self.domain_separator.clone())
+                    .domain_separator(self.domain_separator_v2.clone())
                     .sender_account_ref(sender_account_ref.clone())
                     .sender_aggregator(self.aggregator_v2.clone())
                     .config(AllocationConfig::from_sender_config(self.config))
@@ -783,6 +788,7 @@ impl Actor for SenderAccount {
             escrow_subgraph,
             network_subgraph,
             domain_separator,
+            domain_separator_v2,
             sender_aggregator_endpoint,
             allocation_ids,
             prefix,
@@ -797,7 +803,7 @@ impl Actor for SenderAccount {
             myself_clone
                 .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
                 .unwrap_or_else(|e| {
-                    tracing::error!("Error while updating allocation_ids: {:?}", e);
+                    tracing::error!(error=?e, "Error while updating allocation_ids");
                 });
             async {}
         });
@@ -1093,6 +1099,7 @@ impl Actor for SenderAccount {
             escrow_subgraph,
             network_subgraph,
             domain_separator,
+            domain_separator_v2,
             pgpool,
             aggregator_v1,
             aggregator_v2,
