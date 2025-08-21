@@ -75,7 +75,7 @@ fund_escrow() {
 
     # Use L2GraphToken from horizon.json for horizon upgrade
     GRAPH_TOKEN=$(jq -r '."1337".L2GraphToken.address' local-network/horizon.json)
-    TAP_ESCROW=$(jq -r '."1337".TAPEscrow.address' local-network/tap-contracts.json)
+    TAP_ESCROW=$(jq -r '."1337".Escrow' local-network/tap-contracts.json)
 
     if [ -z "$GRAPH_TOKEN" ] || [ -z "$TAP_ESCROW" ] || [ "$GRAPH_TOKEN" == "null" ] || [ "$TAP_ESCROW" == "null" ]; then
         echo "Error: Could not read contract addresses from horizon.json or tap-contracts.json"
