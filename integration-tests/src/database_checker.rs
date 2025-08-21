@@ -898,4 +898,195 @@ impl DatabaseChecker {
 
         Ok(())
     }
+
+    /// Diagnostic function to analyze timestamp buffer issues during RAV generation
+    /// This simulates the exact logic used in tap_core's Manager::collect_receipts
+    pub async fn diagnose_timestamp_buffer(
+        &self,
+        payer: &str,
+        identifier: &str, // collection_id for V2, allocation_id for V1
+        buffer_seconds: u64,
+        version: TapVersion,
+    ) -> Result<()> {
+        let normalized_payer = payer.trim_start_matches("0x").to_lowercase();
+
+        // Get current timestamp in nanoseconds (simulating tap_core logic)
+        let current_time_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
+        let buffer_ns = buffer_seconds * 1_000_000_000; // Convert to nanoseconds
+        let max_timestamp_ns = current_time_ns - buffer_ns;
+
+        println!("\n=== TIMESTAMP BUFFER ANALYSIS ===");
+        println!("Current time: {} ns", current_time_ns);
+        println!("Buffer: {} seconds = {} ns", buffer_seconds, buffer_ns);
+        println!("Max eligible timestamp: {} ns", max_timestamp_ns);
+        println!(
+            "Time difference: {:.2} seconds ago",
+            buffer_ns as f64 / 1_000_000_000.0
+        );
+
+        // Get last RAV timestamp to determine min_timestamp_ns
+        let last_rav_timestamp = match version {
+            TapVersion::V2 => {
+                sqlx::query_scalar::<_, Option<BigDecimal>>(
+                    r#"
+                    SELECT MAX(timestamp_ns) 
+                    FROM tap_horizon_ravs 
+                    WHERE collection_id = $1 AND LOWER(payer) = $2
+                    "#,
+                )
+                .bind(identifier)
+                .bind(&normalized_payer)
+                .fetch_one(&self.pool)
+                .await?
+            }
+            TapVersion::V1 => sqlx::query_scalar::<_, Option<BigDecimal>>(
+                r#"
+                    SELECT MAX(timestamp_ns) 
+                    FROM scalar_tap_ravs 
+                    WHERE allocation_id = $1 AND LOWER(sender_address) = $2
+                    "#,
+            )
+            .bind(identifier)
+            .bind(&normalized_payer)
+            .fetch_optional(&self.pool)
+            .await?
+            .flatten(),
+        };
+
+        let min_timestamp_ns = last_rav_timestamp
+            .clone()
+            .map(|ts| ts.to_string().parse::<u64>().unwrap_or(0) + 1)
+            .unwrap_or(0);
+
+        println!("Last RAV timestamp: {:?}", last_rav_timestamp);
+        println!("Min eligible timestamp: {} ns", min_timestamp_ns);
+        println!(
+            "Eligible range: {} to {} ns",
+            min_timestamp_ns, max_timestamp_ns
+        );
+
+        // Analyze receipts in the identifier
+        let receipt_analysis = match version {
+            TapVersion::V2 => {
+                sqlx::query(
+                    r#"
+                    SELECT 
+                        id,
+                        timestamp_ns,
+                        value,
+                        CASE 
+                            WHEN timestamp_ns >= $1 AND timestamp_ns < $2 THEN 'ELIGIBLE'
+                            WHEN timestamp_ns >= $2 THEN 'TOO_RECENT'
+                            ELSE 'TOO_OLD'
+                        END as status
+                    FROM tap_horizon_receipts 
+                    WHERE collection_id = $3 AND LOWER(payer) = $4
+                    ORDER BY timestamp_ns ASC
+                    "#,
+                )
+                .bind(min_timestamp_ns as i64)
+                .bind(max_timestamp_ns as i64)
+                .bind(identifier)
+                .bind(&normalized_payer)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            TapVersion::V1 => {
+                sqlx::query(
+                    r#"
+                    SELECT 
+                        id,
+                        timestamp_ns,
+                        value,
+                        CASE 
+                            WHEN timestamp_ns >= $1 AND timestamp_ns < $2 THEN 'ELIGIBLE'
+                            WHEN timestamp_ns >= $2 THEN 'TOO_RECENT'
+                            ELSE 'TOO_OLD'
+                        END as status
+                    FROM scalar_tap_receipts 
+                    WHERE allocation_id = $3 AND LOWER(signer_address) = $4
+                    ORDER BY timestamp_ns ASC
+                    "#,
+                )
+                .bind(min_timestamp_ns as i64)
+                .bind(max_timestamp_ns as i64)
+                .bind(identifier)
+                .bind(&normalized_payer)
+                .fetch_all(&self.pool)
+                .await?
+            }
+        };
+
+        let mut eligible_count = 0;
+        let mut too_recent_count = 0;
+        let mut too_old_count = 0;
+        let mut eligible_value = BigDecimal::from_str("0").unwrap();
+        let mut too_recent_value = BigDecimal::from_str("0").unwrap();
+
+        println!("\n📋 RECEIPT ANALYSIS:");
+        for row in &receipt_analysis {
+            let id: i64 = row.get("id");
+            let timestamp_ns: BigDecimal = row.get("timestamp_ns");
+            let value: BigDecimal = row.get("value");
+            let status: String = row.get("status");
+
+            let timestamp_u64 = timestamp_ns.to_string().parse::<u64>().unwrap_or(0);
+            let age_seconds = (current_time_ns - timestamp_u64) as f64 / 1_000_000_000.0;
+
+            match status.as_str() {
+                "ELIGIBLE" => {
+                    eligible_count += 1;
+                    eligible_value += &value;
+                }
+                "TOO_RECENT" => {
+                    too_recent_count += 1;
+                    too_recent_value += &value;
+                }
+                "TOO_OLD" => {
+                    too_old_count += 1;
+                }
+                _ => {}
+            }
+
+            println!(
+                "   Receipt {}: {} wei, {:.2}s ago [{}]",
+                id, value, age_seconds, status
+            );
+        }
+
+        println!("\n📊 SUMMARY:");
+        println!(
+            "   ELIGIBLE for RAV: {} receipts, {} wei",
+            eligible_count, eligible_value
+        );
+        println!(
+            "   TOO RECENT (in buffer): {} receipts, {} wei",
+            too_recent_count, too_recent_value
+        );
+        println!("   TOO OLD (before last RAV): {} receipts", too_old_count);
+
+        if eligible_count == 0 && too_recent_count > 0 {
+            println!("\n⚠️  DIAGNOSIS: All receipts are too recent (within buffer)");
+            println!(
+                "   💡 SOLUTION: Wait {} more seconds for receipts to exit buffer",
+                buffer_seconds
+            );
+        } else if eligible_count == 0 && too_old_count > 0 {
+            println!("\n⚠️  DIAGNOSIS: All receipts are too old (already covered by RAV)");
+            println!("   💡 SOLUTION: Send new receipts after the last RAV timestamp");
+        } else if eligible_count > 0 {
+            println!(
+                "\n✅ DIAGNOSIS: {} receipts are eligible for RAV generation",
+                eligible_count
+            );
+        } else {
+            println!("\n❓ DIAGNOSIS: No receipts found for this identifier");
+        }
+
+        Ok(())
+    }
 }
