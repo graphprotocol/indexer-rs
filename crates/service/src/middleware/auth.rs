@@ -7,6 +7,7 @@ mod tap;
 
 pub use bearer::Bearer;
 pub use or::OrExt;
+pub use tap::dual_tap_receipt_authorize;
 pub use tap::tap_receipt_authorize;
 
 #[cfg(test)]
@@ -22,6 +23,7 @@ mod tests {
     use tap_core::{manager::Manager, receipt::checks::CheckList};
     use test_assets::{
         assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
+        TAP_EIP712_DOMAIN_V2,
     };
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
@@ -36,7 +38,12 @@ mod tests {
     async fn service(
         pgpool: PgPool,
     ) -> impl Service<Request<Body>, Response = Response<Body>, Error = impl std::fmt::Debug> {
-        let context = IndexerTapContext::new(pgpool.clone(), TAP_EIP712_DOMAIN.clone()).await;
+        let context = IndexerTapContext::new(
+            pgpool.clone(),
+            TAP_EIP712_DOMAIN.clone(),
+            TAP_EIP712_DOMAIN_V2.clone(),
+        )
+        .await;
         let tap_manager = Arc::new(Manager::new(
             TAP_EIP712_DOMAIN.clone(),
             context,
