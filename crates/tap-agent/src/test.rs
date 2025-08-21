@@ -56,7 +56,9 @@ use crate::{
 pub static SENDER_2: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wallet(1));
 pub static INDEXER: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wallet(3));
 pub static TAP_EIP712_DOMAIN_SEPARATOR: LazyLock<Eip712Domain> =
-    LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20])));
+    LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20]), tap_core::TapVersion::V1));
+pub static TAP_EIP712_DOMAIN_SEPARATOR_V2: LazyLock<Eip712Domain> =
+    LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20]), tap_core::TapVersion::V2));
 
 pub const TRIGGER_VALUE: u128 = 500;
 pub const RECEIPT_LIMIT: u64 = 10000;
@@ -173,6 +175,7 @@ pub async fn create_sender_account(
         escrow_subgraph,
         network_subgraph,
         domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+        domain_separator_v2: TAP_EIP712_DOMAIN_SEPARATOR_V2.clone(),
         sender_aggregator_endpoint: aggregator_url,
         allocation_ids: HashSet::new(),
         prefix: Some(prefix.clone()),
@@ -241,6 +244,7 @@ pub async fn create_sender_accounts_manager(
     let args = SenderAccountsManagerArgs {
         config,
         domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+        domain_separator_v2: TAP_EIP712_DOMAIN_SEPARATOR_V2.clone(),
         pgpool,
         indexer_allocations: allocations_rx,
         escrow_accounts_v1: escrow_accounts_rx,
