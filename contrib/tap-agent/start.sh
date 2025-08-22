@@ -11,8 +11,13 @@ cat /opt/.env
 
 # Extract GraphTallyCollector address from horizon.json
 stdbuf -oL echo "🔍 DEBUG: Extracting GraphTallyCollector address from horizon.json..."
+
 GRAPH_TALLY_VERIFIER=$(jq -r '."1337".GraphTallyCollector.address' /opt/horizon.json)
 stdbuf -oL echo "🔍 DEBUG: GraphTallyCollector address: $GRAPH_TALLY_VERIFIER"
+
+stdbuf -oL echo "🔍 DEBUG: Extracting TAP address from contracts.json..."
+TAP_VERIFIER=$(jq -r '."1337".TAPVerifier' /opt/contracts.json)
+stdbuf -oL echo "🔍 DEBUG: TAPVerifier address: $TAP_VERIFIER"
 
 # Override with test values taken from test-assets/src/lib.rs
 ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
@@ -120,7 +125,8 @@ syncing_interval_secs = 30
 
 [blockchain]
 chain_id = 1337
-receipts_verifier_address = "${GRAPH_TALLY_VERIFIER}"
+receipts_verifier_address = "${TAP_VERIFIER}"
+receipts_verifier_address_v2 = "${GRAPH_TALLY_VERIFIER}"
 
 [service]
 host_and_port = "0.0.0.0:${INDEXER_SERVICE}"
