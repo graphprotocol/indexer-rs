@@ -25,6 +25,8 @@ syncing_interval_secs = 5
 [blockchain]
 chain_id = 1337
 receipts_verifier_address = "VERIFIER_ADDRESS_PLACEHOLDER"
+# Optional: V2 (Horizon) verifier address. If not specified, uses receipts_verifier_address for both V1 and V2.
+# receipts_verifier_address_v2 = "VERIFIER_V2_ADDRESS_PLACEHOLDER"
 
 [service]
 host_and_port = "0.0.0.0:7601"
