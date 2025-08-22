@@ -91,6 +91,7 @@ async fn full_integration_test() {
         .blockchain(BlockchainConfig {
             chain_id: indexer_config::TheGraphChainId::Test,
             receipts_verifier_address: test_assets::VERIFIER_ADDRESS,
+            receipts_verifier_address_v2: None,
         })
         .timestamp_buffer_secs(Duration::from_secs(10))
         .escrow_accounts_v1(escrow_accounts.clone())

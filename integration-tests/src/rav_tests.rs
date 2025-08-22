@@ -26,9 +26,8 @@ use crate::{
     },
     MetricsChecker,
 };
-use bigdecimal::ToPrimitive;
 
-use crate::database_checker::{DatabaseChecker, TapState, TapVersion};
+use crate::database_checker::{DatabaseChecker, TapVersion};
 
 const WAIT_TIME_BATCHES: u64 = 40;
 const NUM_RECEIPTS: u32 = 30; // Increased to 30 receipts per batch
