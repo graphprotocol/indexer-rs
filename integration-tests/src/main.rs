@@ -13,9 +13,7 @@ use anyhow::Result;
 use clap::Parser;
 use load_test::{receipt_handler_load_test, receipt_handler_load_test_v2};
 use metrics::MetricsChecker;
-pub(crate) use rav_tests::{
-    test_direct_service_rav_v2, test_invalid_chain_id, test_tap_rav_v1, test_tap_rav_v2,
-};
+pub(crate) use rav_tests::{test_invalid_chain_id, test_tap_rav_v1, test_tap_rav_v2};
 
 /// Main CLI parser structure
 #[derive(Parser, Debug)]
