@@ -1,3 +1,6 @@
+// Copyright 2025-, Edge & Node, GraphOps, and Semiotic Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 use anyhow::Result;
 use bigdecimal::BigDecimal;
 use sqlx::{PgPool, Row};
