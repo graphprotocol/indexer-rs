@@ -353,6 +353,10 @@ pub enum TheGraphChainId {
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
     pub receipts_verifier_address: Address,
+    /// Verifier address for V2 receipts(Horizon)
+    /// after transition period this will be the only address used
+    /// to verify receipts
+    pub receipts_verifier_address_v2: Option<Address>,
 }
 
 #[derive(Debug, Deserialize)]
