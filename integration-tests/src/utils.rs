@@ -22,12 +22,11 @@ use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::Receipt;
 use thegraph_core::alloy::{
     primitives::{Address, U256},
-    signers::local::{coins_bip39::English, LocalSignerError, MnemonicBuilder, PrivateKeySigner},
-    sol_types::eip712_domain,
+    signers::local::PrivateKeySigner,
 };
-use thegraph_core::{CollectionId, DeploymentId, IndexerId};
+use thegraph_core::CollectionId;
 
-use crate::constants::{GRAPH_TALLY_COLLECTOR_CONTRACT, TEST_DATA_SERVICE, V2_DOMAIN_NAME};
+use crate::constants::{GRAPH_TALLY_COLLECTOR_CONTRACT, TEST_DATA_SERVICE};
 
 pub fn create_tap_receipt(
     value: u128,
@@ -179,18 +178,6 @@ pub async fn find_allocation(http_client: Arc<Client>, url: &str) -> Result<Stri
         .ok_or_else(|| anyhow::anyhow!("No valid allocation ID found"))
 }
 
-/// Build wallet from Private key or Mnemonic (same as in crates/service/src/wallet.rs)
-pub fn build_wallet(value: &str) -> Result<PrivateKeySigner, LocalSignerError> {
-    value
-        .parse::<PrivateKeySigner>()
-        .or(MnemonicBuilder::<English>::default().phrase(value).build())
-}
-
-/// Create a gateway-compatible signer from mnemonic
-pub fn create_gateway_signer(mnemonic: &str) -> Result<PrivateKeySigner> {
-    build_wallet(mnemonic).map_err(|e| anyhow::anyhow!("Failed to create gateway signer: {}", e))
-}
-
 /// Gateway-style Receipt Signer (similar to gateway_palaver's ReceiptSigner)
 pub struct GatewayReceiptSigner {
     signer: PrivateKeySigner,
@@ -202,7 +189,7 @@ impl GatewayReceiptSigner {
     pub fn new(signer: PrivateKeySigner, chain_id: U256, verifying_contract: Address) -> Self {
         Self {
             signer,
-            chain_id: chain_id.as_limbs()[0] as u64,
+            chain_id: chain_id.as_limbs()[0],
             verifying_contract,
         }
     }
@@ -363,6 +350,7 @@ impl KafkaReporter {
 }
 
 /// Helper to create a ClientQueryProtobuf for reporting receipt data to Kafka
+#[allow(clippy::too_many_arguments)]
 pub fn create_client_query_report(
     query_id: String,
     receipt_signer: Address,

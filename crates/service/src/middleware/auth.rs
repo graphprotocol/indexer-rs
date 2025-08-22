@@ -8,7 +8,6 @@ mod tap;
 pub use bearer::Bearer;
 pub use or::OrExt;
 pub use tap::dual_tap_receipt_authorize;
-pub use tap::tap_receipt_authorize;
 
 #[cfg(test)]
 mod tests {
@@ -28,8 +27,9 @@ mod tests {
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
+    use crate::middleware::auth::tap::tap_receipt_authorize;
     use crate::{
-        middleware::auth::{self, Bearer, OrExt},
+        middleware::auth::{Bearer, OrExt},
         tap::{IndexerTapContext, TapReceipt},
     };
 
@@ -61,7 +61,7 @@ mod tests {
             .unwrap(),
         ));
         let free_query = Bearer::new(BEARER_TOKEN);
-        let tap_auth = auth::tap_receipt_authorize(tap_manager, metric);
+        let tap_auth = tap_receipt_authorize(tap_manager, metric);
         let authorize_requests = free_query.or(tap_auth);
 
         let authorization_middleware = AsyncRequireAuthorizationLayer::new(authorize_requests);
