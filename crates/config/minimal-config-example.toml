@@ -54,6 +54,8 @@ deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 chain_id = 1337
 # Contract address of TAP's receipt aggregate voucher (RAV) verifier.
 receipts_verifier_address = "0x2222222222222222222222222222222222222222"
+# Optional: Contract address of TAP V2 (Horizon) receipt verifier. If not specified, uses receipts_verifier_address for both V1 and V2.
+# receipts_verifier_address_v2 = "0x3333333333333333333333333333333333333333"
 
 ########################################
 # Specific configurations to tap-agent #
