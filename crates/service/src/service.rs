@@ -102,10 +102,14 @@ pub async fn run() -> anyhow::Result<()> {
     let domain_separator_v2 = tap_eip712_domain(
         config.blockchain.chain_id as u64,
         if config.horizon.enabled {
-            config.blockchain.receipts_verifier_address_v2
+            config
+                .blockchain
+                .receipts_verifier_address_v2
                 .expect("receipts_verifier_address_v2 is required when Horizon is enabled")
         } else {
-            config.blockchain.receipts_verifier_address_v2
+            config
+                .blockchain
+                .receipts_verifier_address_v2
                 .unwrap_or(config.blockchain.receipts_verifier_address)
         },
         tap_core::TapVersion::V2,
