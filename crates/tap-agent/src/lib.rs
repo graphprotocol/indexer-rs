@@ -34,7 +34,13 @@ pub static EIP_712_DOMAIN: LazyLock<Eip712Domain> = LazyLock::new(|| {
 pub static EIP_712_DOMAIN_V2: LazyLock<Eip712Domain> = LazyLock::new(|| {
     tap_eip712_domain(
         CONFIG.blockchain.chain_id as u64,
-        CONFIG.blockchain.receipts_verifier_address,
+        if CONFIG.horizon.enabled {
+            CONFIG.blockchain.receipts_verifier_address_v2
+                .expect("receipts_verifier_address_v2 is required when Horizon is enabled")
+        } else {
+            CONFIG.blockchain.receipts_verifier_address_v2
+                .unwrap_or(CONFIG.blockchain.receipts_verifier_address)
+        },
         tap_core::TapVersion::V2,
     )
 });
