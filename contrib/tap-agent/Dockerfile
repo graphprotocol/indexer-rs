@@ -21,10 +21,10 @@ RUN mkdir -p /opt/profiling && chmod 777 /opt/profiling
 
 # Copy our start script into the image
 COPY contrib/tap-agent/start.sh /usr/local/bin/start.sh
-COPY contrib/tap-agent/config.toml /opt/config/config.toml
 
 # Copy the horizon.json and .env files
 COPY contrib/local-network/horizon.json /opt/horizon.json
+COPY contrib/local-network/tap-contracts.json /opt/contracts.json
 COPY contrib/local-network/.env /opt/.env
 RUN chmod +x /usr/local/bin/start.sh
 

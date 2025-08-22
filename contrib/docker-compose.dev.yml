@@ -9,7 +9,6 @@ services:
       - ./local-network/horizon.json:/opt/horizon.json:ro
       - ./local-network/.env:/opt/.env:ro
       - ./profiling:/opt/profiling:rw
-      # - ./indexer-service/config.toml:/opt/config/config.toml
       - ./indexer-service/start.sh:/usr/local/bin/start.sh
       - ../migrations:/opt/migrations:ro
       - ../target/release/indexer-service-rs:/usr/local/bin/indexer-service-rs
@@ -35,12 +34,11 @@ services:
       - seccomp:unconfined
 
   tap-agent:
-    image: indexer-base:latest # Pre-built base image with dependencies
+    image: indexer-base:latest
     container_name: tap-agent
     volumes:
       - ../target/release/indexer-tap-agent:/usr/local/bin/indexer-tap-agent
       - ./tap-agent/start.sh:/usr/local/bin/start.sh
-      # - ./tap-agent:/opt/config:ro
       - ./profiling:/opt/profiling:rw
       - ./local-network/.env:/opt/.env:ro
       - ./local-network/tap-contracts.json:/opt/contracts.json:ro
