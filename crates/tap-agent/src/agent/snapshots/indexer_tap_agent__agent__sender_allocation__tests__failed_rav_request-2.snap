@@ -14,7 +14,7 @@ UpdateReceiptFees(
         },
         Err(
             Other(
-                "It looks like there are no valid receipts for the RAV request.This may happen if your `rav_request_trigger_value` is too low and no receipts were found outside the `rav_request_timestamp_buffer_ms`.You can fix this by increasing the `rav_request_trigger_value`.",
+                "It looks like there are no valid receipts for the RAV request from table: scalar_tap_receipts (V1/Legacy).This may happen if your `rav_request_trigger_value` is too low and no receipts were found outside the `rav_request_timestamp_buffer_ms`.You can fix this by increasing the `rav_request_trigger_value`.\nDuring Horizon migration: Verify receipts are in the correct table for this allocation type.",
             ),
         ),
     ),
