@@ -1733,11 +1733,11 @@ dependencies = [
 
 [[package]]
 name = "bon"
-version = "3.7.0"
+version = "3.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67a0c21249ad725ebcadcb1b1885f8e3d56e8e6b8924f560268aab000982d637"
+checksum = "537c317ddf588aab15c695bf92cf55dec159b93221c074180ca3e0e5a94da415"
 dependencies = [
- "bon-macros 3.7.0",
+ "bon-macros 3.7.1",
  "rustversion",
 ]
 
@@ -1756,9 +1756,9 @@ dependencies = [
 
 [[package]]
 name = "bon-macros"
-version = "3.7.0"
+version = "3.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a660ebdea4d4d3ec7788cfc9c035b66efb66028b9b97bf6cde7023ccc8e77e28"
+checksum = "ca5abbf2d4a4c6896197c9de13d6d7cb7eff438c63dacde1dde980569cb00248"
 dependencies = [
  "darling 0.21.2",
  "ident_case",
@@ -4150,7 +4150,7 @@ dependencies = [
  "base64 0.22.1",
  "bigdecimal",
  "bip39",
- "bon 3.7.0",
+ "bon 3.7.1",
  "build-info",
  "build-info-build",
  "clap",
@@ -4210,7 +4210,7 @@ dependencies = [
  "async-trait",
  "axum",
  "bigdecimal",
- "bon 3.7.0",
+ "bon 3.7.1",
  "clap",
  "educe",
  "futures",
@@ -8279,7 +8279,7 @@ name = "test-assets"
 version = "0.1.0"
 dependencies = [
  "bip39",
- "bon 3.7.0",
+ "bon 3.7.1",
  "indexer-allocation",
  "rstest",
  "sqlx",
