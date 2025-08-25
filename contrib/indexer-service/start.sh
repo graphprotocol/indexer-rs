@@ -13,7 +13,7 @@ stdbuf -oL echo "🔍 DEBUG: Extracting GraphTallyCollector address from horizon
 GRAPH_TALLY_VERIFIER=$(jq -r '."1337".GraphTallyCollector.address' /opt/horizon.json)
 stdbuf -oL echo "🔍 DEBUG: GraphTallyCollector address: $GRAPH_TALLY_VERIFIER"
 
-TAP_VERIFIER=$(jq -r '."1337".TAPVerifier' /opt/contracts.json)
+TAP_VERIFIER=$(jq -r '."1337".TAPVerifier.address' /opt/contracts.json)
 stdbuf -oL echo "🔍 DEBUG: TAPVerifier address: $TAP_VERIFIER"
 
 # Override with test values taken from test-assets/src/lib.rs
