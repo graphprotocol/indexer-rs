@@ -16,7 +16,15 @@ get_contract_address() {
         echo "Error: File $file not found"
         exit 1
     fi
-    local address=$(jq -r ".\"1337\".$contract.address" "$file")
+    
+    # Try to get address directly first (tap-contracts.json format)
+    local address=$(jq -r ".\"1337\".$contract" "$file" 2>/dev/null)
+    
+    # If that gives us an object, try to get the .address field (horizon.json format)
+    if [[ "$address" =~ ^\{ ]]; then
+        address=$(jq -r ".\"1337\".$contract.address" "$file" 2>/dev/null)
+    fi
+    
     if [ "$address" == "null" ] || [ -z "$address" ]; then
         echo "Error: Could not find $contract address in $file"
         exit 1
@@ -34,7 +42,7 @@ fi
 
 # Get contract addresses - Updated paths to local-network directory
 GRAPH_TOKEN=$(get_contract_address "../contrib/local-network/horizon.json" "L2GraphToken")
-TAP_ESCROW_V1=$(get_contract_address "../contrib/local-network/tap-contracts.json" "TAPEscrow")
+TAP_ESCROW_V1=$(get_contract_address "../contrib/local-network/tap-contracts.json" "Escrow")
 PAYMENTS_ESCROW_V2=$(get_contract_address "../contrib/local-network/horizon.json" "PaymentsEscrow")
 GRAPH_TALLY_COLLECTOR_V2=$(get_contract_address "../contrib/local-network/horizon.json" "GraphTallyCollector")
 
@@ -227,4 +235,3 @@ echo "Note: V2 escrow balance can be verified via the TAP V2 subgraph"
 
 echo ""
 echo "✅ Successfully funded both V1 and V2 escrows!"
-

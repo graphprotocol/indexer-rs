@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod constants;
+mod database_checker;
 mod load_test;
 mod metrics;
 mod rav_tests;
@@ -26,6 +27,9 @@ struct Cli {
 enum Commands {
     Rav1,
     Rav2,
+
+    #[clap(name = "direct-service")]
+    DirectService,
 
     #[clap(name = "load")]
     LoadService {
@@ -58,6 +62,13 @@ async fn main() -> Result<()> {
         // cargo run -- rav2
         Commands::Rav2 => {
             test_tap_rav_v2().await?;
+        }
+        Commands::DirectService => {
+            use crate::rav_tests::test_direct_service_rav_v2_simplified;
+
+            // test_direct_service_rav_v2().await?;
+            test_direct_service_rav_v2_simplified().await?;
+            // test_direct_service_rav_v2_config_aligned().await?;
         }
         // cargo run -- load --num-receipts 1000
         Commands::LoadService { num_receipts } => {

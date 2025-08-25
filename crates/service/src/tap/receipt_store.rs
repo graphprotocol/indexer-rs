@@ -258,7 +258,11 @@ impl ReceiptStore<TapReceipt> for IndexerTapContext {
     type AdapterError = AdapterError;
 
     async fn store_receipt(&self, receipt: CheckingReceipt) -> Result<u64, Self::AdapterError> {
-        let db_receipt = DatabaseReceipt::from_receipt(receipt, &self.domain_separator)?;
+        let separator = match receipt.signed_receipt() {
+            TapReceipt::V1(_) => &self.domain_separator,
+            TapReceipt::V2(_) => &self.domain_separator_v2,
+        };
+        let db_receipt = DatabaseReceipt::from_receipt(receipt, separator)?;
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
         self.receipt_producer
             .send((db_receipt, result_tx))
@@ -386,7 +390,7 @@ mod tests {
     use sqlx::migrate::{MigrationSource, Migrator};
     use test_assets::{
         create_signed_receipt, create_signed_receipt_v2, SignedReceiptRequest, INDEXER_ALLOCATIONS,
-        TAP_EIP712_DOMAIN,
+        TAP_EIP712_DOMAIN, TAP_EIP712_DOMAIN_V2,
     };
 
     use crate::tap::{
@@ -411,7 +415,7 @@ mod tests {
 
     async fn create_v2() -> DatabaseReceipt {
         let v2 = create_signed_receipt_v2().call().await;
-        DatabaseReceipt::V2(DbReceiptV2::from_receipt(&v2, &TAP_EIP712_DOMAIN).unwrap())
+        DatabaseReceipt::V2(DbReceiptV2::from_receipt(&v2, &TAP_EIP712_DOMAIN_V2).unwrap())
     }
 
     pub type VecReceiptTx = Vec<(

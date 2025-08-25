@@ -13,6 +13,9 @@ stdbuf -oL echo "🔍 DEBUG: Extracting GraphTallyCollector address from horizon
 GRAPH_TALLY_VERIFIER=$(jq -r '."1337".GraphTallyCollector.address' /opt/horizon.json)
 stdbuf -oL echo "🔍 DEBUG: GraphTallyCollector address: $GRAPH_TALLY_VERIFIER"
 
+TAP_VERIFIER=$(jq -r '."1337".TAPVerifier.address' /opt/contracts.json)
+stdbuf -oL echo "🔍 DEBUG: TAPVerifier address: $TAP_VERIFIER"
+
 # Override with test values taken from test-assets/src/lib.rs
 ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
 
@@ -65,7 +68,8 @@ syncing_interval_secs = 30
 
 [blockchain]
 chain_id = 1337
-receipts_verifier_address = "${GRAPH_TALLY_VERIFIER}"
+receipts_verifier_address = "${TAP_VERIFIER}"
+receipts_verifier_address_v2 ="${GRAPH_TALLY_VERIFIER}" 
 
 [service]
 free_query_auth_token = "freestuff"
@@ -74,14 +78,28 @@ url_prefix = "/"
 serve_network_subgraph = false
 serve_escrow_subgraph = false
 
+
+[service.tap]
+max_receipt_value_grt = "0.001"
+
 [tap]
 max_amount_willing_to_lose_grt = 1000
 
 [tap.rav_request]
-timestamp_buffer_secs = 1000
+# Set a lower timestamp buffer threshold
+timestamp_buffer_secs = 30
+
+# The trigger value divisor is used to calculate the trigger value for the RAV request.
+# using the formula:
+# trigger_value = max_amount_willing_to_lose_grt / trigger_value_divisor
+# where the default value for max_amount_willing_to_lose_grt is 1000
+# the idea to set this for trigger_value to be 0.002
+# requiring the sender to send at least 20 receipts of 0.0001 grt
+trigger_value_divisor = 500_000
+
 
 [tap.sender_aggregator_endpoints]
-${ACCOUNT0_ADDRESS} = "http://tap-aggregator:8080"
+${ACCOUNT0_ADDRESS} = "http://tap-aggregator:${TAP_AGGREGATOR}"
 
 [horizon]
 # Enable Horizon migration support and detection

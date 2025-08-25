@@ -148,7 +148,11 @@ pub struct SenderAllocationState<T: NetworkVersion> {
 
     /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
-    /// Domain separator used for tap
+    /// Domain separator used for tap/horizon
+    /// depending if SenderAllocationState<Legacy> or SenderAllocationState<Horizon>??
+    /// TODO: Double check if we actually need to add an additional domain_sepparator_v2 field
+    /// at first glance it seems like each sender allocation will deal only with one allocation
+    /// type. not both
     domain_separator: Eip712Domain,
     /// Reference to [super::sender_account::SenderAccount] actor
     ///
@@ -667,13 +671,22 @@ where
                 }
                 Ok(signed_rav)
             }
-            (Err(AggregationError::NoValidReceiptsForRavRequest), true, true) => Err(anyhow!(
-                "It looks like there are no valid receipts for the RAV request.\
-                This may happen if your `rav_request_trigger_value` is too low \
-                and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
-                You can fix this by increasing the `rav_request_trigger_value`."
-            )
-            .into()),
+            (Err(AggregationError::NoValidReceiptsForRavRequest), true, true) => {
+                let table_name = match std::any::type_name::<T>() {
+                    name if name.contains("Legacy") => "scalar_tap_receipts (V1/Legacy)",
+                    name if name.contains("Horizon") => "tap_horizon_receipts (V2/Horizon)",
+                    _ => "unknown receipt table",
+                };
+
+                Err(anyhow!(
+                    "It looks like there are no valid receipts for the RAV request from table: {}.\
+                    This may happen if your `rav_request_trigger_value` is too low \
+                    and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
+                    You can fix this by increasing the `rav_request_trigger_value`.\
+                    \nDuring Horizon migration: Verify receipts are in the correct table for this allocation type.",
+                    table_name
+                ).into())
+            }
             (Err(e), ..) => Err(e.into()),
         }
     }
