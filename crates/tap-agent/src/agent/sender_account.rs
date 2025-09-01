@@ -412,6 +412,9 @@ pub struct SenderAccountConfig {
 
     #[doc(hidden)]
     pub horizon_enabled: bool,
+
+    /// SubgraphService address used for Horizon (V2) receipts
+    pub subgraph_service_address: Address,
 }
 
 impl SenderAccountConfig {
@@ -428,6 +431,10 @@ impl SenderAccountConfig {
             tap_sender_timeout: config.tap.sender_timeout_secs,
             trusted_senders: config.tap.trusted_senders.clone(),
             horizon_enabled: config.horizon.enabled,
+            subgraph_service_address: config
+                .horizon
+                .subgraph_service_address
+                .unwrap_or(config.indexer.indexer_address),
         }
     }
 }
