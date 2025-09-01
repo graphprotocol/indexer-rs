@@ -180,4 +180,6 @@ hardhat = "100"
 #   - If Horizon contracts detected: Hybrid migration mode (new V2 receipts only, process existing V1 receipts)
 #   - If Horizon contracts not detected: Remain in legacy mode (V1 receipts only)
 # When disabled: Pure legacy mode, no Horizon detection performed
-enabled = true
+enabled = false
+# Required if horizon.enabled = true
+# subgraph_service_address = "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9";
