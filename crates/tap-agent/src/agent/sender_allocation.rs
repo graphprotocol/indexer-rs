@@ -181,6 +181,8 @@ pub struct AllocationConfig {
     pub indexer_address: Address,
     /// Polling interval for escrow subgraph
     pub escrow_polling_interval: Duration,
+    /// SubgraphService address for Horizon (V2)
+    pub subgraph_service_address: Address,
 }
 
 impl AllocationConfig {
@@ -191,6 +193,7 @@ impl AllocationConfig {
             rav_request_receipt_limit: config.rav_request_receipt_limit,
             indexer_address: config.indexer_address,
             escrow_polling_interval: config.escrow_polling_interval,
+            subgraph_service_address: config.subgraph_service_address,
         }
     }
 }
@@ -484,6 +487,7 @@ where
             .pgpool(pgpool.clone())
             .allocation_id(T::allocation_id_to_address(&allocation_id))
             .indexer_address(config.indexer_address)
+            .subgraph_service_address(config.subgraph_service_address)
             .sender(sender)
             .escrow_accounts(escrow_accounts.clone())
             .build();
