@@ -42,7 +42,7 @@ fi
 
 # Get contract addresses - Updated paths to local-network directory
 GRAPH_TOKEN=$(get_contract_address "../contrib/local-network/horizon.json" "L2GraphToken")
-TAP_ESCROW_V1=$(get_contract_address "../contrib/local-network/tap-contracts.json" "TAPEscrow")
+TAP_ESCROW_V1=$(get_contract_address "../contrib/local-network/tap-contracts.json" "Escrow")
 PAYMENTS_ESCROW_V2=$(get_contract_address "../contrib/local-network/horizon.json" "PaymentsEscrow")
 GRAPH_TALLY_COLLECTOR_V2=$(get_contract_address "../contrib/local-network/horizon.json" "GraphTallyCollector")
 
@@ -138,100 +138,99 @@ ALLOCATION_QUERY_RESULT=$(curl -s -X POST http://localhost:8000/subgraphs/name/g
     -H "Content-Type: application/json" \
     -d '{"query": "{ allocations(where: { status: Active }) { id indexer { id } subgraphDeployment { id } } }"}')
 
-# Extract allocation ID from the JSON response
-CURRENT_ALLOCATION_ID=$(echo "$ALLOCATION_QUERY_RESULT" | jq -r '.data.allocations[0].id')
+# Extract all allocation IDs
+ALL_ALLOCATION_IDS=$(echo "$ALLOCATION_QUERY_RESULT" | jq -r '.data.allocations[].id')
 
-if [ "$CURRENT_ALLOCATION_ID" == "null" ] || [ -z "$CURRENT_ALLOCATION_ID" ]; then
-    echo "❌ Failed to find current allocation ID from network subgraph"
-    echo "Response: $ALLOCATION_QUERY_RESULT"
-    exit 1
-fi
+# Loop through each allocation and fund it
+for ALLOCATION_ID in $ALL_ALLOCATION_IDS; do
+    # echo "Funding allocation: $ALLOCATION_ID"
+    echo "✅ Funding allocation ID: $ALLOCATION_ID"
+    # For V2, we need to specify payer, collector, and receiver
+    # Payer is the test account, collector is the allocation ID, receiver is the indexer
+    PAYER=$SENDER_ADDRESS
+    COLLECTOR=$ALLOCATION_ID
+    RECEIVER="0xf4EF6650E48d099a4972ea5B414daB86e1998Bd3" # This must be the indexer address
 
-echo "✅ Found current allocation ID: $CURRENT_ALLOCATION_ID"
+    # Check current V2 escrow balance before funding
+    echo "Checking current V2 escrow balance..."
+    echo "  Payer: $PAYER"
+    echo "  Collector: $COLLECTOR"
+    echo "  Receiver: $RECEIVER"
 
-# For V2, we need to specify payer, collector, and receiver
-# Payer is the test account, collector is the allocation ID, receiver is the indexer
-PAYER=$SENDER_ADDRESS
-COLLECTOR=$CURRENT_ALLOCATION_ID
-RECEIVER="0xf4EF6650E48d099a4972ea5B414daB86e1998Bd3" # This must be the indexer address
+    # Try to get balance - V2 might use a different function name
+    CURRENT_BALANCE_V2="0"
+    echo "Current V2 escrow balance: $CURRENT_BALANCE_V2 (assuming 0 for new escrow)"
 
-# Check current V2 escrow balance before funding
-echo "Checking current V2 escrow balance..."
-echo "  Payer: $PAYER"
-echo "  Collector: $COLLECTOR"
-echo "  Receiver: $RECEIVER"
-
-# Try to get balance - V2 might use a different function name
-CURRENT_BALANCE_V2="0"
-echo "Current V2 escrow balance: $CURRENT_BALANCE_V2 (assuming 0 for new escrow)"
-
-# Approve GRT for V2 escrow
-echo "Approving GRT for V2 escrow..."
-docker exec chain cast send \
-    --rpc-url http://localhost:8545 \
-    --private-key $SENDER_KEY \
-    --confirmations 1 \
-    $GRAPH_TOKEN "approve(address,uint256)" $PAYMENTS_ESCROW_V2 $AMOUNT
-
-# For V2, we also need to authorize the signer
-echo "Authorizing signer for V2..."
-# Create authorization proof: payer authorizes signer (same address in test)
-PROOF_DEADLINE=$(($(date +%s) + 3600)) # 1 hour from now
-echo "Creating authorization proof with deadline: $PROOF_DEADLINE"
-
-# Create the message to sign according to _verifyAuthorizationProof
-# abi.encodePacked(chainId, contractAddress, "authorizeSignerProof", deadline, authorizer)
-CHAIN_ID_HEX=$(printf "%064x" 1337)                   # uint256: 32 bytes
-CONTRACT_HEX=${GRAPH_TALLY_COLLECTOR_V2:2}            # address: 20 bytes (remove 0x)
-DOMAIN_HEX=$(echo -n "authorizeSignerProof" | xxd -p) # string: no length prefix
-DEADLINE_HEX=$(printf "%064x" $PROOF_DEADLINE)        # uint256: 32 bytes
-AUTHORIZER_HEX=${SENDER_ADDRESS:2}                    # address: 20 bytes (remove 0x)
-
-MESSAGE_DATA="${CHAIN_ID_HEX}${CONTRACT_HEX}${DOMAIN_HEX}${DEADLINE_HEX}${AUTHORIZER_HEX}"
-MESSAGE_HASH=$(docker exec chain cast keccak "0x$MESSAGE_DATA")
-
-# Sign the message with the signer's private key
-PROOF=$(docker exec chain cast wallet sign --private-key $SENDER_KEY "$MESSAGE_HASH")
-
-echo "Calling authorizeSigner with proof..."
-docker exec chain cast send \
-    --rpc-url http://localhost:8545 \
-    --private-key $SENDER_KEY \
-    --confirmations 1 \
-    $GRAPH_TALLY_COLLECTOR_V2 "authorizeSigner(address,uint256,bytes)" $SENDER_ADDRESS $PROOF_DEADLINE $PROOF 2>/dev/null || {
-    echo "⚠️  Signer authorization failed (likely already authorized)"
-    echo "Checking if signer is already authorized..."
-    IS_AUTHORIZED=$(docker exec chain cast call \
+    # Approve GRT for V2 escrow
+    echo "Approving GRT for V2 escrow..."
+    docker exec chain cast send \
         --rpc-url http://localhost:8545 \
-        $GRAPH_TALLY_COLLECTOR_V2 "isAuthorized(address,address)(bool)" $SENDER_ADDRESS $SENDER_ADDRESS)
-    if [ "$IS_AUTHORIZED" = "true" ]; then
-        echo "✅ Signer is already authorized"
-    else
-        echo "❌ Signer authorization failed for unknown reason"
-        exit 1
-    fi
-}
+        --private-key $SENDER_KEY \
+        --confirmations 1 \
+        $GRAPH_TOKEN "approve(address,uint256)" $PAYMENTS_ESCROW_V2 $AMOUNT
 
-# Deposit to V2 escrow with payer, collector, receiver
-echo "Depositing to V2 escrow..."
-docker exec chain cast send \
-    --rpc-url http://localhost:8545 \
-    --private-key $SENDER_KEY \
-    --confirmations 1 \
-    $PAYMENTS_ESCROW_V2 "deposit(address,address,uint256)" $COLLECTOR $RECEIVER $AMOUNT
+    # For V2, we also need to authorize the signer
+    echo "Authorizing signer for V2..."
+    # Create authorization proof: payer authorizes signer (same address in test)
+    PROOF_DEADLINE=$(($(date +%s) + 3600)) # 1 hour from now
+    echo "Creating authorization proof with deadline: $PROOF_DEADLINE"
 
-# Note: We'll check via the subgraph instead of direct contract call
-echo "Deposit transaction completed."
-ESCROW_BALANCE_V2="(check via subgraph)"
+    # Create the message to sign according to _verifyAuthorizationProof
+    # abi.encodePacked(chainId, contractAddress, "authorizeSignerProof", deadline, authorizer)
+    CHAIN_ID_HEX=$(printf "%064x" 1337)                   # uint256: 32 bytes
+    CONTRACT_HEX=${GRAPH_TALLY_COLLECTOR_V2:2}            # address: 20 bytes (remove 0x)
+    DOMAIN_HEX=$(echo -n "authorizeSignerProof" | xxd -p) # string: no length prefix
+    DEADLINE_HEX=$(printf "%064x" $PROOF_DEADLINE)        # uint256: 32 bytes
+    AUTHORIZER_HEX=${SENDER_ADDRESS:2}                    # address: 20 bytes (remove 0x)
 
-# Since we can't easily check balance via contract call, we'll verify via transaction success
-echo "✅ V2 escrow deposit transaction completed!"
-echo "   Payer: $PAYER"
-echo "   Collector: $COLLECTOR"
-echo "   Receiver: $RECEIVER"
-echo "   Amount: $AMOUNT"
-echo ""
-echo "Note: V2 escrow balance can be verified via the TAP V2 subgraph"
+    MESSAGE_DATA="${CHAIN_ID_HEX}${CONTRACT_HEX}${DOMAIN_HEX}${DEADLINE_HEX}${AUTHORIZER_HEX}"
+    MESSAGE_HASH=$(docker exec chain cast keccak "0x$MESSAGE_DATA")
 
-echo ""
-echo "✅ Successfully funded both V1 and V2 escrows!"
+    # Sign the message with the signer's private key
+    PROOF=$(docker exec chain cast wallet sign --private-key $SENDER_KEY "$MESSAGE_HASH")
+
+    echo "Calling authorizeSigner with proof..."
+    docker exec chain cast send \
+        --rpc-url http://localhost:8545 \
+        --private-key $SENDER_KEY \
+        --confirmations 1 \
+        $GRAPH_TALLY_COLLECTOR_V2 "authorizeSigner(address,uint256,bytes)" $SENDER_ADDRESS $PROOF_DEADLINE $PROOF 2>/dev/null || {
+        echo "⚠️  Signer authorization failed (likely already authorized)"
+        echo "Checking if signer is already authorized..."
+        IS_AUTHORIZED=$(docker exec chain cast call \
+            --rpc-url http://localhost:8545 \
+            $GRAPH_TALLY_COLLECTOR_V2 "isAuthorized(address,address)(bool)" $SENDER_ADDRESS $SENDER_ADDRESS)
+        if [ "$IS_AUTHORIZED" = "true" ]; then
+            echo "✅ Signer is already authorized"
+        else
+            echo "❌ Signer authorization failed for unknown reason"
+            exit 1
+        fi
+    }
+
+    # Deposit to V2 escrow with payer, collector, receiver
+    echo "Depositing to V2 escrow..."
+    docker exec chain cast send \
+        --rpc-url http://localhost:8545 \
+        --private-key $SENDER_KEY \
+        --confirmations 1 \
+        $PAYMENTS_ESCROW_V2 "deposit(address,address,uint256)" $COLLECTOR $RECEIVER $AMOUNT
+
+    # Note: We'll check via the subgraph instead of direct contract call
+    echo "Deposit transaction completed."
+    ESCROW_BALANCE_V2="(check via subgraph)"
+
+    # Since we can't easily check balance via contract call, we'll verify via transaction success
+    echo "✅ V2 escrow deposit transaction completed!"
+    echo "   Payer: $PAYER"
+    echo "   Collector: $COLLECTOR"
+    echo "   Receiver: $RECEIVER"
+    echo "   Amount: $AMOUNT"
+    echo ""
+    echo "Note: V2 escrow balance can be verified via the TAP V2 subgraph"
+
+    echo ""
+    echo "✅ Successfully funded both V1 and V2 escrows!"
+done
+
+echo "✅ Done funding escrows."
