@@ -200,6 +200,9 @@ pub struct TapAgentContext<T> {
     sender: Address,
     #[cfg_attr(test, builder(default = crate::test::INDEXER.1))]
     indexer_address: Address,
+    /// SubgraphService address (used by Horizon V2 queries)
+    #[cfg_attr(test, builder(default = crate::test::INDEXER.1))]
+    subgraph_service_address: Address,
     escrow_accounts: Receiver<EscrowAccounts>,
     /// We use phantom data as a marker since it's
     /// only used to define what methods are available

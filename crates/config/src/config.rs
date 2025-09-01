@@ -226,6 +226,14 @@ impl Config {
             );
         }
 
+        // Horizon configuration validation
+        if self.horizon.enabled && self.horizon.subgraph_service_address.is_none() {
+            return Err(
+                "Missing required 'horizon.subgraph_service_address' when horizon.enabled = true. \
+Set it in the config file under [horizon] or via env var TAP_AGENT__HORIZON__SUBGRAPH_SERVICE_ADDRESS.".to_string(),
+            );
+        }
+
         Ok(())
     }
 }
@@ -470,6 +478,11 @@ pub struct HorizonConfig {
     /// - Only V1 TAP receipts are supported
     #[serde(default)]
     pub enabled: bool,
+
+    // Address of the SubgraphService contract used for Horizon (V2)
+    // Required when `enabled = true`. Optional otherwise.
+    #[serde(default)]
+    pub subgraph_service_address: Option<Address>,
 }
 
 #[cfg(test)]
