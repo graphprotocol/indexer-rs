@@ -1231,13 +1231,26 @@ async fn handle_notification(
     };
     let allocation_id = new_receipt_notification.allocation_id();
     let allocation_str = allocation_id.to_hex();
-    tracing::info!(
-        "Processing receipt notification: sender={}, allocation_id={}, sender_type={:?}, value={}",
-        sender_address,
-        allocation_id,
-        sender_type,
-        new_receipt_notification.value()
-    );
+    match allocation_id {
+        AllocationId::Legacy(_) => {
+            tracing::info!(
+                "Processing receipt notification: sender={}, allocation_id={}, sender_type={:?}, value={}",
+                sender_address,
+                allocation_id,
+                sender_type,
+                new_receipt_notification.value()
+            );
+        }
+        AllocationId::Horizon(collection_id) => {
+            tracing::info!(
+                "Processing receipt notification: sender={}, collection_id={}, sender_type={:?}, value={}",
+                sender_address,
+                collection_id,
+                sender_type,
+                new_receipt_notification.value()
+            );
+        }
+    }
     // For actor lookup, use the address format that matches how actors are created
     let allocation_for_actor_name = match &allocation_id {
         AllocationId::Legacy(id) => id.to_string(),
