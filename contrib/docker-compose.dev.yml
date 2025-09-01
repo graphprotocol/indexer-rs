@@ -7,6 +7,7 @@ services:
     volumes:
       - ./local-network/tap-contracts.json:/opt/contracts.json:ro
       - ./local-network/horizon.json:/opt/horizon.json:ro
+      - ./local-network/subgraph-service.json:/opt/subgraph-service.json:ro
       - ./local-network/.env:/opt/.env:ro
       - ./profiling:/opt/profiling:rw
       - ./indexer-service/start.sh:/usr/local/bin/start.sh
@@ -43,6 +44,7 @@ services:
       - ./local-network/.env:/opt/.env:ro
       - ./local-network/tap-contracts.json:/opt/contracts.json:ro
       - ./local-network/horizon.json:/opt/horizon.json:ro
+      - ./local-network/subgraph-service.json:/opt/subgraph-service.json:ro
       - ../migrations:/opt/migrations:ro
     entrypoint: ["/usr/local/bin/start.sh"]
     environment:
