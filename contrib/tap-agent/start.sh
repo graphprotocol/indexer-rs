@@ -12,12 +12,14 @@ cat /opt/.env
 # Extract GraphTallyCollector address from horizon.json
 stdbuf -oL echo "🔍 DEBUG: Extracting GraphTallyCollector address from horizon.json..."
 
-GRAPH_TALLY_VERIFIER=$(jq -r '."1337".GraphTallyCollector.address' /opt/horizon.json)
-stdbuf -oL echo "🔍 DEBUG: GraphTallyCollector address: $GRAPH_TALLY_VERIFIER"
+subgraph_service=$(jq -r '."1337".SubgraphService.address' /opt/subgraph-service.json)
+graph_tally_verifier=$(jq -r '."1337".GraphTallyCollector.address // ."1337".GraphTallyCollector' /opt/horizon.json)
+stdbuf -oL echo "🔍 DEBUG: GraphTallyCollector address: $graph_tally_verifier"
 
+# For your indexer-agent script, update the extraction:
 stdbuf -oL echo "🔍 DEBUG: Extracting TAP address from contracts.json..."
-TAP_VERIFIER=$(jq -r '."1337".TAPVerifier.address' /opt/contracts.json)
-stdbuf -oL echo "🔍 DEBUG: TAPVerifier address: $TAP_VERIFIER"
+tap_verifier=$(jq -r '."1337".TAPVerifier' /opt/contracts.json)
+stdbuf -oL echo "🔍 DEBUG: TAPVerifier address: $tap_verifier"
 
 # Override with test values taken from test-assets/src/lib.rs
 ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
@@ -89,7 +91,7 @@ fi
 
 stdbuf -oL echo "🔍 DEBUG: Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
 
-stdbuf -oL echo "🔍 DEBUG: Using GraphTallyCollector address: $GRAPH_TALLY_VERIFIER"
+stdbuf -oL echo "🔍 DEBUG: Using GraphTallyCollector address: $graph_tally_verifier"
 stdbuf -oL echo "🔍 DEBUG: Using Indexer address: $RECEIVER_ADDRESS"
 stdbuf -oL echo "🔍 DEBUG: Using Account0 address: $ACCOUNT0_ADDRESS"
 
@@ -125,8 +127,8 @@ syncing_interval_secs = 30
 
 [blockchain]
 chain_id = 1337
-receipts_verifier_address = "${TAP_VERIFIER}"
-receipts_verifier_address_v2 = "${GRAPH_TALLY_VERIFIER}"
+receipts_verifier_address = "${tap_verifier}"
+receipts_verifier_address_v2 = "${graph_tally_verifier}"
 
 [service]
 host_and_port = "0.0.0.0:${INDEXER_SERVICE}"
@@ -164,6 +166,7 @@ ${ACCOUNT0_ADDRESS} = "http://tap-aggregator:${TAP_AGGREGATOR}"
 #   - If Horizon contracts not detected: Remain in legacy mode (V1 receipts only)
 # When disabled: Pure legacy mode, no Horizon detection performed
 enabled = true
+subgraph_service_address = "${subgraph_service}"
 EOF
 
 stdbuf -oL echo "Starting tap-agent with config:"
