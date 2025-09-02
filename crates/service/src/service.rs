@@ -90,9 +90,6 @@ pub async fn run() -> anyhow::Result<()> {
     let database =
         database::connect(config.database.clone().get_formated_postgres_url().as_ref()).await;
 
-    // FIXME: V1 and V2 domains separator use their own smart contract verifier
-    // We need to add a new additional verifier address for V1, the current in pplace here
-    // is assume to be for horizon
     let domain_separator = tap_eip712_domain(
         config.blockchain.chain_id as u64,
         config.blockchain.receipts_verifier_address,
