@@ -3,10 +3,12 @@
 
 mod constants;
 mod database_checker;
+mod env_loader;
 mod load_test;
 mod metrics;
 mod rav_tests;
 mod signature_test;
+mod test_config;
 mod utils;
 
 use anyhow::Result;
@@ -54,7 +56,6 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        // cargo run -- rav1
         Commands::Rav1 => {
             test_invalid_chain_id().await?;
             test_tap_rav_v1().await?;
@@ -64,13 +65,11 @@ async fn main() -> Result<()> {
             test_tap_rav_v2().await?;
         }
         Commands::DirectService => {
-            use crate::rav_tests::test_direct_service_rav_v2_simplified;
+            use crate::rav_tests::test_direct_service_rav_v2;
 
-            // test_direct_service_rav_v2().await?;
-            test_direct_service_rav_v2_simplified().await?;
-            // test_direct_service_rav_v2_config_aligned().await?;
+            test_direct_service_rav_v2().await?;
         }
-        // cargo run -- load --num-receipts 1000
+
         Commands::LoadService { num_receipts } => {
             let concurrency = num_cpus::get();
             receipt_handler_load_test(num_receipts, concurrency).await?;
