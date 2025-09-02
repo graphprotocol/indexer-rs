@@ -61,18 +61,22 @@ down:
     docker rm -f indexer-service tap-agent gateway block-oracle indexer-agent graph-node redpanda tap-aggregator tap-escrow-manager 2>/dev/null || true
     docker network prune -f
 
+clear_database:
+    # Stop the other services first
+    cd contrib && docker compose -f docker-compose.yml down --remove-orphans
+    cd contrib && docker compose -f docker-compose.dev.yml down --remove-orphans
+    
+    @echo "Stopping services and clearing database volume..."
+    # This is the key change: add the -v flag to the command that manages the postgres container.
+    cd contrib/local-network && docker compose down --remove-orphans --volumes
+
 
 # Check status of all project services
 services-status:
     @echo "🔍 Checking project services status..."
     @echo ""
     @echo "=== Project Containers ==="
-    @docker ps --format 'table {{{{.Names}}}}\t{{{{.Status}}}}\t{{{{.Ports}}}}' | grep -E "(indexer-service|tap-agent|gateway|graph-node|chain|block-oracle|indexer-agent|redpanda|tap-aggregator|tap-escrow-manager)" || echo "No project containers running"
-    @echo ""
-    @echo "=== Docker Compose Services ==="
-    @cd contrib && docker compose -f docker-compose.yml ps 2>/dev/null || echo "Production compose not running"
-    @cd contrib && docker compose -f docker-compose.dev.yml ps 2>/dev/null || echo "Dev compose not running"
-    @cd contrib/local-network && docker compose ps 2>/dev/null || echo "Local network compose not running"
+    @docker ps --format 'table {{{{.Names}}\t{{{{.Status}}\t{{{{.Ports}}'
     @echo ""
     @echo "=== Active Networks ==="
     @docker network ls | grep -E "(contrib|local-network)" || echo "No project networks found"
@@ -154,7 +158,8 @@ test-local: setup-integration-env
 # Assumes local network is running - run 'just setup' if services are not available  
 test-local-v2: setup-integration-env
     @echo "Running RAV v2 integration tests (assumes local network is running)..."
-    @cd integration-tests && bash -x ./fund_escrow.sh && cargo run -- rav2
+    @cd integration-tests && ./fund_escrow.sh
+    @cd integration-tests && cargo run -- rav2
 
 # Load test with v2 receipts
 # Assumes local network is running - run 'just setup' if services are not available
@@ -163,4 +168,9 @@ load-test-v2 num_receipts="1000": setup-integration-env
     @cd integration-tests && ./fund_escrow.sh
     @cd integration-tests && cargo run -- load-v2 --num-receipts {{num_receipts}}
 
+direct-ravs num_receipts="1000": setup-integration-env
+    echo "Running load test with {{num_receipts}} receipts (assumes local network is running)..."
+    cd integration-tests && ./fund_escrow.sh
+    # cd integration-tests && cargo run -- direct-service --num-receipts {{num_receipts}}
+    cd integration-tests && cargo run -- direct-service
 
