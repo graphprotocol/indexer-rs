@@ -31,10 +31,6 @@ impl Header for TapHeader {
     {
         let mut execute = || -> anyhow::Result<TapHeader> {
             let raw_receipt = values.next().ok_or(headers::Error::invalid())?;
-            tracing::debug!(
-                raw_receipt_length = raw_receipt.len(),
-                "Processing TAP receipt header"
-            );
 
             // we first try to decode a v2 receipt since it's cheaper and fail earlier than using
             // serde
@@ -69,9 +65,15 @@ impl Header for TapHeader {
                 }
             }
         };
-        execute()
-            .map_err(|_| headers::Error::invalid())
-            .inspect_err(|_| TAP_RECEIPT_INVALID.inc())
+        let result = execute();
+        match &result {
+            Ok(_) => {}
+            Err(e) => {
+                tracing::debug!(error = %e, "TAP receipt header parsing failed - detailed error before collapse");
+                TAP_RECEIPT_INVALID.inc();
+            }
+        }
+        result.map_err(|_| headers::Error::invalid())
     }
 
     fn encode<E>(&self, _values: &mut E)
