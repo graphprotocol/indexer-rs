@@ -154,8 +154,6 @@ pub async fn find_allocation(http_client: Arc<Client>, url: &str) -> Result<Stri
         .send()
         .await?;
 
-    println!("***Received response from network subgraph {:?}", response);
-
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
             "Network subgraph request failed with status: {}",
@@ -165,6 +163,10 @@ pub async fn find_allocation(http_client: Arc<Client>, url: &str) -> Result<Stri
 
     // Try to find a valid allocation
     let response_text = response.text().await?;
+    println!(
+        "***Received response from network subgraph {}",
+        response_text
+    );
 
     let json_value = serde_json::from_str::<serde_json::Value>(&response_text)?;
     json_value
