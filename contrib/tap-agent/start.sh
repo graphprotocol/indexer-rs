@@ -141,7 +141,7 @@ serve_escrow_subgraph = false
 max_receipt_value_grt = "0.001"
 
 [tap]
-max_amount_willing_to_lose_grt = 10000
+max_amount_willing_to_lose_grt = 1000
 
 [tap.rav_request]
 # Set a lower timestamp buffer threshold
