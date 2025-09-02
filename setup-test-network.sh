@@ -77,6 +77,9 @@ fund_escrow() {
     GRAPH_TOKEN=$(jq -r '."1337".L2GraphToken.address' local-network/horizon.json)
     TAP_ESCROW=$(jq -r '."1337".Escrow' local-network/tap-contracts.json)
 
+    # Override with test values taken from test-assets/src/lib.rs
+    ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
+
     if [ -z "$GRAPH_TOKEN" ] || [ -z "$TAP_ESCROW" ] || [ "$GRAPH_TOKEN" == "null" ] || [ "$TAP_ESCROW" == "null" ]; then
         echo "Error: Could not read contract addresses from horizon.json or tap-contracts.json"
         echo "GRAPH_TOKEN: $GRAPH_TOKEN"
@@ -252,8 +255,23 @@ fi
 docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
 rm docker-compose.override.yml
 
-timeout 30 bash -c 'until docker ps | grep indexer | grep -q healthy; do sleep 5; done'
-timeout 30 bash -c 'until docker ps | grep tap-agent | grep -q healthy; do sleep 5; done'
+# Wait for indexer-service and tap-agent to be healthy with better timeouts
+echo "Waiting for indexer-service to be healthy..."
+timeout 120 bash -c 'until docker ps | grep indexer-service | grep -q healthy; do echo "Still waiting for indexer-service..."; sleep 5; done'
+
+echo "Waiting for tap-agent to be healthy..."
+timeout 120 bash -c 'until docker ps | grep tap-agent | grep -q healthy; do echo "Still waiting for tap-agent..."; sleep 5; done'
+
+# Additional check to ensure services are responding
+echo "Verifying indexer-service is responding..."
+timeout 60 bash -c 'until curl -f http://localhost:7601/health > /dev/null 2>&1; do echo "Waiting for indexer-service health endpoint..."; sleep 3; done'
+
+echo "Verifying tap-agent is responding..."
+timeout 60 bash -c 'until curl -f http://localhost:7300/metrics > /dev/null 2>&1; do echo "Waiting for tap-agent metrics endpoint..."; sleep 3; done'
+
+# Wait for indexer to sync with chain before starting gateway
+echo "Checking chain and indexer synchronization..."
+sleep 10 # Give indexer time to process initial blocks
 
 echo "Building gateway image..."
 source local-network/.env
@@ -275,6 +293,7 @@ if [ ! -f "local-network/subgraph-service.json" ]; then
 fi
 
 # Updated to use the horizon file structure and include tap-contracts.json
+# Gateway now generates config with increased max_lag_seconds in gateway/run.sh
 docker run -d --name gateway \
     --network local-network_default \
     -p 7700:7700 \
@@ -324,3 +343,9 @@ echo "Images size: $END_IMAGES_SIZE"
 echo "Containers size: $END_CONTAINERS_SIZE"
 echo "Volumes size: $END_VOLUMES_SIZE"
 echo "==========================================="
+
+# Optional: Start pgAdmin for database inspection
+if [ "$START_PGADMIN" = "true" ]; then
+    echo "Starting pgAdmin for database inspection..."
+    ./pg_admin.sh
+fi
