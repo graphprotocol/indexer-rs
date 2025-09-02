@@ -1,4 +1,4 @@
-FROM rust:1.86-bookworm as build
+FROM rust:1.87-bookworm as build
 WORKDIR /root
 COPY . .
 # Force SQLx to use the offline mode to statically check the database queries against
