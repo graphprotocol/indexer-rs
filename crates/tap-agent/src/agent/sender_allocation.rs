@@ -605,6 +605,26 @@ where
                     .map(|r| r.signed_receipt().clone())
                     .collect();
 
+                // Instrumentation: log details before calling the aggregator
+                let receipt_count = valid_receipts.len();
+                let first_signer = valid_receipts.get(0).and_then(|r| match r {
+                    indexer_receipt::TapReceipt::V1(sr) => {
+                        sr.recover_signer(&self.domain_separator).ok()
+                    }
+                    indexer_receipt::TapReceipt::V2(sr) => {
+                        sr.recover_signer(&self.domain_separator).ok()
+                    }
+                });
+                tracing::info!(
+                    sender = %self.sender,
+                    allocation_id = %self.allocation_id,
+                    receipt_count,
+                    has_previous_rav = previous_rav.is_some(),
+                    signer_recovered = first_signer.is_some(),
+                    agent_domain = ?self.domain_separator,
+                    "Sending RAV aggregation request"
+                );
+
                 let rav_response_time_start = Instant::now();
 
                 let signed_rav =

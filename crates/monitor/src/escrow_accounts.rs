@@ -172,11 +172,6 @@ async fn get_escrow_accounts_v2(
 
     let response = response?;
 
-    tracing::trace!(
-        "V2 escrow accounts raw response: {} accounts from network subgraph",
-        response.payments_escrow_accounts.len()
-    );
-
     // V2 TAP receipts use different field names (payer/service_provider) but the underlying
     // escrow account model is identical to V1. Both V1 and V2 receipts reference the same
     // sender addresses and the same escrow relationships.
@@ -228,12 +223,6 @@ async fn get_escrow_accounts_v2(
 
     let escrow_accounts = EscrowAccounts::new(senders_balances.clone(), senders_to_signers.clone());
 
-    tracing::trace!(
-        "V2 escrow accounts loaded: {} payers, {} signer->payer mappings",
-        senders_balances.len(),
-        escrow_accounts.signers_to_senders.len()
-    );
-
     Ok(escrow_accounts)
 }
 
@@ -242,11 +231,8 @@ async fn get_escrow_accounts_v1(
     indexer_address: Address,
     reject_thawing_signers: bool,
 ) -> anyhow::Result<EscrowAccounts> {
-    tracing::debug!(
-        "Loading V1 escrow accounts for indexer {}, reject_thawing_signers: {}",
-        indexer_address,
-        reject_thawing_signers
-    );
+    tracing::debug!(?indexer_address, "Loading V1 escrow accounts for indexer");
+
     // thawEndTimestamp == 0 means that the signer is not thawing. This also means
     // that we don't wait for the thawing period to end before stopping serving
     // queries for this signer.
@@ -264,11 +250,6 @@ async fn get_escrow_accounts_v1(
         .await?;
 
     let response = response?;
-
-    tracing::debug!(
-        "V1 escrow accounts raw response: {} accounts from subgraph",
-        response.escrow_accounts.len()
-    );
 
     let senders_balances: HashMap<Address, U256> = response
         .escrow_accounts
