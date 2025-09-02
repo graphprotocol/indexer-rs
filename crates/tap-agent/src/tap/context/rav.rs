@@ -173,7 +173,8 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
             "#,
             CollectionId::from(self.allocation_id).encode_hex(),
             self.sender.encode_hex(),
-            self.indexer_address.encode_hex(),
+            // For Horizon (V2): data_service is the SubgraphService address, service_provider is the indexer
+            self.subgraph_service_address.encode_hex(),
             self.indexer_address.encode_hex()
         )
         .fetch_optional(&self.pgpool)
