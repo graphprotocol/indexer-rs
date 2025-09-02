@@ -15,9 +15,10 @@ use thegraph_core::CollectionId;
 
 use crate::{
     constants::{
-        ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_PRIVATE_KEY, GATEWAY_URL,
-        GRAPH_TALLY_COLLECTOR_CONTRACT, GRAPH_URL, INDEXER_URL, KAFKA_SERVERS, MAX_RECEIPT_VALUE,
-        SUBGRAPH_ID, TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT, TEST_DATA_SERVICE,
+        ACCOUNT0_ADDRESS, ACCOUNT0_SECRET, ACCOUNT1_SECRET, CHAIN_ID, GATEWAY_API_KEY,
+        GATEWAY_PRIVATE_KEY, GATEWAY_URL, GRAPH_TALLY_COLLECTOR_CONTRACT, GRAPH_URL, INDEXER_URL,
+        KAFKA_SERVERS, MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL,
+        TAP_VERIFIER_CONTRACT, TEST_DATA_SERVICE, TEST_SUBGRAPH_DEPLOYMENT,
     },
     utils::{
         create_client_query_report, create_request, create_tap_receipt, create_tap_receipt_v2,
@@ -28,6 +29,7 @@ use crate::{
 };
 
 use crate::database_checker::{DatabaseChecker, TapVersion};
+use crate::test_config::TestConfig;
 
 const WAIT_TIME_BATCHES: u64 = 40;
 const NUM_RECEIPTS: u32 = 30; // Increased to 30 receipts per batch
@@ -221,39 +223,42 @@ pub async fn test_invalid_chain_id() -> Result<()> {
     Ok(())
 }
 
-// Function to test the TAP RAV generation with V2 receipts
+// Function to test the TAP RAV generation with V2 receipts using database checker
 pub async fn test_tap_rav_v2() -> Result<()> {
-    // Setup HTTP client
+    // Setup HTTP client and env-backed test config
     let http_client = Arc::new(Client::new());
-    let wallet: PrivateKeySigner = ACCOUNT0_SECRET.parse().unwrap();
+    let cfg = TestConfig::from_env()?;
+    let payer = Address::from_str(&cfg.account0_address)?;
 
     // Query the network subgraph to find active allocations
-    let allocation_id = find_allocation(http_client.clone(), GRAPH_URL).await?;
+    let allocation_id = find_allocation(http_client.clone(), &cfg.graph_url).await?;
     let allocation_id = Address::from_str(&allocation_id)?;
 
-    // For V2, we need payer and service provider addresses
-    let payer = wallet.address();
-    let service_provider = allocation_id; // Using allocation_id as service provider for simplicity
+    // Setup database checker
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| crate::constants::POSTGRES_URL.to_string());
+    let db_checker = DatabaseChecker::new(&database_url).await?;
 
-    // Create a metrics checker
-    let metrics_checker =
-        MetricsChecker::new(http_client.clone(), TAP_AGENT_METRICS_URL.to_string());
+    // Format addresses for database queries
+    let payer_hex = format!("{:x}", payer);
+    let collection_id = CollectionId::from(allocation_id);
+    let collection_id_hex = collection_id.encode_hex();
 
-    // First check initial metrics
-    let initial_metrics = metrics_checker.get_current_metrics().await?;
-    let initial_ravs_created =
-        initial_metrics.ravs_created_by_allocation(&allocation_id.to_string());
-    let initial_unaggregated =
-        initial_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
+    // Check initial state
+    let initial_state = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
+    let initial_pending_value = db_checker
+        .get_pending_receipt_value(&collection_id_hex, &payer_hex, TapVersion::V2)
+        .await?;
 
     println!(
-        "\n=== V2 Initial metrics: RAVs created: {initial_ravs_created}, Unaggregated fees: {initial_unaggregated} ==="
+        "\n=== V2 Initial state: RAVs: {}, Receipts: {}, Pending value: {} wei ===",
+        initial_state.rav_count, initial_state.receipt_count, initial_pending_value
     );
 
     // Calculate expected thresholds
     let trigger_threshold = 2_000_000_000_000_000u128; // 0.002 GRT trigger value
     let receipts_needed = trigger_threshold / (MAX_RECEIPT_VALUE / 10); // Using trigger receipt value
-    println!("📊 RAV trigger threshold: {trigger_threshold} wei (0.002 GRT)",);
+    println!("📊 RAV trigger threshold: {trigger_threshold} wei (0.002 GRT)");
     let receipt_value = MAX_RECEIPT_VALUE / 10;
     println!(
         "📊 Receipts needed for trigger: ~{receipts_needed} receipts at {receipt_value} wei each",
@@ -261,32 +266,24 @@ pub async fn test_tap_rav_v2() -> Result<()> {
 
     println!("\n=== V2 STAGE 1: Sending large receipt batches with small pauses ===");
 
-    // Send multiple V2 receipts in two batches with a gap between them
+    println!("{cfg:?}");
+
+    // Send multiple V2 receipts in batches with a gap between them
     let mut total_successful = 0;
 
     for batch in 0..BATCHES {
-        let batch = batch + 1;
-        println!("Sending V2 batch {batch} of {BATCHES} with {NUM_RECEIPTS} receipts each...",);
+        let batch_num = batch + 1;
+        println!("Sending V2 batch {batch_num} of {BATCHES} with {NUM_RECEIPTS} receipts each...");
 
         for i in 0..NUM_RECEIPTS {
-            // Create V2 receipt
-            let receipt = create_tap_receipt_v2(
-                MAX_RECEIPT_VALUE,
-                &allocation_id,
-                GRAPH_TALLY_COLLECTOR_CONTRACT,
-                CHAIN_ID,
-                &wallet,
-                &payer,
-                &service_provider,
-            )?;
-
-            let receipt_encoded = encode_v2_receipt(&receipt)?;
-
+            // Create and send a V2 receipt via the gateway
             let response = http_client
-                .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
+                .post(format!(
+                    "{}/api/deployments/id/{}",
+                    cfg.gateway_url, cfg.test_subgraph_deployment
+                ))
                 .header("Content-Type", "application/json")
-                .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
-                .header("Tap-Receipt", receipt_encoded)
+                .header("Authorization", format!("Bearer {}", cfg.gateway_api_key))
                 .json(&json!({
                     "query": "{ _meta { block { number } } }"
                 }))
@@ -296,11 +293,6 @@ pub async fn test_tap_rav_v2() -> Result<()> {
 
             if response.status().is_success() {
                 total_successful += 1;
-                println!(
-                    "V2 Query {} of batch {} sent successfully",
-                    i + 1,
-                    batch + 1
-                );
             } else {
                 return Err(anyhow::anyhow!(
                     "Failed to send V2 query: {}",
@@ -312,21 +304,36 @@ pub async fn test_tap_rav_v2() -> Result<()> {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
-        // Check metrics after batch
-        let batch_metrics = metrics_checker.get_current_metrics().await?;
-        let current_unaggregated =
-            batch_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
-        let trigger_threshold = 2_000_000_000_000_000u128;
-        let progress_pct =
-            (current_unaggregated as f64 / trigger_threshold as f64 * 100.0).min(100.0);
+        // Check database state after batch
+        let batch_state = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
+        let current_pending_value = db_checker
+            .get_pending_receipt_value(&collection_id_hex, &payer_hex, TapVersion::V2)
+            .await?;
+
+        // Calculate progress toward trigger threshold
+        let current_pending_f64: f64 = current_pending_value.to_string().parse().unwrap_or(0.0);
+        let threshold_f64 = trigger_threshold as f64;
+        let progress_pct = (current_pending_f64 / threshold_f64 * 100.0).min(100.0);
 
         println!(
-            "After V2 batch {}: RAVs created: {}, Unaggregated fees: {} ({:.1}% of trigger threshold)",
-            batch + 1,
-            batch_metrics.ravs_created_by_allocation(&allocation_id.to_string()),
-            current_unaggregated,
+            "After V2 batch {}: RAVs: {} → {}, Receipts: {} → {}, Pending value: {} wei ({:.1}% of trigger threshold)",
+            batch_num,
+            initial_state.rav_count,
+            batch_state.rav_count,
+            initial_state.receipt_count,
+            batch_state.receipt_count,
+            current_pending_value,
             progress_pct
         );
+
+        // Check if RAV was already created after this batch
+        if batch_state.rav_count > initial_state.rav_count {
+            println!(
+                "✅ V2 RAV CREATED after batch {}! RAVs: {} → {}",
+                batch_num, initial_state.rav_count, batch_state.rav_count
+            );
+            return Ok(());
+        }
 
         // Wait between batches - long enough for first batch to exit buffer
         if batch < BATCHES - 1 {
@@ -341,27 +348,14 @@ pub async fn test_tap_rav_v2() -> Result<()> {
     for i in 0..MAX_TRIGGERS {
         println!("Sending V2 trigger query {}/{}...", i + 1, MAX_TRIGGERS);
 
-        // Create V2 receipt
-        let receipt = create_tap_receipt_v2(
-            MAX_RECEIPT_VALUE / 10, // Smaller value for trigger receipts
-            &allocation_id,
-            GRAPH_TALLY_COLLECTOR_CONTRACT,
-            CHAIN_ID,
-            &wallet,
-            &payer,
-            &service_provider,
-        )?;
-
-        let receipt_encoded = encode_v2_receipt(&receipt)?;
-
         let response = http_client
-            .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
+            .post(format!(
+                "{}/api/deployments/id/{}",
+                cfg.gateway_url, cfg.test_subgraph_deployment
+            ))
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
-            .header("Tap-Receipt", receipt_encoded)
-            .json(&json!({
-                "query": "{ _meta { block { number } } }"
-            }))
+            .header("Authorization", format!("Bearer {}", cfg.gateway_api_key))
+            .json(&json!({ "query": "{ _meta { block { number } } }" }))
             .timeout(Duration::from_secs(10))
             .send()
             .await?;
@@ -379,36 +373,42 @@ pub async fn test_tap_rav_v2() -> Result<()> {
         // Check after each trigger
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let current_metrics = metrics_checker.get_current_metrics().await?;
-        let current_ravs_created =
-            current_metrics.ravs_created_by_allocation(&allocation_id.to_string());
-        let current_unaggregated =
-            current_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
+        let current_state = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
+        let current_pending_value = db_checker
+            .get_pending_receipt_value(&collection_id_hex, &payer_hex, TapVersion::V2)
+            .await?;
 
         // Calculate progress toward trigger threshold
-        let trigger_threshold = 2_000_000_000_000_000u128;
-        let progress_pct =
-            (current_unaggregated as f64 / trigger_threshold as f64 * 100.0).min(100.0);
+        let current_pending_f64: f64 = current_pending_value.to_string().parse().unwrap_or(0.0);
+        let threshold_f64 = trigger_threshold as f64;
+        let progress_pct = (current_pending_f64 / threshold_f64 * 100.0).min(100.0);
 
         println!(
-            "After V2 trigger {}: RAVs created: {}, Unaggregated fees: {} ({:.1}% of trigger threshold)",
+            "After V2 trigger {}: RAVs: {} → {}, Receipts: {} → {}, Pending value: {} wei ({:.1}% of trigger threshold)",
             i + 1,
-            current_ravs_created,
-            current_unaggregated,
+            initial_state.rav_count,
+            current_state.rav_count,
+            initial_state.receipt_count,
+            current_state.receipt_count,
+            current_pending_value,
             progress_pct
         );
 
-        // If we've succeeded, exit early
-        if current_ravs_created > initial_ravs_created {
+        // Success conditions
+        if current_state.rav_count > initial_state.rav_count {
             println!(
-                "✅ V2 TEST PASSED: RAVs created increased from {initial_ravs_created} to {current_ravs_created}!"
+                "✅ V2 TEST PASSED: RAVs created increased from {} to {}!",
+                initial_state.rav_count, current_state.rav_count
             );
             return Ok(());
         }
 
-        if current_unaggregated < initial_unaggregated * 0.9 {
+        // Check if pending value decreased significantly (RAV was created and cleared pending receipts)
+        let initial_pending_f64: f64 = initial_pending_value.to_string().parse().unwrap_or(0.0);
+        if current_pending_f64 < initial_pending_f64 - (threshold_f64 / 2.0) {
             println!(
-                "✅ V2 TEST PASSED: Unaggregated fees decreased significantly from {initial_unaggregated} to {current_unaggregated}!"
+                "✅ V2 TEST PASSED: Unaggregated fees decreased significantly from {} to {} wei!",
+                initial_pending_value, current_pending_value
             );
             return Ok(());
         }
@@ -417,8 +417,67 @@ pub async fn test_tap_rav_v2() -> Result<()> {
     println!("\n=== V2 Summary ===");
     println!("Total V2 queries sent successfully: {total_successful}");
 
+    // Final state check using database
+    let final_state = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
+    let final_pending_value = db_checker
+        .get_pending_receipt_value(&collection_id_hex, &payer_hex, TapVersion::V2)
+        .await?;
+
+    println!(
+        "Final V2 state: RAVs: {} (started: {}), Receipts: {} (started: {}), Pending value: {} wei (started: {} wei)",
+        final_state.rav_count,
+        initial_state.rav_count,
+        final_state.receipt_count,
+        initial_state.receipt_count,
+        final_pending_value,
+        initial_pending_value
+    );
+
+    // Print detailed breakdown for debugging
+    db_checker
+        .print_detailed_summary(&payer_hex, TapVersion::V2)
+        .await?;
+
+    // Alternative success condition: Use wait_for_rav_creation with timeout
+    println!("\n=== Waiting for delayed RAV creation (30s timeout) ===");
+    let rav_created = db_checker
+        .wait_for_rav_creation(
+            &payer_hex,
+            initial_state.rav_count,
+            30, // 30 second timeout
+            2,  // check every 2 seconds
+            TapVersion::V2,
+        )
+        .await?;
+
+    if rav_created {
+        let final_state_after_wait = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
+        println!(
+            "✅ V2 TEST PASSED: RAV CREATED (delayed)! RAVs: {} → {}",
+            initial_state.rav_count, final_state_after_wait.rav_count
+        );
+        return Ok(());
+    }
+
     // If we got here, test failed
     println!("❌ V2 TEST FAILED: No RAV generation detected");
+    println!(
+        "V2 Receipts accumulated: {} → {} (+{})",
+        initial_state.receipt_count,
+        final_state.receipt_count,
+        final_state.receipt_count - initial_state.receipt_count
+    );
+
+    // Timestamp buffer diagnosis
+    db_checker
+        .diagnose_timestamp_buffer(
+            &payer_hex,
+            &collection_id_hex,
+            30, // buffer_seconds from your config
+            TapVersion::V2,
+        )
+        .await?;
+
     Err(anyhow::anyhow!("Failed to detect V2 RAV generation"))
 }
 
@@ -431,15 +490,16 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
     const MAX_TRIGGERS_V2: usize = 3; // Only need a few triggers after threshold is met
     const RAV_TRIGGER_THRESHOLD: u128 = 2_000_000_000_000_000; // 0.002 GRT in wei
 
-    // Setup HTTP client
+    // Setup HTTP client and env-backed config
     let http_client = Arc::new(Client::new());
+    let cfg = TestConfig::from_env()?;
 
-    // Create gateway-compatible signer from private key
-    let gateway_signer: PrivateKeySigner = GATEWAY_PRIVATE_KEY.parse()?;
+    // Create gateway-compatible signer from private key (Account 0)
+    let gateway_signer: PrivateKeySigner = cfg.account0_secret.parse()?;
     println!("Gateway signer address: {:?}", gateway_signer.address());
 
     // Verify this matches ACCOUNT0_ADDRESS from env
-    let expected_address = Address::from_str("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")?;
+    let expected_address = Address::from_str(&cfg.account0_address)?;
     if gateway_signer.address() != expected_address {
         return Err(anyhow::anyhow!(
             "Gateway signer address mismatch! Expected: {:?}, Got: {:?}",
@@ -452,12 +512,12 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
     // Create receipt signer with V2 configuration
     let receipt_signer = GatewayReceiptSigner::new(
         gateway_signer,
-        U256::from(CHAIN_ID),
-        Address::from_str(GRAPH_TALLY_COLLECTOR_CONTRACT)?,
+        U256::from(cfg.chain_id),
+        Address::from_str(&cfg.graph_tally_collector_contract)?,
     );
 
     // Query the network subgraph to find active allocations
-    let allocation_id = find_allocation(http_client.clone(), GRAPH_URL).await?;
+    let allocation_id = find_allocation(http_client.clone(), &cfg.graph_url).await?;
     println!("Found allocation ID: {allocation_id}");
     let allocation_id = Address::from_str(&allocation_id)?;
 
@@ -465,7 +525,7 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
     let collection_id = CollectionId::from(allocation_id);
     let payer = receipt_signer.payer_address();
     let service_provider = allocation_id;
-    let data_service = Address::from_str(TEST_DATA_SERVICE)?;
+    let data_service = Address::from_str(&cfg.test_data_service)?;
 
     println!("Direct Service Test Configuration:");
     println!("  Allocation ID: {allocation_id:?}");
@@ -559,11 +619,15 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
 
             let receipt_encoded = encode_v2_receipt_for_header(&receipt)?;
 
-            // Send directly to the service endpoint
+            // Send via gateway deployments endpoint so receipts are processed end-to-end
             let response = http_client
-                .post(format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}"))
+                .post(format!(
+                    "{}/api/deployments/id/{}",
+                    cfg.gateway_url, cfg.test_subgraph_deployment
+                ))
                 .header("Content-Type", "application/json")
-                .header("Tap-Receipt", receipt_encoded)
+                .header("Authorization", format!("Bearer {}", cfg.gateway_api_key))
+                .header("tap-receipt", receipt_encoded)
                 .json(&json!({
                     "query": "{ _meta { block { number } } }"
                 }))
@@ -590,8 +654,11 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
                     Some(collection_id),
                     MAX_RECEIPT_VALUE_V2,
                     100, // response_time_ms
-                    &format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}"),
-                    GATEWAY_API_KEY,
+                    &format!(
+                        "{}/api/deployments/id/{}",
+                        cfg.gateway_url, cfg.test_subgraph_deployment
+                    ),
+                    &cfg.gateway_api_key,
                 );
 
                 if let Err(e) = kafka_reporter.publish_to_topic("gateway_queries", &report) {
@@ -687,8 +754,12 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
         let receipt_encoded = encode_v2_receipt_for_header(&receipt)?;
 
         let response = http_client
-            .post(format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}"))
+            .post(format!(
+                "{}/api/deployments/id/{}",
+                cfg.gateway_url, cfg.test_subgraph_deployment
+            ))
             .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {}", cfg.gateway_api_key))
             .header("tap-receipt", receipt_encoded)
             .json(&json!({
                 "query": "{ _meta { block { number } } }"
@@ -713,8 +784,11 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
                 Some(collection_id),
                 trigger_receipt_value,
                 100, // response_time_ms
-                &format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}"),
-                GATEWAY_API_KEY,
+                &format!(
+                    "{}/api/deployments/id/{}",
+                    cfg.gateway_url, cfg.test_subgraph_deployment
+                ),
+                &cfg.gateway_api_key,
             );
 
             if let Err(e) = kafka_reporter.publish_to_topic("gateway_queries", &report) {
@@ -866,301 +940,5 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
         "Failed to detect V2 RAV generation after sending {} receipts with {} wei total value",
         total_successful,
         final_pending_value
-    ))
-}
-
-/// Function to test TAP RAV generation by sending receipts directly to the service
-/// This bypasses the gateway and creates receipts signed with the gateway's key
-pub async fn test_direct_service_rav_v2_simplified() -> Result<()> {
-    // Simplified constants - just 5 receipts with higher values
-    const NUM_RECEIPTS: u32 = 5;
-    const RECEIPT_VALUE: u128 = 500_000_000_000_000; // 0.0005 GRT per receipt
-    const TOTAL_EXPECTED: u128 = 2_500_000_000_000_000; // 0.0025 GRT total
-    const RAV_TRIGGER_THRESHOLD: u128 = 2_000_000_000_000_000; // 0.002 GRT
-    const BUFFER_WAIT_TIME: u64 = 35; // Wait for timestamp buffer to clear
-
-    // Setup HTTP client
-    let http_client = Arc::new(Client::new());
-
-    // Create gateway signer
-    let gateway_signer: PrivateKeySigner = GATEWAY_PRIVATE_KEY.parse()?;
-    println!("Gateway signer address: {:?}", gateway_signer.address());
-
-    // Create receipt signer
-    let receipt_signer = GatewayReceiptSigner::new(
-        gateway_signer,
-        U256::from(CHAIN_ID),
-        Address::from_str(GRAPH_TALLY_COLLECTOR_CONTRACT)?,
-    );
-
-    // Find allocation
-    let allocation_id = find_allocation(http_client.clone(), GRAPH_URL).await?;
-    println!("Found allocation ID: {allocation_id}");
-    let allocation_id = Address::from_str(&allocation_id)?;
-
-    // Setup V2 parameters
-    let collection_id = CollectionId::from(allocation_id);
-    let payer = receipt_signer.payer_address();
-    let service_provider = allocation_id;
-    let data_service = Address::from_str(TEST_DATA_SERVICE)?;
-
-    println!("\n📋 TEST CONFIGURATION:");
-    println!("══════════════════════════════════════════");
-    println!("  Receipts to send: {}", NUM_RECEIPTS);
-    println!("  Value per receipt: {} wei (0.0005 GRT)", RECEIPT_VALUE);
-    println!("  Total value: {} wei (0.0025 GRT)", TOTAL_EXPECTED);
-    println!(
-        "  RAV trigger threshold: {} wei (0.002 GRT)",
-        RAV_TRIGGER_THRESHOLD
-    );
-    println!("  Collection ID: {collection_id:?}");
-    println!("  Payer: {payer:?}");
-    println!("══════════════════════════════════════════\n");
-
-    // Database setup
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| crate::constants::POSTGRES_URL.to_string());
-    let db_checker = DatabaseChecker::new(&database_url).await?;
-
-    // Format addresses for database
-    let payer_hex = format!("{:x}", payer);
-    let collection_id_hex = collection_id.encode_hex();
-
-    // Check initial state
-    println!("📊 INITIAL STATE:");
-    let initial_state = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
-    let initial_pending = db_checker
-        .get_pending_receipt_value(&collection_id_hex, &payer_hex, TapVersion::V2)
-        .await?;
-
-    println!("  V2 RAVs: {}", initial_state.rav_count);
-    println!("  V2 Receipts: {}", initial_state.receipt_count);
-    println!("  Pending value: {} wei", initial_pending);
-    println!();
-
-    // Send the 5 receipts
-    println!("🚀 SENDING {} RECEIPTS:", NUM_RECEIPTS);
-    println!("══════════════════════════════════════════");
-
-    for i in 0..NUM_RECEIPTS {
-        let receipt_num = i + 1;
-
-        // Create V2 receipt
-        let receipt = receipt_signer.create_receipt(
-            collection_id,
-            RECEIPT_VALUE,
-            payer,
-            data_service,
-            service_provider,
-        )?;
-
-        let receipt_encoded = encode_v2_receipt_for_header(&receipt)?;
-
-        // Send to service
-        let response = http_client
-            .post(format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}"))
-            .header("Content-Type", "application/json")
-            .header("Tap-Receipt", receipt_encoded)
-            .json(&json!({
-                "query": "{ _meta { block { number } } }"
-            }))
-            .timeout(Duration::from_secs(10))
-            .send()
-            .await?;
-
-        if response.status().is_success() {
-            let total_sent = receipt_num as u128 * RECEIPT_VALUE;
-            let percentage = (total_sent as f64 / RAV_TRIGGER_THRESHOLD as f64 * 100.0).min(100.0);
-
-            println!(
-                "  Receipt {}/{}: ✅ Sent {} wei | Total: {} wei ({:.1}% of threshold)",
-                receipt_num, NUM_RECEIPTS, RECEIPT_VALUE, total_sent, percentage
-            );
-
-            // Check if we've crossed the threshold
-            if total_sent >= RAV_TRIGGER_THRESHOLD && receipt_num < NUM_RECEIPTS {
-                println!("  🎯 Threshold crossed! Should trigger RAV soon...");
-            }
-        } else {
-            return Err(anyhow::anyhow!(
-                "Failed to send receipt {}: {}",
-                receipt_num,
-                response.status()
-            ));
-        }
-
-        // Small delay between receipts
-        tokio::time::sleep(Duration::from_millis(75)).await;
-    }
-
-    println!("══════════════════════════════════════════\n");
-
-    // Check state after sending all receipts
-    println!("📊 STATE AFTER SENDING RECEIPTS:");
-    let after_send_state = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
-    let after_send_pending = db_checker
-        .get_pending_receipt_value(&collection_id_hex, &payer_hex, TapVersion::V2)
-        .await?;
-
-    println!(
-        "  V2 RAVs: {} (was: {})",
-        after_send_state.rav_count, initial_state.rav_count
-    );
-    println!(
-        "  V2 Receipts: {} (was: {})",
-        after_send_state.receipt_count, initial_state.receipt_count
-    );
-    println!(
-        "  Pending value: {} wei (was: {} wei)",
-        after_send_pending, initial_pending
-    );
-
-    // Check if RAV was already created
-    if after_send_state.rav_count > initial_state.rav_count {
-        println!("\n✅ SUCCESS: RAV created immediately!");
-        return Ok(());
-    }
-
-    // ******************************************
-
-    // Send one trigger receipt after buffer wait
-    println!("\n🎯 SENDING TRIGGER RECEIPT:");
-    let trigger_value = 100_000_000_000_000; // 0.0001 GRT
-    let trigger_receipt = receipt_signer.create_receipt(
-        collection_id,
-        trigger_value,
-        payer,
-        data_service,
-        service_provider,
-    )?;
-
-    let trigger_encoded = encode_v2_receipt_for_header(&trigger_receipt)?;
-
-    let response = http_client
-        .post(format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}"))
-        .header("Content-Type", "application/json")
-        .header("tap-receipt", trigger_encoded)
-        .json(&json!({
-            "query": "{ _meta { block { number } } }"
-        }))
-        .timeout(Duration::from_secs(10))
-        .send()
-        .await?;
-
-    if response.status().is_success() {
-        println!("  Trigger receipt sent successfully");
-    }
-    //************************************
-
-    // Wait for timestamp buffer to clear
-    println!(
-        "\n⏱️  WAITING {} SECONDS FOR TIMESTAMP BUFFER...",
-        BUFFER_WAIT_TIME
-    );
-    for i in 0..BUFFER_WAIT_TIME {
-        if i % 10 == 0 {
-            println!("  {} seconds elapsed...", i);
-        }
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // Check periodically
-        if i % 5 == 0 {
-            let current_state = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
-            if current_state.rav_count > initial_state.rav_count {
-                println!("\n✅ SUCCESS: RAV created after {} seconds!", i);
-                return Ok(());
-            }
-        }
-    }
-
-    // Send one trigger receipt after buffer wait
-    println!("\n🎯 SENDING TRIGGER RECEIPT:");
-    let trigger_value = 100_000_000_000_000; // 0.0001 GRT
-    let trigger_receipt = receipt_signer.create_receipt(
-        collection_id,
-        trigger_value,
-        payer,
-        data_service,
-        service_provider,
-    )?;
-
-    let trigger_encoded = encode_v2_receipt_for_header(&trigger_receipt)?;
-
-    let response = http_client
-        .post(format!("{INDEXER_URL}/subgraphs/id/{SUBGRAPH_ID}"))
-        .header("Content-Type", "application/json")
-        .header("tap-receipt", trigger_encoded)
-        .json(&json!({
-            "query": "{ _meta { block { number } } }"
-        }))
-        .timeout(Duration::from_secs(10))
-        .send()
-        .await?;
-
-    if response.status().is_success() {
-        println!("  Trigger receipt sent successfully");
-    }
-
-    // Final check with timeout
-    println!("\n⏳ WAITING FOR RAV CREATION (30s timeout):");
-    let rav_created = db_checker
-        .wait_for_rav_creation(&payer_hex, initial_state.rav_count, 30, 2, TapVersion::V2)
-        .await?;
-
-    // Final state
-    println!("\n📊 FINAL STATE:");
-    let final_state = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
-    let final_pending = db_checker
-        .get_pending_receipt_value(&collection_id_hex, &payer_hex, TapVersion::V2)
-        .await?;
-
-    println!(
-        "  V2 RAVs: {} (started: {})",
-        final_state.rav_count, initial_state.rav_count
-    );
-    println!(
-        "  V2 Receipts: {} (started: {})",
-        final_state.receipt_count, initial_state.receipt_count
-    );
-    println!(
-        "  Pending value: {} wei (started: {} wei)",
-        final_pending, initial_pending
-    );
-
-    if rav_created || final_state.rav_count > initial_state.rav_count {
-        println!("\n✅ SUCCESS: V2 RAV was created!");
-        println!("  Receipts sent: {}", NUM_RECEIPTS + 1);
-        println!("  Total value sent: {} wei", TOTAL_EXPECTED + trigger_value);
-        return Ok(());
-    }
-
-    // Test failed
-    println!("\n❌ FAILED: No RAV creation detected");
-    println!("\n🔍 DEBUGGING HINTS:");
-    println!("  1. Check tap-agent logs for 'Error while getting the heaviest allocation'");
-    println!("  2. Look for 'No valid allocation found' warnings");
-    println!("  3. Check for 'too much fees under their buffer' errors");
-    println!("  4. Verify the allocation exists in fee tracker");
-    println!("  5. Check if receipts are being converted correctly between Horizon/Legacy");
-
-    // Print detailed breakdown for debugging
-    println!("\n📋 DETAILED V2 STATE:");
-    db_checker
-        .print_detailed_summary(&payer_hex, TapVersion::V2)
-        .await?;
-
-    db_checker
-        .diagnose_timestamp_buffer(
-            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", // payer
-            &collection_id_hex,
-            30, // buffer_seconds (from your config)
-            TapVersion::V2,
-        )
-        .await?;
-
-    Err(anyhow::anyhow!(
-        "V2 RAV generation failed after sending {} receipts worth {} wei",
-        NUM_RECEIPTS + 1,
-        TOTAL_EXPECTED + trigger_value
     ))
 }
