@@ -60,6 +60,8 @@ pub static TAP_EIP712_DOMAIN_SEPARATOR: LazyLock<Eip712Domain> =
 pub static TAP_EIP712_DOMAIN_SEPARATOR_V2: LazyLock<Eip712Domain> =
     LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20]), tap_core::TapVersion::V2));
 
+pub static SUBGRAPH_SERVICE_ADDRESS: [u8; 20] = [0x11u8; 20];
+
 pub const TRIGGER_VALUE: u128 = 500;
 pub const RECEIPT_LIMIT: u64 = 10000;
 pub const DUMMY_URL: &str = "http://localhost:1234";
@@ -94,6 +96,7 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
         tap_sender_timeout: Duration::from_secs(63),
         trusted_senders: HashSet::new(),
         horizon_enabled: true,
+        subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
     }))
 }
 
@@ -131,6 +134,7 @@ pub async fn create_sender_account(
         tap_sender_timeout: TAP_SENDER_TIMEOUT,
         trusted_senders,
         horizon_enabled: false,
+        subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
     }));
 
     let network_subgraph = Box::leak(Box::new(
@@ -707,6 +711,7 @@ async fn create_grpc_aggregator() -> (JoinHandle<()>, SocketAddr) {
     let wallet = SIGNER.0.clone();
     let accepted_addresses = vec![SIGNER.1].into_iter().collect();
     let domain_separator = TAP_EIP712_DOMAIN_SEPARATOR.clone();
+    let domain_separator_v2 = TAP_EIP712_DOMAIN_SEPARATOR_V2.clone();
     let max_request_body_size = 1024 * 1024; // 1 MB
     let max_response_body_size = 1024 * 1024; // 1 MB
     let max_concurrent_connections = 255;
@@ -717,6 +722,7 @@ async fn create_grpc_aggregator() -> (JoinHandle<()>, SocketAddr) {
         wallet,
         accepted_addresses,
         domain_separator,
+        domain_separator_v2,
         max_request_body_size,
         max_response_body_size,
         max_concurrent_connections,
