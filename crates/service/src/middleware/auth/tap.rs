@@ -31,6 +31,8 @@ use crate::{
 /// It also optionally updates a failed receipt metric if Labels are provided
 ///
 /// Requires TapReceipt, MetricLabels and Arc<Context> extensions
+#[allow(dead_code)]
+// keep this code as reference only
 pub fn tap_receipt_authorize<T, B>(
     tap_manager: Arc<Manager<T, TapReceipt>>,
     failed_receipt_metric: &'static prometheus::CounterVec,
