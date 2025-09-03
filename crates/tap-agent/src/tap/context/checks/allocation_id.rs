@@ -8,7 +8,7 @@ use indexer_monitor::SubgraphClient;
 use indexer_query::{tap_transactions, TapTransactions};
 use indexer_watcher::new_watcher;
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
-use thegraph_core::{alloy::primitives::Address, CollectionId as CollectionIdCore};
+use thegraph_core::alloy::primitives::Address;
 use tokio::sync::watch::Receiver;
 
 use crate::tap::{CheckingReceipt, TapReceipt};
