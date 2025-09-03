@@ -26,7 +26,7 @@ pub fn load_integration_env() {
         }
         if let Ok(file) = File::open(path) {
             let reader = BufReader::new(file);
-            for line in reader.lines().flatten() {
+            for line in reader.lines().map_while(Result::ok) {
                 if let Some((key, val)) = parse_env_line(&line) {
                     if env::var(&key).is_err() {
                         env::set_var(key, val);
@@ -56,7 +56,9 @@ fn parse_env_line(line: &str) -> Option<(String, String)> {
     // Trim value, strip surrounding quotes, and remove trailing inline comments
     let mut val = v.trim().to_string();
     // Remove surrounding quotes if present
-    if (val.starts_with('"') && val.ends_with('"')) || (val.starts_with('\'') && val.ends_with('\'')) {
+    if (val.starts_with('"') && val.ends_with('"'))
+        || (val.starts_with('\'') && val.ends_with('\''))
+    {
         val = val[1..val.len().saturating_sub(1)].to_string();
     }
     // Remove trailing inline comments beginning with space+hash
@@ -66,4 +68,3 @@ fn parse_env_line(line: &str) -> Option<(String, String)> {
     }
     Some((key.to_string(), val))
 }
-
