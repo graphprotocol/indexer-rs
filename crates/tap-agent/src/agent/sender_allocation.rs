@@ -1379,6 +1379,8 @@ pub mod tests {
         },
     };
 
+    pub static SUBGRAPH_SERVICE_ADDRESS: [u8; 20] = [0x11u8; 20];
+
     #[rstest::fixture]
     async fn mock_escrow_subgraph_server() -> (MockServer, MockGuard) {
         mock_escrow_subgraph().await
@@ -1501,6 +1503,9 @@ pub mod tests {
                 rav_request_receipt_limit,
                 indexer_address: INDEXER.1,
                 escrow_polling_interval: Duration::from_millis(1000),
+                subgraph_service_address: thegraph_core::alloy::primitives::Address::from(
+                    SUBGRAPH_SERVICE_ADDRESS,
+                ),
             })
             .build()
     }
