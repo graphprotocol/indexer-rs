@@ -1,9 +1,9 @@
 // Copyright 2025-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::env;
 use std::fs;
 use std::path::Path;
-use std::{env, str::FromStr};
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -221,7 +221,11 @@ impl std::fmt::Debug for TestConfig {
             self.indexer_url, self.gateway_url, self.graph_url, self.tap_agent_metrics_url
         )?;
         writeln!(f, "  chain: {},", self.chain_id)?;
-        writeln!(f, "  auth: {{ gateway_api_key: {} }},", mask(&self.gateway_api_key))?;
+        writeln!(
+            f,
+            "  auth: {{ gateway_api_key: {} }},",
+            mask(&self.gateway_api_key)
+        )?;
         writeln!(
             f,
             "  accounts: {{ account0: {} (secret: {}), account1: {} (secret: {}) }},",

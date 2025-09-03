@@ -15,15 +15,13 @@ use thegraph_core::CollectionId;
 
 use crate::{
     constants::{
-        ACCOUNT0_ADDRESS, ACCOUNT0_SECRET, ACCOUNT1_SECRET, CHAIN_ID, GATEWAY_API_KEY,
-        GATEWAY_PRIVATE_KEY, GATEWAY_URL, GRAPH_TALLY_COLLECTOR_CONTRACT, GRAPH_URL, INDEXER_URL,
-        KAFKA_SERVERS, MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_AGENT_METRICS_URL,
-        TAP_VERIFIER_CONTRACT, TEST_DATA_SERVICE, TEST_SUBGRAPH_DEPLOYMENT,
+        ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_TALLY_COLLECTOR_CONTRACT,
+        GRAPH_URL, INDEXER_URL, KAFKA_SERVERS, MAX_RECEIPT_VALUE, SUBGRAPH_ID,
+        TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT,
     },
     utils::{
-        create_client_query_report, create_request, create_tap_receipt, create_tap_receipt_v2,
-        encode_v2_receipt, encode_v2_receipt_for_header, find_allocation, GatewayReceiptSigner,
-        KafkaReporter,
+        create_client_query_report, create_request, create_tap_receipt,
+        encode_v2_receipt_for_header, find_allocation, GatewayReceiptSigner, KafkaReporter,
     },
     MetricsChecker,
 };
@@ -275,7 +273,7 @@ pub async fn test_tap_rav_v2() -> Result<()> {
         let batch_num = batch + 1;
         println!("Sending V2 batch {batch_num} of {BATCHES} with {NUM_RECEIPTS} receipts each...");
 
-        for i in 0..NUM_RECEIPTS {
+        for _ in 0..NUM_RECEIPTS {
             // Create and send a V2 receipt via the gateway
             let response = http_client
                 .post(format!(
