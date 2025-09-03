@@ -31,6 +31,8 @@ use thegraph_core::alloy::primitives::Address;
 use tokio::sync::{mpsc, watch};
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
+pub static SUBGRAPH_SERVICE_ADDRESS: [u8; 20] = [0x11u8; 20];
+
 pub async fn start_agent(
     pgpool: PgPool,
 ) -> (
@@ -93,6 +95,7 @@ pub async fn start_agent(
         tap_sender_timeout: Duration::from_secs(30),
         trusted_senders: HashSet::new(),
         horizon_enabled: false,
+        subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
     }));
 
     let args = SenderAccountsManagerArgs {
