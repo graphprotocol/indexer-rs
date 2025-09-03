@@ -3,7 +3,7 @@
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use axum::{extract::Request, serve, ServiceExt};
 use clap::Parser;
 use graph_networks_registry::NetworksRegistry;
@@ -128,21 +128,22 @@ pub async fn run() -> anyhow::Result<()> {
     let is_horizon_active = if config.horizon.enabled {
         tracing::info!("Horizon migration support enabled - checking if Horizon contracts are active in the network");
         match indexer_monitor::is_horizon_active(network_subgraph).await {
-            Ok(active) => {
-                if active {
-                    tracing::info!("Horizon contracts detected in network subgraph - enabling hybrid migration mode");
-                    tracing::info!("Mode: Accept new V2 receipts only, continue processing existing V1 receipts for RAVs");
-                } else {
-                    tracing::info!("Horizon contracts not yet active in network subgraph - remaining in legacy mode");
-                }
-                active
+            Ok(true) => {
+                tracing::info!("Horizon contracts detected in network subgraph - enabling hybrid migration mode");
+                tracing::info!("Mode: Accept new V2 receipts only, continue processing existing V1 receipts for RAVs");
+                true
+            }
+            Ok(false) => {
+                anyhow::bail!(
+                    "Horizon enabled in config, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
+                    Deploy Horizon (V2) contracts and the updated Network Subgraph, or set horizon.enabled=false"
+                );
             }
             Err(e) => {
-                tracing::warn!(
-                    "Failed to detect Horizon contracts: {}. Remaining in legacy mode.",
-                    e
+                anyhow::bail!(
+                    "Failed to detect Horizon contracts due to network/subgraph error: {}. \
+                    Cannot start with Horizon enabled when network status is unknown.", e
                 );
-                false
             }
         }
     } else {
@@ -171,7 +172,7 @@ pub async fn run() -> anyhow::Result<()> {
             true, // Reject thawing signers eagerly
         )
         .await
-        .expect("Error creating escrow_accounts_v1 channel");
+        .with_context(|| "Error creating escrow_accounts_v1 channel")?;
 
         // Create V2 escrow watcher for new receipts (V2 escrow accounts are in the network subgraph)
         let v2_watcher = match indexer_monitor::escrow_accounts_v2(
@@ -229,7 +230,7 @@ pub async fn run() -> anyhow::Result<()> {
             true, // Reject thawing signers eagerly
         )
         .await
-        .expect("Error creating escrow_accounts_v1 channel");
+        .with_context(|| "Error creating escrow_accounts_v1 channel")?;
 
         ServiceRouter::builder()
             .database(database.clone())
@@ -317,7 +318,7 @@ pub async fn run() -> anyhow::Result<()> {
                 true,
             )
             .await
-            .expect("Failed to create escrow accounts v2 watcher for DIPS")
+            .with_context(|| "Failed to create escrow accounts v2 watcher for DIPS")?
         } else {
             // Fall back to v1 watcher
             escrow_accounts_v1(
@@ -327,7 +328,7 @@ pub async fn run() -> anyhow::Result<()> {
                 true,
             )
             .await
-            .expect("Failed to create escrow accounts v1 watcher for DIPS")
+            .with_context(|| "Failed to create escrow accounts v1 watcher for DIPS")?
         };
 
         let registry = NetworksRegistry::from_latest_version().await.unwrap();
