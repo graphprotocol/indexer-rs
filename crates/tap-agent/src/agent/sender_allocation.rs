@@ -607,7 +607,7 @@ where
 
                 // Instrumentation: log details before calling the aggregator
                 let receipt_count = valid_receipts.len();
-                let first_signer = valid_receipts.get(0).and_then(|r| match r {
+                let first_signer = valid_receipts.first().and_then(|r| match r {
                     indexer_receipt::TapReceipt::V1(sr) => {
                         sr.recover_signer(&self.domain_separator).ok()
                     }
