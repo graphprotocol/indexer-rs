@@ -49,22 +49,31 @@ pub struct DetailedTapState {
 #[derive(Debug, Clone)]
 pub struct ReceiptSummary {
     pub identifier: String, // collection_id for V2, allocation_id for V1
+    #[allow(dead_code)]
     pub payer: String,
+    #[allow(dead_code)]
     pub service_provider: String,
+    #[allow(dead_code)]
     pub data_service: String,
     pub count: i64,
     pub total_value: BigDecimal,
+    #[allow(dead_code)]
     pub oldest_timestamp: BigDecimal,
+    #[allow(dead_code)]
     pub newest_timestamp: BigDecimal,
 }
 
 #[derive(Debug, Clone)]
 pub struct RavSummary {
     pub identifier: String, // collection_id for V2, allocation_id for V1
+    #[allow(dead_code)]
     pub payer: String,
+    #[allow(dead_code)]
     pub service_provider: String,
+    #[allow(dead_code)]
     pub data_service: String,
     pub value_aggregate: BigDecimal,
+    #[allow(dead_code)]
     pub timestamp_ns: BigDecimal,
     pub is_final: bool,
     pub is_last: bool,
@@ -73,8 +82,11 @@ pub struct RavSummary {
 #[derive(Debug, Clone)]
 pub struct PendingRav {
     pub identifier: String, // collection_id for V2, allocation_id for V1
+    #[allow(dead_code)]
     pub payer: String,
+    #[allow(dead_code)]
     pub service_provider: String,
+    #[allow(dead_code)]
     pub data_service: String,
     pub pending_receipt_count: i64,
     pub pending_value: BigDecimal,
@@ -84,8 +96,10 @@ pub struct PendingRav {
 pub struct RecentReceipt {
     pub id: i64,
     pub identifier: String, // collection_id for V2, allocation_id for V1
+    #[allow(dead_code)]
     pub payer: String,
     pub value: BigDecimal,
+    #[allow(dead_code)]
     pub timestamp_ns: BigDecimal,
 }
 
