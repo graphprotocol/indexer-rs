@@ -142,7 +142,8 @@ pub async fn run() -> anyhow::Result<()> {
             Err(e) => {
                 anyhow::bail!(
                     "Failed to detect Horizon contracts due to network/subgraph error: {}. \
-                    Cannot start with Horizon enabled when network status is unknown.", e
+                    Cannot start with Horizon enabled when network status is unknown.",
+                    e
                 );
             }
         }
