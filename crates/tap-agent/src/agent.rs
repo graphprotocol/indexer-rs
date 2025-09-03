@@ -65,7 +65,10 @@ pub mod unaggregated_receipts;
 /// This is the main entrypoint for starting up tap-agent
 ///
 /// It uses the static [crate::CONFIG] to configure the agent.
-pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
+pub async fn start_agent(
+) -> anyhow::Result<(ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>)> {
+    use anyhow::Context;
+
     let Config {
         indexer: IndexerConfig {
             indexer_address, ..
@@ -137,7 +140,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         *recently_closed_allocation_buffer,
     )
     .await
-    .expect("Failed to initialize indexer_allocations watcher");
+    .with_context(|| "Failed to initialize indexer_allocations watcher")?;
 
     let escrow_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
@@ -168,30 +171,33 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         false,
     )
     .await
-    .expect("Error creating escrow_accounts channel");
+    .with_context(|| "Error creating escrow_accounts channel")?;
+
     tracing::info!("V1 escrow accounts watcher initialized successfully");
 
     // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
     // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
     // - If horizon.enabled = true: Check if Horizon contracts are active in the network
     let is_horizon_enabled = if CONFIG.horizon.enabled {
-        tracing::info!("Horizon migration support enabled - checking if Horizon contracts are active in the network");
+        tracing::info!("Horizon migration enabled; checking Network Subgraph readiness");
         match indexer_monitor::is_horizon_active(network_subgraph).await {
-            Ok(active) => {
-                if active {
-                    tracing::info!("Horizon contracts detected in network subgraph - enabling hybrid migration mode");
-                    tracing::info!("TAP Agent Mode: Process existing V1 receipts for RAVs, accept new V2 receipts");
-                } else {
-                    tracing::info!("Horizon contracts not yet active in network subgraph - remaining in legacy mode");
-                }
-                active
+            Ok(true) => {
+                tracing::info!("Horizon contracts detected in network subgraph - enabling hybrid migration mode");
+                tracing::info!(
+                    "TAP Agent Mode: Process existing V1 receipts for RAVs, accept new V2 receipts"
+                );
+                true
+            }
+            Ok(false) => {
+                anyhow::bail!(
+                  "Horizon enabled in config, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). Deploy Horizon (V2) contracts and the updated Network Subgraph, or set horizon.enabled=false"
+              );
             }
             Err(e) => {
-                tracing::warn!(
-                    "Failed to detect Horizon contracts: {}. Remaining in legacy mode.",
+                anyhow::bail!(
+                    "Failed to detect Horizon contracts due to network/subgraph error: {}. Cannot start with Horizon enabled when network status is unknown.",
                     e
                 );
-                false
             }
         }
     } else {
@@ -215,8 +221,8 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
             false,
         )
         .await
-        .expect("Error creating escrow_accounts_v2 channel");
-        tracing::info!("V2 escrow accounts watcher initialized successfully");
+        .with_context(|| "Error creating escrow_accounts_v2 channel")?;
+
         watcher
     } else {
         tracing::info!("Creating empty V2 escrow accounts watcher (Horizon disabled)");
@@ -255,7 +261,5 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         prefix: None,
     };
 
-    SenderAccountsManager::spawn(None, SenderAccountsManager, args)
-        .await
-        .expect("Failed to start sender accounts manager actor.")
+    Ok(SenderAccountsManager::spawn(None, SenderAccountsManager, args).await?)
 }
