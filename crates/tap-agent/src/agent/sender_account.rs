@@ -70,6 +70,14 @@ static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static UNAGGREGATED_FEES_BY_VERSION: LazyLock<GaugeVec> = LazyLock::new(|| {
+    register_gauge_vec!(
+        "tap_unaggregated_fees_grt_total_by_version",
+        "Unaggregated fees per sender, allocation and TAP version",
+        &["sender", "allocation", "version"]
+    )
+    .unwrap()
+});
 static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_sender_fee_tracker_grt_total",
@@ -112,6 +120,8 @@ static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
 });
 
 const INITIAL_RAV_REQUEST_CONCURRENT: usize = 1;
+const TAP_V1: &str = "v1";
+const TAP_V2: &str = "v2";
 
 type RavMap = HashMap<Address, u128>;
 type Balance = U256;
@@ -614,9 +624,25 @@ impl State {
             .with_label_values(&[&self.sender.to_string()])
             .set(self.sender_fee_tracker.get_total_fee() as f64);
 
-        UNAGGREGATED_FEES
-            .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
+        // New by_version metric: always publish for both V1 and V2
+        let version = match self.sender_type {
+            SenderType::Legacy => TAP_V1,
+            SenderType::Horizon => TAP_V2,
+        };
+        UNAGGREGATED_FEES_BY_VERSION
+            .with_label_values(&[
+                &self.sender.to_string(),
+                &allocation_id.to_string(),
+                version,
+            ])
             .set(unaggregated_fees.value as f64);
+
+        // Keep legacy metric for V1 only, to preserve existing dashboards
+        if matches!(self.sender_type, SenderType::Legacy) {
+            UNAGGREGATED_FEES
+                .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
+                .set(unaggregated_fees.value as f64);
+        }
     }
 
     /// Determines whether the sender should be denied/blocked based on current fees and balance.
