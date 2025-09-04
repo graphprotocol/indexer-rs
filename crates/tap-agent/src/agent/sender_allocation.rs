@@ -62,6 +62,14 @@ static RAVS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static RAVS_CREATED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
+    register_counter_vec!(
+        "tap_ravs_created_total_by_version",
+        "RAVs created/updated per sender allocation and TAP version",
+        &["sender", "allocation", "version"]
+    )
+    .unwrap()
+});
 static RAVS_FAILED: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_ravs_failed_total",
@@ -70,11 +78,27 @@ static RAVS_FAILED: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static RAVS_FAILED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
+    register_counter_vec!(
+        "tap_ravs_failed_total_by_version",
+        "RAV requests failed per sender allocation and TAP version",
+        &["sender", "allocation", "version"]
+    )
+    .unwrap()
+});
 static RAV_RESPONSE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         "tap_rav_response_time_seconds",
         "RAV response time per sender",
         &["sender"]
+    )
+    .unwrap()
+});
+static RAV_RESPONSE_TIME_BY_VERSION: LazyLock<HistogramVec> = LazyLock::new(|| {
+    register_histogram_vec!(
+        "tap_rav_response_time_seconds_by_version",
+        "RAV response time per sender and TAP version",
+        &["sender", "version"]
     )
     .unwrap()
 });
@@ -110,6 +134,19 @@ pub enum RavError {
 }
 
 type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
+
+const TAP_V1: &str = "v1";
+const TAP_V2: &str = "v2";
+
+/// Helper function to determine TAP version from NetworkVersion type parameter
+/// Since Legacy and Horizon are uninhabitable enums, we use type_name introspection
+fn get_tap_version<T: NetworkVersion>() -> &'static str {
+    if std::any::type_name::<T>().contains("Legacy") {
+        TAP_V1
+    } else {
+        TAP_V2
+    }
+}
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 ///
@@ -531,18 +568,49 @@ where
             Ok(rav) => {
                 self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
                 self.latest_rav = Some(rav);
-                RAVS_CREATED
-                    .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+                // Determine TAP version based on NetworkVersion type
+                let version = get_tap_version::<T>();
+
+                // by_version counter (both V1 and V2)
+                RAVS_CREATED_BY_VERSION
+                    .with_label_values(&[
+                        &self.sender.to_string(),
+                        &self.allocation_id.to_string(),
+                        version,
+                    ])
                     .inc();
+                // Keep legacy counter for V1 only
+                if version == TAP_V1 {
+                    RAVS_CREATED
+                        .with_label_values(&[
+                            &self.sender.to_string(),
+                            &self.allocation_id.to_string(),
+                        ])
+                        .inc();
+                }
                 Ok(())
             }
             Err(e) => {
                 if let RavError::AllReceiptsInvalid = e {
                     self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
                 }
-                RAVS_FAILED
-                    .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+                let version = get_tap_version::<T>();
+
+                RAVS_FAILED_BY_VERSION
+                    .with_label_values(&[
+                        &self.sender.to_string(),
+                        &self.allocation_id.to_string(),
+                        version,
+                    ])
                     .inc();
+                if version == TAP_V1 {
+                    RAVS_FAILED
+                        .with_label_values(&[
+                            &self.sender.to_string(),
+                            &self.allocation_id.to_string(),
+                        ])
+                        .inc();
+                }
                 Err(e.into())
             }
         }
@@ -631,9 +699,16 @@ where
                     T::aggregate(&mut self.sender_aggregator, valid_receipts, previous_rav).await?;
 
                 let rav_response_time = rav_response_time_start.elapsed();
-                RAV_RESPONSE_TIME
-                    .with_label_values(&[&self.sender.to_string()])
+                let version = get_tap_version::<T>();
+
+                RAV_RESPONSE_TIME_BY_VERSION
+                    .with_label_values(&[&self.sender.to_string(), version])
                     .observe(rav_response_time.as_secs_f64());
+                if version == TAP_V1 {
+                    RAV_RESPONSE_TIME
+                        .with_label_values(&[&self.sender.to_string()])
+                        .observe(rav_response_time.as_secs_f64());
+                }
                 // we only save invalid receipts when we are about to store our rav
                 //
                 // store them before we call remove_obsolete_receipts()
