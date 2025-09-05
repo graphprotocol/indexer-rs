@@ -12,6 +12,7 @@ use std::{
 use actors::TestableActor;
 use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
+use indexer_config;
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use indexer_receipt::TapReceipt;
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
@@ -95,8 +96,7 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
         escrow_polling_interval: ESCROW_POLLING_INTERVAL,
         tap_sender_timeout: Duration::from_secs(63),
         trusted_senders: HashSet::new(),
-        horizon_enabled: true,
-        subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+        tap_mode: indexer_config::TapMode::Legacy,
     }))
 }
 
@@ -133,8 +133,7 @@ pub async fn create_sender_account(
         escrow_polling_interval: Duration::default(),
         tap_sender_timeout: TAP_SENDER_TIMEOUT,
         trusted_senders,
-        horizon_enabled: false,
-        subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+        tap_mode: indexer_config::TapMode::Legacy,
     }));
 
     let network_subgraph = Box::leak(Box::new(

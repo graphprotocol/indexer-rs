@@ -306,10 +306,10 @@ impl Actor for SenderAccountsManager {
             prefix,
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        // we can use config.horizon_enabled directly
+        // we can use config.tap_mode.is_horizon() directly
         // because agent_start method does the horizon smart contract/subgraph validation
         // and updates the passed in config accordingly
-        let is_horizon_active = config.horizon_enabled;
+        let is_horizon_active = config.tap_mode.is_horizon();
         if is_horizon_active {
             tracing::info!("Horizon enabled in config - allocations will use Horizon type");
         } else {
@@ -352,7 +352,7 @@ impl Actor for SenderAccountsManager {
         let pglistener_v1 = PgListener::connect_with(&pgpool.clone()).await.unwrap();
 
         // Extra safety, we don't want to have a listener if horizon is not enabled
-        let pglistener_v2 = if config.horizon_enabled {
+        let pglistener_v2 = if config.tap_mode.is_horizon() {
             Some(PgListener::connect_with(&pgpool.clone()).await.unwrap())
         } else {
             None
@@ -374,7 +374,7 @@ impl Actor for SenderAccountsManager {
 
         // Extra safety, we don't want to have a
         // escrow account listener if horizon is not enabled
-        if config.horizon_enabled {
+        if config.tap_mode.is_horizon() {
             let myself_clone = myself.clone();
             let _escrow_accounts_v2 = escrow_accounts_v2.clone();
             watch_pipe(_escrow_accounts_v2, move |escrow_accounts| {
@@ -429,7 +429,7 @@ impl Actor for SenderAccountsManager {
             .await;
 
         // v2
-        let sender_allocation_v2 = if state.config.horizon_enabled {
+        let sender_allocation_v2 = if state.config.tap_mode.is_horizon() {
             select! {
                 sender_allocation = state.get_pending_sender_allocation_id_v2() => sender_allocation,
                 _ = tokio::time::sleep(state.config.tap_sender_timeout) => {
@@ -628,7 +628,7 @@ impl Actor for SenderAccountsManager {
                             .unwrap_or(HashSet::new())
                     }
                     SenderType::Horizon => {
-                        if !state.config.horizon_enabled {
+                        if !state.config.tap_mode.is_horizon() {
                             tracing::info!(%sender_id, "Horizon sender failed but horizon is disabled, not restarting");
 
                             return Ok(());
