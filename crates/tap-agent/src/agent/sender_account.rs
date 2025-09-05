@@ -420,11 +420,11 @@ pub struct SenderAccountConfig {
     /// over the escrow balance
     pub trusted_senders: HashSet<Address>,
 
-    #[doc(hidden)]
-    pub horizon_enabled: bool,
-
-    /// SubgraphService address used for Horizon (V2) receipts
-    pub subgraph_service_address: Address,
+    /// TAP protocol operation mode
+    ///
+    /// Defines whether the indexer operates in legacy mode (V1 TAP receipts only)
+    /// or horizon mode (hybrid V1/V2 TAP receipts support).
+    pub tap_mode: indexer_config::TapMode,
 }
 
 impl SenderAccountConfig {
@@ -440,11 +440,9 @@ impl SenderAccountConfig {
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
             tap_sender_timeout: config.tap.sender_timeout_secs,
             trusted_senders: config.tap.trusted_senders.clone(),
-            horizon_enabled: config.horizon.enabled,
-            subgraph_service_address: config
-                .horizon
-                .subgraph_service_address
-                .unwrap_or(config.indexer.indexer_address),
+
+            // Derive TapMode from horizon configuration
+            tap_mode: config.tap_mode(),
         }
     }
 }
@@ -723,7 +721,7 @@ impl State {
                 .expect("Should not fail to delete from denylist");
             }
             SenderType::Horizon => {
-                if self.config.horizon_enabled {
+                if self.config.tap_mode.is_horizon() {
                     sqlx::query!(
                         r#"
                     DELETE FROM tap_horizon_denylist
@@ -871,7 +869,7 @@ impl Actor for SenderAccount {
                     .collect(),
                     // Get all ravs from v2 table
                     SenderType::Horizon => {
-                        if config.horizon_enabled {
+                        if config.tap_mode.is_horizon() {
                             sqlx::query!(
                                 r#"
                                     SELECT collection_id, value_aggregate
@@ -921,7 +919,7 @@ impl Actor for SenderAccount {
                         }
                     }
                     SenderType::Horizon => {
-                        if config.horizon_enabled {
+                        if config.tap_mode.is_horizon() {
                             // V2 doesn't have transaction tracking like V1, but we can check if the RAVs
                             // we're about to redeem are still the latest ones by querying LatestRavs.
                             // If the subgraph has newer RAVs, it means ours were already redeemed.
@@ -1050,7 +1048,7 @@ impl Actor for SenderAccount {
             .expect("Deny status cannot be null"),
             // Get deny status from the tap horizon table
             SenderType::Horizon => {
-                if config.horizon_enabled {
+                if config.tap_mode.is_horizon() {
                     sqlx::query!(
                         r#"
                 SELECT EXISTS (

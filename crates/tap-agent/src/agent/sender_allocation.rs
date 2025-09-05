@@ -218,19 +218,22 @@ pub struct AllocationConfig {
     pub indexer_address: Address,
     /// Polling interval for escrow subgraph
     pub escrow_polling_interval: Duration,
-    /// SubgraphService address for Horizon (V2)
-    pub subgraph_service_address: Address,
+    /// TAP protocol operation mode
+    ///
+    /// Defines whether the indexer operates in legacy mode (V1 TAP receipts only)
+    /// or horizon mode (hybrid V1/V2 TAP receipts support).
+    pub tap_mode: indexer_config::TapMode,
 }
 
 impl AllocationConfig {
-    /// Creates a [SenderAccountConfig] by getting a reference of [super::sender_account::SenderAccountConfig]
+    /// Creates a [AllocationConfig] by getting a reference of [super::sender_account::SenderAccountConfig]
     pub fn from_sender_config(config: &SenderAccountConfig) -> Self {
         Self {
             timestamp_buffer_ns: config.rav_request_buffer.as_nanos() as u64,
             rav_request_receipt_limit: config.rav_request_receipt_limit,
             indexer_address: config.indexer_address,
             escrow_polling_interval: config.escrow_polling_interval,
-            subgraph_service_address: config.subgraph_service_address,
+            tap_mode: config.tap_mode.clone(),
         }
     }
 }
@@ -520,14 +523,26 @@ where
                 escrow_accounts.clone(),
             )),
         ];
-        let context = TapAgentContext::builder()
-            .pgpool(pgpool.clone())
-            .allocation_id(T::allocation_id_to_address(&allocation_id))
-            .indexer_address(config.indexer_address)
-            .subgraph_service_address(config.subgraph_service_address)
-            .sender(sender)
-            .escrow_accounts(escrow_accounts.clone())
-            .build();
+        // Build context based on TapMode
+        let context = match &config.tap_mode {
+            indexer_config::TapMode::Legacy => TapAgentContext::builder()
+                .pgpool(pgpool.clone())
+                .allocation_id(T::allocation_id_to_address(&allocation_id))
+                .indexer_address(config.indexer_address)
+                .sender(sender)
+                .escrow_accounts(escrow_accounts.clone())
+                .build(),
+            indexer_config::TapMode::Horizon {
+                subgraph_service_address,
+            } => TapAgentContext::builder()
+                .pgpool(pgpool.clone())
+                .allocation_id(T::allocation_id_to_address(&allocation_id))
+                .indexer_address(config.indexer_address)
+                .sender(sender)
+                .escrow_accounts(escrow_accounts.clone())
+                .subgraph_service_address(*subgraph_service_address)
+                .build(),
+        };
 
         let latest_rav = context.last_rav().await.unwrap_or_default();
         let tap_manager = TapManager::new(
@@ -1578,9 +1593,7 @@ pub mod tests {
                 rav_request_receipt_limit,
                 indexer_address: INDEXER.1,
                 escrow_polling_interval: Duration::from_millis(1000),
-                subgraph_service_address: thegraph_core::alloy::primitives::Address::from(
-                    SUBGRAPH_SERVICE_ADDRESS,
-                ),
+                tap_mode: indexer_config::TapMode::Legacy,
             })
             .build()
     }

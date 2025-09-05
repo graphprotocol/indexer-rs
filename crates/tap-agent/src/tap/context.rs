@@ -201,12 +201,36 @@ pub struct TapAgentContext<T> {
     #[cfg_attr(test, builder(default = crate::test::INDEXER.1))]
     indexer_address: Address,
     /// SubgraphService address (used by Horizon V2 queries)
-    #[cfg_attr(test, builder(default = crate::test::INDEXER.1))]
-    subgraph_service_address: Address,
+    /// Only present when operating in Horizon mode for V2 operations.
+    subgraph_service_address: Option<Address>,
     escrow_accounts: Receiver<EscrowAccounts>,
     /// We use phantom data as a marker since it's
     /// only used to define what methods are available
     /// for each type of network
     #[builder(default = PhantomData)]
     _phantom: PhantomData<T>,
+}
+
+impl<T> TapAgentContext<T> {
+    /// Get the SubgraphService address if available
+    ///
+    /// Returns `Some(Address)` in Horizon mode, `None` in Legacy mode.
+    /// Use this when you need to conditionally access V2 infrastructure.
+    pub fn subgraph_service_address(&self) -> Option<Address> {
+        self.subgraph_service_address
+    }
+
+    /// Get the SubgraphService address, panicking if not available
+    ///
+    /// Use this when you know you're in a V2/Horizon context and the address
+    /// should always be available. Panics with a descriptive message if called
+    /// when the address is not set.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `subgraph_service_address` is `None`.
+    pub fn require_subgraph_service_address(&self) -> Address {
+        self.subgraph_service_address
+            .expect("subgraph_service_address not available - check TapMode configuration")
+    }
 }

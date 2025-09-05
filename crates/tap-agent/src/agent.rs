@@ -241,9 +241,13 @@ pub async fn start_agent(
         (escrow_accounts_v1, escrow_accounts_v2)
     };
 
-    let config = Box::leak(Box::new({
+    let config = Box::leak(Box::new(if is_horizon_enabled {
+        // Use the TapMode from config since horizon is actually enabled and active
+        SenderAccountConfig::from_config(&CONFIG)
+    } else {
+        // Override to Legacy mode since horizon is not active in the network
         let mut config = SenderAccountConfig::from_config(&CONFIG);
-        config.horizon_enabled = is_horizon_enabled;
+        config.tap_mode = indexer_config::TapMode::Legacy;
         config
     }));
 

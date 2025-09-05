@@ -94,8 +94,7 @@ pub async fn start_agent(
         escrow_polling_interval: Duration::from_secs(10),
         tap_sender_timeout: Duration::from_secs(30),
         trusted_senders: HashSet::new(),
-        horizon_enabled: false,
-        subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+        tap_mode: indexer_config::TapMode::Legacy,
     }));
 
     let args = SenderAccountsManagerArgs {
