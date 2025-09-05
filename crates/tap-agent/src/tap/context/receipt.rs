@@ -459,6 +459,7 @@ mod test {
         TapAgentContext::builder()
             .pgpool(pgpool)
             .escrow_accounts(escrow_accounts)
+            .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
             .build()
     }
 
@@ -946,6 +947,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts)
+                .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
                 .build(),
             _test_db: test_db,
         };
@@ -1143,6 +1145,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts.clone())
+                .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
                 .build(),
             _test_db: test_db,
         };
@@ -1388,6 +1391,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts.clone())
+                .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
                 .build(),
             _test_db: test_db,
         };

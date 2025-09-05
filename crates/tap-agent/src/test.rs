@@ -336,7 +336,7 @@ pub fn create_rav_v2(
             timestampNs: timestamp_ns,
             valueAggregate: value_aggregate,
             payer: SENDER.1,
-            dataService: INDEXER.1, // Use the same indexer address as the context
+            dataService: SENDER.1, // Use TAP_SENDER address to match context query
             serviceProvider: INDEXER.1,
             metadata: Bytes::new(),
         },
@@ -376,7 +376,7 @@ impl CreateReceipt for Horizon {
                 collection_id,
                 payer: SENDER.1,
                 service_provider: INDEXER.1,
-                data_service: INDEXER.1, // Use the same indexer address as the context
+                data_service: SENDER.1, // Use TAP_SENDER address to match context query
                 nonce,
                 timestamp_ns,
                 value,
