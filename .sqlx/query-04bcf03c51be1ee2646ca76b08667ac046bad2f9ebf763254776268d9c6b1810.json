@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT payer, collection_id, value_aggregate, signature \n            FROM tap_horizon_ravs \n            WHERE collection_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "payer",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "collection_id",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "value_aggregate",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 3,
+        "name": "signature",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "04bcf03c51be1ee2646ca76b08667ac046bad2f9ebf763254776268d9c6b1810"
+}

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        SELECT COALESCE(SUM(value), 0) as total_pending\n                        FROM scalar_tap_receipts \n                        WHERE signer_address = $1\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_pending",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "26b43d0f20121aa10584bd4c4d0589d24153d4521503135147ad8cd4b369d991"
+}
