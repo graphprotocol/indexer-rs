@@ -852,8 +852,8 @@ impl Actor for SenderAccount {
                 .get_balance_for_sender(&sender_id)
                 .unwrap_or_default();
             async move {
-                let last_non_final_ravs: Vec<_> = match sender_type {
-                    // Get all ravs from v1 table
+                let last_non_final_ravs: Vec<(AllocationId, _)> = match sender_type {
+                    // Get all ravs from v1 table - wrap in Legacy variant
                     SenderType::Legacy => sqlx::query!(
                         r#"
                                     SELECT allocation_id, value_aggregate
@@ -866,9 +866,12 @@ impl Actor for SenderAccount {
                     .await
                     .expect("Should not fail to fetch from scalar_tap_ravs")
                     .into_iter()
-                    .map(|record| (record.allocation_id, record.value_aggregate))
+                    .filter_map(|record| {
+                        let allocation_id = AllocationIdCore::from_str(&record.allocation_id).ok()?;
+                        Some((AllocationId::Legacy(allocation_id), record.value_aggregate))
+                    })
                     .collect(),
-                    // Get all ravs from v2 table
+                    // Get all ravs from v2 table - wrap in Horizon variant
                     SenderType::Horizon => {
                         if config.tap_mode.is_horizon() {
                             sqlx::query!(
@@ -883,7 +886,10 @@ impl Actor for SenderAccount {
                             .await
                             .expect("Should not fail to fetch from \"horizon\" scalar_tap_ravs")
                             .into_iter()
-                            .map(|record| (record.collection_id, record.value_aggregate))
+                            .filter_map(|record| {
+                                let collection_id = CollectionId::from_str(&record.collection_id).ok()?;
+                                Some((AllocationId::Horizon(collection_id), record.value_aggregate))
+                            })
                             .collect()
                         } else {
                             vec![]
@@ -900,7 +906,7 @@ impl Actor for SenderAccount {
                                 unfinalized_transactions::Variables {
                                     unfinalized_ravs_allocation_ids: last_non_final_ravs
                                         .iter()
-                                        .map(|rav| rav.0.to_string())
+                                        .map(|(allocation_id, _)| allocation_id.address().to_string())
                                         .collect::<Vec<_>>(),
                                     sender: format!("{sender_id:x?}"),
                                 },
@@ -928,7 +934,7 @@ impl Actor for SenderAccount {
 
                             let collection_ids: Vec<String> = last_non_final_ravs
                                 .iter()
-                                .map(|(collection_id, _)| collection_id.clone())
+                                .map(|(collection_id, _)| collection_id.address().to_string())
                                 .collect();
 
                             if !collection_ids.is_empty() {
@@ -954,7 +960,7 @@ impl Actor for SenderAccount {
                                                     .to_bigint()
                                                     .and_then(|v| v.to_u128())
                                                     .unwrap_or(0);
-                                                (collection_id.clone(), value_u128)
+                                                (collection_id.address().to_string(), value_u128)
                                             })
                                             .collect();
 
@@ -967,8 +973,11 @@ impl Actor for SenderAccount {
                                                     rav.value_aggregate.parse::<u128>()
                                                 {
                                                     if subgraph_value > our_value {
-                                                        // Return collection ID string for filtering
-                                                        finalized_allocation_ids.push(rav.id);
+                                                        // Convert collection_id to address format for consistent comparison
+                                                        if let Ok(collection_id) = CollectionId::from_str(&rav.id) {
+                                                            let addr = AllocationIdCore::from(collection_id).into_inner();
+                                                            finalized_allocation_ids.push(format!("{addr:x?}"));
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1004,11 +1013,10 @@ impl Actor for SenderAccount {
                 // filter the ravs marked as last that were not redeemed yet
                 let non_redeemed_ravs = last_non_final_ravs
                     .into_iter()
-                    .filter_map(|rav| {
-                        Some((
-                            Address::from_str(&rav.0).ok()?,
-                            rav.1.to_bigint().and_then(|v| v.to_u128())?,
-                        ))
+                    .filter_map(|(allocation_id, value)| {
+                        let address = allocation_id.address(); // Use existing .address() method
+                        let value = value.to_bigint()?.to_u128()?;
+                        Some((address, value))
                     })
                     .filter(|(allocation, _value)| {
                         !redeemed_ravs_allocation_ids.contains(&format!("{allocation:x?}"))
