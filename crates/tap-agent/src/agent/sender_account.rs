@@ -753,9 +753,10 @@ impl State {
         }
         // We don't need to check what type of allocation it is since
         // legacy allocation ids can't be reused for horizon
+        // Use .address() to get the 20-byte allocation address for both Legacy and Horizon
         let allocation_ids: Vec<String> = allocation_ids
             .into_iter()
-            .map(|addr| addr.to_string().to_lowercase())
+            .map(|addr| addr.address().to_string().to_lowercase())
             .collect();
 
         let mut hash: Option<String> = None;
