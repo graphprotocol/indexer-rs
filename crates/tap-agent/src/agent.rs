@@ -182,7 +182,9 @@ pub async fn start_agent(
         tracing::info!("Horizon migration enabled; checking Network Subgraph readiness");
         match indexer_monitor::is_horizon_active(network_subgraph).await {
             Ok(true) => {
-                tracing::info!("Horizon schema available in network subgraph - enabling hybrid migration mode");
+                tracing::info!(
+                    "Horizon schema available in network subgraph - enabling hybrid migration mode"
+                );
                 tracing::info!(
                     "TAP Agent Mode: Process existing V1 receipts for RAVs, accept new V2 receipts"
                 );
