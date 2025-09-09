@@ -867,7 +867,8 @@ impl Actor for SenderAccount {
                     .expect("Should not fail to fetch from scalar_tap_ravs")
                     .into_iter()
                     .filter_map(|record| {
-                        let allocation_id = AllocationIdCore::from_str(&record.allocation_id).ok()?;
+                        let allocation_id =
+                            AllocationIdCore::from_str(&record.allocation_id).ok()?;
                         Some((AllocationId::Legacy(allocation_id), record.value_aggregate))
                     })
                     .collect(),
@@ -887,7 +888,8 @@ impl Actor for SenderAccount {
                             .expect("Should not fail to fetch from \"horizon\" scalar_tap_ravs")
                             .into_iter()
                             .filter_map(|record| {
-                                let collection_id = CollectionId::from_str(&record.collection_id).ok()?;
+                                let collection_id =
+                                    CollectionId::from_str(&record.collection_id).ok()?;
                                 Some((AllocationId::Horizon(collection_id), record.value_aggregate))
                             })
                             .collect()
@@ -906,7 +908,9 @@ impl Actor for SenderAccount {
                                 unfinalized_transactions::Variables {
                                     unfinalized_ravs_allocation_ids: last_non_final_ravs
                                         .iter()
-                                        .map(|(allocation_id, _)| allocation_id.address().to_string())
+                                        .map(|(allocation_id, _)| {
+                                            allocation_id.address().to_string()
+                                        })
                                         .collect::<Vec<_>>(),
                                     sender: format!("{sender_id:x?}"),
                                 },
@@ -974,9 +978,15 @@ impl Actor for SenderAccount {
                                                 {
                                                     if subgraph_value > our_value {
                                                         // Convert collection_id to address format for consistent comparison
-                                                        if let Ok(collection_id) = CollectionId::from_str(&rav.id) {
-                                                            let addr = AllocationIdCore::from(collection_id).into_inner();
-                                                            finalized_allocation_ids.push(format!("{addr:x?}"));
+                                                        if let Ok(collection_id) =
+                                                            CollectionId::from_str(&rav.id)
+                                                        {
+                                                            let addr = AllocationIdCore::from(
+                                                                collection_id,
+                                                            )
+                                                            .into_inner();
+                                                            finalized_allocation_ids
+                                                                .push(format!("{addr:x?}"));
                                                         }
                                                     }
                                                 }
