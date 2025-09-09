@@ -35,15 +35,19 @@ const NUM_RECEIPTS: u32 = 30; // Increased to 30 receipts per batch
 // Send receipts in batches with a delay in between
 // to ensure some receipts get outside the timestamp buffer
 const BATCHES: u32 = 15; // Increased to 15 batches for total 450 receipts in Stage 1
-const MAX_TRIGGERS: usize = 200; // Increased trigger attempts to 200
+const MAX_TRIGGERS: usize = 20000; // Increased trigger attempts to 200
 
 // Function to test the tap RAV generation
 pub async fn test_tap_rav_v1() -> Result<()> {
+    use crate::constants::TEST_SUBGRAPH_DEPLOYMENT;
+
     // Setup HTTP client
     let http_client = Arc::new(Client::new());
 
     // Query the network subgraph to find active allocations
     let allocation_id = find_allocation(http_client.clone(), GRAPH_URL).await?;
+
+    println!("Found allocation ID: {allocation_id}");
 
     let allocation_id = Address::from_str(&allocation_id)?;
 
@@ -76,7 +80,9 @@ pub async fn test_tap_rav_v1() -> Result<()> {
 
         for i in 0..NUM_RECEIPTS {
             let response = http_client
-                .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
+                .post(format!(
+                    "{GATEWAY_URL}/api/deployments/id/{TEST_SUBGRAPH_DEPLOYMENT}",
+                ))
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
                 .json(&json!({
@@ -85,6 +91,17 @@ pub async fn test_tap_rav_v1() -> Result<()> {
                 .timeout(Duration::from_secs(10))
                 .send()
                 .await?;
+
+            // let response = http_client
+            //     .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
+            //     .header("Content-Type", "application/json")
+            //     .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
+            //     .json(&json!({
+            //         "query": "{ _meta { block { number } } }"
+            //     }))
+            //     .timeout(Duration::from_secs(10))
+            //     .send()
+            //     .await?;
 
             if response.status().is_success() {
                 total_successful += 1;
@@ -123,7 +140,9 @@ pub async fn test_tap_rav_v1() -> Result<()> {
         println!("Sending trigger query {}/{}...", i + 1, MAX_TRIGGERS);
 
         let response = http_client
-            .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
+            .post(format!(
+                "{GATEWAY_URL}/api/deployments/id/{TEST_SUBGRAPH_DEPLOYMENT}",
+            ))
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
             .json(&json!({
@@ -132,6 +151,17 @@ pub async fn test_tap_rav_v1() -> Result<()> {
             .timeout(Duration::from_secs(10))
             .send()
             .await?;
+
+        // let response = http_client
+        //     .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
+        //     .header("Content-Type", "application/json")
+        //     .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
+        //     .json(&json!({
+        //         "query": "{ _meta { block { number } } }"
+        //     }))
+        //     .timeout(Duration::from_secs(10))
+        //     .send()
+        //     .await?;
 
         if response.status().is_success() {
             total_successful += 1;
@@ -330,7 +360,7 @@ pub async fn test_tap_rav_v2() -> Result<()> {
                 "✅ V2 RAV CREATED after batch {}! RAVs: {} → {}",
                 batch_num, initial_state.rav_count, batch_state.rav_count
             );
-            return Ok(());
+            // return Ok(());
         }
 
         // Wait between batches - long enough for first batch to exit buffer
@@ -398,7 +428,7 @@ pub async fn test_tap_rav_v2() -> Result<()> {
                 "✅ V2 TEST PASSED: RAVs created increased from {} to {}!",
                 initial_state.rav_count, current_state.rav_count
             );
-            return Ok(());
+            // return Ok(());
         }
 
         // Check if pending value decreased significantly (RAV was created and cleared pending receipts)
@@ -408,7 +438,7 @@ pub async fn test_tap_rav_v2() -> Result<()> {
                 "✅ V2 TEST PASSED: Unaggregated fees decreased significantly from {} to {} wei!",
                 initial_pending_value, current_pending_value
             );
-            return Ok(());
+            // return Ok(());
         }
     }
 

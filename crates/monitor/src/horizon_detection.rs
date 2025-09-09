@@ -33,7 +33,7 @@ pub async fn is_horizon_active(network_subgraph: &SubgraphClient) -> Result<bool
     let response = response?;
 
     let account_count = response.payments_escrow_accounts.len();
-    
+
     // If the query succeeds, Horizon schema is available
     // Account count doesn't matter - the watcher will detect accounts as they appear
     if account_count > 0 {
