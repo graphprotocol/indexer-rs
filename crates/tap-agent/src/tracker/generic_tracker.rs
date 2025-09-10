@@ -234,9 +234,34 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
     }
 
     pub fn get_ravable_total_fee(&mut self) -> u128 {
-        self.get_total_fee()
-            - self.global.requesting
-            - self.get_buffered_fee().min(self.global.total_fee)
+        // Use saturating_sub to prevent underflow when requesting or buffered fees
+        // exceed total fee (can happen after RAV success resets counters)
+        let total_fee = self.get_total_fee();
+        let requesting_fee = self.global.requesting;
+        let raw_buffered_fee = self.get_buffered_fee();
+        let buffered_fee = raw_buffered_fee.min(total_fee);
+
+        let result = total_fee
+            .saturating_sub(requesting_fee)
+            .saturating_sub(buffered_fee);
+
+        // Log only when the pre-min raw buffered fee or requesting exceeds total
+        // TODO: Investigate if this edge case is expected behavior.
+        // It may occur right after a successful RAV resets totals to zero while
+        // some receipts are still within the buffer window awaiting expiration.
+        if requesting_fee > total_fee || raw_buffered_fee > total_fee {
+            // This can happen when a RAV completes (resetting totals) but receipts are still in the buffer
+            tracing::warn!(
+                total_fee = total_fee,
+                requesting_fee = requesting_fee,
+                raw_buffered_fee = raw_buffered_fee,
+                buffered_fee = buffered_fee,
+                result = result,
+                "Fees exceed total fee - using saturating arithmetic to prevent underflow"
+            );
+        }
+
+        result
     }
 
     fn get_buffered_fee(&mut self) -> u128 {

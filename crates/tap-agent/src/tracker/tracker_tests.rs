@@ -362,3 +362,66 @@ fn check_get_count_updates_sum() {
     assert_eq!(expiring_sum.buffer_info.get_count(), 0);
     assert_eq!(expiring_sum.buffer_info.get_sum(), 0);
 }
+
+#[test]
+fn test_ravable_count_no_underflow_after_rav_success() {
+    // Test case: After RAV success, counter is reset to 0 but buffer still has entries
+    // This should not panic and should return 0 (using saturating_sub)
+
+    let allocation_id_0 = address!("abababababababababababababababababababab");
+    let buffer_duration = Duration::from_millis(100);
+    let mut tracker = SenderFeeTracker::new(buffer_duration);
+
+    // Add some receipts to create buffer entries
+    tracker.add(allocation_id_0, 100, get_current_timestamp_u64_ns());
+    tracker.add(allocation_id_0, 200, get_current_timestamp_u64_ns());
+
+    // Verify we have buffer entries
+    let stats = tracker.id_to_fee.get_mut(&allocation_id_0).unwrap();
+    assert!(stats.buffer_info.get_count() > 0);
+    assert_eq!(stats.count, 2); // Two receipts added
+
+    // Simulate RAV success: reset counter to 0 (but buffer entries haven't expired yet)
+    tracker.update(
+        allocation_id_0,
+        UnaggregatedReceipts {
+            value: 0,
+            counter: 0,
+            last_id: 0,
+        },
+    );
+
+    // This should not panic and should return 0 due to saturating_sub
+    let ravable_count = tracker.get_count_outside_buffer_for_allocation(&allocation_id_0);
+    assert_eq!(ravable_count, 0);
+}
+
+#[test]
+fn test_get_ravable_total_fee_no_underflow() {
+    // Test case: Fees exceed total (requesting > total or buffered > total)
+    // This should not panic and should return 0 (using saturating_sub)
+
+    let allocation_id_0 = address!("abababababababababababababababababababab");
+    let buffer_duration = Duration::from_millis(100);
+    let mut tracker = SenderFeeTracker::new(buffer_duration);
+
+    // Add some fees
+    tracker.add(allocation_id_0, 100, get_current_timestamp_u64_ns());
+
+    // Start a RAV request (this sets requesting = total_fee)
+    tracker.start_rav_request(allocation_id_0);
+
+    // Simulate RAV success: reset to 0 while requesting is still > 0
+    tracker.update(
+        allocation_id_0,
+        UnaggregatedReceipts {
+            value: 0,
+            counter: 0,
+            last_id: 0,
+        },
+    );
+
+    // This should not panic and should return 0 due to saturating_sub
+    let ravable_fee = tracker.get_ravable_total_fee();
+    assert_eq!(ravable_fee, 0);
+}

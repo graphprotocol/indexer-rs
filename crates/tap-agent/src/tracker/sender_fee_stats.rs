@@ -34,7 +34,23 @@ impl SenderFeeStats {
     pub(super) fn ravable_count(&mut self) -> u64 {
         let allocation_counter = self.count;
         let counter_in_buffer = self.buffer_info.get_count();
-        allocation_counter - counter_in_buffer
+
+        // Use saturating_sub to prevent underflow when buffer contains more entries
+        // than the current counter (e.g., after RAV success resets counter to 0)
+        let result = allocation_counter.saturating_sub(counter_in_buffer);
+
+        if counter_in_buffer > allocation_counter {
+            // TODO: Investigate if this edge case is expected behavior
+            // It could happen when RAV completes (resetting counter to 0) but new receipts
+            // arrived during processing and are in the buffer waiting for next RAV
+            tracing::warn!(
+                allocation_counter = allocation_counter,
+                counter_in_buffer = counter_in_buffer,
+                "Buffer contains more entries than allocation counter - likely after RAV success"
+            );
+        }
+
+        result
     }
 }
 
