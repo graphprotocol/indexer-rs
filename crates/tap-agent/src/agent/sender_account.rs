@@ -1635,9 +1635,9 @@ impl Actor for SenderAccount {
                         tracing::warn!(%allocation_id, sender_type = ?state.sender_type,
                             "Allocation not found in state for ActorTerminated, falling back to sender type");
                         match state.sender_type {
-                            crate::agent::sender_accounts_manager::SenderType::Legacy => 
+                            crate::agent::sender_accounts_manager::SenderType::Legacy =>
                                 AllocationId::Legacy(AllocationIdCore::from(allocation_id)),
-                            crate::agent::sender_accounts_manager::SenderType::Horizon => 
+                            crate::agent::sender_accounts_manager::SenderType::Horizon =>
                                 AllocationId::Horizon(CollectionId::from(allocation_id)),
                         }
                     });
