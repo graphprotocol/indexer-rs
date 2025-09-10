@@ -294,11 +294,12 @@ fi
 
 # Updated to use the horizon file structure and include tap-contracts.json
 # Gateway now generates config with increased max_lag_seconds in gateway/run.sh
+# -v "$(pwd)/local-network/tap-contracts.json":/opt/tap-contracts.json:ro \
 docker run -d --name gateway \
     --network local-network_default \
     -p 7700:7700 \
     -v "$(pwd)/local-network/horizon.json":/opt/horizon.json:ro \
-    -v "$(pwd)/local-network/tap-contracts.json":/opt/tap-contracts.json:ro \
+    -v "$(pwd)/local-network/tap-contracts.json":/opt/contracts.json:ro \
     -v "$(pwd)/local-network/subgraph-service.json":/opt/subgraph-service.json:ro \
     -v "$(pwd)/local-network/.env":/opt/.env:ro \
     -e RUST_LOG=info,graph_gateway=trace \
@@ -343,6 +344,12 @@ echo "Images size: $END_IMAGES_SIZE"
 echo "Containers size: $END_CONTAINERS_SIZE"
 echo "Volumes size: $END_VOLUMES_SIZE"
 echo "==========================================="
+
+# go back to root dir indexer-rs/
+# and execute pg_admin.sh if requested
+# this scripts deploys a docker container with pgAdmin which can be used to inspect/modify
+# graphtally database tables like tap_horizon_ravs/tap_horizon_receipts and so on
+cd ..
 
 # Optional: Start pgAdmin for database inspection
 if [ "$START_PGADMIN" = "true" ]; then
