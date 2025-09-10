@@ -1622,9 +1622,19 @@ impl Actor for SenderAccount {
                 let _ = UNAGGREGATED_FEES
                     .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
 
-                // check for deny conditions
+                // check for deny conditions - look up correct allocation variant from state
+                let Some(allocation_enum) = state
+                    .allocation_ids
+                    .iter()
+                    .find(|id| id.address() == allocation_id)
+                    .cloned()
+                else {
+                    tracing::error!(%allocation_id, "Could not get allocation id type from state for ActorTerminated");
+                    return Ok(());
+                };
+
                 let _ = myself.cast(SenderAccountMessage::UpdateReceiptFees(
-                    AllocationId::Legacy(AllocationIdCore::from(allocation_id)),
+                    allocation_enum,
                     ReceiptFees::Retry,
                 ));
 
