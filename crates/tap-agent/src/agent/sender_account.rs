@@ -1622,16 +1622,25 @@ impl Actor for SenderAccount {
                 let _ = UNAGGREGATED_FEES
                     .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
 
-                // check for deny conditions - look up correct allocation variant from state
-                let Some(allocation_enum) = state
+                // Check for deny conditions - look up correct allocation variant from state
+                let allocation_enum = state
                     .allocation_ids
                     .iter()
                     .find(|id| id.address() == allocation_id)
                     .cloned()
-                else {
-                    tracing::error!(%allocation_id, "Could not get allocation id type from state for ActorTerminated");
-                    return Ok(());
-                };
+                    .unwrap_or_else(|| {
+                        // Allocation not found in state - this can happen in race conditions during 
+                        // allocation lifecycle or in tests. Since sender accounts are type-specific 
+                        // (Legacy or Horizon), we can safely fall back to the sender's type.
+                        tracing::warn!(%allocation_id, sender_type = ?state.sender_type,
+                            "Allocation not found in state for ActorTerminated, falling back to sender type");
+                        match state.sender_type {
+                            crate::agent::sender_accounts_manager::SenderType::Legacy => 
+                                AllocationId::Legacy(AllocationIdCore::from(allocation_id)),
+                            crate::agent::sender_accounts_manager::SenderType::Horizon => 
+                                AllocationId::Horizon(CollectionId::from(allocation_id)),
+                        }
+                    });
 
                 let _ = myself.cast(SenderAccountMessage::UpdateReceiptFees(
                     allocation_enum,
