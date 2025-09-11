@@ -26,7 +26,10 @@ use tap_core::{
     },
     signed_message::Eip712SignedMessage,
 };
-use thegraph_core::{alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain}, CollectionId};
+use thegraph_core::{
+    alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain},
+    CollectionId,
+};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
 
