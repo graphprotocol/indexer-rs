@@ -26,7 +26,10 @@ use tap_core::{
     },
     signed_message::Eip712SignedMessage,
 };
-use thegraph_core::alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain};
+use thegraph_core::{
+    alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain},
+    CollectionId,
+};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
 
@@ -1263,7 +1266,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                     "#,
             BigDecimal::from(min_timestamp),
             BigDecimal::from(max_timestamp),
-            self.allocation_id.to_string(),
+            CollectionId::from(self.allocation_id).encode_hex(),
             self.indexer_address.encode_hex(),
             &signers,
         )
@@ -1288,7 +1291,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 collection_id = $1
                 AND signer_address IN (SELECT unnest($2::text[]))
             "#,
-            self.allocation_id.to_string(),
+            CollectionId::from(self.allocation_id).encode_hex(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -1337,7 +1340,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 AND signer_address IN (SELECT unnest($4::text[]))
                 AND timestamp_ns > $5
             "#,
-            self.allocation_id.to_string(),
+            CollectionId::from(self.allocation_id).encode_hex(),
             self.indexer_address.encode_hex(),
             last_id,
             &signers,
@@ -1388,7 +1391,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                     AND payer = $2
                     AND service_provider = $3
             "#,
-            self.allocation_id.to_string(),
+            CollectionId::from(self.allocation_id).encode_hex(),
             self.sender.encode_hex(),
             self.indexer_address.encode_hex(),
         )
