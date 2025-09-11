@@ -84,11 +84,11 @@ sqlx = { version = "0.8.2", features = [
     "uuid",
 ], default-features = false }
 stdext = "0.3.3"
-tap_aggregator = { version = "0.6.2", default-features = false, features = [
+tap_aggregator = { version = "0.6.3", default-features = false, features = [
     "v2",
 ] }
-tap_core = { version = "6.0.1", default-features = false }
-tap_graph = { version = "0.3.4", features = ["v2"] }
+tap_core = { version = "6.0.2", default-features = false }
+tap_graph = { version = "0.3.5", features = ["v2"] }
 tempfile = "3.8.0"
 test-log = { version = "0.2.12", default-features = false }
 testcontainers-modules = { version = "0.12.1", features = ["postgres"] }
