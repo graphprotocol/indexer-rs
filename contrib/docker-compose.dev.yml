@@ -68,6 +68,18 @@ services:
     security_opt:
       - seccomp:unconfined
 
+  indexer-cli:
+    build:
+      context: ./indexer-cli
+      dockerfile: Dockerfile
+    container_name: indexer-cli
+    networks:
+      - local-network
+    # Keep container running for docker exec
+    entrypoint: ["tail", "-f", "/dev/null"]
+    environment:
+      - INDEXER_AGENT_ENDPOINT=${INDEXER_AGENT_ENDPOINT:-http://indexer-agent:7600}
+
 networks:
   local-network:
     external: true
