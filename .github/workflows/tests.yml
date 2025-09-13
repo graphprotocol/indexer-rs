@@ -11,7 +11,7 @@ jobs:
     name: cargo fmt
     runs-on: ubuntu-latest
     container:
-      image: rust:1.86-bookworm
+      image: rust:1.87-bookworm
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - run: |
@@ -34,7 +34,7 @@ jobs:
         ports:
           - 5432:5432
     container:
-      image: rust:1.86-bookworm
+      image: rust:1.87-bookworm
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
@@ -65,7 +65,7 @@ jobs:
     name: cargo clippy
     runs-on: ubuntu-latest
     container:
-      image: rust:1.86-bookworm
+      image: rust:1.87-bookworm
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
       SQLX_OFFLINE: true
@@ -95,7 +95,7 @@ jobs:
     name: cargo test and coverage
     runs-on: ubuntu-latest
     container:
-      image: rust:1.86-bookworm
+      image: rust:1.87-bookworm
       options: --privileged -v /var/run/docker.sock:/var/run/docker.sock
     env:
       CI: true
@@ -141,7 +141,7 @@ jobs:
     name: cargo test docs code snippets
     runs-on: ubuntu-latest
     container:
-      image: rust:1.86-bookworm
+      image: rust:1.87-bookworm
       options: --privileged -v /var/run/docker.sock:/var/run/docker.sock
     env:
       SQLX_OFFLINE: true

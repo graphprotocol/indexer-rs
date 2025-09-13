@@ -10,32 +10,43 @@ cat /opt/.env
 
 # Extract GraphTallyCollector address from horizon.json
 stdbuf -oL echo "🔍 DEBUG: Extracting GraphTallyCollector address from horizon.json..."
-GRAPH_TALLY_VERIFIER=$(jq -r '."1337".GraphTallyCollector.address' /opt/horizon.json)
-stdbuf -oL echo "🔍 DEBUG: GraphTallyCollector address: $GRAPH_TALLY_VERIFIER"
+
+subgraph_service=$(jq -r '."1337".SubgraphService.address' /opt/subgraph-service.json)
+
+# Handle mixed format - try with .address first, fallback to direct value
+graph_tally_verifier=$(jq -r '."1337".GraphTallyCollector.address // ."1337".GraphTallyCollector' /opt/horizon.json)
+stdbuf -oL echo "🔍 DEBUG: GraphTallyCollector address: $graph_tally_verifier"
+
+# For your indexer-agent script, update the extraction:
+tap_verifier=$(jq -r '."1337".TAPVerifier' /opt/contracts.json)
+stdbuf -oL echo "🔍 DEBUG: TAPVerifier address: $tap_verifier"
+
+allocation_id_tracker=$(jq -c '."1337".AllocationIDTracker' /opt/contracts.json)
+escrow=$(jq -c '."1337".Escrow' /opt/contracts.json)
 
 # Override with test values taken from test-assets/src/lib.rs
 ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
 
 # Get network subgraph deployment ID
 stdbuf -oL echo "🔍 DEBUG: Fetching network subgraph deployment ID..."
-NETWORK_DEPLOYMENT=$(curl -s --max-time 10 "http://graph-node:8000/subgraphs/name/graph-network" \
+network_deployment=$(curl -s --max-time 10 "http://graph-node:8000/subgraphs/name/graph-network" \
     -H 'content-type: application/json' \
     -d '{"query": "{ _meta { deployment } }"}' | jq -r '.data._meta.deployment' 2>/dev/null)
-stdbuf -oL echo "🔍 DEBUG: Network deployment result: $NETWORK_DEPLOYMENT"
+stdbuf -oL echo "🔍 DEBUG: Network deployment result: $network_deployment"
 
 # Get escrow subgraph deployment ID
 stdbuf -oL echo "🔍 DEBUG: Fetching escrow subgraph deployment ID..."
-ESCROW_DEPLOYMENT=$(curl -s --max-time 10 "http://graph-node:8000/subgraphs/name/semiotic/tap" \
+escrow_deployment=$(curl -s --max-time 10 "http://graph-node:8000/subgraphs/name/semiotic/tap" \
     -H 'content-type: application/json' \
     -d '{"query": "{ _meta { deployment } }"}' | jq -r '.data._meta.deployment' 2>/dev/null)
-stdbuf -oL echo "🔍 DEBUG: Escrow deployment result: $ESCROW_DEPLOYMENT"
+stdbuf -oL echo "🔍 DEBUG: Escrow deployment result: $escrow_deployment"
 
 # Run basic connectivity tests
 stdbuf -oL echo "Testing graph-node endpoints..."
 curl -s "http://graph-node:8000" >/dev/null && stdbuf -oL echo "Query endpoint OK" || stdbuf -oL echo "Query endpoint FAILED"
 curl -s "http://graph-node:8030/graphql" >/dev/null && stdbuf -oL echo "Status endpoint OK" || stdbuf -oL echo "Status endpoint FAILED"
 
-stdbuf -oL echo "Using GraphTallyCollector address: $GRAPH_TALLY_VERIFIER"
+stdbuf -oL echo "Using GraphTallyCollector address: $graph_tally_verifier"
 stdbuf -oL echo "Using test Indexer address: $RECEIVER_ADDRESS"
 stdbuf -oL echo "Using test Account0 address: $ACCOUNT0_ADDRESS"
 
@@ -53,19 +64,20 @@ query_url = "http://graph-node:8000"
 status_url = "http://graph-node:8030/graphql"
 
 [subgraphs.network]
-query_url = "http://graph-node:8000/subgraphs/name/graph-network"$(if [ -n "$NETWORK_DEPLOYMENT" ] && [ "$NETWORK_DEPLOYMENT" != "null" ]; then echo "
-deployment_id = \"$NETWORK_DEPLOYMENT\""; fi)
+query_url = "http://graph-node:8000/subgraphs/name/graph-network"$(if [ -n "$network_deployment" ] && [ "$network_deployment" != "null" ]; then echo "
+deployment_id = \"$network_deployment\""; fi)
 recently_closed_allocation_buffer_secs = 60
 syncing_interval_secs = 30
 
 [subgraphs.escrow]
-query_url = "http://graph-node:8000/subgraphs/name/semiotic/tap"$(if [ -n "$ESCROW_DEPLOYMENT" ] && [ "$ESCROW_DEPLOYMENT" != "null" ]; then echo "
-deployment_id = \"$ESCROW_DEPLOYMENT\""; fi)
+query_url = "http://graph-node:8000/subgraphs/name/semiotic/tap"$(if [ -n "$escrow_deployment" ] && [ "$escrow_deployment" != "null" ]; then echo "
+deployment_id = \"$escrow_deployment\""; fi)
 syncing_interval_secs = 30
 
 [blockchain]
 chain_id = 1337
-receipts_verifier_address = "${GRAPH_TALLY_VERIFIER}"
+receipts_verifier_address = "${tap_verifier}"
+receipts_verifier_address_v2 ="${graph_tally_verifier}" 
 
 [service]
 free_query_auth_token = "freestuff"
@@ -74,14 +86,29 @@ url_prefix = "/"
 serve_network_subgraph = false
 serve_escrow_subgraph = false
 
+
+[service.tap]
+max_receipt_value_grt = "0.001"
+
 [tap]
 max_amount_willing_to_lose_grt = 1000
 
+
 [tap.rav_request]
-timestamp_buffer_secs = 1000
+# Set a lower timestamp buffer threshold
+timestamp_buffer_secs = 30
+
+# The trigger value divisor is used to calculate the trigger value for the RAV request.
+# using the formula:
+# trigger_value = max_amount_willing_to_lose_grt / trigger_value_divisor
+# where the default value for max_amount_willing_to_lose_grt is 1000
+# the idea to set this for trigger_value to be 0.002
+# requiring the sender to send at least 20 receipts of 0.0001 grt
+trigger_value_divisor = 500_000
+
 
 [tap.sender_aggregator_endpoints]
-${ACCOUNT0_ADDRESS} = "http://tap-aggregator:8080"
+${ACCOUNT0_ADDRESS} = "http://tap-aggregator:${TAP_AGGREGATOR}"
 
 [horizon]
 # Enable Horizon migration support and detection
@@ -90,6 +117,7 @@ ${ACCOUNT0_ADDRESS} = "http://tap-aggregator:8080"
 #   - If Horizon contracts not detected: Remain in legacy mode (V1 receipts only)
 # When disabled: Pure legacy mode, no Horizon detection performed
 enabled = true
+subgraph_service_address = "${subgraph_service}"
 EOF
 
 stdbuf -oL echo "Starting indexer-service with config:"

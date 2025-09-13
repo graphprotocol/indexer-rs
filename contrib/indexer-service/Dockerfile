@@ -1,4 +1,4 @@
-FROM rust:1.86-bookworm as build
+FROM rust:1.87-bookworm as build
 WORKDIR /root
 # Copy from the root project directory (two levels up)
 COPY ../../ .
@@ -23,8 +23,8 @@ COPY --from=build /root/target/release/indexer-service-rs /usr/local/bin/indexer
 # Copy our start script into the image
 COPY contrib/local-network/.env /opt/.env
 COPY contrib/indexer-service/start.sh /usr/local/bin/start.sh
-COPY contrib/indexer-service/config.toml /opt/config/config.toml
 COPY contrib/local-network/horizon.json /opt/horizon.json
+COPY contrib/local-network/tap-contracts.json /opt/contracts.json
 
 RUN chmod +x /usr/local/bin/start.sh
 

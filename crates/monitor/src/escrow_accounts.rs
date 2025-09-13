@@ -84,6 +84,30 @@ impl EscrowAccounts {
     pub fn get_senders(&self) -> HashSet<Address> {
         self.senders_balances.keys().copied().collect()
     }
+
+    /// Returns the number of signer-to-sender mappings
+    pub fn signer_count(&self) -> usize {
+        self.signers_to_senders.len()
+    }
+
+    pub fn iter_signers_to_senders(&self) -> impl Iterator<Item = (&Address, &Address)> {
+        self.signers_to_senders.iter()
+    }
+
+    pub fn get_signers(&self) -> HashSet<Address> {
+        self.signers_to_senders.keys().copied().collect()
+    }
+
+    pub fn contains_signer(&self, signer: &Address) -> bool {
+        self.signers_to_senders.contains_key(signer)
+    }
+
+    pub fn get_all_mappings(&self) -> Vec<(Address, Address)> {
+        self.signers_to_senders
+            .iter()
+            .map(|(signer, sender)| (*signer, *sender))
+            .collect()
+    }
 }
 
 pub type EscrowAccountsWatcher = Receiver<EscrowAccounts>;
@@ -123,6 +147,11 @@ async fn get_escrow_accounts_v2(
     indexer_address: Address,
     reject_thawing_signers: bool,
 ) -> anyhow::Result<EscrowAccounts> {
+    tracing::trace!(
+        "Loading V2 escrow accounts for indexer {}, reject_thawing_signers: {}",
+        indexer_address,
+        reject_thawing_signers
+    );
     // Query V2 escrow accounts from the network subgraph which tracks PaymentsEscrow
     // and GraphTallyCollector contract events.
 
@@ -142,8 +171,6 @@ async fn get_escrow_accounts_v2(
         .await?;
 
     let response = response?;
-
-    tracing::trace!("Network V2 Escrow accounts response: {:?}", response);
 
     // V2 TAP receipts use different field names (payer/service_provider) but the underlying
     // escrow account model is identical to V1. Both V1 and V2 receipts reference the same
@@ -194,7 +221,9 @@ async fn get_escrow_accounts_v2(
         })
         .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 
-    Ok(EscrowAccounts::new(senders_balances, senders_to_signers))
+    let escrow_accounts = EscrowAccounts::new(senders_balances.clone(), senders_to_signers.clone());
+
+    Ok(escrow_accounts)
 }
 
 async fn get_escrow_accounts_v1(
@@ -202,6 +231,8 @@ async fn get_escrow_accounts_v1(
     indexer_address: Address,
     reject_thawing_signers: bool,
 ) -> anyhow::Result<EscrowAccounts> {
+    tracing::debug!(?indexer_address, "Loading V1 escrow accounts for indexer");
+
     // thawEndTimestamp == 0 means that the signer is not thawing. This also means
     // that we don't wait for the thawing period to end before stopping serving
     // queries for this signer.
@@ -219,8 +250,6 @@ async fn get_escrow_accounts_v1(
         .await?;
 
     let response = response?;
-
-    tracing::trace!("Escrow accounts response: {:?}", response);
 
     let senders_balances: HashMap<Address, U256> = response
         .escrow_accounts
@@ -259,7 +288,15 @@ async fn get_escrow_accounts_v1(
         })
         .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 
-    Ok(EscrowAccounts::new(senders_balances, senders_to_signers))
+    let escrow_accounts = EscrowAccounts::new(senders_balances.clone(), senders_to_signers.clone());
+
+    tracing::debug!(
+        "V1 escrow accounts loaded: {} senders, {} signer->sender mappings",
+        senders_balances.len(),
+        escrow_accounts.signers_to_senders.len()
+    );
+
+    Ok(escrow_accounts)
 }
 
 #[cfg(test)]
