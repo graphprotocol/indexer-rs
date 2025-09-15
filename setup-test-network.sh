@@ -1,32 +1,31 @@
 #!/bin/bash
-# set -e
 
 # Interruptible timeout function
 interruptible_wait() {
     local timeout_seconds=$1
     local condition_command="$2"
     local description="${3:-Waiting for condition}"
-    
+
     echo "$description (timeout: ${timeout_seconds}s, press Ctrl+C to cancel)..."
-    
+
     local elapsed=0
     local interval=5
-    
+
     while [ $elapsed -lt $timeout_seconds ]; do
         if eval "$condition_command"; then
             return 0
         fi
-        
+
         # Check for interrupt signal
         if ! sleep $interval; then
             echo "Interrupted by user"
-            return 130  # Standard interrupt exit code
+            return 130 # Standard interrupt exit code
         fi
-        
+
         elapsed=$((elapsed + interval))
         echo "Still waiting... (${elapsed}/${timeout_seconds}s elapsed)"
     done
-    
+
     echo "Timeout after ${timeout_seconds}s waiting for: $description"
     return 1
 }
@@ -226,7 +225,7 @@ interruptible_wait 300 'docker ps | grep block-oracle | grep -q healthy' "Waitin
 # If INDEXER_AGENT_SOURCE_ROOT is set, use dev override; otherwise start only indexer-agent
 if [[ -n "${INDEXER_AGENT_SOURCE_ROOT:-}" ]]; then
     echo "***********INDEXER_AGENT_SOURCE_ROOT set; using dev override for indexer-agent...************"
-    docker compose -f docker-compose.yaml -f docker-compose.patched.yaml up -d indexer-agent --build
+    G docker compose up -d indexer-agent
 
 else
     echo "***** Starting indexer-agent from image... *****"
@@ -379,17 +378,18 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -
 
 # Wait for indexer-cli to be ready
 echo "Waiting for indexer-cli to be ready..."
-sleep 10  # Give time for the CLI to initialize
+sleep 10 # Give time for the CLI to initialize
 
 # Connect the CLI to the indexer-agent
 echo "Connecting indexer-cli to indexer-agent..."
-docker exec indexer-cli graph-indexer indexer connect http://indexer-agent:7600 || true
+docker exec indexer-cli graph indexer connect http://indexer-agent:7600 || true
 
 echo "============================================"
 echo "Indexer CLI is ready for integration testing!"
 echo "Example commands:"
-echo "  List allocations:  docker exec indexer-cli graph-indexer indexer allocations get --network hardhat"
-echo "  Close allocation:  docker exec indexer-cli graph-indexer indexer allocations close 0x... 0x... --network hardhat --force"
+echo "  List allocations:  docker exec indexer-cli graph indexer allocations get --network hardhat"
+# FIXME: Provided by edge&node team, this does not work tho
+echo "  Close allocation:  docker exec indexer-cli graph indexer allocations close 0x0a067bd57ad79716c2133ae414b8f6bb47aaa22d 0x0000000000000000000000000000000000000000000000000000000000000000 100 0x0000000000000000000000000000000000000000000000000000000000000000 --network hardhat --force"
 echo "============================================"
 
 # Calculate timing and final reports
