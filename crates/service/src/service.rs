@@ -98,11 +98,11 @@ pub async fn run() -> anyhow::Result<()> {
 
     let domain_separator_v2 = tap_eip712_domain(
         config.blockchain.chain_id as u64,
-        if config.horizon.enabled {
+        if config.tap_mode().is_horizon() {
             config
                 .blockchain
                 .receipts_verifier_address_v2
-                .expect("receipts_verifier_address_v2 is required when Horizon is enabled")
+                .expect("receipts_verifier_address_v2 is required when Horizon mode is enabled ([horizon].enabled = true)")
         } else {
             config
                 .blockchain
@@ -123,10 +123,12 @@ pub async fn run() -> anyhow::Result<()> {
     let escrow_v2_query_url_for_dips = Some(config.subgraphs.network.config.query_url.clone());
 
     // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
-    // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
-    // - If horizon.enabled = true: Check if Horizon contracts are active in the network
-    let is_horizon_active = if config.horizon.enabled {
-        tracing::info!("Horizon migration support enabled - checking if Horizon contracts are active in the network");
+    // - Legacy mode: if [horizon].enabled = false
+    // - Horizon mode: if [horizon].enabled = true; verify network readiness
+    let is_horizon_active = if config.tap_mode().is_horizon() {
+        tracing::info!(
+            "Horizon mode configured - checking if Horizon contracts are active in the network"
+        );
         match indexer_monitor::is_horizon_active(network_subgraph).await {
             Ok(true) => {
                 tracing::info!("Horizon contracts detected in network subgraph - enabling hybrid migration mode");
@@ -135,22 +137,20 @@ pub async fn run() -> anyhow::Result<()> {
             }
             Ok(false) => {
                 anyhow::bail!(
-                    "Horizon enabled in config, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
-                    Deploy Horizon (V2) contracts and the updated Network Subgraph, or set horizon.enabled=false"
+                    "Horizon enabled, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
+                    Deploy Horizon (V2) contracts and the updated Network Subgraph, or disable Horizon ([horizon].enabled = false)"
                 );
             }
             Err(e) => {
                 anyhow::bail!(
                     "Failed to detect Horizon contracts due to network/subgraph error: {}. \
-                    Cannot start with Horizon enabled when network status is unknown.",
+                    Cannot start with Horizon mode enabled when network status is unknown.",
                     e
                 );
             }
         }
     } else {
-        tracing::info!(
-            "Horizon migration support disabled in configuration - using pure legacy mode"
-        );
+        tracing::info!("Horizon not configured - using pure legacy mode");
         false
     };
 
