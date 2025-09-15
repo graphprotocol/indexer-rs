@@ -227,11 +227,23 @@ impl Config {
         }
 
         // Horizon configuration validation
-        if self.horizon.enabled && self.horizon.subgraph_service_address.is_none() {
-            return Err(
-                "Missing required 'horizon.subgraph_service_address' when horizon.enabled = true. \
-Set it in the config file under [horizon] or via env var TAP_AGENT__HORIZON__SUBGRAPH_SERVICE_ADDRESS.".to_string(),
-            );
+        // Explicit toggle via `horizon.enabled`. When enabled, require both
+        // `blockchain.subgraph_service_address` and
+        // `blockchain.receipts_verifier_address_v2` to be present.
+        // When disabled, V2 addresses are ignored.
+        if self.horizon.enabled {
+            if self.blockchain.subgraph_service_address.is_none() {
+                return Err(
+                    "When horizon.enabled = true, `blockchain.subgraph_service_address` must be set"
+                        .to_string(),
+                );
+            }
+            if self.blockchain.receipts_verifier_address_v2.is_none() {
+                return Err(
+                    "When horizon.enabled = true, `blockchain.receipts_verifier_address_v2` must be set"
+                        .to_string(),
+                );
+            }
         }
 
         Ok(())
@@ -246,16 +258,11 @@ Set it in the config file under [horizon] or via env var TAP_AGENT__HORIZON__SUB
     ///
     /// - [`TapMode::Legacy`] if `horizon.enabled = false`
     /// - [`TapMode::Horizon`] if `horizon.enabled = true` with the configured
-    ///   `subgraph_service_address`
-    ///
-    /// # Panics
-    ///
-    /// Panics if `horizon.enabled = true` but `subgraph_service_address` is `None`.
-    /// This should not happen if [`Config::validate()`] was called successfully.
+    ///   `blockchain.subgraph_service_address`
     pub fn tap_mode(&self) -> TapMode {
         if self.horizon.enabled {
             TapMode::Horizon {
-                subgraph_service_address: self.horizon.subgraph_service_address.expect(
+                subgraph_service_address: self.blockchain.subgraph_service_address.expect(
                     "subgraph_service_address should be validated during Config::validate()",
                 ),
             }
@@ -392,6 +399,8 @@ pub struct BlockchainConfig {
     /// after transition period this will be the only address used
     /// to verify receipts
     pub receipts_verifier_address_v2: Option<Address>,
+    /// Address of the SubgraphService contract used for V2 operations
+    pub subgraph_service_address: Option<Address>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -508,16 +517,19 @@ pub struct RavRequestConfig {
 ///
 /// # Configuration Mapping
 ///
-/// This enum is derived from the `[horizon]` section in the configuration:
+/// This enum is derived from the `horizon.enabled` flag in the configuration.
+/// Horizon mode requires `blockchain.subgraph_service_address`.
 ///
 /// ```toml
-/// # Legacy mode
+/// # Legacy mode (default)
 /// [horizon]
 /// enabled = false
 ///
 /// # Horizon mode
 /// [horizon]
 /// enabled = true
+///
+/// [blockchain]
 /// subgraph_service_address = "0x..."
 /// ```
 #[derive(Debug, Clone)]
@@ -687,30 +699,17 @@ impl TapMode {
     }
 }
 
-/// Configuration for the horizon migration
+/// Configuration for the Horizon migration
 #[derive(Debug, Default, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct HorizonConfig {
     /// Enable Horizon migration support and detection
-    ///
-    /// When enabled (true):
-    /// - System will check if Horizon contracts are active in the network
-    /// - If Horizon contracts are detected: Enable hybrid migration mode
-    ///   * Accept new V2 TAP receipts only  
-    ///   * Continue processing existing V1 receipts for RAV generation
-    ///   * Reject new V1 receipt submissions
-    /// - If Horizon contracts are not detected: Remain in legacy mode
-    ///
-    /// When disabled (false):
-    /// - Pure legacy mode, no Horizon detection performed
-    /// - Only V1 TAP receipts are supported
+    /// When enabled, set `blockchain.subgraph_service_address` and
+    /// `blockchain.receipts_verifier_address_v2`
+
+    /// When disabled: Pure legacy mode, no Horizon detection performed
     #[serde(default)]
     pub enabled: bool,
-
-    // Address of the SubgraphService contract used for Horizon (V2)
-    // Required when `enabled = true`. Optional otherwise.
-    #[serde(default)]
-    pub subgraph_service_address: Option<Address>,
 }
 
 #[cfg(test)]

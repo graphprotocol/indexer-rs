@@ -176,10 +176,10 @@ pub async fn start_agent(
     tracing::info!("V1 escrow accounts watcher initialized successfully");
 
     // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
-    // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
-    // - If horizon.enabled = true: Check if Horizon contracts are active in the network
-    let is_horizon_enabled = if CONFIG.horizon.enabled {
-        tracing::info!("Horizon migration enabled; checking Network Subgraph readiness");
+    // - Legacy mode: if [horizon].enabled = false
+    // - Horizon mode: if [horizon].enabled = true; verify network readiness
+    let is_horizon_enabled = if CONFIG.tap_mode().is_horizon() {
+        tracing::info!("Horizon mode configured; checking Network Subgraph readiness");
         match indexer_monitor::is_horizon_active(network_subgraph).await {
             Ok(true) => {
                 tracing::info!(
@@ -195,8 +195,8 @@ pub async fn start_agent(
             }
             Ok(false) => {
                 anyhow::bail!(
-                  "Horizon enabled in config, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). Deploy Horizon (V2) contracts and the updated Network Subgraph, or set horizon.enabled=false"
-              );
+                    "Horizon enabled, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). Deploy Horizon (V2) contracts and the updated Network Subgraph, or disable Horizon ([horizon].enabled = false)"
+                );
             }
             Err(e) => {
                 anyhow::bail!(
@@ -206,9 +206,7 @@ pub async fn start_agent(
             }
         }
     } else {
-        tracing::info!(
-            "Horizon migration support disabled in configuration - using pure legacy mode"
-        );
+        tracing::info!("Horizon not configured - using pure legacy mode");
         false
     };
 
