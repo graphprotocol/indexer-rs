@@ -226,7 +226,7 @@ interruptible_wait 300 'docker ps | grep block-oracle | grep -q healthy' "Waitin
 # If INDEXER_AGENT_SOURCE_ROOT is set, use dev override; otherwise start only indexer-agent
 if [[ -n "${INDEXER_AGENT_SOURCE_ROOT:-}" ]]; then
     echo "***********INDEXER_AGENT_SOURCE_ROOT set; using dev override for indexer-agent...************"
-    G docker compose up -d indexer-agent
+    docker compose up -d indexer-agent
 
 else
     echo "***** Starting indexer-agent from image... *****"
