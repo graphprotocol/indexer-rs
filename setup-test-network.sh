@@ -172,7 +172,8 @@ if [ ! -d "local-network" ]; then
     git clone https://github.com/semiotic-ai/local-network.git
     cd local-network
     # Checkout to the horizon branch
-    git checkout suchapalaver/test/horizon
+    # git checkout suchapalaver/test/horizon
+    git checkout semiotic/horizon_upgrade
     cd ..
 fi
 
