@@ -12,8 +12,7 @@ use std::{
 
 use bip39::Mnemonic;
 use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
-use sqlx::migrate::Migrator;
-use sqlx::{migrate, PgPool, Postgres};
+use sqlx::{migrate, migrate::Migrator, PgPool, Postgres};
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, SignedReceipt};
 use thegraph_core::{
