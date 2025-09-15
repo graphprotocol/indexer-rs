@@ -78,6 +78,7 @@ syncing_interval_secs = 30
 chain_id = 1337
 receipts_verifier_address = "${tap_verifier}"
 receipts_verifier_address_v2 ="${graph_tally_verifier}" 
+subgraph_service_address = "${subgraph_service}"
 
 [service]
 free_query_auth_token = "freestuff"
@@ -109,15 +110,11 @@ trigger_value_divisor = 500_000
 
 [tap.sender_aggregator_endpoints]
 ${ACCOUNT0_ADDRESS} = "http://tap-aggregator:${TAP_AGGREGATOR}"
+${ACCOUNT1_ADDRESS} = "http://tap-aggregator:${TAP_AGGREGATOR}"
 
 [horizon]
-# Enable Horizon migration support and detection
-# When enabled: Check if Horizon contracts are active in the network
-#   - If Horizon contracts detected: Hybrid migration mode (new V2 receipts only, process existing V1 receipts)
-#   - If Horizon contracts not detected: Remain in legacy mode (V1 receipts only)
-# When disabled: Pure legacy mode, no Horizon detection performed
+# Enable Horizon (V2) mode explicitly
 enabled = true
-subgraph_service_address = "${subgraph_service}"
 EOF
 
 stdbuf -oL echo "Starting indexer-service with config:"
