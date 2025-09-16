@@ -42,3 +42,4 @@ sqlx = { workspace = true, features = [
 ] }
 # rdkafka = { workspace = true }
 rdkafka = { version = "0.38.0", features = ["gssapi", "tracing"] }
+regex = "1"
