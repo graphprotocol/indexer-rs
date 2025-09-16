@@ -20,7 +20,7 @@ use reqwest::Url;
 use serde::Deserialize;
 use sqlx::{postgres::PgListener, PgPool};
 use thegraph_core::{
-    alloy::{primitives::Address, sol_types::Eip712Domain},
+    alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain},
     AllocationId as AllocationIdCore, CollectionId,
 };
 use tokio::{select, sync::watch::Receiver};
@@ -165,16 +165,33 @@ pub enum AllocationId {
 }
 
 impl AllocationId {
-    /// Get a hex string representation for database queries
+    /// Canonical hex (no 0x); 40 chars for Legacy, 64 for Horizon
     pub fn to_hex(&self) -> String {
         match self {
-            AllocationId::Legacy(allocation_id) => allocation_id.to_string(),
-            AllocationId::Horizon(collection_id) => collection_id.to_string(),
+            AllocationId::Legacy(allocation_id) => (**allocation_id).encode_hex(),
+            AllocationId::Horizon(collection_id) => collection_id.encode_hex(),
         }
     }
 
-    /// Get the underlying Address for Legacy allocations
+    /// Get the underlying Address for Legacy allocations.
+    ///
+    /// Deprecated: Prefer `address()` which returns a normalized Address for both Legacy and Horizon.
+    #[deprecated(
+        note = "Use `address()` for both Legacy and Horizon; this returns None for Horizon"
+    )]
     pub fn as_address(&self) -> Option<Address> {
+        match self {
+            AllocationId::Legacy(allocation_id) => Some(**allocation_id),
+            AllocationId::Horizon(_) => None,
+        }
+    }
+
+    /// Legacy-only accessor returning an optional address.
+    ///
+    /// Returns:
+    /// - Some(address) for Legacy allocations
+    /// - None for Horizon allocations
+    pub fn legacy_address(&self) -> Option<Address> {
         match self {
             AllocationId::Legacy(allocation_id) => Some(**allocation_id),
             AllocationId::Horizon(_) => None,
@@ -187,6 +204,24 @@ impl AllocationId {
             AllocationId::Legacy(allocation_id) => **allocation_id,
             AllocationId::Horizon(collection_id) => collection_id.as_address(),
         }
+    }
+
+    /// Normalized 20-byte address as lowercase hex (no 0x prefix).
+    ///
+    /// Behavior:
+    /// - Legacy (V1): returns the allocation address as hex.
+    /// - Horizon (V2): derives the 20-byte address from the 32-byte `CollectionId`
+    ///   using `collection_id.as_address()` (last 20 bytes) and encodes as hex.
+    ///
+    /// Use for:
+    /// - Actor names and routing (consistent identity across versions)
+    /// - Metrics labels (uniform 20-byte form)
+    /// - Network subgraph queries (which expect allocation addresses)
+    ///
+    /// Do NOT use for Horizon database queries where `collection_id` is stored
+    /// as 32-byte hex; use `to_hex()` / `CollectionId::encode_hex()` instead.
+    pub fn address_hex(&self) -> String {
+        self.address().encode_hex()
     }
 }
 
