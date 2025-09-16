@@ -103,12 +103,10 @@ pub async fn start_agent(
                             },
                     },
             },
-        tap:
-            TapConfig {
-                // TODO: replace with a proper implementation once the gateway registry contract is ready
-                sender_aggregator_endpoints,
-                ..
-            },
+        tap: TapConfig {
+            sender_aggregator_endpoints,
+            ..
+        },
         ..
     } = &*CONFIG;
     let pgpool = database::connect(database.clone()).await;

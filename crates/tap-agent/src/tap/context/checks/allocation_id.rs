@@ -73,9 +73,7 @@ impl Check<TapReceipt> for AllocationId {
                 "Receipt does not have an allocation_id or collection_id"
             )));
         };
-        // TODO: Remove the if block below? Each TAP Monitor is specific to an allocation
-        // ID. So the receipts that are received here should already have been filtered by
-        // allocation ID.
+
         tracing::debug!(
             "Checking allocation_id: {:?} against expected_allocation_id: {}",
             allocation_id,
