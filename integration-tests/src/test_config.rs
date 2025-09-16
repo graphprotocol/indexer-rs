@@ -1,15 +1,20 @@
 // Copyright 2025-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::env;
-use std::fs;
-use std::path::Path;
+use std::{env, fs, path::Path};
 
 use anyhow::Result;
 use serde::Deserialize;
 
-use crate::constants::TEST_SUBGRAPH_DEPLOYMENT;
-use crate::env_loader::load_integration_env;
+use crate::{
+    constants::{
+        ACCOUNT0_ADDRESS, ACCOUNT0_SECRET, ACCOUNT1_ADDRESS, ACCOUNT1_SECRET, CHAIN_ID,
+        GATEWAY_API_KEY, GATEWAY_URL, GRAPH_TALLY_COLLECTOR_CONTRACT, GRAPH_URL, INDEXER_URL,
+        SUBGRAPH_ID, TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT, TEST_DATA_SERVICE,
+        TEST_SUBGRAPH_DEPLOYMENT,
+    },
+    env_loader::load_integration_env,
+};
 
 #[derive(Clone)]
 pub struct TestConfig {
@@ -96,43 +101,25 @@ impl TestConfig {
         let get_s = |k: &str, d: &str| -> String { env::var(k).unwrap_or_else(|_| d.to_string()) };
 
         // Derive URLs from ports when present, allow explicit URL overrides
-        let indexer_url = env::var("INDEXER_URL")
-            .unwrap_or_else(|_| format!("http://localhost:{}", get_u16("INDEXER_SERVICE", 7601)));
-        let gateway_url = env::var("GATEWAY_URL")
-            .unwrap_or_else(|_| format!("http://localhost:{}", get_u16("GATEWAY", 7700)));
-        let graph_url = env::var("GRAPH_URL").unwrap_or_else(|_| {
-            format!(
-                "http://localhost:{}/subgraphs/name/graph-network",
-                get_u16("GRAPH_NODE_GRAPHQL", 8000)
-            )
-        });
+        let indexer_url = env::var("INDEXER_URL").unwrap_or_else(|_| INDEXER_URL.to_string());
+        let gateway_url = env::var("GATEWAY_URL").unwrap_or_else(|_| GATEWAY_URL.to_string());
 
-        let tap_agent_metrics_url = get_s("TAP_AGENT_METRICS_URL", "http://localhost:7300/metrics");
+        let graph_url = env::var("GRAPH_URL").unwrap_or_else(|_| GRAPH_URL.to_string());
 
-        let chain_id = get_u64("CHAIN_ID", 1337);
-        let gateway_api_key = get_s("GATEWAY_API_KEY", "deadbeefdeadbeefdeadbeefdeadbeef");
+        let tap_agent_metrics_url = get_s("TAP_AGENT_METRICS_URL", TAP_AGENT_METRICS_URL);
 
-        let account0_address = get_s(
-            "ACCOUNT0_ADDRESS",
-            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-        );
-        let account0_secret = get_s(
-            "ACCOUNT0_SECRET",
-            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-        );
-        let account1_address = get_s(
-            "ACCOUNT1_ADDRESS",
-            "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-        );
-        let account1_secret = get_s(
-            "ACCOUNT1_SECRET",
-            "0x59c6995e998f97a5a0044966f0945389e86dae88c7a8412f4603b6b78690d",
-        );
+        let chain_id = get_u64("CHAIN_ID", CHAIN_ID);
+        let gateway_api_key = get_s("GATEWAY_API_KEY", GATEWAY_API_KEY);
 
-        let mut tap_verifier_contract = "0xC9a43158891282A2B1475592D5719c001986Aaec".to_string();
-        let mut graph_tally_collector_contract =
-            "0xB0D4afd8879eD9F52b28595d31B441D079B2Ca07".to_string();
-        let mut test_data_service = "0xf4ef6650e48d099a4972ea5b414dab86e1998bd3".to_string();
+        // TODO: default values from constants or load contrib/local-network/.env
+        let account0_address = get_s("ACCOUNT0_ADDRESS", ACCOUNT0_ADDRESS);
+        let account0_secret = get_s("ACCOUNT0_SECRET", ACCOUNT0_SECRET);
+        let account1_address = get_s("ACCOUNT1_ADDRESS", ACCOUNT1_ADDRESS);
+        let account1_secret = get_s("ACCOUNT1_SECRET", ACCOUNT1_SECRET);
+
+        let mut tap_verifier_contract = TAP_VERIFIER_CONTRACT.to_string();
+        let mut graph_tally_collector_contract = GRAPH_TALLY_COLLECTOR_CONTRACT.to_string();
+        let mut test_data_service = TEST_DATA_SERVICE.to_string();
 
         // Load JSONs from contrib when available. Path is relative to integration-tests/ CWD.
         read_tap_verifier_json("../contrib/local-network/tap-contracts.json")
@@ -146,10 +133,9 @@ impl TestConfig {
             .ok();
 
         // Subgraph identifiers
-        let subgraph_id = get_s("SUBGRAPH", "Qmc2CbqucMvaS4GFvt2QUZWvRwSZ3K5ipeGvbC6UUBf616");
+        let subgraph_id = get_s("SUBGRAPH", SUBGRAPH_ID);
         // Allow env override; also accept alias SUBGRAPH_DEPLOYMENT. Fallback to constants::TEST_SUBGRAPH_DEPLOYMENT.
         let test_subgraph_deployment = env::var("TEST_SUBGRAPH_DEPLOYMENT")
-            .or_else(|_| env::var("TEST_SUBGRAPH_DEPLOYMENT"))
             .unwrap_or_else(|_| TEST_SUBGRAPH_DEPLOYMENT.to_string());
 
         Ok(Self {
