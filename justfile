@@ -51,7 +51,7 @@ setup-integration-env:
 # Full setup for testing using a local network
 # This deploys all containers, contracts, and funds escrow
 setup:
-    ./setup-test-network.sh
+    START_PGADMIN=true ./setup-test-network.sh
 
 # Stop all services
 down:
