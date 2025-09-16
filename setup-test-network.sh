@@ -169,11 +169,11 @@ cd contrib/
 
 # Clone local-network repo if it doesn't exist
 if [ ! -d "local-network" ]; then
-    git clone https://github.com/semiotic-ai/local-network.git
+    # git clone https://github.com/semiotic-ai/local-network.git
+    git clone https://github.com/edgeandnode/local-network.git
     cd local-network
     # Checkout to the horizon branch
-    # git checkout suchapalaver/test/horizon
-    git checkout semiotic/horizon_upgrade
+    git checkout horizon
     cd ..
 fi
 
@@ -212,6 +212,42 @@ if [ -z "$code" ] || [ "$code" == "0x" ]; then
     exit 1
 fi
 echo "Controller contract verified."
+
+# Ensure HorizonStaking is deployed before proceeding (agent needs it at startup)
+staking_address=$(jq -r '."1337".HorizonStaking.address' horizon.json)
+echo "Checking HorizonStaking contract at $staking_address"
+
+# Retry a few times in case chain is still settling
+for i in {1..30}; do
+    code=$(docker exec chain cast code $staking_address --rpc-url http://localhost:8545 2>/dev/null || true)
+    if [ -n "$code" ] && [ "$code" != "0x" ]; then
+        echo "HorizonStaking contract verified."
+        break
+    fi
+    echo "HorizonStaking not deployed yet (attempt $i/30), waiting..."
+    sleep 2
+done
+
+# If still no code, force a redeploy of graph-contracts and re-verify
+if [ -z "$code" ] || [ "$code" = "0x" ]; then
+    echo "HorizonStaking has no code; forcing graph-contracts redeploy..."
+    # Keep files as files (avoid bind mount turning into a directory)
+    echo "{}" >horizon.json
+    echo "{}" >subgraph-service.json
+    docker compose up -d --no-deps --force-recreate graph-contracts
+    # Wait for contracts to be deployed
+    interruptible_wait 300 'docker ps -a | grep graph-contracts | grep -q "Exited (0)"' "Waiting for contracts to be deployed (redeploy)"
+
+    # Re-check the (possibly updated) staking address and code
+    staking_address=$(jq -r '."1337".HorizonStaking.address' horizon.json)
+    echo "Re-checking HorizonStaking contract at $staking_address"
+    code=$(docker exec chain cast code $staking_address --rpc-url http://localhost:8545 2>/dev/null || true)
+    if [ -z "$code" ] || [ "$code" = "0x" ]; then
+        echo "ERROR: HorizonStaking still has no code after redeploy. Check 'docker logs graph-contracts'."
+        exit 1
+    fi
+    echo "HorizonStaking contract verified after redeploy."
+fi
 echo "Contract deployment successful."
 
 docker compose up -d tap-contracts
@@ -224,12 +260,12 @@ interruptible_wait 300 'docker ps | grep block-oracle | grep -q healthy' "Waitin
 
 # export INDEXER_AGENT_SOURCE_ROOT=/home/neithanmo/Documents/Work/Semiotic/indexer-rs/indexer-src
 # If INDEXER_AGENT_SOURCE_ROOT is set, use dev override; otherwise start only indexer-agent
+# export INDEXER_AGENT_SOURCE_ROOT=/home/neithanmo/Documents/Work/Semiotic/indexer-rs/indexer-agent
 if [[ -n "${INDEXER_AGENT_SOURCE_ROOT:-}" ]]; then
-    echo "***********INDEXER_AGENT_SOURCE_ROOT set; using dev override for indexer-agent...************"
-    docker compose up -d indexer-agent
-
+    echo "INDEXER_AGENT_SOURCE_ROOT set; using dev override for indexer-agent."
+    docker compose -f docker-compose.yaml -f overrides/indexer-agent-dev/indexer-agent-dev.yaml up -d
 else
-    echo "***** Starting indexer-agent from image... *****"
+    echo "Starting indexer-agent from oficial release"
     docker compose up -d indexer-agent
 fi
 
@@ -237,29 +273,33 @@ echo "Waiting for indexer-agent to be healthy..."
 # timeout 300 bash -c 'until docker ps | grep indexer-agent | grep -q healthy; do sleep 5; done'
 interruptible_wait 300 'docker ps | grep indexer-agent | grep -q healthy' "Waiting for indexer-agent to be healthy"
 
+# Ensure indexer-agent DB migrations completed (denylist tables must exist)
+echo "Waiting for indexer-agent DB migrations (denylist tables) ..."
+# Use double-quoted outer string to avoid single-quote escaping issues in SQL
+interruptible_wait 180 "docker exec postgres psql -U postgres -d indexer_components_1 -tAc \"SELECT to_regclass('public.scalar_tap_denylist')\" | grep -q scalar_tap_denylist" "Waiting for scalar_tap_denylist table"
+interruptible_wait 180 "docker exec postgres psql -U postgres -d indexer_components_1 -tAc \"SELECT to_regclass('public.tap_horizon_denylist')\" | grep -q tap_horizon_denylist" "Waiting for tap_horizon_denylist table"
+
 echo "Starting subgraph deployment..."
 docker compose up --build -d subgraph-deploy
-sleep 10 # Give time for subgraphs to deploy
+# Wait for subgraph-deploy job to complete successfully, mirroring docker-compose depends_on
+interruptible_wait 600 'docker ps -a | grep subgraph-deploy | grep -q "Exited (0)"' "Waiting for subgraph-deploy to complete successfully"
 
 echo "Starting TAP services..."
+
+# Ensure Redpanda is running before starting services that depend on it
+echo "Ensuring redpanda is running..."
+docker compose up -d redpanda
+echo "Waiting for redpanda to be healthy..."
+interruptible_wait 300 'docker ps | grep redpanda | grep -q healthy' "Waiting for redpanda to be healthy"
+
 echo "Starting tap-aggregator..."
 docker compose up -d tap-aggregator
 sleep 10
 
-# tap-escrow-manager requires subgraph-deploy
+# tap-escrow-manager requires subgraph-deploy and redpanda
 echo "Starting tap-escrow-manager..."
 docker compose up -d tap-escrow-manager
-# timeout 90 bash -c 'until docker ps --filter "name=^tap-escrow-manager$" --format "{{.Names}}" | grep -q "^tap-escrow-manager$"; do echo "Waiting for tap-escrow-manager container to appear..."; sleep 5; done'
 interruptible_wait 90 'docker ps --filter "name=^tap-escrow-manager$" --format "{{.Names}}" | grep -q "^tap-escrow-manager$"' "Waiting for tap-escrow-manager container to appear"
-
-# Start redpanda if it's not already started (required for gateway)
-if ! docker ps | grep -q redpanda; then
-    echo "Starting redpanda..."
-    docker compose up -d redpanda
-    echo "Waiting for redpanda to be healthy..."
-    # timeout 300 bash -c 'until docker ps | grep redpanda | grep -q healthy; do sleep 5; done'
-    interruptible_wait 300 'docker ps | grep redpanda | grep -q healthy' "Waiting for redpanda to be healthy"
-fi
 
 # Get the network name used by local-network
 NETWORK_NAME=$(docker inspect graph-node --format='{{range $net,$v := .NetworkSettings.Networks}}{{$net}}{{end}}')
@@ -298,7 +338,7 @@ fi
 
 # Run the custom services using the override file
 docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
-rm docker-compose.override.yml
+
 
 # Wait for indexer-service and tap-agent to be healthy with better timeouts
 echo "Waiting for indexer-service to be healthy..."
@@ -345,7 +385,7 @@ fi
 # Gateway now generates config with increased max_lag_seconds in gateway/run.sh
 # -v "$(pwd)/local-network/tap-contracts.json":/opt/tap-contracts.json:ro \
 docker run -d --name gateway \
-    --network local-network_default \
+    --network "$NETWORK_NAME" \
     -p 7700:7700 \
     -v "$(pwd)/local-network/horizon.json":/opt/horizon.json:ro \
     -v "$(pwd)/local-network/tap-contracts.json":/opt/contracts.json:ro \
@@ -376,6 +416,7 @@ interruptible_wait 100 'curl -f http://localhost:7700/ > /dev/null 2>&1' "Waitin
 # Build and start indexer-cli for integration testing (last container)
 echo "Building and starting indexer-cli container for integration testing..."
 docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d indexer-cli
+rm -f docker-compose.override.yml
 
 # Wait for indexer-cli to be ready
 echo "Waiting for indexer-cli to be ready..."
