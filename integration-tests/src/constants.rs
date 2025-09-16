@@ -11,10 +11,10 @@ pub const GATEWAY_API_KEY: &str = "deadbeefdeadbeefdeadbeefdeadbeef";
 pub const GATEWAY_URL: &str = "http://localhost:7700";
 pub const TAP_AGENT_METRICS_URL: &str = "http://localhost:7300/metrics";
 
+// pub const MNEMONIC: &str = "test test test test test test test test test test test junk";
 // Wallet
 // - Account 0 used by: EBO, admin actions (deploy contracts, transfer ETH/GRT), gateway sender for PaymentsEscrow
 // - Account 1 used by: Gateway signer for PaymentsEscrow
-pub const MNEMONIC: &str = "test test test test test test test test test test test junk";
 pub const ACCOUNT0_ADDRESS: &str = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 pub const ACCOUNT0_SECRET: &str =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";

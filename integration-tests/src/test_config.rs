@@ -86,12 +86,6 @@ impl TestConfig {
         // Ensure integration-tests/.env is loaded (symlink to contrib/local-network/.env)
         load_integration_env();
 
-        let get_u16 = |k: &str, d: u16| -> u16 {
-            env::var(k)
-                .ok()
-                .and_then(|v| v.parse::<u16>().ok())
-                .unwrap_or(d)
-        };
         let get_u64 = |k: &str, d: u64| -> u64 {
             env::var(k)
                 .ok()
