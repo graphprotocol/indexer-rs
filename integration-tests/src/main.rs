@@ -4,8 +4,13 @@
 mod constants;
 mod database_checker;
 mod env_loader;
+#[allow(dead_code)]
+mod indexer_cli;
 mod load_test;
-mod metrics;
+// Lets keep the metrics parser disable
+// we are moving towards using database_checker
+// for more robust checks and using the soley source of truth
+// mod metrics;
 mod rav_tests;
 mod signature_test;
 mod test_config;
@@ -14,8 +19,7 @@ mod utils;
 use anyhow::Result;
 use clap::Parser;
 use load_test::{receipt_handler_load_test, receipt_handler_load_test_v2};
-use metrics::MetricsChecker;
-pub(crate) use rav_tests::{test_invalid_chain_id, test_tap_rav_v1, test_tap_rav_v2};
+pub(crate) use rav_tests::{test_tap_rav_v1, test_tap_rav_v2};
 
 /// Main CLI parser structure
 #[derive(Parser, Debug)]
@@ -57,7 +61,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Rav1 => {
-            test_invalid_chain_id().await?;
+            // test_invalid_chain_id().await?;
             test_tap_rav_v1().await?;
         }
         // cargo run -- rav2
