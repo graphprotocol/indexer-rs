@@ -1198,99 +1198,61 @@ async fn handle_notification(
         "New receipt notification detected!"
     );
     let escrow_accounts = escrow_accounts_rx.borrow();
+    let sender_type_str = match sender_type {
+        SenderType::Legacy => "V1",
+        SenderType::Horizon => "V2",
+    };
+
     let signer = new_receipt_notification.signer_address();
     tracing::debug!(
-        "Looking up sender for signer: {} in {} escrow accounts (sender_type: {:?})",
-        signer,
-        match sender_type {
-            SenderType::Legacy => "V1",
-            SenderType::Horizon => "V2",
-        },
-        sender_type
+        sender_type_str,
+        signer = ?signer,
+        "Looking up sender for signer in escrow accounts",
     );
-    // Log current escrow account state for debugging
-    let signer_count = escrow_accounts.signer_count();
-    tracing::debug!(
-        "Current escrow accounts contain {} signer->sender mappings",
-        signer_count
-    );
-    // Log first few mappings for debugging (but don't spam if there are many)
-    let mappings_to_show = 5.min(signer_count);
-    for (i, (existing_signer, existing_sender)) in
-        escrow_accounts.iter_signers_to_senders().enumerate()
-    {
-        if i >= mappings_to_show {
-            break;
-        }
-        tracing::debug!(
-            "Escrow mapping {}: signer {} -> sender {}",
-            i + 1,
-            existing_signer,
-            existing_sender
-        );
-    }
-    if signer_count > mappings_to_show {
-        tracing::debug!("... and {} more mappings", signer_count - mappings_to_show);
-    }
+
     let Ok(sender_address) = escrow_accounts.get_sender_for_signer(&signer) else {
-        // Enhanced error with detailed debugging information
         tracing::error!(
-            "ESCROW LOOKUP FAILURE: No sender found for signer {} in {} escrow accounts containing {} mappings",
-            signer,
-            match sender_type {
-                SenderType::Legacy => "V1",
-                SenderType::Horizon => "V2",
-            },
-            signer_count
+            signer=?signer,
+            sender_type_str,
+            "ESCROW LOOKUP FAILURE: No sender found for signer in escrow accounts",
         );
-        // Check if the signer exists in a different case format (shouldn't happen with Address types, but let's verify)
-        let signer_lower = format!("{:x}", signer).to_lowercase();
-        let signer_mixed = format!("{:x?}", signer); // This should match the display format
-        tracing::error!(
-            "Signer formats: lowercase={}, mixed_case={}",
-            signer_lower,
-            signer_mixed
-        );
+
         // TODO: save the receipt in the failed receipts table?
         bail!(
             "No sender address found for receipt signer address {} in {} escrow accounts. \
-                    The escrow accounts contain {} signer->sender mappings but none match this signer. \
                     This suggests either: (1) escrow accounts not yet loaded, (2) signer not authorized, or (3) wrong escrow account type (V1 vs V2).",
             signer,
-            match sender_type {
-                SenderType::Legacy => "V1",
-                SenderType::Horizon => "V2",
-            },
-            signer_count
+            sender_type_str,
         );
     };
+
     let allocation_id = new_receipt_notification.allocation_id();
     let allocation_str = allocation_id.to_hex();
     match allocation_id {
         AllocationId::Legacy(_) => {
             tracing::info!(
-                "Processing receipt notification: sender={}, allocation_id={}, sender_type={:?}, value={}",
-                sender_address,
-                allocation_id,
-                sender_type,
-                new_receipt_notification.value()
+                sender_address=%sender_address,
+                allocation_id=allocation_str,
+                sender_type_str,
+                receipt_value=%new_receipt_notification.value(),
+                "Processing receipt notification",
             );
         }
         AllocationId::Horizon(collection_id) => {
             tracing::info!(
-                "Processing receipt notification: sender={}, collection_id={}, sender_type={:?}, value={}",
-                sender_address,
-                collection_id,
-                sender_type,
-                new_receipt_notification.value()
+                sender_address=%sender_address,
+                collection_id=%collection_id,
+                sender_type_str,
+                receipt_value=%new_receipt_notification.value(),
+                "Processing receipt notification: sender",
             );
         }
     }
+
     // For actor lookup, use the address format that matches how actors are created
-    let allocation_for_actor_name = match &allocation_id {
-        AllocationId::Legacy(id) => id.to_string(),
-        AllocationId::Horizon(collection_id) => collection_id.as_address().to_string(),
-    };
+    // "0x...."
+    let allocation_for_actor_name = allocation_id.address().to_string();
+
     let actor_name = format!(
         "{}{sender_address}:{allocation_for_actor_name}",
         prefix
@@ -1302,37 +1264,41 @@ async fn handle_notification(
     // logs in   sender_account.rs:1174
     // otherwise there is a mistmatch!!!!
     tracing::debug!(
-        "Looking for SenderAllocation actor: '{}' for allocation_id: {} (variant: {:?}, address: {})",
         actor_name,
-        allocation_id,
+        allocation_id=%allocation_id,
+        "Looking for SenderAllocation actor: (variant: {})",
         match allocation_id {
             AllocationId::Legacy(_) => "Legacy",
             AllocationId::Horizon(_) => "Horizon",
         },
-        allocation_id.address()
     );
+
     let Some(sender_allocation) = ActorRef::<SenderAllocationMessage>::where_is(actor_name) else {
         tracing::warn!(
-            "No sender_allocation found for sender_address {}, allocation_id {} to process new \
+            sender_address=%sender_address,
+            allocation_id=%allocation_id,
+            "No sender_allocation found for sender_address and allocation_id to process new \
                 receipt notification. Starting a new sender_allocation.",
-            sender_address,
-            allocation_id
         );
+
+        let type_segment = match sender_type {
+            SenderType::Legacy => "legacy:",
+            SenderType::Horizon => "horizon:",
+        };
+
         let sender_account_name = format!(
             "{}{}{sender_address}",
             prefix
                 .as_ref()
                 .map_or(String::default(), |prefix| format!("{prefix}:")),
-            match sender_type {
-                SenderType::Legacy => "legacy:",
-                SenderType::Horizon => "horizon:",
-            }
+            type_segment,
         );
         tracing::debug!(
-            "Looking for SenderAccount: name='{}', allocation={}",
             sender_account_name,
-            allocation_id
+            allocation_id=%allocation_id,
+            "Looking for SenderAccount",
         );
+
         let Some(sender_account) = ActorRef::<SenderAccountMessage>::where_is(sender_account_name)
         else {
             bail!(
