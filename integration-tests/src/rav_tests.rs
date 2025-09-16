@@ -6,28 +6,27 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 use anyhow::Result;
 use reqwest::Client;
 use serde_json::json;
-use thegraph_core::alloy::{
-    hex::ToHexExt,
-    primitives::{Address, U256},
-    signers::local::PrivateKeySigner,
+use thegraph_core::{
+    alloy::{
+        hex::ToHexExt,
+        primitives::{Address, U256},
+        signers::local::PrivateKeySigner,
+    },
+    CollectionId,
 };
-use thegraph_core::CollectionId;
 
 use crate::{
     constants::{
-        ACCOUNT0_SECRET, CHAIN_ID, GATEWAY_API_KEY, GATEWAY_URL, GRAPH_TALLY_COLLECTOR_CONTRACT,
-        GRAPH_URL, INDEXER_URL, KAFKA_SERVERS, MAX_RECEIPT_VALUE, SUBGRAPH_ID,
-        TAP_AGENT_METRICS_URL, TAP_VERIFIER_CONTRACT,
+        ACCOUNT0_SECRET, CHAIN_ID, GRAPH_TALLY_COLLECTOR_CONTRACT, GRAPH_URL, INDEXER_URL,
+        KAFKA_SERVERS, MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_VERIFIER_CONTRACT,
     },
+    database_checker::{DatabaseChecker, TapVersion},
+    test_config::TestConfig,
     utils::{
         create_client_query_report, create_request, create_tap_receipt,
         encode_v2_receipt_for_header, find_allocation, GatewayReceiptSigner, KafkaReporter,
     },
-    MetricsChecker,
 };
-
-use crate::database_checker::{DatabaseChecker, TapVersion};
-use crate::test_config::TestConfig;
 
 const WAIT_TIME_BATCHES: u64 = 40;
 const NUM_RECEIPTS: u32 = 30; // Increased to 30 receipts per batch
@@ -38,53 +37,68 @@ const BATCHES: u32 = 15; // Increased to 15 batches for total 450 receipts in St
 const MAX_TRIGGERS: usize = 20000; // Increased trigger attempts to 200
 
 // Function to test the tap RAV generation
+// Function to test the TAP RAV generation for V1 using the database checker
 pub async fn test_tap_rav_v1() -> Result<()> {
     use crate::constants::TEST_SUBGRAPH_DEPLOYMENT;
 
-    // Setup HTTP client
+    // Setup HTTP client and env-backed config
     let http_client = Arc::new(Client::new());
+    let cfg = TestConfig::from_env()?;
+
+    // Payer address (lowercase hex without 0x)
+    let payer = Address::from_str(&cfg.account0_address)?;
+    let payer_hex = format!("{:x}", payer);
 
     // Query the network subgraph to find active allocations
-    let allocation_id = find_allocation(http_client.clone(), GRAPH_URL).await?;
+    let allocation_id = find_allocation(http_client.clone(), &cfg.graph_url).await?;
+    let allocation_id = Address::from_str(&allocation_id)?;
+    let allocation_id_hex = format!("{:x}", allocation_id);
 
     println!("Found allocation ID: {allocation_id}");
 
-    let allocation_id = Address::from_str(&allocation_id)?;
+    // Setup database checker
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| crate::constants::POSTGRES_URL.to_string());
+    let db_checker = DatabaseChecker::new(&database_url).await?;
 
-    // Create a metrics checker
-    let metrics_checker =
-        MetricsChecker::new(http_client.clone(), TAP_AGENT_METRICS_URL.to_string());
-
-    // First check initial metrics
-    let initial_metrics = metrics_checker.get_current_metrics().await?;
-    let initial_ravs_created =
-        initial_metrics.ravs_created_by_allocation(&allocation_id.to_string());
-    let initial_unaggregated =
-        initial_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
+    // Initial DB snapshot for V1
+    let initial_state = db_checker.get_state(&payer_hex, TapVersion::V1).await?;
+    let initial_pending_value = db_checker
+        .get_pending_receipt_value(&allocation_id_hex, &payer_hex, TapVersion::V1)
+        .await?;
 
     println!(
-        "\n=== Initial metrics: RAVs created: {initial_ravs_created}, Unaggregated fees: {initial_unaggregated} ==="
+        "\n=== V1 Initial state: RAVs: {}, Receipts: {}, Pending value: {} wei ===",
+        initial_state.rav_count, initial_state.receipt_count, initial_pending_value
     );
 
-    println!("\n=== STAGE 1: Sending large receipt batches with small pauses ===");
+    // Thresholds same as V2
+    const TRIGGER_THRESHOLD: u128 = 2_000_000_000_000_000; // 0.002 GRT in wei
 
-    // Send multiple receipts in two batches with a gap between them
+    println!("\n=== V1 STAGE 1: Sending large receipt batches with small pauses ===");
+
+    // Send multiple receipts in batches with a gap between them
     let mut total_successful = 0;
 
     for batch in 0..BATCHES {
+        let batch_num = batch + 1;
         println!(
-            "Sending batch {} of 2 with {} receipts each...",
-            batch + 1,
-            NUM_RECEIPTS
+            "Sending batch {} of {} with {} receipts each...",
+            batch_num, BATCHES, NUM_RECEIPTS
+        );
+        println!(
+            "post to {}/api/deployments/id/{}",
+            cfg.gateway_url, TEST_SUBGRAPH_DEPLOYMENT
         );
 
         for i in 0..NUM_RECEIPTS {
             let response = http_client
                 .post(format!(
-                    "{GATEWAY_URL}/api/deployments/id/{TEST_SUBGRAPH_DEPLOYMENT}",
+                    "{}/api/deployments/id/{}",
+                    cfg.gateway_url, TEST_SUBGRAPH_DEPLOYMENT
                 ))
                 .header("Content-Type", "application/json")
-                .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
+                .header("Authorization", format!("Bearer {}", cfg.gateway_api_key))
                 .json(&json!({
                     "query": "{ _meta { block { number } } }"
                 }))
@@ -92,20 +106,9 @@ pub async fn test_tap_rav_v1() -> Result<()> {
                 .send()
                 .await?;
 
-            // let response = http_client
-            //     .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
-            //     .header("Content-Type", "application/json")
-            //     .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
-            //     .json(&json!({
-            //         "query": "{ _meta { block { number } } }"
-            //     }))
-            //     .timeout(Duration::from_secs(10))
-            //     .send()
-            //     .await?;
-
             if response.status().is_success() {
                 total_successful += 1;
-                println!("Query {} of batch {} sent successfully", i + 1, batch + 1);
+                println!("Query {} of batch {} sent successfully", i + 1, batch_num);
             } else {
                 return Err(anyhow::anyhow!(
                     "Failed to send query: {}",
@@ -117,23 +120,45 @@ pub async fn test_tap_rav_v1() -> Result<()> {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
-        // Check metrics after batch
-        let batch_metrics = metrics_checker.get_current_metrics().await?;
+        // Check V1 database state after batch
+        let batch_state = db_checker.get_state(&payer_hex, TapVersion::V1).await?;
+        let current_pending_value = db_checker
+            .get_pending_receipt_value(&allocation_id_hex, &payer_hex, TapVersion::V1)
+            .await?;
+
+        // Calculate progress toward trigger threshold
+        let current_pending_f64: f64 = current_pending_value.to_string().parse().unwrap_or(0.0);
+        let threshold_f64 = TRIGGER_THRESHOLD as f64;
+        let progress_pct = (current_pending_f64 / threshold_f64 * 100.0).min(100.0);
+
         println!(
-            "After batch {}: RAVs created: {}, Unaggregated fees: {}",
-            batch + 1,
-            batch_metrics.ravs_created_by_allocation(&allocation_id.to_string()),
-            batch_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string())
+            "After V1 batch {}: RAVs: {} → {}, Receipts: {} → {}, Pending value: {} wei ({:.1}% of trigger threshold)",
+            batch_num,
+            initial_state.rav_count,
+            batch_state.rav_count,
+            initial_state.receipt_count,
+            batch_state.receipt_count,
+            current_pending_value,
+            progress_pct
         );
 
+        // Check if RAV was already created after this batch
+        if batch_state.rav_count > initial_state.rav_count {
+            println!(
+                "✅ V1 RAV CREATED after batch {}! RAVs: {} → {}",
+                batch_num, initial_state.rav_count, batch_state.rav_count
+            );
+            return Ok(());
+        }
+
         // Wait between batches - long enough for first batch to exit buffer
-        if batch < 1 {
+        if batch < BATCHES - 1 {
             println!("Waiting for buffer period + 5s...");
             tokio::time::sleep(Duration::from_secs(WAIT_TIME_BATCHES)).await;
         }
     }
 
-    println!("\n=== STAGE 2: Sending continuous trigger receipts ===");
+    println!("\n=== V1 STAGE 2: Sending continuous trigger receipts ===");
 
     // Now send a series of regular queries with short intervals until RAV is detected
     for i in 0..MAX_TRIGGERS {
@@ -141,27 +166,17 @@ pub async fn test_tap_rav_v1() -> Result<()> {
 
         let response = http_client
             .post(format!(
-                "{GATEWAY_URL}/api/deployments/id/{TEST_SUBGRAPH_DEPLOYMENT}",
+                "{}/api/deployments/id/{}",
+                cfg.gateway_url, TEST_SUBGRAPH_DEPLOYMENT
             ))
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
+            .header("Authorization", format!("Bearer {}", cfg.gateway_api_key))
             .json(&json!({
                 "query": "{ _meta { block { number } } }"
             }))
             .timeout(Duration::from_secs(10))
             .send()
             .await?;
-
-        // let response = http_client
-        //     .post(format!("{GATEWAY_URL}/api/subgraphs/id/{SUBGRAPH_ID}"))
-        //     .header("Content-Type", "application/json")
-        //     .header("Authorization", format!("Bearer {GATEWAY_API_KEY}"))
-        //     .json(&json!({
-        //         "query": "{ _meta { block { number } } }"
-        //     }))
-        //     .timeout(Duration::from_secs(10))
-        //     .send()
-        //     .await?;
 
         if response.status().is_success() {
             total_successful += 1;
@@ -173,44 +188,108 @@ pub async fn test_tap_rav_v1() -> Result<()> {
             ));
         }
 
-        // Check after each trigger
+        // Check after each trigger using DB
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let current_metrics = metrics_checker.get_current_metrics().await?;
-        let current_ravs_created =
-            current_metrics.ravs_created_by_allocation(&allocation_id.to_string());
-        let current_unaggregated =
-            current_metrics.unaggregated_fees_by_allocation(&allocation_id.to_string());
+        let current_state = db_checker.get_state(&payer_hex, TapVersion::V1).await?;
+        let current_pending_value = db_checker
+            .get_pending_receipt_value(&allocation_id_hex, &payer_hex, TapVersion::V1)
+            .await?;
+
+        // Calculate progress toward trigger threshold
+        let current_pending_f64: f64 = current_pending_value.to_string().parse().unwrap_or(0.0);
+        let threshold_f64 = TRIGGER_THRESHOLD as f64;
+        let progress_pct = (current_pending_f64 / threshold_f64 * 100.0).min(100.0);
 
         println!(
-            "After trigger {}: RAVs created: {}, Unaggregated fees: {}",
+            "After V1 trigger {}: RAVs: {} → {}, Receipts: {} → {}, Pending value: {} wei ({:.1}% of trigger threshold)",
             i + 1,
-            current_ravs_created,
-            current_unaggregated
+            initial_state.rav_count,
+            current_state.rav_count,
+            initial_state.receipt_count,
+            current_state.receipt_count,
+            current_pending_value,
+            progress_pct
         );
 
-        // If we've succeeded, exit early
-        if current_ravs_created > initial_ravs_created {
+        // Success conditions
+        if current_state.rav_count > initial_state.rav_count {
             println!(
-                "✅ TEST PASSED: RAVs created increased from {initial_ravs_created} to {current_ravs_created}!"
+                "✅ V1 TEST PASSED: RAVs created increased from {} to {}!",
+                initial_state.rav_count, current_state.rav_count
             );
             return Ok(());
         }
 
-        if current_unaggregated < initial_unaggregated * 0.9 {
+        // Check if pending value decreased significantly (RAV was created and cleared pending receipts)
+        let initial_pending_f64: f64 = initial_pending_value.to_string().parse().unwrap_or(0.0);
+        if current_pending_f64 < initial_pending_f64 - (threshold_f64 / 2.0) {
             println!(
-                "✅ TEST PASSED: Unaggregated fees decreased significantly from {initial_unaggregated} to {current_unaggregated}!"
+                "✅ V1 TEST PASSED: Unaggregated fees decreased significantly from {} to {} wei!",
+                initial_pending_value, current_pending_value
             );
             return Ok(());
         }
     }
 
-    println!("\n=== Summary ===");
-    println!("Total queries sent successfully: {total_successful}");
+    println!("\n=== V1 Summary ===");
+    println!("Total V1 queries sent successfully: {total_successful}");
+
+    // Final state check using database
+    let final_state = db_checker.get_state(&payer_hex, TapVersion::V1).await?;
+    let final_pending_value = db_checker
+        .get_pending_receipt_value(&allocation_id_hex, &payer_hex, TapVersion::V1)
+        .await?;
+
+    println!(
+        "Final V1 state: RAVs: {} (started: {}), Receipts: {} (started: {}), Pending value: {} wei (started: {} wei)",
+        final_state.rav_count,
+        initial_state.rav_count,
+        final_state.receipt_count,
+        initial_state.receipt_count,
+        final_pending_value,
+        initial_pending_value
+    );
+
+    // Print detailed breakdown for debugging
+    db_checker
+        .print_detailed_summary(&payer_hex, TapVersion::V1)
+        .await?;
+
+    // Alternative success condition: Wait a bit longer for delayed RAV creation
+    println!("\n=== Waiting for delayed V1 RAV creation (30s timeout) ===");
+    let rav_created = db_checker
+        .wait_for_rav_creation(
+            &payer_hex,
+            initial_state.rav_count,
+            30, // 30 second timeout
+            2,  // check every 2 seconds
+            TapVersion::V1,
+        )
+        .await?;
+
+    if rav_created {
+        let final_state_after_wait = db_checker.get_state(&payer_hex, TapVersion::V1).await?;
+        println!(
+            "✅ V1 TEST PASSED: RAV CREATED (delayed)! RAVs: {} → {}",
+            initial_state.rav_count, final_state_after_wait.rav_count
+        );
+        return Ok(());
+    }
+
+    // Timestamp buffer diagnosis
+    db_checker
+        .diagnose_timestamp_buffer(
+            &payer_hex,
+            &allocation_id_hex,
+            30, // buffer_seconds from your config
+            TapVersion::V1,
+        )
+        .await?;
 
     // If we got here, test failed
-    println!("❌ TEST FAILED: No RAV generation detected");
-    Err(anyhow::anyhow!("Failed to detect RAV generation"))
+    println!("❌ V1 TEST FAILED: No RAV generation detected");
+    Err(anyhow::anyhow!("Failed to detect V1 RAV generation"))
 }
 
 pub async fn test_invalid_chain_id() -> Result<()> {
@@ -360,7 +439,7 @@ pub async fn test_tap_rav_v2() -> Result<()> {
                 "✅ V2 RAV CREATED after batch {}! RAVs: {} → {}",
                 batch_num, initial_state.rav_count, batch_state.rav_count
             );
-            // return Ok(());
+            return Ok(());
         }
 
         // Wait between batches - long enough for first batch to exit buffer
@@ -428,7 +507,7 @@ pub async fn test_tap_rav_v2() -> Result<()> {
                 "✅ V2 TEST PASSED: RAVs created increased from {} to {}!",
                 initial_state.rav_count, current_state.rav_count
             );
-            // return Ok(());
+            return Ok(());
         }
 
         // Check if pending value decreased significantly (RAV was created and cleared pending receipts)
@@ -438,7 +517,7 @@ pub async fn test_tap_rav_v2() -> Result<()> {
                 "✅ V2 TEST PASSED: Unaggregated fees decreased significantly from {} to {} wei!",
                 initial_pending_value, current_pending_value
             );
-            // return Ok(());
+            return Ok(());
         }
     }
 

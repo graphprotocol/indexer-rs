@@ -3,8 +3,9 @@
 
 //! Test to verify V2 signature creation and recovery works correctly
 
-use anyhow::Result;
 use std::str::FromStr;
+
+use anyhow::Result;
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::v2::Receipt as V2Receipt;
 use thegraph_core::{

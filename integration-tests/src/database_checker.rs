@@ -1,10 +1,11 @@
 // Copyright 2025-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::str::FromStr;
+
 use anyhow::Result;
 use bigdecimal::BigDecimal;
 use sqlx::{PgPool, Row};
-use std::str::FromStr;
 
 /// Unified database checker for both V1 and V2 TAP tables
 pub struct DatabaseChecker {

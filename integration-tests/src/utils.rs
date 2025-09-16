@@ -20,11 +20,13 @@ use serde_json::json;
 use tap_aggregator::grpc;
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::Receipt;
-use thegraph_core::alloy::{
-    primitives::{Address, U256},
-    signers::local::PrivateKeySigner,
+use thegraph_core::{
+    alloy::{
+        primitives::{Address, U256},
+        signers::local::PrivateKeySigner,
+    },
+    CollectionId,
 };
-use thegraph_core::CollectionId;
 
 use crate::constants::{GRAPH_TALLY_COLLECTOR_CONTRACT, TEST_DATA_SERVICE};
 
