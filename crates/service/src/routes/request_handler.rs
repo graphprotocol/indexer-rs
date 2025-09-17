@@ -19,7 +19,7 @@ pub async fn request_handler(
     State(state): State<GraphNodeState>,
     req: String,
 ) -> Result<impl IntoResponse, SubgraphServiceError> {
-    tracing::trace!("Handling request for deployment `{deployment}`");
+    tracing::trace!(deployment = %deployment, "Handling request for deployment");
 
     let deployment_url = state
         .graph_node_query_base_url

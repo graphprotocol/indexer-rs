@@ -346,9 +346,9 @@ impl Actor for SenderAccountsManager {
         // and updates the passed in config accordingly
         let is_horizon_active = config.tap_mode.is_horizon();
         if is_horizon_active {
-            tracing::info!("Horizon enabled in config - allocations will use Horizon type");
+            tracing::info!(is_horizon = true, "Allocations will use Horizon type");
         } else {
-            tracing::info!("Horizon disabled in config - allocations will use Legacy type");
+            tracing::info!(is_horizon = false, "Allocations will use Legacy type");
         }
 
         let indexer_allocations = map_watcher(indexer_allocations, move |allocation_id| {
@@ -402,7 +402,7 @@ impl Actor for SenderAccountsManager {
                     senders,
                 ))
                 .unwrap_or_else(|e| {
-                    tracing::error!("Error while updating sender_accounts v1: {:?}", e);
+                    tracing::error!(error = ?e, "Error while updating sender_accounts v1");
                 });
             async {}
         });
@@ -419,7 +419,7 @@ impl Actor for SenderAccountsManager {
                         senders,
                     ))
                     .unwrap_or_else(|e| {
-                        tracing::error!("Error while updating sender_accounts v2: {:?}", e);
+                        tracing::error!(error = ?e, "Error while updating sender_accounts v2");
                     });
                 async {}
             });
@@ -722,20 +722,17 @@ impl State {
         sender_type: SenderType,
     ) {
         tracing::info!(
-            "Creating SenderAccount: sender={}, type={:?}, initial_allocations={}",
-            sender_id,
-            sender_type,
-            allocation_ids.len()
+            sender = %sender_id,
+            sender_type = ?sender_type,
+            initial_allocations = allocation_ids.len(),
+            "Creating SenderAccount",
         );
         for alloc_id in &allocation_ids {
             tracing::debug!(
-                "  Initial allocation: {} (variant: {:?}, address: {})",
-                alloc_id,
-                match alloc_id {
-                    AllocationId::Legacy(_) => "Legacy",
-                    AllocationId::Horizon(_) => "Horizon",
-                },
-                alloc_id.address()
+                allocation_id = %alloc_id,
+                variant = %match alloc_id { AllocationId::Legacy(_) => "Legacy", AllocationId::Horizon(_) => "Horizon" },
+                address = %alloc_id.address(),
+                "Initial allocation",
             );
         }
 
@@ -1115,9 +1112,9 @@ async fn new_receipts_watcher(
                     Ok(v1_notif) => NewReceiptNotification::V1(v1_notif),
                     Err(e) => {
                         tracing::error!(
-                            "Failed to deserialize V1 notification payload: {}, payload: {}",
-                            e,
-                            pg_notification.payload()
+                            error = %e,
+                            payload = pg_notification.payload(),
+                            "Failed to deserialize V1 notification payload",
                         );
                         break;
                     }
@@ -1129,19 +1126,16 @@ async fn new_receipts_watcher(
                     Ok(v2_notif) => NewReceiptNotification::V2(v2_notif),
                     Err(e) => {
                         tracing::error!(
-                            "Failed to deserialize V2 notification payload: {}, payload: {}",
-                            e,
-                            pg_notification.payload()
+                            error = %e,
+                            payload = pg_notification.payload(),
+                            "Failed to deserialize V2 notification payload",
                         );
                         break;
                     }
                 }
             }
             unknown_channel => {
-                tracing::error!(
-                    "Received notification from unknown channel: {}",
-                    unknown_channel
-                );
+                tracing::error!(channel = %unknown_channel, "Received notification from unknown channel");
                 break;
             }
         };
@@ -1154,10 +1148,10 @@ async fn new_receipts_watcher(
         .await
         {
             Ok(()) => {
-                tracing::debug!("Successfully handled notification");
+                tracing::debug!(event = "notification_handled", "Successfully handled notification");
             }
             Err(e) => {
-                tracing::error!("Error handling notification: {}", e);
+                tracing::error!(error = %e, "Error handling notification");
             }
         }
     }
@@ -1231,20 +1225,20 @@ async fn handle_notification(
     match allocation_id {
         AllocationId::Legacy(_) => {
             tracing::info!(
-                sender_address=%sender_address,
-                allocation_id=allocation_str,
-                sender_type_str,
-                receipt_value=%new_receipt_notification.value(),
+                sender_address = %sender_address,
+                allocation_id = allocation_str,
+                sender_type = sender_type_str,
+                receipt_value = %new_receipt_notification.value(),
                 "Processing receipt notification",
             );
         }
         AllocationId::Horizon(collection_id) => {
             tracing::info!(
-                sender_address=%sender_address,
-                collection_id=%collection_id,
-                sender_type_str,
-                receipt_value=%new_receipt_notification.value(),
-                "Processing receipt notification: sender",
+                sender_address = %sender_address,
+                collection_id = %collection_id,
+                sender_type = sender_type_str,
+                receipt_value = %new_receipt_notification.value(),
+                "Processing receipt notification",
             );
         }
     }
@@ -1265,12 +1259,9 @@ async fn handle_notification(
     // otherwise there is a mistmatch!!!!
     tracing::debug!(
         actor_name,
-        allocation_id=%allocation_id,
-        "Looking for SenderAllocation actor: (variant: {})",
-        match allocation_id {
-            AllocationId::Legacy(_) => "Legacy",
-            AllocationId::Horizon(_) => "Horizon",
-        },
+        allocation_id = %allocation_id,
+        variant = %match allocation_id { AllocationId::Legacy(_) => "Legacy", AllocationId::Horizon(_) => "Horizon" },
+        "Looking for SenderAllocation actor",
     );
 
     let Some(sender_allocation) = ActorRef::<SenderAllocationMessage>::where_is(actor_name) else {
@@ -1295,7 +1286,7 @@ async fn handle_notification(
         );
         tracing::debug!(
             sender_account_name,
-            allocation_id=%allocation_id,
+            allocation_id = %allocation_id,
             "Looking for SenderAccount",
         );
 

@@ -1229,62 +1229,44 @@ impl Actor for SenderAccount {
                 );
 
                 tracing::debug!(
-                    "Checking fee tracker for allocation_id.address(): {} (from variant: {:?})",
-                    allocation_id.address(),
-                    match allocation_id {
-                        AllocationId::Legacy(_) => "Legacy",
-                        AllocationId::Horizon(_) => "Horizon",
-                    }
+                    allocation_addr = %allocation_id.address(),
+                    variant = %match allocation_id { AllocationId::Legacy(_) => "Legacy", AllocationId::Horizon(_) => "Horizon" },
+                    "Checking fee tracker for allocation",
                 );
 
                 // Log the raw allocation ID details for comparison
                 match &allocation_id {
                     AllocationId::Legacy(core_id) => {
-                        tracing::debug!(
-                            "Legacy allocation details: core_id={}, address={}",
-                            core_id,
-                            core_id.as_ref()
-                        );
+                        tracing::debug!(core_id = %core_id, address = %core_id.as_ref(), "Legacy allocation details");
                     }
                     AllocationId::Horizon(collection_id) => {
-                        tracing::debug!(
-                            "Horizon allocation details: collection_id={}, as_address()={}",
-                            collection_id,
-                            collection_id.as_address()
-                        );
+                        tracing::debug!(collection_id = %collection_id, as_address = %collection_id.as_address(), "Horizon allocation details");
                     }
                 }
                 let tracked_allocations: Vec<_> =
                     state.sender_fee_tracker.id_to_fee.keys().collect();
-                tracing::debug!("Currently tracked allocations: {:?}", tracked_allocations);
-
-                tracing::debug!("Receipt fees details: {:?}", receipt_fees);
+                let tracked_count = tracked_allocations.len();
+                tracing::debug!(tracked_count, "Currently tracked allocations");
+                tracing::debug!(receipt_fees = ?receipt_fees, "Receipt fees details");
 
                 // Check if allocation exists in tracker
                 let has_allocation = state
                     .sender_fee_tracker
                     .id_to_fee
                     .contains_key(&allocation_id.address());
-                tracing::debug!(
-                    "Allocation {} exists in fee tracker: {}",
-                    allocation_id,
-                    has_allocation
-                );
+                tracing::debug!(allocation_id = %allocation_id, has_allocation, "Allocation exists in fee tracker");
 
                 if !has_allocation {
+                    let tracked_count = state.sender_fee_tracker.id_to_fee.len();
                     tracing::warn!(
-                        "Received receipt for unknown allocation {}, tracked allocations: {:?}",
-                        allocation_id,
-                        state
-                            .sender_fee_tracker
-                            .id_to_fee
-                            .keys()
-                            .collect::<Vec<_>>()
+                        allocation_id = %allocation_id,
+                        tracked_count,
+                        "Received receipt for unknown allocation",
                     );
                 }
                 // If we're here because of a new receipt, abort any scheduled UpdateReceiptFees
                 if let Some(scheduled_rav_request) = state.scheduled_rav_request.take() {
-                    tracing::debug!("Aborting scheduled RAV request for sender {}", state.sender);
+                    tracing::debug!(sender = %state.sender, "Aborting scheduled RAV request");
                     scheduled_rav_request.abort();
                 }
 
@@ -1439,15 +1421,15 @@ impl Actor for SenderAccount {
             SenderAccountMessage::UpdateAllocationIds(allocation_ids) => {
                 // Create new sender allocations
                 tracing::info!(
-                    "SenderAccount {} ({:?}) updating allocations: {} → {}",
-                    state.sender,
-                    state.sender_type,
-                    state.allocation_ids.len(),
-                    allocation_ids.len()
+                    sender = %state.sender,
+                    sender_type = ?state.sender_type,
+                    old_count = state.allocation_ids.len(),
+                    new_count = allocation_ids.len(),
+                    "Updating allocations",
                 );
 
-                tracing::debug!("Old allocations: {:?}", state.allocation_ids);
-                tracing::debug!("New allocations: {:?}", allocation_ids);
+                tracing::debug!(old_count = state.allocation_ids.len(), "Old allocations");
+                tracing::debug!(new_count = allocation_ids.len(), "New allocations");
 
                 let mut new_allocation_ids = state.allocation_ids.clone();
                 for allocation_id in allocation_ids.difference(&state.allocation_ids) {
@@ -1496,11 +1478,6 @@ impl Actor for SenderAccount {
                     }
                 }
 
-                tracing::trace!(
-                    old_ids= ?state.allocation_ids,
-                    new_ids = ?new_allocation_ids,
-                    "Updating allocation ids"
-                );
                 state.allocation_ids = new_allocation_ids;
             }
             SenderAccountMessage::NewAllocationId(allocation_id) => {

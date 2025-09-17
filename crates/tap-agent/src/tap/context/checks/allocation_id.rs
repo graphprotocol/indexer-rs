@@ -75,9 +75,9 @@ impl Check<TapReceipt> for AllocationId {
         };
 
         tracing::debug!(
-            "Checking allocation_id: {:?} against expected_allocation_id: {}",
-            allocation_id,
-            self.allocation_id
+            allocation_id = %allocation_id,
+            expected_allocation_id = %self.allocation_id,
+            "Checking allocation_id",
         );
         if allocation_id != self.allocation_id {
             return Err(CheckError::Failed(anyhow!("Receipt allocation_id different from expected: allocation_id: {:?}, expected_allocation_id: {}", allocation_id, self.allocation_id)));

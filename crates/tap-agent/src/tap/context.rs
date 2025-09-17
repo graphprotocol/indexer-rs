@@ -132,9 +132,8 @@ impl NetworkVersion for Legacy {
                 .inspect_err(|status: &Status| {
                     if status.code() == Code::DeadlineExceeded {
                         tracing::warn!(
-                            "Rav request is timing out, maybe request_timeout_secs is too \
-                                low in your config file, try adding more secs to the value. \
-                                If the problem persists after doing so please open an issue"
+                            code = ?status.code(),
+                            "RAV request deadline exceeded; consider increasing request_timeout_secs"
                         );
                     }
                 })?;
@@ -176,9 +175,8 @@ impl NetworkVersion for Horizon {
                 .inspect_err(|status: &Status| {
                     if status.code() == Code::DeadlineExceeded {
                         tracing::warn!(
-                            "Rav request is timing out, maybe request_timeout_secs is too \
-                                low in your config file, try adding more secs to the value. \
-                                If the problem persists after doing so please open an issue"
+                            code = ?status.code(),
+                            "RAV request deadline exceeded; consider increasing request_timeout_secs"
                         );
                     }
                 })?;
