@@ -7,9 +7,9 @@ mod env_loader;
 #[allow(dead_code)]
 mod indexer_cli;
 mod load_test;
-// Lets keep the metrics parser disable
+// Lets keep the metrics parser disabled
 // we are moving towards using database_checker
-// for more robust checks and using the soley source of truth
+// for more robust checks and using the sole source of truth
 // mod metrics;
 mod rav_tests;
 mod signature_test;
