@@ -92,7 +92,7 @@ impl InnerContext {
             Err(e) => {
                 // Create error message once
                 let err_msg = format!("Failed to store {version} receipts: {e}");
-                tracing::error!("{}", err_msg);
+                tracing::error!(error = %e, version = %version, "Failed to store receipts");
                 for sender in senders {
                     // Convert to AdapterError for each sender
                     let _ = sender.send(Err(anyhow!(err_msg.clone()).into()));
@@ -150,7 +150,7 @@ impl InnerContext {
         .execute(&self.pgpool)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to store V1 receipt: {}", e);
+            tracing::error!(error = %e, "Failed to store V1 receipt");
             anyhow!(e)
         })?;
 
@@ -221,7 +221,7 @@ impl InnerContext {
         .execute(&self.pgpool)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to store V2 receipt: {}", e);
+            tracing::error!(error = %e, "Failed to store V2 receipt");
             anyhow!(e)
         })?;
 
@@ -243,7 +243,7 @@ impl IndexerTapContext {
                     biased;
                     _ = receiver.recv_many(&mut buffer, BUFFER_SIZE) => {
                         if let Err(e) = inner_context.process_db_receipts(buffer).await {
-                            tracing::error!("{e}");
+                            tracing::error!(error = %e, "Failed to process buffered receipts");
                         }
                     }
                     _ = cancelation_token.cancelled() => { break },
@@ -268,7 +268,7 @@ impl ReceiptStore<TapReceipt> for IndexerTapContext {
             .send((db_receipt, result_tx))
             .await
             .map_err(|e| {
-                tracing::error!("Failed to queue receipt for storage: {}", e);
+                tracing::error!(error = %e, "Failed to queue receipt for storage");
                 anyhow!(e)
             })?;
 
@@ -313,7 +313,7 @@ impl DbReceiptV1 {
         let signer_address = receipt
             .recover_signer(separator)
             .map_err(|e| {
-                tracing::error!("Failed to recover receipt signer: {}", e);
+                tracing::error!(error = %e, "Failed to recover receipt signer");
                 anyhow!(e)
             })?
             .encode_hex();
@@ -360,7 +360,7 @@ impl DbReceiptV2 {
         let signer_address = receipt
             .recover_signer(separator)
             .map_err(|e| {
-                tracing::error!("Failed to recover receipt signer: {}", e);
+                tracing::error!(error = %e, "Failed to recover V2 receipt signer");
                 anyhow!(e)
             })?
             .encode_hex();

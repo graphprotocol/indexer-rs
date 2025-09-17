@@ -88,9 +88,9 @@ pub async fn get_allocations(
         .collect();
 
     tracing::info!(
-        "Network subgraph query returned {} allocations for indexer {}",
-        result.len(),
-        indexer_address
+        allocations = result.len(),
+        indexer_address = ?indexer_address,
+        "Network subgraph query returned allocations for indexer"
     );
 
     Ok(result)

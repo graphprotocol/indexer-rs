@@ -148,9 +148,9 @@ async fn get_escrow_accounts_v2(
     reject_thawing_signers: bool,
 ) -> anyhow::Result<EscrowAccounts> {
     tracing::trace!(
-        "Loading V2 escrow accounts for indexer {}, reject_thawing_signers: {}",
-        indexer_address,
-        reject_thawing_signers
+        indexer_address = ?indexer_address,
+        reject_thawing_signers,
+        "Loading V2 escrow accounts for indexer"
     );
     // Query V2 escrow accounts from the network subgraph which tracks PaymentsEscrow
     // and GraphTallyCollector contract events.
@@ -195,9 +195,8 @@ async fn get_escrow_accounts_v2(
             )
             .unwrap_or_else(|| {
                 tracing::warn!(
-                    "Balance minus total amount thawing underflowed for V2 account {}. \
-                                 Setting balance to 0, no V2 queries will be served for this payer.",
-                    account.payer.id
+                    payer = ?account.payer.id,
+                    "Balance minus total amount thawing underflowed for V2 account; setting balance to 0, no V2 queries will be served for this payer."
                 );
                 U256::from(0)
             });
@@ -261,9 +260,8 @@ async fn get_escrow_accounts_v1(
             )
             .unwrap_or_else(|| {
                 tracing::warn!(
-                    "Balance minus total amount thawing underflowed for account {}. \
-                                 Setting balance to 0, no queries will be served for this sender.",
-                    account.sender.id
+                    sender = ?account.sender.id,
+                    "Balance minus total amount thawing underflowed for account; setting balance to 0, no queries will be served for this sender."
                 );
                 U256::from(0)
             });
@@ -291,9 +289,9 @@ async fn get_escrow_accounts_v1(
     let escrow_accounts = EscrowAccounts::new(senders_balances.clone(), senders_to_signers.clone());
 
     tracing::debug!(
-        "V1 escrow accounts loaded: {} senders, {} signer->sender mappings",
-        senders_balances.len(),
-        escrow_accounts.signers_to_senders.len()
+        senders = senders_balances.len(),
+        mappings = escrow_accounts.signers_to_senders.len(),
+        "V1 escrow accounts loaded"
     );
 
     Ok(escrow_accounts)

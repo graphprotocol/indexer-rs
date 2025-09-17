@@ -17,7 +17,7 @@ pub async fn static_subgraph_request_handler(
         response.status(),
         response.headers().to_owned(),
         response.text().await.inspect_err(|e| {
-            tracing::warn!("Failed to read response body: {}", e);
+            tracing::warn!(error = %e, "Failed to read response body");
         })?,
     ))
 }
@@ -42,7 +42,7 @@ impl From<&StaticSubgraphError> for StatusCode {
 
 impl IntoResponse for StaticSubgraphError {
     fn into_response(self) -> axum::response::Response {
-        tracing::error!(%self, "StaticSubgraphError occoured.");
+        tracing::error!(%self, "StaticSubgraphError occurred.");
         (
             StatusCode::from(&self),
             Json(json! {{

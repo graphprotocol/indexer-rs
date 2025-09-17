@@ -53,10 +53,9 @@ pub async fn run() -> anyhow::Result<()> {
     let config = Config::parse(indexer_config::ConfigPrefix::Service, cli.config.as_ref())
         .map_err(|e| {
             tracing::error!(
-                "Invalid configuration file `{}`: {}, if a value is missing you can also use \
-                --config to fill the rest of the values",
-                cli.config.unwrap_or_default().display(),
-                e
+                config_path = %cli.config.unwrap_or_default().display(),
+                error = %e,
+                "Invalid configuration file; you can use --config to fill missing values",
             );
             anyhow!(e)
         })?;
@@ -190,8 +189,8 @@ pub async fn run() -> anyhow::Result<()> {
             }
             Err(e) => {
                 tracing::error!(
-                    "Failed to initialize V2 escrow accounts: {}. Service cannot continue.",
-                    e
+                    error = %e,
+                    "Failed to initialize V2 escrow accounts; service cannot continue",
                 );
                 std::process::exit(1);
             }
@@ -352,10 +351,10 @@ pub async fn run() -> anyhow::Result<()> {
             chain_id,
         };
 
-        info!("starting dips grpc server on {}", addr);
+        info!(address = %addr, "Starting DIPS gRPC server");
 
         tokio::spawn(async move {
-            info!("starting dips grpc server on {}", addr);
+            info!(address = %addr, "Starting DIPS gRPC server");
 
             start_dips_server(addr, dips).await;
         });

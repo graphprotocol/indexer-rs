@@ -374,7 +374,8 @@ where
                 Err(err) => {
                     tracing::error!(
                         error = %err,
-                        "There was an error while calculating the last unaggregated receipts. Retrying in 30 seconds...");
+                        "Error calculating last unaggregated receipts; retrying in 30s",
+                    );
                     tokio::time::sleep(Duration::from_secs(30)).await;
                 }
             }
@@ -382,7 +383,10 @@ where
         // Request a RAV and mark the allocation as final.
         while state.unaggregated_fees.value > 0 {
             if let Err(err) = state.request_rav().await {
-                tracing::error!(error = %err, "There was an error while requesting rav. Retrying in 30 seconds...");
+                tracing::error!(
+                    error = %err,
+                    "Error requesting RAV; retrying in 30s",
+                );
                 tokio::time::sleep(Duration::from_secs(30)).await;
             }
         }
@@ -442,11 +446,12 @@ where
                         .unwrap_or_else(|| {
                             // This should never happen, but if it does, we want to know about it.
                             tracing::error!(
-                            "Overflow when adding receipt value {} to total unaggregated fees {} \
-                            for allocation {} and sender {}. Setting total unaggregated fees to \
-                            u128::MAX.",
-                            fees, unaggregated_fees.value, state.allocation_id, state.sender
-                        );
+                                fees,
+                                current_total = unaggregated_fees.value,
+                                allocation_id = %state.allocation_id,
+                                sender = %state.sender,
+                                "Overflow when adding receipt value; setting total unaggregated fees to u128::MAX",
+                            );
                             u128::MAX
                         });
                 unaggregated_fees.counter += 1;
@@ -661,10 +666,10 @@ where
             // All receipts are invalid
             (Err(AggregationError::NoValidReceiptsForRavRequest), true, false) => {
                 tracing::warn!(
-                    "Found {} invalid receipts for allocation {} and sender {}.",
-                    invalid_receipts.len(),
-                    self.allocation_id,
-                    self.sender
+                    invalid_count = invalid_receipts.len(),
+                    allocation_id = %self.allocation_id,
+                    sender = %self.sender,
+                    "Found invalid receipts",
                 );
                 // Obtain min/max timestamps to define query
                 let min_timestamp = invalid_receipts
@@ -732,10 +737,10 @@ where
                 // store them before we call remove_obsolete_receipts()
                 if !invalid_receipts.is_empty() {
                     tracing::warn!(
-                        "Found {} invalid receipts for allocation {} and sender {}.",
-                        invalid_receipts.len(),
-                        self.allocation_id,
-                        self.sender
+                        invalid_count = invalid_receipts.len(),
+                        allocation_id = %self.allocation_id,
+                        sender = %self.sender,
+                        "Found invalid receipts",
                     );
 
                     // Save invalid receipts to the database for logs.
@@ -885,14 +890,14 @@ where
             let receipt_signer = receipt
                 .recover_signer(&self.domain_separator)
                 .map_err(|e| {
-                    tracing::error!("Failed to recover receipt signer: {}", e);
+                    tracing::error!(error = %e, "Failed to recover receipt signer");
                     anyhow!(e)
                 })?;
             tracing::debug!(
-                "Receipt for allocation {} and signer {} failed reason: {}",
-                allocation_id.encode_hex(),
-                receipt_signer.encode_hex(),
-                receipt_error
+                allocation_id = %allocation_id.encode_hex(),
+                signer = %receipt_signer.encode_hex(),
+                reason = %receipt_error,
+                "Invalid receipt stored",
             );
             reciepts_signers.push(receipt_signer.encode_hex());
             encoded_signatures.push(encoded_signature);
@@ -931,7 +936,7 @@ where
         .execute(&self.pgpool)
         .await
         .map_err(|e: sqlx::Error| {
-            tracing::error!("Failed to store invalid receipt: {}", e);
+            tracing::error!(error = %e, "Failed to store invalid receipt");
             anyhow!(e)
         })?;
 
@@ -963,14 +968,14 @@ where
             let receipt_signer = receipt
                 .recover_signer(&self.domain_separator)
                 .map_err(|e| {
-                    tracing::error!("Failed to recover receipt signer: {}", e);
+                    tracing::error!(error = %e, "Failed to recover receipt signer");
                     anyhow!(e)
                 })?;
             tracing::debug!(
-                "Receipt for allocation {} and signer {} failed reason: {}",
-                collection_id.encode_hex(),
-                receipt_signer.encode_hex(),
-                receipt_error
+                collection_id = %collection_id.encode_hex(),
+                signer = %receipt_signer.encode_hex(),
+                reason = %receipt_error,
+                "Invalid receipt stored",
             );
             reciepts_signers.push(receipt_signer.encode_hex());
             encoded_signatures.push(encoded_signature);
@@ -1021,7 +1026,7 @@ where
         .execute(&self.pgpool)
         .await
         .map_err(|e: sqlx::Error| {
-            tracing::error!("Failed to store invalid receipt: {}", e);
+            tracing::error!(error = %e, "Failed to store invalid receipt");
             anyhow!(e)
         })?;
 
@@ -1233,9 +1238,9 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
             // in case no rav was marked as final
             0 => {
                 tracing::warn!(
-                    "No RAVs were updated as last for allocation {} and sender {}.",
-                    self.allocation_id,
-                    self.sender
+                    allocation_id = %self.allocation_id,
+                    sender = %self.sender,
+                    "No RAVs were updated as last",
                 );
                 Ok(())
             }
@@ -1402,9 +1407,9 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             // in case no rav was marked as final
             0 => {
                 tracing::warn!(
-                    "No RAVs were updated as last for allocation {} and sender {}.",
-                    self.allocation_id,
-                    self.sender
+                    allocation_id = %self.allocation_id,
+                    sender = %self.sender,
+                    "No RAVs were updated as last",
                 );
                 Ok(())
             }

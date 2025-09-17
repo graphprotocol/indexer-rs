@@ -80,7 +80,7 @@ where
     pub fn get_heaviest_allocation_id(&mut self) -> Option<Address> {
         let total_allocations = self.id_to_fee.len();
         tracing::debug!(
-            %total_allocations,
+            total_allocations,
             "Evaluating allocations for RAV request",
         );
 
@@ -103,8 +103,8 @@ where
 
                 tracing::trace!(
                     allocation = %addr,
-                    allowed = %allowed,
-                    "Allocation eligibility check"
+                    allowed,
+                    "Allocation eligibility check",
                 );
 
                 allowed
@@ -115,7 +115,7 @@ where
                 tracing::trace!(
                     allocation = %addr,
                     valid_fee = %current_fee,
-                    "Checking allocation valid fees"
+                    "Checking allocation valid fees",
                 );
 
                 if current_fee == 0 {
@@ -125,18 +125,22 @@ where
                 if let Some((current_addr, max_fee)) = acc {
                     if current_fee > max_fee {
                         tracing::trace!(
-                            "New heaviest: {} (fee={}) replaces {} (fee={})",
-                            addr,
-                            current_fee,
-                            current_addr,
-                            max_fee
+                            new = %addr,
+                            new_fee = %current_fee,
+                            old = %current_addr,
+                            old_fee = %max_fee,
+                            "New heaviest allocation",
                         );
                         Some((addr, current_fee))
                     } else {
                         acc
                     }
                 } else if current_fee > 0 {
-                    tracing::trace!("First valid allocation: {} (fee={})", addr, current_fee);
+                    tracing::trace!(
+                        allocation = %addr,
+                        valid_fee = %current_fee,
+                        "First valid allocation",
+                    );
                     Some((addr, current_fee))
                 } else {
                     acc
@@ -144,20 +148,20 @@ where
             })
             .filter(|(_, fee)| {
                 let valid = *fee > 0;
-                tracing::trace!("Final fee check: {} > 0 = {}", fee, valid);
+                tracing::trace!(fee = %fee, valid, "Final fee check");
                 valid
             })
             .map(|(&id, fee)| {
-                tracing::info!("Selected heaviest allocation: {} with fee={}", id, fee);
+                tracing::info!(allocation = %id, fee = %fee, "Selected heaviest allocation");
                 id
             });
 
         if result.is_none() {
             tracing::warn!(
-                "No valid allocation found: {} total, {} eligible, {} with zero valid fees",
                 total_allocations,
                 eligible_count,
-                zero_valid_fee_count
+                zero_valid_fee_count,
+                "No valid allocation found",
             );
 
             // Additional logging for SenderFeeTracker specifically
@@ -170,10 +174,10 @@ where
 
                     tracing::debug!(
                         allocation = %addr,
-                        total_fee = %total_fee,
-                        valid_fee = %valid_fee,
-                        buffered_fee = %buffered_fee,
-                        "Allocation fee breakdown"
+                        total_fee,
+                        valid_fee,
+                        buffered_fee,
+                        "Allocation fee breakdown",
                     );
                 }
             }

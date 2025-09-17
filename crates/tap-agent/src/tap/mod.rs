@@ -24,8 +24,8 @@ pub async fn signers_trimmed(
     sender: Address,
 ) -> Result<Vec<String>, anyhow::Error> {
     let escrow_accounts = escrow_accounts_rx.borrow();
-
-    tracing::info!("signers_trimmed called for sender: {}", sender);
+    
+    tracing::info!(sender = %sender, "signers_trimmed called");
 
     let signers = escrow_accounts
         .get_signers_for_sender(&sender)

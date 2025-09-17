@@ -225,11 +225,11 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
             })?;
 
         tracing::debug!(
-            "retrieve_receipts_in_timestamp_range called with signers: {:?}, start_bound: {:?}, end_bound: {:?}, receipts_limit: {:?}",
-            signers,
-            timestamp_range_ns.start_bound(),
-            timestamp_range_ns.end_bound(),
-            receipts_limit
+            signers_count = signers.len(),
+            start_bound = ?timestamp_range_ns.start_bound(),
+            end_bound = ?timestamp_range_ns.end_bound(),
+            receipts_limit,
+            "retrieve_receipts_in_timestamp_range called",
         );
 
         let records = sqlx::query!(
