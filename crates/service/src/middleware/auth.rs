@@ -27,9 +27,8 @@ mod tests {
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
-    use crate::middleware::auth::tap::tap_receipt_authorize;
     use crate::{
-        middleware::auth::{Bearer, OrExt},
+        middleware::auth::{tap::tap_receipt_authorize, Bearer, OrExt},
         tap::{IndexerTapContext, TapReceipt},
     };
 

@@ -1148,7 +1148,10 @@ async fn new_receipts_watcher(
         .await
         {
             Ok(()) => {
-                tracing::debug!(event = "notification_handled", "Successfully handled notification");
+                tracing::debug!(
+                    event = "notification_handled",
+                    "Successfully handled notification"
+                );
             }
             Err(e) => {
                 tracing::error!(error = %e, "Error handling notification");
