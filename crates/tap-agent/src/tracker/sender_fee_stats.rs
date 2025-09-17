@@ -44,9 +44,9 @@ impl SenderFeeStats {
             // It could happen when RAV completes (resetting counter to 0) but new receipts
             // arrived during processing and are in the buffer waiting for next RAV
             tracing::warn!(
-                allocation_counter = allocation_counter,
-                counter_in_buffer = counter_in_buffer,
-                "Buffer contains more entries than allocation counter - likely after RAV success"
+                allocation_counter,
+                counter_in_buffer,
+                "Buffer contains more entries than allocation counter (likely after RAV success)"
             );
         }
 
@@ -157,11 +157,11 @@ impl AllocationStats<UnaggregatedReceipts> for SenderFeeStats {
         let valid_fee = total_fee - buffer_to_subtract;
 
         tracing::debug!(
-            "Buffer calculation: total_fee={}, buffer_sum={}, buffer_to_subtract={}, valid_fee={}",
             total_fee,
             buffer_sum,
             buffer_to_subtract,
-            valid_fee
+            valid_fee,
+            "Buffer calculation",
         );
 
         valid_fee

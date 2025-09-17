@@ -16,6 +16,7 @@ use crate::{
     tap::{CheckingReceipt, TapReceipt},
 };
 
+#[derive(Debug)]
 enum DenyListVersion {
     V1,
     V2,
@@ -182,9 +183,9 @@ impl DenyListCheck {
                         // UPDATE and TRUNCATE are not expected to happen. Reload the entire denylist.
                         _ => {
                             tracing::error!(
-                                "Received an unexpected denylist table notification: {}. Reloading entire \
-                                denylist.",
-                                denylist_notification.tg_op
+                                operation = %denylist_notification.tg_op,
+                                version = ?version,
+                                "Unexpected denylist table notification; reloading denylist"
                             );
                             match version {
                                 DenyListVersion::V1 => Self::sender_denylist_reload_v1(pgpool.clone(), denylist.clone())

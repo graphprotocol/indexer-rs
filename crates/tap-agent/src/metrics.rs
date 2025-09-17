@@ -14,7 +14,7 @@ async fn handler_metrics() -> (StatusCode, String) {
     match encoder.encode_to_string(&metric_families) {
         Ok(s) => (StatusCode::OK, s),
         Err(e) => {
-            tracing::error!("Error encoding metrics: {}", e);
+            tracing::error!(error = %e, "Error encoding metrics");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Error encoding metrics: {e}"),
@@ -37,7 +37,7 @@ async fn _run_server(port: u16) {
         .expect("Failed to Bind metrics address`");
     let server = axum::serve(listener, app.into_make_service());
 
-    tracing::info!("Metrics server listening on {}", addr);
+    tracing::info!(%addr, "Metrics server listening");
 
     let res = server.await;
 

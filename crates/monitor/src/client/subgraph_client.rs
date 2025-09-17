@@ -199,8 +199,9 @@ impl SubgraphClient {
             match local_client.query::<Q>(variables.clone()).await {
                 Ok(response) => return Ok(response),
                 Err(err) => tracing::warn!(
-                    "Failed to query local subgraph deployment `{}`, trying remote deployment next: {}",
-                    local_client.query_url, err
+                    query_url = %local_client.query_url,
+                    error = %err,
+                    "Failed to query local subgraph deployment; trying remote deployment next"
                 ),
             }
         }
@@ -211,9 +212,9 @@ impl SubgraphClient {
             .await
             .map_err(|err| {
                 tracing::warn!(
-                    "Failed to query remote subgraph deployment `{}`: {}",
-                    self.remote_client.query_url,
-                    err
+                    query_url = %self.remote_client.query_url,
+                    error = %err,
+                    "Failed to query remote subgraph deployment"
                 );
 
                 err
@@ -227,8 +228,9 @@ impl SubgraphClient {
             match local_client.query_raw(query.clone()).await {
                 Ok(response) => return Ok(response),
                 Err(err) => tracing::warn!(
-                    "Failed to query local subgraph deployment `{}`, trying remote deployment next: {}",
-                    local_client.query_url, err
+                    query_url = %local_client.query_url,
+                    error = %err,
+                    "Failed to query local subgraph deployment; trying remote deployment next"
                 ),
             }
         }
@@ -236,9 +238,9 @@ impl SubgraphClient {
         // Try the remote client
         self.remote_client.query_raw(query).await.map_err(|err| {
             tracing::warn!(
-                "Failed to query remote subgraph deployment `{}`: {}",
-                self.remote_client.query_url,
-                err
+                query_url = %self.remote_client.query_url,
+                error = %err,
+                "Failed to query remote subgraph deployment"
             );
 
             err
