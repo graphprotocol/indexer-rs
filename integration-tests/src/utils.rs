@@ -215,10 +215,6 @@ impl GatewayReceiptSigner {
             .try_into()
             .map_err(|_| anyhow::anyhow!("failed to convert timestamp to ns"))?;
 
-        // let timestamp_ns = SystemTime::now()
-        //     .duration_since(SystemTime::UNIX_EPOCH)?
-        //     .as_nanos() as u64;
-
         // Use the same domain creation as working V2 tests
         let eip712_domain_separator = tap_eip712_domain(
             self.chain_id,

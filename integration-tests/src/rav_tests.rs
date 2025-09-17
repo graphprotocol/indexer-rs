@@ -29,12 +29,12 @@ use crate::{
 };
 
 const WAIT_TIME_BATCHES: u64 = 40;
-const NUM_RECEIPTS: u32 = 30; // Increased to 30 receipts per batch
+const NUM_RECEIPTS: u32 = 30;
 
 // Send receipts in batches with a delay in between
 // to ensure some receipts get outside the timestamp buffer
-const BATCHES: u32 = 15; // Increased to 15 batches for total 450 receipts in Stage 1
-const MAX_TRIGGERS: usize = 20000; // Increased trigger attempts to 200
+const BATCHES: u32 = 15;
+const MAX_TRIGGERS: usize = 20000;
 
 // Function to test the tap RAV generation
 // Function to test the TAP RAV generation for V1 using the database checker

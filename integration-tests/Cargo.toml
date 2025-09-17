@@ -40,6 +40,5 @@ sqlx = { workspace = true, features = [
     "rust_decimal",
     "uuid",
 ] }
-# rdkafka = { workspace = true }
-rdkafka = { version = "0.38.0", features = ["gssapi", "tracing"] }
-regex = "1"
+rdkafka = { workspace = true }
+regex = { workspace = true }
