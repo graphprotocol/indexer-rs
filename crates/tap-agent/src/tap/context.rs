@@ -125,18 +125,16 @@ impl NetworkVersion for Legacy {
             .collect::<Result<_, _>>()?;
         let rav_request = AggregatorRequestV1::new(valid_receipts, previous_rav);
 
-        let response =
-            client
-                .aggregate_receipts(rav_request)
-                .await
-                .inspect_err(|status: &Status| {
-                    if status.code() == Code::DeadlineExceeded {
-                        tracing::warn!(
-                            code = ?status.code(),
-                            "RAV request deadline exceeded; consider increasing request_timeout_secs"
-                        );
-                    }
-                })?;
+        let response = client.aggregate_receipts(rav_request).await.inspect_err(
+            |status: &Status| {
+                if status.code() == Code::DeadlineExceeded {
+                    tracing::warn!(
+                        code = ?status.code(),
+                        "RAV request deadline exceeded; consider increasing request_timeout_secs"
+                    );
+                }
+            },
+        )?;
         response.into_inner().signed_rav()
     }
 }
@@ -168,18 +166,16 @@ impl NetworkVersion for Horizon {
             .collect::<Result<_, _>>()?;
         let rav_request = AggregatorRequestV2::new(valid_receipts, previous_rav);
 
-        let response =
-            client
-                .aggregate_receipts(rav_request)
-                .await
-                .inspect_err(|status: &Status| {
-                    if status.code() == Code::DeadlineExceeded {
-                        tracing::warn!(
-                            code = ?status.code(),
-                            "RAV request deadline exceeded; consider increasing request_timeout_secs"
-                        );
-                    }
-                })?;
+        let response = client.aggregate_receipts(rav_request).await.inspect_err(
+            |status: &Status| {
+                if status.code() == Code::DeadlineExceeded {
+                    tracing::warn!(
+                        code = ?status.code(),
+                        "RAV request deadline exceeded; consider increasing request_timeout_secs"
+                    );
+                }
+            },
+        )?;
         response.into_inner().signed_rav()
     }
 }

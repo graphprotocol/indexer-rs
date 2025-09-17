@@ -188,12 +188,11 @@ mod tests {
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
+    use super::tap_receipt_authorize;
     use crate::{
         middleware::prometheus_metrics::{MetricLabelProvider, MetricLabels},
         tap::{CheckingReceipt, IndexerTapContext, TapReceipt},
     };
-
-    use super::tap_receipt_authorize;
 
     #[fixture]
     fn metric() -> &'static prometheus::CounterVec {

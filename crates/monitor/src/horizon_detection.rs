@@ -11,7 +11,6 @@ use indexer_query::horizon_detection::{self, HorizonDetectionQuery};
 
 use crate::client::SubgraphClient;
 
-
 /// Detects if Horizon (V2) contracts are active in the network.
 ///
 /// This function queries the network subgraph to check if any PaymentsEscrow accounts exist.
@@ -36,7 +35,10 @@ pub async fn is_horizon_active(network_subgraph: &SubgraphClient) -> Result<bool
     let account_count = response.payments_escrow_accounts.len();
 
     if account_count > 0 {
-        tracing::info!(accounts = account_count, "Horizon (V2) schema available - found existing PaymentsEscrow accounts");
+        tracing::info!(
+            accounts = account_count,
+            "Horizon (V2) schema available - found existing PaymentsEscrow accounts"
+        );
     } else {
         tracing::info!("Horizon (V2) schema available - no accounts found at startup, but will detect new accounts automatically");
     }
