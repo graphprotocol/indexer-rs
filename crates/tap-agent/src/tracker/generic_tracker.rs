@@ -79,10 +79,7 @@ where
     #[tracing::instrument(skip(self), ret, level = "trace")]
     pub fn get_heaviest_allocation_id(&mut self) -> Option<Address> {
         let total_allocations = self.id_to_fee.len();
-        tracing::debug!(
-            total_allocations,
-            "Evaluating allocations for RAV request",
-        );
+        tracing::debug!(total_allocations, "Evaluating allocations for RAV request",);
 
         if total_allocations == 0 {
             tracing::warn!("No allocations found in fee tracker");
