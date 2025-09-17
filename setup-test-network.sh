@@ -184,13 +184,11 @@ echo "Starting core infrastructure services..."
 docker compose up -d chain ipfs postgres graph-node
 # Wait for graph-node to be healthy
 echo "Waiting for graph-node to be healthy..."
-# timeout 300 bash -c 'until docker ps | grep graph-node | grep -q healthy; do sleep 5; done'
 interruptible_wait 300 'docker ps | grep graph-node | grep -q healthy' "Waiting for graph-node to be healthy"
 
 echo "Deploying contract services..."
 docker compose up -d graph-contracts
 # Wait for contracts to be deployed
-# timeout 300 bash -c 'until docker ps -a | grep graph-contracts | grep -q "Exited (0)"; do sleep 5; done'
 interruptible_wait 300 'docker ps -a | grep graph-contracts | grep -q "Exited (0)"' "Waiting for contracts to be deployed"
 
 # Verify the contracts have code using horizon structure
@@ -255,22 +253,19 @@ docker compose up -d tap-contracts
 echo "Starting indexer services..."
 docker compose up -d block-oracle
 echo "Waiting for block-oracle to be healthy..."
-# timeout 300 bash -c 'until docker ps | grep block-oracle | grep -q healthy; do sleep 5; done'
 interruptible_wait 300 'docker ps | grep block-oracle | grep -q healthy' "Waiting for block-oracle to be healthy"
 
 # export INDEXER_AGENT_SOURCE_ROOT=/home/neithanmo/Documents/Work/Semiotic/indexer-rs/indexer-src
 # If INDEXER_AGENT_SOURCE_ROOT is set, use dev override; otherwise start only indexer-agent
-# export INDEXER_AGENT_SOURCE_ROOT=/home/neithanmo/Documents/Work/Semiotic/indexer-rs/indexer-agent
 if [[ -n "${INDEXER_AGENT_SOURCE_ROOT:-}" ]]; then
     echo "INDEXER_AGENT_SOURCE_ROOT set; using dev override for indexer-agent."
     docker compose -f docker-compose.yaml -f overrides/indexer-agent-dev/indexer-agent-dev.yaml up -d
 else
-    echo "Starting indexer-agent from oficial release"
+    echo "Starting indexer-agent from official release"
     docker compose up -d indexer-agent
 fi
 
 echo "Waiting for indexer-agent to be healthy..."
-# timeout 300 bash -c 'until docker ps | grep indexer-agent | grep -q healthy; do sleep 5; done'
 interruptible_wait 300 'docker ps | grep indexer-agent | grep -q healthy' "Waiting for indexer-agent to be healthy"
 
 # Ensure indexer-agent DB migrations completed (denylist tables must exist)
@@ -339,23 +334,18 @@ fi
 # Run the custom services using the override file
 docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
 
-
 # Wait for indexer-service and tap-agent to be healthy with better timeouts
 echo "Waiting for indexer-service to be healthy..."
-# timeout 120 bash -c 'until docker ps | grep indexer-service | grep -q healthy; do echo "Still waiting for indexer-service..."; sleep 5; done'
 interruptible_wait 120 'docker ps | grep indexer-service | grep -q healthy' "Waiting for indexer-service to be healthy"
 
 echo "Waiting for tap-agent to be healthy..."
-# timeout 120 bash -c 'until docker ps | grep tap-agent | grep -q healthy; do echo "Still waiting for tap-agent..."; sleep 5; done'
 interruptible_wait 120 'docker ps | grep tap-agent | grep -q healthy' "Waiting for tap-agent to be healthy"
 
 # Additional check to ensure services are responding
 echo "Verifying indexer-service is responding..."
-# timeout 60 bash -c 'until curl -f http://localhost:7601/health > /dev/null 2>&1; do echo "Waiting for indexer-service health endpoint..."; sleep 3; done'
 interruptible_wait 60 'curl -f http://localhost:7601/health > /dev/null 2>&1' "Verifying indexer-service is responding"
 
 echo "Verifying tap-agent is responding..."
-# timeout 60 bash -c 'until curl -f http://localhost:7300/metrics > /dev/null 2>&1; do echo "Waiting for tap-agent metrics endpoint..."; sleep 3; done'
 interruptible_wait 60 'curl -f http://localhost:7300/metrics > /dev/null 2>&1' "Verifying tap-agent is responding"
 
 # Wait for indexer to sync with chain before starting gateway
@@ -410,7 +400,6 @@ for i in {1..3}; do
 done
 
 # Ensure gateway is ready before testing
-# timeout 100 bash -c 'until curl -f http://localhost:7700/ > /dev/null 2>&1; do echo "Waiting for gateway service..."; sleep 5; done'
 interruptible_wait 100 'curl -f http://localhost:7700/ > /dev/null 2>&1' "Waiting for gateway service"
 
 # Build and start indexer-cli for integration testing (last container)

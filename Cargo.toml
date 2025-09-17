@@ -122,6 +122,8 @@ tracing-subscriber = { version = "0.3", features = [
 uuid = { version = "1.11.0", features = ["v7"] }
 wiremock = "0.6.1"
 wiremock-grpc = { git = "https://github.com/suchapalaver/wiremock-grpc-rs.git", branch = "main" }
+rdkafka = { version = "0.38.0", features = ["gssapi", "tracing"] }
+regex = "1"
 
 # Insta benefits from being compiled in release mode, even as dev dependency
 # see https://insta.rs/docs/quickstart
