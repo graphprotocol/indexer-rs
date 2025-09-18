@@ -212,6 +212,7 @@ pub static INDEXER_ALLOCATIONS: LazyLock<HashMap<Address, Allocation>> = LazyLoc
                 poi: None,
                 query_fee_rebates: None,
                 query_fees_collected: None,
+                is_legacy: true,
             },
         ),
         (
@@ -237,6 +238,7 @@ pub static INDEXER_ALLOCATIONS: LazyLock<HashMap<Address, Allocation>> = LazyLoc
                 poi: None,
                 query_fee_rebates: None,
                 query_fees_collected: None,
+                is_legacy: true,
             },
         ),
         (
@@ -262,6 +264,7 @@ pub static INDEXER_ALLOCATIONS: LazyLock<HashMap<Address, Allocation>> = LazyLoc
                 poi: None,
                 query_fee_rebates: None,
                 query_fees_collected: None,
+                is_legacy: true,
             },
         ),
         (
@@ -287,6 +290,7 @@ pub static INDEXER_ALLOCATIONS: LazyLock<HashMap<Address, Allocation>> = LazyLoc
                 poi: None,
                 query_fee_rebates: None,
                 query_fees_collected: None,
+                is_legacy: true,
             },
         ),
     ])
