@@ -13,6 +13,7 @@ use actors::TestableActor;
 use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
 use indexer_config;
+use indexer_allocation::Allocation;
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use indexer_receipt::TapReceipt;
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
@@ -104,7 +105,7 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
 #[bon::builder]
 pub async fn create_sender_account(
     pgpool: PgPool,
-    #[builder(default = HashSet::new())] initial_allocation: HashSet<AllocationId>,
+    #[builder(default = HashMap::new())] initial_allocations_raw: HashMap<Address, Allocation>,
     #[builder(default = TRIGGER_VALUE)] rav_request_trigger_value: u128,
     #[builder(default = TRIGGER_VALUE)] max_amount_willing_to_lose_grt: u128,
     escrow_subgraph_endpoint: Option<&str>,
@@ -174,7 +175,7 @@ pub async fn create_sender_account(
         pgpool,
         sender_id: SENDER.1,
         escrow_accounts: escrow_accounts_rx,
-        indexer_allocations: watch::channel(initial_allocation).1,
+        indexer_allocations: watch::channel(initial_allocations_raw).1,
         escrow_subgraph,
         network_subgraph,
         domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
