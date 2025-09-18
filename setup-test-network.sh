@@ -184,11 +184,13 @@ echo "Starting core infrastructure services..."
 docker compose up -d chain ipfs postgres graph-node
 # Wait for graph-node to be healthy
 echo "Waiting for graph-node to be healthy..."
+# timeout 300 bash -c 'until docker ps | grep graph-node | grep -q healthy; do sleep 5; done'
 interruptible_wait 300 'docker ps | grep graph-node | grep -q healthy' "Waiting for graph-node to be healthy"
 
 echo "Deploying contract services..."
 docker compose up -d graph-contracts
 # Wait for contracts to be deployed
+# timeout 300 bash -c 'until docker ps -a | grep graph-contracts | grep -q "Exited (0)"; do sleep 5; done'
 interruptible_wait 300 'docker ps -a | grep graph-contracts | grep -q "Exited (0)"' "Waiting for contracts to be deployed"
 
 # Verify the contracts have code using horizon structure
@@ -350,11 +352,15 @@ interruptible_wait 60 'curl -f http://localhost:7300/metrics > /dev/null 2>&1' "
 
 # Wait for indexer to sync with chain before starting gateway
 echo "Checking chain and indexer synchronization..."
-sleep 10 # Give indexer time to process initial blocks
 
 echo "Building gateway image..."
 source local-network/.env
-docker build -t local-gateway:latest ./local-network/gateway
+# Build the gateway image with the commit
+docker build \
+    --build-arg GATEWAY_COMMIT="$GATEWAY_COMMIT" \
+    -t local-gateway:latest \
+    local-network/gateway
+# docker build -t local-gateway:latest ./local-network/gateway
 
 echo "Running gateway container..."
 # Verify required files exist before starting gateway
