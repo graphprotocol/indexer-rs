@@ -991,12 +991,57 @@ impl State {
             SenderType::Horizon => self.escrow_accounts_v2.clone(),
         };
 
+        // Build a normalized allocation watcher for this sender type using isLegacy flag
+        // from the Network Subgraph. Fallback: if the flag is missing, normalize by sender_type.
+        let indexer_allocations = {
+            let sender_type_for_log = sender_type;
+            map_watcher(self.indexer_allocations.clone(), move |alloc_map| {
+                let total = alloc_map.len();
+                let mut legacy_count = 0usize;
+                let mut horizon_count = 0usize;
+                let mut mismatched = 0usize;
+                let set: HashSet<AllocationId> = alloc_map
+                    .iter()
+                    .filter_map(|(addr, alloc)| {
+                        if alloc.is_legacy {
+                            legacy_count += 1;
+                            if matches!(sender_type_for_log, SenderType::Legacy) {
+                                Some(AllocationId::Legacy(AllocationIdCore::from(*addr)))
+                            } else {
+                                mismatched += 1;
+                                None
+                            }
+                        } else {
+                            horizon_count += 1;
+                            if matches!(sender_type_for_log, SenderType::Horizon) {
+                                Some(AllocationId::Horizon(CollectionId::from(*addr)))
+                            } else {
+                                mismatched += 1;
+                                None
+                            }
+                        }
+                    })
+                    .collect();
+
+                tracing::info!(
+                    ?sender_type_for_log,
+                    total,
+                    legacy = legacy_count,
+                    horizon = horizon_count,
+                    mismatched,
+                    normalized = set.len(),
+                    "Normalized indexer allocations using isLegacy"
+                );
+                set
+            })
+        };
+
         Ok(SenderAccountArgs {
             config: self.config,
             pgpool: self.pgpool.clone(),
             sender_id: *sender_id,
             escrow_accounts,
-            indexer_allocations: self.indexer_allocations.clone(),
+            indexer_allocations,
             escrow_subgraph: self.escrow_subgraph,
             network_subgraph: self.network_subgraph,
             domain_separator: self.domain_separator.clone(),
