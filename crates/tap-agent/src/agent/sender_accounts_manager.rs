@@ -304,7 +304,8 @@ pub struct State {
     domain_separator: Eip712Domain,
     domain_separator_v2: Eip712Domain,
     pgpool: PgPool,
-    indexer_allocations: Receiver<HashSet<AllocationId>>,
+    // Raw allocation watcher (address -> Allocation). Normalized per-sender later.
+    indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     /// Watcher containing the escrow accounts for v1
     escrow_accounts_v1: Receiver<EscrowAccounts>,
     /// Watcher containing the escrow accounts for v2
@@ -341,48 +342,12 @@ impl Actor for SenderAccountsManager {
             prefix,
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        // we can use config.tap_mode.is_horizon() directly
-        // because agent_start method does the horizon smart contract/subgraph validation
-        // and updates the passed in config accordingly
-        let is_horizon_active = config.tap_mode.is_horizon();
-        if is_horizon_active {
-            tracing::info!(is_horizon = true, "Allocations will use Horizon type");
-        } else {
-            tracing::info!(is_horizon = false, "Allocations will use Legacy type");
-        }
-
-        let indexer_allocations = map_watcher(indexer_allocations, move |allocation_id| {
-            let allocations: HashSet<_> = allocation_id
-                .keys()
-                .cloned()
-                .map(|addr| {
-                    if is_horizon_active {
-                        AllocationId::Horizon(CollectionId::from(addr))
-                    } else {
-                        AllocationId::Legacy(AllocationIdCore::from(addr))
-                    }
-                })
-                .collect();
-
-            tracing::info!(
-                "Allocation watcher update: {} allocations mapped to {} format",
-                allocations.len(),
-                if is_horizon_active {
-                    "Horizon"
-                } else {
-                    "Legacy"
-                }
-            );
-            for alloc in &allocations {
-                tracing::debug!(
-                    "Mapped allocation: {} (address: {})",
-                    alloc,
-                    alloc.address()
-                );
-            }
-
-            allocations
-        });
+        // Do not pre-map allocations globally. We keep the raw watcher and
+        // normalize per SenderAccount based on its sender_type (Legacy/Horizon).
+        tracing::info!(
+            horizon_active = %config.tap_mode.is_horizon(),
+            "Using raw indexer_allocations watcher; normalization happens per sender"
+        );
         // we need two connections because each one will listen to different notify events
         let pglistener_v1 = PgListener::connect_with(&pgpool.clone()).await.unwrap();
 
@@ -1420,7 +1385,7 @@ mod tests {
                 new_receipts_watcher_handle_v1: None,
                 new_receipts_watcher_handle_v2: None,
                 pgpool,
-                indexer_allocations: watch::channel(HashSet::new()).1,
+                indexer_allocations: watch::channel(HashMap::new()).1,
                 escrow_accounts_v1: watch::channel(escrow_accounts.clone()).1,
                 escrow_accounts_v2: watch::channel(escrow_accounts).1,
                 escrow_subgraph: get_subgraph_client().await,
