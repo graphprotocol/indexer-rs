@@ -69,6 +69,7 @@ query AllocationsQuery(
 
 fragment AllocationFragment on Allocation {
     id
+    isLegacy
     indexer {
         id
     }
