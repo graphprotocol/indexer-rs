@@ -67,6 +67,9 @@ type Allocation {
   """Channel Address"""
   id: ID!
 
+  """True if the allocation belongs to Legacy (V1) TAP"""
+  isLegacy: Boolean!
+
   """Indexer of this allocation"""
   indexer: Indexer!
 
