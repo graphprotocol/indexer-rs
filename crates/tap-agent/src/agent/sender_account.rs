@@ -11,7 +11,6 @@ use std::{
 use anyhow::Context;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use futures::{stream, StreamExt};
-use indexer_allocation::Allocation;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use indexer_query::{
     closed_allocations::{self, ClosedAllocations},
@@ -275,9 +274,8 @@ pub struct SenderAccountArgs {
     pub sender_id: Address,
     /// Watcher that returns a list of escrow accounts for current indexer
     pub escrow_accounts: Receiver<EscrowAccounts>,
-    /// Raw watcher of open and recently closed allocations from Network Subgraph
-    /// We normalize per-sender to the correct variant (Legacy/Horizon)
-    pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
+    /// Watcher of normalized allocation IDs (Legacy/Horizon) for this sender type
+    pub indexer_allocations: Receiver<HashSet<AllocationId>>, 
     /// SubgraphClient of the escrow subgraph
     pub escrow_subgraph: &'static SubgraphClient,
     /// SubgraphClient of the network subgraph
@@ -830,34 +828,21 @@ impl Actor for SenderAccount {
             sender_type,
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        // Normalize raw allocation addresses to the correct variant for this sender_type
+        // Pass-through normalized allocation IDs for this sender type
         let myself_clone = myself.clone();
-        let sender_type_for_log = sender_type; // copy for move into closure
-        watch_pipe(indexer_allocations, move |alloc_map| {
-            let raw_count = alloc_map.len();
-            // Extract addresses and normalize based on sender_type
-            let normalized: HashSet<AllocationId> = alloc_map
-                .keys()
-                .cloned()
-                .map(|addr| match sender_type_for_log {
-                    SenderType::Legacy => AllocationId::Legacy(AllocationIdCore::from(addr)),
-                    SenderType::Horizon => AllocationId::Horizon(CollectionId::from(addr)),
-                })
-                .collect();
-
+        watch_pipe(indexer_allocations, move |allocation_ids| {
+            let count = allocation_ids.len();
             tracing::info!(
                 sender = %sender_id,
-                ?sender_type_for_log,
-                raw_count,
-                normalized_count = normalized.len(),
-                "indexer_allocations update: normalizing allocations for sender_type",
+                sender_type = ?sender_type,
+                count,
+                "indexer_allocations update: received normalized allocations"
             );
-
-            // Forward normalized set to the actor to update allocations
             let myself = myself_clone.clone();
+            let allocation_ids = allocation_ids.clone();
             async move {
                 myself
-                    .cast(SenderAccountMessage::UpdateAllocationIds(normalized))
+                    .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
                     .unwrap_or_else(|e| {
                         tracing::error!(error=?e, "Error while updating allocation_ids");
                     });
