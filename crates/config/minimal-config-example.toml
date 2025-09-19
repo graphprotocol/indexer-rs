@@ -54,6 +54,9 @@ deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 chain_id = 1337
 # Contract address of TAP's receipt aggregate voucher (RAV) verifier.
 receipts_verifier_address = "0x2222222222222222222222222222222222222222"
+# Horizon (V2) addresses; required when [horizon].enabled = true
+# receipts_verifier_address_v2 = "0x3333333333333333333333333333333333333333"
+# subgraph_service_address = "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9"
 
 ########################################
 # Specific configurations to tap-agent #
@@ -68,6 +71,9 @@ receipts_verifier_address = "0x2222222222222222222222222222222222222222"
 # Enable Horizon migration support and detection
 # When enabled: Check if Horizon contracts are active in the network
 #   - If Horizon contracts detected: Hybrid migration mode (new V2 receipts only, process existing V1 receipts)
-#   - If Horizon contracts not detected: Remain in legacy mode (V1 receipts only)
+#   - If Horizon contracts not detected: Errors 
+# When enabled, set `blockchain.subgraph_service_address` and
+# `blockchain.receipts_verifier_address_v2`
+
 # When disabled: Pure legacy mode, no Horizon detection performed
-enabled = true
+enabled = false

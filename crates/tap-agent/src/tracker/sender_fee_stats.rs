@@ -34,7 +34,23 @@ impl SenderFeeStats {
     pub(super) fn ravable_count(&mut self) -> u64 {
         let allocation_counter = self.count;
         let counter_in_buffer = self.buffer_info.get_count();
-        allocation_counter - counter_in_buffer
+
+        // Use saturating_sub to prevent underflow when buffer contains more entries
+        // than the current counter (e.g., after RAV success resets counter to 0)
+        let result = allocation_counter.saturating_sub(counter_in_buffer);
+
+        if counter_in_buffer > allocation_counter {
+            // TODO: Investigate if this edge case is expected behavior
+            // It could happen when RAV completes (resetting counter to 0) but new receipts
+            // arrived during processing and are in the buffer waiting for next RAV
+            tracing::warn!(
+                allocation_counter,
+                counter_in_buffer,
+                "Buffer contains more entries than allocation counter (likely after RAV success)"
+            );
+        }
+
+        result
     }
 }
 
@@ -106,7 +122,22 @@ impl AllocationStats<UnaggregatedReceipts> for SenderFeeStats {
     }
 
     fn is_allowed_to_trigger_rav_request(&self) -> bool {
-        !self.backoff_info.in_backoff() && !self.blocked && self.requesting == 0
+        let in_backoff = self.backoff_info.in_backoff();
+        let blocked = self.blocked;
+        let requesting = self.requesting;
+
+        let allowed = !in_backoff && !blocked && requesting == 0;
+
+        tracing::debug!(
+            in_backoff = in_backoff,
+            blocked = blocked,
+            requesting = requesting,
+            allowed = allowed,
+            total_fee = self.total_fee,
+            "Allocation eligibility details",
+        );
+
+        allowed
     }
 
     fn get_stats(&self) -> UnaggregatedReceipts {
@@ -120,7 +151,20 @@ impl AllocationStats<UnaggregatedReceipts> for SenderFeeStats {
     }
 
     fn get_valid_fee(&mut self) -> u128 {
-        self.total_fee - self.buffer_info.get_sum().min(self.total_fee)
+        let total_fee = self.total_fee;
+        let buffer_sum = self.buffer_info.get_sum();
+        let buffer_to_subtract = buffer_sum.min(total_fee);
+        let valid_fee = total_fee - buffer_to_subtract;
+
+        tracing::debug!(
+            total_fee,
+            buffer_sum,
+            buffer_to_subtract,
+            valid_fee,
+            "Buffer calculation",
+        );
+
+        valid_fee
     }
 
     fn get_total_fee(&self) -> u128 {

@@ -11,8 +11,15 @@ cat /opt/.env
 
 # Extract GraphTallyCollector address from horizon.json
 stdbuf -oL echo "🔍 DEBUG: Extracting GraphTallyCollector address from horizon.json..."
-GRAPH_TALLY_VERIFIER=$(jq -r '."1337".GraphTallyCollector.address' /opt/horizon.json)
-stdbuf -oL echo "🔍 DEBUG: GraphTallyCollector address: $GRAPH_TALLY_VERIFIER"
+
+subgraph_service=$(jq -r '."1337".SubgraphService.address' /opt/subgraph-service.json)
+graph_tally_verifier=$(jq -r '."1337".GraphTallyCollector.address // ."1337".GraphTallyCollector' /opt/horizon.json)
+stdbuf -oL echo "🔍 DEBUG: GraphTallyCollector address: $graph_tally_verifier"
+
+# For your indexer-agent script, update the extraction:
+stdbuf -oL echo "🔍 DEBUG: Extracting TAP address from contracts.json..."
+tap_verifier=$(jq -r '."1337".TAPVerifier' /opt/contracts.json)
+stdbuf -oL echo "🔍 DEBUG: TAPVerifier address: $tap_verifier"
 
 # Override with test values taken from test-assets/src/lib.rs
 ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
@@ -84,7 +91,7 @@ fi
 
 stdbuf -oL echo "🔍 DEBUG: Escrow subgraph deployment ID: $ESCROW_DEPLOYMENT"
 
-stdbuf -oL echo "🔍 DEBUG: Using GraphTallyCollector address: $GRAPH_TALLY_VERIFIER"
+stdbuf -oL echo "🔍 DEBUG: Using GraphTallyCollector address: $graph_tally_verifier"
 stdbuf -oL echo "🔍 DEBUG: Using Indexer address: $RECEIVER_ADDRESS"
 stdbuf -oL echo "🔍 DEBUG: Using Account0 address: $ACCOUNT0_ADDRESS"
 
@@ -120,7 +127,9 @@ syncing_interval_secs = 30
 
 [blockchain]
 chain_id = 1337
-receipts_verifier_address = "${GRAPH_TALLY_VERIFIER}"
+receipts_verifier_address = "${tap_verifier}"
+receipts_verifier_address_v2 = "${graph_tally_verifier}"
+subgraph_service_address = "${subgraph_service}"
 
 [service]
 host_and_port = "0.0.0.0:${INDEXER_SERVICE}"
@@ -128,21 +137,32 @@ url_prefix = "/"
 serve_network_subgraph = false
 serve_escrow_subgraph = false
 
+
+[service.tap]
+max_receipt_value_grt = "0.008"
+
 [tap]
 max_amount_willing_to_lose_grt = 1000
 
 [tap.rav_request]
-timestamp_buffer_secs = 1000
+# Set a lower timestamp buffer threshold
+timestamp_buffer_secs = 30
+
+# The trigger value divisor is used to calculate the trigger value for the RAV request.
+# using the formula:
+# trigger_value = max_amount_willing_to_lose_grt / trigger_value_divisor
+# where the default value for max_amount_willing_to_lose_grt is 1000
+# the idea to set this for trigger_value to be 0.002
+# requiring the sender to send at least 20 receipts of 0.0001 grt
+trigger_value_divisor = 500_000
+
 
 [tap.sender_aggregator_endpoints]
 ${ACCOUNT0_ADDRESS} = "http://tap-aggregator:${TAP_AGGREGATOR}"
+${ACCOUNT1_ADDRESS} = "http://tap-aggregator:${TAP_AGGREGATOR}"
 
 [horizon]
-# Enable Horizon migration support and detection
-# When enabled: Check if Horizon contracts are active in the network
-#   - If Horizon contracts detected: Hybrid migration mode (new V2 receipts only, process existing V1 receipts)
-#   - If Horizon contracts not detected: Remain in legacy mode (V1 receipts only)
-# When disabled: Pure legacy mode, no Horizon detection performed
+# Enable Horizon (V2) mode explicitly
 enabled = true
 EOF
 

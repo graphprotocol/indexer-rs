@@ -13,6 +13,8 @@ use thegraph_core::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Allocation {
     pub id: Address,
+    // True when this allocation belongs to Legacy (V1) TAP, false for Horizon (V2)
+    pub is_legacy: bool,
     pub status: AllocationStatus,
     pub subgraph_deployment: SubgraphDeployment,
     pub indexer: Address,
@@ -57,6 +59,8 @@ impl<'d> Deserialize<'d> for Allocation {
         #[allow(non_snake_case)]
         struct Outer {
             id: Address,
+            #[allow(non_snake_case)]
+            isLegacy: bool,
             subgraphDeployment: SubgraphDeployment,
             indexer: InnerIndexer,
             allocatedTokens: U256,
@@ -69,6 +73,7 @@ impl<'d> Deserialize<'d> for Allocation {
 
         Ok(Allocation {
             id: outer.id,
+            is_legacy: outer.isLegacy,
             status: AllocationStatus::Null,
             subgraph_deployment: outer.subgraphDeployment,
             indexer: outer.indexer.id,
@@ -93,6 +98,8 @@ impl TryFrom<allocations_query::AllocationFragment> for Allocation {
     ) -> Result<Self, Self::Error> {
         Ok(Self {
             id: Address::from_str(&value.id)?,
+            // graphql_client converts `isLegacy` to `is_legacy`
+            is_legacy: value.is_legacy,
             status: AllocationStatus::Null,
             subgraph_deployment: SubgraphDeployment {
                 id: DeploymentId::from_str(&value.subgraph_deployment.id)?,

@@ -26,7 +26,10 @@ use tap_core::{
     },
     signed_message::Eip712SignedMessage,
 };
-use thegraph_core::alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain};
+use thegraph_core::{
+    alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain},
+    CollectionId,
+};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
 
@@ -62,6 +65,14 @@ static RAVS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static RAVS_CREATED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
+    register_counter_vec!(
+        "tap_ravs_created_total_by_version",
+        "RAVs created/updated per sender allocation and TAP version",
+        &["sender", "allocation", "version"]
+    )
+    .unwrap()
+});
 static RAVS_FAILED: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_ravs_failed_total",
@@ -70,11 +81,27 @@ static RAVS_FAILED: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static RAVS_FAILED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
+    register_counter_vec!(
+        "tap_ravs_failed_total_by_version",
+        "RAV requests failed per sender allocation and TAP version",
+        &["sender", "allocation", "version"]
+    )
+    .unwrap()
+});
 static RAV_RESPONSE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         "tap_rav_response_time_seconds",
         "RAV response time per sender",
         &["sender"]
+    )
+    .unwrap()
+});
+static RAV_RESPONSE_TIME_BY_VERSION: LazyLock<HistogramVec> = LazyLock::new(|| {
+    register_histogram_vec!(
+        "tap_rav_response_time_seconds_by_version",
+        "RAV response time per sender and TAP version",
+        &["sender", "version"]
     )
     .unwrap()
 });
@@ -110,6 +137,19 @@ pub enum RavError {
 }
 
 type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
+
+const TAP_V1: &str = "v1";
+const TAP_V2: &str = "v2";
+
+/// Helper function to determine TAP version from NetworkVersion type parameter
+/// Since Legacy and Horizon are uninhabitable enums, we use type_name introspection
+fn get_tap_version<T: NetworkVersion>() -> &'static str {
+    if std::any::type_name::<T>().contains("Legacy") {
+        TAP_V1
+    } else {
+        TAP_V2
+    }
+}
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 ///
@@ -148,7 +188,11 @@ pub struct SenderAllocationState<T: NetworkVersion> {
 
     /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
-    /// Domain separator used for tap
+    /// Domain separator used for tap/horizon
+    /// depending if SenderAllocationState<Legacy> or SenderAllocationState<Horizon>??
+    /// TODO: Double check if we actually need to add an additional domain_sepparator_v2 field
+    /// at first glance it seems like each sender allocation will deal only with one allocation
+    /// type. not both
     domain_separator: Eip712Domain,
     /// Reference to [super::sender_account::SenderAccount] actor
     ///
@@ -177,16 +221,22 @@ pub struct AllocationConfig {
     pub indexer_address: Address,
     /// Polling interval for escrow subgraph
     pub escrow_polling_interval: Duration,
+    /// TAP protocol operation mode
+    ///
+    /// Defines whether the indexer operates in legacy mode (V1 TAP receipts only)
+    /// or horizon mode (hybrid V1/V2 TAP receipts support).
+    pub tap_mode: indexer_config::TapMode,
 }
 
 impl AllocationConfig {
-    /// Creates a [SenderAccountConfig] by getting a reference of [super::sender_account::SenderAccountConfig]
+    /// Creates a [AllocationConfig] by getting a reference of [super::sender_account::SenderAccountConfig]
     pub fn from_sender_config(config: &SenderAccountConfig) -> Self {
         Self {
             timestamp_buffer_ns: config.rav_request_buffer.as_nanos() as u64,
             rav_request_receipt_limit: config.rav_request_receipt_limit,
             indexer_address: config.indexer_address,
             escrow_polling_interval: config.escrow_polling_interval,
+            tap_mode: config.tap_mode.clone(),
         }
     }
 }
@@ -324,7 +374,8 @@ where
                 Err(err) => {
                     tracing::error!(
                         error = %err,
-                        "There was an error while calculating the last unaggregated receipts. Retrying in 30 seconds...");
+                        "Error calculating last unaggregated receipts; retrying in 30s",
+                    );
                     tokio::time::sleep(Duration::from_secs(30)).await;
                 }
             }
@@ -332,7 +383,10 @@ where
         // Request a RAV and mark the allocation as final.
         while state.unaggregated_fees.value > 0 {
             if let Err(err) = state.request_rav().await {
-                tracing::error!(error = %err, "There was an error while requesting rav. Retrying in 30 seconds...");
+                tracing::error!(
+                    error = %err,
+                    "Error requesting RAV; retrying in 30s",
+                );
                 tokio::time::sleep(Duration::from_secs(30)).await;
             }
         }
@@ -392,11 +446,12 @@ where
                         .unwrap_or_else(|| {
                             // This should never happen, but if it does, we want to know about it.
                             tracing::error!(
-                            "Overflow when adding receipt value {} to total unaggregated fees {} \
-                            for allocation {} and sender {}. Setting total unaggregated fees to \
-                            u128::MAX.",
-                            fees, unaggregated_fees.value, state.allocation_id, state.sender
-                        );
+                                fees,
+                                current_total = unaggregated_fees.value,
+                                allocation_id = %state.allocation_id,
+                                sender = %state.sender,
+                                "Overflow when adding receipt value; setting total unaggregated fees to u128::MAX",
+                            );
                             u128::MAX
                         });
                 unaggregated_fees.counter += 1;
@@ -476,13 +531,26 @@ where
                 escrow_accounts.clone(),
             )),
         ];
-        let context = TapAgentContext::builder()
-            .pgpool(pgpool.clone())
-            .allocation_id(T::allocation_id_to_address(&allocation_id))
-            .indexer_address(config.indexer_address)
-            .sender(sender)
-            .escrow_accounts(escrow_accounts.clone())
-            .build();
+        // Build context based on TapMode
+        let context = match &config.tap_mode {
+            indexer_config::TapMode::Legacy => TapAgentContext::builder()
+                .pgpool(pgpool.clone())
+                .allocation_id(T::allocation_id_to_address(&allocation_id))
+                .indexer_address(config.indexer_address)
+                .sender(sender)
+                .escrow_accounts(escrow_accounts.clone())
+                .build(),
+            indexer_config::TapMode::Horizon {
+                subgraph_service_address,
+            } => TapAgentContext::builder()
+                .pgpool(pgpool.clone())
+                .allocation_id(T::allocation_id_to_address(&allocation_id))
+                .indexer_address(config.indexer_address)
+                .sender(sender)
+                .escrow_accounts(escrow_accounts.clone())
+                .subgraph_service_address(*subgraph_service_address)
+                .build(),
+        };
 
         let latest_rav = context.last_rav().await.unwrap_or_default();
         let tap_manager = TapManager::new(
@@ -523,18 +591,49 @@ where
             Ok(rav) => {
                 self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
                 self.latest_rav = Some(rav);
-                RAVS_CREATED
-                    .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+                // Determine TAP version based on NetworkVersion type
+                let version = get_tap_version::<T>();
+
+                // by_version counter (both V1 and V2)
+                RAVS_CREATED_BY_VERSION
+                    .with_label_values(&[
+                        &self.sender.to_string(),
+                        &self.allocation_id.to_string(),
+                        version,
+                    ])
                     .inc();
+                // Keep legacy counter for V1 only
+                if version == TAP_V1 {
+                    RAVS_CREATED
+                        .with_label_values(&[
+                            &self.sender.to_string(),
+                            &self.allocation_id.to_string(),
+                        ])
+                        .inc();
+                }
                 Ok(())
             }
             Err(e) => {
                 if let RavError::AllReceiptsInvalid = e {
                     self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
                 }
-                RAVS_FAILED
-                    .with_label_values(&[&self.sender.to_string(), &self.allocation_id.to_string()])
+                let version = get_tap_version::<T>();
+
+                RAVS_FAILED_BY_VERSION
+                    .with_label_values(&[
+                        &self.sender.to_string(),
+                        &self.allocation_id.to_string(),
+                        version,
+                    ])
                     .inc();
+                if version == TAP_V1 {
+                    RAVS_FAILED
+                        .with_label_values(&[
+                            &self.sender.to_string(),
+                            &self.allocation_id.to_string(),
+                        ])
+                        .inc();
+                }
                 Err(e.into())
             }
         }
@@ -567,10 +666,10 @@ where
             // All receipts are invalid
             (Err(AggregationError::NoValidReceiptsForRavRequest), true, false) => {
                 tracing::warn!(
-                    "Found {} invalid receipts for allocation {} and sender {}.",
-                    invalid_receipts.len(),
-                    self.allocation_id,
-                    self.sender
+                    invalid_count = invalid_receipts.len(),
+                    allocation_id = %self.allocation_id,
+                    sender = %self.sender,
+                    "Found invalid receipts",
                 );
                 // Obtain min/max timestamps to define query
                 let min_timestamp = invalid_receipts
@@ -597,24 +696,51 @@ where
                     .map(|r| r.signed_receipt().clone())
                     .collect();
 
+                // Instrumentation: log details before calling the aggregator
+                let receipt_count = valid_receipts.len();
+                let first_signer = valid_receipts.first().and_then(|r| match r {
+                    indexer_receipt::TapReceipt::V1(sr) => {
+                        sr.recover_signer(&self.domain_separator).ok()
+                    }
+                    indexer_receipt::TapReceipt::V2(sr) => {
+                        sr.recover_signer(&self.domain_separator).ok()
+                    }
+                });
+                tracing::info!(
+                    sender = %self.sender,
+                    allocation_id = %self.allocation_id,
+                    receipt_count,
+                    has_previous_rav = previous_rav.is_some(),
+                    signer_recovered = first_signer.is_some(),
+                    agent_domain = ?self.domain_separator,
+                    "Sending RAV aggregation request"
+                );
+
                 let rav_response_time_start = Instant::now();
 
                 let signed_rav =
                     T::aggregate(&mut self.sender_aggregator, valid_receipts, previous_rav).await?;
 
                 let rav_response_time = rav_response_time_start.elapsed();
-                RAV_RESPONSE_TIME
-                    .with_label_values(&[&self.sender.to_string()])
+                let version = get_tap_version::<T>();
+
+                RAV_RESPONSE_TIME_BY_VERSION
+                    .with_label_values(&[&self.sender.to_string(), version])
                     .observe(rav_response_time.as_secs_f64());
+                if version == TAP_V1 {
+                    RAV_RESPONSE_TIME
+                        .with_label_values(&[&self.sender.to_string()])
+                        .observe(rav_response_time.as_secs_f64());
+                }
                 // we only save invalid receipts when we are about to store our rav
                 //
                 // store them before we call remove_obsolete_receipts()
                 if !invalid_receipts.is_empty() {
                     tracing::warn!(
-                        "Found {} invalid receipts for allocation {} and sender {}.",
-                        invalid_receipts.len(),
-                        self.allocation_id,
-                        self.sender
+                        invalid_count = invalid_receipts.len(),
+                        allocation_id = %self.allocation_id,
+                        sender = %self.sender,
+                        "Found invalid receipts",
                     );
 
                     // Save invalid receipts to the database for logs.
@@ -667,13 +793,22 @@ where
                 }
                 Ok(signed_rav)
             }
-            (Err(AggregationError::NoValidReceiptsForRavRequest), true, true) => Err(anyhow!(
-                "It looks like there are no valid receipts for the RAV request.\
-                This may happen if your `rav_request_trigger_value` is too low \
-                and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
-                You can fix this by increasing the `rav_request_trigger_value`."
-            )
-            .into()),
+            (Err(AggregationError::NoValidReceiptsForRavRequest), true, true) => {
+                let table_name = match std::any::type_name::<T>() {
+                    name if name.contains("Legacy") => "scalar_tap_receipts (V1/Legacy)",
+                    name if name.contains("Horizon") => "tap_horizon_receipts (V2/Horizon)",
+                    _ => "unknown receipt table",
+                };
+
+                Err(anyhow!(
+                    "It looks like there are no valid receipts for the RAV request from table: {}.\
+                    This may happen if your `rav_request_trigger_value` is too low \
+                    and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
+                    You can fix this by increasing the `rav_request_trigger_value`.\
+                    \nDuring Horizon migration: Verify receipts are in the correct table for this allocation type.",
+                    table_name
+                ).into())
+            }
             (Err(e), ..) => Err(e.into()),
         }
     }
@@ -755,14 +890,14 @@ where
             let receipt_signer = receipt
                 .recover_signer(&self.domain_separator)
                 .map_err(|e| {
-                    tracing::error!("Failed to recover receipt signer: {}", e);
+                    tracing::error!(error = %e, "Failed to recover receipt signer");
                     anyhow!(e)
                 })?;
             tracing::debug!(
-                "Receipt for allocation {} and signer {} failed reason: {}",
-                allocation_id.encode_hex(),
-                receipt_signer.encode_hex(),
-                receipt_error
+                allocation_id = %allocation_id.encode_hex(),
+                signer = %receipt_signer.encode_hex(),
+                reason = %receipt_error,
+                "Invalid receipt stored",
             );
             reciepts_signers.push(receipt_signer.encode_hex());
             encoded_signatures.push(encoded_signature);
@@ -801,7 +936,7 @@ where
         .execute(&self.pgpool)
         .await
         .map_err(|e: sqlx::Error| {
-            tracing::error!("Failed to store invalid receipt: {}", e);
+            tracing::error!(error = %e, "Failed to store invalid receipt");
             anyhow!(e)
         })?;
 
@@ -833,14 +968,14 @@ where
             let receipt_signer = receipt
                 .recover_signer(&self.domain_separator)
                 .map_err(|e| {
-                    tracing::error!("Failed to recover receipt signer: {}", e);
+                    tracing::error!(error = %e, "Failed to recover receipt signer");
                     anyhow!(e)
                 })?;
             tracing::debug!(
-                "Receipt for allocation {} and signer {} failed reason: {}",
-                collection_id.encode_hex(),
-                receipt_signer.encode_hex(),
-                receipt_error
+                collection_id = %collection_id.encode_hex(),
+                signer = %receipt_signer.encode_hex(),
+                reason = %receipt_error,
+                "Invalid receipt stored",
             );
             reciepts_signers.push(receipt_signer.encode_hex());
             encoded_signatures.push(encoded_signature);
@@ -891,7 +1026,7 @@ where
         .execute(&self.pgpool)
         .await
         .map_err(|e: sqlx::Error| {
-            tracing::error!("Failed to store invalid receipt: {}", e);
+            tracing::error!(error = %e, "Failed to store invalid receipt");
             anyhow!(e)
         })?;
 
@@ -1103,9 +1238,9 @@ impl DatabaseInteractions for SenderAllocationState<Legacy> {
             // in case no rav was marked as final
             0 => {
                 tracing::warn!(
-                    "No RAVs were updated as last for allocation {} and sender {}.",
-                    self.allocation_id,
-                    self.sender
+                    allocation_id = %self.allocation_id,
+                    sender = %self.sender,
+                    "No RAVs were updated as last",
                 );
                 Ok(())
             }
@@ -1136,7 +1271,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                     "#,
             BigDecimal::from(min_timestamp),
             BigDecimal::from(max_timestamp),
-            self.allocation_id.to_string(),
+            CollectionId::from(self.allocation_id).encode_hex(),
             self.indexer_address.encode_hex(),
             &signers,
         )
@@ -1161,7 +1296,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 collection_id = $1
                 AND signer_address IN (SELECT unnest($2::text[]))
             "#,
-            self.allocation_id.to_string(),
+            CollectionId::from(self.allocation_id).encode_hex(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -1210,7 +1345,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 AND signer_address IN (SELECT unnest($4::text[]))
                 AND timestamp_ns > $5
             "#,
-            self.allocation_id.to_string(),
+            CollectionId::from(self.allocation_id).encode_hex(),
             self.indexer_address.encode_hex(),
             last_id,
             &signers,
@@ -1261,7 +1396,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                     AND payer = $2
                     AND service_provider = $3
             "#,
-            self.allocation_id.to_string(),
+            CollectionId::from(self.allocation_id).encode_hex(),
             self.sender.encode_hex(),
             self.indexer_address.encode_hex(),
         )
@@ -1272,9 +1407,9 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             // in case no rav was marked as final
             0 => {
                 tracing::warn!(
-                    "No RAVs were updated as last for allocation {} and sender {}.",
-                    self.allocation_id,
-                    self.sender
+                    allocation_id = %self.allocation_id,
+                    sender = %self.sender,
+                    "No RAVs were updated as last",
                 );
                 Ok(())
             }
@@ -1341,6 +1476,8 @@ pub mod tests {
             store_invalid_receipt, store_rav, store_receipt, INDEXER,
         },
     };
+
+    pub static SUBGRAPH_SERVICE_ADDRESS: [u8; 20] = [0x11u8; 20];
 
     #[rstest::fixture]
     async fn mock_escrow_subgraph_server() -> (MockServer, MockGuard) {
@@ -1464,6 +1601,7 @@ pub mod tests {
                 rav_request_receipt_limit,
                 indexer_address: INDEXER.1,
                 escrow_polling_interval: Duration::from_millis(1000),
+                tap_mode: indexer_config::TapMode::Legacy,
             })
             .build()
     }

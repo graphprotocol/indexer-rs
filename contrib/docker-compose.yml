@@ -7,6 +7,8 @@ services:
     volumes:
       - ./local-network/tap-contracts.json:/opt/contracts.json:ro
       - ./local-network/horizon.json:/opt/horizon.json:ro
+      - ./local-network/subgraph-service.json:/opt/subgraph-service.json:ro
+
       - ./local-network/.env:/opt/.env:ro
       - ../migrations:/opt/migrations:ro
     environment:
@@ -17,11 +19,17 @@ services:
     networks:
       - local-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7601/"]
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          "curl -f http://localhost:7601/health || curl -f http://localhost:7601/",
+        ]
       interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
 
   tap-agent:
     build:
@@ -35,6 +43,7 @@ services:
       - ./local-network/.env:/opt/.env:ro
       - ./local-network/tap-contracts.json:/opt/contracts.json:ro
       - ./local-network/horizon.json:/opt/horizon.json:ro
+      - ./local-network/subgraph-service.json:/opt/subgraph-service.json:ro
       - ../migrations:/opt/migrations:ro
     environment:
       - RUST_BACKTRACE=1
@@ -47,9 +56,21 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7300/metrics"]
       interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  indexer-cli:
+    build:
+      context: ./indexer-cli
+      dockerfile: Dockerfile
+    container_name: indexer-cli
+    networks:
+      - local-network
+    # Keep container running for docker exec
+    entrypoint: ["tail", "-f", "/dev/null"]
+    environment:
+      - INDEXER_AGENT_ENDPOINT=${INDEXER_AGENT_ENDPOINT:-http://indexer-agent:7600}
 
 networks:
   local-network:

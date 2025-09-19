@@ -12,8 +12,7 @@ use std::{
 
 use bip39::Mnemonic;
 use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
-use sqlx::migrate::Migrator;
-use sqlx::{migrate, PgPool, Postgres};
+use sqlx::{migrate, migrate::Migrator, PgPool, Postgres};
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, SignedReceipt};
 use thegraph_core::{
@@ -213,6 +212,7 @@ pub static INDEXER_ALLOCATIONS: LazyLock<HashMap<Address, Allocation>> = LazyLoc
                 poi: None,
                 query_fee_rebates: None,
                 query_fees_collected: None,
+                is_legacy: true,
             },
         ),
         (
@@ -238,6 +238,7 @@ pub static INDEXER_ALLOCATIONS: LazyLock<HashMap<Address, Allocation>> = LazyLoc
                 poi: None,
                 query_fee_rebates: None,
                 query_fees_collected: None,
+                is_legacy: true,
             },
         ),
         (
@@ -263,6 +264,7 @@ pub static INDEXER_ALLOCATIONS: LazyLock<HashMap<Address, Allocation>> = LazyLoc
                 poi: None,
                 query_fee_rebates: None,
                 query_fees_collected: None,
+                is_legacy: true,
             },
         ),
         (
@@ -288,6 +290,7 @@ pub static INDEXER_ALLOCATIONS: LazyLock<HashMap<Address, Allocation>> = LazyLoc
                 poi: None,
                 query_fee_rebates: None,
                 query_fees_collected: None,
+                is_legacy: true,
             },
         ),
     ])
@@ -372,7 +375,10 @@ pub static TAP_SIGNER: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| 
 });
 
 pub static TAP_EIP712_DOMAIN: LazyLock<Eip712Domain> =
-    LazyLock::new(|| tap_eip712_domain(1, VERIFIER_ADDRESS));
+    LazyLock::new(|| tap_eip712_domain(1, VERIFIER_ADDRESS, tap_core::TapVersion::V1));
+
+pub static TAP_EIP712_DOMAIN_V2: LazyLock<Eip712Domain> =
+    LazyLock::new(|| tap_eip712_domain(1, VERIFIER_ADDRESS, tap_core::TapVersion::V2));
 
 #[derive(bon::Builder)]
 pub struct SignedReceiptRequest {

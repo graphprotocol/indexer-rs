@@ -21,13 +21,13 @@ async fn main() -> ExitCode {
         // If profiling fails, log the error
         // but continue running the application
         // as profiling is just for development.
-        tracing::error!("Failed to setup profiling: {e}");
+        tracing::error!(error = %e, "Failed to setup profiling");
     } else {
         tracing::info!("Profiling setup complete.");
     }
 
     if let Err(e) = run().await {
-        tracing::error!("Indexer service error: {e}");
+        tracing::error!(error = %e, "Indexer service error");
         return ExitCode::from(1);
     }
 

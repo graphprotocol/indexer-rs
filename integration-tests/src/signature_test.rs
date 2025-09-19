@@ -3,8 +3,9 @@
 
 //! Test to verify V2 signature creation and recovery works correctly
 
-use anyhow::Result;
 use std::str::FromStr;
+
+use anyhow::Result;
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::v2::Receipt as V2Receipt;
 use thegraph_core::{
@@ -23,8 +24,12 @@ pub async fn test_v2_signature_recovery() -> Result<()> {
     let wallet_address = wallet.address();
     println!("Wallet address: {wallet_address:?}");
 
-    // Create EIP-712 domain - V2 uses GraphTallyCollector
-    let domain = tap_eip712_domain(CHAIN_ID, Address::from_str(GRAPH_TALLY_COLLECTOR_CONTRACT)?);
+    // Create EIP-712 domain - V2 uses GraphTally
+    let domain = tap_eip712_domain(
+        CHAIN_ID,
+        Address::from_str(GRAPH_TALLY_COLLECTOR_CONTRACT)?,
+        tap_core::TapVersion::V2,
+    );
     println!("Using domain: chain_id={CHAIN_ID}, verifier={GRAPH_TALLY_COLLECTOR_CONTRACT}");
 
     // Create a V2 receipt
