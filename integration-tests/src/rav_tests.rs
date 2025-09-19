@@ -17,8 +17,8 @@ use thegraph_core::{
 
 use crate::{
     constants::{
-        ACCOUNT0_SECRET, CHAIN_ID, GRAPH_TALLY_COLLECTOR_CONTRACT, GRAPH_URL, INDEXER_URL,
-        KAFKA_SERVERS, MAX_RECEIPT_VALUE, SUBGRAPH_ID, TAP_VERIFIER_CONTRACT,
+        ACCOUNT0_SECRET, CHAIN_ID, GRAPH_URL, INDEXER_URL, KAFKA_SERVERS, MAX_RECEIPT_VALUE,
+        SUBGRAPH_ID, TAP_VERIFIER_CONTRACT,
     },
     database_checker::{DatabaseChecker, TapVersion},
     test_config::TestConfig,
@@ -57,28 +57,32 @@ pub async fn test_tap_rav_v1() -> Result<()> {
     println!("Found allocation ID: {allocation_id}");
 
     // Setup database checker
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| crate::constants::POSTGRES_URL.to_string());
-    let db_checker = DatabaseChecker::new(&database_url).await?;
+    let mut db_checker = DatabaseChecker::new(cfg.clone()).await?;
 
-    // Initial DB snapshot for V1
+    // Initial DB snapshot for V1 with current configuration
+    println!("\n=== V1 Initial State (Config) ===");
+    db_checker.print_summary(&payer_hex, TapVersion::V1).await?;
+
     let initial_state = db_checker.get_state(&payer_hex, TapVersion::V1).await?;
     let initial_pending_value = db_checker
         .get_pending_receipt_value(&allocation_id_hex, &payer_hex, TapVersion::V1)
         .await?;
 
+    // Get trigger threshold from tap-agent configuration
+    let trigger_threshold = db_checker.get_trigger_value_wei()?;
     println!(
-        "\n=== V1 Initial state: RAVs: {}, Receipts: {}, Pending value: {} wei ===",
-        initial_state.rav_count, initial_state.receipt_count, initial_pending_value
+        "\n🔧 Using configured trigger threshold: {} wei ({:.6} GRT)",
+        trigger_threshold,
+        trigger_threshold as f64 / 1e18
     );
-
-    // Thresholds same as V2
-    const TRIGGER_THRESHOLD: u128 = 2_000_000_000_000_000; // 0.002 GRT in wei
 
     println!("\n=== V1 STAGE 1: Sending large receipt batches with small pauses ===");
 
     // Send multiple receipts in batches with a gap between them
     let mut total_successful = 0;
+    // Track previous counts for clearer progress output
+    let mut prev_rav_count = initial_state.rav_count;
+    let mut prev_receipt_count = initial_state.receipt_count;
 
     for batch in 0..BATCHES {
         let batch_num = batch + 1;
@@ -126,21 +130,25 @@ pub async fn test_tap_rav_v1() -> Result<()> {
             .get_pending_receipt_value(&allocation_id_hex, &payer_hex, TapVersion::V1)
             .await?;
 
-        // Calculate progress toward trigger threshold
+        // Calculate progress toward trigger threshold using config
         let current_pending_f64: f64 = current_pending_value.to_string().parse().unwrap_or(0.0);
-        let threshold_f64 = TRIGGER_THRESHOLD as f64;
+        let threshold_f64 = trigger_threshold as f64;
         let progress_pct = (current_pending_f64 / threshold_f64 * 100.0).min(100.0);
 
         println!(
             "After V1 batch {}: RAVs: {} → {}, Receipts: {} → {}, Pending value: {} wei ({:.1}% of trigger threshold)",
             batch_num,
-            initial_state.rav_count,
+            prev_rav_count,
             batch_state.rav_count,
-            initial_state.receipt_count,
+            prev_receipt_count,
             batch_state.receipt_count,
             current_pending_value,
             progress_pct
         );
+
+        // Update previous counters for next iteration
+        prev_rav_count = batch_state.rav_count;
+        prev_receipt_count = batch_state.receipt_count;
 
         // Check if RAV was already created after this batch
         if batch_state.rav_count > initial_state.rav_count {
@@ -196,21 +204,25 @@ pub async fn test_tap_rav_v1() -> Result<()> {
             .get_pending_receipt_value(&allocation_id_hex, &payer_hex, TapVersion::V1)
             .await?;
 
-        // Calculate progress toward trigger threshold
+        // Calculate progress toward trigger threshold using config
         let current_pending_f64: f64 = current_pending_value.to_string().parse().unwrap_or(0.0);
-        let threshold_f64 = TRIGGER_THRESHOLD as f64;
+        let threshold_f64 = trigger_threshold as f64;
         let progress_pct = (current_pending_f64 / threshold_f64 * 100.0).min(100.0);
 
         println!(
             "After V1 trigger {}: RAVs: {} → {}, Receipts: {} → {}, Pending value: {} wei ({:.1}% of trigger threshold)",
             i + 1,
-            initial_state.rav_count,
+            prev_rav_count,
             current_state.rav_count,
-            initial_state.receipt_count,
+            prev_receipt_count,
             current_state.receipt_count,
             current_pending_value,
             progress_pct
         );
+
+        // Update previous counters for next iteration
+        prev_rav_count = current_state.rav_count;
+        prev_receipt_count = current_state.receipt_count;
 
         // Success conditions
         if current_state.rav_count > initial_state.rav_count {
@@ -277,14 +289,9 @@ pub async fn test_tap_rav_v1() -> Result<()> {
         return Ok(());
     }
 
-    // Timestamp buffer diagnosis
+    // Timestamp buffer diagnosis using tap-agent config
     db_checker
-        .diagnose_timestamp_buffer(
-            &payer_hex,
-            &allocation_id_hex,
-            30, // buffer_seconds from your config
-            TapVersion::V1,
-        )
+        .diagnose_timestamp_buffer(&payer_hex, &allocation_id_hex, TapVersion::V1)
         .await?;
 
     // If we got here, test failed
@@ -342,30 +349,31 @@ pub async fn test_tap_rav_v2() -> Result<()> {
     let allocation_id = Address::from_str(&allocation_id)?;
 
     // Setup database checker
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| crate::constants::POSTGRES_URL.to_string());
-    let db_checker = DatabaseChecker::new(&database_url).await?;
+    let mut db_checker = DatabaseChecker::new(cfg.clone()).await?;
 
     // Format addresses for database queries
     let payer_hex = format!("{:x}", payer);
     let collection_id = CollectionId::from(allocation_id);
     let collection_id_hex = collection_id.encode_hex();
 
-    // Check initial state
+    // Check initial state with current configuration
+    println!("\n=== V2 Initial State (Config) ===");
+    db_checker.print_summary(&payer_hex, TapVersion::V2).await?;
+
     let initial_state = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
     let initial_pending_value = db_checker
         .get_pending_receipt_value(&collection_id_hex, &payer_hex, TapVersion::V2)
         .await?;
+    let initial_rav_value = initial_state.rav_value.clone();
 
-    println!(
-        "\n=== V2 Initial state: RAVs: {}, Receipts: {}, Pending value: {} wei ===",
-        initial_state.rav_count, initial_state.receipt_count, initial_pending_value
-    );
-
-    // Calculate expected thresholds
-    let trigger_threshold = 2_000_000_000_000_000u128; // 0.002 GRT trigger value
+    // Get trigger threshold from tap-agent configuration
+    let trigger_threshold = db_checker.get_trigger_value_wei()?;
     let receipts_needed = trigger_threshold / (MAX_RECEIPT_VALUE / 10); // Using trigger receipt value
-    println!("📊 RAV trigger threshold: {trigger_threshold} wei (0.002 GRT)");
+    println!(
+        "\n🔧 Using configured trigger threshold: {} wei ({:.6} GRT)",
+        trigger_threshold,
+        trigger_threshold as f64 / 1e18
+    );
     let receipt_value = MAX_RECEIPT_VALUE / 10;
     println!(
         "📊 Receipts needed for trigger: ~{receipts_needed} receipts at {receipt_value} wei each",
@@ -377,6 +385,9 @@ pub async fn test_tap_rav_v2() -> Result<()> {
 
     // Send multiple V2 receipts in batches with a gap between them
     let mut total_successful = 0;
+    // Track previous counts for clearer progress output
+    let mut prev_rav_count = initial_state.rav_count;
+    let mut prev_receipt_count = initial_state.receipt_count;
 
     for batch in 0..BATCHES {
         let batch_num = batch + 1;
@@ -425,19 +436,40 @@ pub async fn test_tap_rav_v2() -> Result<()> {
         println!(
             "After V2 batch {}: RAVs: {} → {}, Receipts: {} → {}, Pending value: {} wei ({:.1}% of trigger threshold)",
             batch_num,
-            initial_state.rav_count,
+            prev_rav_count,
             batch_state.rav_count,
-            initial_state.receipt_count,
+            prev_receipt_count,
             batch_state.receipt_count,
             current_pending_value,
             progress_pct
         );
 
-        // Check if RAV was already created after this batch
-        if batch_state.rav_count > initial_state.rav_count {
+        // Update previous counters for next iteration
+        prev_rav_count = batch_state.rav_count;
+        prev_receipt_count = batch_state.receipt_count;
+
+        // Enhanced check if RAV was created or updated after this batch
+        let (rav_created, rav_increased) = db_checker
+            .check_v2_rav_progress(
+                &payer_hex,
+                initial_state.rav_count,
+                &initial_rav_value,
+                TapVersion::V2,
+            )
+            .await?;
+
+        if rav_created {
             println!(
                 "✅ V2 RAV CREATED after batch {}! RAVs: {} → {}",
                 batch_num, initial_state.rav_count, batch_state.rav_count
+            );
+            return Ok(());
+        }
+
+        if rav_increased {
+            println!(
+                "✅ V2 RAV UPDATED after batch {}! Value: {} → {} wei",
+                batch_num, initial_rav_value, batch_state.rav_value
             );
             return Ok(());
         }
@@ -493,19 +525,40 @@ pub async fn test_tap_rav_v2() -> Result<()> {
         println!(
             "After V2 trigger {}: RAVs: {} → {}, Receipts: {} → {}, Pending value: {} wei ({:.1}% of trigger threshold)",
             i + 1,
-            initial_state.rav_count,
+            prev_rav_count,
             current_state.rav_count,
-            initial_state.receipt_count,
+            prev_receipt_count,
             current_state.receipt_count,
             current_pending_value,
             progress_pct
         );
 
-        // Success conditions
-        if current_state.rav_count > initial_state.rav_count {
+        // Update previous counters for next iteration
+        prev_rav_count = current_state.rav_count;
+        prev_receipt_count = current_state.receipt_count;
+
+        // Enhanced success conditions for V2
+        let (rav_created, rav_increased) = db_checker
+            .check_v2_rav_progress(
+                &payer_hex,
+                initial_state.rav_count,
+                &initial_rav_value,
+                TapVersion::V2,
+            )
+            .await?;
+
+        if rav_created {
             println!(
-                "✅ V2 TEST PASSED: RAVs created increased from {} to {}!",
+                "✅ V2 TEST PASSED: New RAV created! RAVs: {} → {}",
                 initial_state.rav_count, current_state.rav_count
+            );
+            return Ok(());
+        }
+
+        if rav_increased {
+            println!(
+                "✅ V2 TEST PASSED: Existing RAV value increased! {} → {} wei",
+                initial_rav_value, current_state.rav_value
             );
             return Ok(());
         }
@@ -545,24 +598,32 @@ pub async fn test_tap_rav_v2() -> Result<()> {
         .print_detailed_summary(&payer_hex, TapVersion::V2)
         .await?;
 
-    // Alternative success condition: Use wait_for_rav_creation with timeout
-    println!("\n=== Waiting for delayed RAV creation (30s timeout) ===");
-    let rav_created = db_checker
-        .wait_for_rav_creation(
+    // Enhanced alternative success condition: Use wait_for_rav_creation_or_update with timeout
+    println!("\n=== Waiting for delayed RAV creation or update (30s timeout) ===");
+    let (rav_created, rav_updated) = db_checker
+        .wait_for_rav_creation_or_update(
             &payer_hex,
             initial_state.rav_count,
+            initial_rav_value.clone(),
             30, // 30 second timeout
             2,  // check every 2 seconds
             TapVersion::V2,
         )
         .await?;
 
-    if rav_created {
+    if rav_created || rav_updated {
         let final_state_after_wait = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
-        println!(
-            "✅ V2 TEST PASSED: RAV CREATED (delayed)! RAVs: {} → {}",
-            initial_state.rav_count, final_state_after_wait.rav_count
-        );
+        if rav_created {
+            println!(
+                "✅ V2 TEST PASSED: RAV CREATED (delayed)! RAVs: {} → {}",
+                initial_state.rav_count, final_state_after_wait.rav_count
+            );
+        } else {
+            println!(
+                "✅ V2 TEST PASSED: RAV UPDATED (delayed)! Value: {} → {} wei",
+                initial_rav_value, final_state_after_wait.rav_value
+            );
+        }
         return Ok(());
     }
 
@@ -575,14 +636,9 @@ pub async fn test_tap_rav_v2() -> Result<()> {
         final_state.receipt_count - initial_state.receipt_count
     );
 
-    // Timestamp buffer diagnosis
+    // Timestamp buffer diagnosis using tap-agent config
     db_checker
-        .diagnose_timestamp_buffer(
-            &payer_hex,
-            &collection_id_hex,
-            30, // buffer_seconds from your config
-            TapVersion::V2,
-        )
+        .diagnose_timestamp_buffer(&payer_hex, &collection_id_hex, TapVersion::V2)
         .await?;
 
     Err(anyhow::anyhow!("Failed to detect V2 RAV generation"))
@@ -595,7 +651,6 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
     const BATCHES_V2: u32 = 2; // Just 2 batches total
     const WAIT_TIME_BATCHES_V2: u64 = 60; // Wait 35 seconds for buffer exit
     const MAX_TRIGGERS_V2: usize = 3; // Only need a few triggers after threshold is met
-    const RAV_TRIGGER_THRESHOLD: u128 = 2_000_000_000_000_000; // 0.002 GRT in wei
 
     // Setup HTTP client and env-backed config
     let http_client = Arc::new(Client::new());
@@ -634,29 +689,33 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
     let service_provider = allocation_id;
     let data_service = Address::from_str(&cfg.test_data_service)?;
 
+    // Create unified database checker
+    let mut db_checker = DatabaseChecker::new(cfg.clone()).await?;
+    println!("✅ DatabaseChecker connected to: {}", cfg.database_url());
+
+    // Get trigger threshold from tap-agent configuration
+    let rav_trigger_threshold = db_checker.get_trigger_value_wei()?;
+
     println!("Direct Service Test Configuration:");
     println!("  Allocation ID: {allocation_id:?}");
     println!("  Collection ID: {collection_id:?}");
     println!("  Payer (Gateway): {payer:?}");
     println!("  Service Provider: {service_provider:?}");
     println!("  Data Service: {data_service:?}");
-    println!("  Using GraphTallyCollector: {GRAPH_TALLY_COLLECTOR_CONTRACT}");
+    println!(
+        "  Using GraphTallyCollector: {}",
+        cfg.graph_tally_collector_contract
+    );
     println!("  Receipt value: {} wei (0.0002 GRT)", MAX_RECEIPT_VALUE_V2);
     println!(
         "  Expected total per batch: {} wei (0.0024 GRT)",
         NUM_RECEIPTS_V2 as u128 * MAX_RECEIPT_VALUE_V2
     );
     println!(
-        "  RAV trigger threshold: {} wei (0.002 GRT)",
-        RAV_TRIGGER_THRESHOLD
+        "  🔧 RAV trigger threshold: {} wei ({:.6} GRT)",
+        rav_trigger_threshold,
+        rav_trigger_threshold as f64 / 1e18
     );
-
-    // Create unified database checker
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| crate::constants::POSTGRES_URL.to_string());
-
-    let db_checker = DatabaseChecker::new(&database_url).await?;
-    println!("✅ DatabaseChecker connected to: {}", database_url);
 
     // Create Kafka reporter for publishing receipt data
     let mut kafka_reporter = KafkaReporter::new(KAFKA_SERVERS)?;
@@ -668,16 +727,13 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
     let service_provider_hex = format!("{:x}", service_provider);
     let data_service_hex = format!("{:x}", data_service);
 
-    // Check initial state for both V1 and V2
-    println!("\n=== Initial Database State ===");
-    db_checker.print_combined_summary(&payer_hex).await?;
+    // Check initial state with current configuration
+    println!("\n=== Initial Database State (Config) ===");
+    db_checker.print_summary(&payer_hex, TapVersion::V2).await?;
 
     // Focus on V2 for this test
     let initial_v2_state = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
-    println!("\n=== V2 Detailed Initial State ===");
-    db_checker
-        .print_detailed_summary(&payer_hex, TapVersion::V2)
-        .await?;
+    let initial_v2_rav_value = initial_v2_state.rav_value.clone();
 
     // Check if this specific collection already has a RAV
     let has_existing_rav = db_checker
@@ -787,9 +843,9 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
             .get_pending_receipt_value(&collection_id_hex, &payer_hex, TapVersion::V2)
             .await?;
 
-        // Calculate progress toward trigger threshold
+        // Calculate progress toward trigger threshold using config
         let current_pending_f64: f64 = current_pending_value.to_string().parse().unwrap_or(0.0);
-        let threshold_f64 = RAV_TRIGGER_THRESHOLD as f64;
+        let threshold_f64 = rav_trigger_threshold as f64;
         let progress_pct = (current_pending_f64 / threshold_f64 * 100.0).min(100.0);
 
         println!(
@@ -801,14 +857,32 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
             progress_pct
         );
 
-        // Check if RAV was already created after this batch
-        if batch_v2_state.rav_count > initial_v2_state.rav_count {
+        // Enhanced check if RAV was created or updated after this batch
+        let (rav_created, rav_increased) = db_checker
+            .check_v2_rav_progress(
+                &payer_hex,
+                initial_v2_state.rav_count,
+                &initial_v2_rav_value,
+                TapVersion::V2,
+            )
+            .await?;
+
+        if rav_created {
             println!(
                 "✅ V2 RAV CREATED after batch {}! RAVs: {} → {}",
                 batch_num, initial_v2_state.rav_count, batch_v2_state.rav_count
             );
+            db_checker
+                .print_detailed_summary(&payer_hex, TapVersion::V2)
+                .await?;
+            return Ok(());
+        }
 
-            // Print final detailed state
+        if rav_increased {
+            println!(
+                "✅ V2 RAV UPDATED after batch {}! Value: {} → {} wei",
+                batch_num, initial_v2_rav_value, batch_v2_state.rav_value
+            );
             db_checker
                 .print_detailed_summary(&payer_hex, TapVersion::V2)
                 .await?;
@@ -840,6 +914,7 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
         "📊 Before triggers: V2 RAVs: {}, Pending value for collection: {} wei",
         pre_trigger_v2_state.rav_count, pre_trigger_pending
     );
+    let mut prev_rav_count = pre_trigger_v2_state.rav_count;
 
     // Send trigger receipts
     for i in 0..MAX_TRIGGERS_V2 {
@@ -916,30 +991,53 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
             .get_pending_receipt_value(&collection_id_hex, &payer_hex, TapVersion::V2)
             .await?;
 
-        // Calculate progress toward trigger threshold
+        // Calculate progress toward trigger threshold using config
         let current_pending_f64: f64 = current_pending_value.to_string().parse().unwrap_or(0.0);
-        let threshold_f64 = RAV_TRIGGER_THRESHOLD as f64;
+        let threshold_f64 = rav_trigger_threshold as f64;
         let progress_pct = (current_pending_f64 / threshold_f64 * 100.0).min(100.0);
 
         println!(
             "📊 After Direct Service trigger {}: V2 RAVs: {} → {}, Pending value: {} wei ({:.1}% of trigger threshold)",
             i + 1,
-            initial_v2_state.rav_count,
+            prev_rav_count,
             current_v2_state.rav_count,
             current_pending_value,
             progress_pct
         );
 
-        // Success conditions
-        if current_v2_state.rav_count > initial_v2_state.rav_count {
+        // Update previous counter for next iteration
+        prev_rav_count = current_v2_state.rav_count;
+
+        // Enhanced success conditions for V2
+        let (rav_created, rav_increased) = db_checker
+            .check_v2_rav_progress(
+                &payer_hex,
+                initial_v2_state.rav_count,
+                &initial_v2_rav_value,
+                TapVersion::V2,
+            )
+            .await?;
+
+        if rav_created {
             println!(
                 "✅ V2 RAV CREATED after trigger {}! RAVs: {} → {}",
                 i + 1,
                 initial_v2_state.rav_count,
                 current_v2_state.rav_count
             );
+            db_checker
+                .print_detailed_summary(&payer_hex, TapVersion::V2)
+                .await?;
+            return Ok(());
+        }
 
-            // Print final detailed state
+        if rav_increased {
+            println!(
+                "✅ V2 RAV UPDATED after trigger {}! Value: {} → {} wei",
+                i + 1,
+                initial_v2_rav_value,
+                current_v2_state.rav_value
+            );
             db_checker
                 .print_detailed_summary(&payer_hex, TapVersion::V2)
                 .await?;
@@ -973,8 +1071,9 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
             + (MAX_TRIGGERS_V2 as u128 * MAX_RECEIPT_VALUE_V2 / 4)
     );
     println!(
-        "📊 RAV trigger threshold: {} wei (0.002 GRT)",
-        RAV_TRIGGER_THRESHOLD
+        "📊 RAV trigger threshold: {} wei ({:.6} GRT)",
+        rav_trigger_threshold,
+        rav_trigger_threshold as f64 / 1e18
     );
 
     // Final state check using database
@@ -996,24 +1095,32 @@ pub async fn test_direct_service_rav_v2() -> Result<()> {
         .print_detailed_summary(&payer_hex, TapVersion::V2)
         .await?;
 
-    // Alternative success condition: Use wait_for_rav_creation with timeout
-    println!("\n=== Waiting for delayed RAV creation (30s timeout) ===");
-    let rav_created = db_checker
-        .wait_for_rav_creation(
+    // Enhanced alternative success condition: Use wait_for_rav_creation_or_update with timeout
+    println!("\n=== Waiting for delayed RAV creation or update (30s timeout) ===");
+    let (rav_created, rav_updated) = db_checker
+        .wait_for_rav_creation_or_update(
             &payer_hex,
             initial_v2_state.rav_count,
+            initial_v2_rav_value.clone(),
             30, // 30 second timeout
             2,  // check every 2 seconds
             TapVersion::V2,
         )
         .await?;
 
-    if rav_created {
+    if rav_created || rav_updated {
         let final_state_after_wait = db_checker.get_state(&payer_hex, TapVersion::V2).await?;
-        println!(
-            "✅ V2 RAV CREATED (delayed)! RAVs: {} → {}",
-            initial_v2_state.rav_count, final_state_after_wait.rav_count
-        );
+        if rav_created {
+            println!(
+                "✅ V2 RAV CREATED (delayed)! RAVs: {} → {}",
+                initial_v2_state.rav_count, final_state_after_wait.rav_count
+            );
+        } else {
+            println!(
+                "✅ V2 RAV UPDATED (delayed)! Value: {} → {} wei",
+                initial_v2_rav_value, final_state_after_wait.rav_value
+            );
+        }
 
         // Print final detailed state
         db_checker

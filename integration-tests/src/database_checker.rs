@@ -7,13 +7,16 @@ use anyhow::Result;
 use bigdecimal::BigDecimal;
 use sqlx::{PgPool, Row};
 
+use crate::test_config::TestConfig;
+
 /// Unified database checker for both V1 and V2 TAP tables
 pub struct DatabaseChecker {
     pool: PgPool,
+    cfg: TestConfig,
 }
 
 /// TAP version enum to specify which tables to query
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TapVersion {
     V1, // Legacy receipt aggregator tables
     V2, // Horizon tables
@@ -106,9 +109,9 @@ pub struct RecentReceipt {
 
 impl DatabaseChecker {
     /// Create new DatabaseChecker with database connection
-    pub async fn new(database_url: &str) -> Result<Self> {
-        let pool = PgPool::connect(database_url).await?;
-        Ok(Self { pool })
+    pub async fn new(cfg: TestConfig) -> Result<Self> {
+        let pool = PgPool::connect(cfg.database_url()).await?;
+        Ok(Self { pool, cfg })
     }
 
     /// Get combined V1 and V2 state for comprehensive testing
@@ -644,7 +647,7 @@ impl DatabaseChecker {
             TapVersion::V1 => sqlx::query_scalar(
                 r#"
                     SELECT COUNT(*) 
-                    FROM tap_ravs 
+                    FROM scalar_tap_ravs 
                     WHERE allocation_id = $1 
                     AND LOWER(sender_address) = $2
                     "#,
@@ -661,7 +664,7 @@ impl DatabaseChecker {
 
     /// Get the total value of receipts for an identifier that don't have a RAV yet
     pub async fn get_pending_receipt_value(
-        &self,
+        &mut self,
         identifier: &str, // collection_id for V2, allocation_id for V1
         payer: &str,
         version: TapVersion,
@@ -670,36 +673,47 @@ impl DatabaseChecker {
 
         let pending_value: Option<BigDecimal> = match version {
             TapVersion::V2 => {
+                // Sum receipts for this collection/payer that are newer than the last RAV
+                // and older than the timestamp buffer cutoff (eligible to aggregate)
+                let buffer_secs = self.get_timestamp_buffer_secs()?;
+                let current_time_ns = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64;
+                let cutoff_ns = current_time_ns - buffer_secs * 1_000_000_000;
+
                 sqlx::query_scalar(
                     r#"
-                    SELECT SUM(r.value)
-                    FROM tap_horizon_receipts r
-                    LEFT JOIN tap_horizon_ravs rav ON (
-                        r.collection_id = rav.collection_id 
-                        AND LOWER(r.payer) = LOWER(rav.payer)
-                        AND LOWER(r.service_provider) = LOWER(rav.service_provider)
-                        AND LOWER(r.data_service) = LOWER(rav.data_service)
+                    WITH last_rav AS (
+                        SELECT COALESCE(MAX(timestamp_ns), 0) AS last_ts
+                        FROM tap_horizon_ravs rav
+                        WHERE rav.collection_id = $1
+                          AND LOWER(rav.payer) = $2
                     )
-                    WHERE r.collection_id = $1 
-                    AND LOWER(r.payer) = $2 
-                    AND rav.collection_id IS NULL
+                    SELECT COALESCE(SUM(r.value), 0)
+                    FROM tap_horizon_receipts r, last_rav lr
+                    WHERE r.collection_id = $1
+                      AND LOWER(r.payer) = $2
+                      AND r.timestamp_ns > lr.last_ts
+                      AND r.timestamp_ns <= $3
                     "#,
                 )
                 .bind(identifier)
                 .bind(&normalized_payer)
+                .bind(cutoff_ns as i64)
                 .fetch_one(&self.pool)
                 .await?
             }
             TapVersion::V1 => sqlx::query_scalar(
                 r#"
                     SELECT SUM(r.value)
-                    FROM tap_receipts r
-                    LEFT JOIN tap_ravs rav ON (
+                    FROM scalar_tap_receipts r
+                    LEFT JOIN scalar_tap_ravs rav ON (
                         r.allocation_id = rav.allocation_id 
-                        AND LOWER(r.sender_address) = LOWER(rav.sender_address)
+                        AND LOWER(r.signer_address) = LOWER(rav.sender_address)
                     )
                     WHERE r.allocation_id = $1 
-                    AND LOWER(r.sender_address) = $2 
+                    AND LOWER(r.signer_address) = $2 
                     AND rav.allocation_id IS NULL
                     "#,
             )
@@ -714,6 +728,7 @@ impl DatabaseChecker {
     }
 
     /// Wait for a RAV to be created with timeout
+    /// V1 only
     pub async fn wait_for_rav_creation(
         &self,
         payer: &str,
@@ -722,6 +737,9 @@ impl DatabaseChecker {
         check_interval_seconds: u64,
         version: TapVersion,
     ) -> Result<bool> {
+        if TapVersion::V2 == version {
+            anyhow::bail!("wait_for_rav_creation is only supported for V1 TAP");
+        }
         let start_time = std::time::Instant::now();
         let timeout_duration = std::time::Duration::from_secs(timeout_seconds);
 
@@ -919,7 +937,7 @@ impl DatabaseChecker {
 
     /// Diagnostic function to analyze timestamp buffer issues during RAV generation
     /// This simulates the exact logic used in tap_core's Manager::collect_receipts
-    pub async fn diagnose_timestamp_buffer(
+    async fn diagnose_timestamp_buffer_impl(
         &self,
         payer: &str,
         identifier: &str, // collection_id for V2, allocation_id for V1
@@ -1106,5 +1124,212 @@ impl DatabaseChecker {
         }
 
         Ok(())
+    }
+
+    /// Get the trigger value (wei) from tap-agent configuration
+    pub fn get_trigger_value_wei(&mut self) -> Result<u128> {
+        self.cfg.get_tap_trigger_value_wei()
+    }
+
+    /// Get the timestamp buffer seconds from tap-agent configuration
+    pub fn get_timestamp_buffer_secs(&mut self) -> Result<u64> {
+        self.cfg.get_tap_timestamp_buffer_secs()
+    }
+
+    /// Diagnostic function that uses tap-agent configuration
+    pub async fn diagnose_timestamp_buffer(
+        &mut self,
+        payer: &str,
+        identifier: &str, // collection_id for V2, allocation_id for V1
+        version: TapVersion,
+    ) -> Result<()> {
+        let buffer_seconds = self.get_timestamp_buffer_secs()?;
+        self.diagnose_timestamp_buffer_impl(payer, identifier, buffer_seconds, version)
+            .await
+    }
+
+    /// Print summary with tap-agent configuration context
+    pub async fn print_summary(&mut self, payer: &str, version: TapVersion) -> Result<()> {
+        let state = self.get_state(payer, version).await?;
+        let trigger_value = self.get_trigger_value_wei()?;
+        let buffer_secs = self.get_timestamp_buffer_secs()?;
+        let max_willing_to_lose = self.cfg.get_tap_max_amount_willing_to_lose_grt()?;
+        let trigger_divisor = self.cfg.get_tap_trigger_value_divisor()?;
+
+        let version_name = match version {
+            TapVersion::V1 => "V1 (Legacy)",
+            TapVersion::V2 => "V2 (Horizon)",
+        };
+
+        println!("\n=== {} TAP Database State (Config) ===", version_name);
+        println!("Payer: {}", payer);
+
+        // Show tap-agent configuration values
+        println!("🔧 Tap-Agent Configuration:");
+        println!(
+            "   Max Amount Willing to Lose: {:.6} GRT",
+            max_willing_to_lose
+        );
+        println!("   Trigger Value Divisor: {}", trigger_divisor);
+        println!(
+            "   → Calculated Trigger Value: {} wei ({:.6} GRT)",
+            trigger_value,
+            trigger_value as f64 / 1e18
+        );
+        println!(
+            "   → Formula: {:.6} GRT / {} = {:.6} GRT",
+            max_willing_to_lose,
+            trigger_divisor,
+            trigger_value as f64 / 1e18
+        );
+        println!("   Timestamp Buffer: {} seconds", buffer_secs);
+
+        println!("📊 Database Statistics:");
+        println!(
+            "   Receipts: {} (total value: {} wei)",
+            state.receipt_count, state.receipt_value
+        );
+        println!(
+            "   RAVs: {} (total value: {} wei)",
+            state.rav_count, state.rav_value
+        );
+        println!("   Pending RAV Collections: {}", state.pending_rav_count);
+        println!("   Failed RAV Requests: {}", state.failed_rav_count);
+        println!("   Invalid Receipts: {}", state.invalid_receipt_count);
+
+        // Calculate trigger progress
+        if state.pending_rav_count > 0 {
+            // Get total pending value across all collections
+            let total_pending_value = self.get_total_pending_value(payer, version).await?;
+            let progress_percentage = (total_pending_value.clone() * BigDecimal::from(100))
+                / BigDecimal::from(trigger_value);
+
+            println!("\n📈 Trigger Analysis:");
+            println!(
+                "   Total Pending Value: {} wei ({:.6} GRT)",
+                total_pending_value,
+                total_pending_value
+                    .to_string()
+                    .parse::<f64>()
+                    .unwrap_or(0.0)
+                    / 1e18
+            );
+            println!(
+                "   Progress to Trigger: {:.1}%",
+                progress_percentage
+                    .to_string()
+                    .parse::<f64>()
+                    .unwrap_or(0.0)
+            );
+
+            if total_pending_value >= BigDecimal::from(trigger_value) {
+                println!("   ✅ Ready to trigger RAV!");
+            } else {
+                let needed = BigDecimal::from(trigger_value) - &total_pending_value;
+                println!(
+                    "   ⏳ Need {} wei more ({:.6} GRT)",
+                    needed,
+                    needed.to_string().parse::<f64>().unwrap_or(0.0) / 1e18
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get total pending value across all collections for a payer
+    async fn get_total_pending_value(
+        &self,
+        payer: &str,
+        version: TapVersion,
+    ) -> Result<BigDecimal> {
+        let normalized_payer = payer.trim_start_matches("0x").to_lowercase();
+
+        let total_pending: Option<BigDecimal> = match version {
+            TapVersion::V2 => {
+                sqlx::query_scalar(
+                    r#"
+                    SELECT SUM(r.value)
+                    FROM tap_horizon_receipts r
+                    LEFT JOIN tap_horizon_ravs rav ON (
+                        r.collection_id = rav.collection_id
+                        AND LOWER(r.payer) = LOWER(rav.payer)
+                        AND LOWER(r.service_provider) = LOWER(rav.service_provider)
+                        AND LOWER(r.data_service) = LOWER(rav.data_service)
+                    )
+                    WHERE LOWER(r.payer) = $1 AND rav.collection_id IS NULL
+                    "#,
+                )
+                .bind(&normalized_payer)
+                .fetch_one(&self.pool)
+                .await?
+            }
+            TapVersion::V1 => sqlx::query_scalar(
+                r#"
+                    SELECT SUM(r.value)
+                    FROM scalar_tap_receipts r
+                    LEFT JOIN scalar_tap_ravs rav ON (
+                        r.allocation_id = rav.allocation_id
+                        AND LOWER(r.signer_address) = LOWER(rav.sender_address)
+                    )
+                    WHERE LOWER(r.signer_address) = $1 AND rav.allocation_id IS NULL
+                    "#,
+            )
+            .bind(&normalized_payer)
+            .fetch_optional(&self.pool)
+            .await?
+            .flatten(),
+        };
+
+        Ok(total_pending.unwrap_or_else(|| BigDecimal::from_str("0").unwrap()))
+    }
+
+    /// Check for V2 RAV generation by looking at both count and value changes
+    /// Returns (rav_was_created, rav_value_increased)
+    pub async fn check_v2_rav_progress(
+        &self,
+        payer: &str,
+        initial_rav_count: i64,
+        initial_rav_value: &BigDecimal,
+        version: TapVersion,
+    ) -> Result<(bool, bool)> {
+        let current_state = self.get_state(payer, version).await?;
+
+        // Check if new RAV was created (0 → 1)
+        let rav_was_created = current_state.rav_count > initial_rav_count;
+
+        // Check if existing RAV value increased (for V2 updates)
+        let rav_value_increased = &current_state.rav_value > initial_rav_value;
+
+        Ok((rav_was_created, rav_value_increased))
+    }
+
+    /// Enhanced wait for RAV creation that handles V1
+    pub async fn wait_for_rav_creation_or_update(
+        &self,
+        payer: &str,
+        initial_rav_count: i64,
+        initial_rav_value: BigDecimal,
+        timeout_seconds: u64,
+        check_interval_seconds: u64,
+        version: TapVersion,
+    ) -> Result<(bool, bool)> {
+        let start_time = std::time::Instant::now();
+        let timeout_duration = std::time::Duration::from_secs(timeout_seconds);
+
+        while start_time.elapsed() < timeout_duration {
+            let (rav_created, rav_increased) = self
+                .check_v2_rav_progress(payer, initial_rav_count, &initial_rav_value, version)
+                .await?;
+
+            // Success for either new RAV creation or value increase
+            if rav_created || rav_increased {
+                return Ok((rav_created, rav_increased));
+            }
+
+            tokio::time::sleep(std::time::Duration::from_secs(check_interval_seconds)).await;
+        }
+
+        Ok((false, false))
     }
 }

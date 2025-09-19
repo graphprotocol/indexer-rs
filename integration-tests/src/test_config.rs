@@ -1,7 +1,7 @@
 // Copyright 2025-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{env, fs, path::Path};
+use std::{env, fs, path::Path, process::Command};
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -16,12 +16,28 @@ use crate::{
     env_loader::load_integration_env,
 };
 
+/// Simple struct to hold just the TAP values we need from the tap-agent config
+#[derive(Debug, Clone)]
+pub struct TapConfig {
+    pub max_amount_willing_to_lose_grt: f64,
+    pub trigger_value_divisor: f64,
+    pub timestamp_buffer_secs: u64,
+}
+
+impl TapConfig {
+    pub fn get_trigger_value(&self) -> u128 {
+        let grt_wei = (self.max_amount_willing_to_lose_grt * 1e18) as u128;
+        (grt_wei as f64 / self.trigger_value_divisor) as u128
+    }
+}
+
 #[derive(Clone)]
 pub struct TestConfig {
     pub indexer_url: String,
     pub gateway_url: String,
     pub graph_url: String,
     pub tap_agent_metrics_url: String,
+    pub database_url: String,
 
     pub chain_id: u64,
     pub gateway_api_key: String,
@@ -38,6 +54,9 @@ pub struct TestConfig {
     pub test_subgraph_deployment: String,
 
     pub test_data_service: String,
+
+    // Cached tap agent configuration values
+    tap_values: Option<TapConfig>,
 }
 
 #[derive(Deserialize)]
@@ -105,6 +124,10 @@ impl TestConfig {
         let chain_id = get_u64("CHAIN_ID", CHAIN_ID);
         let gateway_api_key = get_s("GATEWAY_API_KEY", GATEWAY_API_KEY);
 
+        // Database URL with fallback to constants::POSTGRES_URL
+        let database_url = env::var("DATABASE_URL")
+            .unwrap_or_else(|_| crate::constants::POSTGRES_URL.to_string());
+
         // TODO: default values from constants or load contrib/local-network/.env
         let account0_address = get_s("ACCOUNT0_ADDRESS", ACCOUNT0_ADDRESS);
         let account0_secret = get_s("ACCOUNT0_SECRET", ACCOUNT0_SECRET);
@@ -137,6 +160,7 @@ impl TestConfig {
             gateway_url,
             graph_url,
             tap_agent_metrics_url,
+            database_url,
             chain_id,
             gateway_api_key,
             account0_address,
@@ -148,7 +172,99 @@ impl TestConfig {
             subgraph_id,
             test_subgraph_deployment,
             test_data_service,
+            tap_values: None, // Will be loaded on-demand
         })
+    }
+
+    pub fn database_url(&self) -> &str {
+        &self.database_url
+    }
+
+    /// Get the tap-agent configuration from the running Docker container
+    pub fn get_tap_config(&mut self) -> Result<&TapConfig> {
+        if self.tap_values.is_none() {
+            let config_content = Self::extract_tap_agent_config_from_docker()?;
+            let tap_config = Self::parse_tap_values(&config_content)?;
+            self.tap_values = Some(tap_config);
+        }
+        Ok(self.tap_values.as_ref().unwrap())
+    }
+
+    /// Extract the configuration file from the running tap-agent Docker container
+    fn extract_tap_agent_config_from_docker() -> Result<String> {
+        let output = Command::new("docker")
+            .args(&["exec", "tap-agent", "cat", "/opt/config.toml"])
+            .output()
+            .map_err(|e| anyhow::anyhow!("Failed to execute docker command: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow::anyhow!("Docker exec failed: {}", stderr));
+        }
+
+        let config_content = String::from_utf8(output.stdout)
+            .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in config file: {}", e))?;
+
+        Ok(config_content)
+    }
+
+    /// Parse only the TAP values we need from the config
+    fn parse_tap_values(config_content: &str) -> Result<TapConfig> {
+        let parsed: toml::Value = toml::from_str(config_content)?;
+
+        // Extract the values we need
+        let tap_section = parsed
+            .get("tap")
+            .ok_or_else(|| anyhow::anyhow!("No [tap] section found in config"))?;
+
+        let max_amount_willing_to_lose_grt = tap_section
+            .get("max_amount_willing_to_lose_grt")
+            .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
+            .unwrap_or(1.0);
+
+        let rav_request_section = tap_section
+            .get("rav_request")
+            .ok_or_else(|| anyhow::anyhow!("No [tap.rav_request] section found"))?;
+
+        let trigger_value_divisor = rav_request_section
+            .get("trigger_value_divisor")
+            .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
+            .unwrap_or(10.0);
+
+        let timestamp_buffer_secs = rav_request_section
+            .get("timestamp_buffer_secs")
+            .and_then(|v| v.as_integer())
+            .unwrap_or(15) as u64;
+
+        Ok(TapConfig {
+            max_amount_willing_to_lose_grt,
+            trigger_value_divisor,
+            timestamp_buffer_secs,
+        })
+    }
+
+    /// Get the trigger value in wei from the tap-agent configuration
+    pub fn get_tap_trigger_value_wei(&mut self) -> Result<u128> {
+        let config = self.get_tap_config()?;
+        Ok(config.get_trigger_value())
+    }
+
+    /// Get the timestamp buffer duration from the tap-agent configuration
+    pub fn get_tap_timestamp_buffer_secs(&mut self) -> Result<u64> {
+        let config = self.get_tap_config()?;
+        Ok(config.timestamp_buffer_secs)
+    }
+
+    /// Get the max amount willing to lose in GRT from the tap-agent configuration
+    pub fn get_tap_max_amount_willing_to_lose_grt(&mut self) -> Result<f64> {
+        let config = self.get_tap_config()?;
+        Ok(config.max_amount_willing_to_lose_grt)
+    }
+
+    /// Get the trigger value divisor from the tap-agent configuration
+    pub fn get_tap_trigger_value_divisor(&mut self) -> Result<f64> {
+        let config = self.get_tap_config()?;
+        Ok(config.trigger_value_divisor)
     }
 }
 
