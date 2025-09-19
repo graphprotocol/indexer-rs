@@ -4398,6 +4398,7 @@ dependencies = [
  "tap_graph",
  "thegraph-core",
  "tokio",
+ "toml 0.8.23",
 ]
 
 [[package]]
