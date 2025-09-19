@@ -125,8 +125,8 @@ impl TestConfig {
         let gateway_api_key = get_s("GATEWAY_API_KEY", GATEWAY_API_KEY);
 
         // Database URL with fallback to constants::POSTGRES_URL
-        let database_url = env::var("DATABASE_URL")
-            .unwrap_or_else(|_| crate::constants::POSTGRES_URL.to_string());
+        let database_url =
+            env::var("DATABASE_URL").unwrap_or_else(|_| crate::constants::POSTGRES_URL.to_string());
 
         // TODO: default values from constants or load contrib/local-network/.env
         let account0_address = get_s("ACCOUNT0_ADDRESS", ACCOUNT0_ADDRESS);
@@ -193,7 +193,7 @@ impl TestConfig {
     /// Extract the configuration file from the running tap-agent Docker container
     fn extract_tap_agent_config_from_docker() -> Result<String> {
         let output = Command::new("docker")
-            .args(&["exec", "tap-agent", "cat", "/opt/config.toml"])
+            .args(["exec", "tap-agent", "cat", "/opt/config.toml"])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to execute docker command: {}", e))?;
 
