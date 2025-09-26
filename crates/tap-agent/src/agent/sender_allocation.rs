@@ -26,10 +26,7 @@ use tap_core::{
     },
     signed_message::Eip712SignedMessage,
 };
-use thegraph_core::{
-    alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain},
-    CollectionId,
-};
+use thegraph_core::alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
 
@@ -208,6 +205,10 @@ pub struct SenderAllocationState<T: NetworkVersion> {
     timestamp_buffer_ns: u64,
     /// Limit of receipts sent in a Rav Request
     rav_request_receipt_limit: u64,
+    /// Data service address for Horizon mode
+    /// - None for Legacy mode
+    /// - Some(SubgraphService address) for Horizon mode from config
+    data_service: Option<Address>,
 }
 
 /// Configuration derived from config.toml
@@ -559,6 +560,14 @@ where
             CheckList::new(required_checks),
         );
 
+        // Extract data_service from config based on TapMode
+        let data_service = match &config.tap_mode {
+            indexer_config::TapMode::Legacy => None,
+            indexer_config::TapMode::Horizon {
+                subgraph_service_address,
+            } => Some(*subgraph_service_address),
+        };
+
         Ok(Self {
             pgpool,
             tap_manager,
@@ -574,6 +583,7 @@ where
             sender_aggregator,
             rav_request_receipt_limit: config.rav_request_receipt_limit,
             timestamp_buffer_ns: config.timestamp_buffer_ns,
+            data_service,
         })
     }
 
@@ -1271,7 +1281,8 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                     "#,
             BigDecimal::from(min_timestamp),
             BigDecimal::from(max_timestamp),
-            CollectionId::from(self.allocation_id).encode_hex(),
+            // self.allocation_id is already a CollectionId in Horizon state
+            self.allocation_id.encode_hex(),
             self.indexer_address.encode_hex(),
             &signers,
         )
@@ -1296,7 +1307,8 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 collection_id = $1
                 AND signer_address IN (SELECT unnest($2::text[]))
             "#,
-            CollectionId::from(self.allocation_id).encode_hex(),
+            // self.allocation_id is already a CollectionId in Horizon state
+            self.allocation_id.encode_hex(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -1345,7 +1357,8 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 AND signer_address IN (SELECT unnest($4::text[]))
                 AND timestamp_ns > $5
             "#,
-            CollectionId::from(self.allocation_id).encode_hex(),
+            // self.allocation_id is already a CollectionId in Horizon state
+            self.allocation_id.encode_hex(),
             self.indexer_address.encode_hex(),
             last_id,
             &signers,
@@ -1395,10 +1408,15 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                     collection_id = $1
                     AND payer = $2
                     AND service_provider = $3
+                    AND data_service = $4
             "#,
-            CollectionId::from(self.allocation_id).encode_hex(),
+            // self.allocation_id is already a CollectionId in Horizon state
+            self.allocation_id.encode_hex(),
             self.sender.encode_hex(),
             self.indexer_address.encode_hex(),
+            self.data_service
+                .expect("data_service should be available in Horizon mode")
+                .encode_hex(),
         )
         .execute(&self.pgpool)
         .await?;
