@@ -871,6 +871,7 @@ impl State {
                 WITH grouped AS (
                     SELECT signer_address, collection_id
                     FROM tap_horizon_receipts
+                    WHERE data_service = $1 AND service_provider = $2
                     GROUP BY signer_address, collection_id
                 )
                 SELECT 
@@ -878,7 +879,13 @@ impl State {
                     ARRAY_AGG(collection_id) AS collection_ids
                 FROM grouped
                 GROUP BY signer_address
-            "#
+            "#,
+            self
+                .config
+                .tap_mode
+                .require_subgraph_service_address()
+                .encode_hex(),
+            self.config.indexer_address.encode_hex()
         )
         .fetch_all(&self.pgpool)
         .await
