@@ -278,6 +278,11 @@ impl ServiceRouter {
                 let receipt_max_value = max_receipt_value_grt.get_value();
 
                 // Create checks
+                let allowed_data_services = self
+                    .blockchain
+                    .subgraph_service_address
+                    .map(|addr| vec![addr]);
+
                 let checks = IndexerTapContext::get_checks(
                     self.database,
                     allocations.clone(),
@@ -285,6 +290,7 @@ impl ServiceRouter {
                     escrow_accounts_v2.clone(),
                     timestamp_error_tolerance,
                     receipt_max_value,
+                    allowed_data_services,
                 )
                 .await;
 
