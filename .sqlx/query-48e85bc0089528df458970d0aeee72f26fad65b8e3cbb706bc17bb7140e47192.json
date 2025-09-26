@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO scalar_tap_denylist (sender_address)\n                VALUES ($1)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "48e85bc0089528df458970d0aeee72f26fad65b8e3cbb706bc17bb7140e47192"
+}
