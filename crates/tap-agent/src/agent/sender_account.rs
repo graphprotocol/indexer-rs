@@ -275,7 +275,7 @@ pub struct SenderAccountArgs {
     /// Watcher that returns a list of escrow accounts for current indexer
     pub escrow_accounts: Receiver<EscrowAccounts>,
     /// Watcher of normalized allocation IDs (Legacy/Horizon) for this sender type
-    pub indexer_allocations: Receiver<HashSet<AllocationId>>, 
+    pub indexer_allocations: Receiver<HashSet<AllocationId>>,
     /// SubgraphClient of the escrow subgraph
     pub escrow_subgraph: &'static SubgraphClient,
     /// SubgraphClient of the network subgraph
@@ -888,9 +888,18 @@ impl Actor for SenderAccount {
                                 r#"
                                     SELECT collection_id, value_aggregate
                                     FROM tap_horizon_ravs
-                                    WHERE payer = $1 AND last AND NOT final;
+                                    WHERE payer = $1
+                                    AND service_provider = $2
+                                    AND data_service = $3
+                                    AND last AND NOT final;
                                 "#,
                                 sender_id.encode_hex(),
+                                // service_provider is the indexer address; data_service comes from TapMode config
+                                config.indexer_address.encode_hex(),
+                                config
+                                    .tap_mode
+                                    .require_subgraph_service_address()
+                                    .encode_hex(),
                             )
                             .fetch_all(&pgpool)
                             .await
