@@ -2,16 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod constants;
+mod database_checker;
+mod env_loader;
+#[allow(dead_code)]
+mod indexer_cli;
 mod load_test;
-mod metrics;
+// Lets keep the metrics parser disabled
+// we are moving towards using database_checker
+// for more robust checks and using the sole source of truth
+// mod metrics;
 mod rav_tests;
 mod signature_test;
+mod test_config;
 mod utils;
 
 use anyhow::Result;
 use clap::Parser;
 use load_test::{receipt_handler_load_test, receipt_handler_load_test_v2};
-use metrics::MetricsChecker;
 pub(crate) use rav_tests::{test_invalid_chain_id, test_tap_rav_v1, test_tap_rav_v2};
 
 /// Main CLI parser structure
@@ -26,6 +33,9 @@ struct Cli {
 enum Commands {
     Rav1,
     Rav2,
+
+    #[clap(name = "direct-service")]
+    DirectService,
 
     #[clap(name = "load")]
     LoadService {
@@ -50,7 +60,6 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        // cargo run -- rav1
         Commands::Rav1 => {
             test_invalid_chain_id().await?;
             test_tap_rav_v1().await?;
@@ -59,7 +68,12 @@ async fn main() -> Result<()> {
         Commands::Rav2 => {
             test_tap_rav_v2().await?;
         }
-        // cargo run -- load --num-receipts 1000
+        Commands::DirectService => {
+            use crate::rav_tests::test_direct_service_rav_v2;
+
+            test_direct_service_rav_v2().await?;
+        }
+
         Commands::LoadService { num_receipts } => {
             let concurrency = num_cpus::get();
             receipt_handler_load_test(num_receipts, concurrency).await?;

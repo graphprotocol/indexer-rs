@@ -70,6 +70,14 @@ static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static UNAGGREGATED_FEES_BY_VERSION: LazyLock<GaugeVec> = LazyLock::new(|| {
+    register_gauge_vec!(
+        "tap_unaggregated_fees_grt_total_by_version",
+        "Unaggregated fees per sender, allocation and TAP version",
+        &["sender", "allocation", "version"]
+    )
+    .unwrap()
+});
 static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_sender_fee_tracker_grt_total",
@@ -112,6 +120,8 @@ static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
 });
 
 const INITIAL_RAV_REQUEST_CONCURRENT: usize = 1;
+const TAP_V1: &str = "v1";
+const TAP_V2: &str = "v2";
 
 type RavMap = HashMap<Address, u128>;
 type Balance = U256;
@@ -264,7 +274,7 @@ pub struct SenderAccountArgs {
     pub sender_id: Address,
     /// Watcher that returns a list of escrow accounts for current indexer
     pub escrow_accounts: Receiver<EscrowAccounts>,
-    /// Watcher that returns a set of open and recently closed allocation ids
+    /// Watcher of normalized allocation IDs (Legacy/Horizon) for this sender type
     pub indexer_allocations: Receiver<HashSet<AllocationId>>,
     /// SubgraphClient of the escrow subgraph
     pub escrow_subgraph: &'static SubgraphClient,
@@ -272,6 +282,9 @@ pub struct SenderAccountArgs {
     pub network_subgraph: &'static SubgraphClient,
     /// Domain separator used for tap
     pub domain_separator: Eip712Domain,
+    // TODO: check if we need this
+    /// Domain separator used for horizon
+    pub domain_separator_v2: Eip712Domain,
     /// Endpoint URL for aggregator server
     pub sender_aggregator_endpoint: Url,
     /// List of allocation ids that must created at startup
@@ -349,6 +362,8 @@ pub struct State {
 
     /// Domain separator used for tap
     domain_separator: Eip712Domain,
+    /// Domain separator used for horizon
+    domain_separator_v2: Eip712Domain,
     /// Database connection
     pgpool: PgPool,
     /// Aggregator client for V1
@@ -405,8 +420,11 @@ pub struct SenderAccountConfig {
     /// over the escrow balance
     pub trusted_senders: HashSet<Address>,
 
-    #[doc(hidden)]
-    pub horizon_enabled: bool,
+    /// TAP protocol operation mode
+    ///
+    /// Defines whether the indexer operates in legacy mode (V1 TAP receipts only)
+    /// or horizon mode (hybrid V1/V2 TAP receipts support).
+    pub tap_mode: indexer_config::TapMode,
 }
 
 impl SenderAccountConfig {
@@ -422,7 +440,9 @@ impl SenderAccountConfig {
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
             tap_sender_timeout: config.tap.sender_timeout_secs,
             trusted_senders: config.tap.trusted_senders.clone(),
-            horizon_enabled: config.horizon.enabled,
+
+            // Derive TapMode from horizon configuration
+            tap_mode: config.tap_mode(),
         }
     }
 }
@@ -483,7 +503,7 @@ impl State {
                     .sender(self.sender)
                     .escrow_accounts(self.escrow_accounts.clone())
                     .escrow_subgraph(self.escrow_subgraph)
-                    .domain_separator(self.domain_separator.clone())
+                    .domain_separator(self.domain_separator_v2.clone())
                     .sender_account_ref(sender_account_ref.clone())
                     .sender_aggregator(self.aggregator_v2.clone())
                     .config(AllocationConfig::from_sender_config(self.config))
@@ -510,6 +530,7 @@ impl State {
         sender_allocation_id
     }
 
+    #[tracing::instrument(skip(self), level = "trace")]
     async fn rav_request_for_heaviest_allocation(&mut self) -> anyhow::Result<()> {
         let allocation_id = self
             .sender_fee_tracker
@@ -601,9 +622,25 @@ impl State {
             .with_label_values(&[&self.sender.to_string()])
             .set(self.sender_fee_tracker.get_total_fee() as f64);
 
-        UNAGGREGATED_FEES
-            .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
+        // New by_version metric: always publish for both V1 and V2
+        let version = match self.sender_type {
+            SenderType::Legacy => TAP_V1,
+            SenderType::Horizon => TAP_V2,
+        };
+        UNAGGREGATED_FEES_BY_VERSION
+            .with_label_values(&[
+                &self.sender.to_string(),
+                &allocation_id.to_string(),
+                version,
+            ])
             .set(unaggregated_fees.value as f64);
+
+        // Keep legacy metric for V1 only, to preserve existing dashboards
+        if matches!(self.sender_type, SenderType::Legacy) {
+            UNAGGREGATED_FEES
+                .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
+                .set(unaggregated_fees.value as f64);
+        }
     }
 
     /// Determines whether the sender should be denied/blocked based on current fees and balance.
@@ -684,7 +721,7 @@ impl State {
                 .expect("Should not fail to delete from denylist");
             }
             SenderType::Horizon => {
-                if self.config.horizon_enabled {
+                if self.config.tap_mode.is_horizon() {
                     sqlx::query!(
                         r#"
                     DELETE FROM tap_horizon_denylist
@@ -716,9 +753,10 @@ impl State {
         }
         // We don't need to check what type of allocation it is since
         // legacy allocation ids can't be reused for horizon
+        // Use .address() to get the 20-byte allocation address for both Legacy and Horizon
         let allocation_ids: Vec<String> = allocation_ids
             .into_iter()
-            .map(|addr| addr.to_string().to_lowercase())
+            .map(|addr| addr.address().to_string().to_lowercase())
             .collect();
 
         let mut hash: Option<String> = None;
@@ -782,6 +820,7 @@ impl Actor for SenderAccount {
             escrow_subgraph,
             network_subgraph,
             domain_separator,
+            domain_separator_v2,
             sender_aggregator_endpoint,
             allocation_ids,
             prefix,
@@ -789,16 +828,25 @@ impl Actor for SenderAccount {
             sender_type,
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+        // Pass-through normalized allocation IDs for this sender type
         let myself_clone = myself.clone();
         watch_pipe(indexer_allocations, move |allocation_ids| {
+            let count = allocation_ids.len();
+            tracing::info!(
+                sender = %sender_id,
+                sender_type = ?sender_type,
+                count,
+                "indexer_allocations update: received normalized allocations"
+            );
+            let myself = myself_clone.clone();
             let allocation_ids = allocation_ids.clone();
-            // Update the allocation_ids
-            myself_clone
-                .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
-                .unwrap_or_else(|e| {
-                    tracing::error!("Error while updating allocation_ids: {:?}", e);
-                });
-            async {}
+            async move {
+                myself
+                    .cast(SenderAccountMessage::UpdateAllocationIds(allocation_ids))
+                    .unwrap_or_else(|e| {
+                        tracing::error!(error=?e, "Error while updating allocation_ids");
+                    });
+            }
         });
 
         let myself_clone = myself.clone();
@@ -813,8 +861,8 @@ impl Actor for SenderAccount {
                 .get_balance_for_sender(&sender_id)
                 .unwrap_or_default();
             async move {
-                let last_non_final_ravs: Vec<_> = match sender_type {
-                    // Get all ravs from v1 table
+                let last_non_final_ravs: Vec<(AllocationId, _)> = match sender_type {
+                    // Get all ravs from v1 table - wrap in Legacy variant
                     SenderType::Legacy => sqlx::query!(
                         r#"
                                     SELECT allocation_id, value_aggregate
@@ -827,24 +875,41 @@ impl Actor for SenderAccount {
                     .await
                     .expect("Should not fail to fetch from scalar_tap_ravs")
                     .into_iter()
-                    .map(|record| (record.allocation_id, record.value_aggregate))
+                    .filter_map(|record| {
+                        let allocation_id =
+                            AllocationIdCore::from_str(&record.allocation_id).ok()?;
+                        Some((AllocationId::Legacy(allocation_id), record.value_aggregate))
+                    })
                     .collect(),
-                    // Get all ravs from v2 table
+                    // Get all ravs from v2 table - wrap in Horizon variant
                     SenderType::Horizon => {
-                        if config.horizon_enabled {
+                        if config.tap_mode.is_horizon() {
                             sqlx::query!(
                                 r#"
                                     SELECT collection_id, value_aggregate
                                     FROM tap_horizon_ravs
-                                    WHERE payer = $1 AND last AND NOT final;
+                                    WHERE payer = $1
+                                    AND service_provider = $2
+                                    AND data_service = $3
+                                    AND last AND NOT final;
                                 "#,
                                 sender_id.encode_hex(),
+                                // service_provider is the indexer address; data_service comes from TapMode config
+                                config.indexer_address.encode_hex(),
+                                config
+                                    .tap_mode
+                                    .require_subgraph_service_address()
+                                    .encode_hex(),
                             )
                             .fetch_all(&pgpool)
                             .await
                             .expect("Should not fail to fetch from \"horizon\" scalar_tap_ravs")
                             .into_iter()
-                            .map(|record| (record.collection_id, record.value_aggregate))
+                            .filter_map(|record| {
+                                let collection_id =
+                                    CollectionId::from_str(&record.collection_id).ok()?;
+                                Some((AllocationId::Horizon(collection_id), record.value_aggregate))
+                            })
                             .collect()
                         } else {
                             vec![]
@@ -861,7 +926,9 @@ impl Actor for SenderAccount {
                                 unfinalized_transactions::Variables {
                                     unfinalized_ravs_allocation_ids: last_non_final_ravs
                                         .iter()
-                                        .map(|rav| rav.0.to_string())
+                                        .map(|(allocation_id, _)| {
+                                            allocation_id.address().to_string()
+                                        })
                                         .collect::<Vec<_>>(),
                                     sender: format!("{sender_id:x?}"),
                                 },
@@ -881,7 +948,7 @@ impl Actor for SenderAccount {
                         }
                     }
                     SenderType::Horizon => {
-                        if config.horizon_enabled {
+                        if config.tap_mode.is_horizon() {
                             // V2 doesn't have transaction tracking like V1, but we can check if the RAVs
                             // we're about to redeem are still the latest ones by querying LatestRavs.
                             // If the subgraph has newer RAVs, it means ours were already redeemed.
@@ -889,7 +956,7 @@ impl Actor for SenderAccount {
 
                             let collection_ids: Vec<String> = last_non_final_ravs
                                 .iter()
-                                .map(|(collection_id, _)| collection_id.clone())
+                                .map(|(collection_id, _)| collection_id.address().to_string())
                                 .collect();
 
                             if !collection_ids.is_empty() {
@@ -915,7 +982,7 @@ impl Actor for SenderAccount {
                                                     .to_bigint()
                                                     .and_then(|v| v.to_u128())
                                                     .unwrap_or(0);
-                                                (collection_id.clone(), value_u128)
+                                                (collection_id.address().to_string(), value_u128)
                                             })
                                             .collect();
 
@@ -928,8 +995,17 @@ impl Actor for SenderAccount {
                                                     rav.value_aggregate.parse::<u128>()
                                                 {
                                                     if subgraph_value > our_value {
-                                                        // Return collection ID string for filtering
-                                                        finalized_allocation_ids.push(rav.id);
+                                                        // Convert collection_id to address format for consistent comparison
+                                                        if let Ok(collection_id) =
+                                                            CollectionId::from_str(&rav.id)
+                                                        {
+                                                            let addr = AllocationIdCore::from(
+                                                                collection_id,
+                                                            )
+                                                            .into_inner();
+                                                            finalized_allocation_ids
+                                                                .push(format!("{addr:x?}"));
+                                                        }
                                                     }
                                                 }
                                             }
@@ -965,11 +1041,10 @@ impl Actor for SenderAccount {
                 // filter the ravs marked as last that were not redeemed yet
                 let non_redeemed_ravs = last_non_final_ravs
                     .into_iter()
-                    .filter_map(|rav| {
-                        Some((
-                            Address::from_str(&rav.0).ok()?,
-                            rav.1.to_bigint().and_then(|v| v.to_u128())?,
-                        ))
+                    .filter_map(|(allocation_id, value)| {
+                        let address = allocation_id.address(); // Use existing .address() method
+                        let value = value.to_bigint()?.to_u128()?;
+                        Some((address, value))
                     })
                     .filter(|(allocation, _value)| {
                         !redeemed_ravs_allocation_ids.contains(&format!("{allocation:x?}"))
@@ -1010,7 +1085,7 @@ impl Actor for SenderAccount {
             .expect("Deny status cannot be null"),
             // Get deny status from the tap horizon table
             SenderType::Horizon => {
-                if config.horizon_enabled {
+                if config.tap_mode.is_horizon() {
                     sqlx::query!(
                         r#"
                 SELECT EXISTS (
@@ -1092,6 +1167,7 @@ impl Actor for SenderAccount {
             escrow_subgraph,
             network_subgraph,
             domain_separator,
+            domain_separator_v2,
             pgpool,
             aggregator_v1,
             aggregator_v2,
@@ -1159,8 +1235,56 @@ impl Actor for SenderAccount {
                 }
             }
             SenderAccountMessage::UpdateReceiptFees(allocation_id, receipt_fees) => {
+                tracing::info!(
+                    "SenderAccount {} ({:?}) received receipt for allocation: {} (variant: {:?})",
+                    state.sender,
+                    state.sender_type,
+                    allocation_id,
+                    match allocation_id {
+                        AllocationId::Legacy(_) => "Legacy",
+                        AllocationId::Horizon(_) => "Horizon",
+                    }
+                );
+
+                tracing::debug!(
+                    allocation_addr = %allocation_id.address(),
+                    variant = %match allocation_id { AllocationId::Legacy(_) => "Legacy", AllocationId::Horizon(_) => "Horizon" },
+                    "Checking fee tracker for allocation",
+                );
+
+                // Log the raw allocation ID details for comparison
+                match &allocation_id {
+                    AllocationId::Legacy(core_id) => {
+                        tracing::debug!(core_id = %core_id, address = %core_id.as_ref(), "Legacy allocation details");
+                    }
+                    AllocationId::Horizon(collection_id) => {
+                        tracing::debug!(collection_id = %collection_id, as_address = %collection_id.as_address(), "Horizon allocation details");
+                    }
+                }
+                let tracked_allocations: Vec<_> =
+                    state.sender_fee_tracker.id_to_fee.keys().collect();
+                let tracked_count = tracked_allocations.len();
+                tracing::debug!(tracked_count, "Currently tracked allocations");
+                tracing::debug!(receipt_fees = ?receipt_fees, "Receipt fees details");
+
+                // Check if allocation exists in tracker
+                let has_allocation = state
+                    .sender_fee_tracker
+                    .id_to_fee
+                    .contains_key(&allocation_id.address());
+                tracing::debug!(allocation_id = %allocation_id, has_allocation, "Allocation exists in fee tracker");
+
+                if !has_allocation {
+                    let tracked_count = state.sender_fee_tracker.id_to_fee.len();
+                    tracing::warn!(
+                        allocation_id = %allocation_id,
+                        tracked_count,
+                        "Received receipt for unknown allocation",
+                    );
+                }
                 // If we're here because of a new receipt, abort any scheduled UpdateReceiptFees
                 if let Some(scheduled_rav_request) = state.scheduled_rav_request.take() {
+                    tracing::debug!(sender = %state.sender, "Aborting scheduled RAV request");
                     scheduled_rav_request.abort();
                 }
 
@@ -1234,7 +1358,28 @@ impl Actor for SenderAccount {
                     let counter_greater_receipt_limit = total_counter_for_allocation
                         >= state.config.rav_request_receipt_limit
                         && can_trigger_rav;
-                    let rav_result = if !state.backoff_info.in_backoff()
+
+                    // Enhanced RAV trigger debugging
+                    let total_fee = state.sender_fee_tracker.get_total_fee();
+                    let in_backoff = state.backoff_info.in_backoff();
+                    let buffered_fee = total_fee.saturating_sub(total_fee_outside_buffer);
+
+                    tracing::debug!(
+                        allocation_id = %allocation_id.address(),
+                        total_fee = %total_fee,
+                        total_fee_outside_buffer = %total_fee_outside_buffer,
+                        buffered_fee = %buffered_fee,
+                        trigger_value = %state.config.trigger_value,
+                        total_counter_for_allocation = %total_counter_for_allocation,
+                        receipt_limit = %state.config.rav_request_receipt_limit,
+                        can_trigger_rav = %can_trigger_rav,
+                        counter_greater_receipt_limit = %counter_greater_receipt_limit,
+                        in_backoff = %in_backoff,
+                        fee_trigger_condition = %(total_fee_outside_buffer >= state.config.trigger_value),
+                        "RAV trigger condition analysis"
+                    );
+
+                    let rav_result = if !in_backoff
                         && total_fee_outside_buffer >= state.config.trigger_value
                     {
                         tracing::debug!(
@@ -1293,6 +1438,17 @@ impl Actor for SenderAccount {
             }
             SenderAccountMessage::UpdateAllocationIds(allocation_ids) => {
                 // Create new sender allocations
+                tracing::info!(
+                    sender = %state.sender,
+                    sender_type = ?state.sender_type,
+                    old_count = state.allocation_ids.len(),
+                    new_count = allocation_ids.len(),
+                    "Updating allocations",
+                );
+
+                tracing::debug!(old_count = state.allocation_ids.len(), "Old allocations");
+                tracing::debug!(new_count = allocation_ids.len(), "New allocations");
+
                 let mut new_allocation_ids = state.allocation_ids.clone();
                 for allocation_id in allocation_ids.difference(&state.allocation_ids) {
                     if let Err(error) = state
@@ -1340,11 +1496,6 @@ impl Actor for SenderAccount {
                     }
                 }
 
-                tracing::trace!(
-                    old_ids= ?state.allocation_ids,
-                    new_ids = ?new_allocation_ids,
-                    "Updating allocation ids"
-                );
                 state.allocation_ids = new_allocation_ids;
             }
             SenderAccountMessage::NewAllocationId(allocation_id) => {
@@ -1466,9 +1617,28 @@ impl Actor for SenderAccount {
                 let _ = UNAGGREGATED_FEES
                     .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
 
-                // check for deny conditions
+                // Check for deny conditions - look up correct allocation variant from state
+                let allocation_enum = state
+                    .allocation_ids
+                    .iter()
+                    .find(|id| id.address() == allocation_id)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        // Allocation not found in state - this can happen in race conditions during 
+                        // allocation lifecycle or in tests. Since sender accounts are type-specific 
+                        // (Legacy or Horizon), we can safely fall back to the sender's type.
+                        tracing::warn!(%allocation_id, sender_type = ?state.sender_type,
+                            "Allocation not found in state for ActorTerminated, falling back to sender type");
+                        match state.sender_type {
+                            crate::agent::sender_accounts_manager::SenderType::Legacy =>
+                                AllocationId::Legacy(AllocationIdCore::from(allocation_id)),
+                            crate::agent::sender_accounts_manager::SenderType::Horizon =>
+                                AllocationId::Horizon(CollectionId::from(allocation_id)),
+                        }
+                    });
+
                 let _ = myself.cast(SenderAccountMessage::UpdateReceiptFees(
-                    AllocationId::Legacy(AllocationIdCore::from(allocation_id)),
+                    allocation_enum,
                     ReceiptFees::Retry,
                 ));
 

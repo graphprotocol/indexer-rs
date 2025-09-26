@@ -92,7 +92,7 @@ impl InnerContext {
             Err(e) => {
                 // Create error message once
                 let err_msg = format!("Failed to store {version} receipts: {e}");
-                tracing::error!("{}", err_msg);
+                tracing::error!(error = %e, version = %version, "Failed to store receipts");
                 for sender in senders {
                     // Convert to AdapterError for each sender
                     let _ = sender.send(Err(anyhow!(err_msg.clone()).into()));
@@ -150,7 +150,7 @@ impl InnerContext {
         .execute(&self.pgpool)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to store V1 receipt: {}", e);
+            tracing::error!(error = %e, "Failed to store V1 receipt");
             anyhow!(e)
         })?;
 
@@ -221,7 +221,7 @@ impl InnerContext {
         .execute(&self.pgpool)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to store V2 receipt: {}", e);
+            tracing::error!(error = %e, "Failed to store V2 receipt");
             anyhow!(e)
         })?;
 
@@ -243,7 +243,7 @@ impl IndexerTapContext {
                     biased;
                     _ = receiver.recv_many(&mut buffer, BUFFER_SIZE) => {
                         if let Err(e) = inner_context.process_db_receipts(buffer).await {
-                            tracing::error!("{e}");
+                            tracing::error!(error = %e, "Failed to process buffered receipts");
                         }
                     }
                     _ = cancelation_token.cancelled() => { break },
@@ -258,13 +258,17 @@ impl ReceiptStore<TapReceipt> for IndexerTapContext {
     type AdapterError = AdapterError;
 
     async fn store_receipt(&self, receipt: CheckingReceipt) -> Result<u64, Self::AdapterError> {
-        let db_receipt = DatabaseReceipt::from_receipt(receipt, &self.domain_separator)?;
+        let separator = match receipt.signed_receipt() {
+            TapReceipt::V1(_) => &self.domain_separator,
+            TapReceipt::V2(_) => &self.domain_separator_v2,
+        };
+        let db_receipt = DatabaseReceipt::from_receipt(receipt, separator)?;
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
         self.receipt_producer
             .send((db_receipt, result_tx))
             .await
             .map_err(|e| {
-                tracing::error!("Failed to queue receipt for storage: {}", e);
+                tracing::error!(error = %e, "Failed to queue receipt for storage");
                 anyhow!(e)
             })?;
 
@@ -309,7 +313,7 @@ impl DbReceiptV1 {
         let signer_address = receipt
             .recover_signer(separator)
             .map_err(|e| {
-                tracing::error!("Failed to recover receipt signer: {}", e);
+                tracing::error!(error = %e, "Failed to recover receipt signer");
                 anyhow!(e)
             })?
             .encode_hex();
@@ -356,7 +360,7 @@ impl DbReceiptV2 {
         let signer_address = receipt
             .recover_signer(separator)
             .map_err(|e| {
-                tracing::error!("Failed to recover receipt signer: {}", e);
+                tracing::error!(error = %e, "Failed to recover V2 receipt signer");
                 anyhow!(e)
             })?
             .encode_hex();
@@ -386,7 +390,7 @@ mod tests {
     use sqlx::migrate::{MigrationSource, Migrator};
     use test_assets::{
         create_signed_receipt, create_signed_receipt_v2, SignedReceiptRequest, INDEXER_ALLOCATIONS,
-        TAP_EIP712_DOMAIN,
+        TAP_EIP712_DOMAIN, TAP_EIP712_DOMAIN_V2,
     };
 
     use crate::tap::{
@@ -411,7 +415,7 @@ mod tests {
 
     async fn create_v2() -> DatabaseReceipt {
         let v2 = create_signed_receipt_v2().call().await;
-        DatabaseReceipt::V2(DbReceiptV2::from_receipt(&v2, &TAP_EIP712_DOMAIN).unwrap())
+        DatabaseReceipt::V2(DbReceiptV2::from_receipt(&v2, &TAP_EIP712_DOMAIN_V2).unwrap())
     }
 
     pub type VecReceiptTx = Vec<(

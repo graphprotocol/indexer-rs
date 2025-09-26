@@ -54,13 +54,31 @@ impl Check<TapReceipt> for AllocationId {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let allocation_id = receipt
-            .signed_receipt()
-            .allocation_id()
-            .ok_or_else(|| CheckError::Failed(anyhow!("Receipt does not have an allocation_id")))?;
-        // TODO: Remove the if block below? Each TAP Monitor is specific to an allocation
-        // ID. So the receipts that are received here should already have been filtered by
-        // allocation ID.
+        // Support both Legacy (V1) and Horizon (V2) receipts.
+        // V1 provides allocation_id directly; V2 provides collection_id which we map to an Address.
+        let allocation_id = if let Some(a) = receipt.signed_receipt().allocation_id() {
+            a
+        } else if let Some(cid) = receipt.signed_receipt().collection_id() {
+            // V2: collection_id is 32 bytes with the 20-byte address right-aligned (left-padded zeros).
+            let bytes = cid.as_slice();
+            if bytes.len() != 32 {
+                return Err(CheckError::Failed(anyhow!(
+                    "Invalid collection_id length: {} (expected 32)",
+                    bytes.len()
+                )));
+            }
+            Address::from_slice(&bytes[12..32])
+        } else {
+            return Err(CheckError::Failed(anyhow!(
+                "Receipt does not have an allocation_id or collection_id"
+            )));
+        };
+
+        tracing::debug!(
+            allocation_id = %allocation_id,
+            expected_allocation_id = %self.allocation_id,
+            "Checking allocation_id",
+        );
         if allocation_id != self.allocation_id {
             return Err(CheckError::Failed(anyhow!("Receipt allocation_id different from expected: allocation_id: {:?}, expected_allocation_id: {}", allocation_id, self.allocation_id)));
         };

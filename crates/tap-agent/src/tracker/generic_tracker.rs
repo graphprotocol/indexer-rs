@@ -36,9 +36,9 @@ where
     G: GlobalTracker<U>,
     F: AllocationStats<U> + DefaultFromExtra<E>,
 {
-    pub(super) global: G,
-    pub(super) id_to_fee: HashMap<Address, F>,
-    pub(super) extra_data: E,
+    pub(crate) global: G,
+    pub(crate) id_to_fee: HashMap<Address, F>,
+    pub(crate) extra_data: E,
 
     _update: PhantomData<U>,
 }
@@ -76,24 +76,111 @@ where
         }
     }
 
+    #[tracing::instrument(skip(self), ret, level = "trace")]
     pub fn get_heaviest_allocation_id(&mut self) -> Option<Address> {
-        // just loop over and get the biggest fee
-        self.id_to_fee
+        let total_allocations = self.id_to_fee.len();
+        tracing::debug!(total_allocations, "Evaluating allocations for RAV request",);
+
+        if total_allocations == 0 {
+            tracing::warn!("No allocations found in fee tracker");
+            return None;
+        }
+
+        let mut eligible_count = 0;
+        let mut zero_valid_fee_count = 0;
+
+        let result = self
+            .id_to_fee
             .iter_mut()
-            .filter(|(_, fee)| fee.is_allowed_to_trigger_rav_request())
+            .filter(|(addr, fee)| {
+                let allowed = fee.is_allowed_to_trigger_rav_request();
+                if allowed {
+                    eligible_count += 1;
+                }
+
+                tracing::trace!(
+                    allocation = %addr,
+                    allowed,
+                    "Allocation eligibility check",
+                );
+
+                allowed
+            })
             .fold(None, |acc: Option<(&Address, u128)>, (addr, value)| {
-                if let Some((_, max_fee)) = acc {
-                    if value.get_valid_fee() > max_fee {
-                        Some((addr, value.get_valid_fee()))
+                let current_fee = value.get_valid_fee();
+
+                tracing::trace!(
+                    allocation = %addr,
+                    valid_fee = %current_fee,
+                    "Checking allocation valid fees",
+                );
+
+                if current_fee == 0 {
+                    zero_valid_fee_count += 1;
+                }
+
+                if let Some((current_addr, max_fee)) = acc {
+                    if current_fee > max_fee {
+                        tracing::trace!(
+                            new = %addr,
+                            new_fee = %current_fee,
+                            old = %current_addr,
+                            old_fee = %max_fee,
+                            "New heaviest allocation",
+                        );
+                        Some((addr, current_fee))
                     } else {
                         acc
                     }
+                } else if current_fee > 0 {
+                    tracing::trace!(
+                        allocation = %addr,
+                        valid_fee = %current_fee,
+                        "First valid allocation",
+                    );
+                    Some((addr, current_fee))
                 } else {
-                    Some((addr, value.get_valid_fee()))
+                    acc
                 }
             })
-            .filter(|(_, fee)| *fee > 0)
-            .map(|(&id, _)| id)
+            .filter(|(_, fee)| {
+                let valid = *fee > 0;
+                tracing::trace!(fee = %fee, valid, "Final fee check");
+                valid
+            })
+            .map(|(&id, fee)| {
+                tracing::info!(allocation = %id, fee = %fee, "Selected heaviest allocation");
+                id
+            });
+
+        if result.is_none() {
+            tracing::warn!(
+                total_allocations,
+                eligible_count,
+                zero_valid_fee_count,
+                "No valid allocation found",
+            );
+
+            // Additional logging for SenderFeeTracker specifically
+            if std::any::type_name::<F>().contains("SenderFeeStats") {
+                tracing::debug!("This appears to be a SenderFeeTracker - checking buffer status");
+                for (addr, fee) in &mut self.id_to_fee {
+                    let total_fee = fee.get_total_fee();
+                    let valid_fee = fee.get_valid_fee();
+                    let buffered_fee = total_fee - valid_fee;
+
+                    tracing::debug!(
+                        allocation = %addr,
+                        total_fee,
+                        valid_fee,
+                        buffered_fee,
+                        "Allocation fee breakdown",
+                    );
+                }
+            }
+        }
+
+        result
     }
 
     pub fn get_list_of_allocation_ids(&self) -> HashSet<Address> {
@@ -148,9 +235,34 @@ impl GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, Unaggregated
     }
 
     pub fn get_ravable_total_fee(&mut self) -> u128 {
-        self.get_total_fee()
-            - self.global.requesting
-            - self.get_buffered_fee().min(self.global.total_fee)
+        // Use saturating_sub to prevent underflow when requesting or buffered fees
+        // exceed total fee (can happen after RAV success resets counters)
+        let total_fee = self.get_total_fee();
+        let requesting_fee = self.global.requesting;
+        let raw_buffered_fee = self.get_buffered_fee();
+        let buffered_fee = raw_buffered_fee.min(total_fee);
+
+        let result = total_fee
+            .saturating_sub(requesting_fee)
+            .saturating_sub(buffered_fee);
+
+        // Log only when the pre-min raw buffered fee or requesting exceeds total
+        // TODO: Investigate if this edge case is expected behavior.
+        // It may occur right after a successful RAV resets totals to zero while
+        // some receipts are still within the buffer window awaiting expiration.
+        if requesting_fee > total_fee || raw_buffered_fee > total_fee {
+            // This can happen when a RAV completes (resetting totals) but receipts are still in the buffer
+            tracing::warn!(
+                total_fee = total_fee,
+                requesting_fee = requesting_fee,
+                raw_buffered_fee = raw_buffered_fee,
+                buffered_fee = buffered_fee,
+                result = result,
+                "Fees exceed total fee - using saturating arithmetic to prevent underflow"
+            );
+        }
+
+        result
     }
 
     fn get_buffered_fee(&mut self) -> u128 {

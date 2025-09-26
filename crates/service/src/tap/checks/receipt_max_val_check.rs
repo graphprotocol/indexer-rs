@@ -66,7 +66,7 @@ mod tests {
             .unwrap();
 
         let eip712_domain_separator: Eip712Domain =
-            tap_eip712_domain(1, Address::from([0x11u8; 20]));
+            tap_eip712_domain(1, Address::from([0x11u8; 20]), tap_core::TapVersion::V1);
 
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)

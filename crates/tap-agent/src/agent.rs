@@ -49,7 +49,7 @@ use sender_accounts_manager::SenderAccountsManager;
 
 use crate::{
     agent::sender_accounts_manager::{SenderAccountsManagerArgs, SenderAccountsManagerMessage},
-    database, CONFIG, EIP_712_DOMAIN,
+    database, CONFIG, EIP_712_DOMAIN, EIP_712_DOMAIN_V2,
 };
 
 /// Actor, Arguments, State, Messages and implementation for [crate::agent::sender_account::SenderAccount]
@@ -65,7 +65,10 @@ pub mod unaggregated_receipts;
 /// This is the main entrypoint for starting up tap-agent
 ///
 /// It uses the static [crate::CONFIG] to configure the agent.
-pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>) {
+pub async fn start_agent(
+) -> anyhow::Result<(ActorRef<SenderAccountsManagerMessage>, JoinHandle<()>)> {
+    use anyhow::Context;
+
     let Config {
         indexer: IndexerConfig {
             indexer_address, ..
@@ -100,12 +103,10 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
                             },
                     },
             },
-        tap:
-            TapConfig {
-                // TODO: replace with a proper implementation once the gateway registry contract is ready
-                sender_aggregator_endpoints,
-                ..
-            },
+        tap: TapConfig {
+            sender_aggregator_endpoints,
+            ..
+        },
         ..
     } = &*CONFIG;
     let pgpool = database::connect(database.clone()).await;
@@ -137,7 +138,7 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         *recently_closed_allocation_buffer,
     )
     .await
-    .expect("Failed to initialize indexer_allocations watcher");
+    .with_context(|| "Failed to initialize indexer_allocations watcher")?;
 
     let escrow_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
@@ -157,6 +158,10 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         .await,
     ));
 
+    tracing::info!(
+        "Initializing V1 escrow accounts watcher with indexer {}",
+        indexer_address
+    );
     let escrow_accounts_v1 = escrow_accounts_v1(
         escrow_subgraph,
         *indexer_address,
@@ -164,50 +169,64 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         false,
     )
     .await
-    .expect("Error creating escrow_accounts channel");
+    .with_context(|| "Error creating escrow_accounts channel")?;
+
+    tracing::info!("V1 escrow accounts watcher initialized successfully");
 
     // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
-    // - If horizon.enabled = false: Pure legacy mode, no Horizon detection
-    // - If horizon.enabled = true: Check if Horizon contracts are active in the network
-    let is_horizon_enabled = if CONFIG.horizon.enabled {
-        tracing::info!("Horizon migration support enabled - checking if Horizon contracts are active in the network");
+    // - Legacy mode: if [horizon].enabled = false
+    // - Horizon mode: if [horizon].enabled = true; verify network readiness
+    let is_horizon_enabled = if CONFIG.tap_mode().is_horizon() {
+        tracing::info!("Horizon mode configured; checking Network Subgraph readiness");
         match indexer_monitor::is_horizon_active(network_subgraph).await {
-            Ok(active) => {
-                if active {
-                    tracing::info!("Horizon contracts detected in network subgraph - enabling hybrid migration mode");
-                    tracing::info!("TAP Agent Mode: Process existing V1 receipts for RAVs, accept new V2 receipts");
-                } else {
-                    tracing::info!("Horizon contracts not yet active in network subgraph - remaining in legacy mode");
-                }
-                active
+            Ok(true) => {
+                tracing::info!(
+                    "Horizon schema available in network subgraph - enabling hybrid migration mode"
+                );
+                tracing::info!(
+                    "TAP Agent Mode: Process existing V1 receipts for RAVs, accept new V2 receipts"
+                );
+                tracing::info!(
+                    "V2 watcher will automatically detect new PaymentsEscrow accounts as they appear"
+                );
+                true
+            }
+            Ok(false) => {
+                anyhow::bail!(
+                    "Horizon enabled, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). Deploy Horizon (V2) contracts and the updated Network Subgraph, or disable Horizon ([horizon].enabled = false)"
+                );
             }
             Err(e) => {
-                tracing::warn!(
-                    "Failed to detect Horizon contracts: {}. Remaining in legacy mode.",
+                anyhow::bail!(
+                    "Failed to detect Horizon contracts due to network/subgraph error: {}. Cannot start with Horizon enabled when network status is unknown.",
                     e
                 );
-                false
             }
         }
     } else {
-        tracing::info!(
-            "Horizon migration support disabled in configuration - using pure legacy mode"
-        );
+        tracing::info!("Horizon not configured - using pure legacy mode");
         false
     };
 
     // Create V2 escrow accounts watcher only if Horizon is active
     // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
     let escrow_accounts_v2 = if is_horizon_enabled {
-        escrow_accounts_v2(
+        tracing::info!(
+            "Initializing V2 escrow accounts watcher with indexer {}",
+            indexer_address
+        );
+        let watcher = escrow_accounts_v2(
             network_subgraph,
             *indexer_address,
             *network_sync_interval,
             false,
         )
         .await
-        .expect("Error creating escrow_accounts_v2 channel")
+        .with_context(|| "Error creating escrow_accounts_v2 channel")?;
+
+        watcher
     } else {
+        tracing::info!("Creating empty V2 escrow accounts watcher (Horizon disabled)");
         // Create a dummy watcher that never updates for consistency
         empty_escrow_accounts_watcher()
     };
@@ -215,21 +234,28 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
     // In both modes we need both watchers for the hybrid processing
     let (escrow_accounts_v1_final, escrow_accounts_v2_final) = if is_horizon_enabled {
         tracing::info!("TAP Agent: Horizon migration mode - processing existing V1 receipts and new V2 receipts");
+        tracing::info!("Escrow account watchers: V1 (active) + V2 (active)");
         (escrow_accounts_v1, escrow_accounts_v2)
     } else {
         tracing::info!("TAP Agent: Legacy mode - V1 receipts only");
+        tracing::info!("Escrow account watchers: V1 (active) + V2 (empty)");
         (escrow_accounts_v1, escrow_accounts_v2)
     };
 
-    let config = Box::leak(Box::new({
+    let config = Box::leak(Box::new(if is_horizon_enabled {
+        // Use the TapMode from config since horizon is actually enabled and active
+        SenderAccountConfig::from_config(&CONFIG)
+    } else {
+        // Override to Legacy mode since horizon is not active in the network
         let mut config = SenderAccountConfig::from_config(&CONFIG);
-        config.horizon_enabled = is_horizon_enabled;
+        config.tap_mode = indexer_config::TapMode::Legacy;
         config
     }));
 
     let args = SenderAccountsManagerArgs {
         config,
         domain_separator: EIP_712_DOMAIN.clone(),
+        domain_separator_v2: EIP_712_DOMAIN_V2.clone(),
         pgpool,
         indexer_allocations,
         escrow_accounts_v1: escrow_accounts_v1_final,
@@ -240,7 +266,5 @@ pub async fn start_agent() -> (ActorRef<SenderAccountsManagerMessage>, JoinHandl
         prefix: None,
     };
 
-    SenderAccountsManager::spawn(None, SenderAccountsManager, args)
-        .await
-        .expect("Failed to start sender accounts manager actor.")
+    Ok(SenderAccountsManager::spawn(None, SenderAccountsManager, args).await?)
 }

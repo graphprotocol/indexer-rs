@@ -226,7 +226,49 @@ impl Config {
             );
         }
 
+        // Horizon configuration validation
+        // Explicit toggle via `horizon.enabled`. When enabled, require both
+        // `blockchain.subgraph_service_address` and
+        // `blockchain.receipts_verifier_address_v2` to be present.
+        // When disabled, V2 addresses are ignored.
+        if self.horizon.enabled {
+            if self.blockchain.subgraph_service_address.is_none() {
+                return Err(
+                    "When horizon.enabled = true, `blockchain.subgraph_service_address` must be set"
+                        .to_string(),
+                );
+            }
+            if self.blockchain.receipts_verifier_address_v2.is_none() {
+                return Err(
+                    "When horizon.enabled = true, `blockchain.receipts_verifier_address_v2` must be set"
+                        .to_string(),
+                );
+            }
+        }
+
         Ok(())
+    }
+
+    /// Derive TAP operation mode from horizon configuration
+    ///
+    /// This method translates the `[horizon]` configuration section into a
+    /// [`TapMode`] enum for use throughout the indexer codebase.
+    ///
+    /// # Returns
+    ///
+    /// - [`TapMode::Legacy`] if `horizon.enabled = false`
+    /// - [`TapMode::Horizon`] if `horizon.enabled = true` with the configured
+    ///   `blockchain.subgraph_service_address`
+    pub fn tap_mode(&self) -> TapMode {
+        if self.horizon.enabled {
+            TapMode::Horizon {
+                subgraph_service_address: self.blockchain.subgraph_service_address.expect(
+                    "subgraph_service_address should be validated during Config::validate()",
+                ),
+            }
+        } else {
+            TapMode::Legacy
+        }
     }
 }
 
@@ -353,6 +395,12 @@ pub enum TheGraphChainId {
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
     pub receipts_verifier_address: Address,
+    /// Verifier address for V2 receipts(Horizon)
+    /// after transition period this will be the only address used
+    /// to verify receipts
+    pub receipts_verifier_address_v2: Option<Address>,
+    /// Address of the SubgraphService contract used for V2 operations
+    pub subgraph_service_address: Option<Address>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -447,23 +495,219 @@ pub struct RavRequestConfig {
     pub max_receipts_per_request: u64,
 }
 
-/// Configuration for the horizon migration
+/// TAP protocol operation mode
+///
+/// Defines whether the indexer operates in legacy mode (V1 TAP receipts only)
+/// or horizon mode (hybrid V1/V2 TAP receipts support).
+///
+/// # Operation Modes
+///
+/// ## Legacy Mode
+/// - **V1 Receipts**: Accept and process V1 TAP receipts only
+/// - **V1 RAVs**: Generate V1 Receipt Aggregate Vouchers (RAVs)
+/// - **V2 Support**: V2 receipts are rejected
+/// - **Use Case**: Pure legacy indexer operations before Horizon migration
+///
+/// ## Horizon Mode (Hybrid)
+/// - **V2 Receipts**: Accept new V2 TAP receipts (primary mode)
+/// - **V1 Receipts**: Continue processing existing V1 receipts for RAV generation
+/// - **V1 Submissions**: Reject new V1 receipt submissions
+/// - **V2 RAVs**: Generate V2 Receipt Aggregate Vouchers using SubgraphService
+/// - **Use Case**: Horizon migration period with hybrid V1/V2 support
+///
+/// # Configuration Mapping
+///
+/// This enum is derived from the `horizon.enabled` flag in the configuration.
+/// Horizon mode requires `blockchain.subgraph_service_address`.
+///
+/// ```toml
+/// # Legacy mode (default)
+/// [horizon]
+/// enabled = false
+///
+/// # Horizon mode
+/// [horizon]
+/// enabled = true
+///
+/// [blockchain]
+/// subgraph_service_address = "0x..."
+/// ```
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum TapMode {
+    /// Legacy TAP mode - V1 receipts and RAVs only
+    ///
+    /// In this mode:
+    /// - Only V1 TAP receipts are accepted and processed
+    /// - V1 RAVs are generated using legacy aggregator endpoints
+    /// - V2 receipts are rejected with an error
+    /// - No SubgraphService integration required
+    Legacy,
+
+    /// Horizon TAP mode - Hybrid V1/V2 support with V2 infrastructure
+    ///
+    /// In this mode:
+    /// - **Primary**: Accept and process new V2 TAP receipts
+    /// - **Legacy**: Continue processing existing V1 receipts for RAV generation
+    /// - **Rejection**: Reject new V1 receipt submissions
+    /// - **Infrastructure**: V2 operations require SubgraphService integration
+    ///
+    /// The `subgraph_service_address` is used for:
+    /// - V2 receipt verification against SubgraphService contract
+    /// - V2 RAV generation and validation
+    /// - Query routing for V2 operations
+    Horizon {
+        /// Address of the SubgraphService contract used for V2 operations
+        ///
+        /// This address is required for all V2 TAP receipt operations including:
+        /// - Receipt signature verification
+        /// - RAV generation requests to aggregator
+        /// - Query validation and routing
+        subgraph_service_address: Address,
+    },
+}
+
+impl TapMode {
+    /// Check if the indexer is operating in Horizon mode
+    ///
+    /// Returns `true` if V2 TAP receipts are supported, `false` otherwise.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use indexer_config::TapMode;
+    /// # use thegraph_core::alloy::primitives::Address;
+    /// let mode = TapMode::Horizon {
+    ///     subgraph_service_address: Address::ZERO
+    /// };
+    /// assert!(mode.is_horizon());
+    ///
+    /// let mode = TapMode::Legacy;
+    /// assert!(!mode.is_horizon());
+    /// ```
+    pub fn is_horizon(&self) -> bool {
+        matches!(self, TapMode::Horizon { .. })
+    }
+
+    /// Check if the indexer is operating in Legacy mode
+    ///
+    /// Returns `true` if only V1 TAP receipts are supported, `false` otherwise.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use indexer_config::TapMode;
+    /// let mode = TapMode::Legacy;
+    /// assert!(mode.is_legacy());
+    /// ```
+    pub fn is_legacy(&self) -> bool {
+        matches!(self, TapMode::Legacy)
+    }
+
+    /// Get the SubgraphService address if in Horizon mode
+    ///
+    /// Returns `Some(Address)` in Horizon mode, `None` in Legacy mode.
+    /// Use this when you need to conditionally access V2 infrastructure.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use indexer_config::TapMode;
+    /// # use thegraph_core::alloy::primitives::Address;
+    /// let mode = TapMode::Horizon {
+    ///     subgraph_service_address: Address::ZERO
+    /// };
+    /// assert_eq!(mode.subgraph_service_address(), Some(Address::ZERO));
+    ///
+    /// let mode = TapMode::Legacy;
+    /// assert_eq!(mode.subgraph_service_address(), None);
+    /// ```
+    pub fn subgraph_service_address(&self) -> Option<Address> {
+        match self {
+            TapMode::Legacy => None,
+            TapMode::Horizon {
+                subgraph_service_address,
+            } => Some(*subgraph_service_address),
+        }
+    }
+
+    /// Get the SubgraphService address, panicking if in Legacy mode
+    ///
+    /// Use this when you know you're in a V2/Horizon context and the address
+    /// should always be available. Panics with a descriptive message if called
+    /// in Legacy mode.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on `TapMode::Legacy`.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use indexer_config::TapMode;
+    /// # use thegraph_core::alloy::primitives::Address;
+    /// let mode = TapMode::Horizon {
+    ///     subgraph_service_address: Address::ZERO
+    /// };
+    /// assert_eq!(mode.require_subgraph_service_address(), Address::ZERO);
+    /// ```
+    ///
+    /// ```should_panic
+    /// # use indexer_config::TapMode;
+    /// let mode = TapMode::Legacy;
+    /// mode.require_subgraph_service_address(); // Panics!
+    /// ```
+    pub fn require_subgraph_service_address(&self) -> Address {
+        match self {
+            TapMode::Legacy => {
+                panic!(
+                    "Attempted to access subgraph_service_address in Legacy mode. \
+                       Check tap_mode.is_horizon() before calling this method."
+                )
+            }
+            TapMode::Horizon {
+                subgraph_service_address,
+            } => *subgraph_service_address,
+        }
+    }
+
+    /// Check if V2 TAP receipts are supported
+    ///
+    /// Alias for [`is_horizon()`](Self::is_horizon) with more explicit naming.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use indexer_config::TapMode;
+    /// # use thegraph_core::alloy::primitives::Address;
+    /// let mode = TapMode::Horizon {
+    ///     subgraph_service_address: Address::ZERO
+    /// };
+    /// assert!(mode.supports_v2());
+    /// ```
+    pub fn supports_v2(&self) -> bool {
+        self.is_horizon()
+    }
+
+    /// Check if only V1 TAP receipts are supported
+    ///
+    /// Returns `true` if V2 receipts should be rejected.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use indexer_config::TapMode;
+    /// let mode = TapMode::Legacy;
+    /// assert!(mode.v1_only());
+    /// ```
+    pub fn v1_only(&self) -> bool {
+        self.is_legacy()
+    }
+}
+
+/// Configuration for the Horizon migration
 #[derive(Debug, Default, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct HorizonConfig {
     /// Enable Horizon migration support and detection
-    ///
-    /// When enabled (true):
-    /// - System will check if Horizon contracts are active in the network
-    /// - If Horizon contracts are detected: Enable hybrid migration mode
-    ///   * Accept new V2 TAP receipts only  
-    ///   * Continue processing existing V1 receipts for RAV generation
-    ///   * Reject new V1 receipt submissions
-    /// - If Horizon contracts are not detected: Remain in legacy mode
-    ///
-    /// When disabled (false):
-    /// - Pure legacy mode, no Horizon detection performed
-    /// - Only V1 TAP receipts are supported
+    /// When enabled, set `blockchain.subgraph_service_address` and
+    /// `blockchain.receipts_verifier_address_v2`
+
+    /// When disabled: Pure legacy mode, no Horizon detection performed
     #[serde(default)]
     pub enabled: bool,
 }

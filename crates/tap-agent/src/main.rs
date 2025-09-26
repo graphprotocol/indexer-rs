@@ -7,6 +7,8 @@ use tokio::signal::unix::{signal, SignalKind};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    use anyhow::Context;
+
     #[cfg(all(feature = "profiling", not(test)))]
     if let Err(e) = profiler::setup_profiling(
         "/opt/profiling/tap-agent".to_string(),
@@ -25,7 +27,10 @@ async fn main() -> anyhow::Result<()> {
     // initialize LazyLock'd config
     _ = &*CONFIG;
 
-    let (manager, handler) = agent::start_agent().await;
+    let (manager, handler) = agent::start_agent()
+        .await
+        .with_context(|| "Failed to start TAP agent")?;
+
     tracing::info!("TAP Agent started.");
 
     tokio::spawn(metrics::run_server(CONFIG.metrics.port));

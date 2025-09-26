@@ -66,6 +66,7 @@ async fn full_integration_test() {
     let router = ServiceRouter::builder()
         .database(database)
         .domain_separator(TAP_EIP712_DOMAIN.clone())
+        .domain_separator_v2(test_assets::TAP_EIP712_DOMAIN_V2.clone())
         .http_client(http_client)
         .graph_node(GraphNodeConfig {
             query_url: graph_node_url.clone(),
@@ -90,6 +91,8 @@ async fn full_integration_test() {
         .blockchain(BlockchainConfig {
             chain_id: indexer_config::TheGraphChainId::Test,
             receipts_verifier_address: test_assets::VERIFIER_ADDRESS,
+            receipts_verifier_address_v2: None,
+            subgraph_service_address: None,
         })
         .timestamp_buffer_secs(Duration::from_secs(10))
         .escrow_accounts_v1(escrow_accounts.clone())
