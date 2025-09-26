@@ -1277,13 +1277,19 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                         WHERE timestamp_ns BETWEEN $1 AND $2
                         AND collection_id = $3
                         AND service_provider = $4
-                        AND signer_address IN (SELECT unnest($5::text[]));
+                        AND payer = $5
+                        AND data_service = $6
+                        AND signer_address IN (SELECT unnest($7::text[]));
                     "#,
             BigDecimal::from(min_timestamp),
             BigDecimal::from(max_timestamp),
             // self.allocation_id is already a CollectionId in Horizon state
             self.allocation_id.encode_hex(),
             self.indexer_address.encode_hex(),
+            self.sender.encode_hex(),
+            self.data_service
+                .expect("data_service should be available in Horizon mode")
+                .encode_hex(),
             &signers,
         )
         .execute(&self.pgpool)
@@ -1305,10 +1311,18 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 tap_horizon_receipts_invalid
             WHERE
                 collection_id = $1
-                AND signer_address IN (SELECT unnest($2::text[]))
+                AND service_provider = $2
+                AND payer = $3
+                AND data_service = $4
+                AND signer_address IN (SELECT unnest($5::text[]))
             "#,
             // self.allocation_id is already a CollectionId in Horizon state
             self.allocation_id.encode_hex(),
+            self.indexer_address.encode_hex(),
+            self.sender.encode_hex(),
+            self.data_service
+                .expect("data_service should be available in Horizon mode")
+                .encode_hex(),
             &signers
         )
         .fetch_one(&self.pgpool)
@@ -1353,13 +1367,19 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             WHERE
                 collection_id = $1
                 AND service_provider = $2
-                AND id <= $3
-                AND signer_address IN (SELECT unnest($4::text[]))
-                AND timestamp_ns > $5
+                AND payer = $3
+                AND data_service = $4
+                AND id <= $5
+                AND signer_address IN (SELECT unnest($6::text[]))
+                AND timestamp_ns > $7
             "#,
             // self.allocation_id is already a CollectionId in Horizon state
             self.allocation_id.encode_hex(),
             self.indexer_address.encode_hex(),
+            self.sender.encode_hex(),
+            self.data_service
+                .expect("data_service should be available in Horizon mode")
+                .encode_hex(),
             last_id,
             &signers,
             BigDecimal::from(
@@ -1399,7 +1419,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             allocation_id = %self.allocation_id,
             "Marking rav as last!",
         );
-        // TODO add service_provider filter
+
         let updated_rows = sqlx::query!(
             r#"
                 UPDATE tap_horizon_ravs

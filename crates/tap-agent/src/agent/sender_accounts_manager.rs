@@ -935,8 +935,16 @@ impl State {
                     payer,
                     ARRAY_AGG(DISTINCT collection_id) FILTER (WHERE NOT last) AS allocation_ids
                 FROM tap_horizon_ravs
+                WHERE data_service = $1 AND service_provider = $2
                 GROUP BY payer
-            "#
+            "#,
+            // Constrain to our Horizon bucket to avoid conflating RAVs across services/providers
+            self
+                .config
+                .tap_mode
+                .require_subgraph_service_address()
+                .encode_hex(),
+            self.config.indexer_address.encode_hex()
         )
         .fetch_all(&self.pgpool)
         .await
