@@ -16,9 +16,10 @@ use tokio::sync::{
 use tokio_util::sync::CancellationToken;
 
 use crate::tap::checks::{
-    allocation_eligible::AllocationEligible, deny_list_check::DenyListCheck,
-    receipt_max_val_check::ReceiptMaxValueCheck, sender_balance_check::SenderBalanceCheck,
-    timestamp_check::TimestampCheck, value_check::MinimumValue,
+    allocation_eligible::AllocationEligible, data_service_check::DataServiceCheck,
+    deny_list_check::DenyListCheck, receipt_max_val_check::ReceiptMaxValueCheck,
+    sender_balance_check::SenderBalanceCheck, timestamp_check::TimestampCheck,
+    value_check::MinimumValue,
 };
 
 mod checks;
@@ -56,8 +57,9 @@ impl IndexerTapContext {
         escrow_accounts_v2: Option<Receiver<EscrowAccounts>>,
         timestamp_error_tolerance: Duration,
         receipt_max_value: u128,
+        allowed_data_services: Option<Vec<Address>>,
     ) -> Vec<ReceiptCheck<TapReceipt>> {
-        vec![
+        let mut checks: Vec<ReceiptCheck<TapReceipt>> = vec![
             Arc::new(AllocationEligible::new(indexer_allocations)),
             Arc::new(SenderBalanceCheck::new(
                 escrow_accounts_v1,
@@ -67,7 +69,13 @@ impl IndexerTapContext {
             Arc::new(DenyListCheck::new(pgpool.clone()).await),
             Arc::new(ReceiptMaxValueCheck::new(receipt_max_value)),
             Arc::new(MinimumValue::new(pgpool, Duration::from_secs(GRACE_PERIOD)).await),
-        ]
+        ];
+
+        if let Some(addrs) = allowed_data_services {
+            checks.push(Arc::new(DataServiceCheck::new(addrs)));
+        }
+
+        checks
     }
 
     pub async fn new(
