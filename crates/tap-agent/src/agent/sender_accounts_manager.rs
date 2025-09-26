@@ -880,8 +880,7 @@ impl State {
                 FROM grouped
                 GROUP BY signer_address
             "#,
-            self
-                .config
+            self.config
                 .tap_mode
                 .require_subgraph_service_address()
                 .encode_hex(),
@@ -946,8 +945,7 @@ impl State {
                 GROUP BY payer
             "#,
             // Constrain to our Horizon bucket to avoid conflating RAVs across services/providers
-            self
-                .config
+            self.config
                 .tap_mode
                 .require_subgraph_service_address()
                 .encode_hex(),
