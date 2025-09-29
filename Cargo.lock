@@ -4089,7 +4089,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-config"
-version = "1.5.2"
+version = "1.6.0"
 dependencies = [
  "bigdecimal",
  "bip39",
@@ -4192,7 +4192,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-service-rs"
-version = "1.6.2"
+version = "1.7.0"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -4258,7 +4258,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-tap-agent"
-version = "1.10.3"
+version = "1.11.0"
 dependencies = [
  "anyhow",
  "async-trait",
