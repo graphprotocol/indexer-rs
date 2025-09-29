@@ -31,6 +31,8 @@ use crate::{
 /// It also optionally updates a failed receipt metric if Labels are provided
 ///
 /// Requires TapReceipt, MetricLabels and Arc<Context> extensions
+#[allow(dead_code)]
+// keep this code as reference only
 pub fn tap_receipt_authorize<T, B>(
     tap_manager: Arc<Manager<T, TapReceipt>>,
     failed_receipt_metric: &'static prometheus::CounterVec,
@@ -95,6 +97,72 @@ where
     }
 }
 
+pub fn dual_tap_receipt_authorize<T, B>(
+    tap_manager_v1: Arc<Manager<T, TapReceipt>>,
+    tap_manager_v2: Arc<Manager<T, TapReceipt>>,
+    failed_receipt_metric: &'static prometheus::CounterVec,
+) -> impl AsyncAuthorizeRequest<
+    B,
+    RequestBody = B,
+    ResponseBody = Body,
+    Future = impl Future<Output = Result<Request<B>, Response<Body>>> + Send,
+> + Clone
+       + Send
+where
+    T: ReceiptStore<TapReceipt> + Sync + Send + 'static,
+    B: Send,
+{
+    move |mut request: Request<B>| {
+        let receipt = request.extensions_mut().remove::<TapReceipt>();
+        let labels = request.extensions().get::<MetricLabels>().cloned();
+        let ctx = request.extensions().get::<Arc<Context>>().cloned();
+        let manager_v1 = tap_manager_v1.clone();
+        let manager_v2 = tap_manager_v2.clone();
+
+        async move {
+            let execute = || async {
+                let receipt = receipt.ok_or_else(|| {
+                    tracing::debug!(
+                        "TAP receipt validation failed: receipt not found in request extensions"
+                    );
+                    IndexerServiceError::ReceiptNotFound
+                })?;
+
+                // SELECT THE RIGHT MANAGER BASED ON RECEIPT VERSION
+                let (tap_manager, version) = match &receipt {
+                    TapReceipt::V1(_) => (manager_v1, "V1"),
+                    TapReceipt::V2(_) => (manager_v2, "V2"),
+                };
+
+                tracing::debug!(receipt_version = version, "Using version-specific manager");
+
+                // Use the version-appropriate manager
+                tap_manager
+                    .verify_and_store_receipt(&ctx.unwrap_or_default(), receipt)
+                    .await
+                    .inspect_err(|err| {
+                        tracing::debug!(error = %err, receipt_version = version, "TAP receipt validation failed");
+                        if let Some(labels) = &labels {
+                            failed_receipt_metric
+                                .with_label_values(&labels.get_labels())
+                                .inc()
+                        }
+                    })?;
+
+                tracing::debug!(
+                    receipt_version = version,
+                    "TAP receipt validation successful"
+                );
+                Ok::<_, IndexerServiceError>(request)
+            };
+            execute().await.map_err(|error| {
+                tracing::debug!(error = %error, "TAP authorization failed, returning HTTP error response");
+                error.into_response()
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -115,15 +183,14 @@ mod tests {
     };
     use test_assets::{
         assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
+        TAP_EIP712_DOMAIN_V2,
     };
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
+    use super::tap_receipt_authorize;
     use crate::{
-        middleware::{
-            auth::tap_receipt_authorize,
-            prometheus_metrics::{MetricLabelProvider, MetricLabels},
-        },
+        middleware::prometheus_metrics::{MetricLabelProvider, MetricLabels},
         tap::{CheckingReceipt, IndexerTapContext, TapReceipt},
     };
 
@@ -148,7 +215,12 @@ mod tests {
         metric: &'static prometheus::CounterVec,
         pgpool: PgPool,
     ) -> impl Service<Request<Body>, Response = Response<Body>, Error = impl std::fmt::Debug> {
-        let context = IndexerTapContext::new(pgpool, TAP_EIP712_DOMAIN.clone()).await;
+        let context = IndexerTapContext::new(
+            pgpool,
+            TAP_EIP712_DOMAIN.clone(),
+            TAP_EIP712_DOMAIN_V2.clone(),
+        )
+        .await;
 
         struct MyCheck;
         #[async_trait::async_trait]

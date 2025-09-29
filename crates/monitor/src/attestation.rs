@@ -34,7 +34,7 @@ pub fn attestation_signers(
         dispute_manager_rx,
         move |(allocation, dispute)| {
             let indexer_mnemonic = indexer_mnemonic.clone();
-            modify_sigers(
+            modify_signers(
                 &indexer_mnemonic,
                 chain_id,
                 attestation_signers_map,
@@ -44,7 +44,7 @@ pub fn attestation_signers(
         },
     )
 }
-fn modify_sigers(
+fn modify_signers(
     indexer_mnemonic: &str,
     chain_id: ChainId,
     attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>>,
@@ -59,8 +59,10 @@ fn modify_sigers(
     for (id, allocation) in allocations.iter() {
         if !signers.contains_key(id) {
             tracing::debug!(
-                "Attempting to create attestation signer for allocation {}, deployment {}, createdAtEpoch {}",
-                allocation.id, allocation.subgraph_deployment.id, allocation.created_at_epoch
+                allocation_id = ?allocation.id,
+                deployment_id = ?allocation.subgraph_deployment.id,
+                created_at_epoch = allocation.created_at_epoch,
+                "Attempting to create attestation signer for allocation"
             );
 
             let signer =
@@ -68,21 +70,23 @@ fn modify_sigers(
             match signer {
                 Ok(signer) => {
                     tracing::debug!(
-                        "Successfully created attestation signer for allocation {}",
-                        allocation.id
+                        allocation_id = ?allocation.id,
+                        "Successfully created attestation signer for allocation"
                     );
                     signers.insert(*id, signer);
                 }
                 Err(e) => {
                     tracing::warn!(
-                        "Failed to establish signer for allocation {}, deployment {}, createdAtEpoch {}: {}",
-                        allocation.id, allocation.subgraph_deployment.id,
-                        allocation.created_at_epoch, e
+                        allocation_id = ?allocation.id,
+                        deployment_id = ?allocation.subgraph_deployment.id,
+                        created_at_epoch = allocation.created_at_epoch,
+                        error = %e,
+                        "Failed to establish signer for allocation"
                     );
                     tracing::debug!(
-                        "Signer creation error details for allocation {}: {}",
-                        allocation.id,
-                        e
+                        allocation_id = ?allocation.id,
+                        error = %e,
+                        "Signer creation error details"
                     );
                 }
             }

@@ -82,10 +82,18 @@ pub async fn get_allocations(
         .map(|allocation| allocation.try_into())
         .collect::<Result<Vec<Allocation>, _>>()?;
 
-    Ok(responses
+    let result: HashMap<Address, Allocation> = responses
         .into_iter()
         .map(|allocation| (allocation.id, allocation))
-        .collect())
+        .collect();
+
+    tracing::info!(
+        allocations = result.len(),
+        indexer_address = ?indexer_address,
+        "Network subgraph query returned allocations for indexer"
+    );
+
+    Ok(result)
 }
 
 #[cfg(test)]

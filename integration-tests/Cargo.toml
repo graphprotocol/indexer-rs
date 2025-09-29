@@ -28,3 +28,18 @@ clap = { version = "4.0", features = ["derive"] }
 base64 = { workspace = true }
 prost = { workspace = true }
 tap_aggregator = { workspace = true }
+bigdecimal = { workspace = true }
+sqlx = { workspace = true, features = [
+    "macros",
+    "postgres",
+    "runtime-tokio",
+    "migrate",
+    "chrono",
+    "json",
+    "bigdecimal",
+    "rust_decimal",
+    "uuid",
+] }
+rdkafka = { workspace = true }
+regex = { workspace = true }
+toml = { workspace = true }

@@ -11,12 +11,14 @@ jobs:
     name: cargo fmt
     runs-on: ubuntu-latest
     container:
-      image: rust:1.86-bookworm
+      image: rust:1.87-bookworm
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
       - run: |
-          rustup component add rustfmt
-          cargo fmt --all -- --check
+          # Install and use nightly rustfmt to honor repo's rustfmt.toml
+          rustup toolchain install nightly --profile minimal
+          rustup component add --toolchain nightly rustfmt
+          cargo +nightly fmt --all -- --check
 
   sqlx:
     name: prepared query metadata is up-to-date
@@ -34,7 +36,7 @@ jobs:
         ports:
           - 5432:5432
     container:
-      image: rust:1.86-bookworm
+      image: rust:1.87-bookworm
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
@@ -65,7 +67,7 @@ jobs:
     name: cargo clippy
     runs-on: ubuntu-latest
     container:
-      image: rust:1.86-bookworm
+      image: rust:1.87-bookworm
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
       SQLX_OFFLINE: true
@@ -87,15 +89,17 @@ jobs:
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
       - run: |
-          rustup component add clippy
+          # Install and use nightly clippy per repo guidelines
+          rustup toolchain install nightly --profile minimal
+          rustup component add --toolchain nightly clippy
           # Temporarily allowing dead-code, while denying all other warnings
-          cargo clippy --all-features --all-targets -- -A dead-code -D warnings
+          cargo +nightly clippy --all-features --all-targets -- -A dead-code -D warnings
 
   test-and-coverage:
     name: cargo test and coverage
     runs-on: ubuntu-latest
     container:
-      image: rust:1.86-bookworm
+      image: rust:1.87-bookworm
       options: --privileged -v /var/run/docker.sock:/var/run/docker.sock
     env:
       CI: true
@@ -141,7 +145,7 @@ jobs:
     name: cargo test docs code snippets
     runs-on: ubuntu-latest
     container:
-      image: rust:1.86-bookworm
+      image: rust:1.87-bookworm
       options: --privileged -v /var/run/docker.sock:/var/run/docker.sock
     env:
       SQLX_OFFLINE: true

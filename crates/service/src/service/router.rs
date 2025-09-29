@@ -56,6 +56,9 @@ pub struct ServiceRouter {
     database: sqlx::PgPool,
     // tap domain
     domain_separator: Eip712Domain,
+    // tap domain v2
+    domain_separator_v2: Eip712Domain,
+
     // graphnode client
     http_client: reqwest::Client,
     // release info
@@ -262,16 +265,24 @@ impl ServiceRouter {
 
         let post_request_handler = {
             // Create tap manager to validate receipts
-            let tap_manager = {
+            let (tap_manager_v1, tap_manager_v2) = {
                 // Create context
-                let indexer_context =
-                    IndexerTapContext::new(self.database.clone(), self.domain_separator.clone())
-                        .await;
+                let indexer_context = IndexerTapContext::new(
+                    self.database.clone(),
+                    self.domain_separator.clone(),
+                    self.domain_separator_v2.clone(),
+                )
+                .await;
 
                 let timestamp_error_tolerance = self.timestamp_buffer_secs;
                 let receipt_max_value = max_receipt_value_grt.get_value();
 
                 // Create checks
+                let allowed_data_services = self
+                    .blockchain
+                    .subgraph_service_address
+                    .map(|addr| vec![addr]);
+
                 let checks = IndexerTapContext::get_checks(
                     self.database,
                     allocations.clone(),
@@ -279,14 +290,23 @@ impl ServiceRouter {
                     escrow_accounts_v2.clone(),
                     timestamp_error_tolerance,
                     receipt_max_value,
+                    allowed_data_services,
                 )
                 .await;
+
                 // Returned static Manager
-                Arc::new(Manager::new(
+                let m1 = Arc::new(Manager::new(
                     self.domain_separator.clone(),
+                    indexer_context.clone(),
+                    CheckList::new(checks.clone()),
+                ));
+                let m2 = Arc::new(Manager::new(
+                    self.domain_separator_v2.clone(),
                     indexer_context,
                     CheckList::new(checks),
-                ))
+                ));
+
+                (m1, m2)
             };
 
             let attestation_state = AttestationState {
@@ -303,7 +323,12 @@ impl ServiceRouter {
 
             // inject auth
             let failed_receipt_metric = Box::leak(Box::new(FAILED_RECEIPT.clone()));
-            let tap_auth = auth::tap_receipt_authorize(tap_manager, failed_receipt_metric);
+            // let tap_auth = auth::tap_receipt_authorize(tap_manager, failed_receipt_metric);
+            let tap_auth = auth::dual_tap_receipt_authorize(
+                tap_manager_v1,
+                tap_manager_v2,
+                failed_receipt_metric,
+            );
 
             if let Some(free_auth_token) = &free_query_auth_token {
                 let free_query = Bearer::new(free_auth_token);
@@ -323,6 +348,7 @@ impl ServiceRouter {
                 escrow_accounts_v1,
                 escrow_accounts_v2,
                 domain_separator: self.domain_separator,
+                domain_separator_v2: self.domain_separator_v2,
             };
 
             let service_builder = ServiceBuilder::new()

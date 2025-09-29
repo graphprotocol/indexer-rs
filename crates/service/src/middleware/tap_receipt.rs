@@ -14,6 +14,9 @@ use crate::service::TapHeader;
 ///
 /// This is useful to not deserialize multiple times the same receipt
 pub async fn receipt_middleware(mut request: Request, next: Next) -> Response {
+    // First check if header exists to distinguish missing vs invalid
+    let has_tap_header = request.headers().contains_key("tap-receipt");
+
     match request.extract_parts::<TypedHeader<TapHeader>>().await {
         Ok(TypedHeader(TapHeader(receipt))) => {
             let version = match &receipt {
@@ -27,7 +30,11 @@ pub async fn receipt_middleware(mut request: Request, next: Next) -> Response {
             request.extensions_mut().insert(receipt);
         }
         Err(e) => {
-            tracing::debug!(error = %e, "No TAP receipt found in request headers");
+            if has_tap_header {
+                tracing::error!(error = %e, "TAP receipt header present but invalid");
+            } else {
+                tracing::warn!("TAP receipt header missing (likely free query)");
+            }
         }
     }
     next.run(request).await

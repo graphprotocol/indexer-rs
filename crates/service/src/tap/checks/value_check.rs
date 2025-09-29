@@ -138,8 +138,8 @@ impl CostModelWatcher {
                 }
                 Err(_) => {
                     tracing::error!(
-                        "Received insert request for an invalid deployment_id: {}",
-                        deployment_id
+                        deployment_id = %deployment_id,
+                        "Invalid deployment_id in insert notification"
                     )
                 }
             },
@@ -159,8 +159,8 @@ impl CostModelWatcher {
                 }
                 Err(_) => {
                     tracing::error!(
-                        "Received delete request for an invalid deployment_id: {}",
-                        deployment_id
+                        deployment_id = %deployment_id,
+                        "Invalid deployment_id in delete notification"
                     )
                 }
             },
@@ -170,9 +170,8 @@ impl CostModelWatcher {
 
     async fn handle_unexpected_notification(&self, payload: &str) {
         tracing::error!(
-            "Received an unexpected cost model table notification: {}. Reloading entire \
-                                cost model.",
-            payload
+            payload = %payload,
+            "Unexpected cost model notification; reloading cache"
         );
 
         MinimumValue::value_check_reload(

@@ -12,6 +12,7 @@ use std::{
 use actors::TestableActor;
 use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
+use indexer_config;
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use indexer_receipt::TapReceipt;
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
@@ -56,7 +57,11 @@ use crate::{
 pub static SENDER_2: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wallet(1));
 pub static INDEXER: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wallet(3));
 pub static TAP_EIP712_DOMAIN_SEPARATOR: LazyLock<Eip712Domain> =
-    LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20])));
+    LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20]), tap_core::TapVersion::V1));
+pub static TAP_EIP712_DOMAIN_SEPARATOR_V2: LazyLock<Eip712Domain> =
+    LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20]), tap_core::TapVersion::V2));
+
+pub static SUBGRAPH_SERVICE_ADDRESS: [u8; 20] = [0x11u8; 20];
 
 pub const TRIGGER_VALUE: u128 = 500;
 pub const RECEIPT_LIMIT: u64 = 10000;
@@ -91,7 +96,7 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
         escrow_polling_interval: ESCROW_POLLING_INTERVAL,
         tap_sender_timeout: Duration::from_secs(63),
         trusted_senders: HashSet::new(),
-        horizon_enabled: true,
+        tap_mode: indexer_config::TapMode::Legacy,
     }))
 }
 
@@ -128,7 +133,7 @@ pub async fn create_sender_account(
         escrow_polling_interval: Duration::default(),
         tap_sender_timeout: TAP_SENDER_TIMEOUT,
         trusted_senders,
-        horizon_enabled: false,
+        tap_mode: indexer_config::TapMode::Legacy,
     }));
 
     let network_subgraph = Box::leak(Box::new(
@@ -173,6 +178,7 @@ pub async fn create_sender_account(
         escrow_subgraph,
         network_subgraph,
         domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+        domain_separator_v2: TAP_EIP712_DOMAIN_SEPARATOR_V2.clone(),
         sender_aggregator_endpoint: aggregator_url,
         allocation_ids: HashSet::new(),
         prefix: Some(prefix.clone()),
@@ -241,6 +247,7 @@ pub async fn create_sender_accounts_manager(
     let args = SenderAccountsManagerArgs {
         config,
         domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+        domain_separator_v2: TAP_EIP712_DOMAIN_SEPARATOR_V2.clone(),
         pgpool,
         indexer_allocations: allocations_rx,
         escrow_accounts_v1: escrow_accounts_rx,
@@ -329,7 +336,7 @@ pub fn create_rav_v2(
             timestampNs: timestamp_ns,
             valueAggregate: value_aggregate,
             payer: SENDER.1,
-            dataService: INDEXER.1, // Use the same indexer address as the context
+            dataService: SENDER.1, // Use TAP_SENDER address to match context query
             serviceProvider: INDEXER.1,
             metadata: Bytes::new(),
         },
@@ -369,7 +376,7 @@ impl CreateReceipt for Horizon {
                 collection_id,
                 payer: SENDER.1,
                 service_provider: INDEXER.1,
-                data_service: INDEXER.1, // Use the same indexer address as the context
+                data_service: SENDER.1, // Use TAP_SENDER address to match context query
                 nonce,
                 timestamp_ns,
                 value,
@@ -703,6 +710,7 @@ async fn create_grpc_aggregator() -> (JoinHandle<()>, SocketAddr) {
     let wallet = SIGNER.0.clone();
     let accepted_addresses = vec![SIGNER.1].into_iter().collect();
     let domain_separator = TAP_EIP712_DOMAIN_SEPARATOR.clone();
+    let domain_separator_v2 = TAP_EIP712_DOMAIN_SEPARATOR_V2.clone();
     let max_request_body_size = 1024 * 1024; // 1 MB
     let max_response_body_size = 1024 * 1024; // 1 MB
     let max_concurrent_connections = 255;
@@ -713,6 +721,7 @@ async fn create_grpc_aggregator() -> (JoinHandle<()>, SocketAddr) {
         wallet,
         accepted_addresses,
         domain_separator,
+        domain_separator_v2,
         max_request_body_size,
         max_response_body_size,
         max_concurrent_connections,

@@ -32,17 +32,16 @@ pub async fn is_horizon_active(network_subgraph: &SubgraphClient) -> Result<bool
 
     let response = response?;
 
-    // If we find any PaymentsEscrow accounts, Horizon is active
-    let horizon_active = !response.payments_escrow_accounts.is_empty();
+    let account_count = response.payments_escrow_accounts.len();
 
-    if horizon_active {
+    if account_count > 0 {
         tracing::info!(
-            "Horizon (V2) contracts detected - found {} PaymentsEscrow accounts",
-            response.payments_escrow_accounts.len()
+            accounts = account_count,
+            "Horizon (V2) schema available - found existing PaymentsEscrow accounts"
         );
     } else {
-        tracing::info!("No Horizon (V2) contracts found - using legacy (V1) mode");
+        tracing::info!("Horizon (V2) schema available - no accounts found at startup, but will detect new accounts automatically");
     }
 
-    Ok(horizon_active)
+    Ok(true)
 }

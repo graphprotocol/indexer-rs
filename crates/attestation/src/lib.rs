@@ -389,6 +389,7 @@ mod tests {
             poi: None,
             query_fee_rebates: None,
             query_fees_collected: None,
+            is_legacy: false,
         };
         assert_eq!(
             PrivateKeySigner::from_signing_key(
@@ -632,6 +633,7 @@ mod tests {
             poi: None,
             query_fee_rebates: None,
             query_fees_collected: None,
+            is_legacy: false,
         };
         assert!(AttestationSigner::new(
             INDEXER_OPERATOR_MNEMONIC,

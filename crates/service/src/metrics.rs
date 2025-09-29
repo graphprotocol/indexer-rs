@@ -49,7 +49,7 @@ pub fn serve_metrics(host_and_port: SocketAddr) {
                 match encoder.encode_to_string(&metric_families) {
                     Ok(s) => (StatusCode::OK, s),
                     Err(e) => {
-                        tracing::error!("Error encoding metrics: {}", e);
+                        tracing::error!(error = %e, "Error encoding metrics");
                         (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             format!("Error encoding metrics: {e}"),

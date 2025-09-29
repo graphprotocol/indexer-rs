@@ -224,6 +224,14 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                 error: format!("{e:?}."),
             })?;
 
+        tracing::debug!(
+            signers_count = signers.len(),
+            start_bound = ?timestamp_range_ns.start_bound(),
+            end_bound = ?timestamp_range_ns.end_bound(),
+            receipts_limit,
+            "retrieve_receipts_in_timestamp_range called",
+        );
+
         let records = sqlx::query!(
             r#"
                 SELECT 
@@ -249,7 +257,12 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
             "#,
             CollectionId::from(self.allocation_id).encode_hex(),
             self.sender.encode_hex(),
-            self.indexer_address.encode_hex(),
+            self.subgraph_service_address()
+                .ok_or_else(|| AdapterError::ReceiptRead {
+                    error: "SubgraphService address not available - check TapMode configuration"
+                        .to_string(),
+                })?
+                .encode_hex(),
             self.indexer_address.encode_hex(),
             &signers,
             rangebounds_to_pgrange(timestamp_range_ns),
@@ -371,7 +384,12 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
             &signers,
             rangebounds_to_pgrange(timestamp_ns),
             self.sender.encode_hex(),
-            self.indexer_address.encode_hex(),
+            self.subgraph_service_address()
+                .ok_or_else(|| AdapterError::ReceiptDelete {
+                    error: "SubgraphService address not available - check TapMode configuration"
+                        .to_string(),
+                })?
+                .encode_hex(),
             self.indexer_address.encode_hex(),
         )
         .execute(&self.pgpool)
@@ -441,6 +459,7 @@ mod test {
         TapAgentContext::builder()
             .pgpool(pgpool)
             .escrow_accounts(escrow_accounts)
+            .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
             .build()
     }
 
@@ -928,6 +947,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts)
+                .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
                 .build(),
             _test_db: test_db,
         };
@@ -1125,6 +1145,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts.clone())
+                .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
                 .build(),
             _test_db: test_db,
         };
@@ -1370,6 +1391,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts.clone())
+                .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
                 .build(),
             _test_db: test_db,
         };
