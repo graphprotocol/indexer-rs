@@ -56,7 +56,7 @@ axum-extra = { version = "0.10.1", features = [
     "typed-header",
 ], default-features = false }
 tokio-util = "0.7.10"
-cost-model = { git = "https://github.com/graphprotocol/agora", rev = "3ed34ca" }
+cost-model = { git = "https://github.com/graphprotocol/agora", rev = "e9530de5f782d68ed409e2a18c62ec532db23737" }
 bip39.workspace = true
 tower = "0.5.1"
 pin-project = "1.1.7"
