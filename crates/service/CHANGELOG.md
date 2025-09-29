@@ -6,6 +6,18 @@
 
 
 
+## [1.7.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.6.2...indexer-service-rs-v1.7.0) (2025-09-29)
+
+
+### Features
+
+* **sender_account:** Propagate new subgraph_service_address to receipt layers ([8c8dd2b](https://github.com/graphprotocol/indexer-rs/commit/8c8dd2b2b6849af3923472ad38aa7d9836cb1935))
+
+
+### Bug Fixes
+
+* **horizon:** use subgraph_service in query for V2 receipts ([8c8dd2b](https://github.com/graphprotocol/indexer-rs/commit/8c8dd2b2b6849af3923472ad38aa7d9836cb1935))
+
 ## [1.6.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.6.1...indexer-service-rs-v1.6.2) (2025-08-11)
 
 
