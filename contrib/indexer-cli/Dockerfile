@@ -1,6 +1,6 @@
 ########################################################################
 # Build image
-FROM node:20.11-bookworm-slim as build
+FROM node:20.19-bookworm-slim as build
 
 ENV NODE_ENV production
 
@@ -20,7 +20,7 @@ RUN yarn --frozen-lockfile --non-interactive --production=false
 
 ########################################################################
 # Runtime image
-FROM node:20.11-bookworm-slim
+FROM node:20.19-bookworm-slim
 
 ENV NODE_ENV production
 
