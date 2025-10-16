@@ -292,9 +292,6 @@ pub struct SenderAccountArgs {
     /// Prefix used to bypass limitations of global actor registry (used for tests)
     pub prefix: Option<String>,
 
-    /// Configuration for retry scheduler in case sender is denied
-    pub retry_interval: Duration,
-
     /// Sender type, used to decide which set of tables to use
     pub sender_type: SenderType,
 }
@@ -343,8 +340,6 @@ pub struct State {
     /// Sender Balance used to verify if it has money in
     /// the escrow to pay for all non-redeemed fees (ravs and receipts)
     sender_balance: U256,
-    /// Configuration for retry scheduler in case sender is denied
-    retry_interval: Duration,
 
     /// Adaptative limiter for concurrent Rav Request
     ///
@@ -547,7 +542,6 @@ impl State {
             If this doesn't work, open an issue on our Github."
                 )
             })?;
-        self.backoff_info.ok();
         self.rav_request_for_allocation(allocation_id).await
     }
 
@@ -586,12 +580,14 @@ impl State {
         match rav_result {
             Ok(signed_rav) => {
                 self.sender_fee_tracker.ok_rav_request(allocation_id);
+                self.backoff_info.ok();
                 self.adaptive_limiter.on_success();
                 let rav_value = signed_rav.map_or(0, |rav| rav.value_aggregate);
                 self.update_rav(allocation_id, rav_value);
             }
             Err(err) => {
                 self.sender_fee_tracker.failed_rav_backoff(allocation_id);
+                self.backoff_info.fail();
                 self.adaptive_limiter.on_failure();
                 tracing::error!(
                     "Error while requesting RAV for sender {} and allocation {}: {}",
@@ -641,6 +637,46 @@ impl State {
                 .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
                 .set(unaggregated_fees.value as f64);
         }
+    }
+
+    fn cancel_scheduled_retry(&mut self) {
+        if let Some(scheduled_rav_request) = self.scheduled_rav_request.take() {
+            tracing::debug!(sender = %self.sender, "Aborting scheduled RAV request");
+            scheduled_rav_request.abort();
+        }
+    }
+
+    fn next_retry_delay(&self) -> Duration {
+        let global_remaining = self.backoff_info.remaining();
+        let allocation_remaining = self.sender_fee_tracker.min_remaining_backoff();
+
+        match (global_remaining, allocation_remaining) {
+            (Some(global), Some(allocation)) => std::cmp::max(global, allocation),
+            (Some(global), None) => global,
+            (None, Some(allocation)) => allocation,
+            (None, None) => Duration::ZERO,
+        }
+    }
+
+    fn schedule_retry(
+        &mut self,
+        myself: &ActorRef<SenderAccountMessage>,
+        allocation_id: AllocationId,
+    ) {
+        self.cancel_scheduled_retry();
+
+        let delay = self.next_retry_delay();
+        tracing::debug!(
+            sender = %self.sender,
+            %allocation_id,
+            delay = ?delay,
+            "Scheduling RAV retry"
+        );
+
+        let retry_allocation_id = allocation_id;
+        self.scheduled_rav_request = Some(myself.send_after(delay, move || {
+            SenderAccountMessage::UpdateReceiptFees(retry_allocation_id, ReceiptFees::Retry)
+        }));
     }
 
     /// Determines whether the sender should be denied/blocked based on current fees and balance.
@@ -824,7 +860,6 @@ impl Actor for SenderAccount {
             sender_aggregator_endpoint,
             allocation_ids,
             prefix,
-            retry_interval,
             sender_type,
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
@@ -1161,9 +1196,7 @@ impl Actor for SenderAccount {
             sender: sender_id,
             denied,
             sender_balance,
-            retry_interval,
             adaptive_limiter: AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50),
-            escrow_accounts,
             escrow_subgraph,
             network_subgraph,
             domain_separator,
@@ -1283,10 +1316,7 @@ impl Actor for SenderAccount {
                     );
                 }
                 // If we're here because of a new receipt, abort any scheduled UpdateReceiptFees
-                if let Some(scheduled_rav_request) = state.scheduled_rav_request.take() {
-                    tracing::debug!(sender = %state.sender, "Aborting scheduled RAV request");
-                    scheduled_rav_request.abort();
-                }
+                state.cancel_scheduled_retry();
 
                 match receipt_fees {
                     ReceiptFees::NewReceipt(value, timestamp_ns) => {
@@ -1425,13 +1455,7 @@ impl Actor for SenderAccount {
                     // Action: Schedule another retry to attempt RAV creation again.
                     (true, true) => {
                         // retry in a moment
-                        state.scheduled_rav_request =
-                            Some(myself.send_after(state.retry_interval, move || {
-                                SenderAccountMessage::UpdateReceiptFees(
-                                    allocation_id,
-                                    ReceiptFees::Retry,
-                                )
-                            }));
+                        state.schedule_retry(&myself, allocation_id);
                     }
                     _ => {}
                 }
@@ -1766,8 +1790,6 @@ pub mod tests {
 
     /// Prefix shared between tests so we don't have conflicts in the global registry
     const BUFFER_DURATION: Duration = Duration::from_millis(100);
-    const RETRY_DURATION: Duration = Duration::from_millis(1000);
-
     async fn setup_mock_escrow_subgraph() -> MockServer {
         let mock_escrow_subgraph_server: MockServer = MockServer::start().await;
         mock_escrow_subgraph_server
@@ -2248,15 +2270,15 @@ pub mod tests {
             .unwrap();
         flush_messages(&mut msg_receiver).await;
 
-        // wait to try again so it's outside the buffer
-        tokio::time::sleep(RETRY_DURATION).await;
+        // wait briefly to allow the retry loop to process
+        tokio::time::sleep(Duration::from_millis(50)).await;
         assert_triggered!(triggered_rav_request);
 
         // Verify that no additional retry happens since the first RAV request
         // successfully cleared the unaggregated fees and resolved the deny condition.
         // This validates that the retry mechanism stops when the underlying issue is resolved,
         // which is the correct behavior according to the TAP protocol and retry logic.
-        tokio::time::sleep(RETRY_DURATION).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
         assert_not_triggered!(triggered_rav_request);
     }
 
