@@ -29,7 +29,7 @@ opt-level = 3
 [workspace.dependencies]
 anyhow = { version = "1.0.72" }
 async-trait = "0.1.83"
-axum = { version = "0.8.3", default-features = false, features = [
+axum = { version = "0.8.6", default-features = false, features = [
     "tokio",
     "http1",
     "http2",
@@ -93,7 +93,7 @@ tempfile = "3.8.0"
 test-log = { version = "0.2.12", default-features = false }
 testcontainers-modules = { version = "0.12.1", features = ["postgres"] }
 test-with = "0.14.6"
-thegraph-core = { version = "0.15.1", features = [
+thegraph-core = { version = "0.15.2", features = [
     "attestation",
     "alloy-eip712",
     "alloy-sol-types",
