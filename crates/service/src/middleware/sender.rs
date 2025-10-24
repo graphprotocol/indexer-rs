@@ -20,6 +20,7 @@ pub struct SenderState {
     /// Used to recoer the signer addres for V2 receipts(Horizon)
     pub domain_separator_v2: Eip712Domain,
     /// Used to get the sender address given the signer address if v1 receipt
+    /// V1_LEGACY: Escrow watcher for legacy TAP
     pub escrow_accounts_v1: Option<watch::Receiver<EscrowAccounts>>,
     /// Used to get the sender address given the signer address if v2 receipt
     pub escrow_accounts_v2: Option<watch::Receiver<EscrowAccounts>>,

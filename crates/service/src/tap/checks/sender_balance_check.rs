@@ -12,6 +12,7 @@ use crate::{
     tap::{CheckingReceipt, TapReceipt},
 };
 
+// SHARED: V1 + V2 common code
 pub struct SenderBalanceCheck {
     escrow_accounts_v1: Option<Receiver<EscrowAccounts>>,
     escrow_accounts_v2: Option<Receiver<EscrowAccounts>>,

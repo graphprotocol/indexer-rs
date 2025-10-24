@@ -81,6 +81,7 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
 ///
 /// This is important because receipts for each network version
 /// are stored in a different database table
+/// V1_LEGACY: Reads from `scalar_tap_receipts` (legacy table)
 #[async_trait::async_trait]
 impl ReceiptRead<TapReceipt> for TapAgentContext<Legacy> {
     type AdapterError = AdapterError;
@@ -172,6 +173,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Legacy> {
 ///
 /// This is important because receipts for each network version
 /// are stored in a different database table
+/// V1_LEGACY: Deletes from `scalar_tap_receipts` (legacy table)
 #[async_trait::async_trait]
 impl ReceiptDelete for TapAgentContext<Legacy> {
     type AdapterError = AdapterError;
@@ -398,6 +400,7 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
     }
 }
 
+// V1_LEGACY: Out of scope for Horizon security audit - Tests for Legacy (V1) receipt operations
 #[cfg(test)]
 mod test {
     use std::{

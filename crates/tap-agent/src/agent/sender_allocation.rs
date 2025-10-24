@@ -1103,6 +1103,7 @@ pub trait DatabaseInteractions {
     fn mark_rav_last(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
+// V1_LEGACY: Out of scope for Horizon security audit
 impl DatabaseInteractions for SenderAllocationState<Legacy> {
     async fn delete_receipts_between(
         &self,
@@ -1461,6 +1462,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
     }
 }
 
+// V1_LEGACY: Out of scope for Horizon security audit - Tests for Legacy (V1) sender allocation
 #[cfg(test)]
 pub mod tests {
     #![allow(missing_docs)]

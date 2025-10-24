@@ -157,7 +157,7 @@ pub async fn run() -> anyhow::Result<()> {
     let router = if is_horizon_active {
         tracing::info!("Horizon contracts detected - using Horizon migration mode: V2 receipts only, but processing existing V1 receipts");
 
-        // Create V1 escrow watcher for processing existing receipts
+        // V1_LEGACY: Out of scope for Horizon security audit - Create V1 escrow watcher for processing existing receipts
         let escrow_subgraph_v1 = create_subgraph_client(
             http_client.clone(),
             &config.graph_node,
@@ -215,7 +215,7 @@ pub async fn run() -> anyhow::Result<()> {
         tracing::info!(
             "No Horizon contracts detected - using Legacy (V1) mode with escrow accounts v1 only"
         );
-        // Only create v1 watcher for legacy mode
+        // V1_LEGACY: Out of scope for Horizon security audit - Only create v1 watcher for legacy mode
         let escrow_subgraph_v1 = create_subgraph_client(
             http_client.clone(),
             &config.graph_node,
@@ -254,6 +254,9 @@ pub async fn run() -> anyhow::Result<()> {
         address = %host_and_port,
         "Serving requests",
     );
+
+    // AUDIT: dips does not work in hybrid mode
+    // either V1 or V2 only
     if let Some(dips) = config.dips.as_ref() {
         let DipsConfig {
             host,
@@ -295,7 +298,7 @@ pub async fn run() -> anyhow::Result<()> {
             ))
         } else {
             tracing::info!("DIPS falling back to v1 escrow subgraph");
-            // Create subgraph client for v1
+            // V1_LEGACY: Out of scope for Horizon security audit - Create subgraph client for v1
             Box::leak(Box::new(
                 SubgraphClient::new(
                     dips_http_client,
@@ -320,7 +323,7 @@ pub async fn run() -> anyhow::Result<()> {
             .await
             .with_context(|| "Failed to create escrow accounts v2 watcher for DIPS")?
         } else {
-            // Fall back to v1 watcher
+            // V1_LEGACY: Out of scope for Horizon security audit - Fall back to v1 watcher
             escrow_accounts_v1(
                 escrow_subgraph_for_dips,
                 indexer_address,

@@ -118,6 +118,7 @@ pub fn empty_escrow_accounts_watcher() -> EscrowAccountsWatcher {
     receiver
 }
 
+// V1_LEGACY: Out of scope for Horizon security audit
 pub async fn escrow_accounts_v1(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
@@ -225,6 +226,7 @@ async fn get_escrow_accounts_v2(
     Ok(escrow_accounts)
 }
 
+// V1_LEGACY: Out of scope for Horizon security audit
 async fn get_escrow_accounts_v1(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,

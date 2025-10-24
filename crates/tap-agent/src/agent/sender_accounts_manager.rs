@@ -41,6 +41,7 @@ static RECEIPTS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
 
 const RETRY_INTERVAL: Duration = Duration::from_secs(30);
 
+// V1_LEGACY: Out of scope for Horizon security audit
 /// Notification received by pgnotify for V1 (legacy) receipts
 ///
 /// This contains a list of properties that are sent by postgres when a V1 receipt is inserted
@@ -75,6 +76,7 @@ pub struct NewReceiptNotificationV2 {
     pub value: u128,
 }
 
+// SHARED: V1 + V2 common code
 /// Unified notification that can represent both V1 and V2 receipts
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum NewReceiptNotification {
@@ -151,6 +153,7 @@ impl NewReceiptNotification {
 #[derive(Debug, Clone)]
 pub struct SenderAccountsManager;
 
+// SHARED: V1 + V2 common code
 /// Wrapped AllocationId with two possible variants
 ///
 /// This is used by children actors to define what kind of
@@ -234,6 +237,7 @@ impl Display for AllocationId {
     }
 }
 
+// SHARED: V1 + V2 common code
 /// Type used in [SenderAccountsManager] and [SenderAccount] to route the correct escrow queries
 /// and to use the correct set of tables
 #[derive(Clone, Copy, Debug)]
@@ -244,6 +248,7 @@ pub enum SenderType {
     Horizon,
 }
 
+// SHARED: V1 + V2 common code
 /// Enum containing all types of messages that a [SenderAccountsManager] can receive
 #[derive(Debug)]
 #[cfg_attr(any(test, feature = "test"), derive(Clone))]
@@ -407,7 +412,7 @@ impl Actor for SenderAccountsManager {
             sender_aggregator_endpoints,
             prefix: prefix.clone(),
         };
-        // v1
+        // V1_LEGACY: Out of scope for Horizon security audit - v1 initialization
         let sender_allocation_v1 = select! {
             sender_allocation = state.get_pending_sender_allocation_id_v1() => sender_allocation,
             _ = tokio::time::sleep(state.config.tap_sender_timeout) => {
@@ -454,8 +459,7 @@ impl Actor for SenderAccountsManager {
             .collect::<Vec<()>>()
             .await;
 
-        // Start the new_receipts_watcher task that will consume from the `pglistener`
-        // after starting all senders
+        // V1_LEGACY: Out of scope for Horizon security audit - Start the new_receipts_watcher task for V1
         state.new_receipts_watcher_handle_v1 = Some(tokio::spawn(
             new_receipts_watcher()
                 .sender_type(SenderType::Legacy)
@@ -517,6 +521,7 @@ impl Actor for SenderAccountsManager {
         );
 
         match msg {
+            // V1_LEGACY: Out of scope for Horizon security audit
             SenderAccountsManagerMessage::UpdateSenderAccountsV1(target_senders) => {
                 // Create new sender accounts
                 for sender in target_senders.difference(&state.sender_ids_v1) {
@@ -615,6 +620,7 @@ impl Actor for SenderAccountsManager {
                 // Get the sender's allocations taking into account
                 // the sender type
                 let allocations = match sender_type {
+                    // V1_LEGACY: Out of scope for Horizon security audit
                     SenderType::Legacy => {
                         let mut sender_allocation = select! {
                             sender_allocation = state.get_pending_sender_allocation_id_v1() => sender_allocation,
@@ -752,6 +758,7 @@ impl State {
         Ok(())
     }
 
+    // V1_LEGACY: Out of scope for Horizon security audit
     /// Gather all outstanding receipts and unfinalized RAVs from the database.
     /// Used to create [SenderAccount] instances for all senders that have unfinalized allocations
     /// and try to finalize them if they have become ineligible.
@@ -1000,7 +1007,7 @@ impl State {
         sender_type: SenderType,
     ) -> anyhow::Result<SenderAccountArgs> {
         let escrow_accounts = match sender_type {
-            SenderType::Legacy => self.escrow_accounts_v1.clone(),
+            SenderType::Legacy => self.escrow_accounts_v1.clone(), // V1_LEGACY
             SenderType::Horizon => self.escrow_accounts_v2.clone(),
         };
 
@@ -1086,6 +1093,7 @@ async fn new_receipts_watcher(
     prefix: Option<String>,
 ) {
     match sender_type {
+        // V1_LEGACY: Out of scope for Horizon security audit
         SenderType::Legacy => {
             pglistener
                 .listen("scalar_tap_receipt_notification")
@@ -1129,6 +1137,7 @@ async fn new_receipts_watcher(
         );
         // Determine notification format based on the channel name
         let new_receipt_notification = match pg_notification.channel() {
+            // V1_LEGACY: Out of scope for Horizon security audit
             "scalar_tap_receipt_notification" => {
                 // V1 notification format
                 match serde_json::from_str::<NewReceiptNotificationV1>(pg_notification.payload()) {
@@ -1249,6 +1258,7 @@ async fn handle_notification(
     let allocation_id = new_receipt_notification.allocation_id();
     let allocation_str = allocation_id.to_hex();
     match allocation_id {
+        // V1_LEGACY: Out of scope for Horizon security audit
         AllocationId::Legacy(_) => {
             tracing::info!(
                 sender_address = %sender_address,
@@ -1299,7 +1309,7 @@ async fn handle_notification(
         );
 
         let type_segment = match sender_type {
-            SenderType::Legacy => "legacy:",
+            SenderType::Legacy => "legacy:", // V1_LEGACY
             SenderType::Horizon => "horizon:",
         };
 
@@ -1349,6 +1359,7 @@ async fn handle_notification(
     Ok(())
 }
 
+// SHARED: Tests for sender accounts manager (V1 + V2 tests)
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
@@ -1457,6 +1468,7 @@ mod tests {
         )
     }
 
+    // V1_LEGACY: Test V1 pending sender allocation retrieval
     #[tokio::test]
     async fn test_pending_sender_allocations() {
         let test_db = test_assets::setup_shared_test_db().await;
@@ -1481,6 +1493,7 @@ mod tests {
         assert_eq!(pending_allocation_id.get(&SENDER.1).unwrap().len(), 2);
     }
 
+    // V1_LEGACY: Test V1 sender account updates
     #[tokio::test]
     async fn test_update_sender_account() {
         let test_db = test_assets::setup_shared_test_db().await;
@@ -1554,6 +1567,7 @@ mod tests {
         assert!(actor_ref.is_some());
     }
 
+    // V1_LEGACY: Test V1 sender denylist on failure
     #[tokio::test]
     async fn test_deny_sender_account_on_failure() {
         let test_db = test_assets::setup_shared_test_db().await;
@@ -1588,6 +1602,7 @@ mod tests {
         assert!(denied, "Sender was not denied after failing.");
     }
 
+    // V1_LEGACY: Test V1 receipt notifications via pg_notify
     #[tokio::test]
     async fn test_receive_notifications() {
         let test_db = test_assets::setup_shared_test_db().await;
@@ -1659,6 +1674,7 @@ mod tests {
         new_receipts_watcher_handle.abort();
     }
 
+    // V1_LEGACY: Test V1 notification watcher shutdown behavior
     #[tokio::test]
     async fn test_manager_killed_in_database_connection() {
         let test_db = test_assets::setup_shared_test_db().await;
@@ -1690,6 +1706,7 @@ mod tests {
         assert_eq!(dummy_actor.get_status(), ActorStatus::Stopped)
     }
 
+    // V1_LEGACY: Test V1 allocation ID creation and notification handling
     #[tokio::test]
     async fn test_create_allocation_id() {
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();

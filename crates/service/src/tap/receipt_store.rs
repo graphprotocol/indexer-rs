@@ -101,6 +101,7 @@ impl InnerContext {
         }
     }
 
+    // V1_LEGACY: Out of scope for Horizon security audit
     async fn store_receipts_v1(
         &self,
         receipts: Vec<DbReceiptV1>,
@@ -279,6 +280,7 @@ impl ReceiptStore<TapReceipt> for IndexerTapContext {
     }
 }
 
+// SHARED: V1 + V2 common code
 pub enum DatabaseReceipt {
     V1(DbReceiptV1),
     V2(DbReceiptV2),
@@ -293,6 +295,7 @@ impl DatabaseReceipt {
     }
 }
 
+// V1_LEGACY: Out of scope for Horizon security audit
 pub struct DbReceiptV1 {
     signer_address: String,
     signature: Vec<u8>,
@@ -302,6 +305,7 @@ pub struct DbReceiptV1 {
     value: BigDecimal,
 }
 
+// V1_LEGACY: Out of scope for Horizon security audit
 impl DbReceiptV1 {
     fn from_receipt(
         receipt: &tap_graph::SignedReceipt,
@@ -462,6 +466,7 @@ mod tests {
         }
     }
 
+    // V1_LEGACY: Tests for V1-only processing (when Horizon migrations are excluded)
     mod when_horizon_migrations_are_ignored {
         use super::*;
 
@@ -478,6 +483,7 @@ mod tests {
             assert_eq!(res, ProcessedReceipt::None);
         }
 
+        // V1_LEGACY: Test V1 receipt processing only
         #[tokio::test]
         async fn test_v1_receipts_are_processed_successfully() {
             let migrator = create_migrator();
@@ -496,6 +502,7 @@ mod tests {
             assert_eq!(res, ProcessedReceipt::V1);
         }
 
+        // V1_LEGACY: Test V2 receipts failing when Horizon migrations excluded
         #[rstest::rstest]
         #[case(async { vec![create_v2().await] })]
         #[case(async { vec![create_v2().await, create_v1().await] })]

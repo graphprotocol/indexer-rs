@@ -55,6 +55,7 @@ impl Header for TapHeader {
                 }
                 Err(e) => {
                     tracing::debug!(error = %e, "Could not base64 decode v2 receipt, trying v1");
+                    // V1_LEGACY: JSON decode path for legacy V1 receipts
                     let parsed_receipt: SignedReceipt =
                         serde_json::from_slice(raw_receipt.as_ref()).map_err(|e| {
                             tracing::debug!(error = %e, "Failed to JSON decode v1 receipt");

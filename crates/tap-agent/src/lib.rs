@@ -21,6 +21,7 @@ use thegraph_core::alloy::sol_types::Eip712Domain;
 pub static CONFIG: LazyLock<Config> =
     LazyLock::new(|| cli::get_config().expect("Failed to load configuration"));
 
+/// V1_LEGACY: Domain separator for legacy TAP
 /// Static EIP_712_DOMAIN used with config values for V1
 pub static EIP_712_DOMAIN: LazyLock<Eip712Domain> = LazyLock::new(|| {
     tap_eip712_domain(
