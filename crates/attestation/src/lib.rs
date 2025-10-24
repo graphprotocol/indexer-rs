@@ -23,7 +23,7 @@ pub fn derive_key_pair(
     deployment: &DeploymentId,
     index: u64,
 ) -> Result<PrivateKeySigner, anyhow::Error> {
-    // Try the original method first for backward compatibility
+    // V1_LEGACY: Out of scope for Horizon security audit - Try the original method first for backward compatibility
     match derive_key_pair_v1(indexer_mnemonic, epoch, deployment, index) {
         Ok(wallet) => Ok(wallet),
         Err(e) => {
@@ -40,6 +40,7 @@ pub fn derive_key_pair(
     }
 }
 
+// V1_LEGACY: Out of scope for Horizon security audit
 /// Original derivation method - kept for backward compatibility
 fn derive_key_pair_v1(
     indexer_mnemonic: &str,
@@ -306,6 +307,7 @@ fn wallet_for_allocation_multi(
     ))
 }
 
+// V1_LEGACY: Out of scope for Horizon security audit - Tests for V1 derivation and backward compatibility
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
@@ -325,6 +327,7 @@ mod tests {
 
     const INDEXER_OPERATOR_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
+    // V1_LEGACY: Test for V1 derivation path analysis
     #[test]
     fn test_deployment_bytes_analysis() {
         let deployment = DeploymentId::from_str(
@@ -460,6 +463,7 @@ mod tests {
         );
     }
 
+    // V1_LEGACY: Test for V1 to V2 fallback behavior
     #[test]
     fn test_v2_fallback_for_long_paths() {
         // Test the problematic deployment from the original error logs
@@ -532,6 +536,7 @@ mod tests {
         }
     }
 
+    // V1_LEGACY: Test for debugging V1 allocation failures
     #[test]
     fn test_specific_failing_allocation() {
         // Test the specific allocation that's failing in the logs
@@ -594,6 +599,7 @@ mod tests {
         println!("This suggests the allocation was created with different parameters or mnemonic");
     }
 
+    // V1_LEGACY: Test for debugging V1 allocation derivation
     #[test]
     fn test_debug_allocation_derivation() {
         let mnemonic = "test test test test test test test test test test test zero";

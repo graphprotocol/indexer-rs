@@ -173,6 +173,7 @@ pub async fn start_agent(
         "Initializing V1 escrow accounts watcher with indexer {}",
         indexer_address
     );
+    // V1_LEGACY: Out of scope for Horizon security audit
     let escrow_accounts_v1 = escrow_accounts_v1(
         escrow_subgraph,
         *indexer_address,
@@ -257,7 +258,7 @@ pub async fn start_agent(
         // Use the TapMode from config since horizon is actually enabled and active
         SenderAccountConfig::from_config(&CONFIG)
     } else {
-        // Override to Legacy mode since horizon is not active in the network
+        // V1_LEGACY: Out of scope for Horizon security audit - Override to Legacy mode
         let mut config = SenderAccountConfig::from_config(&CONFIG);
         config.tap_mode = indexer_config::TapMode::Legacy;
         config

@@ -16,12 +16,14 @@ use crate::{
     tap::{CheckingReceipt, TapReceipt},
 };
 
+// SHARED: V1 + V2 common code
 #[derive(Debug)]
 enum DenyListVersion {
     V1,
     V2,
 }
 
+// SHARED: V1 + V2 common code
 pub struct DenyListCheck {
     sender_denylist_v1: Arc<RwLock<HashSet<Address>>>,
     sender_denylist_v2: Arc<RwLock<HashSet<Address>>>,
@@ -35,6 +37,7 @@ impl DenyListCheck {
     pub async fn new(pgpool: PgPool) -> Self {
         // Listen to pg_notify events. We start it before updating the sender_denylist so that we
         // don't miss any updates. PG will buffer the notifications until we start consuming them.
+        // V1_LEGACY: Out of scope for Horizon security audit
         let mut pglistener_v1 = PgListener::connect_with(&pgpool.clone()).await.unwrap();
         let mut pglistener_v2 = PgListener::connect_with(&pgpool.clone()).await.unwrap();
         pglistener_v1
@@ -64,6 +67,7 @@ impl DenyListCheck {
         let notify = std::sync::Arc::new(tokio::sync::Notify::new());
 
         let sender_denylist_watcher_cancel_token = tokio_util::sync::CancellationToken::new();
+        // V1_LEGACY: Out of scope for Horizon security audit
         tokio::spawn(Self::sender_denylist_watcher(
             pgpool.clone(),
             pglistener_v1,
@@ -93,6 +97,7 @@ impl DenyListCheck {
         }
     }
 
+    // V1_LEGACY: Out of scope for Horizon security audit
     async fn sender_denylist_reload_v1(
         pgpool: PgPool,
         denylist_rwlock: Arc<RwLock<HashSet<Address>>>,
@@ -249,6 +254,7 @@ impl Drop for DenyListCheck {
     }
 }
 
+// V1_LEGACY: Tests for V1 denylist functionality
 #[cfg(test)]
 mod tests {
     use sqlx::PgPool;
@@ -263,6 +269,7 @@ mod tests {
         DenyListCheck::new(pgpool).await
     }
 
+    // V1_LEGACY: Test V1 sender denylist check
     #[tokio::test]
     async fn test_sender_denylist() {
         let test_db = test_assets::setup_shared_test_db().await;
@@ -295,6 +302,7 @@ mod tests {
             .is_err());
     }
 
+    // V1_LEGACY: Test V1 denylist dynamic updates via pg_notify
     #[tokio::test]
     async fn test_sender_denylist_updates() {
         let test_db = test_assets::setup_shared_test_db().await;

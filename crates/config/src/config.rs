@@ -716,6 +716,7 @@ pub struct RavRequestConfig {
 /// [blockchain]
 /// subgraph_service_address = "0x..."
 /// ```
+// SHARED: V1 + V2 common code
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum TapMode {

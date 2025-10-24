@@ -15,12 +15,14 @@ use thegraph_core::alloy::{
     signers::Signature,
 };
 
+// SHARED: V1 + V2 common code
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TapReceipt {
     V1(tap_graph::SignedReceipt),
     V2(tap_graph::v2::SignedReceipt),
 }
 
+// V1_LEGACY: Out of scope for Horizon security audit
 impl Aggregate<TapReceipt> for tap_graph::ReceiptAggregateVoucher {
     fn aggregate_receipts(
         receipts: &[tap_core::receipt::ReceiptWithState<

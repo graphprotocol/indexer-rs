@@ -661,7 +661,6 @@ impl State {
             ])
             .set(unaggregated_fees.value as f64);
 
-        // Keep legacy metric for V1 only, to preserve existing dashboards
         if matches!(self.sender_type, SenderType::Legacy) {
             UNAGGREGATED_FEES
                 .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
@@ -1888,6 +1887,7 @@ pub fn init_metrics() {
     let _ = &*ALLOCATION_RECONCILIATION_RUNS;
 }
 
+// SHARED: Tests for sender account (V1 + V2 behavior, uses V1 fixtures)
 #[cfg(test)]
 pub mod tests {
     #![allow(missing_docs)]

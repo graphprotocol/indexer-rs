@@ -29,6 +29,7 @@ mod receipt;
 pub use error::AdapterError;
 use tonic::{transport::Channel, Code, Status};
 
+// SHARED: V1 + V2 common code
 /// This trait represents a version of the network for TapAgentContext
 ///
 /// It's used to define what Rav struct is used and how it handles
@@ -77,6 +78,7 @@ pub trait NetworkVersion: Send + Sync + 'static {
     ) -> impl Future<Output = anyhow::Result<Eip712SignedMessage<Self::Rav>>> + Send;
 }
 
+// V1_LEGACY: Out of scope for Horizon security audit
 /// 0-sized marker for legacy network
 ///
 /// By using an enum with no variants, we prevent any instantiation
@@ -98,6 +100,7 @@ pub enum Legacy {}
 #[derive(Debug)]
 pub enum Horizon {}
 
+// V1_LEGACY: Out of scope for Horizon security audit
 impl NetworkVersion for Legacy {
     type AllocationId = AllocationIdCore;
     type Rav = tap_graph::ReceiptAggregateVoucher;
@@ -180,6 +183,7 @@ impl NetworkVersion for Horizon {
     }
 }
 
+// SHARED: V1 + V2 common code
 /// Context used by [tap_core::manager::Manager] that enables certain helper methods
 ///
 /// This context is implemented for PostgresSQL

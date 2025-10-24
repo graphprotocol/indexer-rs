@@ -77,6 +77,7 @@ pub struct ServiceRouter {
         config: EscrowSubgraphConfig|
         (subgraph, config))]
     escrow_subgraph: Option<(&'static SubgraphClient, EscrowSubgraphConfig)>,
+    // V1_LEGACY: Legacy escrow watcher (used in legacy/hybrid mode)
     escrow_accounts_v1: Option<EscrowAccountsWatcher>,
 
     escrow_accounts_v2: Option<EscrowAccountsWatcher>,
@@ -147,7 +148,7 @@ impl ServiceRouter {
             (None, None) => panic!("No allocations or network subgraph was provided"),
         };
 
-        // Monitor escrow accounts v1
+        // V1_LEGACY: Monitor escrow accounts v1 (legacy/hybrid)
         // if not provided, create monitor from subgraph
         let escrow_accounts_v1 = match (self.escrow_accounts_v1, self.escrow_subgraph.as_ref()) {
             (Some(escrow_account), _) => Some(escrow_account),
