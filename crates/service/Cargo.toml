@@ -52,7 +52,7 @@ tower-http = { version = "0.6.2", features = [
     "trace",
 ] }
 autometrics = { version = "1.0.1", features = ["prometheus-exporter"] }
-axum-extra = { version = "0.10.1", features = [
+axum-extra = { version = "0.12.0", features = [
     "typed-header",
 ], default-features = false }
 tokio-util = "0.7.10"
