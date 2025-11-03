@@ -1,4 +1,4 @@
-FROM rust:1.87-bookworm as build
+FROM rust:1.90-bookworm as build
 WORKDIR /root
 # Copy from the root project directory (two levels up)
 COPY ../../ .
