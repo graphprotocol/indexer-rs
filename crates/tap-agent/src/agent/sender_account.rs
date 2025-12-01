@@ -232,6 +232,9 @@ pub enum SenderAccountMessage {
     UpdateInvalidReceiptFees(AllocationId, UnaggregatedReceipts),
     /// Update rav tracker
     UpdateRav(RavInformation),
+    /// Periodic reconciliation to detect stale allocations.
+    /// This ensures recovery after subgraph connectivity issues.
+    ReconcileAllocations,
     #[cfg(test)]
     /// Returns the sender fee tracker, used for tests
     GetSenderFeeTracker(
@@ -392,6 +395,12 @@ pub struct State {
 
     // Config forwarded to [SenderAllocation]
     config: &'static SenderAccountConfig,
+
+    /// Watcher for allocation IDs, used for periodic reconciliation
+    indexer_allocations: Receiver<HashSet<AllocationId>>,
+
+    /// Handle for the periodic reconciliation task
+    reconciliation_handle: Option<JoinHandle<()>>,
 }
 
 /// Configuration derived from config.toml
@@ -425,6 +434,10 @@ pub struct SenderAccountConfig {
     /// Defines whether the indexer operates in legacy mode (V1 TAP receipts only)
     /// or horizon mode (hybrid V1/V2 TAP receipts support).
     pub tap_mode: indexer_config::TapMode,
+
+    /// Interval for periodic allocation reconciliation.
+    /// This ensures stale allocations are detected after subgraph connectivity issues.
+    pub allocation_reconciliation_interval: Duration,
 }
 
 impl SenderAccountConfig {
@@ -443,6 +456,8 @@ impl SenderAccountConfig {
 
             // Derive TapMode from horizon configuration
             tap_mode: config.tap_mode(),
+
+            allocation_reconciliation_interval: config.tap.allocation_reconciliation_interval_secs,
         }
     }
 }
@@ -828,6 +843,9 @@ impl Actor for SenderAccount {
             sender_type,
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+        // Clone the receiver for later use in State
+        let indexer_allocations_for_state = indexer_allocations.clone();
+
         // Pass-through normalized allocation IDs for this sender type
         let myself_clone = myself.clone();
         watch_pipe(indexer_allocations, move |allocation_ids| {
@@ -1151,6 +1169,31 @@ impl Actor for SenderAccount {
         // wiremock_grpc used for tests doesn't support Zstd compression
         #[cfg(not(test))]
         let aggregator_v2 = aggregator_v2.send_compressed(tonic::codec::CompressionEncoding::Zstd);
+        // Spawn periodic reconciliation task
+        let reconciliation_interval = config.allocation_reconciliation_interval;
+        let myself_reconcile = myself.clone();
+        let sender_for_log = sender_id;
+        let reconciliation_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(reconciliation_interval);
+            // Skip the first tick (which fires immediately)
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                tracing::debug!(
+                    sender = %sender_for_log,
+                    "Running periodic allocation reconciliation"
+                );
+                if let Err(e) = myself_reconcile.cast(SenderAccountMessage::ReconcileAllocations) {
+                    tracing::error!(
+                        error = ?e,
+                        sender = %sender_for_log,
+                        "Error sending ReconcileAllocations message"
+                    );
+                    break;
+                }
+            }
+        });
+
         let state = State {
             prefix,
             sender_fee_tracker: SenderFeeTracker::new(config.rav_request_buffer),
@@ -1175,6 +1218,8 @@ impl Actor for SenderAccount {
             trusted_sender: config.trusted_senders.contains(&sender_id),
             config,
             sender_type,
+            indexer_allocations: indexer_allocations_for_state,
+            reconciliation_handle: Some(reconciliation_handle),
         };
 
         stream::iter(allocation_ids)
@@ -1552,6 +1597,20 @@ impl Actor for SenderAccount {
                     (_, _) => {}
                 }
             }
+            SenderAccountMessage::ReconcileAllocations => {
+                // Get current allocations from the watcher and trigger UpdateAllocationIds
+                // This forces a re-check of all allocations even if the watcher data hasn't changed,
+                // ensuring we recover from missed closure events during connectivity issues.
+                let current_allocations = state.indexer_allocations.borrow().clone();
+                tracing::debug!(
+                    sender = %state.sender,
+                    allocation_count = current_allocations.len(),
+                    "Triggering allocation reconciliation"
+                );
+                myself.cast(SenderAccountMessage::UpdateAllocationIds(
+                    current_allocations,
+                ))?;
+            }
             #[cfg(test)]
             SenderAccountMessage::GetSenderFeeTracker(reply) => {
                 if !reply.is_closed() {
@@ -1684,6 +1743,18 @@ impl Actor for SenderAccount {
                 }
             }
             _ => {}
+        }
+        Ok(())
+    }
+
+    async fn post_stop(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        // Abort the reconciliation task on stop
+        if let Some(handle) = state.reconciliation_handle.take() {
+            handle.abort();
         }
         Ok(())
     }

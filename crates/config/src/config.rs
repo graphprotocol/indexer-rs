@@ -441,6 +441,17 @@ pub struct TapConfig {
     /// over the escrow balance
     #[serde(default)]
     pub trusted_senders: HashSet<Address>,
+
+    /// Interval in seconds for periodic allocation reconciliation.
+    /// This ensures stale allocations are detected after subgraph connectivity issues.
+    /// Default: 300 (5 minutes)
+    #[serde(default = "default_allocation_reconciliation_interval_secs")]
+    #[serde_as(as = "DurationSecondsWithFrac<f64>")]
+    pub allocation_reconciliation_interval_secs: Duration,
+}
+
+fn default_allocation_reconciliation_interval_secs() -> Duration {
+    Duration::from_secs(300)
 }
 
 #[derive(Debug, Deserialize)]
