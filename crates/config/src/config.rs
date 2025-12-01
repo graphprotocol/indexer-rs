@@ -226,6 +226,20 @@ impl Config {
             );
         }
 
+        if self.tap.allocation_reconciliation_interval_secs == Duration::ZERO {
+            return Err(
+                "tap.allocation_reconciliation_interval_secs must be greater than 0".to_string(),
+            );
+        }
+
+        if self.tap.allocation_reconciliation_interval_secs < Duration::from_secs(60) {
+            tracing::warn!(
+                "Your `tap.allocation_reconciliation_interval_secs` value is too low. \
+                This may cause unnecessary load on the system. \
+                A recommended value is at least 60 seconds."
+            );
+        }
+
         // Horizon configuration validation
         // Explicit toggle via `horizon.enabled`. When enabled, require both
         // `blockchain.subgraph_service_address` and

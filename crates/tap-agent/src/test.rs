@@ -113,11 +113,13 @@ pub async fn create_sender_account(
     #[builder(default = RECEIPT_LIMIT)] rav_request_receipt_limit: u64,
     aggregator_endpoint: Option<Url>,
     #[builder(default = false)] trusted_sender: bool,
+    #[builder(default = Duration::from_secs(300))] allocation_reconciliation_interval: Duration,
 ) -> (
     ActorRef<SenderAccountMessage>,
     mpsc::Receiver<SenderAccountMessage>,
     String,
     Sender<EscrowAccounts>,
+    Sender<HashSet<AllocationId>>,
 ) {
     let trusted_senders = if trusted_sender {
         HashSet::from([SENDER.1])
@@ -135,7 +137,7 @@ pub async fn create_sender_account(
         tap_sender_timeout: TAP_SENDER_TIMEOUT,
         trusted_senders,
         tap_mode: indexer_config::TapMode::Legacy,
-        allocation_reconciliation_interval: Duration::from_secs(300),
+        allocation_reconciliation_interval,
     }));
 
     let network_subgraph = Box::leak(Box::new(
@@ -171,12 +173,14 @@ pub async fn create_sender_account(
         None => Url::parse(&get_grpc_url().await).unwrap(),
     };
 
+    let (indexer_allocations_tx, indexer_allocations_rx) = watch::channel(initial_allocation);
+
     let args = SenderAccountArgs {
         config,
         pgpool,
         sender_id: SENDER.1,
         escrow_accounts: escrow_accounts_rx,
-        indexer_allocations: watch::channel(initial_allocation).1,
+        indexer_allocations: indexer_allocations_rx,
         escrow_subgraph,
         network_subgraph,
         domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
@@ -198,7 +202,13 @@ pub async fn create_sender_account(
     // flush all messages
     flush_messages(&mut receiver).await;
 
-    (sender, receiver, prefix, escrow_accounts_tx)
+    (
+        sender,
+        receiver,
+        prefix,
+        escrow_accounts_tx,
+        indexer_allocations_tx,
+    )
 }
 
 #[bon::builder]
