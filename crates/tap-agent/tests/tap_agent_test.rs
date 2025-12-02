@@ -95,6 +95,7 @@ pub async fn start_agent(
         tap_sender_timeout: Duration::from_secs(30),
         trusted_senders: HashSet::new(),
         tap_mode: indexer_config::TapMode::Legacy,
+        allocation_reconciliation_interval: Duration::from_secs(300),
     }));
 
     let args = SenderAccountsManagerArgs {

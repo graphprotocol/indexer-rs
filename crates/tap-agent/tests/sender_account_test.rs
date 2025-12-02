@@ -40,7 +40,7 @@ async fn sender_account_layer_test() {
         .await
         .unwrap();
 
-    let (sender_account, mut msg_receiver, _, _) = create_sender_account()
+    let (sender_account, mut msg_receiver, _, _, _) = create_sender_account()
         .pgpool(pgpool.clone())
         .max_amount_willing_to_lose_grt(TRIGGER_VALUE + 1000)
         .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())

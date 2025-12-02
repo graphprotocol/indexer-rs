@@ -17,7 +17,10 @@ use indexer_query::{
     unfinalized_transactions, UnfinalizedTransactions,
 };
 use indexer_watcher::watch_pipe;
-use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
+use prometheus::{
+    register_gauge_vec, register_int_counter_vec, register_int_gauge_vec, GaugeVec, IntCounterVec,
+    IntGaugeVec,
+};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use reqwest::Url;
 use sqlx::PgPool;
@@ -114,6 +117,14 @@ static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_rav_request_trigger_value",
         "RAV request trigger value divisor",
+        &["sender"]
+    )
+    .unwrap()
+});
+static ALLOCATION_RECONCILIATION_RUNS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    register_int_counter_vec!(
+        "tap_allocation_reconciliation_runs_total",
+        "Number of allocation reconciliation runs",
         &["sender"]
     )
     .unwrap()
@@ -232,6 +243,9 @@ pub enum SenderAccountMessage {
     UpdateInvalidReceiptFees(AllocationId, UnaggregatedReceipts),
     /// Update rav tracker
     UpdateRav(RavInformation),
+    /// Periodic reconciliation to detect stale allocations.
+    /// This ensures recovery after subgraph connectivity issues.
+    ReconcileAllocations,
     #[cfg(test)]
     /// Returns the sender fee tracker, used for tests
     GetSenderFeeTracker(
@@ -392,6 +406,12 @@ pub struct State {
 
     // Config forwarded to [SenderAllocation]
     config: &'static SenderAccountConfig,
+
+    /// Watcher for allocation IDs, used for periodic reconciliation
+    indexer_allocations: Receiver<HashSet<AllocationId>>,
+
+    /// Handle for the periodic reconciliation task
+    reconciliation_handle: Option<JoinHandle<()>>,
 }
 
 /// Configuration derived from config.toml
@@ -425,6 +445,10 @@ pub struct SenderAccountConfig {
     /// Defines whether the indexer operates in legacy mode (V1 TAP receipts only)
     /// or horizon mode (hybrid V1/V2 TAP receipts support).
     pub tap_mode: indexer_config::TapMode,
+
+    /// Interval for periodic allocation reconciliation.
+    /// This ensures stale allocations are detected after subgraph connectivity issues.
+    pub allocation_reconciliation_interval: Duration,
 }
 
 impl SenderAccountConfig {
@@ -443,6 +467,8 @@ impl SenderAccountConfig {
 
             // Derive TapMode from horizon configuration
             tap_mode: config.tap_mode(),
+
+            allocation_reconciliation_interval: config.tap.allocation_reconciliation_interval_secs,
         }
     }
 }
@@ -828,6 +854,9 @@ impl Actor for SenderAccount {
             sender_type,
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+        // Clone the receiver for later use in State
+        let indexer_allocations_for_state = indexer_allocations.clone();
+
         // Pass-through normalized allocation IDs for this sender type
         let myself_clone = myself.clone();
         watch_pipe(indexer_allocations, move |allocation_ids| {
@@ -1151,6 +1180,31 @@ impl Actor for SenderAccount {
         // wiremock_grpc used for tests doesn't support Zstd compression
         #[cfg(not(test))]
         let aggregator_v2 = aggregator_v2.send_compressed(tonic::codec::CompressionEncoding::Zstd);
+        // Spawn periodic reconciliation task
+        let reconciliation_interval = config.allocation_reconciliation_interval;
+        let myself_reconcile = myself.clone();
+        let sender_for_log = sender_id;
+        let reconciliation_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(reconciliation_interval);
+            // Skip the first tick (which fires immediately)
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                tracing::info!(
+                    sender = %sender_for_log,
+                    "Running periodic allocation reconciliation"
+                );
+                if let Err(e) = myself_reconcile.cast(SenderAccountMessage::ReconcileAllocations) {
+                    tracing::error!(
+                        error = ?e,
+                        sender = %sender_for_log,
+                        "Error sending ReconcileAllocations message"
+                    );
+                    break;
+                }
+            }
+        });
+
         let state = State {
             prefix,
             sender_fee_tracker: SenderFeeTracker::new(config.rav_request_buffer),
@@ -1175,6 +1229,8 @@ impl Actor for SenderAccount {
             trusted_sender: config.trusted_senders.contains(&sender_id),
             config,
             sender_type,
+            indexer_allocations: indexer_allocations_for_state,
+            reconciliation_handle: Some(reconciliation_handle),
         };
 
         stream::iter(allocation_ids)
@@ -1552,6 +1608,23 @@ impl Actor for SenderAccount {
                     (_, _) => {}
                 }
             }
+            SenderAccountMessage::ReconcileAllocations => {
+                // Get current allocations from the watcher and trigger UpdateAllocationIds
+                // This forces a re-check of all allocations even if the watcher data hasn't changed,
+                // ensuring we recover from missed closure events during connectivity issues.
+                ALLOCATION_RECONCILIATION_RUNS
+                    .with_label_values(&[&state.sender.to_string()])
+                    .inc();
+                let current_allocations = state.indexer_allocations.borrow().clone();
+                tracing::info!(
+                    sender = %state.sender,
+                    allocation_count = current_allocations.len(),
+                    "Triggering allocation reconciliation"
+                );
+                myself.cast(SenderAccountMessage::UpdateAllocationIds(
+                    current_allocations,
+                ))?;
+            }
             #[cfg(test)]
             SenderAccountMessage::GetSenderFeeTracker(reply) => {
                 if !reply.is_closed() {
@@ -1687,6 +1760,18 @@ impl Actor for SenderAccount {
         }
         Ok(())
     }
+
+    async fn post_stop(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        // Abort the reconciliation task on stop
+        if let Some(handle) = state.reconciliation_handle.take() {
+            handle.abort();
+        }
+        Ok(())
+    }
 }
 
 impl SenderAccount {
@@ -1750,7 +1835,7 @@ pub mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use super::{RavInformation, SenderAccountMessage};
+    use super::{RavInformation, SenderAccountMessage, ALLOCATION_RECONCILIATION_RUNS};
     use crate::{
         agent::{
             sender_account::ReceiptFees, sender_accounts_manager::AllocationId,
@@ -1816,7 +1901,7 @@ pub mod tests {
             )
             .await;
 
-        let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
             .pgpool(pgpool)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
@@ -1907,7 +1992,7 @@ pub mod tests {
             )
             .await;
 
-        let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
             .pgpool(pgpool)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
@@ -2000,7 +2085,7 @@ pub mod tests {
     async fn test_update_receipt_fees_no_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let (sender_account, msg_receiver, prefix, _) =
+        let (sender_account, msg_receiver, prefix, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
         let basic_sender_account = TestSenderAccount {
             sender_account,
@@ -2034,7 +2119,7 @@ pub mod tests {
     async fn test_update_receipt_fees_trigger_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let (sender_account, msg_receiver, prefix, _) =
+        let (sender_account, msg_receiver, prefix, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
         let mut basic_sender_account = TestSenderAccount {
             sender_account,
@@ -2080,7 +2165,7 @@ pub mod tests {
     async fn test_counter_greater_limit_trigger_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .rav_request_receipt_limit(2)
             .call()
@@ -2133,7 +2218,7 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
-        let (sender_account, _, prefix, _) = create_sender_account()
+        let (sender_account, _, prefix, _, _) = create_sender_account()
             .pgpool(pgpool)
             .initial_allocation(
                 vec![AllocationId::Legacy(AllocationIdCore::from(
@@ -2193,7 +2278,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, _notify, _, _) =
+        let (sender_account, _notify, _, _, _) =
             create_sender_account().pgpool(pgpool.clone()).call().await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
@@ -2222,7 +2307,7 @@ pub mod tests {
         // we set to zero to block the sender, no matter the fee
         let max_unaggregated_fees_per_sender: u128 = 0;
 
-        let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
             .pgpool(pgpool)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
             .call()
@@ -2271,7 +2356,7 @@ pub mod tests {
         let max_unaggregated_fees_per_sender: u128 = 1000;
 
         // Making sure no RAV is going to be triggered during the test
-        let (sender_account, mut msg_receiver, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .rav_request_trigger_value(u128::MAX)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
@@ -2373,7 +2458,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, _notify, _, _) = create_sender_account()
+        let (sender_account, _notify, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .max_amount_willing_to_lose_grt(u128::MAX)
             .call()
@@ -2414,7 +2499,7 @@ pub mod tests {
         let trigger_rav_request = ESCROW_VALUE * 2;
 
         // initialize with no trigger value and no max receipt deny
-        let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .rav_request_trigger_value(trigger_rav_request)
             .max_amount_willing_to_lose_grt(u128::MAX)
@@ -2494,7 +2579,7 @@ pub mod tests {
         let pgpool = test_db.pool;
         let max_amount_willing_to_lose_grt = ESCROW_VALUE / 10;
         // initialize with no trigger value and no max receipt deny
-        let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
             .pgpool(pgpool)
             .trusted_sender(true)
             .rav_request_trigger_value(u128::MAX)
@@ -2603,7 +2688,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, mut msg_receiver, _, escrow_accounts_tx) = create_sender_account()
+        let (sender_account, mut msg_receiver, _, escrow_accounts_tx, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .max_amount_willing_to_lose_grt(u128::MAX)
             .escrow_subgraph_endpoint(&mock_server.uri())
@@ -2663,7 +2748,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, mut msg_receiver, _, escrow_accounts_tx) = create_sender_account()
+        let (sender_account, mut msg_receiver, _, escrow_accounts_tx, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .max_amount_willing_to_lose_grt(u128::MAX)
             .call()
@@ -2708,7 +2793,7 @@ pub mod tests {
         // we set to 1 to block the sender on a really low value
         let max_unaggregated_fees_per_sender: u128 = 1;
 
-        let (sender_account, mut msg_receiver, prefix, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
             .pgpool(pgpool)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
             .call()
@@ -2761,6 +2846,257 @@ pub mod tests {
         let scheuduler_enabled =
             call!(sender_account, SenderAccountMessage::IsSchedulerEnabled).unwrap();
         assert!(!scheuduler_enabled, "should have an scheduler disabled");
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_allocations_triggers_update() {
+        // Test that ReconcileAllocations message triggers UpdateAllocationIds
+        // with the current allocations from the watcher
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+
+        let allocation_set = HashSet::from_iter([
+            AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+            AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_1)),
+        ]);
+
+        let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx) =
+            create_sender_account()
+                .pgpool(pgpool)
+                .initial_allocation(allocation_set.clone())
+                .call()
+                .await;
+
+        // Verify initial state - indexer_allocations should have the allocations
+        // Send ReconcileAllocations message
+        sender_account
+            .cast(SenderAccountMessage::ReconcileAllocations)
+            .unwrap();
+
+        // Should receive the ReconcileAllocations message first (from TestableActor)
+        let message = msg_receiver.recv().await.expect("Channel failed");
+        assert!(
+            matches!(message, SenderAccountMessage::ReconcileAllocations),
+            "Expected ReconcileAllocations message, got {message:?}"
+        );
+
+        // Then should receive UpdateAllocationIds with current allocations
+        let message = msg_receiver.recv().await.expect("Channel failed");
+        match message {
+            SenderAccountMessage::UpdateAllocationIds(allocations) => {
+                assert_eq!(
+                    allocations, allocation_set,
+                    "UpdateAllocationIds should contain current allocations from watcher"
+                );
+            }
+            _ => panic!("Expected UpdateAllocationIds message, got {message:?}"),
+        }
+
+        // Test that updating the watcher changes what ReconcileAllocations sends
+        let new_allocation_set = HashSet::from_iter([AllocationId::Legacy(
+            AllocationIdCore::from(ALLOCATION_ID_0),
+        )]);
+        indexer_allocations_tx
+            .send(new_allocation_set.clone())
+            .unwrap();
+
+        // Send another ReconcileAllocations
+        sender_account
+            .cast(SenderAccountMessage::ReconcileAllocations)
+            .unwrap();
+
+        // Skip ReconcileAllocations echo
+        let _ = msg_receiver.recv().await.expect("Channel failed");
+
+        // Should receive UpdateAllocationIds with updated allocations
+        let message = msg_receiver.recv().await.expect("Channel failed");
+        match message {
+            SenderAccountMessage::UpdateAllocationIds(allocations) => {
+                assert_eq!(
+                    allocations, new_allocation_set,
+                    "UpdateAllocationIds should reflect updated watcher state"
+                );
+            }
+            _ => panic!("Expected UpdateAllocationIds message, got {message:?}"),
+        }
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_periodic_reconciliation_task_lifecycle() {
+        // Test that the reconciliation task is spawned on actor start
+        // and is aborted when post_stop is called
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+
+        // Use a short reconciliation interval for testing
+        let reconciliation_interval = Duration::from_millis(100);
+
+        let (sender_account, mut msg_receiver, _, _, _) = create_sender_account()
+            .pgpool(pgpool)
+            .allocation_reconciliation_interval(reconciliation_interval)
+            .call()
+            .await;
+
+        // Pause time after actor creation (can't pause before because DB setup needs real time)
+        tokio::time::pause();
+
+        // The first tick is skipped, so we need to advance past the first interval
+        tokio::time::advance(reconciliation_interval).await;
+        tokio::task::yield_now().await;
+
+        // Advance time to trigger the periodic reconciliation
+        tokio::time::advance(reconciliation_interval).await;
+        tokio::task::yield_now().await;
+
+        // Should receive ReconcileAllocations message from the periodic task
+        let message = tokio::time::timeout(Duration::from_millis(50), msg_receiver.recv())
+            .await
+            .expect("Should receive message within timeout")
+            .expect("Channel should not be closed");
+
+        assert!(
+            matches!(message, SenderAccountMessage::ReconcileAllocations),
+            "Expected ReconcileAllocations from periodic task, got {message:?}"
+        );
+
+        // Drain any UpdateAllocationIds message that follows ReconcileAllocations
+        flush_messages(&mut msg_receiver).await;
+
+        // Resume time for shutdown operations
+        tokio::time::resume();
+
+        // Stop the actor (this should abort the reconciliation task)
+        sender_account.stop_and_wait(None, None).await.unwrap();
+
+        // Pause again to test that no more messages come after stop
+        tokio::time::pause();
+
+        // Advance time again - no more messages should be received since task is aborted
+        tokio::time::advance(reconciliation_interval * 2).await;
+        tokio::task::yield_now().await;
+
+        // Count any remaining ReconcileAllocations messages (should be none)
+        let mut reconcile_count = 0;
+        while let Ok(Some(msg)) =
+            tokio::time::timeout(Duration::from_millis(10), msg_receiver.recv()).await
+        {
+            if matches!(msg, SenderAccountMessage::ReconcileAllocations) {
+                reconcile_count += 1;
+            }
+        }
+
+        assert_eq!(
+            reconcile_count, 0,
+            "Should not receive ReconcileAllocations messages after actor stop"
+        );
+    }
+
+    /// Verifies reconciliation correctly handles the empty allocation set case.
+    /// This is the most critical scenario: all allocations close during a connectivity
+    /// outage, and reconciliation must detect this to trigger RAV finalization.
+    #[tokio::test]
+    async fn test_reconcile_allocations_handles_empty_set() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+
+        // Start with one allocation
+        let initial_allocation_set = HashSet::from_iter([AllocationId::Legacy(
+            AllocationIdCore::from(ALLOCATION_ID_0),
+        )]);
+
+        let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx) =
+            create_sender_account()
+                .pgpool(pgpool)
+                .initial_allocation(initial_allocation_set)
+                .call()
+                .await;
+
+        // Simulate all allocations closing during connectivity outage:
+        // update watcher to empty set
+        let empty_allocation_set: HashSet<AllocationId> = HashSet::new();
+        indexer_allocations_tx
+            .send(empty_allocation_set.clone())
+            .unwrap();
+
+        // Trigger reconciliation
+        sender_account
+            .cast(SenderAccountMessage::ReconcileAllocations)
+            .unwrap();
+
+        // Skip ReconcileAllocations echo
+        let message = msg_receiver.recv().await.expect("Channel failed");
+        assert!(
+            matches!(message, SenderAccountMessage::ReconcileAllocations),
+            "Expected ReconcileAllocations message, got {message:?}"
+        );
+
+        // Should receive UpdateAllocationIds with empty set
+        let message = msg_receiver.recv().await.expect("Channel failed");
+        match message {
+            SenderAccountMessage::UpdateAllocationIds(allocations) => {
+                assert!(
+                    allocations.is_empty(),
+                    "UpdateAllocationIds should contain empty set when all allocations closed"
+                );
+            }
+            _ => panic!("Expected UpdateAllocationIds message, got {message:?}"),
+        }
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+    }
+
+    /// Verifies that the reconciliation metric is incremented on each run.
+    /// Observability is critical for production monitoring of this safety mechanism.
+    #[tokio::test]
+    async fn test_reconcile_allocations_increments_metric() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+
+        let (sender_account, mut msg_receiver, _, _, _) =
+            create_sender_account().pgpool(pgpool).call().await;
+
+        // Get metric value before reconciliation
+        // Note: Prometheus metrics are shared across tests, so we test relative increments
+        let sender_label = SENDER.1.to_string();
+        let before = ALLOCATION_RECONCILIATION_RUNS
+            .with_label_values(&[&sender_label])
+            .get();
+
+        // Trigger reconciliation
+        sender_account
+            .cast(SenderAccountMessage::ReconcileAllocations)
+            .unwrap();
+
+        // Wait for message processing
+        flush_messages(&mut msg_receiver).await;
+
+        // Verify metric was incremented (check relative increase, not absolute value)
+        let after_first = ALLOCATION_RECONCILIATION_RUNS
+            .with_label_values(&[&sender_label])
+            .get();
+        assert!(
+            after_first > before,
+            "Reconciliation metric should increment after first run (before={before}, after={after_first})"
+        );
+
+        // Trigger another reconciliation to verify it increments again
+        sender_account
+            .cast(SenderAccountMessage::ReconcileAllocations)
+            .unwrap();
+
+        flush_messages(&mut msg_receiver).await;
+
+        let after_second = ALLOCATION_RECONCILIATION_RUNS
+            .with_label_values(&[&sender_label])
+            .get();
+        assert!(
+            after_second > after_first,
+            "Reconciliation metric should increment on each run (after_first={after_first}, after_second={after_second})"
+        );
 
         sender_account.stop_and_wait(None, None).await.unwrap();
     }

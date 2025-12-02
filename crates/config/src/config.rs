@@ -226,6 +226,20 @@ impl Config {
             );
         }
 
+        if self.tap.allocation_reconciliation_interval_secs == Duration::ZERO {
+            return Err(
+                "tap.allocation_reconciliation_interval_secs must be greater than 0".to_string(),
+            );
+        }
+
+        if self.tap.allocation_reconciliation_interval_secs < Duration::from_secs(60) {
+            tracing::warn!(
+                "Your `tap.allocation_reconciliation_interval_secs` value is too low. \
+                This may cause unnecessary load on the system. \
+                A recommended value is at least 60 seconds."
+            );
+        }
+
         // Horizon configuration validation
         // Explicit toggle via `horizon.enabled`. When enabled, require both
         // `blockchain.subgraph_service_address` and
@@ -441,6 +455,23 @@ pub struct TapConfig {
     /// over the escrow balance
     #[serde(default)]
     pub trusted_senders: HashSet<Address>,
+
+    /// Interval in seconds for periodic allocation reconciliation.
+    ///
+    /// Allocation state is normally updated via watcher events from the network subgraph.
+    /// However, if connectivity to the subgraph is lost, allocation closure events may be
+    /// missed. This periodic reconciliation forces a re-check of all allocations against
+    /// the current subgraph state, ensuring stale allocations are detected and processed
+    /// even after connectivity failures.
+    ///
+    /// Default: 300 (5 minutes)
+    #[serde(default = "default_allocation_reconciliation_interval_secs")]
+    #[serde_as(as = "DurationSecondsWithFrac<f64>")]
+    pub allocation_reconciliation_interval_secs: Duration,
+}
+
+fn default_allocation_reconciliation_interval_secs() -> Duration {
+    Duration::from_secs(300)
 }
 
 #[derive(Debug, Deserialize)]
