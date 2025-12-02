@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.6.0...indexer-config-v1.7.0) (2025-12-02)
+
+
+### Features
+
+* add allocation reconciliation ([#882](https://github.com/graphprotocol/indexer-rs/issues/882)) ([f8f8522](https://github.com/graphprotocol/indexer-rs/commit/f8f852204778965e66d92ef53677c27b9c83b829))
+
 ## [1.6.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.5.2...indexer-config-v1.6.0) (2025-09-29)
 
 
