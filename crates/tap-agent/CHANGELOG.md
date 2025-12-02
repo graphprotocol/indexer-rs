@@ -4,6 +4,13 @@
 
 
 
+## [1.12.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.11.0...indexer-tap-agent-v1.12.0) (2025-12-02)
+
+
+### Features
+
+* add allocation reconciliation ([#882](https://github.com/graphprotocol/indexer-rs/issues/882)) ([f8f8522](https://github.com/graphprotocol/indexer-rs/commit/f8f852204778965e66d92ef53677c27b9c83b829))
+
 ## [1.11.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.10.3...indexer-tap-agent-v1.11.0) (2025-09-29)
 
 

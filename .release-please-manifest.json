@@ -1,5 +1,5 @@
 {
-  "crates/tap-agent": "1.11.0",
-  "crates/config": "1.6.0",
-  "crates/service": "1.7.0"
+  "crates/tap-agent": "1.12.0",
+  "crates/config": "1.7.0",
+  "crates/service": "1.7.1"
 }
