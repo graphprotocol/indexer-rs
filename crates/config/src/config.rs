@@ -457,7 +457,13 @@ pub struct TapConfig {
     pub trusted_senders: HashSet<Address>,
 
     /// Interval in seconds for periodic allocation reconciliation.
-    /// This ensures stale allocations are detected after subgraph connectivity issues.
+    ///
+    /// Allocation state is normally updated via watcher events from the network subgraph.
+    /// However, if connectivity to the subgraph is lost, allocation closure events may be
+    /// missed. This periodic reconciliation forces a re-check of all allocations against
+    /// the current subgraph state, ensuring stale allocations are detected and processed
+    /// even after connectivity failures.
+    ///
     /// Default: 300 (5 minutes)
     #[serde(default = "default_allocation_reconciliation_interval_secs")]
     #[serde_as(as = "DurationSecondsWithFrac<f64>")]

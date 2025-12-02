@@ -17,7 +17,10 @@ use indexer_query::{
     unfinalized_transactions, UnfinalizedTransactions,
 };
 use indexer_watcher::watch_pipe;
-use prometheus::{register_gauge_vec, register_int_gauge_vec, GaugeVec, IntGaugeVec};
+use prometheus::{
+    register_gauge_vec, register_int_counter_vec, register_int_gauge_vec, GaugeVec, IntCounterVec,
+    IntGaugeVec,
+};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use reqwest::Url;
 use sqlx::PgPool;
@@ -114,6 +117,14 @@ static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_rav_request_trigger_value",
         "RAV request trigger value divisor",
+        &["sender"]
+    )
+    .unwrap()
+});
+static ALLOCATION_RECONCILIATION_RUNS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    register_int_counter_vec!(
+        "tap_allocation_reconciliation_runs_total",
+        "Number of allocation reconciliation runs",
         &["sender"]
     )
     .unwrap()
@@ -1179,7 +1190,7 @@ impl Actor for SenderAccount {
             interval.tick().await;
             loop {
                 interval.tick().await;
-                tracing::debug!(
+                tracing::info!(
                     sender = %sender_for_log,
                     "Running periodic allocation reconciliation"
                 );
@@ -1601,8 +1612,11 @@ impl Actor for SenderAccount {
                 // Get current allocations from the watcher and trigger UpdateAllocationIds
                 // This forces a re-check of all allocations even if the watcher data hasn't changed,
                 // ensuring we recover from missed closure events during connectivity issues.
+                ALLOCATION_RECONCILIATION_RUNS
+                    .with_label_values(&[&state.sender.to_string()])
+                    .inc();
                 let current_allocations = state.indexer_allocations.borrow().clone();
-                tracing::debug!(
+                tracing::info!(
                     sender = %state.sender,
                     allocation_count = current_allocations.len(),
                     "Triggering allocation reconciliation"
