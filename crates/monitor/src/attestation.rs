@@ -19,23 +19,30 @@ use crate::{AllocationWatcher, DisputeManagerWatcher};
 pub type AttestationWatcher = Receiver<HashMap<Address, AttestationSigner>>;
 
 /// An always up-to-date list of attestation signers, one for each of the indexer's allocations.
+///
+/// This function accepts multiple mnemonics to support allocations created with different
+/// operator keys (e.g., after key rotation or migration).
 pub fn attestation_signers(
     indexer_allocations_rx: AllocationWatcher,
-    indexer_mnemonic: Mnemonic,
+    indexer_mnemonics: Vec<Mnemonic>,
     chain_id: ChainId,
     dispute_manager_rx: DisputeManagerWatcher,
 ) -> AttestationWatcher {
     let attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>> =
         Box::leak(Box::new(Mutex::new(HashMap::new())));
-    let indexer_mnemonic = Arc::new(indexer_mnemonic.to_string());
+    let indexer_mnemonics: Arc<[String]> = indexer_mnemonics
+        .iter()
+        .map(|m| m.to_string())
+        .collect::<Vec<_>>()
+        .into();
 
     join_and_map_watcher(
         indexer_allocations_rx,
         dispute_manager_rx,
         move |(allocation, dispute)| {
-            let indexer_mnemonic = indexer_mnemonic.clone();
+            let indexer_mnemonics = indexer_mnemonics.clone();
             modify_signers(
-                &indexer_mnemonic,
+                &indexer_mnemonics,
                 chain_id,
                 attestation_signers_map,
                 &allocation,
@@ -44,8 +51,9 @@ pub fn attestation_signers(
         },
     )
 }
+
 fn modify_signers(
-    indexer_mnemonic: &str,
+    indexer_mnemonics: &[String],
     chain_id: ChainId,
     attestation_signers_map: &'static Mutex<HashMap<Address, AttestationSigner>>,
     allocations: &HashMap<Address, Allocation>,
@@ -62,11 +70,16 @@ fn modify_signers(
                 allocation_id = ?allocation.id,
                 deployment_id = ?allocation.subgraph_deployment.id,
                 created_at_epoch = allocation.created_at_epoch,
+                mnemonic_count = indexer_mnemonics.len(),
                 "Attempting to create attestation signer for allocation"
             );
 
-            let signer =
-                AttestationSigner::new(indexer_mnemonic, allocation, chain_id, *dispute_manager);
+            let signer = AttestationSigner::new_with_mnemonics(
+                indexer_mnemonics,
+                allocation,
+                chain_id,
+                *dispute_manager,
+            );
             match signer {
                 Ok(signer) => {
                     tracing::debug!(
@@ -80,6 +93,7 @@ fn modify_signers(
                         allocation_id = ?allocation.id,
                         deployment_id = ?allocation.subgraph_deployment.id,
                         created_at_epoch = allocation.created_at_epoch,
+                        mnemonic_count = indexer_mnemonics.len(),
                         error = %e,
                         "Failed to establish signer for allocation"
                     );
@@ -111,7 +125,7 @@ mod tests {
         let (_, dispute_manager_rx) = watch::channel(DISPUTE_MANAGER_ADDRESS);
         let mut signers = attestation_signers(
             allocations_rx,
-            INDEXER_MNEMONIC.clone(),
+            vec![INDEXER_MNEMONIC.clone()],
             1,
             dispute_manager_rx,
         );

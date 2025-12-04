@@ -155,6 +155,32 @@ impl Config {
 
     // custom validation of the values
     fn validate(&self) -> Result<(), String> {
+        // Validate that at least one operator mnemonic is configured
+        if self.indexer.operator_mnemonic.is_none()
+            && self
+                .indexer
+                .operator_mnemonics
+                .as_ref()
+                .is_none_or(|v| v.is_empty())
+        {
+            return Err("No operator mnemonic configured. \
+                Set either `indexer.operator_mnemonic` or `indexer.operator_mnemonics`."
+                .to_string());
+        }
+
+        // Warn if the same mnemonic appears in both fields (will be deduplicated)
+        if let (Some(singular), Some(plural)) = (
+            &self.indexer.operator_mnemonic,
+            &self.indexer.operator_mnemonics,
+        ) {
+            if plural.contains(singular) {
+                tracing::warn!(
+                    "The same mnemonic appears in both `operator_mnemonic` and \
+                    `operator_mnemonics`. The duplicate will be ignored."
+                );
+            }
+        }
+
         match &self.tap.rav_request.trigger_value_divisor {
             x if *x <= 1.into() => {
                 return Err("trigger_value_divisor must be greater than 1".to_string())
@@ -290,7 +316,44 @@ impl Config {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct IndexerConfig {
     pub indexer_address: Address,
-    pub operator_mnemonic: Mnemonic,
+    /// Single operator mnemonic (for backward compatibility).
+    /// Use `operator_mnemonics` for multiple mnemonics.
+    #[serde(default)]
+    pub operator_mnemonic: Option<Mnemonic>,
+    /// Multiple operator mnemonics for supporting allocations created
+    /// with different operator keys (e.g., after key rotation or migration).
+    #[serde(default)]
+    pub operator_mnemonics: Option<Vec<Mnemonic>>,
+}
+
+impl IndexerConfig {
+    /// Get all configured operator mnemonics.
+    ///
+    /// Returns mnemonics from both `operator_mnemonic` (singular) and
+    /// `operator_mnemonics` (plural) fields combined. This allows for
+    /// backward compatibility while supporting multiple mnemonics.
+    ///
+    /// Note: Config validation ensures at least one mnemonic is configured
+    /// before this method is called. Returns an empty Vec only if called
+    /// on an unvalidated config.
+    pub fn get_operator_mnemonics(&self) -> Vec<Mnemonic> {
+        let mut mnemonics = Vec::new();
+
+        if let Some(ref mnemonic) = self.operator_mnemonic {
+            mnemonics.push(mnemonic.clone());
+        }
+
+        if let Some(ref additional) = self.operator_mnemonics {
+            for m in additional {
+                // Avoid duplicates if the same mnemonic is in both fields
+                if !mnemonics.iter().any(|existing| existing == m) {
+                    mnemonics.push(m.clone());
+                }
+            }
+        }
+
+        mnemonics
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -752,12 +815,13 @@ mod tests {
         str::FromStr,
     };
 
+    use bip39::Mnemonic;
     use figment::value::Uncased;
     use sealed_test::prelude::*;
     use thegraph_core::alloy::primitives::{address, Address, FixedBytes, U256};
     use tracing_test::traced_test;
 
-    use super::{DatabaseConfig, SHARED_PREFIX};
+    use super::{DatabaseConfig, IndexerConfig, SHARED_PREFIX};
     use crate::{Config, ConfigPrefix};
 
     #[test]
@@ -1127,5 +1191,169 @@ mod tests {
             config.database.get_formated_postgres_url().as_str(),
             test_value
         );
+    }
+
+    const MNEMONIC_1: &str =
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    const MNEMONIC_2: &str = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
+    const MNEMONIC_3: &str =
+        "legal winner thank year wave sausage worth useful legal winner thank yellow";
+
+    /// Test that duplicate mnemonics in both operator_mnemonic and operator_mnemonics
+    /// are deduplicated.
+    #[test]
+    fn test_get_operator_mnemonics_deduplication() {
+        let mnemonic = Mnemonic::from_str(MNEMONIC_1).unwrap();
+
+        // Same mnemonic in both fields
+        let config = IndexerConfig {
+            indexer_address: Address::ZERO,
+            operator_mnemonic: Some(mnemonic.clone()),
+            operator_mnemonics: Some(vec![mnemonic.clone()]),
+        };
+
+        let result = config.get_operator_mnemonics();
+
+        assert_eq!(
+            result.len(),
+            1,
+            "Duplicate mnemonics should be deduplicated"
+        );
+        assert_eq!(result[0], mnemonic);
+    }
+
+    /// Test that order is preserved: singular field first, then plural field entries.
+    #[test]
+    fn test_get_operator_mnemonics_order_preserved() {
+        let mnemonic_1 = Mnemonic::from_str(MNEMONIC_1).unwrap();
+        let mnemonic_2 = Mnemonic::from_str(MNEMONIC_2).unwrap();
+        let mnemonic_3 = Mnemonic::from_str(MNEMONIC_3).unwrap();
+
+        let config = IndexerConfig {
+            indexer_address: Address::ZERO,
+            operator_mnemonic: Some(mnemonic_1.clone()),
+            operator_mnemonics: Some(vec![mnemonic_2.clone(), mnemonic_3.clone()]),
+        };
+
+        let result = config.get_operator_mnemonics();
+
+        assert_eq!(result.len(), 3, "Should have 3 distinct mnemonics");
+        assert_eq!(
+            result[0], mnemonic_1,
+            "First should be from operator_mnemonic"
+        );
+        assert_eq!(
+            result[1], mnemonic_2,
+            "Second should be first from operator_mnemonics"
+        );
+        assert_eq!(
+            result[2], mnemonic_3,
+            "Third should be second from operator_mnemonics"
+        );
+    }
+
+    /// Test combining both fields with partial overlap produces correct merged result.
+    #[test]
+    fn test_get_operator_mnemonics_combined_with_overlap() {
+        let mnemonic_1 = Mnemonic::from_str(MNEMONIC_1).unwrap();
+        let mnemonic_2 = Mnemonic::from_str(MNEMONIC_2).unwrap();
+        let mnemonic_3 = Mnemonic::from_str(MNEMONIC_3).unwrap();
+
+        // mnemonic_1 is in both fields (should be deduplicated)
+        // mnemonic_2 and mnemonic_3 are only in operator_mnemonics
+        let config = IndexerConfig {
+            indexer_address: Address::ZERO,
+            operator_mnemonic: Some(mnemonic_1.clone()),
+            operator_mnemonics: Some(vec![
+                mnemonic_1.clone(), // duplicate
+                mnemonic_2.clone(),
+                mnemonic_3.clone(),
+            ]),
+        };
+
+        let result = config.get_operator_mnemonics();
+
+        assert_eq!(
+            result.len(),
+            3,
+            "Should have 3 mnemonics after deduplication"
+        );
+        assert_eq!(result[0], mnemonic_1, "First should be mnemonic_1");
+        assert_eq!(result[1], mnemonic_2, "Second should be mnemonic_2");
+        assert_eq!(result[2], mnemonic_3, "Third should be mnemonic_3");
+    }
+
+    /// Test that only operator_mnemonic (singular) works correctly.
+    #[test]
+    fn test_get_operator_mnemonics_singular_only() {
+        let mnemonic = Mnemonic::from_str(MNEMONIC_1).unwrap();
+
+        let config = IndexerConfig {
+            indexer_address: Address::ZERO,
+            operator_mnemonic: Some(mnemonic.clone()),
+            operator_mnemonics: None,
+        };
+
+        let result = config.get_operator_mnemonics();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], mnemonic);
+    }
+
+    /// Test that only operator_mnemonics (plural) works correctly.
+    #[test]
+    fn test_get_operator_mnemonics_plural_only() {
+        let mnemonic_1 = Mnemonic::from_str(MNEMONIC_1).unwrap();
+        let mnemonic_2 = Mnemonic::from_str(MNEMONIC_2).unwrap();
+
+        let config = IndexerConfig {
+            indexer_address: Address::ZERO,
+            operator_mnemonic: None,
+            operator_mnemonics: Some(vec![mnemonic_1.clone(), mnemonic_2.clone()]),
+        };
+
+        let result = config.get_operator_mnemonics();
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], mnemonic_1);
+        assert_eq!(result[1], mnemonic_2);
+    }
+
+    /// Test that config validation rejects when no operator mnemonics are configured.
+    #[sealed_test(files = ["minimal-config-example.toml"])]
+    fn test_validation_rejects_missing_operator_mnemonics() {
+        let mut minimal_config: toml::Value = toml::from_str(
+            fs::read_to_string("minimal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+
+        // Remove operator_mnemonic from the config
+        minimal_config
+            .get_mut("indexer")
+            .unwrap()
+            .as_table_mut()
+            .unwrap()
+            .remove("operator_mnemonic");
+
+        // Save to temp file
+        let temp_config_path = tempfile::NamedTempFile::new().unwrap();
+        fs::write(
+            temp_config_path.path(),
+            toml::to_string(&minimal_config).unwrap(),
+        )
+        .unwrap();
+
+        // Parse should fail due to validation
+        let result = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from(temp_config_path.path())).as_ref(),
+        );
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("No operator mnemonic configured"));
     }
 }
