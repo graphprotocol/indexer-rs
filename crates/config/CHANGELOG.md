@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.7.0...indexer-config-v1.8.0) (2025-12-04)
+
+
+### Features
+
+* support multiple operator mnemonics for attestation signing ([#884](https://github.com/graphprotocol/indexer-rs/issues/884)) ([f42fcbc](https://github.com/graphprotocol/indexer-rs/commit/f42fcbcb70f314e7770f87cbcc849f9da747246c))
+
 ## [1.7.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.6.0...indexer-config-v1.7.0) (2025-12-02)
 
 
