@@ -22,7 +22,21 @@
 
 [indexer]
 indexer_address = "0x1111111111111111111111111111111111111111"
+# Single operator mnemonic (for most setups)
 operator_mnemonic = "celery smart tip orange scare van steel radio dragon joy alarm crane"
+# For key rotation or migration, you can specify multiple mnemonics.
+# All configured mnemonics are tried when creating attestation signers,
+# allowing allocations created with different operator keys to work.
+#
+# Notes:
+# - The first mnemonic (from operator_mnemonic, or first in operator_mnemonics)
+#   is used as the "primary" identity shown on the /info endpoint.
+# - Both fields can be used together; duplicates are automatically ignored.
+# - Order matters: put your current/primary mnemonic first.
+#
+# operator_mnemonics = [
+#     "previous mnemonic phrase here if you rotated keys"
+# ]
 
 [metrics]
 # Port to serve metrics. This one should stay private.

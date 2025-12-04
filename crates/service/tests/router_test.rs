@@ -74,7 +74,8 @@ async fn full_integration_test() {
         })
         .indexer(IndexerConfig {
             indexer_address: test_assets::INDEXER_ADDRESS,
-            operator_mnemonic: test_assets::INDEXER_MNEMONIC.clone(),
+            operator_mnemonic: Some(test_assets::INDEXER_MNEMONIC.clone()),
+            operator_mnemonics: None,
         })
         .service(indexer_config::ServiceConfig {
             serve_network_subgraph: false,

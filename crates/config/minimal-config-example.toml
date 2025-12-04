@@ -12,7 +12,13 @@
 
 [indexer]
 indexer_address = "0x1111111111111111111111111111111111111111"
+# Single operator mnemonic (for most setups)
 operator_mnemonic = "celery smart tip orange scare van steel radio dragon joy alarm crane"
+# For key rotation or migration, you can specify multiple mnemonics:
+# operator_mnemonics = [
+#     "celery smart tip orange scare van steel radio dragon joy alarm crane",
+#     "previous mnemonic phrase here if you rotated keys"
+# ]
 
 [database]
 # The URL of the Postgres database used for the indexer components. The same database

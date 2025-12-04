@@ -125,14 +125,43 @@ pub struct AttestationSigner {
 }
 
 impl AttestationSigner {
+    /// Create an attestation signer for an allocation using a single mnemonic.
+    ///
+    /// For supporting multiple operator mnemonics (e.g., after key rotation),
+    /// use [`AttestationSigner::new_with_mnemonics`] instead.
     pub fn new(
         indexer_mnemonic: &str,
         allocation: &Allocation,
         chain_id: ChainId,
         dispute_manager: Address,
     ) -> Result<Self, anyhow::Error> {
+        Self::new_with_mnemonics(&[indexer_mnemonic], allocation, chain_id, dispute_manager)
+    }
+
+    /// Create an attestation signer for an allocation using multiple mnemonics.
+    ///
+    /// This function tries each mnemonic in order until one produces a wallet
+    /// that matches the allocation ID. This is useful when an indexer has
+    /// rotated operator keys or has allocations created with different keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `indexer_mnemonics` - A slice of mnemonic phrases to try
+    /// * `allocation` - The allocation to create a signer for
+    /// * `chain_id` - The chain ID for EIP-712 domain
+    /// * `dispute_manager` - The dispute manager address for EIP-712 domain
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no mnemonic produces a wallet matching the allocation.
+    pub fn new_with_mnemonics(
+        indexer_mnemonics: &[impl AsRef<str>],
+        allocation: &Allocation,
+        chain_id: ChainId,
+        dispute_manager: Address,
+    ) -> Result<Self, anyhow::Error> {
         // Recreate a wallet that has the same address as the allocation
-        let wallet = wallet_for_allocation(indexer_mnemonic, allocation)?;
+        let wallet = wallet_for_allocation_multi(indexer_mnemonics, allocation)?;
 
         Ok(Self {
             deployment: allocation.subgraph_deployment.id,
@@ -163,98 +192,117 @@ impl AttestationSigner {
     }
 }
 
-fn wallet_for_allocation(
-    indexer_mnemonic: &str,
+/// Try to find a wallet matching the allocation using multiple mnemonics.
+///
+/// For each mnemonic, tries 200 key combinations (100 indices × 2 epochs).
+/// Returns the first wallet that matches the allocation ID.
+fn wallet_for_allocation_multi(
+    indexer_mnemonics: &[impl AsRef<str>],
     allocation: &Allocation,
 ) -> Result<PrivateKeySigner, anyhow::Error> {
     tracing::debug!(
-        "Starting wallet derivation for allocation {}, deployment {}, epoch {}",
+        "Starting wallet derivation for allocation {}, deployment {}, epoch {}, trying {} mnemonic(s)",
         allocation.id,
         allocation.subgraph_deployment.id,
-        allocation.created_at_epoch
+        allocation.created_at_epoch,
+        indexer_mnemonics.len()
     );
 
-    // Guess the allocation index by enumerating all indexes in the
-    // range [0, 100] and checking for a match
-    for i in 0..100 {
-        // The allocation was either created at the epoch it intended to or one
-        // epoch later. So try both.
-        for created_at_epoch in [allocation.created_at_epoch, allocation.created_at_epoch - 1] {
-            // The allocation ID is the address of a unique key pair, we just
-            // need to find the right one by enumerating them all
-            let wallet = derive_key_pair(
-                indexer_mnemonic,
-                created_at_epoch,
-                &allocation.subgraph_deployment.id,
-                i,
-            )?;
+    for (mnemonic_idx, indexer_mnemonic) in indexer_mnemonics.iter().enumerate() {
+        let mnemonic_str = indexer_mnemonic.as_ref();
 
-            let wallet_address = wallet.address();
-
-            if i < 5 || (i % 20 == 0) {
-                // Log first 5 attempts and every 20th attempt
-                tracing::debug!(
-                    "Derivation attempt: epoch={}, index={}, derived_address={}, target_allocation={}",
-                    created_at_epoch, i, wallet_address, allocation.id
-                );
-            }
-
-            // Check if wallet address matches allocation ID
-            // This works for both Legacy (V1) and Horizon (V2) as both use 20-byte allocation IDs
-            if wallet_address == allocation.id {
-                tracing::debug!(
-                    "Found matching wallet! epoch={}, index={}, address={}",
+        // Guess the allocation index by enumerating all indexes in the
+        // range [0, 100] and checking for a match
+        for i in 0..100 {
+            // The allocation was either created at the epoch it intended to or one
+            // epoch later. So try both.
+            for created_at_epoch in [allocation.created_at_epoch, allocation.created_at_epoch - 1] {
+                // The allocation ID is the address of a unique key pair, we just
+                // need to find the right one by enumerating them all
+                let wallet = derive_key_pair(
+                    mnemonic_str,
                     created_at_epoch,
+                    &allocation.subgraph_deployment.id,
                     i,
-                    wallet_address
-                );
-                return Ok(wallet);
+                )?;
+
+                let wallet_address = wallet.address();
+
+                if i < 5 || (i % 20 == 0) {
+                    // Log first 5 attempts and every 20th attempt
+                    tracing::debug!(
+                        "Derivation attempt: mnemonic={}, epoch={}, index={}, derived_address={}, target_allocation={}",
+                        mnemonic_idx, created_at_epoch, i, wallet_address, allocation.id
+                    );
+                }
+
+                // Check if wallet address matches allocation ID
+                // This works for both Legacy (V1) and Horizon (V2) as both use 20-byte allocation IDs
+                if wallet_address == allocation.id {
+                    tracing::debug!(
+                        "Found matching wallet! mnemonic={}, epoch={}, index={}, address={}",
+                        mnemonic_idx,
+                        created_at_epoch,
+                        i,
+                        wallet_address
+                    );
+                    return Ok(wallet);
+                }
             }
         }
     }
 
     // Enhanced error reporting for troubleshooting
+    let mnemonic_count = indexer_mnemonics.len();
+    let combinations_tried = mnemonic_count * 200;
     tracing::warn!(
-        "Cannot derive attestation signer for allocation {} after trying 200 key combinations. \
-        The reason is unclear - this could be a configuration issue, but we're not certain.",
-        allocation.id
+        "Cannot derive attestation signer for allocation {} after trying {} key combinations \
+        across {} mnemonic(s). This allocation may have been created with a different operator key.",
+        allocation.id,
+        combinations_tried,
+        mnemonic_count
     );
 
     tracing::debug!(
         "What we tried: allocation_id={}, deployment={}, created_at_epoch={}, \
-        tested epochs {} and {}, tested indices 0-99 for each epoch",
+        tested epochs {} and {}, tested indices 0-99 for each epoch across {} mnemonic(s)",
         allocation.id,
         allocation.subgraph_deployment.id,
         allocation.created_at_epoch,
         allocation.created_at_epoch,
-        allocation.created_at_epoch - 1
+        allocation.created_at_epoch - 1,
+        mnemonic_count
     );
 
-    // Show what we actually derived to help with troubleshooting
-    tracing::debug!("Here's what our key derivation produced instead:");
-    for &epoch in [allocation.created_at_epoch, allocation.created_at_epoch - 1].iter() {
-        for i in 0..3 {
-            if let Ok(wallet) = derive_key_pair(
-                indexer_mnemonic,
-                epoch,
-                &allocation.subgraph_deployment.id,
-                i,
-            ) {
-                tracing::debug!(
-                    "  epoch={}, index={}, we_derived={}",
+    // Show what we actually derived to help with troubleshooting (using first mnemonic)
+    if let Some(first_mnemonic) = indexer_mnemonics.first() {
+        tracing::debug!("Here's what our key derivation produced (first mnemonic):");
+        for &epoch in [allocation.created_at_epoch, allocation.created_at_epoch - 1].iter() {
+            for i in 0..3 {
+                if let Ok(wallet) = derive_key_pair(
+                    first_mnemonic.as_ref(),
                     epoch,
+                    &allocation.subgraph_deployment.id,
                     i,
-                    wallet.address()
-                );
+                ) {
+                    tracing::debug!(
+                        "  epoch={}, index={}, we_derived={}",
+                        epoch,
+                        i,
+                        wallet.address()
+                    );
+                }
             }
         }
     }
 
     Err(anyhow::anyhow!(
-        "No key combination we tried matched allocation {}. \
-        We tested 200 different combinations but none produced this allocation ID. \
-        Check the debug logs above to see what we actually derived.",
-        allocation.id
+        "No key combination matched allocation {} after trying {} combinations across {} mnemonic(s). \
+        If this allocation was created with a different operator key, add that mnemonic to \
+        `indexer.operator_mnemonics` in your configuration.",
+        allocation.id,
+        combinations_tried,
+        mnemonic_count
     ))
 }
 
@@ -642,5 +690,244 @@ mod tests {
             DISPUTE_MANAGER_ADDRESS
         )
         .is_err());
+    }
+
+    // Second mnemonic for multi-mnemonic fallback tests
+    const SECOND_MNEMONIC: &str = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
+
+    /// Test that new_with_mnemonics correctly falls back to the second mnemonic
+    /// when the first one doesn't match the allocation.
+    #[test]
+    fn test_multi_mnemonic_fallback_to_second() {
+        // This allocation was created with INDEXER_OPERATOR_MNEMONIC at epoch 940, index 2
+        let allocation = Allocation {
+            id: address!("a171cd12c3dde7eb8fe7717a0bcd06f3ffa65658"),
+            status: AllocationStatus::Null,
+            subgraph_deployment: SubgraphDeployment {
+                id: DeploymentId::from_str(
+                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
+                )
+                .unwrap(),
+                denied_at: None,
+            },
+            indexer: Address::ZERO,
+            allocated_tokens: U256::ZERO,
+            created_at_epoch: 940,
+            created_at_block_hash: "".to_string(),
+            closed_at_epoch: None,
+            closed_at_epoch_start_block_hash: None,
+            previous_epoch_start_block_hash: None,
+            poi: None,
+            query_fee_rebates: None,
+            query_fees_collected: None,
+            is_legacy: false,
+        };
+
+        // Use SECOND_MNEMONIC first (won't match), then INDEXER_OPERATOR_MNEMONIC (will match)
+        let mnemonics = [SECOND_MNEMONIC, INDEXER_OPERATOR_MNEMONIC];
+
+        let signer = AttestationSigner::new_with_mnemonics(
+            &mnemonics,
+            &allocation,
+            1,
+            DISPUTE_MANAGER_ADDRESS,
+        );
+
+        assert!(
+            signer.is_ok(),
+            "Should successfully create signer using the second mnemonic"
+        );
+
+        // Verify the signer produces the same key as when using the correct mnemonic directly
+        let expected_wallet = derive_key_pair(
+            INDEXER_OPERATOR_MNEMONIC,
+            940,
+            &allocation.subgraph_deployment.id,
+            2,
+        )
+        .unwrap();
+
+        let signer = signer.unwrap();
+        assert_eq!(
+            PrivateKeySigner::from_signing_key(signer.signer),
+            expected_wallet,
+            "Signer should use the matching mnemonic"
+        );
+    }
+
+    /// Test that new_with_mnemonics correctly falls back through multiple mnemonics
+    /// until finding one that matches (tests with 3 mnemonics where only the last matches).
+    #[test]
+    fn test_multi_mnemonic_fallback_to_third() {
+        // Third mnemonic that also won't match
+        const THIRD_MNEMONIC: &str =
+            "legal winner thank year wave sausage worth useful legal winner thank yellow";
+
+        // This allocation was created with INDEXER_OPERATOR_MNEMONIC at epoch 940, index 2
+        let allocation = Allocation {
+            id: address!("a171cd12c3dde7eb8fe7717a0bcd06f3ffa65658"),
+            status: AllocationStatus::Null,
+            subgraph_deployment: SubgraphDeployment {
+                id: DeploymentId::from_str(
+                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
+                )
+                .unwrap(),
+                denied_at: None,
+            },
+            indexer: Address::ZERO,
+            allocated_tokens: U256::ZERO,
+            created_at_epoch: 940,
+            created_at_block_hash: "".to_string(),
+            closed_at_epoch: None,
+            closed_at_epoch_start_block_hash: None,
+            previous_epoch_start_block_hash: None,
+            poi: None,
+            query_fee_rebates: None,
+            query_fees_collected: None,
+            is_legacy: false,
+        };
+
+        // Use two non-matching mnemonics first, then the correct one last
+        let mnemonics = [SECOND_MNEMONIC, THIRD_MNEMONIC, INDEXER_OPERATOR_MNEMONIC];
+
+        let signer = AttestationSigner::new_with_mnemonics(
+            &mnemonics,
+            &allocation,
+            1,
+            DISPUTE_MANAGER_ADDRESS,
+        );
+
+        assert!(
+            signer.is_ok(),
+            "Should successfully create signer using the third mnemonic"
+        );
+
+        // Verify the signer produces the same key as when using the correct mnemonic directly
+        let expected_wallet = derive_key_pair(
+            INDEXER_OPERATOR_MNEMONIC,
+            940,
+            &allocation.subgraph_deployment.id,
+            2,
+        )
+        .unwrap();
+
+        let signer = signer.unwrap();
+        assert_eq!(
+            PrivateKeySigner::from_signing_key(signer.signer),
+            expected_wallet,
+            "Signer should use the matching mnemonic (third one)"
+        );
+    }
+
+    /// Test that new_with_mnemonics uses the first mnemonic when it matches,
+    /// not unnecessarily falling back.
+    #[test]
+    fn test_multi_mnemonic_uses_first_when_matches() {
+        // This allocation was created with INDEXER_OPERATOR_MNEMONIC at epoch 940, index 2
+        let allocation = Allocation {
+            id: address!("a171cd12c3dde7eb8fe7717a0bcd06f3ffa65658"),
+            status: AllocationStatus::Null,
+            subgraph_deployment: SubgraphDeployment {
+                id: DeploymentId::from_str(
+                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
+                )
+                .unwrap(),
+                denied_at: None,
+            },
+            indexer: Address::ZERO,
+            allocated_tokens: U256::ZERO,
+            created_at_epoch: 940,
+            created_at_block_hash: "".to_string(),
+            closed_at_epoch: None,
+            closed_at_epoch_start_block_hash: None,
+            previous_epoch_start_block_hash: None,
+            poi: None,
+            query_fee_rebates: None,
+            query_fees_collected: None,
+            is_legacy: false,
+        };
+
+        // Put the matching mnemonic first
+        let mnemonics = [INDEXER_OPERATOR_MNEMONIC, SECOND_MNEMONIC];
+
+        let signer = AttestationSigner::new_with_mnemonics(
+            &mnemonics,
+            &allocation,
+            1,
+            DISPUTE_MANAGER_ADDRESS,
+        );
+
+        assert!(
+            signer.is_ok(),
+            "Should successfully create signer using the first mnemonic"
+        );
+
+        // Verify the signer produces the same key
+        let expected_wallet = derive_key_pair(
+            INDEXER_OPERATOR_MNEMONIC,
+            940,
+            &allocation.subgraph_deployment.id,
+            2,
+        )
+        .unwrap();
+
+        let signer = signer.unwrap();
+        assert_eq!(
+            PrivateKeySigner::from_signing_key(signer.signer),
+            expected_wallet,
+            "Signer should use the first (matching) mnemonic"
+        );
+    }
+
+    /// Test that new_with_mnemonics returns an error when no mnemonics match.
+    #[test]
+    fn test_multi_mnemonic_error_when_none_match() {
+        const THIRD_MNEMONIC: &str =
+            "legal winner thank year wave sausage worth useful legal winner thank yellow";
+
+        let allocation = Allocation {
+            // This address won't match any of our test mnemonics
+            id: address!("deadbeefcafebabedeadbeefcafebabedeadbeef"),
+            status: AllocationStatus::Null,
+            subgraph_deployment: SubgraphDeployment {
+                id: DeploymentId::from_str(
+                    "0xbbde25a2c85f55b53b7698b9476610c3d1202d88870e66502ab0076b7218f98a",
+                )
+                .unwrap(),
+                denied_at: None,
+            },
+            indexer: Address::ZERO,
+            allocated_tokens: U256::ZERO,
+            created_at_epoch: 940,
+            created_at_block_hash: "".to_string(),
+            closed_at_epoch: None,
+            closed_at_epoch_start_block_hash: None,
+            previous_epoch_start_block_hash: None,
+            poi: None,
+            query_fee_rebates: None,
+            query_fees_collected: None,
+            is_legacy: false,
+        };
+
+        // None of these will match the allocation
+        let mnemonics = [SECOND_MNEMONIC, THIRD_MNEMONIC];
+
+        let result = AttestationSigner::new_with_mnemonics(
+            &mnemonics,
+            &allocation,
+            1,
+            DISPUTE_MANAGER_ADDRESS,
+        );
+
+        assert!(
+            result.is_err(),
+            "Should return error when no mnemonic matches the allocation"
+        );
+
+        let error_message = result.unwrap_err().to_string();
+        assert!(
+            error_message.contains("2 mnemonic(s)"),
+            "Error message should indicate number of mnemonics tried: {error_message}"
+        );
     }
 }

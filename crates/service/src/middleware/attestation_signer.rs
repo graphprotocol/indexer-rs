@@ -61,7 +61,7 @@ mod tests {
         let (_, dispute_manager_rx) = watch::channel(DISPUTE_MANAGER_ADDRESS);
         let attestation_signers = attestation_signers(
             allocations_rx,
-            INDEXER_MNEMONIC.clone(),
+            vec![INDEXER_MNEMONIC.clone()],
             1,
             dispute_manager_rx,
         );

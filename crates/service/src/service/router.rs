@@ -102,10 +102,12 @@ const DEFAULT_ROUTE: &str = "/";
 
 impl ServiceRouter {
     pub async fn create_router(self) -> anyhow::Result<Router> {
-        let IndexerConfig {
-            indexer_address,
-            operator_mnemonic,
-        } = self.indexer;
+        let indexer_address = self.indexer.indexer_address;
+        let operator_mnemonics = self.indexer.get_operator_mnemonics();
+        tracing::info!(
+            mnemonic_count = operator_mnemonics.len(),
+            "Loaded operator mnemonics for attestation signing"
+        );
         let ServiceConfig {
             serve_network_subgraph,
             serve_escrow_subgraph,
@@ -192,10 +194,11 @@ impl ServiceRouter {
         };
 
         // Maintain an up-to-date set of attestation signers, one for each
-        // allocation
+        // allocation. Multiple mnemonics are tried to support allocations
+        // created with different operator keys.
         let attestation_signers = attestation_signers(
             allocations.clone(),
-            operator_mnemonic.clone(),
+            operator_mnemonics.clone(),
             self.blockchain.chain_id as u64,
             dispute_manager,
         );
@@ -407,8 +410,17 @@ impl ServiceRouter {
             None => Router::new(),
         };
 
+        // The /info endpoint displays the operator's public key. When multiple operator
+        // mnemonics are configured (for supporting allocations created with different keys),
+        // only the first mnemonic's public key is displayed. This represents the "primary"
+        // operator identity. All mnemonics are still used internally for attestation signing.
+        let primary_mnemonic = operator_mnemonics.first().ok_or_else(|| {
+            anyhow::anyhow!(
+                "No operator mnemonic configured. This should have been caught during config validation."
+            )
+        })?;
         let operator_address =
-            Json(serde_json::json!({ "publicKey": public_key(&operator_mnemonic)?}));
+            Json(serde_json::json!({ "publicKey": public_key(primary_mnemonic)?}));
 
         // Graph node state
         let graphnode_state = GraphNodeState {
