@@ -30,7 +30,7 @@ use super::sender_account::{
 };
 use crate::agent::sender_allocation::SenderAllocationMessage;
 
-static RECEIPTS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
+pub(crate) static RECEIPTS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_receipts_received_total",
         "Receipts received since start of the program.",
@@ -1347,6 +1347,15 @@ async fn handle_notification(
         .with_label_values(&[&sender_address.to_string(), &allocation_str])
         .inc();
     Ok(())
+}
+
+/// Force initialization of all LazyLock metrics in this module.
+///
+/// This ensures metrics are registered with Prometheus at startup,
+/// even if no receipts have been processed yet.
+pub fn init_metrics() {
+    // Dereference each LazyLock to force initialization
+    let _ = &*RECEIPTS_CREATED;
 }
 
 #[cfg(test)]

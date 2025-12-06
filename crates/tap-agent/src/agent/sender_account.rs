@@ -54,10 +54,10 @@ use crate::{
     tracker::{SenderFeeTracker, SimpleFeeTracker},
 };
 
-static SENDER_DENIED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+pub(crate) static SENDER_DENIED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     register_int_gauge_vec!("tap_sender_denied", "Sender is denied", &["sender"]).unwrap()
 });
-static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_sender_escrow_balance_grt_total",
         "Sender escrow balance",
@@ -65,7 +65,7 @@ static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_unaggregated_fees_grt_total",
         "Unggregated Fees value",
@@ -73,7 +73,7 @@ static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static UNAGGREGATED_FEES_BY_VERSION: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static UNAGGREGATED_FEES_BY_VERSION: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_unaggregated_fees_grt_total_by_version",
         "Unaggregated fees per sender, allocation and TAP version",
@@ -81,7 +81,7 @@ static UNAGGREGATED_FEES_BY_VERSION: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_sender_fee_tracker_grt_total",
         "Sender fee tracker metric",
@@ -89,7 +89,7 @@ static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static INVALID_RECEIPT_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static INVALID_RECEIPT_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_invalid_receipt_fees_grt_total",
         "Failed receipt fees",
@@ -97,7 +97,7 @@ static INVALID_RECEIPT_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static PENDING_RAV: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static PENDING_RAV: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_pending_rav_grt_total",
         "Pending ravs values",
@@ -105,7 +105,7 @@ static PENDING_RAV: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static MAX_FEE_PER_SENDER: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static MAX_FEE_PER_SENDER: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_max_fee_per_sender_grt_total",
         "Max fee per sender in the config",
@@ -113,7 +113,7 @@ static MAX_FEE_PER_SENDER: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_rav_request_trigger_value",
         "RAV request trigger value divisor",
@@ -121,7 +121,7 @@ static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static ALLOCATION_RECONCILIATION_RUNS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+pub(crate) static ALLOCATION_RECONCILIATION_RUNS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     register_int_counter_vec!(
         "tap_allocation_reconciliation_runs_total",
         "Number of allocation reconciliation runs",
@@ -1809,6 +1809,24 @@ impl SenderAccount {
         .await
         .expect("Should not fail to insert into \"horizon\" denylist");
     }
+}
+
+/// Force initialization of all LazyLock metrics in this module.
+///
+/// This ensures metrics are registered with Prometheus at startup,
+/// even if no SenderAccount actors have been created yet.
+pub fn init_metrics() {
+    // Dereference each LazyLock to force initialization
+    let _ = &*SENDER_DENIED;
+    let _ = &*ESCROW_BALANCE;
+    let _ = &*UNAGGREGATED_FEES;
+    let _ = &*UNAGGREGATED_FEES_BY_VERSION;
+    let _ = &*SENDER_FEE_TRACKER;
+    let _ = &*INVALID_RECEIPT_FEES;
+    let _ = &*PENDING_RAV;
+    let _ = &*MAX_FEE_PER_SENDER;
+    let _ = &*RAV_REQUEST_TRIGGER_VALUE;
+    let _ = &*ALLOCATION_RECONCILIATION_RUNS;
 }
 
 #[cfg(test)]
