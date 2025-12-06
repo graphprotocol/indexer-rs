@@ -1699,6 +1699,8 @@ impl Actor for SenderAccount {
                     &allocation_id.to_string(),
                     version,
                 ]);
+                let _ = INVALID_RECEIPT_FEES
+                    .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
 
                 // Check for deny conditions - look up correct allocation variant from state
                 let allocation_enum = state
@@ -1846,8 +1848,8 @@ pub mod tests {
     };
 
     use super::{
-        RavInformation, SenderAccountMessage, ALLOCATION_RECONCILIATION_RUNS, TAP_V1,
-        UNAGGREGATED_FEES_BY_VERSION,
+        RavInformation, SenderAccountMessage, ALLOCATION_RECONCILIATION_RUNS, INVALID_RECEIPT_FEES,
+        TAP_V1, UNAGGREGATED_FEES_BY_VERSION,
     };
     use crate::{
         agent::{
@@ -3185,6 +3187,63 @@ pub mod tests {
         assert_eq!(
             metric_value_after, 0.0,
             "Metric should be 0 after removal (old value was 1000), got {metric_value_after}"
+        );
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+    }
+
+    /// Test that INVALID_RECEIPT_FEES metric is cleaned up when allocation stops
+    #[tokio::test]
+    async fn test_invalid_receipt_fees_cleanup_on_allocation_stop() {
+        let unique_allocation = test_assets::ALLOCATION_ID_1;
+
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+
+        let (sender_account, mut msg_receiver, prefix, _, _) =
+            create_sender_account().pgpool(pgpool).call().await;
+
+        let (mock_sender_allocation, _, next_unaggregated_fees) =
+            MockSenderAllocation::new_with_triggered_rav_request(sender_account.clone());
+
+        let name = format!("{}:{}:{}", prefix, SENDER.1, unique_allocation);
+        let (allocation, _) = MockSenderAllocation::spawn_linked(
+            Some(name),
+            mock_sender_allocation,
+            (),
+            sender_account.get_cell(),
+        )
+        .await
+        .unwrap();
+
+        next_unaggregated_fees.send(1000).unwrap();
+
+        let sender_label = SENDER.1.to_string();
+        let allocation_label = unique_allocation.to_string();
+        INVALID_RECEIPT_FEES
+            .with_label_values(&[&sender_label, &allocation_label])
+            .set(500.0);
+
+        let metric_value = INVALID_RECEIPT_FEES
+            .get_metric_with_label_values(&[&sender_label, &allocation_label])
+            .expect("Metric should exist after being set")
+            .get();
+        assert_eq!(
+            metric_value, 500.0,
+            "Metric should have value 500.0 after set, got {metric_value}"
+        );
+
+        allocation.stop_and_wait(None, None).await.unwrap();
+
+        flush_messages(&mut msg_receiver).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let metric_value_after = INVALID_RECEIPT_FEES
+            .with_label_values(&[&sender_label, &allocation_label])
+            .get();
+        assert_eq!(
+            metric_value_after, 0.0,
+            "Metric should be 0 after removal (old value was 500), got {metric_value_after}"
         );
 
         sender_account.stop_and_wait(None, None).await.unwrap();
