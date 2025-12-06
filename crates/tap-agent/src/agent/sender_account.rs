@@ -1690,6 +1690,16 @@ impl Actor for SenderAccount {
                 let _ = UNAGGREGATED_FEES
                     .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
 
+                let version = match state.sender_type {
+                    crate::agent::sender_accounts_manager::SenderType::Legacy => TAP_V1,
+                    crate::agent::sender_accounts_manager::SenderType::Horizon => TAP_V2,
+                };
+                let _ = UNAGGREGATED_FEES_BY_VERSION.remove_label_values(&[
+                    &state.sender.to_string(),
+                    &allocation_id.to_string(),
+                    version,
+                ]);
+
                 // Check for deny conditions - look up correct allocation variant from state
                 let allocation_enum = state
                     .allocation_ids
@@ -1835,7 +1845,10 @@ pub mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use super::{RavInformation, SenderAccountMessage, ALLOCATION_RECONCILIATION_RUNS};
+    use super::{
+        RavInformation, SenderAccountMessage, ALLOCATION_RECONCILIATION_RUNS, TAP_V1,
+        UNAGGREGATED_FEES_BY_VERSION,
+    };
     use crate::{
         agent::{
             sender_account::ReceiptFees, sender_accounts_manager::AllocationId,
@@ -3096,6 +3109,82 @@ pub mod tests {
         assert!(
             after_second > after_first,
             "Reconciliation metric should increment on each run (after_first={after_first}, after_second={after_second})"
+        );
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+    }
+
+    /// Test that UNAGGREGATED_FEES_BY_VERSION metric is cleaned up when allocation stops
+    ///
+    /// This test verifies the fix for stale gauge metrics that were introduced in the
+    /// Horizon V2 TAP support commit. Previously, UNAGGREGATED_FEES_BY_VERSION was set
+    /// but never cleaned up when allocations closed, leaving stale values in Prometheus.
+    #[tokio::test]
+    async fn test_unaggregated_fees_by_version_cleanup_on_allocation_stop() {
+        // Use a unique allocation ID for this test to avoid interference from other tests
+        // (prometheus metrics are global/shared)
+        let unique_allocation = test_assets::ALLOCATION_ID_1;
+
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+
+        let (sender_account, mut msg_receiver, prefix, _, _) =
+            create_sender_account().pgpool(pgpool).call().await;
+
+        // Create a mock sender allocation and link it to the sender account
+        let (mock_sender_allocation, _, next_unaggregated_fees) =
+            MockSenderAllocation::new_with_triggered_rav_request(sender_account.clone());
+
+        let name = format!("{}:{}:{}", prefix, SENDER.1, unique_allocation);
+        let (allocation, _) = MockSenderAllocation::spawn_linked(
+            Some(name),
+            mock_sender_allocation,
+            (),
+            sender_account.get_cell(),
+        )
+        .await
+        .unwrap();
+
+        // Send unaggregated fees to trigger metric set
+        next_unaggregated_fees.send(1000).unwrap();
+
+        // Directly set the metric to simulate the value being recorded
+        // (We do this because the actual message flow is complex and depends on
+        // allocation state being properly set up)
+        let sender_label = SENDER.1.to_string();
+        let allocation_label = unique_allocation.to_string();
+        UNAGGREGATED_FEES_BY_VERSION
+            .with_label_values(&[&sender_label, &allocation_label, TAP_V1])
+            .set(1000.0);
+
+        // Verify metric was set
+        let metric_value = UNAGGREGATED_FEES_BY_VERSION
+            .get_metric_with_label_values(&[&sender_label, &allocation_label, TAP_V1])
+            .expect("Metric should exist after being set")
+            .get();
+        assert_eq!(
+            metric_value, 1000.0,
+            "Metric should have value 1000.0 after set, got {metric_value}"
+        );
+
+        // Stop the allocation - this should trigger ActorTerminated supervision event
+        // which in turn should clean up the metric
+        allocation.stop_and_wait(None, None).await.unwrap();
+
+        // Give time for supervision event to be processed
+        flush_messages(&mut msg_receiver).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Verify metric was cleaned up. After remove_label_values, get_metric_with_label_values
+        // creates a NEW metric with default value 0. So the value changing from 1000 to 0
+        // proves the old metric was removed.
+        // See: https://docs.rs/prometheus/latest/prometheus/core/struct.MetricVec.html
+        let metric_value_after = UNAGGREGATED_FEES_BY_VERSION
+            .with_label_values(&[&sender_label, &allocation_label, TAP_V1])
+            .get();
+        assert_eq!(
+            metric_value_after, 0.0,
+            "Metric should be 0 after removal (old value was 1000), got {metric_value_after}"
         );
 
         sender_account.stop_and_wait(None, None).await.unwrap();
