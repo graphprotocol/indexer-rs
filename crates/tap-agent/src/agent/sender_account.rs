@@ -1782,6 +1782,15 @@ impl Actor for SenderAccount {
         if let Some(handle) = state.reconciliation_handle.take() {
             handle.abort();
         }
+
+        // Clean up sender-level metrics to avoid stale gauge values
+        let sender_label = state.sender.to_string();
+        let _ = SENDER_DENIED.remove_label_values(&[&sender_label]);
+        let _ = ESCROW_BALANCE.remove_label_values(&[&sender_label]);
+        let _ = SENDER_FEE_TRACKER.remove_label_values(&[&sender_label]);
+        let _ = MAX_FEE_PER_SENDER.remove_label_values(&[&sender_label]);
+        let _ = RAV_REQUEST_TRIGGER_VALUE.remove_label_values(&[&sender_label]);
+
         Ok(())
     }
 }
@@ -1848,8 +1857,9 @@ pub mod tests {
     };
 
     use super::{
-        RavInformation, SenderAccountMessage, ALLOCATION_RECONCILIATION_RUNS, INVALID_RECEIPT_FEES,
-        TAP_V1, UNAGGREGATED_FEES_BY_VERSION,
+        RavInformation, SenderAccountMessage, ALLOCATION_RECONCILIATION_RUNS, ESCROW_BALANCE,
+        INVALID_RECEIPT_FEES, MAX_FEE_PER_SENDER, RAV_REQUEST_TRIGGER_VALUE, SENDER_DENIED,
+        SENDER_FEE_TRACKER, TAP_V1, UNAGGREGATED_FEES_BY_VERSION,
     };
     use crate::{
         agent::{
@@ -3247,5 +3257,83 @@ pub mod tests {
         );
 
         sender_account.stop_and_wait(None, None).await.unwrap();
+    }
+
+    /// Test that sender-level metrics are cleaned up when SenderAccount stops
+    #[tokio::test]
+    async fn test_sender_level_gauges_cleanup_on_post_stop() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+
+        let (sender_account, mut msg_receiver, _, _, _) =
+            create_sender_account().pgpool(pgpool).call().await;
+
+        flush_messages(&mut msg_receiver).await;
+
+        let sender_label = SENDER.1.to_string();
+
+        // Set all sender-level metrics to non-zero values
+        SENDER_DENIED.with_label_values(&[&sender_label]).set(1);
+        ESCROW_BALANCE
+            .with_label_values(&[&sender_label])
+            .set(1000.0);
+        SENDER_FEE_TRACKER
+            .with_label_values(&[&sender_label])
+            .set(500.0);
+        MAX_FEE_PER_SENDER
+            .with_label_values(&[&sender_label])
+            .set(2000.0);
+        RAV_REQUEST_TRIGGER_VALUE
+            .with_label_values(&[&sender_label])
+            .set(100.0);
+
+        // Verify metrics were set
+        assert_eq!(
+            SENDER_DENIED
+                .get_metric_with_label_values(&[&sender_label])
+                .unwrap()
+                .get(),
+            1
+        );
+        assert_eq!(
+            ESCROW_BALANCE
+                .get_metric_with_label_values(&[&sender_label])
+                .unwrap()
+                .get(),
+            1000.0
+        );
+
+        // Stop sender account - this triggers post_stop which should clean up metrics
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Verify all sender-level metrics were cleaned up
+        assert_eq!(
+            SENDER_DENIED.with_label_values(&[&sender_label]).get(),
+            0,
+            "SENDER_DENIED should be 0 after cleanup"
+        );
+        assert_eq!(
+            ESCROW_BALANCE.with_label_values(&[&sender_label]).get(),
+            0.0,
+            "ESCROW_BALANCE should be 0 after cleanup"
+        );
+        assert_eq!(
+            SENDER_FEE_TRACKER.with_label_values(&[&sender_label]).get(),
+            0.0,
+            "SENDER_FEE_TRACKER should be 0 after cleanup"
+        );
+        assert_eq!(
+            MAX_FEE_PER_SENDER.with_label_values(&[&sender_label]).get(),
+            0.0,
+            "MAX_FEE_PER_SENDER should be 0 after cleanup"
+        );
+        assert_eq!(
+            RAV_REQUEST_TRIGGER_VALUE
+                .with_label_values(&[&sender_label])
+                .get(),
+            0.0,
+            "RAV_REQUEST_TRIGGER_VALUE should be 0 after cleanup"
+        );
     }
 }
