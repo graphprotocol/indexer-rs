@@ -27,6 +27,12 @@ async fn main() -> anyhow::Result<()> {
     // initialize LazyLock'd config
     _ = &*CONFIG;
 
+    // Eagerly initialize all Prometheus metrics before starting the metrics server.
+    // This ensures metrics are registered even if no senders have escrow accounts
+    // or pending allocations at startup.
+    agent::init_metrics();
+    tracing::info!("Prometheus metrics initialized");
+
     let (manager, handler) = agent::start_agent()
         .await
         .with_context(|| "Failed to start TAP agent")?;
