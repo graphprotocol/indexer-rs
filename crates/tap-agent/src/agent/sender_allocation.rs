@@ -46,7 +46,7 @@ use crate::{
     },
 };
 
-static CLOSED_SENDER_ALLOCATIONS: LazyLock<CounterVec> = LazyLock::new(|| {
+pub(crate) static CLOSED_SENDER_ALLOCATIONS: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_closed_sender_allocation_total",
         "Count of sender-allocation managers closed since the start of the program",
@@ -54,7 +54,7 @@ static CLOSED_SENDER_ALLOCATIONS: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static RAVS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
+pub(crate) static RAVS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_ravs_created_total",
         "RAVs updated or created per sender allocation since the start of the program",
@@ -62,7 +62,7 @@ static RAVS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static RAVS_CREATED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
+pub(crate) static RAVS_CREATED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_ravs_created_total_by_version",
         "RAVs created/updated per sender allocation and TAP version",
@@ -70,7 +70,7 @@ static RAVS_CREATED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static RAVS_FAILED: LazyLock<CounterVec> = LazyLock::new(|| {
+pub(crate) static RAVS_FAILED: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_ravs_failed_total",
         "RAV requests failed since the start of the program",
@@ -78,7 +78,7 @@ static RAVS_FAILED: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static RAVS_FAILED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
+pub(crate) static RAVS_FAILED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_ravs_failed_total_by_version",
         "RAV requests failed per sender allocation and TAP version",
@@ -86,7 +86,7 @@ static RAVS_FAILED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static RAV_RESPONSE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+pub(crate) static RAV_RESPONSE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         "tap_rav_response_time_seconds",
         "RAV response time per sender",
@@ -94,7 +94,7 @@ static RAV_RESPONSE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static RAV_RESPONSE_TIME_BY_VERSION: LazyLock<HistogramVec> = LazyLock::new(|| {
+pub(crate) static RAV_RESPONSE_TIME_BY_VERSION: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         "tap_rav_response_time_seconds_by_version",
         "RAV response time per sender and TAP version",
@@ -1459,6 +1459,21 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             ),
         }
     }
+}
+
+/// Force initialization of all LazyLock metrics in this module.
+///
+/// This ensures metrics are registered with Prometheus at startup,
+/// even if no SenderAllocation actors have been created yet.
+pub fn init_metrics() {
+    // Dereference each LazyLock to force initialization
+    let _ = &*CLOSED_SENDER_ALLOCATIONS;
+    let _ = &*RAVS_CREATED;
+    let _ = &*RAVS_CREATED_BY_VERSION;
+    let _ = &*RAVS_FAILED;
+    let _ = &*RAVS_FAILED_BY_VERSION;
+    let _ = &*RAV_RESPONSE_TIME;
+    let _ = &*RAV_RESPONSE_TIME_BY_VERSION;
 }
 
 #[cfg(test)]
