@@ -4,6 +4,13 @@
 
 
 
+## [1.12.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.1...indexer-tap-agent-v1.12.2) (2025-12-10)
+
+
+### Bug Fixes
+
+* reconciliation escrow looks ups must use subgraph service address ([#891](https://github.com/graphprotocol/indexer-rs/issues/891)) ([5a27f7d](https://github.com/graphprotocol/indexer-rs/commit/5a27f7d96f06b4ee17ee6732b0060b3dae5a3408))
+
 ## [1.12.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.0...indexer-tap-agent-v1.12.1) (2025-12-04)
 
 ## [1.12.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.11.0...indexer-tap-agent-v1.12.0) (2025-12-02)
