@@ -989,9 +989,10 @@ impl Actor for SenderAccount {
                                 .collect();
 
                             if !collection_ids.is_empty() {
-                                // For V2, use the indexer address as the data service since the indexer
-                                // is providing the data service for the queries
-                                let data_service = config.indexer_address;
+                                // For V2/Horizon: data_service must be the SubgraphService address to match
+                                // on-chain RAV lookups (service_provider is the indexer address)
+                                let data_service =
+                                    config.tap_mode.require_subgraph_service_address();
 
                                 match escrow_subgraph
                                     .query::<LatestRavs, _>(latest_ravs_v2::Variables {
