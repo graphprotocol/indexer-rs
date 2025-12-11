@@ -54,10 +54,10 @@ use crate::{
     tracker::{SenderFeeTracker, SimpleFeeTracker},
 };
 
-static SENDER_DENIED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+pub(crate) static SENDER_DENIED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     register_int_gauge_vec!("tap_sender_denied", "Sender is denied", &["sender"]).unwrap()
 });
-static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_sender_escrow_balance_grt_total",
         "Sender escrow balance",
@@ -65,7 +65,7 @@ static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_unaggregated_fees_grt_total",
         "Unggregated Fees value",
@@ -73,7 +73,7 @@ static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static UNAGGREGATED_FEES_BY_VERSION: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static UNAGGREGATED_FEES_BY_VERSION: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_unaggregated_fees_grt_total_by_version",
         "Unaggregated fees per sender, allocation and TAP version",
@@ -81,7 +81,7 @@ static UNAGGREGATED_FEES_BY_VERSION: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_sender_fee_tracker_grt_total",
         "Sender fee tracker metric",
@@ -89,7 +89,7 @@ static SENDER_FEE_TRACKER: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static INVALID_RECEIPT_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static INVALID_RECEIPT_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_invalid_receipt_fees_grt_total",
         "Failed receipt fees",
@@ -97,7 +97,7 @@ static INVALID_RECEIPT_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static PENDING_RAV: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static PENDING_RAV: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_pending_rav_grt_total",
         "Pending ravs values",
@@ -105,7 +105,7 @@ static PENDING_RAV: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static MAX_FEE_PER_SENDER: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static MAX_FEE_PER_SENDER: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_max_fee_per_sender_grt_total",
         "Max fee per sender in the config",
@@ -113,7 +113,7 @@ static MAX_FEE_PER_SENDER: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
+pub(crate) static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         "tap_rav_request_trigger_value",
         "RAV request trigger value divisor",
@@ -121,7 +121,7 @@ static RAV_REQUEST_TRIGGER_VALUE: LazyLock<GaugeVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static ALLOCATION_RECONCILIATION_RUNS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+pub(crate) static ALLOCATION_RECONCILIATION_RUNS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     register_int_counter_vec!(
         "tap_allocation_reconciliation_runs_total",
         "Number of allocation reconciliation runs",
@@ -1691,6 +1691,18 @@ impl Actor for SenderAccount {
                 let _ = UNAGGREGATED_FEES
                     .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
 
+                let version = match state.sender_type {
+                    crate::agent::sender_accounts_manager::SenderType::Legacy => TAP_V1,
+                    crate::agent::sender_accounts_manager::SenderType::Horizon => TAP_V2,
+                };
+                let _ = UNAGGREGATED_FEES_BY_VERSION.remove_label_values(&[
+                    &state.sender.to_string(),
+                    &allocation_id.to_string(),
+                    version,
+                ]);
+                let _ = INVALID_RECEIPT_FEES
+                    .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
+
                 // Check for deny conditions - look up correct allocation variant from state
                 let allocation_enum = state
                     .allocation_ids
@@ -1771,6 +1783,15 @@ impl Actor for SenderAccount {
         if let Some(handle) = state.reconciliation_handle.take() {
             handle.abort();
         }
+
+        // Clean up sender-level metrics to avoid stale gauge values
+        let sender_label = state.sender.to_string();
+        let _ = SENDER_DENIED.remove_label_values(&[&sender_label]);
+        let _ = ESCROW_BALANCE.remove_label_values(&[&sender_label]);
+        let _ = SENDER_FEE_TRACKER.remove_label_values(&[&sender_label]);
+        let _ = MAX_FEE_PER_SENDER.remove_label_values(&[&sender_label]);
+        let _ = RAV_REQUEST_TRIGGER_VALUE.remove_label_values(&[&sender_label]);
+
         Ok(())
     }
 }
@@ -1811,6 +1832,24 @@ impl SenderAccount {
     }
 }
 
+/// Force initialization of all LazyLock metrics in this module.
+///
+/// This ensures metrics are registered with Prometheus at startup,
+/// even if no SenderAccount actors have been created yet.
+pub fn init_metrics() {
+    // Dereference each LazyLock to force initialization
+    let _ = &*SENDER_DENIED;
+    let _ = &*ESCROW_BALANCE;
+    let _ = &*UNAGGREGATED_FEES;
+    let _ = &*UNAGGREGATED_FEES_BY_VERSION;
+    let _ = &*SENDER_FEE_TRACKER;
+    let _ = &*INVALID_RECEIPT_FEES;
+    let _ = &*PENDING_RAV;
+    let _ = &*MAX_FEE_PER_SENDER;
+    let _ = &*RAV_REQUEST_TRIGGER_VALUE;
+    let _ = &*ALLOCATION_RECONCILIATION_RUNS;
+}
+
 #[cfg(test)]
 pub mod tests {
     #![allow(missing_docs)]
@@ -1836,7 +1875,11 @@ pub mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use super::{RavInformation, SenderAccountMessage, ALLOCATION_RECONCILIATION_RUNS};
+    use super::{
+        RavInformation, SenderAccountMessage, ALLOCATION_RECONCILIATION_RUNS, ESCROW_BALANCE,
+        INVALID_RECEIPT_FEES, MAX_FEE_PER_SENDER, RAV_REQUEST_TRIGGER_VALUE, SENDER_DENIED,
+        SENDER_FEE_TRACKER, TAP_V1, UNAGGREGATED_FEES_BY_VERSION,
+    };
     use crate::{
         agent::{
             sender_account::ReceiptFees, sender_accounts_manager::AllocationId,
@@ -3100,5 +3143,216 @@ pub mod tests {
         );
 
         sender_account.stop_and_wait(None, None).await.unwrap();
+    }
+
+    /// Test that UNAGGREGATED_FEES_BY_VERSION metric is cleaned up when allocation stops
+    ///
+    /// This test verifies the fix for stale gauge metrics that were introduced in the
+    /// Horizon V2 TAP support commit. Previously, UNAGGREGATED_FEES_BY_VERSION was set
+    /// but never cleaned up when allocations closed, leaving stale values in Prometheus.
+    #[tokio::test]
+    async fn test_unaggregated_fees_by_version_cleanup_on_allocation_stop() {
+        // Use a unique allocation ID for this test to avoid interference from other tests
+        // (prometheus metrics are global/shared)
+        let unique_allocation = test_assets::ALLOCATION_ID_1;
+
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+
+        let (sender_account, mut msg_receiver, prefix, _, _) =
+            create_sender_account().pgpool(pgpool).call().await;
+
+        // Create a mock sender allocation and link it to the sender account
+        let (mock_sender_allocation, _, next_unaggregated_fees) =
+            MockSenderAllocation::new_with_triggered_rav_request(sender_account.clone());
+
+        let name = format!("{}:{}:{}", prefix, SENDER.1, unique_allocation);
+        let (allocation, _) = MockSenderAllocation::spawn_linked(
+            Some(name),
+            mock_sender_allocation,
+            (),
+            sender_account.get_cell(),
+        )
+        .await
+        .unwrap();
+
+        // Send unaggregated fees to trigger metric set
+        next_unaggregated_fees.send(1000).unwrap();
+
+        // Directly set the metric to simulate the value being recorded
+        // (We do this because the actual message flow is complex and depends on
+        // allocation state being properly set up)
+        let sender_label = SENDER.1.to_string();
+        let allocation_label = unique_allocation.to_string();
+        UNAGGREGATED_FEES_BY_VERSION
+            .with_label_values(&[&sender_label, &allocation_label, TAP_V1])
+            .set(1000.0);
+
+        // Verify metric was set
+        let metric_value = UNAGGREGATED_FEES_BY_VERSION
+            .get_metric_with_label_values(&[&sender_label, &allocation_label, TAP_V1])
+            .expect("Metric should exist after being set")
+            .get();
+        assert_eq!(
+            metric_value, 1000.0,
+            "Metric should have value 1000.0 after set, got {metric_value}"
+        );
+
+        // Stop the allocation - this should trigger ActorTerminated supervision event
+        // which in turn should clean up the metric
+        allocation.stop_and_wait(None, None).await.unwrap();
+
+        // Give time for supervision event to be processed
+        flush_messages(&mut msg_receiver).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Verify metric was cleaned up. After remove_label_values, get_metric_with_label_values
+        // creates a NEW metric with default value 0. So the value changing from 1000 to 0
+        // proves the old metric was removed.
+        // See: https://docs.rs/prometheus/latest/prometheus/core/struct.MetricVec.html
+        let metric_value_after = UNAGGREGATED_FEES_BY_VERSION
+            .with_label_values(&[&sender_label, &allocation_label, TAP_V1])
+            .get();
+        assert_eq!(
+            metric_value_after, 0.0,
+            "Metric should be 0 after removal (old value was 1000), got {metric_value_after}"
+        );
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+    }
+
+    /// Test that INVALID_RECEIPT_FEES metric is cleaned up when allocation stops
+    #[tokio::test]
+    async fn test_invalid_receipt_fees_cleanup_on_allocation_stop() {
+        let unique_allocation = test_assets::ALLOCATION_ID_1;
+
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+
+        let (sender_account, mut msg_receiver, prefix, _, _) =
+            create_sender_account().pgpool(pgpool).call().await;
+
+        let (mock_sender_allocation, _, next_unaggregated_fees) =
+            MockSenderAllocation::new_with_triggered_rav_request(sender_account.clone());
+
+        let name = format!("{}:{}:{}", prefix, SENDER.1, unique_allocation);
+        let (allocation, _) = MockSenderAllocation::spawn_linked(
+            Some(name),
+            mock_sender_allocation,
+            (),
+            sender_account.get_cell(),
+        )
+        .await
+        .unwrap();
+
+        next_unaggregated_fees.send(1000).unwrap();
+
+        let sender_label = SENDER.1.to_string();
+        let allocation_label = unique_allocation.to_string();
+        INVALID_RECEIPT_FEES
+            .with_label_values(&[&sender_label, &allocation_label])
+            .set(500.0);
+
+        let metric_value = INVALID_RECEIPT_FEES
+            .get_metric_with_label_values(&[&sender_label, &allocation_label])
+            .expect("Metric should exist after being set")
+            .get();
+        assert_eq!(
+            metric_value, 500.0,
+            "Metric should have value 500.0 after set, got {metric_value}"
+        );
+
+        allocation.stop_and_wait(None, None).await.unwrap();
+
+        flush_messages(&mut msg_receiver).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let metric_value_after = INVALID_RECEIPT_FEES
+            .with_label_values(&[&sender_label, &allocation_label])
+            .get();
+        assert_eq!(
+            metric_value_after, 0.0,
+            "Metric should be 0 after removal (old value was 500), got {metric_value_after}"
+        );
+
+        sender_account.stop_and_wait(None, None).await.unwrap();
+    }
+
+    /// Test that sender-level metrics are cleaned up when SenderAccount stops
+    #[tokio::test]
+    async fn test_sender_level_gauges_cleanup_on_post_stop() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+
+        let (sender_account, mut msg_receiver, _, _, _) =
+            create_sender_account().pgpool(pgpool).call().await;
+
+        flush_messages(&mut msg_receiver).await;
+
+        let sender_label = SENDER.1.to_string();
+
+        // Set all sender-level metrics to non-zero values
+        SENDER_DENIED.with_label_values(&[&sender_label]).set(1);
+        ESCROW_BALANCE
+            .with_label_values(&[&sender_label])
+            .set(1000.0);
+        SENDER_FEE_TRACKER
+            .with_label_values(&[&sender_label])
+            .set(500.0);
+        MAX_FEE_PER_SENDER
+            .with_label_values(&[&sender_label])
+            .set(2000.0);
+        RAV_REQUEST_TRIGGER_VALUE
+            .with_label_values(&[&sender_label])
+            .set(100.0);
+
+        // Verify metrics were set
+        assert_eq!(
+            SENDER_DENIED
+                .get_metric_with_label_values(&[&sender_label])
+                .unwrap()
+                .get(),
+            1
+        );
+        assert_eq!(
+            ESCROW_BALANCE
+                .get_metric_with_label_values(&[&sender_label])
+                .unwrap()
+                .get(),
+            1000.0
+        );
+
+        // Stop sender account - this triggers post_stop which should clean up metrics
+        sender_account.stop_and_wait(None, None).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Verify all sender-level metrics were cleaned up
+        assert_eq!(
+            SENDER_DENIED.with_label_values(&[&sender_label]).get(),
+            0,
+            "SENDER_DENIED should be 0 after cleanup"
+        );
+        assert_eq!(
+            ESCROW_BALANCE.with_label_values(&[&sender_label]).get(),
+            0.0,
+            "ESCROW_BALANCE should be 0 after cleanup"
+        );
+        assert_eq!(
+            SENDER_FEE_TRACKER.with_label_values(&[&sender_label]).get(),
+            0.0,
+            "SENDER_FEE_TRACKER should be 0 after cleanup"
+        );
+        assert_eq!(
+            MAX_FEE_PER_SENDER.with_label_values(&[&sender_label]).get(),
+            0.0,
+            "MAX_FEE_PER_SENDER should be 0 after cleanup"
+        );
+        assert_eq!(
+            RAV_REQUEST_TRIGGER_VALUE
+                .with_label_values(&[&sender_label])
+                .get(),
+            0.0,
+            "RAV_REQUEST_TRIGGER_VALUE should be 0 after cleanup"
+        );
     }
 }
