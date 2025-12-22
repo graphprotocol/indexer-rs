@@ -4,6 +4,13 @@
 
 
 
+## [1.12.3](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.2...indexer-tap-agent-v1.12.3) (2025-12-22)
+
+
+### Bug Fixes
+
+* **tap-agent:** eagerly initialize metrics at startup ([#888](https://github.com/graphprotocol/indexer-rs/issues/888)) ([a7bef7e](https://github.com/graphprotocol/indexer-rs/commit/a7bef7e4f2e5d95eb7d8683822288fab989ebd25))
+
 ## [1.12.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.1...indexer-tap-agent-v1.12.2) (2025-12-10)
 
 
