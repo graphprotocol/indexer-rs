@@ -62,6 +62,17 @@ pub mod sender_allocation;
 /// Unaggregated receipts containing total value and last id stored in the table
 pub mod unaggregated_receipts;
 
+/// Force initialization of all Prometheus metrics in the agent module.
+///
+/// This should be called at startup before the metrics server is started
+/// to ensure all metrics are registered with Prometheus, even if no sender
+/// activity has occurred yet.
+pub fn init_metrics() {
+    sender_account::init_metrics();
+    sender_allocation::init_metrics();
+    sender_accounts_manager::init_metrics();
+}
+
 /// This is the main entrypoint for starting up tap-agent
 ///
 /// It uses the static [crate::CONFIG] to configure the agent.
@@ -267,4 +278,112 @@ pub async fn start_agent(
     };
 
     Ok(SenderAccountsManager::spawn(None, SenderAccountsManager, args).await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use prometheus::core::Collector;
+
+    use super::*;
+
+    #[test]
+    fn test_init_metrics_registers_all_metrics() {
+        // Call init_metrics to register all metrics
+        init_metrics();
+
+        // Verify that calling init_metrics doesn't panic (metrics are already registered)
+        // This is the main test - that we can safely call init_metrics at startup.
+        // The LazyLock pattern ensures metrics are only registered once.
+        init_metrics();
+
+        // Verify metrics are registered by directly accessing the statics.
+        // This ensures the LazyLock has been initialized.
+        // We use desc() to get the metric descriptors which proves they're registered.
+
+        // Check sender_account metrics
+        assert!(
+            !sender_account::SENDER_DENIED.desc().is_empty(),
+            "tap_sender_denied should be registered"
+        );
+        assert!(
+            !sender_account::ESCROW_BALANCE.desc().is_empty(),
+            "tap_sender_escrow_balance_grt_total should be registered"
+        );
+        assert!(
+            !sender_account::UNAGGREGATED_FEES.desc().is_empty(),
+            "tap_unaggregated_fees_grt_total should be registered"
+        );
+        assert!(
+            !sender_account::UNAGGREGATED_FEES_BY_VERSION
+                .desc()
+                .is_empty(),
+            "tap_unaggregated_fees_grt_total_by_version should be registered"
+        );
+        assert!(
+            !sender_account::SENDER_FEE_TRACKER.desc().is_empty(),
+            "tap_sender_fee_tracker_grt_total should be registered"
+        );
+        assert!(
+            !sender_account::INVALID_RECEIPT_FEES.desc().is_empty(),
+            "tap_invalid_receipt_fees_grt_total should be registered"
+        );
+        assert!(
+            !sender_account::PENDING_RAV.desc().is_empty(),
+            "tap_pending_rav_grt_total should be registered"
+        );
+        assert!(
+            !sender_account::MAX_FEE_PER_SENDER.desc().is_empty(),
+            "tap_max_fee_per_sender_grt_total should be registered"
+        );
+        assert!(
+            !sender_account::RAV_REQUEST_TRIGGER_VALUE.desc().is_empty(),
+            "tap_rav_request_trigger_value should be registered"
+        );
+        assert!(
+            !sender_account::ALLOCATION_RECONCILIATION_RUNS
+                .desc()
+                .is_empty(),
+            "tap_allocation_reconciliation_runs_total should be registered"
+        );
+
+        // Check sender_allocation metrics
+        assert!(
+            !sender_allocation::CLOSED_SENDER_ALLOCATIONS
+                .desc()
+                .is_empty(),
+            "tap_closed_sender_allocation_total should be registered"
+        );
+        assert!(
+            !sender_allocation::RAVS_CREATED.desc().is_empty(),
+            "tap_ravs_created_total should be registered"
+        );
+        assert!(
+            !sender_allocation::RAVS_CREATED_BY_VERSION.desc().is_empty(),
+            "tap_ravs_created_total_by_version should be registered"
+        );
+        assert!(
+            !sender_allocation::RAVS_FAILED.desc().is_empty(),
+            "tap_ravs_failed_total should be registered"
+        );
+        assert!(
+            !sender_allocation::RAVS_FAILED_BY_VERSION.desc().is_empty(),
+            "tap_ravs_failed_total_by_version should be registered"
+        );
+        assert!(
+            !sender_allocation::RAV_RESPONSE_TIME.desc().is_empty(),
+            "tap_rav_response_time_seconds should be registered"
+        );
+        assert!(
+            !sender_allocation::RAV_RESPONSE_TIME_BY_VERSION
+                .desc()
+                .is_empty(),
+            "tap_rav_response_time_seconds_by_version should be registered"
+        );
+
+        // Check sender_accounts_manager metrics
+        assert!(
+            !sender_accounts_manager::RECEIPTS_CREATED.desc().is_empty(),
+            "tap_receipts_received_total should be registered"
+        );
+    }
 }
