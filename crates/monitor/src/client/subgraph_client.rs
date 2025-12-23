@@ -75,22 +75,39 @@ struct DeploymentClient {
 }
 
 impl DeploymentClient {
-    pub async fn new(http_client: reqwest::Client, details: DeploymentDetails) -> Self {
-        Self {
+    /// Creates a new deployment client.
+    ///
+    /// For local deployments (where deployment and status_url are provided), returns `None`
+    /// if status monitoring fails to initialize - this ensures we don't query a local
+    /// deployment without health/sync checks.
+    ///
+    /// For remote deployments (no deployment/status_url), always returns `Some`.
+    pub async fn new(http_client: reqwest::Client, details: DeploymentDetails) -> Option<Self> {
+        let status = match details.deployment.zip(details.status_url) {
+            Some((deployment, url)) => {
+                match monitor_deployment_status(deployment, url.clone()).await {
+                    Ok(receiver) => Some(receiver),
+                    Err(e) => {
+                        tracing::warn!(
+                            deployment = %deployment,
+                            status_url = %url,
+                            error = %e,
+                            "Failed to initialize status monitoring for local deployment; \
+                             will use remote query URL only"
+                        );
+                        return None;
+                    }
+                }
+            }
+            None => None,
+        };
+
+        Some(Self {
             http_client,
-            status: match details.deployment.zip(details.status_url) {
-                Some((deployment, url)) => Some(
-                    monitor_deployment_status(deployment, url)
-                        .await
-                        .unwrap_or_else(|_| {
-                            panic!("Failed to initialize monitoring for deployment `{deployment}`")
-                        }),
-                ),
-                None => None,
-            },
+            status,
             query_url: details.query_url,
             query_auth_token: details.query_auth_token,
-        }
+        })
     }
 
     pub async fn query<T: GraphQLQuery>(
@@ -176,12 +193,19 @@ impl SubgraphClient {
         local_deployment: Option<DeploymentDetails>,
         remote_deployment: DeploymentDetails,
     ) -> Self {
+        let local_client = match local_deployment {
+            Some(d) => DeploymentClient::new(http_client.clone(), d).await,
+            None => None,
+        };
+
+        // Remote deployments don't have status monitoring, so this should always succeed
+        let remote_client = DeploymentClient::new(http_client, remote_deployment)
+            .await
+            .expect("Remote deployment client should always initialize successfully");
+
         Self {
-            local_client: match local_deployment {
-                Some(d) => Some(DeploymentClient::new(http_client.clone(), d).await),
-                None => None,
-            },
-            remote_client: DeploymentClient::new(http_client, remote_deployment).await,
+            local_client,
+            remote_client,
         }
     }
 
@@ -547,6 +571,75 @@ mod test {
             .expect("Query should succeed")
             .expect("Query result should have a value");
 
+        assert_eq!(data.user.name, "remote".to_string());
+    }
+
+    #[tokio::test]
+    async fn test_degrades_gracefully_when_status_url_unreachable() {
+        let deployment = deployment_id!("QmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+
+        // Use a URL that will fail to connect (port 1 is reserved and won't have a listener)
+        let unreachable_status_url = "http://127.0.0.1:1";
+
+        let mock_server_local = MockServer::start().await;
+        mock_server_local
+            .register(
+                Mock::given(method("POST"))
+                    .and(path(format!("/subgraphs/id/{deployment}")))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "user": {
+                                "name": "local"
+                            }
+                        }
+                    }))),
+            )
+            .await;
+
+        let mock_server_remote = MockServer::start().await;
+        mock_server_remote
+            .register(
+                Mock::given(method("POST"))
+                    .and(path(format!("/subgraphs/id/{deployment}")))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "user": {
+                                "name": "remote"
+                            }
+                        }
+                    }))),
+            )
+            .await;
+
+        // Create the subgraph client - should NOT panic despite unreachable status URL
+        let client = SubgraphClient::new(
+            reqwest::Client::new(),
+            Some(
+                DeploymentDetails::for_graph_node(
+                    unreachable_status_url,
+                    &mock_server_local.uri(),
+                    deployment,
+                )
+                .unwrap(),
+            ),
+            DeploymentDetails::for_query_url(&format!(
+                "{}/subgraphs/id/{}",
+                mock_server_remote.uri(),
+                deployment
+            ))
+            .unwrap(),
+        )
+        .await;
+
+        // Query should succeed using remote since local client was not created
+        // (status monitoring failed, so local deployment is skipped entirely)
+        let data = client
+            .query::<UserQuery, _>(user_query::Variables {})
+            .await
+            .expect("Query should succeed")
+            .expect("Query result should have a value");
+
+        // Since status monitoring failed, local_client is None and we use remote only
         assert_eq!(data.user.name, "remote".to_string());
     }
 }
