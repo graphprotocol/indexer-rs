@@ -6,6 +6,13 @@
 
 
 
+## [1.8.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.8.0...indexer-service-rs-v1.8.1) (2026-01-06)
+
+
+### Bug Fixes
+
+* use direct HTTP forwarding to improve /status endpoint performance ([#886](https://github.com/graphprotocol/indexer-rs/issues/886)) ([1e50825](https://github.com/graphprotocol/indexer-rs/commit/1e50825dffc321c7896b106d96408bc2c9a7fad0))
+
 ## [1.8.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.7.1...indexer-service-rs-v1.8.0) (2025-12-04)
 
 
