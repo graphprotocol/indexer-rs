@@ -46,7 +46,7 @@ use crate::{
         PrometheusMetricsMiddlewareLayer, SenderState,
     },
     routes::{self, health, request_handler, static_subgraph_request_handler},
-    tap::IndexerTapContext,
+    tap::{IndexerTapContext, TapChecksConfig},
     wallet::public_key,
 };
 
@@ -286,16 +286,16 @@ impl ServiceRouter {
                     .subgraph_service_address
                     .map(|addr| vec![addr]);
 
-                let checks = IndexerTapContext::get_checks(
-                    self.database,
-                    allocations.clone(),
-                    escrow_accounts_v1.clone(),
-                    escrow_accounts_v2.clone(),
+                let checks = IndexerTapContext::get_checks(TapChecksConfig {
+                    pgpool: self.database,
+                    indexer_allocations: allocations.clone(),
+                    escrow_accounts_v1: escrow_accounts_v1.clone(),
+                    escrow_accounts_v2: escrow_accounts_v2.clone(),
                     timestamp_error_tolerance,
                     receipt_max_value,
                     allowed_data_services,
-                    self.indexer.indexer_address,
-                )
+                    service_provider: self.indexer.indexer_address,
+                })
                 .await;
 
                 // Returned static Manager
