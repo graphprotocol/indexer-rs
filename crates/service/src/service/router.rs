@@ -294,6 +294,7 @@ impl ServiceRouter {
                     timestamp_error_tolerance,
                     receipt_max_value,
                     allowed_data_services,
+                    self.indexer.indexer_address,
                 )
                 .await;
 

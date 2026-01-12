@@ -28,6 +28,8 @@ mod receipt_store;
 pub use ::indexer_receipt::TapReceipt;
 pub use checks::value_check::AgoraQuery;
 
+use self::checks::service_provider::ServiceProviderCheck;
+
 pub type CheckingReceipt = ReceiptWithState<Checking, TapReceipt>;
 
 const GRACE_PERIOD: u64 = 60;
@@ -58,6 +60,7 @@ impl IndexerTapContext {
         timestamp_error_tolerance: Duration,
         receipt_max_value: u128,
         allowed_data_services: Option<Vec<Address>>,
+        service_provider: Address,
     ) -> Vec<ReceiptCheck<TapReceipt>> {
         let mut checks: Vec<ReceiptCheck<TapReceipt>> = vec![
             Arc::new(AllocationEligible::new(indexer_allocations)),
@@ -69,6 +72,7 @@ impl IndexerTapContext {
             Arc::new(DenyListCheck::new(pgpool.clone()).await),
             Arc::new(ReceiptMaxValueCheck::new(receipt_max_value)),
             Arc::new(MinimumValue::new(pgpool, Duration::from_secs(GRACE_PERIOD)).await),
+            Arc::new(ServiceProviderCheck::new(service_provider)),
         ];
 
         if let Some(addrs) = allowed_data_services {
