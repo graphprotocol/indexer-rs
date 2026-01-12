@@ -28,9 +28,23 @@ mod receipt_store;
 pub use ::indexer_receipt::TapReceipt;
 pub use checks::value_check::AgoraQuery;
 
+use self::checks::service_provider::ServiceProviderCheck;
+
 pub type CheckingReceipt = ReceiptWithState<Checking, TapReceipt>;
 
 const GRACE_PERIOD: u64 = 60;
+
+/// Configuration for TAP receipt checks.
+pub struct TapChecksConfig {
+    pub pgpool: PgPool,
+    pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
+    pub escrow_accounts_v1: Option<Receiver<EscrowAccounts>>,
+    pub escrow_accounts_v2: Option<Receiver<EscrowAccounts>>,
+    pub timestamp_error_tolerance: Duration,
+    pub receipt_max_value: u128,
+    pub allowed_data_services: Option<Vec<Address>>,
+    pub service_provider: Address,
+}
 
 #[derive(Clone)]
 pub struct IndexerTapContext {
@@ -50,28 +64,21 @@ pub enum AdapterError {
 }
 
 impl IndexerTapContext {
-    pub async fn get_checks(
-        pgpool: PgPool,
-        indexer_allocations: Receiver<HashMap<Address, Allocation>>,
-        escrow_accounts_v1: Option<Receiver<EscrowAccounts>>,
-        escrow_accounts_v2: Option<Receiver<EscrowAccounts>>,
-        timestamp_error_tolerance: Duration,
-        receipt_max_value: u128,
-        allowed_data_services: Option<Vec<Address>>,
-    ) -> Vec<ReceiptCheck<TapReceipt>> {
+    pub async fn get_checks(config: TapChecksConfig) -> Vec<ReceiptCheck<TapReceipt>> {
         let mut checks: Vec<ReceiptCheck<TapReceipt>> = vec![
-            Arc::new(AllocationEligible::new(indexer_allocations)),
+            Arc::new(AllocationEligible::new(config.indexer_allocations)),
             Arc::new(SenderBalanceCheck::new(
-                escrow_accounts_v1,
-                escrow_accounts_v2,
+                config.escrow_accounts_v1,
+                config.escrow_accounts_v2,
             )),
-            Arc::new(TimestampCheck::new(timestamp_error_tolerance)),
-            Arc::new(DenyListCheck::new(pgpool.clone()).await),
-            Arc::new(ReceiptMaxValueCheck::new(receipt_max_value)),
-            Arc::new(MinimumValue::new(pgpool, Duration::from_secs(GRACE_PERIOD)).await),
+            Arc::new(TimestampCheck::new(config.timestamp_error_tolerance)),
+            Arc::new(DenyListCheck::new(config.pgpool.clone()).await),
+            Arc::new(ReceiptMaxValueCheck::new(config.receipt_max_value)),
+            Arc::new(MinimumValue::new(config.pgpool, Duration::from_secs(GRACE_PERIOD)).await),
+            Arc::new(ServiceProviderCheck::new(config.service_provider)),
         ];
 
-        if let Some(addrs) = allowed_data_services {
+        if let Some(addrs) = config.allowed_data_services {
             checks.push(Arc::new(DataServiceCheck::new(addrs)));
         }
 
