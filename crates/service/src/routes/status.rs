@@ -1,7 +1,11 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, sync::LazyLock, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::LazyLock,
+    time::Instant,
+};
 
 use axum::{
     body::Bytes,
@@ -17,6 +21,10 @@ use crate::{error::SubgraphServiceError, service::GraphNodeState};
 /// Maximum allowed query size in bytes for status queries.
 /// 4KB is generous; legitimate queries are typically < 500 bytes.
 const MAX_STATUS_QUERY_SIZE: usize = 4096;
+
+/// Maximum nesting depth for query selection sets.
+/// Prevents stack overflow from deeply nested inline fragments or fragment spreads.
+const MAX_SELECTION_DEPTH: usize = 10;
 
 static SUPPORTED_ROOT_FIELDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
@@ -41,6 +49,62 @@ static SUPPORTED_ROOT_FIELDS: LazyLock<HashSet<&'static str>> = LazyLock::new(||
 #[derive(Deserialize)]
 struct StatusRequest {
     query: String,
+}
+
+/// Recursively extracts all field names from a selection set, including those
+/// inside inline fragments and fragment spreads.
+///
+/// This function prevents bypass attacks where forbidden fields are hidden inside
+/// inline fragments (`... { forbiddenField }`) or named fragment spreads (`...FragmentName`).
+fn extract_root_fields<'a>(
+    selection_set: &'a q::SelectionSet<String>,
+    fragments: &'a HashMap<String, q::FragmentDefinition<String>>,
+    visited_fragments: &mut HashSet<&'a str>,
+    depth: usize,
+) -> Result<HashSet<&'a str>, SubgraphServiceError> {
+    if depth > MAX_SELECTION_DEPTH {
+        return Err(SubgraphServiceError::InvalidStatusQuery(anyhow::anyhow!(
+            "Query exceeds maximum nesting depth of {}",
+            MAX_SELECTION_DEPTH
+        )));
+    }
+
+    let mut fields = HashSet::new();
+
+    for item in &selection_set.items {
+        match item {
+            q::Selection::Field(field) => {
+                fields.insert(field.name.as_str());
+            }
+            q::Selection::InlineFragment(inline) => {
+                fields.extend(extract_root_fields(
+                    &inline.selection_set,
+                    fragments,
+                    visited_fragments,
+                    depth + 1,
+                )?);
+            }
+            q::Selection::FragmentSpread(spread) => {
+                let name = spread.fragment_name.as_str();
+                if !visited_fragments.insert(name) {
+                    return Err(SubgraphServiceError::InvalidStatusQuery(anyhow::anyhow!(
+                        "Circular fragment reference detected: {}",
+                        name
+                    )));
+                }
+                if let Some(fragment) = fragments.get(&spread.fragment_name) {
+                    fields.extend(extract_root_fields(
+                        &fragment.selection_set,
+                        fragments,
+                        visited_fragments,
+                        depth + 1,
+                    )?);
+                }
+            }
+        }
+    }
+
+    Ok(fields)
 }
 
 /// Forwards GraphQL status queries to graph-node after validating allowed root fields.
@@ -69,33 +133,39 @@ pub async fn status(
     let query: q::Document<String> = q::parse_query(&request.query)
         .map_err(|e| SubgraphServiceError::InvalidStatusQuery(e.into()))?;
 
-    let root_fields = query
+    // Build fragment map for resolving fragment spreads
+    let fragments: HashMap<String, q::FragmentDefinition<String>> = query
         .definitions
         .iter()
-        // This gives us all root selection sets
         .filter_map(|def| match def {
+            q::Definition::Fragment(f) => Some((f.name.clone(), f.clone())),
+            _ => None,
+        })
+        .collect();
+
+    // Extract all root fields from operations, recursively checking fragments
+    let mut all_root_fields = HashSet::new();
+
+    for def in &query.definitions {
+        let selection_set = match def {
             q::Definition::Operation(op) => match op {
-                q::OperationDefinition::Query(query) => Some(&query.selection_set),
-                q::OperationDefinition::SelectionSet(selection_set) => Some(selection_set),
+                q::OperationDefinition::Query(q) => Some(&q.selection_set),
+                q::OperationDefinition::SelectionSet(ss) => Some(ss),
                 _ => None,
             },
-            q::Definition::Fragment(fragment) => Some(&fragment.selection_set),
-        })
-        // This gives us all field names of root selection sets (and potentially non-root fragments)
-        .flat_map(|selection_set| {
-            selection_set
-                .items
-                .iter()
-                .filter_map(|item| match item {
-                    q::Selection::Field(field) => Some(&field.name),
-                    _ => None,
-                })
-                .collect::<HashSet<_>>()
-        });
+            _ => None,
+        };
 
-    let unsupported_root_fields: Vec<_> = root_fields
-        .filter(|field| !SUPPORTED_ROOT_FIELDS.contains(field.as_str()))
-        .map(ToString::to_string)
+        if let Some(ss) = selection_set {
+            let mut visited = HashSet::new();
+            all_root_fields.extend(extract_root_fields(ss, &fragments, &mut visited, 0)?);
+        }
+    }
+
+    let unsupported_root_fields: Vec<_> = all_root_fields
+        .iter()
+        .filter(|field| !SUPPORTED_ROOT_FIELDS.contains(*field))
+        .map(|s| s.to_string())
         .collect();
 
     if !unsupported_root_fields.is_empty() {
@@ -418,5 +488,202 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("exceeds maximum size"));
+    }
+
+    #[tokio::test]
+    async fn test_inline_fragment_bypass_blocked() {
+        let mock_server = MockServer::start().await;
+        let app = setup_test_router(&mock_server).await;
+
+        // Attempt to bypass allowlist using inline fragment
+        let request = Request::builder()
+            .method("POST")
+            .uri("/status")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({"query": "{ indexingStatuses { subgraph } ... { _meta { block } } }"})
+                    .to_string(),
+            ))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json["message"]
+            .as_str()
+            .unwrap()
+            .contains("Unsupported status query fields"));
+    }
+
+    #[tokio::test]
+    async fn test_fragment_spread_bypass_blocked() {
+        let mock_server = MockServer::start().await;
+        let app = setup_test_router(&mock_server).await;
+
+        // Attempt to bypass allowlist using named fragment spread
+        let query = r#"
+            fragment Bypass on Query { _meta { block } }
+            { indexingStatuses { subgraph } ...Bypass }
+        "#;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/status")
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"query": query}).to_string()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json["message"]
+            .as_str()
+            .unwrap()
+            .contains("Unsupported status query fields"));
+    }
+
+    #[tokio::test]
+    async fn test_deeply_nested_query_rejected() {
+        let mock_server = MockServer::start().await;
+        let app = setup_test_router(&mock_server).await;
+
+        // Generate query with depth > MAX_SELECTION_DEPTH (10)
+        // Each "... {" adds one level of nesting
+        let mut query = String::from("{ indexingStatuses { subgraph }");
+        for _ in 0..12 {
+            query.push_str(" ... {");
+        }
+        query.push_str(" chains { network }");
+        for _ in 0..12 {
+            query.push_str(" }");
+        }
+        query.push_str(" }");
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/status")
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"query": query}).to_string()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json["message"]
+            .as_str()
+            .unwrap()
+            .contains("maximum nesting depth"));
+    }
+
+    #[tokio::test]
+    async fn test_circular_fragment_rejected() {
+        let mock_server = MockServer::start().await;
+        let app = setup_test_router(&mock_server).await;
+
+        // Circular fragment references: A -> B -> A
+        let query = r#"
+            fragment A on Query { ...B }
+            fragment B on Query { ...A }
+            { ...A }
+        "#;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/status")
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"query": query}).to_string()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json["message"]
+            .as_str()
+            .unwrap()
+            .contains("Circular fragment reference"));
+    }
+
+    #[tokio::test]
+    async fn test_valid_query_with_inline_fragment_allowed() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "indexingStatuses": [],
+                    "chains": []
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let app = setup_test_router(&mock_server).await;
+
+        // Valid query using inline fragment with only allowed fields
+        let request = Request::builder()
+            .method("POST")
+            .uri("/status")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({"query": "{ indexingStatuses { subgraph } ... { chains { network } } }"})
+                    .to_string(),
+            ))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_valid_query_with_fragment_spread_allowed() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "indexingStatuses": [],
+                    "chains": []
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let app = setup_test_router(&mock_server).await;
+
+        // Valid query using named fragment with only allowed fields
+        let query = r#"
+            fragment ValidFields on Query { chains { network } }
+            { indexingStatuses { subgraph } ...ValidFields }
+        "#;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/status")
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"query": query}).to_string()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }
