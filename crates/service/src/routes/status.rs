@@ -92,14 +92,18 @@ fn extract_root_fields<'a>(
                         name
                     )));
                 }
-                if let Some(fragment) = fragments.get(&spread.fragment_name) {
-                    fields.extend(extract_root_fields(
-                        &fragment.selection_set,
-                        fragments,
-                        visited_fragments,
-                        depth + 1,
-                    )?);
-                }
+                let fragment = fragments.get(&spread.fragment_name).ok_or_else(|| {
+                    SubgraphServiceError::InvalidStatusQuery(anyhow::anyhow!(
+                        "Undefined fragment: {}",
+                        name
+                    ))
+                })?;
+                fields.extend(extract_root_fields(
+                    &fragment.selection_set,
+                    fragments,
+                    visited_fragments,
+                    depth + 1,
+                )?);
             }
         }
     }
@@ -617,6 +621,34 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Circular fragment reference"));
+    }
+
+    #[tokio::test]
+    async fn test_undefined_fragment_rejected() {
+        let mock_server = MockServer::start().await;
+        let app = setup_test_router(&mock_server).await;
+
+        // Reference a fragment that doesn't exist
+        let query = r#"{ indexingStatuses { subgraph } ...NonExistentFragment }"#;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/status")
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"query": query}).to_string()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json["message"]
+            .as_str()
+            .unwrap()
+            .contains("Undefined fragment"));
     }
 
     #[tokio::test]
