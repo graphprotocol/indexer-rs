@@ -14,6 +14,10 @@ use serde::Deserialize;
 
 use crate::{error::SubgraphServiceError, service::GraphNodeState};
 
+/// Maximum allowed query size in bytes for status queries.
+/// 4KB is generous; legitimate queries are typically < 500 bytes.
+const MAX_STATUS_QUERY_SIZE: usize = 4096;
+
 static SUPPORTED_ROOT_FIELDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
         "indexingStatuses",
@@ -47,6 +51,14 @@ pub async fn status(
     State(state): State<GraphNodeState>,
     body: Bytes,
 ) -> Result<impl IntoResponse, SubgraphServiceError> {
+    // Check query size before any parsing to prevent memory exhaustion
+    if body.len() > MAX_STATUS_QUERY_SIZE {
+        return Err(SubgraphServiceError::InvalidStatusQuery(anyhow::anyhow!(
+            "Query exceeds maximum size of {} bytes",
+            MAX_STATUS_QUERY_SIZE
+        )));
+    }
+
     let start = Instant::now();
 
     // Parse request to extract query for validation
@@ -374,5 +386,37 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert!(json["errors"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_oversized_query_rejected() {
+        let mock_server = MockServer::start().await;
+        let app = setup_test_router(&mock_server).await;
+
+        // Create a query larger than MAX_STATUS_QUERY_SIZE (4KB)
+        let padding = "x".repeat(5000);
+        let oversized_query = format!(
+            r##"{{"query": "{{indexingStatuses {{subgraph}}}} # {}"}}"##,
+            padding
+        );
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/status")
+            .header("content-type", "application/json")
+            .body(Body::from(oversized_query))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json["message"]
+            .as_str()
+            .unwrap()
+            .contains("exceeds maximum size"));
     }
 }
