@@ -66,6 +66,13 @@ pub static COST_MODEL_BATCH_INVALID: LazyLock<Counter> = LazyLock::new(|| {
     )
     .unwrap()
 });
+pub static COST_MODEL_BATCH_LIMIT_EXCEEDED: LazyLock<Counter> = LazyLock::new(|| {
+    register_counter!(
+        "indexer_cost_model_batch_limit_exceeded_total",
+        "Batch cost model queries rejected for exceeding size limit",
+    )
+    .unwrap()
+});
 
 #[derive(Clone, Debug, Serialize, Deserialize, SimpleObject)]
 pub struct GraphQlCostModel {
@@ -84,8 +91,15 @@ impl From<CostModel> for GraphQlCostModel {
     }
 }
 
-#[derive(Default)]
-pub struct Query;
+pub struct Query {
+    max_batch_size: usize,
+}
+
+impl Query {
+    pub fn new(max_batch_size: usize) -> Self {
+        Self { max_batch_size }
+    }
+}
 
 #[Object]
 impl Query {
@@ -113,6 +127,15 @@ impl Query {
         ctx: &Context<'_>,
         deployments: Vec<String>,
     ) -> Result<Vec<GraphQlCostModel>, anyhow::Error> {
+        if deployments.len() > self.max_batch_size {
+            COST_MODEL_BATCH_LIMIT_EXCEEDED.inc();
+            return Err(anyhow::anyhow!(
+                "Batch size {} exceeds maximum allowed ({})",
+                deployments.len(),
+                self.max_batch_size
+            ));
+        }
+
         let deployment_ids = deployments
             .into_iter()
             .map(|s| DeploymentId::from_str(&s))
@@ -154,8 +177,8 @@ impl Query {
 
 pub type CostSchema = Schema<Query, EmptyMutation, EmptySubscription>;
 
-pub async fn build_schema(data: PgPool) -> CostSchema {
-    Schema::build(Query, EmptyMutation, EmptySubscription)
+pub async fn build_schema(data: PgPool, max_batch_size: usize) -> CostSchema {
+    Schema::build(Query::new(max_batch_size), EmptyMutation, EmptySubscription)
         .data(data)
         .finish()
 }

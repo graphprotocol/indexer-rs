@@ -91,10 +91,12 @@ pub struct ServiceRouter {
 }
 
 const MISC_BURST_SIZE: u32 = 10;
-const MISC_BURST_PER_MILLISECOND: u64 = 100;
+/// Replenish interval in milliseconds. 100ms = 10 req/s after burst is exhausted.
+const MISC_REPLENISH_INTERVAL_MS: u64 = 100;
 
 const STATIC_BURST_SIZE: u32 = 50;
-const STATIC_BURST_PER_MILLISECOND: u64 = 20;
+/// Replenish interval in milliseconds. 20ms = 50 req/s after burst is exhausted.
+const STATIC_REPLENISH_INTERVAL_MS: u64 = 20;
 
 const DISPUTE_MANAGER_INTERVAL: Duration = Duration::from_secs(3600);
 
@@ -117,11 +119,13 @@ impl ServiceRouter {
                 max_receipt_value_grt,
             },
             free_query_auth_token,
+            max_cost_model_batch_size,
             ..
         } = self.service;
 
         // COST
-        let cost_schema = routes::cost::build_schema(self.database.clone()).await;
+        let cost_schema =
+            routes::cost::build_schema(self.database.clone(), max_cost_model_batch_size).await;
         let post_cost = post_service(GraphQL::new(cost_schema));
 
         // STATUS
@@ -206,13 +210,13 @@ impl ServiceRouter {
         // Rate limits by allowing bursts of 10 requests and requiring 100ms of
         // time between consecutive requests after that, effectively rate
         // limiting to 10 req/s.
-        let misc_rate_limiter = create_rate_limiter(MISC_BURST_PER_MILLISECOND, MISC_BURST_SIZE);
+        let misc_rate_limiter = create_rate_limiter(MISC_REPLENISH_INTERVAL_MS, MISC_BURST_SIZE);
 
         // Rate limits by allowing bursts of 50 requests and requiring 20ms of
         // time between consecutive requests after that, effectively rate
         // limiting to 50 req/s.
         let static_subgraph_rate_limiter =
-            create_rate_limiter(STATIC_BURST_PER_MILLISECOND, STATIC_BURST_SIZE);
+            create_rate_limiter(STATIC_REPLENISH_INTERVAL_MS, STATIC_BURST_SIZE);
 
         // load serve_network_subgraph route
         let serve_network_subgraph = match (
@@ -470,13 +474,13 @@ impl ServiceRouter {
 }
 
 fn create_rate_limiter(
-    burst_per_millisecond: u64,
+    replenish_interval_ms: u64,
     burst_size: u32,
 ) -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware<QuantaInstant>> {
     GovernorLayer {
         config: Arc::new(
             GovernorConfigBuilder::default()
-                .per_millisecond(burst_per_millisecond)
+                .per_millisecond(replenish_interval_ms)
                 .burst_size(burst_size)
                 .key_extractor(SmartIpKeyExtractor)
                 .finish()

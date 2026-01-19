@@ -18,7 +18,7 @@ use indexer_dips::{
     server::{DipsServer, DipsServerContext},
     signers::EscrowSignerValidator,
 };
-use indexer_monitor::{escrow_accounts_v1, escrow_accounts_v2, DeploymentDetails, SubgraphClient};
+use indexer_monitor::{escrow_accounts_v2, DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
 use reqwest::Url;
 use tap_core::tap_eip712_domain;
@@ -116,10 +116,16 @@ pub async fn run() -> anyhow::Result<()> {
     let indexer_address = config.indexer.indexer_address;
     let ipfs_url = config.service.ipfs_url.clone();
 
-    // Capture individual fields needed for DIPS before they get moved
-    let escrow_v1_query_url_for_dips = config.subgraphs.escrow.config.query_url.clone();
-    // V2 escrow accounts are in the network subgraph
-    let escrow_v2_query_url_for_dips = Some(config.subgraphs.network.config.query_url.clone());
+    // DIPS requires Horizon mode - validate early before any initialization
+    if config.dips.is_some() && !config.tap_mode().is_horizon() {
+        anyhow::bail!(
+            "DIPS is configured but Horizon is not enabled. \
+            DIPS requires Horizon mode ([horizon].enabled = true) to function correctly."
+        );
+    }
+
+    // V2 escrow accounts (used by DIPS) are in the network subgraph
+    let escrow_v2_query_url_for_dips = config.subgraphs.network.config.query_url.clone();
 
     // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
     // - Legacy mode: if [horizon].enabled = false
@@ -272,64 +278,33 @@ pub async fn run() -> anyhow::Result<()> {
             Arc::new(IpfsClient::new(ipfs_url.as_str()).unwrap());
 
         // TODO: Try to re-use the same watcher for both DIPS and TAP
-        // DIPS is part of Horizon/v2, so use v2 escrow watcher when available
+        // DIPS requires Horizon/V2, so always use V2 escrow from network subgraph
         let dips_http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
             .build()
             .expect("Failed to init HTTP client");
 
-        let escrow_subgraph_for_dips = if let Some(ref escrow_v2_url) = escrow_v2_query_url_for_dips
-        {
-            tracing::info!("DIPS using v2 escrow subgraph");
-            // Create subgraph client for v2
-            Box::leak(Box::new(
-                SubgraphClient::new(
-                    dips_http_client,
-                    None, // No local deployment
-                    DeploymentDetails::for_query_url_with_token(
-                        escrow_v2_url.clone(),
-                        None, // No auth token
-                    ),
-                )
-                .await,
-            ))
-        } else {
-            tracing::info!("DIPS falling back to v1 escrow subgraph");
-            // Create subgraph client for v1
-            Box::leak(Box::new(
-                SubgraphClient::new(
-                    dips_http_client,
-                    None, // No local deployment
-                    DeploymentDetails::for_query_url_with_token(
-                        escrow_v1_query_url_for_dips,
-                        None, // No auth token
-                    ),
-                )
-                .await,
-            ))
-        };
+        tracing::info!("DIPS using V2 escrow from network subgraph");
+        let escrow_subgraph_for_dips = Box::leak(Box::new(
+            SubgraphClient::new(
+                dips_http_client,
+                None, // No local deployment
+                DeploymentDetails::for_query_url_with_token(
+                    escrow_v2_query_url_for_dips.clone(),
+                    None, // No auth token
+                ),
+            )
+            .await,
+        ));
 
-        let watcher = if escrow_v2_query_url_for_dips.is_some() {
-            // Use v2 watcher for DIPS when v2 is available
-            escrow_accounts_v2(
-                escrow_subgraph_for_dips,
-                indexer_address,
-                Duration::from_secs(500),
-                true,
-            )
-            .await
-            .with_context(|| "Failed to create escrow accounts v2 watcher for DIPS")?
-        } else {
-            // Fall back to v1 watcher
-            escrow_accounts_v1(
-                escrow_subgraph_for_dips,
-                indexer_address,
-                Duration::from_secs(500),
-                true,
-            )
-            .await
-            .with_context(|| "Failed to create escrow accounts v1 watcher for DIPS")?
-        };
+        let watcher = escrow_accounts_v2(
+            escrow_subgraph_for_dips,
+            indexer_address,
+            Duration::from_secs(500),
+            true,
+        )
+        .await
+        .with_context(|| "Failed to create escrow accounts V2 watcher for DIPS")?;
 
         let registry = NetworksRegistry::from_latest_version().await.unwrap();
 

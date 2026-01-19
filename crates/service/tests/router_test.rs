@@ -88,6 +88,7 @@ async fn full_integration_test() {
             },
             free_query_auth_token: None,
             ipfs_url: "http://localhost:5001".parse().unwrap(),
+            max_cost_model_batch_size: 200,
         })
         .blockchain(BlockchainConfig {
             chain_id: indexer_config::TheGraphChainId::Test,
