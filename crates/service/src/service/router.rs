@@ -119,11 +119,13 @@ impl ServiceRouter {
                 max_receipt_value_grt,
             },
             free_query_auth_token,
+            max_cost_model_batch_size,
             ..
         } = self.service;
 
         // COST
-        let cost_schema = routes::cost::build_schema(self.database.clone()).await;
+        let cost_schema =
+            routes::cost::build_schema(self.database.clone(), max_cost_model_batch_size).await;
         let post_cost = post_service(GraphQL::new(cost_schema));
 
         // STATUS

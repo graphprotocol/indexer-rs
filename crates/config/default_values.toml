@@ -14,6 +14,7 @@ serve_network_subgraph = false
 serve_escrow_subgraph = false
 host_and_port = "0.0.0.0:7600"
 url_prefix = "/"
+max_cost_model_batch_size = 200
 
 [service.tap]
 max_receipt_value_grt = "0.001" # We use strings to prevent rounding errors

@@ -491,6 +491,15 @@ pub struct ServiceConfig {
     pub url_prefix: String,
     pub tap: ServiceTapConfig,
     pub free_query_auth_token: Option<String>,
+    /// Maximum number of deployments allowed in a single costModels batch query.
+    /// Prevents DoS attacks via unbounded input.
+    /// Default: 200
+    #[serde(default = "default_max_cost_model_batch_size")]
+    pub max_cost_model_batch_size: usize,
+}
+
+fn default_max_cost_model_batch_size() -> usize {
+    200
 }
 
 #[serde_as]

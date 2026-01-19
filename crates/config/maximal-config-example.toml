@@ -123,6 +123,9 @@ serve_escrow_subgraph = false
 ## allow queries using this token
 # free_query_auth_token = "i-am-authorized-right?"
 ipfs_url = "https://api.thegraph.com/ipfs/"
+# Maximum number of deployments allowed in a single /cost GraphQL batch query.
+# Prevents DoS attacks via unbounded input. Adjust if you serve many subgraphs.
+max_cost_model_batch_size = 200
 
 
 [service.tap]
