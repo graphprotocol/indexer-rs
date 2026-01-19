@@ -139,7 +139,8 @@ impl InnerContext {
                 $4::NUMERIC(20)[],
                 $5::NUMERIC(20)[],
                 $6::NUMERIC(40)[]
-            )"#,
+            )
+            ON CONFLICT (signature) DO NOTHING"#,
             &signers,
             &signatures,
             &allocation_ids,
@@ -207,7 +208,8 @@ impl InnerContext {
                 $7::NUMERIC(20)[],
                 $8::NUMERIC(20)[],
                 $9::NUMERIC(40)[]
-            )"#,
+            )
+            ON CONFLICT (signature) DO NOTHING"#,
             &signers,
             &signatures,
             &collection_ids,
