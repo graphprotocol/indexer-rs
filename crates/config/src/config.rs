@@ -220,6 +220,18 @@ impl Config {
             );
         }
 
+        // Validate syncing_interval_secs is not zero
+        if self.subgraphs.escrow.config.syncing_interval_secs == Duration::ZERO {
+            return Err(
+                "subgraphs.escrow.syncing_interval_secs must be greater than 0".to_string(),
+            );
+        }
+        if self.subgraphs.network.config.syncing_interval_secs == Duration::ZERO {
+            return Err(
+                "subgraphs.network.syncing_interval_secs must be greater than 0".to_string(),
+            );
+        }
+
         if self.subgraphs.escrow.config.syncing_interval_secs < Duration::from_secs(10)
             || self.subgraphs.network.config.syncing_interval_secs < Duration::from_secs(10)
         {
@@ -245,6 +257,26 @@ impl Config {
                 "Your `tap.rav_request.timestamp_buffer_secs` value it too low. \
                 You may discart receipts in case of any synchronization issues, \
                 a recommended value is about 30 seconds."
+            );
+        }
+
+        // Validate request_timeout_secs is not zero
+        if self.tap.rav_request.request_timeout_secs == Duration::ZERO {
+            return Err(
+                "tap.rav_request.request_timeout_secs must be greater than 0".to_string(),
+            );
+        }
+
+        // Validate sender_timeout_secs is not zero
+        if self.tap.sender_timeout_secs == Duration::ZERO {
+            return Err("tap.sender_timeout_secs must be greater than 0".to_string());
+        }
+
+        // Validate recently_closed_allocation_buffer_secs is not zero
+        if self.subgraphs.network.recently_closed_allocation_buffer_secs == Duration::ZERO {
+            return Err(
+                "subgraphs.network.recently_closed_allocation_buffer_secs must be greater than 0"
+                    .to_string(),
             );
         }
 
