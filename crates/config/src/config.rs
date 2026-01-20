@@ -6,7 +6,6 @@ use std::{
     env,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::PathBuf,
-    str::FromStr,
     time::Duration,
 };
 
@@ -197,12 +196,9 @@ impl Config {
         let trigger_value = (decimal / divisor)
             .to_u128()
             .expect("Could not represent the trigger value in u128");
-        let minimum_recommended_for_max_willing_to_lose_grt = 0.1;
-        if trigger_value
-            < minimum_recommended_for_max_willing_to_lose_grt
-                .to_u128()
-                .unwrap()
-        {
+        // 0.1 GRT in wei = 0.1 * 10^18 = 100_000_000_000_000_000
+        const MINIMUM_TRIGGER_VALUE_WEI: u128 = 100_000_000_000_000_000;
+        if trigger_value < MINIMUM_TRIGGER_VALUE_WEI {
             tracing::warn!(
                 "Trigger value is too low, currently below 0.1 GRT. \
                 Please modify `max_amount_willing_to_lose_grt` or `trigger_value_divisor`. \
@@ -213,10 +209,10 @@ impl Config {
             )
         }
 
-        let ten: BigDecimal = 10.into();
-        let usual_grt_price = BigDecimal::from_str("0.0001").unwrap() * ten;
-        if self.tap.max_amount_willing_to_lose_grt.get_value() < usual_grt_price.to_u128().unwrap()
-        {
+        // 0.001 GRT in wei = 0.001 * 10^18 = 1_000_000_000_000_000
+        // This represents approximately 100x a typical query price (0.00001 GRT)
+        const MINIMUM_MAX_WILLING_TO_LOSE_WEI: u128 = 1_000_000_000_000_000;
+        if self.tap.max_amount_willing_to_lose_grt.get_value() < MINIMUM_MAX_WILLING_TO_LOSE_WEI {
             tracing::warn!(
                 "Your `max_amount_willing_to_lose_grt` value is too close to zero. \
                 This may deny the sender too often or even break the whole system. \
