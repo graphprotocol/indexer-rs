@@ -126,6 +126,10 @@ ipfs_url = "https://api.thegraph.com/ipfs/"
 # Maximum number of deployments allowed in a single /cost GraphQL batch query.
 # Prevents DoS attacks via unbounded input. Adjust if you serve many subgraphs.
 max_cost_model_batch_size = 200
+# Maximum request body size in bytes for query endpoints.
+# Prevents DoS attacks via unbounded request buffering.
+# Default: 2MB (2097152 bytes). Increase if you need to support larger GraphQL queries.
+max_request_body_size = 2097152
 
 
 [service.tap]

@@ -496,10 +496,21 @@ pub struct ServiceConfig {
     /// Default: 200
     #[serde(default = "default_max_cost_model_batch_size")]
     pub max_cost_model_batch_size: usize,
+    /// Maximum request body size in bytes for query endpoints.
+    /// Prevents DoS attacks via unbounded request buffering (TRST-M-6).
+    /// Default: 2MB (2_097_152 bytes)
+    #[serde(default = "default_max_request_body_size")]
+    pub max_request_body_size: usize,
 }
 
 fn default_max_cost_model_batch_size() -> usize {
     200
+}
+
+/// Default max request body size: 2MB
+/// GraphQL queries are typically small, but can include large variable payloads.
+fn default_max_request_body_size() -> usize {
+    2 * 1024 * 1024
 }
 
 #[serde_as]

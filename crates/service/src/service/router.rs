@@ -43,7 +43,7 @@ use crate::{
         auth::{self, Bearer, OrExt},
         context_middleware, deployment_middleware, labels_middleware, receipt_middleware,
         sender_middleware, signer_middleware, AllocationState, AttestationState,
-        PrometheusMetricsMiddlewareLayer, SenderState,
+        PrometheusMetricsMiddlewareLayer, SenderState, TapContextState,
     },
     routes::{self, health, request_handler, static_subgraph_request_handler},
     tap::{IndexerTapContext, TapChecksConfig},
@@ -120,6 +120,7 @@ impl ServiceRouter {
             },
             free_query_auth_token,
             max_cost_model_batch_size,
+            max_request_body_size,
             ..
         } = self.service;
 
@@ -359,6 +360,10 @@ impl ServiceRouter {
                 domain_separator_v2: self.domain_separator_v2,
             };
 
+            let tap_context_state = TapContextState {
+                max_request_body_size,
+            };
+
             let service_builder = ServiceBuilder::new()
                 // inject deployment id
                 .layer(from_fn(deployment_middleware))
@@ -374,8 +379,8 @@ impl ServiceRouter {
                 .layer(PrometheusMetricsMiddlewareLayer::new(
                     HANDLER_HISTOGRAM.clone(),
                 ))
-                // tap context
-                .layer(from_fn(context_middleware));
+                // tap context (with body size limit for DoS protection)
+                .layer(from_fn_with_state(tap_context_state, context_middleware));
 
             handler.route_layer(service_builder)
         };
