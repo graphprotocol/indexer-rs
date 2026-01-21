@@ -765,10 +765,10 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-        assert!(json["message"]
-            .as_str()
-            .unwrap()
-            .contains("empty") || json["message"].as_str().unwrap().contains("invalid"));
+        assert!(
+            json["message"].as_str().unwrap().contains("empty")
+                || json["message"].as_str().unwrap().contains("invalid")
+        );
     }
 
     #[tokio::test]
@@ -801,9 +801,6 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-        assert!(json["message"]
-            .as_str()
-            .unwrap()
-            .contains("invalid"));
+        assert!(json["message"].as_str().unwrap().contains("invalid"));
     }
 }

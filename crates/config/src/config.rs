@@ -262,9 +262,7 @@ impl Config {
 
         // Validate request_timeout_secs is not zero
         if self.tap.rav_request.request_timeout_secs == Duration::ZERO {
-            return Err(
-                "tap.rav_request.request_timeout_secs must be greater than 0".to_string(),
-            );
+            return Err("tap.rav_request.request_timeout_secs must be greater than 0".to_string());
         }
 
         // Validate sender_timeout_secs is not zero
@@ -273,7 +271,12 @@ impl Config {
         }
 
         // Validate recently_closed_allocation_buffer_secs is not zero
-        if self.subgraphs.network.recently_closed_allocation_buffer_secs == Duration::ZERO {
+        if self
+            .subgraphs
+            .network
+            .recently_closed_allocation_buffer_secs
+            == Duration::ZERO
+        {
             return Err(
                 "subgraphs.network.recently_closed_allocation_buffer_secs must be greater than 0"
                     .to_string(),

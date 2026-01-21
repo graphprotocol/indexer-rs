@@ -1804,8 +1804,11 @@ impl Actor for SenderAccount {
         for allocation_id in &state.allocation_ids {
             let allocation_label = allocation_id.address().to_string();
             let _ = UNAGGREGATED_FEES.remove_label_values(&[&sender_label, &allocation_label]);
-            let _ = UNAGGREGATED_FEES_BY_VERSION
-                .remove_label_values(&[&sender_label, &allocation_label, version]);
+            let _ = UNAGGREGATED_FEES_BY_VERSION.remove_label_values(&[
+                &sender_label,
+                &allocation_label,
+                version,
+            ]);
             let _ = INVALID_RECEIPT_FEES.remove_label_values(&[&sender_label, &allocation_label]);
             let _ = PENDING_RAV.remove_label_values(&[&sender_label, &allocation_label]);
         }
