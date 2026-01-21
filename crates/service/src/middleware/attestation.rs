@@ -41,6 +41,19 @@ pub struct IndexerResponsePayload {
 ///     - return with no attestation
 ///
 /// Requires AttestationSigner
+///
+/// # Response Status Code Behavior
+///
+/// This middleware wraps the inner response in `IndexerResponsePayload` and returns
+/// HTTP 200 OK regardless of the inner response's status code. This is intentional:
+///
+/// - The gateway protocol expects 200 OK with the wrapped payload format
+/// - GraphQL errors are conveyed in the `graphQLResponse` field, not via HTTP status
+/// - This maintains compatibility with the TAP payment flow where the gateway
+///   needs to parse the attestation from a successful HTTP response
+///
+/// The inner response's headers are preserved, but the status code is intentionally
+/// normalized to 200 OK for protocol compatibility.
 pub async fn attestation_middleware(
     request: Request,
     next: Next,

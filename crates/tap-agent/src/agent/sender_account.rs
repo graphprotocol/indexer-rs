@@ -1703,6 +1703,13 @@ impl Actor for SenderAccount {
                 let _ = INVALID_RECEIPT_FEES
                     .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
 
+                // Clean up PENDING_RAV metric for this allocation
+                // Note: The rav_tracker is intentionally NOT updated here because the RAV
+                // hasn't been redeemed yet. However, the metric must be removed since it
+                // will no longer be updated by this actor.
+                let _ = PENDING_RAV
+                    .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
+
                 // Check for deny conditions - look up correct allocation variant from state
                 let allocation_enum = state
                     .allocation_ids
@@ -1784,13 +1791,44 @@ impl Actor for SenderAccount {
             handle.abort();
         }
 
-        // Clean up sender-level metrics to avoid stale gauge values
         let sender_label = state.sender.to_string();
+
+        // Clean up allocation-level metrics for all tracked allocations
+        // This prevents stale metrics when the SenderAccount shuts down
+        let version = match state.sender_type {
+            SenderType::Legacy => TAP_V1,
+            SenderType::Horizon => TAP_V2,
+        };
+
+        // Clean up metrics for active allocations
+        for allocation_id in &state.allocation_ids {
+            let allocation_label = allocation_id.address().to_string();
+            let _ = UNAGGREGATED_FEES.remove_label_values(&[&sender_label, &allocation_label]);
+            let _ = UNAGGREGATED_FEES_BY_VERSION.remove_label_values(&[
+                &sender_label,
+                &allocation_label,
+                version,
+            ]);
+            let _ = INVALID_RECEIPT_FEES.remove_label_values(&[&sender_label, &allocation_label]);
+            let _ = PENDING_RAV.remove_label_values(&[&sender_label, &allocation_label]);
+        }
+
+        // Clean up metrics for allocations tracked in rav_tracker (may include closed allocations
+        // with pending RAVs that are no longer in allocation_ids)
+        for allocation_id in state.rav_tracker.get_list_of_allocation_ids() {
+            let allocation_label = allocation_id.to_string();
+            let _ = PENDING_RAV.remove_label_values(&[&sender_label, &allocation_label]);
+        }
+
+        // Clean up sender-level metrics to avoid stale gauge values
         let _ = SENDER_DENIED.remove_label_values(&[&sender_label]);
         let _ = ESCROW_BALANCE.remove_label_values(&[&sender_label]);
         let _ = SENDER_FEE_TRACKER.remove_label_values(&[&sender_label]);
         let _ = MAX_FEE_PER_SENDER.remove_label_values(&[&sender_label]);
         let _ = RAV_REQUEST_TRIGGER_VALUE.remove_label_values(&[&sender_label]);
+        // Note: ALLOCATION_RECONCILIATION_RUNS is a counter and is intentionally not cleaned up.
+        // Counters are expected to monotonically increase and Prometheus handles resets gracefully.
+        // Removing counter labels can cause rate() calculations to produce incorrect results.
 
         Ok(())
     }

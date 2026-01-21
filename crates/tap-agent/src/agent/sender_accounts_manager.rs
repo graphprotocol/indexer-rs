@@ -126,20 +126,42 @@ impl NewReceiptNotification {
             }
             NewReceiptNotification::V2(n) => {
                 // Convert the hex string to CollectionId (trim spaces from fixed-length DB field)
-                let trimmed_collection_id = n.collection_id.trim();
-                match CollectionId::from_str(trimmed_collection_id) {
+                let trimmed = n.collection_id.trim();
+                match CollectionId::from_str(trimmed) {
                     Ok(collection_id) => AllocationId::Horizon(collection_id),
                     Err(e) => {
-                        tracing::error!(
-                            collection_id = %n.collection_id,
-                            trimmed_collection_id = %trimmed_collection_id,
-                            error = %e,
-                            "Failed to parse collection_id from database notification"
-                        );
-                        // Fall back to treating as address for now
-                        let fallback_address =
-                            trimmed_collection_id.parse().unwrap_or(Address::ZERO);
-                        AllocationId::Legacy(AllocationIdCore::from(fallback_address))
+                        // Check if this is a 20-byte address (40 hex chars) from migration period
+                        // TRST-L-9: Always route V2 receipts to Horizon, never downgrade to Legacy
+                        let hex_str = trimmed.strip_prefix("0x").unwrap_or(trimmed);
+                        if hex_str.len() == 40 {
+                            // 20-byte address during migration - convert to CollectionId
+                            match Address::from_str(&format!("0x{hex_str}")) {
+                                Ok(address) => {
+                                    tracing::debug!(
+                                        collection_id = %n.collection_id,
+                                        address = %address,
+                                        "Converting 20-byte address to CollectionId for V2 receipt"
+                                    );
+                                    return AllocationId::Horizon(CollectionId::from(address));
+                                }
+                                Err(addr_err) => {
+                                    tracing::error!(
+                                        collection_id = %n.collection_id,
+                                        error = %addr_err,
+                                        "Failed to parse 20-byte address"
+                                    );
+                                }
+                            }
+                        } else {
+                            tracing::error!(
+                                collection_id = %n.collection_id,
+                                hex_len = hex_str.len(),
+                                error = %e,
+                                "Failed to parse collection_id from database notification"
+                            );
+                        }
+                        // Fallback: use zero CollectionId but stay on Horizon path
+                        AllocationId::Horizon(CollectionId::from(Address::ZERO))
                     }
                 }
             }

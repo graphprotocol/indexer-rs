@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use axum::{
     body::to_bytes,
-    extract::{Path, Request},
+    extract::{Path, Request, State},
     middleware::Next,
     response::Response,
     RequestExt,
@@ -28,8 +28,17 @@ pub struct QueryBody {
     pub variables: Option<Box<RawValue>>,
 }
 
+/// State for the tap context middleware containing request body size limits
+#[derive(Clone)]
+pub struct TapContextState {
+    /// Maximum allowed request body size in bytes.
+    /// Prevents DoS attacks via unbounded request buffering.
+    pub max_request_body_size: usize,
+}
+
 /// Injects tap context in the extensions to be used by tap_receipt_authorize
 pub async fn context_middleware(
+    State(state): State<TapContextState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, IndexerServiceError> {
@@ -43,7 +52,7 @@ pub async fn context_middleware(
     let sender = request.extensions().get::<Sender>().cloned();
 
     let (mut parts, body) = request.into_parts();
-    let bytes = to_bytes(body, usize::MAX).await?;
+    let bytes = to_bytes(body, state.max_request_body_size).await?;
     let query_body: QueryBody = serde_json::from_slice(&bytes)?;
 
     let variables = query_body
@@ -74,7 +83,7 @@ mod tests {
     use axum::{
         body::Body,
         http::{Extensions, Request},
-        middleware::from_fn,
+        middleware::from_fn_with_state,
         routing::get,
         Router,
     };
@@ -84,13 +93,16 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::{
-        middleware::tap_context::{context_middleware, QueryBody},
+        middleware::tap_context::{context_middleware, QueryBody, TapContextState},
         tap::AgoraQuery,
     };
 
     #[tokio::test]
     async fn test_context_middleware() {
-        let middleware = from_fn(context_middleware);
+        let state = TapContextState {
+            max_request_body_size: 2 * 1024 * 1024,
+        };
+        let middleware = from_fn_with_state(state, context_middleware);
         let deployment = ESCROW_SUBGRAPH_DEPLOYMENT;
         let query_body = QueryBody {
             query: "hello".to_string(),
@@ -128,5 +140,36 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_context_middleware_rejects_oversized_body() {
+        let state = TapContextState {
+            max_request_body_size: 10, // Very small limit for testing
+        };
+        let middleware = from_fn_with_state(state, context_middleware);
+        let deployment = ESCROW_SUBGRAPH_DEPLOYMENT;
+        let query_body = QueryBody {
+            query: "this query is definitely longer than 10 bytes".to_string(),
+            variables: None,
+        };
+        let body = serde_json::to_string(&query_body).unwrap();
+
+        let handle = move |_extensions: Extensions| async move { Body::empty() };
+
+        let app = Router::new().route("/", get(handle)).layer(middleware);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .extension(deployment)
+                    .body(body)
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Should reject with an error status (body exceeds limit)
+        assert_ne!(res.status(), StatusCode::OK);
     }
 }

@@ -6,7 +6,6 @@ use std::{
     env,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::PathBuf,
-    str::FromStr,
     time::Duration,
 };
 
@@ -197,12 +196,9 @@ impl Config {
         let trigger_value = (decimal / divisor)
             .to_u128()
             .expect("Could not represent the trigger value in u128");
-        let minimum_recommended_for_max_willing_to_lose_grt = 0.1;
-        if trigger_value
-            < minimum_recommended_for_max_willing_to_lose_grt
-                .to_u128()
-                .unwrap()
-        {
+        // 0.1 GRT in wei = 0.1 * 10^18 = 100_000_000_000_000_000
+        const MINIMUM_TRIGGER_VALUE_WEI: u128 = 100_000_000_000_000_000;
+        if trigger_value < MINIMUM_TRIGGER_VALUE_WEI {
             tracing::warn!(
                 "Trigger value is too low, currently below 0.1 GRT. \
                 Please modify `max_amount_willing_to_lose_grt` or `trigger_value_divisor`. \
@@ -213,14 +209,26 @@ impl Config {
             )
         }
 
-        let ten: BigDecimal = 10.into();
-        let usual_grt_price = BigDecimal::from_str("0.0001").unwrap() * ten;
-        if self.tap.max_amount_willing_to_lose_grt.get_value() < usual_grt_price.to_u128().unwrap()
-        {
+        // 0.001 GRT in wei = 0.001 * 10^18 = 1_000_000_000_000_000
+        // This represents approximately 100x a typical query price (0.00001 GRT)
+        const MINIMUM_MAX_WILLING_TO_LOSE_WEI: u128 = 1_000_000_000_000_000;
+        if self.tap.max_amount_willing_to_lose_grt.get_value() < MINIMUM_MAX_WILLING_TO_LOSE_WEI {
             tracing::warn!(
                 "Your `max_amount_willing_to_lose_grt` value is too close to zero. \
                 This may deny the sender too often or even break the whole system. \
                 It's recommended it to be a value greater than 100x an usual query price."
+            );
+        }
+
+        // Validate syncing_interval_secs is not zero
+        if self.subgraphs.escrow.config.syncing_interval_secs == Duration::ZERO {
+            return Err(
+                "subgraphs.escrow.syncing_interval_secs must be greater than 0".to_string(),
+            );
+        }
+        if self.subgraphs.network.config.syncing_interval_secs == Duration::ZERO {
+            return Err(
+                "subgraphs.network.syncing_interval_secs must be greater than 0".to_string(),
             );
         }
 
@@ -252,6 +260,29 @@ impl Config {
             );
         }
 
+        // Validate request_timeout_secs is not zero
+        if self.tap.rav_request.request_timeout_secs == Duration::ZERO {
+            return Err("tap.rav_request.request_timeout_secs must be greater than 0".to_string());
+        }
+
+        // Validate sender_timeout_secs is not zero
+        if self.tap.sender_timeout_secs == Duration::ZERO {
+            return Err("tap.sender_timeout_secs must be greater than 0".to_string());
+        }
+
+        // Validate recently_closed_allocation_buffer_secs is not zero
+        if self
+            .subgraphs
+            .network
+            .recently_closed_allocation_buffer_secs
+            == Duration::ZERO
+        {
+            return Err(
+                "subgraphs.network.recently_closed_allocation_buffer_secs must be greater than 0"
+                    .to_string(),
+            );
+        }
+
         if self.tap.allocation_reconciliation_interval_secs == Duration::ZERO {
             return Err(
                 "tap.allocation_reconciliation_interval_secs must be greater than 0".to_string(),
@@ -265,6 +296,19 @@ impl Config {
                 A recommended value is at least 60 seconds."
             );
         }
+
+        // Warn about auth tokens over cleartext HTTP (TRST-L-3)
+        // This is a security risk as tokens can be intercepted
+        Self::warn_if_token_over_http(
+            &self.subgraphs.network.config.query_url,
+            self.subgraphs.network.config.query_auth_token.as_ref(),
+            "subgraphs.network",
+        );
+        Self::warn_if_token_over_http(
+            &self.subgraphs.escrow.config.query_url,
+            self.subgraphs.escrow.config.query_auth_token.as_ref(),
+            "subgraphs.escrow",
+        );
 
         // Horizon configuration validation
         // Explicit toggle via `horizon.enabled`. When enabled, require both
@@ -287,6 +331,32 @@ impl Config {
         }
 
         Ok(())
+    }
+
+    /// Warns if an authentication token is configured with a non-HTTPS URL.
+    ///
+    /// Sending bearer tokens over cleartext HTTP exposes them to interception
+    /// via man-in-the-middle attacks. This validation helps catch insecure
+    /// configurations before they cause credential leakage.
+    fn warn_if_token_over_http(url: &Url, token: Option<&String>, config_path: &str) {
+        if let Some(token) = token {
+            if !token.is_empty() && url.scheme() != "https" {
+                // Allow localhost/127.0.0.1 for development without warning
+                let is_localhost = url
+                    .host_str()
+                    .is_some_and(|h| h == "localhost" || h == "127.0.0.1" || h == "::1");
+
+                if !is_localhost {
+                    tracing::warn!(
+                        config_path,
+                        url = %url,
+                        "Authentication token configured with non-HTTPS URL. \
+                        This may expose credentials to interception. \
+                        Use HTTPS for production deployments."
+                    );
+                }
+            }
+        }
     }
 
     /// Derive TAP operation mode from horizon configuration
@@ -496,10 +566,21 @@ pub struct ServiceConfig {
     /// Default: 200
     #[serde(default = "default_max_cost_model_batch_size")]
     pub max_cost_model_batch_size: usize,
+    /// Maximum request body size in bytes for query endpoints.
+    /// Prevents DoS attacks via unbounded request buffering (TRST-M-6).
+    /// Default: 2MB (2_097_152 bytes)
+    #[serde(default = "default_max_request_body_size")]
+    pub max_request_body_size: usize,
 }
 
 fn default_max_cost_model_batch_size() -> usize {
     200
+}
+
+/// Default max request body size: 2MB
+/// GraphQL queries are typically small, but can include large variable payloads.
+fn default_max_request_body_size() -> usize {
+    2 * 1024 * 1024
 }
 
 #[serde_as]
