@@ -211,11 +211,27 @@ pub async fn status(
         )));
     }
 
-    // Return the response body as-is
+    // Return the response body after validating it's valid JSON
     let response_body = response
         .text()
         .await
         .map_err(|e| SubgraphServiceError::StatusQueryError(e.into()))?;
+
+    // Validate that the response is non-empty and valid JSON
+    // This prevents returning malformed responses to clients that could cause panics
+    if response_body.is_empty() {
+        return Err(SubgraphServiceError::StatusQueryError(anyhow::anyhow!(
+            "Graph node returned empty response body"
+        )));
+    }
+
+    // Validate the response is valid JSON before forwarding
+    serde_json::from_str::<serde_json::Value>(&response_body).map_err(|e| {
+        SubgraphServiceError::StatusQueryError(anyhow::anyhow!(
+            "Graph node returned invalid JSON response: {}",
+            e
+        ))
+    })?;
 
     Ok((
         StatusCode::OK,
@@ -717,5 +733,77 @@ mod tests {
         let response = app.oneshot(request).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_empty_response_from_graph_node_returns_bad_gateway() {
+        let mock_server = MockServer::start().await;
+
+        // Graph-node returns 200 with empty body
+        Mock::given(method("POST"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(""))
+            .mount(&mock_server)
+            .await;
+
+        let app = setup_test_router(&mock_server).await;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/status")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({"query": "{indexingStatuses {subgraph}}"}).to_string(),
+            ))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        // Should return BAD_GATEWAY since graph-node returned invalid response
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json["message"]
+            .as_str()
+            .unwrap()
+            .contains("empty") || json["message"].as_str().unwrap().contains("invalid"));
+    }
+
+    #[tokio::test]
+    async fn test_invalid_json_response_from_graph_node_returns_bad_gateway() {
+        let mock_server = MockServer::start().await;
+
+        // Graph-node returns 200 with invalid JSON body
+        Mock::given(method("POST"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not valid json"))
+            .mount(&mock_server)
+            .await;
+
+        let app = setup_test_router(&mock_server).await;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/status")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({"query": "{indexingStatuses {subgraph}}"}).to_string(),
+            ))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        // Should return BAD_GATEWAY since graph-node returned invalid JSON
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json["message"]
+            .as_str()
+            .unwrap()
+            .contains("invalid"));
     }
 }
