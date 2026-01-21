@@ -294,6 +294,19 @@ impl Config {
             );
         }
 
+        // Warn about auth tokens over cleartext HTTP (TRST-L-3)
+        // This is a security risk as tokens can be intercepted
+        Self::warn_if_token_over_http(
+            &self.subgraphs.network.config.query_url,
+            self.subgraphs.network.config.query_auth_token.as_ref(),
+            "subgraphs.network",
+        );
+        Self::warn_if_token_over_http(
+            &self.subgraphs.escrow.config.query_url,
+            self.subgraphs.escrow.config.query_auth_token.as_ref(),
+            "subgraphs.escrow",
+        );
+
         // Horizon configuration validation
         // Explicit toggle via `horizon.enabled`. When enabled, require both
         // `blockchain.subgraph_service_address` and
@@ -315,6 +328,32 @@ impl Config {
         }
 
         Ok(())
+    }
+
+    /// Warns if an authentication token is configured with a non-HTTPS URL.
+    ///
+    /// Sending bearer tokens over cleartext HTTP exposes them to interception
+    /// via man-in-the-middle attacks. This validation helps catch insecure
+    /// configurations before they cause credential leakage.
+    fn warn_if_token_over_http(url: &Url, token: Option<&String>, config_path: &str) {
+        if let Some(token) = token {
+            if !token.is_empty() && url.scheme() != "https" {
+                // Allow localhost/127.0.0.1 for development without warning
+                let is_localhost = url
+                    .host_str()
+                    .is_some_and(|h| h == "localhost" || h == "127.0.0.1" || h == "::1");
+
+                if !is_localhost {
+                    tracing::warn!(
+                        config_path,
+                        url = %url,
+                        "Authentication token configured with non-HTTPS URL. \
+                        This may expose credentials to interception. \
+                        Use HTTPS for production deployments."
+                    );
+                }
+            }
+        }
     }
 
     /// Derive TAP operation mode from horizon configuration
