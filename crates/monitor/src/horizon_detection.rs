@@ -43,5 +43,12 @@ pub async fn is_horizon_active(network_subgraph: &SubgraphClient) -> Result<bool
         tracing::info!("Horizon (V2) schema available - no accounts found at startup, but will detect new accounts automatically");
     }
 
+    // NOTE: Always returns true regardless of account count. During the migration period,
+    // zero accounts does not mean Horizon is inactive - it may simply mean no escrow
+    // deposits have been made yet while contracts are already deployed.
+    //
+    // DEPRECATED: This function will be removed in a future release. The network has
+    // fully migrated to Horizon, so this detection is no longer necessary. Horizon
+    // should be assumed active by default.
     Ok(true)
 }
