@@ -14,6 +14,20 @@ use crate::{error::SubgraphServiceError, middleware::AttestationInput, service::
 const GRAPH_ATTESTABLE: &str = "graph-attestable";
 const GRAPH_INDEXED: &str = "graph-indexed";
 
+/// Handles paid query requests by forwarding them to graph-node and wrapping the response.
+///
+/// # Response Status Code Behavior
+///
+/// This handler intentionally returns HTTP 200 OK regardless of the graph-node's response
+/// status code. This is a design decision for the TAP (Timeline Aggregation Protocol) flow:
+///
+/// - The gateway expects a consistent 200 OK response with the GraphQL response wrapped
+///   in the `IndexerResponsePayload` format (via attestation middleware)
+/// - GraphQL errors are conveyed in the response body, not via HTTP status codes
+/// - The graph-node's status code is not propagated to maintain protocol compatibility
+///
+/// This differs from `static_subgraph_request_handler` which preserves status codes
+/// for non-paid, direct subgraph queries.
 pub async fn request_handler(
     Path(deployment): Path<DeploymentId>,
     State(state): State<GraphNodeState>,
