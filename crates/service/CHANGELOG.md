@@ -6,6 +6,15 @@
 
 
 
+## [1.8.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.8.0...indexer-service-rs-v1.8.1) (2026-01-26)
+
+
+### Bug Fixes
+
+* Prevent GraphQL query bypass and add service provider validation ([#898](https://github.com/graphprotocol/indexer-rs/issues/898)) ([f18cde8](https://github.com/graphprotocol/indexer-rs/commit/f18cde8ca00cc3572ccf8702fbf8388fd210c982))
+* TrustSec audit findings - Low severity batch ([#905](https://github.com/graphprotocol/indexer-rs/issues/905)) ([4e80ec0](https://github.com/graphprotocol/indexer-rs/commit/4e80ec0c6847fdbad6f7f858e1a4c65c2da9f195))
+* use direct HTTP forwarding to improve /status endpoint performance ([#886](https://github.com/graphprotocol/indexer-rs/issues/886)) ([1e50825](https://github.com/graphprotocol/indexer-rs/commit/1e50825dffc321c7896b106d96408bc2c9a7fad0))
+
 ## [1.8.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.7.1...indexer-service-rs-v1.8.0) (2025-12-04)
 
 

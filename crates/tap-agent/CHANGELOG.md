@@ -4,6 +4,13 @@
 
 
 
+## [1.12.4](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.3...indexer-tap-agent-v1.12.4) (2026-01-26)
+
+
+### Bug Fixes
+
+* TrustSec audit findings - Low severity batch ([#905](https://github.com/graphprotocol/indexer-rs/issues/905)) ([4e80ec0](https://github.com/graphprotocol/indexer-rs/commit/4e80ec0c6847fdbad6f7f858e1a4c65c2da9f195))
+
 ## [1.12.3](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.2...indexer-tap-agent-v1.12.3) (2025-12-22)
 
 

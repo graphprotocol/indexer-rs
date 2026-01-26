@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.8.0...indexer-config-v1.8.1) (2026-01-26)
+
+
+### Bug Fixes
+
+* TrustSec audit findings - Low severity batch ([#905](https://github.com/graphprotocol/indexer-rs/issues/905)) ([4e80ec0](https://github.com/graphprotocol/indexer-rs/commit/4e80ec0c6847fdbad6f7f858e1a4c65c2da9f195))
+
 ## [1.8.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.7.0...indexer-config-v1.8.0) (2025-12-04)
 
 
