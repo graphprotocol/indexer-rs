@@ -3,6 +3,7 @@
 
 mod allocations;
 mod attestation;
+pub mod backoff;
 mod client;
 mod deployment_to_allocation;
 mod dispute_manager;
