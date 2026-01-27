@@ -10,11 +10,15 @@ use std::{
 use indexer_allocation::Allocation;
 use indexer_query::allocations_query::{self, AllocationsQuery};
 use thegraph_core::alloy::primitives::{Address, TxHash};
-use tokio::sync::{watch::Receiver, Mutex};
-use tokio::time::{self, sleep};
+use tokio::{
+    sync::{watch::Receiver, Mutex},
+    time::{self, sleep},
+};
 
-use crate::backoff::{is_block_too_high_error, TieredBlockBackoff};
-use crate::client::SubgraphClient;
+use crate::{
+    backoff::{is_block_too_high_error, TieredBlockBackoff},
+    client::SubgraphClient,
+};
 
 /// Receiver of Map between allocation id and allocation struct
 pub type AllocationWatcher = Receiver<HashMap<Address, Allocation>>;

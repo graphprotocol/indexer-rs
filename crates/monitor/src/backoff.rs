@@ -7,8 +7,9 @@
 //! This module provides a backoff strategy that progressively relaxes the `number_gte` constraint
 //! when queries fail due to indexers being behind.
 
-use regex::Regex;
 use std::sync::LazyLock;
+
+use regex::Regex;
 
 /// Backoff tiers representing how many blocks to subtract from the last successful block.
 /// Each tier represents a progressively more lenient constraint:
@@ -179,7 +180,8 @@ mod tests {
 
     #[test]
     fn test_parse_max_latest_single_value() {
-        let error = "bad indexers: {0x123: Unavailable(missing block: 900000000, latest: 425638278)}";
+        let error =
+            "bad indexers: {0x123: Unavailable(missing block: 900000000, latest: 425638278)}";
         assert_eq!(parse_max_latest(error), Some(425638278));
     }
 
@@ -203,7 +205,9 @@ mod tests {
 
     #[test]
     fn test_is_block_too_high_error() {
-        assert!(is_block_too_high_error("Unavailable(missing block: 900000000)"));
+        assert!(is_block_too_high_error(
+            "Unavailable(missing block: 900000000)"
+        ));
         assert!(is_block_too_high_error("block not found"));
         assert!(!is_block_too_high_error("connection timeout"));
     }
