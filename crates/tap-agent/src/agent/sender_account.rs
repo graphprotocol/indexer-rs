@@ -11,7 +11,10 @@ use std::{
 use anyhow::Context;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use futures::{stream, StreamExt};
-use indexer_monitor::{EscrowAccounts, SubgraphClient};
+use indexer_monitor::{
+    backoff::{is_block_too_high_error, TieredBlockBackoff},
+    EscrowAccounts, SubgraphClient,
+};
 use indexer_query::{
     closed_allocations::{self, ClosedAllocations},
     unfinalized_transactions, UnfinalizedTransactions,
@@ -769,7 +772,11 @@ impl State {
     }
 
     /// Receives a list of possible closed allocations and verify
-    /// if they are really closed in the subgraph
+    /// if they are really closed in the subgraph.
+    ///
+    /// Uses tiered backoff to handle Gateway routing to indexers with varying sync states.
+    /// If queries fail due to "block too high" errors, retries with progressively relaxed
+    /// `number_gte` constraints.
     async fn check_closed_allocations(
         &self,
         allocation_ids: HashSet<&AllocationId>,
@@ -785,23 +792,76 @@ impl State {
             .map(|addr| addr.address().to_string().to_lowercase())
             .collect();
 
+        let mut backoff = TieredBlockBackoff::new();
+        let max_retries = 5; // Allow retrying through all backoff tiers
+
+        for attempt in 0..max_retries {
+            match self
+                .query_closed_allocations(&allocation_ids, backoff.get_number_gte())
+                .await
+            {
+                Ok((allocations, block_number)) => {
+                    if let Some(block) = block_number {
+                        backoff.on_success(block);
+                    }
+                    return Ok(allocations);
+                }
+                Err(err) => {
+                    let error_str = err.to_string();
+                    if is_block_too_high_error(&error_str) && attempt < max_retries - 1 {
+                        backoff.on_block_too_high_error(&error_str);
+                        tracing::warn!(
+                            error = %err,
+                            attempt = attempt + 1,
+                            tier = backoff.current_tier(),
+                            number_gte = ?backoff.get_number_gte(),
+                            "Block too high error in closed allocations query, retrying with backoff"
+                        );
+                        continue;
+                    }
+                    return Err(err);
+                }
+            }
+        }
+
+        anyhow::bail!("Exhausted all backoff tiers for closed allocations query")
+    }
+
+    /// Internal helper to query closed allocations with optional number_gte constraint.
+    async fn query_closed_allocations(
+        &self,
+        allocation_ids: &[String],
+        number_gte: Option<i64>,
+    ) -> anyhow::Result<(HashSet<Address>, Option<i64>)> {
         let mut hash: Option<String> = None;
+        let mut block_number: Option<i64> = None;
         let mut last: Option<String> = None;
         let mut responses = vec![];
         let page_size = 200;
 
         loop {
+            // For the first page, use number_gte if provided; for subsequent pages, use hash
+            let block_constraint = if hash.is_some() {
+                Some(closed_allocations::Block_height {
+                    hash: hash.clone(),
+                    number: None,
+                    number_gte: None,
+                })
+            } else {
+                number_gte.map(|n| closed_allocations::Block_height {
+                    hash: None,
+                    number: None,
+                    number_gte: Some(n),
+                })
+            };
+
             let result = self
                 .network_subgraph
                 .query::<ClosedAllocations, _>(closed_allocations::Variables {
-                    allocation_ids: allocation_ids.clone(),
+                    allocation_ids: allocation_ids.to_vec(),
                     first: page_size,
                     last: last.unwrap_or_default(),
-                    block: hash.map(|hash| closed_allocations::Block_height {
-                        hash: Some(hash),
-                        number: None,
-                        number_gte: None,
-                    }),
+                    block: block_constraint,
                 })
                 .await
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -809,7 +869,11 @@ impl State {
             let mut data = result?;
             let page_len = data.allocations.len();
 
-            hash = data.meta.and_then(|meta| meta.block.hash);
+            // Extract block metadata from response
+            if let Some(ref meta) = data.meta {
+                hash = meta.block.hash.clone();
+                block_number = Some(meta.block.number);
+            }
             last = data.allocations.last().map(|entry| entry.id.to_string());
 
             responses.append(&mut data.allocations);
@@ -817,10 +881,13 @@ impl State {
                 break;
             }
         }
-        Ok(responses
+
+        let allocations = responses
             .into_iter()
             .map(|allocation| Address::from_str(&allocation.id))
-            .collect::<Result<HashSet<_>, _>>()?)
+            .collect::<Result<HashSet<_>, _>>()?;
+
+        Ok((allocations, block_number))
     }
 }
 
