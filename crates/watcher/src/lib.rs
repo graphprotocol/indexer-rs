@@ -33,6 +33,8 @@ where
     tokio::spawn(async move {
         let mut time_interval = time::interval(interval);
         time_interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+        // Consume the immediate first tick to avoid redundant query at startup
+        time_interval.tick().await;
         loop {
             time_interval.tick().await;
             let result = function().await;
