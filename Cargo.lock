@@ -4289,6 +4289,7 @@ dependencies = [
  "indexer-attestation",
  "indexer-query",
  "indexer-watcher",
+ "regex",
  "reqwest 0.12.24",
  "rstest",
  "serde",
