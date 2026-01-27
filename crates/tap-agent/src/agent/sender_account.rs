@@ -1898,13 +1898,17 @@ pub mod tests {
 
     use indexer_monitor::EscrowAccounts;
     use ractor::{call, Actor, ActorRef, ActorStatus};
+    use rand;
     use serde_json::json;
     use test_assets::{
         flush_messages, ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER,
         TAP_SIGNER as SIGNER,
     };
     use thegraph_core::{
-        alloy::{hex::ToHexExt, primitives::U256},
+        alloy::{
+            hex::ToHexExt,
+            primitives::{Address, U256},
+        },
         AllocationId as AllocationIdCore,
     };
     use tokio::sync::mpsc;
@@ -1983,7 +1987,7 @@ pub mod tests {
             )
             .await;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
@@ -2074,7 +2078,7 @@ pub mod tests {
             )
             .await;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
@@ -2167,7 +2171,7 @@ pub mod tests {
     async fn test_update_receipt_fees_no_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let (sender_account, msg_receiver, prefix, _, _) =
+        let (sender_account, msg_receiver, prefix, _, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
         let basic_sender_account = TestSenderAccount {
             sender_account,
@@ -2201,7 +2205,7 @@ pub mod tests {
     async fn test_update_receipt_fees_trigger_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let (sender_account, msg_receiver, prefix, _, _) =
+        let (sender_account, msg_receiver, prefix, _, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
         let mut basic_sender_account = TestSenderAccount {
             sender_account,
@@ -2247,7 +2251,7 @@ pub mod tests {
     async fn test_counter_greater_limit_trigger_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .rav_request_receipt_limit(2)
             .call()
@@ -2300,7 +2304,7 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
-        let (sender_account, _, prefix, _, _) = create_sender_account()
+        let (sender_account, _, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .initial_allocation(
                 vec![AllocationId::Legacy(AllocationIdCore::from(
@@ -2360,7 +2364,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, _notify, _, _, _) =
+        let (sender_account, _notify, _, _, _, _) =
             create_sender_account().pgpool(pgpool.clone()).call().await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
@@ -2389,7 +2393,7 @@ pub mod tests {
         // we set to zero to block the sender, no matter the fee
         let max_unaggregated_fees_per_sender: u128 = 0;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
             .call()
@@ -2438,7 +2442,7 @@ pub mod tests {
         let max_unaggregated_fees_per_sender: u128 = 1000;
 
         // Making sure no RAV is going to be triggered during the test
-        let (sender_account, mut msg_receiver, _, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, _, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .rav_request_trigger_value(u128::MAX)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
@@ -2540,7 +2544,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, _notify, _, _, _) = create_sender_account()
+        let (sender_account, _notify, _, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .max_amount_willing_to_lose_grt(u128::MAX)
             .call()
@@ -2581,7 +2585,7 @@ pub mod tests {
         let trigger_rav_request = ESCROW_VALUE * 2;
 
         // initialize with no trigger value and no max receipt deny
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .rav_request_trigger_value(trigger_rav_request)
             .max_amount_willing_to_lose_grt(u128::MAX)
@@ -2661,7 +2665,7 @@ pub mod tests {
         let pgpool = test_db.pool;
         let max_amount_willing_to_lose_grt = ESCROW_VALUE / 10;
         // initialize with no trigger value and no max receipt deny
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .trusted_sender(true)
             .rav_request_trigger_value(u128::MAX)
@@ -2770,12 +2774,13 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, mut msg_receiver, _, escrow_accounts_tx, _) = create_sender_account()
-            .pgpool(pgpool.clone())
-            .max_amount_willing_to_lose_grt(u128::MAX)
-            .escrow_subgraph_endpoint(&mock_server.uri())
-            .call()
-            .await;
+        let (sender_account, mut msg_receiver, _, escrow_accounts_tx, _, _) =
+            create_sender_account()
+                .pgpool(pgpool.clone())
+                .max_amount_willing_to_lose_grt(u128::MAX)
+                .escrow_subgraph_endpoint(&mock_server.uri())
+                .call()
+                .await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(!deny, "should start unblocked");
@@ -2830,11 +2835,12 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, mut msg_receiver, _, escrow_accounts_tx, _) = create_sender_account()
-            .pgpool(pgpool.clone())
-            .max_amount_willing_to_lose_grt(u128::MAX)
-            .call()
-            .await;
+        let (sender_account, mut msg_receiver, _, escrow_accounts_tx, _, _) =
+            create_sender_account()
+                .pgpool(pgpool.clone())
+                .max_amount_willing_to_lose_grt(u128::MAX)
+                .call()
+                .await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(!deny, "should start unblocked");
@@ -2875,7 +2881,7 @@ pub mod tests {
         // we set to 1 to block the sender on a really low value
         let max_unaggregated_fees_per_sender: u128 = 1;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
             .call()
@@ -2944,7 +2950,7 @@ pub mod tests {
             AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_1)),
         ]);
 
-        let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx) =
+        let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx, _) =
             create_sender_account()
                 .pgpool(pgpool)
                 .initial_allocation(allocation_set.clone())
@@ -3017,7 +3023,7 @@ pub mod tests {
         // Use a short reconciliation interval for testing
         let reconciliation_interval = Duration::from_millis(100);
 
-        let (sender_account, mut msg_receiver, _, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, _, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .allocation_reconciliation_interval(reconciliation_interval)
             .call()
@@ -3090,7 +3096,7 @@ pub mod tests {
             AllocationIdCore::from(ALLOCATION_ID_0),
         )]);
 
-        let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx) =
+        let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx, _) =
             create_sender_account()
                 .pgpool(pgpool)
                 .initial_allocation(initial_allocation_set)
@@ -3138,7 +3144,7 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
 
-        let (sender_account, mut msg_receiver, _, _, _) =
+        let (sender_account, mut msg_receiver, _, _, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
 
         // Get metric value before reconciliation
@@ -3197,7 +3203,7 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) =
+        let (sender_account, mut msg_receiver, prefix, _, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
 
         // Create a mock sender allocation and link it to the sender account
@@ -3267,7 +3273,7 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) =
+        let (sender_account, mut msg_receiver, prefix, _, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
 
         let (mock_sender_allocation, _, next_unaggregated_fees) =
@@ -3322,12 +3328,18 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
 
-        let (sender_account, mut msg_receiver, _, _, _) =
-            create_sender_account().pgpool(pgpool).call().await;
+        // Use a unique sender ID to avoid interference from parallel tests
+        let random_bytes: [u8; 20] = rand::random();
+        let unique_sender = Address::from_slice(&random_bytes);
+        let (sender_account, mut msg_receiver, _, _, _, sender_id) = create_sender_account()
+            .pgpool(pgpool)
+            .sender_id(unique_sender)
+            .call()
+            .await;
 
         flush_messages(&mut msg_receiver).await;
 
-        let sender_label = SENDER.1.to_string();
+        let sender_label = sender_id.to_string();
 
         // Set all sender-level metrics to non-zero values
         SENDER_DENIED.with_label_values(&[&sender_label]).set(1);
