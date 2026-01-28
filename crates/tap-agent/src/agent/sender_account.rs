@@ -793,35 +793,44 @@ impl State {
             .collect();
 
         let mut backoff = TieredBlockBackoff::new();
-        let max_retries = 5; // Allow retrying through all backoff tiers
+        let retries_per_tier = 2;
 
-        for attempt in 0..max_retries {
-            match self
-                .query_closed_allocations(&allocation_ids, backoff.get_number_gte())
-                .await
-            {
-                Ok((allocations, block_number)) => {
-                    if let Some(block) = block_number {
-                        backoff.on_success(block);
+        while !backoff.is_exhausted() {
+            for attempt in 0..retries_per_tier {
+                match self
+                    .query_closed_allocations(&allocation_ids, backoff.get_number_gte())
+                    .await
+                {
+                    Ok((allocations, block_number)) => {
+                        if let Some(block) = block_number {
+                            backoff.on_success(block);
+                        }
+                        return Ok(allocations);
                     }
-                    return Ok(allocations);
-                }
-                Err(err) => {
-                    let error_str = err.to_string();
-                    if is_block_too_high_error(&error_str) && attempt < max_retries - 1 {
-                        backoff.on_block_too_high_error(&error_str);
-                        tracing::warn!(
-                            error = %err,
-                            attempt = attempt + 1,
-                            tier = backoff.current_tier(),
-                            number_gte = ?backoff.get_number_gte(),
-                            "Block too high error in closed allocations query, retrying with backoff"
-                        );
-                        continue;
+                    Err(err) => {
+                        let error_str = err.to_string();
+                        if is_block_too_high_error(&error_str) {
+                            tracing::warn!(
+                                error = %err,
+                                tier = backoff.current_tier(),
+                                attempt = attempt + 1,
+                                retries_per_tier,
+                                number_gte = ?backoff.get_number_gte(),
+                                "Block too high error in closed allocations query, retrying"
+                            );
+                            continue;
+                        }
+                        return Err(err);
                     }
-                    return Err(err);
                 }
             }
+            // Exhausted retries at this tier, advance to next
+            backoff.on_block_too_high_error("");
+            tracing::warn!(
+                tier = backoff.current_tier(),
+                number_gte = ?backoff.get_number_gte(),
+                "Advancing to next backoff tier for closed allocations query"
+            );
         }
 
         anyhow::bail!("Exhausted all backoff tiers for closed allocations query")

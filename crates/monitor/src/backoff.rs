@@ -16,8 +16,7 @@ use regex::Regex;
 /// - Tier 0: Exact block (no backoff)
 /// - Tier 1: 100 blocks back (~25 sec on Arbitrum)
 /// - Tier 2: 1,000 blocks back (~4 min on Arbitrum)
-/// - Tier 3: 10,000 blocks back (~40 min on Arbitrum)
-const BACKOFF_TIERS: [i64; 4] = [0, 100, 1_000, 10_000];
+const BACKOFF_TIERS: [i64; 3] = [0, 100, 1_000];
 
 /// Regex to extract `latest: \d+` values from Gateway error messages.
 /// Gateway errors look like:
@@ -157,11 +156,6 @@ mod tests {
         backoff.on_block_too_high_error("some error");
         assert_eq!(backoff.current_tier(), 2);
         assert_eq!(backoff.get_number_gte(), Some(9000));
-
-        // Tier 3: -10000
-        backoff.on_block_too_high_error("some error");
-        assert_eq!(backoff.current_tier(), 3);
-        assert_eq!(backoff.get_number_gte(), Some(0));
     }
 
     #[test]
@@ -170,7 +164,7 @@ mod tests {
         backoff.on_success(1_000_000);
 
         // Exhaust all tiers
-        for _ in 0..5 {
+        for _ in 0..4 {
             backoff.on_block_too_high_error("latest: 500000");
         }
 
@@ -215,10 +209,10 @@ mod tests {
     #[test]
     fn test_saturating_sub_prevents_negative() {
         let mut backoff = TieredBlockBackoff::new();
-        backoff.on_success(50); // Small block number
+        backoff.on_success(500); // Small block number
 
-        // Tier 3 would subtract 10000, but should saturate to 0
-        backoff.tier = 3;
+        // Tier 2 would subtract 1000, but should saturate to 0
+        backoff.tier = 2;
         assert_eq!(backoff.get_number_gte(), Some(0));
     }
 

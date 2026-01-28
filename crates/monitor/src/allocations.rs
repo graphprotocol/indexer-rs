@@ -23,6 +23,11 @@ use crate::{
 /// Receiver of Map between allocation id and allocation struct
 pub type AllocationWatcher = Receiver<HashMap<Address, Allocation>>;
 
+/// Minimum expected block number for Arbitrum.
+/// Used as a sanity check to detect stale indexers on initial query.
+/// If the initial response returns a block below this, we retry.
+const ARBITRUM_MIN_EXPECTED_BLOCK: i64 = 400_000_000;
+
 /// An always up-to-date list of an indexer's active and recently closed allocations.
 ///
 /// Uses tiered backoff to handle Gateway routing to indexers with varying sync states.
@@ -36,8 +41,8 @@ pub async fn indexer_allocations(
 ) -> anyhow::Result<AllocationWatcher> {
     let backoff = Arc::new(Mutex::new(TieredBlockBackoff::new()));
 
-    // Initial query without number_gte constraint
-    let initial_result = get_allocations_with_block_state(
+    // Initial query without number_gte constraint, with retry for stale indexers
+    let mut initial_result = get_allocations_with_block_state(
         network_subgraph,
         indexer_address,
         recently_closed_allocation_buffer,
@@ -45,8 +50,41 @@ pub async fn indexer_allocations(
     )
     .await?;
 
+    // Retry if initial block is suspiciously low (stale indexer)
+    const MAX_RETRIES: usize = 3;
+    for attempt in 1..=MAX_RETRIES {
+        match initial_result.block_number {
+            Some(block) if block >= ARBITRUM_MIN_EXPECTED_BLOCK => break,
+            Some(block) => {
+                tracing::warn!(
+                    block_number = block,
+                    min_expected = ARBITRUM_MIN_EXPECTED_BLOCK,
+                    attempt,
+                    "Initial query returned stale block, retrying"
+                );
+                sleep(Duration::from_secs(1)).await;
+                initial_result = get_allocations_with_block_state(
+                    network_subgraph,
+                    indexer_address,
+                    recently_closed_allocation_buffer,
+                    None,
+                )
+                .await?;
+            }
+            None => break, // No block number, proceed anyway
+        }
+    }
+
     // Record the initial block number for subsequent queries
     if let Some(block_number) = initial_result.block_number {
+        if block_number < ARBITRUM_MIN_EXPECTED_BLOCK {
+            tracing::warn!(
+                block_number,
+                min_expected = ARBITRUM_MIN_EXPECTED_BLOCK,
+                max_retries = MAX_RETRIES,
+                "Proceeding with stale block after retries exhausted"
+            );
+        }
         backoff.lock().await.on_success(block_number);
     }
 
