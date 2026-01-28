@@ -13,7 +13,7 @@ jobs:
     container:
       image: rust:1.90-bookworm
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - run: |
           # Install and use nightly rustfmt to honor repo's rustfmt.toml
           rustup toolchain install nightly --profile minimal
@@ -40,7 +40,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install libsasl2-dev
         run: apt-get update && apt-get install -y libsasl2-dev
       - name: Install protobuf compiler
@@ -72,7 +72,7 @@ jobs:
       DATABASE_URL: postgres://postgres@postgres:5432
       SQLX_OFFLINE: true
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install libsasl2-dev
         run: apt-get update && apt-get install -y libsasl2-dev
       - name: Install protobuf compiler
@@ -106,7 +106,7 @@ jobs:
       SQLX_OFFLINE: true
       DOCKER_HOST: unix:///var/run/docker.sock
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install Docker CLI and verify
         run: |
           apt-get update
@@ -151,7 +151,7 @@ jobs:
       SQLX_OFFLINE: true
       DOCKER_HOST: unix:///var/run/docker.sock
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install Docker CLI and verify
         run: |
           apt-get update
