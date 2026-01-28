@@ -3,6 +3,7 @@
 
 mod allocations;
 mod attestation;
+pub mod backoff;
 mod client;
 mod deployment_to_allocation;
 mod dispute_manager;
@@ -10,7 +11,7 @@ mod escrow_accounts;
 mod horizon_detection;
 
 pub use crate::{
-    allocations::{indexer_allocations, AllocationWatcher},
+    allocations::{indexer_allocations, AllocationQueryResult, AllocationWatcher},
     attestation::{attestation_signers, AttestationWatcher},
     client::{DeploymentDetails, SubgraphClient},
     deployment_to_allocation::{deployment_to_allocation, DeploymentToAllocationWatcher},
