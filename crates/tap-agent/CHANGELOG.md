@@ -4,6 +4,13 @@
 
 
 
+## [1.12.5](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.4...indexer-tap-agent-v1.12.5) (2026-01-28)
+
+
+### Bug Fixes
+
+* **tap-agent:** use unique sender ID in metrics cleanup test ([#913](https://github.com/graphprotocol/indexer-rs/issues/913)) ([83219bb](https://github.com/graphprotocol/indexer-rs/commit/83219bb01d4b9f0267f29e64eac6c04f9dff9833))
+
 ## [1.12.4](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.3...indexer-tap-agent-v1.12.4) (2026-01-26)
 
 
