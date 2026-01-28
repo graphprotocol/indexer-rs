@@ -114,15 +114,19 @@ pub async fn create_sender_account(
     aggregator_endpoint: Option<Url>,
     #[builder(default = false)] trusted_sender: bool,
     #[builder(default = Duration::from_secs(300))] allocation_reconciliation_interval: Duration,
+    /// Optional sender ID for test isolation. Defaults to SENDER.1.
+    sender_id: Option<Address>,
 ) -> (
     ActorRef<SenderAccountMessage>,
     mpsc::Receiver<SenderAccountMessage>,
     String,
     Sender<EscrowAccounts>,
     Sender<HashSet<AllocationId>>,
+    Address,
 ) {
+    let sender_id = sender_id.unwrap_or(SENDER.1);
     let trusted_senders = if trusted_sender {
-        HashSet::from([SENDER.1])
+        HashSet::from([sender_id])
     } else {
         HashSet::new()
     };
@@ -161,8 +165,8 @@ pub async fn create_sender_account(
     let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
     escrow_accounts_tx
         .send(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
-            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+            HashMap::from([(sender_id, U256::from(ESCROW_VALUE))]),
+            HashMap::from([(sender_id, vec![SIGNER.1])]),
         ))
         .expect("Failed to update escrow_accounts channel");
 
@@ -178,7 +182,7 @@ pub async fn create_sender_account(
     let args = SenderAccountArgs {
         config,
         pgpool,
-        sender_id: SENDER.1,
+        sender_id,
         escrow_accounts: escrow_accounts_rx,
         indexer_allocations: indexer_allocations_rx,
         escrow_subgraph,
@@ -208,6 +212,7 @@ pub async fn create_sender_account(
         prefix,
         escrow_accounts_tx,
         indexer_allocations_tx,
+        sender_id,
     )
 }
 
