@@ -17,9 +17,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::tap::checks::{
     allocation_eligible::AllocationEligible, data_service_check::DataServiceCheck,
-    deny_list_check::DenyListCheck, receipt_max_val_check::ReceiptMaxValueCheck,
-    sender_balance_check::SenderBalanceCheck, timestamp_check::TimestampCheck,
-    value_check::MinimumValue,
+    deny_list_check::DenyListCheck, payer_check::PayerCheck,
+    receipt_max_val_check::ReceiptMaxValueCheck, sender_balance_check::SenderBalanceCheck,
+    timestamp_check::TimestampCheck, value_check::MinimumValue,
 };
 
 mod checks;
@@ -76,6 +76,7 @@ impl IndexerTapContext {
             Arc::new(ReceiptMaxValueCheck::new(config.receipt_max_value)),
             Arc::new(MinimumValue::new(config.pgpool, Duration::from_secs(GRACE_PERIOD)).await),
             Arc::new(ServiceProviderCheck::new(config.service_provider)),
+            Arc::new(PayerCheck::new()),
         ];
 
         if let Some(addrs) = config.allowed_data_services {
