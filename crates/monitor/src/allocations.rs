@@ -47,6 +47,7 @@ pub async fn get_allocations(
     let closed_at_threshold = since_the_epoch - recently_closed_allocation_buffer;
 
     let mut hash: Option<TxHash> = None;
+    let mut block_number: Option<i64> = None;
     let mut last: Option<String> = None;
     let mut responses = vec![];
     let page_size = 200;
@@ -69,6 +70,12 @@ pub async fn get_allocations(
         let mut data = result?;
         let page_len = data.allocations.len();
 
+        // Capture block info from meta (first page sets it, subsequent pages use hash for consistency)
+        if let Some(ref meta) = data.meta {
+            if block_number.is_none() {
+                block_number = Some(meta.block.number);
+            }
+        }
         hash = data.meta.and_then(|meta| meta.block.hash);
         last = data.allocations.last().map(|entry| entry.id.to_string());
 
@@ -89,6 +96,7 @@ pub async fn get_allocations(
 
     tracing::info!(
         allocations = result.len(),
+        block_number = ?block_number,
         indexer_address = ?indexer_address,
         "Network subgraph query returned allocations for indexer"
     );
