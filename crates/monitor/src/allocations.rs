@@ -266,9 +266,12 @@ pub async fn get_allocations(
     indexer_address: Address,
     recently_closed_allocation_buffer: Duration,
 ) -> Result<HashMap<Address, Allocation>, anyhow::Error> {
-    let response =
-        get_allocations_with_metadata(network_subgraph, indexer_address, recently_closed_allocation_buffer)
-            .await?;
+    let response = get_allocations_with_metadata(
+        network_subgraph,
+        indexer_address,
+        recently_closed_allocation_buffer,
+    )
+    .await?;
     Ok(response.allocations)
 }
 
