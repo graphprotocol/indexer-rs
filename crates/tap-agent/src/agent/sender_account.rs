@@ -994,7 +994,9 @@ impl Actor for SenderAccount {
                                 let data_service =
                                     config.tap_mode.require_subgraph_service_address();
 
-                                match escrow_subgraph
+                                // V2/Horizon uses network_subgraph (not escrow_subgraph) because
+                                // LatestRav entity is part of network.schema.graphql
+                                match network_subgraph
                                     .query::<LatestRavs, _>(latest_ravs_v2::Variables {
                                         payer: format!("{sender_id:x?}"),
                                         data_service: format!("{data_service:x?}"),
