@@ -9,9 +9,9 @@ use axum::{
     response::Response,
 };
 use thegraph_core::{alloy::primitives::Address, CollectionId, DeploymentId};
+use tokio::sync::watch;
 
 use crate::tap::TapReceipt;
-use tokio::sync::watch;
 
 /// The current query Allocation ID address
 // TODO: Use thegraph-core::AllocationId instead
@@ -35,7 +35,7 @@ pub struct AllocationState {
 /// - check if allocation id already exists
 /// - else, try to fetch allocation id from deployment_id to allocations map
 ///
-/// Requires signed receipt Extension to be added OR deployment id
+/// Requires TapReceipt (V1 or V2) extension to be added OR deployment id
 pub async fn allocation_middleware(
     State(my_state): State<AllocationState>,
     mut request: Request,
@@ -70,14 +70,15 @@ mod tests {
         Router,
     };
     use reqwest::StatusCode;
-    use test_assets::{create_signed_receipt_v2, ALLOCATION_ID_0, COLLECTION_ID_0, ESCROW_SUBGRAPH_DEPLOYMENT};
-
-    use crate::tap::TapReceipt;
-    use thegraph_core::{alloy::primitives::Address, CollectionId, DeploymentId};
+    use test_assets::{
+        create_signed_receipt_v2, ALLOCATION_ID_0, COLLECTION_ID_0, ESCROW_SUBGRAPH_DEPLOYMENT,
+    };
+    use thegraph_core::{alloy::primitives::Address, DeploymentId};
     use tokio::sync::watch;
     use tower::ServiceExt;
 
     use super::{allocation_middleware, Allocation, AllocationState};
+    use crate::tap::TapReceipt;
 
     fn create_state_with_deployment_mapping(
         deployment: DeploymentId,
@@ -100,8 +101,8 @@ mod tests {
     #[tokio::test]
     async fn test_extracts_allocation_id_from_tap_receipt_v2() {
         let collection_id = COLLECTION_ID_0;
-        // V2 receipts use collection_id which maps to an address via CollectionId::as_address()
-        let expected_allocation = CollectionId::from(collection_id).as_address();
+        // V2 receipts carry collection_id; allocation is derived via CollectionId::as_address()
+        let expected_allocation = collection_id.as_address();
         let state = create_empty_state();
         let middleware = from_fn_with_state(state, allocation_middleware);
 
@@ -203,12 +204,7 @@ mod tests {
 
         // Request without TapReceipt or DeploymentId
         let res = app
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
             .await
             .unwrap();
 
