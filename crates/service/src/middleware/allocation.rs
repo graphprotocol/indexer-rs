@@ -8,8 +8,9 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use tap_graph::SignedReceipt;
-use thegraph_core::{alloy::primitives::Address, DeploymentId};
+use thegraph_core::{alloy::primitives::Address, CollectionId, DeploymentId};
+
+use crate::tap::TapReceipt;
 use tokio::sync::watch;
 
 /// The current query Allocation ID address
@@ -40,8 +41,11 @@ pub async fn allocation_middleware(
     mut request: Request,
     next: Next,
 ) -> Response {
-    if let Some(receipt) = request.extensions().get::<SignedReceipt>() {
-        let allocation = receipt.message.allocation_id;
+    if let Some(receipt) = request.extensions().get::<TapReceipt>() {
+        let allocation = match receipt {
+            TapReceipt::V1(r) => r.message.allocation_id,
+            TapReceipt::V2(r) => CollectionId::from(r.message.collection_id).as_address(),
+        };
         request.extensions_mut().insert(Allocation(allocation));
     } else if let Some(deployment_id) = request.extensions().get::<DeploymentId>() {
         if let Some(allocation) = my_state
@@ -67,6 +71,8 @@ mod tests {
     };
     use reqwest::StatusCode;
     use test_assets::{create_signed_receipt, SignedReceiptRequest, ESCROW_SUBGRAPH_DEPLOYMENT};
+
+    use crate::tap::TapReceipt;
     use thegraph_core::alloy::primitives::Address;
     use tokio::sync::watch;
     use tower::ServiceExt;
@@ -95,6 +101,7 @@ mod tests {
         let app = Router::new().route("/", get(handle)).layer(middleware);
 
         let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let tap_receipt = TapReceipt::V1(receipt);
 
         // with receipt
         let res = app
@@ -102,7 +109,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/")
-                    .extension(receipt)
+                    .extension(tap_receipt)
                     .body(Body::empty())
                     .unwrap(),
             )
