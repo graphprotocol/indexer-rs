@@ -535,8 +535,9 @@ impl State {
                     .config(AllocationConfig::from_sender_config(self.config))
                     .build();
 
+                let allocation_address = AllocationIdCore::from(id).into_inner();
                 SenderAllocation::<Horizon>::spawn_linked(
-                    Some(self.format_sender_allocation(&id.as_address())),
+                    Some(self.format_sender_allocation(&allocation_address)),
                     SenderAllocation::default(),
                     args,
                     sender_account_ref.get_cell(),
@@ -1315,7 +1316,13 @@ impl Actor for SenderAccount {
                         tracing::debug!(core_id = %core_id, address = %core_id.as_ref(), "Legacy allocation details");
                     }
                     AllocationId::Horizon(collection_id) => {
-                        tracing::debug!(collection_id = %collection_id, as_address = %collection_id.as_address(), "Horizon allocation details");
+                        let allocation_address =
+                            AllocationIdCore::from(*collection_id).into_inner();
+                        tracing::debug!(
+                            collection_id = %collection_id,
+                            as_address = %allocation_address,
+                            "Horizon allocation details"
+                        );
                     }
                 }
                 let tracked_allocations: Vec<_> =
@@ -2944,6 +2951,8 @@ pub mod tests {
         // with the current allocations from the watcher
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
+        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
+        let mock_network_subgraph = MockServer::start().await;
 
         let allocation_set = HashSet::from_iter([
             AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
@@ -2953,11 +2962,17 @@ pub mod tests {
         let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx, _) =
             create_sender_account()
                 .pgpool(pgpool)
+                .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
+                .network_subgraph_endpoint(&mock_network_subgraph.uri())
                 .initial_allocation(allocation_set.clone())
                 .call()
                 .await;
 
-        // Verify initial state - indexer_allocations should have the allocations
+        // Drain initial UpdateAllocationIds from watch_pipe trigger (may take longer than 10ms)
+        // Use a longer timeout to ensure the async watch_pipe task completes
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        flush_messages(&mut msg_receiver).await;
+
         // Send ReconcileAllocations message
         sender_account
             .cast(SenderAccountMessage::ReconcileAllocations)
@@ -3090,6 +3105,8 @@ pub mod tests {
     async fn test_reconcile_allocations_handles_empty_set() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
+        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
+        let mock_network_subgraph = MockServer::start().await;
 
         // Start with one allocation
         let initial_allocation_set = HashSet::from_iter([AllocationId::Legacy(
@@ -3099,9 +3116,15 @@ pub mod tests {
         let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx, _) =
             create_sender_account()
                 .pgpool(pgpool)
+                .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
+                .network_subgraph_endpoint(&mock_network_subgraph.uri())
                 .initial_allocation(initial_allocation_set)
                 .call()
                 .await;
+
+        // Drain initial UpdateAllocationIds from watch_pipe trigger
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        flush_messages(&mut msg_receiver).await;
 
         // Simulate all allocations closing during connectivity outage:
         // update watcher to empty set
@@ -3109,6 +3132,10 @@ pub mod tests {
         indexer_allocations_tx
             .send(empty_allocation_set.clone())
             .unwrap();
+
+        // Wait for watch_pipe to process the update
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        flush_messages(&mut msg_receiver).await;
 
         // Trigger reconciliation
         sender_account

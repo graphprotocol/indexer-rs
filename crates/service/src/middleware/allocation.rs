@@ -8,52 +8,41 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use thegraph_core::{alloy::primitives::Address, CollectionId, DeploymentId};
+use thegraph_core::{AllocationId, CollectionId, DeploymentId};
 use tokio::sync::watch;
 
 use crate::tap::TapReceipt;
-
-/// The current query Allocation ID address
-// TODO: Use thegraph-core::AllocationId instead
-#[derive(Clone)]
-pub struct Allocation(pub Address);
-
-impl From<Allocation> for String {
-    fn from(value: Allocation) -> Self {
-        value.0.to_string()
-    }
-}
 
 /// State to be used by allocation middleware
 #[derive(Clone)]
 pub struct AllocationState {
     /// watcher that maps deployment ids to allocation ids
-    pub deployment_to_allocation: watch::Receiver<HashMap<DeploymentId, Address>>,
+    pub deployment_to_allocation: watch::Receiver<HashMap<DeploymentId, AllocationId>>,
 }
 
 /// Injects allocation id in extensions
 /// - check if allocation id already exists
 /// - else, try to fetch allocation id from deployment_id to allocations map
 ///
-/// Requires TapReceipt (V1 or V2) extension to be added OR deployment id
+/// Requires TapReceipt extension to be added OR deployment id
 pub async fn allocation_middleware(
     State(my_state): State<AllocationState>,
     mut request: Request,
     next: Next,
 ) -> Response {
     if let Some(receipt) = request.extensions().get::<TapReceipt>() {
-        let allocation = match receipt {
-            TapReceipt::V1(r) => r.message.allocation_id,
-            TapReceipt::V2(r) => CollectionId::from(r.message.collection_id).as_address(),
+        let allocation_id = match receipt {
+            TapReceipt::V1(r) => AllocationId::from(r.message.allocation_id),
+            TapReceipt::V2(r) => AllocationId::from(CollectionId::from(r.message.collection_id)),
         };
-        request.extensions_mut().insert(Allocation(allocation));
+        request.extensions_mut().insert(allocation_id);
     } else if let Some(deployment_id) = request.extensions().get::<DeploymentId>() {
-        if let Some(allocation) = my_state
+        if let Some(allocation_id) = my_state
             .deployment_to_allocation
             .borrow()
             .get(deployment_id)
         {
-            request.extensions_mut().insert(Allocation(*allocation));
+            request.extensions_mut().insert(*allocation_id);
         }
     }
 
@@ -62,6 +51,8 @@ pub async fn allocation_middleware(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use axum::{
         body::Body,
         http::{Extensions, Request},
@@ -71,18 +62,19 @@ mod tests {
     };
     use reqwest::StatusCode;
     use test_assets::{
-        create_signed_receipt_v2, ALLOCATION_ID_0, COLLECTION_ID_0, ESCROW_SUBGRAPH_DEPLOYMENT,
+        create_signed_receipt, create_signed_receipt_v2, SignedReceiptRequest, ALLOCATION_ID_0,
+        COLLECTION_ID_0, ESCROW_SUBGRAPH_DEPLOYMENT,
     };
-    use thegraph_core::{alloy::primitives::Address, DeploymentId};
+    use thegraph_core::{AllocationId, DeploymentId};
     use tokio::sync::watch;
     use tower::ServiceExt;
 
-    use super::{allocation_middleware, Allocation, AllocationState};
+    use super::{allocation_middleware, AllocationState};
     use crate::tap::TapReceipt;
 
     fn create_state_with_deployment_mapping(
         deployment: DeploymentId,
-        allocation: Address,
+        allocation: AllocationId,
     ) -> AllocationState {
         let (_, deployment_to_allocation) =
             watch::channel(vec![(deployment, allocation)].into_iter().collect());
@@ -99,24 +91,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_extracts_allocation_id_from_tap_receipt_v2() {
-        let collection_id = COLLECTION_ID_0;
-        // V2 receipts carry collection_id; allocation is derived via CollectionId::as_address()
-        let expected_allocation = collection_id.as_address();
+    async fn test_extracts_correct_allocation_id_from_tap_receipt_v2() {
+        // Verify the middleware derives the EXACT correct AllocationId from CollectionId.
+        // This tests the core conversion: AllocationId::from(CollectionId) truncates to last 20 bytes.
+        let expected_allocation = AllocationId::from(COLLECTION_ID_0);
         let state = create_empty_state();
         let middleware = from_fn_with_state(state, allocation_middleware);
 
-        async fn handle(extensions: Extensions) -> (StatusCode, Body) {
-            match extensions.get::<Allocation>() {
-                Some(allocation) => (StatusCode::OK, Body::from(allocation.0.to_string())),
-                None => (StatusCode::BAD_REQUEST, Body::empty()),
-            }
-        }
+        let captured = Arc::new(Mutex::new(None::<AllocationId>));
+        let captured_clone = captured.clone();
 
-        let app = Router::new().route("/", get(handle)).layer(middleware);
+        let app = Router::new()
+            .route(
+                "/",
+                get(move |extensions: Extensions| {
+                    let captured = captured_clone.clone();
+                    async move {
+                        match extensions.get::<AllocationId>() {
+                            Some(id) => {
+                                *captured.lock().unwrap() = Some(*id);
+                                StatusCode::OK
+                            }
+                            None => StatusCode::BAD_REQUEST,
+                        }
+                    }
+                }),
+            )
+            .layer(middleware);
 
         let receipt = create_signed_receipt_v2()
-            .collection_id(collection_id)
+            .collection_id(COLLECTION_ID_0)
             .call()
             .await;
         let tap_receipt = TapReceipt::V2(receipt);
@@ -134,34 +138,104 @@ mod tests {
 
         assert_eq!(res.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let allocation_str = String::from_utf8(body.to_vec()).unwrap();
+        let actual_allocation = captured
+            .lock()
+            .unwrap()
+            .expect("Handler should have captured AllocationId");
         assert_eq!(
-            allocation_str,
-            expected_allocation.to_string(),
-            "V2 receipt collection_id should be converted to address correctly"
+            actual_allocation, expected_allocation,
+            "V2 receipt CollectionId {COLLECTION_ID_0} should derive AllocationId {expected_allocation}"
         );
     }
 
     #[tokio::test]
-    async fn test_falls_back_to_deployment_id_when_no_receipt() {
+    async fn test_extracts_correct_allocation_id_from_tap_receipt_v1() {
+        // Verify V1 receipts correctly wrap the allocation address into AllocationId
+        let expected_allocation = AllocationId::from(ALLOCATION_ID_0);
+        let state = create_empty_state();
+        let middleware = from_fn_with_state(state, allocation_middleware);
+
+        let captured = Arc::new(Mutex::new(None::<AllocationId>));
+        let captured_clone = captured.clone();
+
+        let app = Router::new()
+            .route(
+                "/",
+                get(move |extensions: Extensions| {
+                    let captured = captured_clone.clone();
+                    async move {
+                        match extensions.get::<AllocationId>() {
+                            Some(id) => {
+                                *captured.lock().unwrap() = Some(*id);
+                                StatusCode::OK
+                            }
+                            None => StatusCode::BAD_REQUEST,
+                        }
+                    }
+                }),
+            )
+            .layer(middleware);
+
+        let receipt = create_signed_receipt(
+            SignedReceiptRequest::builder()
+                .allocation_id(ALLOCATION_ID_0)
+                .build(),
+        )
+        .await;
+        let tap_receipt = TapReceipt::V1(receipt);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .extension(tap_receipt)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let actual_allocation = captured
+            .lock()
+            .unwrap()
+            .expect("Handler should have captured AllocationId");
+        assert_eq!(
+            actual_allocation, expected_allocation,
+            "V1 receipt allocation_id {ALLOCATION_ID_0} should map to AllocationId {expected_allocation}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_falls_back_to_deployment_mapping_with_correct_value() {
+        // Verify deployment fallback returns the EXACT allocation from the mapping
         let deployment = ESCROW_SUBGRAPH_DEPLOYMENT;
-        let expected_allocation = ALLOCATION_ID_0;
+        let expected_allocation = AllocationId::from(ALLOCATION_ID_0);
         let state = create_state_with_deployment_mapping(deployment, expected_allocation);
         let middleware = from_fn_with_state(state, allocation_middleware);
 
-        async fn handle(extensions: Extensions) -> (StatusCode, Body) {
-            match extensions.get::<Allocation>() {
-                Some(allocation) => (StatusCode::OK, Body::from(allocation.0.to_string())),
-                None => (StatusCode::BAD_REQUEST, Body::empty()),
-            }
-        }
+        let captured = Arc::new(Mutex::new(None::<AllocationId>));
+        let captured_clone = captured.clone();
 
-        let app = Router::new().route("/", get(handle)).layer(middleware);
+        let app = Router::new()
+            .route(
+                "/",
+                get(move |extensions: Extensions| {
+                    let captured = captured_clone.clone();
+                    async move {
+                        match extensions.get::<AllocationId>() {
+                            Some(id) => {
+                                *captured.lock().unwrap() = Some(*id);
+                                StatusCode::OK
+                            }
+                            None => StatusCode::BAD_REQUEST,
+                        }
+                    }
+                }),
+            )
+            .layer(middleware);
 
-        // Request without TapReceipt, but with DeploymentId
         let res = app
             .oneshot(
                 Request::builder()
@@ -175,34 +249,58 @@ mod tests {
 
         assert_eq!(res.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let allocation_str = String::from_utf8(body.to_vec()).unwrap();
+        let actual_allocation = captured
+            .lock()
+            .unwrap()
+            .expect("Handler should have captured AllocationId");
         assert_eq!(
-            allocation_str,
-            expected_allocation.to_string(),
-            "Fallback to deployment_id mapping should work"
+            actual_allocation, expected_allocation,
+            "Deployment fallback should return exact allocation from mapping"
         );
     }
 
     #[tokio::test]
-    async fn test_handles_request_without_receipt_or_deployment_id() {
+    async fn test_v2_collection_id_to_allocation_id_conversion_is_deterministic() {
+        // Verify the conversion is deterministic: same CollectionId always produces same AllocationId
+        let collection_id = COLLECTION_ID_0;
+        let allocation_1 = AllocationId::from(collection_id);
+        let allocation_2 = AllocationId::from(collection_id);
+
+        assert_eq!(
+            allocation_1, allocation_2,
+            "CollectionId to AllocationId conversion must be deterministic"
+        );
+
+        // Verify it extracts the last 20 bytes (the address portion)
+        // CollectionId is a B256 (32 bytes), AllocationId takes the last 20 bytes
+        let collection_fixed_bytes = collection_id.as_ref(); // &FixedBytes<32>
+        let collection_bytes: &[u8] = collection_fixed_bytes.as_ref(); // &[u8]
+        let expected_address_bytes: &[u8] = &collection_bytes[12..];
+        assert_eq!(
+            allocation_1.into_inner().as_slice(),
+            expected_address_bytes,
+            "AllocationId should contain the last 20 bytes of CollectionId"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_no_allocation_when_neither_receipt_nor_deployment_present() {
         let state = create_empty_state();
         let middleware = from_fn_with_state(state, allocation_middleware);
 
-        async fn handle(extensions: Extensions) -> StatusCode {
-            // Should NOT have allocation when neither receipt nor deployment is present
-            if extensions.get::<Allocation>().is_some() {
-                StatusCode::INTERNAL_SERVER_ERROR
-            } else {
-                StatusCode::OK
-            }
-        }
+        let app = Router::new()
+            .route(
+                "/",
+                get(|extensions: Extensions| async move {
+                    if extensions.get::<AllocationId>().is_some() {
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    } else {
+                        StatusCode::OK
+                    }
+                }),
+            )
+            .layer(middleware);
 
-        let app = Router::new().route("/", get(handle)).layer(middleware);
-
-        // Request without TapReceipt or DeploymentId
         let res = app
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
             .await
@@ -211,29 +309,30 @@ mod tests {
         assert_eq!(
             res.status(),
             StatusCode::OK,
-            "Middleware should handle requests without receipt or deployment gracefully"
+            "No AllocationId should be injected when neither receipt nor deployment is present"
         );
     }
 
     #[tokio::test]
-    async fn test_handles_deployment_id_not_in_mapping() {
+    async fn test_no_allocation_when_deployment_not_in_mapping() {
         let deployment = ESCROW_SUBGRAPH_DEPLOYMENT;
-        // Create empty state with no deployment mappings
-        let state = create_empty_state();
+        let state = create_empty_state(); // Empty mapping
+
         let middleware = from_fn_with_state(state, allocation_middleware);
 
-        async fn handle(extensions: Extensions) -> StatusCode {
-            // Should NOT have allocation when deployment is not in the mapping
-            if extensions.get::<Allocation>().is_some() {
-                StatusCode::INTERNAL_SERVER_ERROR
-            } else {
-                StatusCode::OK
-            }
-        }
+        let app = Router::new()
+            .route(
+                "/",
+                get(|extensions: Extensions| async move {
+                    if extensions.get::<AllocationId>().is_some() {
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    } else {
+                        StatusCode::OK
+                    }
+                }),
+            )
+            .layer(middleware);
 
-        let app = Router::new().route("/", get(handle)).layer(middleware);
-
-        // Request with DeploymentId that's not in the mapping
         let res = app
             .oneshot(
                 Request::builder()
@@ -248,7 +347,7 @@ mod tests {
         assert_eq!(
             res.status(),
             StatusCode::OK,
-            "Middleware should handle unknown deployment IDs gracefully"
+            "No AllocationId should be injected when deployment is not in mapping"
         );
     }
 }

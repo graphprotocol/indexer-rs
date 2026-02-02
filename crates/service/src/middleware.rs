@@ -12,7 +12,7 @@ mod sender;
 mod tap_context;
 mod tap_receipt;
 
-pub use allocation::{allocation_middleware, Allocation, AllocationState};
+pub use allocation::{allocation_middleware, AllocationState};
 pub use attestation::{attestation_middleware, AttestationInput};
 pub use attestation_signer::{signer_middleware, AttestationState};
 pub use deployment::deployment_middleware;

@@ -4,13 +4,13 @@
 use std::collections::HashMap;
 
 use indexer_watcher::map_watcher;
-use thegraph_core::{alloy::primitives::Address, DeploymentId};
+use thegraph_core::{AllocationId, DeploymentId};
 use tokio::sync::watch::Receiver;
 
 use crate::AllocationWatcher;
 
 /// Watcher for Map of deployment id and allocation id
-pub type DeploymentToAllocationWatcher = Receiver<HashMap<DeploymentId, Address>>;
+pub type DeploymentToAllocationWatcher = Receiver<HashMap<DeploymentId, AllocationId>>;
 
 /// Watcher of indexer allocation
 /// returning a map of subgraph deployment to allocation id
@@ -20,7 +20,12 @@ pub fn deployment_to_allocation(
     map_watcher(indexer_allocations_rx, move |allocation| {
         allocation
             .iter()
-            .map(|(address, allocation)| (allocation.subgraph_deployment.id, *address))
+            .map(|(address, allocation)| {
+                (
+                    allocation.subgraph_deployment.id,
+                    AllocationId::from(*address),
+                )
+            })
             .collect()
     })
 }
@@ -42,7 +47,15 @@ mod tests {
         assert_eq!(deployments.len(), 3);
         // check if all allocations point to the subgraph id
         for (key, val) in deployments.iter() {
-            assert_eq!(allocations.get(val).unwrap().subgraph_deployment.id, *key);
+            let allocation_address = val.into_inner();
+            assert_eq!(
+                allocations
+                    .get(&allocation_address)
+                    .unwrap()
+                    .subgraph_deployment
+                    .id,
+                *key
+            );
         }
     }
 }

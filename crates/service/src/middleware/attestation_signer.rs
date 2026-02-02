@@ -9,10 +9,8 @@ use axum::{
     response::Response,
 };
 use indexer_attestation::AttestationSigner;
-use thegraph_core::alloy::primitives::Address;
+use thegraph_core::{alloy::primitives::Address, AllocationId};
 use tokio::sync::watch;
-
-use super::Allocation;
 
 #[derive(Clone)]
 pub struct AttestationState {
@@ -21,14 +19,16 @@ pub struct AttestationState {
 
 /// Injects the attestation signer to be used in the attestation
 ///
-/// Needs Allocation Extension
+/// Needs AllocationId extension
 pub async fn signer_middleware(
     State(state): State<AttestationState>,
     mut request: Request,
     next: Next,
 ) -> Response {
-    if let Some(Allocation(allocation_id)) = request.extensions().get::<Allocation>() {
-        if let Some(signer) = state.attestation_signers.borrow().get(allocation_id) {
+    if let Some(allocation_id) = request.extensions().get::<AllocationId>() {
+        let allocation_id = *allocation_id;
+        let allocation_address = allocation_id.into_inner();
+        if let Some(signer) = state.attestation_signers.borrow().get(&allocation_address) {
             request.extensions_mut().insert(signer.clone());
         } else {
             // Just log this case which is silently passed through next middleware
@@ -46,10 +46,11 @@ mod tests {
     use indexer_monitor::attestation_signers;
     use reqwest::StatusCode;
     use test_assets::{DISPUTE_MANAGER_ADDRESS, INDEXER_ALLOCATIONS, INDEXER_MNEMONIC};
+    use thegraph_core::AllocationId;
     use tokio::sync::{mpsc::channel, watch};
     use tower::Service;
 
-    use crate::middleware::{allocation::Allocation, signer_middleware, AttestationState};
+    use crate::middleware::{signer_middleware, AttestationState};
 
     #[tokio::test]
     async fn test_attestation_signer_middleware() {
@@ -92,7 +93,7 @@ mod tests {
             .call(
                 Request::builder()
                     .uri("/")
-                    .extension(Allocation(allocation))
+                    .extension(AllocationId::from(allocation))
                     .body(Body::empty())
                     .unwrap(),
             )

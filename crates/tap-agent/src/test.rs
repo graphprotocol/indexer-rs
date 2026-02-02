@@ -564,10 +564,11 @@ pub async fn store_batch_receipts(
                 values.push(BigDecimal::from(receipt.message.value));
             }
             TapReceipt::V2(receipt) => {
-                use thegraph_core::CollectionId;
+                use thegraph_core::{AllocationId, CollectionId};
                 // For V2, store collection_id in the allocation_id field (as per the database reuse strategy)
                 let collection_id_as_allocation =
-                    CollectionId::from(receipt.message.collection_id).as_address();
+                    AllocationId::from(CollectionId::from(receipt.message.collection_id))
+                        .into_inner();
                 signers.push(
                     receipt
                         .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
@@ -658,12 +659,12 @@ pub async fn store_invalid_receipt_v2(
     pgpool: &PgPool,
     signed_receipt: &tap_graph::v2::SignedReceipt,
 ) -> anyhow::Result<u64> {
-    use thegraph_core::CollectionId;
+    use thegraph_core::{AllocationId, CollectionId};
     let encoded_signature = signed_receipt.signature.as_bytes().to_vec();
 
     // Store collection_id in allocation_id field (database reuse strategy)
     let collection_id_as_allocation =
-        CollectionId::from(signed_receipt.message.collection_id).as_address();
+        AllocationId::from(CollectionId::from(signed_receipt.message.collection_id)).into_inner();
 
     let record = sqlx::query!(
         r#"
