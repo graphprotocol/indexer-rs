@@ -48,6 +48,13 @@ docker exec indexer-cli graph indexer allocations get --network hardhat
 ./contrib/indexer-cli/close-allocations.sh --all
 ```
 
+Horizon/V2 (optional block + public POI):
+
+```bash
+BLOCK_NUMBER=121 PUBLIC_POI=0x00..00 \
+  ./contrib/indexer-cli/close-allocations.sh 0x<allocation-id>
+```
+
 ### Close an Allocation
 
 With a valid POI:
