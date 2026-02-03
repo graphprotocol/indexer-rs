@@ -146,7 +146,7 @@ impl NetworkVersion for Horizon {
         tap_aggregator::grpc::v2::tap_aggregator_client::TapAggregatorClient<Channel>;
 
     fn allocation_id_to_address(id: &Self::AllocationId) -> Address {
-        id.as_address()
+        AllocationIdCore::from(*id).into_inner()
     }
 
     fn to_allocation_id_enum(

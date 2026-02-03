@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use anyhow::anyhow;
 use indexer_allocation::Allocation;
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
-use thegraph_core::{alloy::primitives::Address, CollectionId};
+use thegraph_core::{alloy::primitives::Address, AllocationId, CollectionId};
 use tokio::sync::watch::Receiver;
 
 use crate::tap::{CheckingReceipt, TapReceipt};
@@ -30,15 +30,16 @@ impl Check<TapReceipt> for AllocationEligible {
         receipt: &CheckingReceipt,
     ) -> CheckResult {
         let allocation_id = match receipt.signed_receipt() {
-            TapReceipt::V1(receipt) => receipt.message.allocation_id,
+            TapReceipt::V1(receipt) => AllocationId::from(receipt.message.allocation_id),
             TapReceipt::V2(receipt) => {
-                CollectionId::from(receipt.message.collection_id).as_address()
+                AllocationId::from(CollectionId::from(receipt.message.collection_id))
             }
         };
+        let allocation_address = allocation_id.into_inner();
         if !self
             .indexer_allocations
             .borrow()
-            .contains_key(&allocation_id)
+            .contains_key(&allocation_address)
         {
             return Err(CheckError::Failed(anyhow!(
                 "Receipt allocation ID `{}` is not eligible for this indexer",
