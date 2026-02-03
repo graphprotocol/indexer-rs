@@ -139,8 +139,8 @@ where
             select! {
                 Ok(())= receiver.changed() =>{},
                 else=>{
-                    // Something is wrong.
-                    panic!("receiver was dropped");
+                    tracing::debug!("Watcher source receiver dropped, stopping mapped watcher task");
+                    break;
                 }
             }
 
