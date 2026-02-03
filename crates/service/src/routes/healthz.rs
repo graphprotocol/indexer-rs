@@ -1,6 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::time::Duration;
+
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use reqwest::Url;
 use serde_json::json;
@@ -37,6 +39,7 @@ pub async fn healthz(State(state): State<HealthzState>) -> impl IntoResponse {
     match state
         .http_client
         .post(state.graph_node_status_url.clone())
+        .timeout(Duration::from_secs(5))
         .json(&graph_node_query)
         .send()
         .await
@@ -83,7 +86,7 @@ pub async fn healthz(State(state): State<HealthzState>) -> impl IntoResponse {
         }
     }
 
-    let status = if ok { "ok" } else { "unhealthy" };
+    let status = if ok { "healthy" } else { "unhealthy" };
     let http_status = if ok {
         StatusCode::OK
     } else {
