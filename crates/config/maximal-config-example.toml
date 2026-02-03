@@ -78,6 +78,11 @@ syncing_interval_secs = 60
 # So that we can keep serving queries while the information about the allocation closure
 # propagates to all the consumers.
 recently_closed_allocation_buffer_secs = 3600
+# Maximum allowed age of network subgraph data in minutes.
+# Responses older than this are rejected to prevent stale data from replacing fresh data.
+# This protects against Gateway routing queries to indexers that are significantly behind.
+# Set to 0 to disable staleness checking.
+max_data_staleness_mins = 30
 
 [subgraphs.escrow]
 # NOTE: It is heavily recomended to use both `query_url` and `deployment_id`,
