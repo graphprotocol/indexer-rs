@@ -379,12 +379,11 @@ fi
 
 # Updated to use the horizon file structure and include tap-contracts.json
 # Gateway now generates config with increased max_lag_seconds in gateway/run.sh
-# -v "$(pwd)/local-network/tap-contracts.json":/opt/tap-contracts.json:ro \
 docker run -d --name gateway \
     --network "$NETWORK_NAME" \
     -p 7700:7700 \
     -v "$(pwd)/local-network/horizon.json":/opt/horizon.json:ro \
-    -v "$(pwd)/local-network/tap-contracts.json":/opt/contracts.json:ro \
+    -v "$(pwd)/local-network/tap-contracts.json":/opt/tap-contracts.json:ro \
     -v "$(pwd)/local-network/subgraph-service.json":/opt/subgraph-service.json:ro \
     -v "$(pwd)/local-network/.env":/opt/.env:ro \
     -e RUST_LOG=info,graph_gateway=trace \
