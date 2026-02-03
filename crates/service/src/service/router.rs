@@ -45,7 +45,9 @@ use crate::{
         sender_middleware, signer_middleware, AllocationState, AttestationState,
         PrometheusMetricsMiddlewareLayer, SenderState, TapContextState,
     },
-    routes::{self, health, request_handler, static_subgraph_request_handler},
+    routes::{
+        self, health, healthz, request_handler, static_subgraph_request_handler, HealthzState,
+    },
     tap::{IndexerTapContext, TapChecksConfig},
     wallet::public_key,
 };
@@ -296,7 +298,7 @@ impl ServiceRouter {
                     .map(|addr| vec![addr]);
 
                 let checks = IndexerTapContext::get_checks(TapChecksConfig {
-                    pgpool: self.database,
+                    pgpool: self.database.clone(),
                     indexer_allocations: allocations.clone(),
                     escrow_accounts_v1: escrow_accounts_v1.clone(),
                     escrow_accounts_v2: escrow_accounts_v2.clone(),
@@ -441,8 +443,8 @@ impl ServiceRouter {
 
         // Graph node state
         let graphnode_state = GraphNodeState {
-            graph_node_client: self.http_client,
-            graph_node_status_url: self.graph_node.status_url,
+            graph_node_client: self.http_client.clone(),
+            graph_node_status_url: self.graph_node.status_url.clone(),
             graph_node_query_base_url: self.graph_node.query_url,
         };
 
@@ -458,9 +460,16 @@ impl ServiceRouter {
             Router::new().nest(&url_prefix, data_routes)
         };
 
+        let healthz_state = HealthzState {
+            db: self.database.clone(),
+            http_client: self.http_client.clone(),
+            graph_node_status_url: self.graph_node.status_url.clone(),
+        };
+
         let misc_routes = Router::new()
             .route("/", get("Service is up and running"))
             .route("/info", get(operator_address))
+            .route("/healthz", get(healthz).with_state(healthz_state))
             .nest("/version", version)
             .nest("/escrow", serve_escrow_subgraph)
             .nest("/network", serve_network_subgraph)

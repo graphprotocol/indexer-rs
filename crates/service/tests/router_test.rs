@@ -176,6 +176,15 @@ async fn full_integration_test() {
     let res = String::from_utf8(bytes.into()).unwrap();
     insta::assert_snapshot!(res);
 
+    let res = app
+        .call(Request::get("/healthz").body(String::new()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+    let healthz: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(healthz["status"], "ok");
+
     let receipt = create_signed_receipt(
         SignedReceiptRequest::builder()
             .allocation_id(allocation.id)
