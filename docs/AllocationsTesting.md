@@ -42,6 +42,7 @@ A helper script is provided for tests and automation:
 Environment variables:
 - `CONTAINER_NAME` (default: `indexer-cli`)
 - `NETWORK` (default: `hardhat`)
+- `NETWORK_SUBGRAPH_URL` (default: `http://localhost:8000/subgraphs/name/graph-network`)
 - `POI` (default: zero POI)
 - `BLOCK_NUMBER` (optional, Horizon/V2; auto-detected from network subgraph if unset)
 - `PUBLIC_POI` (optional, Horizon/V2)
