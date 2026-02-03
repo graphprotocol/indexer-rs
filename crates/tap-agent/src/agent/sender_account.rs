@@ -991,7 +991,8 @@ impl Actor for SenderAccount {
                                 .iter()
                                 .filter_map(|(allocation_id, _)| match allocation_id {
                                     AllocationId::Horizon(collection_id) => {
-                                        Some(collection_id.encode_hex())
+                                        // Network subgraph stores allocationId as 20-byte address.
+                                        Some(collection_id.as_address().encode_hex())
                                     }
                                     AllocationId::Legacy(_) => None,
                                 })
@@ -1013,14 +1014,6 @@ impl Actor for SenderAccount {
                                         .into_iter()
                                         .filter_map(|tx| tx.allocation_id)
                                         .filter_map(|allocation_id| {
-                                            // Normalize to 20-byte allocation address for comparison.
-                                            if let Ok(collection_id) =
-                                                CollectionId::from_str(&allocation_id)
-                                            {
-                                                let addr = AllocationIdCore::from(collection_id)
-                                                    .into_inner();
-                                                return Some(addr.encode_hex());
-                                            }
                                             AllocationIdCore::from_str(&allocation_id)
                                                 .map(|id| id.as_ref().encode_hex())
                                                 .ok()
