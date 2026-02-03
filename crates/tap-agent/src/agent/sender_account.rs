@@ -999,6 +999,7 @@ impl Actor for SenderAccount {
                                 .collect();
 
                             if !collection_ids.is_empty() {
+                                const ALLOCATION_ID_BATCH_SIZE: usize = 200;
                                 let sample_ids =
                                     collection_ids.iter().take(3).cloned().collect::<Vec<_>>();
                                 tracing::trace!(
@@ -1008,43 +1009,46 @@ impl Actor for SenderAccount {
                                     allocation_ids_sample = ?sample_ids,
                                     "Querying paymentsEscrowTransactions for redeemed allocations"
                                 );
-                                match network_subgraph
-                                    .query::<PaymentsEscrowTransactionsRedeemQuery, _>(
-                                        payments_escrow_transactions_redeem::Variables {
-                                            payer: sender_id.encode_hex(),
-                                            receiver: config.indexer_address.encode_hex(),
-                                            allocation_ids: Some(collection_ids.clone()),
-                                        },
-                                    )
-                                    .await
-                                {
-                                    Ok(Ok(response)) => response
-                                        .payments_escrow_transactions
-                                        .into_iter()
-                                        .filter_map(|tx| tx.allocation_id)
-                                        .filter_map(|allocation_id| {
-                                            AllocationIdCore::from_str(&allocation_id)
-                                                .map(|id| id.as_ref().encode_hex())
-                                                .ok()
-                                        })
-                                        .collect::<Vec<_>>(),
-                                    Ok(Err(e)) => {
-                                        tracing::warn!(
-                                            error = %e,
-                                            sender = %sender_id,
-                                            "Failed to query paymentsEscrowTransactions, assuming none are finalized"
-                                        );
-                                        vec![]
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            error = %e,
-                                            sender = %sender_id,
-                                            "Failed to execute paymentsEscrowTransactions query, assuming none are finalized"
-                                        );
-                                        vec![]
+                                let mut redeemed_ids = Vec::new();
+                                for batch in collection_ids.chunks(ALLOCATION_ID_BATCH_SIZE) {
+                                    match network_subgraph
+                                        .query::<PaymentsEscrowTransactionsRedeemQuery, _>(
+                                            payments_escrow_transactions_redeem::Variables {
+                                                payer: sender_id.encode_hex(),
+                                                receiver: config.indexer_address.encode_hex(),
+                                                allocation_ids: Some(batch.to_vec()),
+                                            },
+                                        )
+                                        .await
+                                    {
+                                        Ok(Ok(response)) => redeemed_ids.extend(
+                                            response
+                                                .payments_escrow_transactions
+                                                .into_iter()
+                                                .filter_map(|tx| tx.allocation_id)
+                                                .filter_map(|allocation_id| {
+                                                    AllocationIdCore::from_str(&allocation_id)
+                                                        .map(|id| id.as_ref().encode_hex())
+                                                        .ok()
+                                                }),
+                                        ),
+                                        Ok(Err(e)) => {
+                                            tracing::warn!(
+                                                error = %e,
+                                                sender = %sender_id,
+                                                "Failed to query paymentsEscrowTransactions, assuming none are finalized"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                error = %e,
+                                                sender = %sender_id,
+                                                "Failed to execute paymentsEscrowTransactions query, assuming none are finalized"
+                                            );
+                                        }
                                     }
                                 }
+                                redeemed_ids
                             } else {
                                 vec![]
                             }
@@ -1064,6 +1068,7 @@ impl Actor for SenderAccount {
                     })
                     .filter(|(allocation, _value)| {
                         let allocation_hex = allocation.encode_hex();
+                        // Subgraph IDs can be mixed case depending on hex formatting.
                         !redeemed_ravs_allocation_ids
                             .iter()
                             .any(|id| id.eq_ignore_ascii_case(&allocation_hex))
