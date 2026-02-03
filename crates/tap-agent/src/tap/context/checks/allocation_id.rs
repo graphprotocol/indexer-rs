@@ -164,12 +164,9 @@ async fn query_network_redeem_transactions(
     indexer_address: Address,
     network_subgraph: &'static SubgraphClient,
 ) -> anyhow::Result<bool> {
-    // Some subgraph deployments store allocationId as 32-byte collection_id,
-    // others as 20-byte address; query both for compatibility.
-    let allocation_ids = vec![
-        collection_id.encode_hex(),
-        collection_id.as_address().encode_hex(),
-    ];
+    // Horizon network subgraph stores allocationId as the 20-byte address derived
+    // from the 32-byte collection_id (rightmost 20 bytes).
+    let allocation_ids = vec![collection_id.as_address().encode_hex()];
     let response = network_subgraph
         .query::<payments_escrow_transactions_redeem::PaymentsEscrowTransactionsRedeemQuery, _>(
             payments_escrow_transactions_redeem::Variables {
