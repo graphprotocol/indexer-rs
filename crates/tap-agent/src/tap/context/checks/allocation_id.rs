@@ -5,10 +5,13 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use indexer_monitor::SubgraphClient;
-use indexer_query::{tap_transactions, TapTransactions};
+use indexer_query::{payments_escrow_transactions_redeem, tap_transactions, TapTransactions};
 use indexer_watcher::new_watcher;
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
-use thegraph_core::alloy::primitives::Address;
+use thegraph_core::{
+    alloy::{hex::ToHexExt, primitives::Address},
+    CollectionId,
+};
 use tokio::sync::watch::Receiver;
 
 use crate::tap::{CheckingReceipt, TapReceipt};
@@ -19,6 +22,7 @@ use crate::tap::{CheckingReceipt, TapReceipt};
 pub struct AllocationId {
     tap_allocation_redeemed: Receiver<bool>,
     allocation_id: Address,
+    collection_id: Option<CollectionId>,
 }
 
 impl AllocationId {
@@ -28,13 +32,17 @@ impl AllocationId {
         escrow_polling_interval: Duration,
         sender_id: Address,
         allocation_id: Address,
+        collection_id: Option<CollectionId>,
         escrow_subgraph: &'static SubgraphClient,
+        network_subgraph: &'static SubgraphClient,
     ) -> Self {
         let tap_allocation_redeemed = tap_allocation_redeemed_watcher(
             allocation_id,
+            collection_id,
             sender_id,
             indexer_address,
             escrow_subgraph,
+            network_subgraph,
             escrow_polling_interval,
         )
         .await
@@ -43,6 +51,7 @@ impl AllocationId {
         Self {
             tap_allocation_redeemed,
             allocation_id,
+            collection_id,
         }
     }
 }
@@ -88,7 +97,9 @@ impl Check<TapReceipt> for AllocationId {
             false => Ok(()),
             true => Err(CheckError::Failed(anyhow!(
                 "Allocation {:?} already redeemed",
-                allocation_id
+                self.collection_id
+                    .map(|collection_id| collection_id.encode_hex())
+                    .unwrap_or_else(|| allocation_id.to_string())
             ))),
         }
     }
@@ -96,19 +107,34 @@ impl Check<TapReceipt> for AllocationId {
 
 async fn tap_allocation_redeemed_watcher(
     allocation_id: Address,
+    collection_id: Option<CollectionId>,
     sender_address: Address,
     indexer_address: Address,
     escrow_subgraph: &'static SubgraphClient,
+    network_subgraph: &'static SubgraphClient,
     escrow_polling_interval: Duration,
 ) -> anyhow::Result<Receiver<bool>> {
     new_watcher(escrow_polling_interval, move || async move {
-        query_escrow_check_transactions(
-            allocation_id,
-            sender_address,
-            indexer_address,
-            escrow_subgraph,
-        )
-        .await
+        match collection_id {
+            Some(collection_id) => {
+                query_network_redeem_transactions(
+                    collection_id,
+                    sender_address,
+                    indexer_address,
+                    network_subgraph,
+                )
+                .await
+            }
+            None => {
+                query_escrow_check_transactions(
+                    allocation_id,
+                    sender_address,
+                    indexer_address,
+                    escrow_subgraph,
+                )
+                .await
+            }
+        }
     })
     .await
 }
@@ -132,25 +158,65 @@ async fn query_escrow_check_transactions(
         .map_err(|err| anyhow!(err))
 }
 
+async fn query_network_redeem_transactions(
+    collection_id: CollectionId,
+    sender_address: Address,
+    indexer_address: Address,
+    network_subgraph: &'static SubgraphClient,
+) -> anyhow::Result<bool> {
+    // Horizon network subgraph stores allocationId as the 20-byte address derived
+    // from the 32-byte collection_id (rightmost 20 bytes).
+    let allocation_ids = vec![collection_id.as_address().encode_hex()];
+    let response = network_subgraph
+        .query::<payments_escrow_transactions_redeem::PaymentsEscrowTransactionsRedeemQuery, _>(
+            payments_escrow_transactions_redeem::Variables {
+                payer: sender_address.encode_hex(),
+                receiver: indexer_address.encode_hex(),
+                allocation_ids: Some(allocation_ids),
+            },
+        )
+        .await?;
+
+    response
+        .map(|data| !data.payments_escrow_transactions.is_empty())
+        .map_err(|err| anyhow!(err))
+}
+
 #[cfg(test)]
 mod tests {
     use indexer_monitor::{DeploymentDetails, SubgraphClient};
+    use serde_json::json;
+    use thegraph_core::{alloy::hex::ToHexExt, CollectionId};
+    use wiremock::{matchers::body_string_contains, Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
     async fn test_transaction_exists() {
-        // testnet values
         let allocation_id = "0x43f8ebe0b6181117eb2dcf8ec7d4e894fca060b8";
         let sender_address = "0x21fed3c4340f67dbf2b78c670ebd1940668ca03e";
         let indexer_address = "0x54d7db28ce0d0e2e87764cd09298f9e4e913e567";
 
-        let escrow_subgraph = Box::leak(Box::new(SubgraphClient::new(
-            reqwest::Client::new(),
-            None,
-            DeploymentDetails::for_query_url(
-                "https://api.studio.thegraph.com/query/53925/arb-sepolia-tap-subgraph/version/latest"
+        let mock_server: MockServer = MockServer::start().await;
+        mock_server
+            .register(
+                Mock::given(body_string_contains("TapTransactions")).respond_with(
+                    ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                        "data": {
+                            "transactions": [
+                                { "id": "0x01" }
+                            ]
+                        }
+                    })),
+                ),
             )
-            .unwrap(),
-        ).await
+            .await;
+
+        let escrow_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
+            )
+            .await,
         ));
 
         let result = super::query_escrow_check_transactions(
@@ -161,5 +227,132 @@ mod tests {
         );
 
         assert!(result.await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_network_redeem_transactions_true_when_present() {
+        let mock_server: MockServer = MockServer::start().await;
+        let sender_address = "0x21fed3c4340f67dbf2b78c670ebd1940668ca03e";
+        let indexer_address = "0x54d7db28ce0d0e2e87764cd09298f9e4e913e567";
+        let collection_id = CollectionId::from(
+            sender_address
+                .parse::<thegraph_core::alloy::primitives::Address>()
+                .unwrap(),
+        );
+
+        mock_server
+            .register(
+                Mock::given(body_string_contains("paymentsEscrowTransactions"))
+                    .and(body_string_contains(collection_id.as_address().encode_hex()))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "paymentsEscrowTransactions": [
+                                { "id": "0x01", "allocationId": collection_id.as_address().encode_hex(), "timestamp": "1" }
+                            ]
+                        }
+                    }))),
+            )
+            .await;
+
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        let result = super::query_network_redeem_transactions(
+            collection_id,
+            sender_address.parse().unwrap(),
+            indexer_address.parse().unwrap(),
+            network_subgraph,
+        )
+        .await
+        .unwrap();
+
+        assert!(result);
+    }
+
+    #[tokio::test]
+    async fn test_network_redeem_transactions_false_when_empty() {
+        let mock_server: MockServer = MockServer::start().await;
+        let sender_address = "0x21fed3c4340f67dbf2b78c670ebd1940668ca03e";
+        let indexer_address = "0x54d7db28ce0d0e2e87764cd09298f9e4e913e567";
+        let collection_id = CollectionId::from(
+            sender_address
+                .parse::<thegraph_core::alloy::primitives::Address>()
+                .unwrap(),
+        );
+
+        mock_server
+            .register(
+                Mock::given(body_string_contains("paymentsEscrowTransactions")).respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({ "data": { "paymentsEscrowTransactions": [] } })),
+                ),
+            )
+            .await;
+
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        let result = super::query_network_redeem_transactions(
+            collection_id,
+            sender_address.parse().unwrap(),
+            indexer_address.parse().unwrap(),
+            network_subgraph,
+        )
+        .await
+        .unwrap();
+
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_network_redeem_transactions_error_when_subgraph_fails() {
+        let mock_server: MockServer = MockServer::start().await;
+        let sender_address = "0x21fed3c4340f67dbf2b78c670ebd1940668ca03e";
+        let indexer_address = "0x54d7db28ce0d0e2e87764cd09298f9e4e913e567";
+        let collection_id = CollectionId::from(
+            sender_address
+                .parse::<thegraph_core::alloy::primitives::Address>()
+                .unwrap(),
+        );
+
+        mock_server
+            .register(
+                Mock::given(body_string_contains("paymentsEscrowTransactions")).respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({ "errors": [{ "message": "boom" }] })),
+                ),
+            )
+            .await;
+
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        let result = super::query_network_redeem_transactions(
+            collection_id,
+            sender_address.parse().unwrap(),
+            indexer_address.parse().unwrap(),
+            network_subgraph,
+        )
+        .await;
+
+        assert!(result.is_err());
     }
 }

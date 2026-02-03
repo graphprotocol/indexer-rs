@@ -250,7 +250,7 @@ impl ServiceRouter {
         let serve_escrow_subgraph = match (
             serve_auth_token.as_ref(),
             serve_escrow_subgraph,
-            self.escrow_subgraph,
+            self.escrow_subgraph.as_ref(),
         ) {
             (Some(free_auth_token), true, Some((escrow_subgraph, _))) => {
                 tracing::info!("Serving escrow subgraph at /escrow");
@@ -262,7 +262,7 @@ impl ServiceRouter {
                     post(static_subgraph_request_handler)
                         .route_layer(auth_layer)
                         .route_layer(static_subgraph_rate_limiter)
-                        .with_state(escrow_subgraph),
+                        .with_state(*escrow_subgraph),
                 )
             }
             (_, true, _) => {
@@ -271,6 +271,9 @@ impl ServiceRouter {
             }
             _ => Router::new(),
         };
+
+        let escrow_subgraph_client = self.escrow_subgraph.as_ref().map(|(client, _)| *client);
+        let network_subgraph_client = self.network_subgraph.as_ref().map(|(client, _)| *client);
 
         let post_request_handler = {
             // Create tap manager to validate receipts
@@ -297,6 +300,9 @@ impl ServiceRouter {
                     indexer_allocations: allocations.clone(),
                     escrow_accounts_v1: escrow_accounts_v1.clone(),
                     escrow_accounts_v2: escrow_accounts_v2.clone(),
+                    escrow_subgraph: escrow_subgraph_client,
+                    network_subgraph: network_subgraph_client,
+                    indexer_address: self.indexer.indexer_address,
                     timestamp_error_tolerance,
                     receipt_max_value,
                     allowed_data_services,

@@ -157,7 +157,7 @@ pub mod horizon_detection {
     pub use horizon_detection_query::*;
 }
 
-pub mod latest_ravs_v2 {
+pub mod payments_escrow_transactions_redeem {
     use graphql_client::GraphQLQuery;
     type BigInt = String;
     type Bytes = String;
@@ -165,11 +165,11 @@ pub mod latest_ravs_v2 {
     #[derive(GraphQLQuery)]
     #[graphql(
         schema_path = "graphql/network.schema.graphql",
-        query_path = "graphql/latest_ravs_v2.query.graphql",
+        query_path = "graphql/payments_escrow_transactions_redeem.query.graphql",
         response_derives = "Debug",
         variables_derives = "Clone"
     )]
-    pub struct LatestRavs;
+    pub struct PaymentsEscrowTransactionsRedeemQuery;
 
-    pub use latest_ravs::*;
+    pub use payments_escrow_transactions_redeem_query::*;
 }

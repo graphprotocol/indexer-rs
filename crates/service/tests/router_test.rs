@@ -5,8 +5,11 @@ use std::{net::SocketAddr, time::Duration};
 
 use axum::{body::to_bytes, extract::ConnectInfo, http::Request, Extension};
 use axum_extra::headers::Header;
-use indexer_config::{BlockchainConfig, GraphNodeConfig, IndexerConfig, NonZeroGRT};
-use indexer_monitor::EscrowAccounts;
+use indexer_config::{
+    BlockchainConfig, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
+    NonZeroGRT, SubgraphConfig,
+};
+use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use indexer_service_rs::{
     service::{ServiceRouter, TapHeader},
     QueryBody,
@@ -53,6 +56,23 @@ async fn full_integration_test() {
         ));
     mock_server.register(mock).await;
 
+    // Mock escrow subgraph (v1) and network subgraph (v2) redemption queries.
+    mock_server
+        .register(Mock::given(method("POST")).and(path("/")).respond_with(
+            ResponseTemplate::new(200).set_body_raw(
+                r#"
+                        {
+                            "data": {
+                                "transactions": [],
+                                "paymentsEscrowTransactions": []
+                            }
+                        }
+                        "#,
+                "application/json",
+            ),
+        ))
+        .await;
+
     let (_escrow_tx, escrow_accounts) = watch::channel(EscrowAccounts::new(
         test_assets::ESCROW_ACCOUNTS_BALANCES.clone(),
         test_assets::ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.clone(),
@@ -62,6 +82,24 @@ async fn full_integration_test() {
     let (_allocations_tx, allocations) = watch::channel(test_assets::INDEXER_ALLOCATIONS.clone());
 
     let graph_node_url = Url::parse(&mock_server.uri()).unwrap();
+
+    let subgraph_client = Box::leak(Box::new(
+        SubgraphClient::new(
+            reqwest::Client::new(),
+            None,
+            DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
+        )
+        .await,
+    ));
+
+    let subgraph_query_url = Url::parse(&mock_server.uri()).unwrap();
+
+    let escrow_subgraph_config = SubgraphConfig {
+        query_url: subgraph_query_url.clone(),
+        query_auth_token: None,
+        deployment_id: None,
+        syncing_interval_secs: Duration::from_secs(1),
+    };
 
     let router = ServiceRouter::builder()
         .database(database)
@@ -98,6 +136,25 @@ async fn full_integration_test() {
             subgraph_service_address: None,
         })
         .timestamp_buffer_secs(Duration::from_secs(10))
+        .escrow_subgraph(
+            subgraph_client,
+            EscrowSubgraphConfig {
+                config: escrow_subgraph_config,
+            },
+        )
+        .network_subgraph(
+            subgraph_client,
+            NetworkSubgraphConfig {
+                config: SubgraphConfig {
+                    query_url: subgraph_query_url,
+                    query_auth_token: None,
+                    deployment_id: None,
+                    syncing_interval_secs: Duration::from_secs(1),
+                },
+                recently_closed_allocation_buffer_secs: Duration::from_secs(0),
+                max_data_staleness_mins: 0,
+            },
+        )
         .escrow_accounts_v1(escrow_accounts.clone())
         .escrow_accounts_v2(escrow_accounts)
         .dispute_manager(dispute_manager)

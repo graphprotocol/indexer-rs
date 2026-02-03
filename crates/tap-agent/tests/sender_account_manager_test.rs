@@ -36,6 +36,16 @@ async fn sender_account_manager_layer_test() {
     mock_network_subgraph_server
         .register(
             Mock::given(method("POST"))
+                .and(body_string_contains("paymentsEscrowTransactions"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({ "data": { "paymentsEscrowTransactions": [] } })),
+                ),
+        )
+        .await;
+    mock_network_subgraph_server
+        .register(
+            Mock::given(method("POST"))
                 .and(body_string_contains("ClosedAllocations"))
                 .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
                         "meta": {

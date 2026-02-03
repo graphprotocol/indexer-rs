@@ -29,7 +29,10 @@ use test_assets::{
 };
 use thegraph_core::alloy::primitives::Address;
 use tokio::sync::{mpsc, watch};
-use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+use wiremock::{
+    matchers::{body_string_contains, method},
+    Mock, MockServer, ResponseTemplate,
+};
 
 pub static SUBGRAPH_SERVICE_ADDRESS: [u8; 20] = [0x11u8; 20];
 
@@ -50,6 +53,16 @@ pub async fn start_agent(
         .await;
 
     let network_subgraph_mock_server = MockServer::start().await;
+    network_subgraph_mock_server
+        .register(
+            Mock::given(method("POST"))
+                .and(body_string_contains("paymentsEscrowTransactions"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({ "data": { "paymentsEscrowTransactions": [] } })),
+                ),
+        )
+        .await;
 
     let (_escrow_tx, escrow_accounts) = watch::channel(EscrowAccounts::new(
         ESCROW_ACCOUNTS_BALANCES.clone(),

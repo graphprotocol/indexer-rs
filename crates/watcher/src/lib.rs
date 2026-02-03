@@ -76,8 +76,8 @@ where
                 Ok(())= receiver_1.changed() =>{},
                 Ok(())= receiver_2.changed() =>{},
                 else=>{
-                    // Something is wrong.
-                    panic!("receiver_1 or receiver_2 was dropped");
+                    tracing::debug!("Watcher source receiver dropped, stopping combined watcher task");
+                    break;
                 }
             }
 
@@ -139,8 +139,8 @@ where
             select! {
                 Ok(())= receiver.changed() =>{},
                 else=>{
-                    // Something is wrong.
-                    panic!("receiver was dropped");
+                    tracing::debug!("Watcher source receiver dropped, stopping mapped watcher task");
+                    break;
                 }
             }
 

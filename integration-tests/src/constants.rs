@@ -39,7 +39,7 @@ pub const CHAIN_ID: u64 = 1337;
 // pub const SUBGRAPH_ID: &str = "Qmc2CbqucMvaS4GFvt2QUZWvRwSZ3K5ipeGvbC6UUBf616";
 // This is in the SUBGRAPH constant in local-network/.env
 pub const SUBGRAPH_ID: &str = "BFr2mx7FgkJ36Y6pE5BiXs1KmNUmVDCnL82KUSdcLW1g";
-pub const TEST_SUBGRAPH_DEPLOYMENT: &str = "QmRcucmbxAXLaAZkkCR8Bdj1X7QGPLjfRmQ5H6tFhGqiHX";
+pub const TEST_SUBGRAPH_DEPLOYMENT: &str = "QmVtHt1ye8PdXWRUUucRRJViWC7qYY59QVYUfimtJHs9wX";
 
 pub const GRAPH_URL: &str = "http://localhost:8000/subgraphs/name/graph-network";
 
