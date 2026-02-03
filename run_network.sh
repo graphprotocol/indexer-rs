@@ -271,7 +271,8 @@ echo "Indexer CLI is ready for integration testing!"
 echo "Example commands:"
 echo "  List allocations:  docker exec indexer-cli graph indexer allocations get --network hardhat"
 # FIXME: Provided by edge&node team, this does not work tho
-echo "  Close allocation:  docker exec indexer-cli graph indexer allocations close 0x0a067bd57ad79716c2133ae414b8f6bb47aaa22d 0x0000000000000000000000000000000000000000000000000000000000000000 100 0x0000000000000000000000000000000000000000000000000000000000000000 --network hardhat --force"
+echo "  Close allocation:  docker exec indexer-cli graph indexer allocations close 0x0a067bd57ad79716c2133ae414b8f6bb47aaa22d 0x0000000000000000000000000000000000000000000000000000000000000000 --network hardhat --force"
+echo "  Close allocations (script): ./contrib/indexer-cli/close-allocations.sh 0x<allocation-id>"
 echo "============================================"
 
 # Calculate timing and final reports
