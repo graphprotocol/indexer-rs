@@ -137,7 +137,7 @@ pub async fn create_sender_account(
         rav_request_timeout: RAV_REQUEST_TIMEOUT,
         rav_request_receipt_limit,
         indexer_address: INDEXER.1,
-        escrow_polling_interval: Duration::default(),
+        escrow_polling_interval: ESCROW_POLLING_INTERVAL,
         tap_sender_timeout: TAP_SENDER_TIMEOUT,
         trusted_senders,
         tap_mode: indexer_config::TapMode::Legacy,
