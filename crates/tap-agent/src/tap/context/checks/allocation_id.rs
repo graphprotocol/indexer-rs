@@ -243,14 +243,11 @@ mod tests {
         mock_server
             .register(
                 Mock::given(body_string_contains("paymentsEscrowTransactions"))
-                    .and(body_string_contains(collection_id.encode_hex()))
-                    .and(body_string_contains(
-                        collection_id.as_address().encode_hex(),
-                    ))
+                    .and(body_string_contains(collection_id.as_address().encode_hex()))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                         "data": {
                             "paymentsEscrowTransactions": [
-                                { "id": "0x01", "allocationId": collection_id.encode_hex(), "timestamp": "1" }
+                                { "id": "0x01", "allocationId": collection_id.as_address().encode_hex(), "timestamp": "1" }
                             ]
                         }
                     }))),
@@ -317,5 +314,45 @@ mod tests {
         .unwrap();
 
         assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_network_redeem_transactions_error_when_subgraph_fails() {
+        let mock_server: MockServer = MockServer::start().await;
+        let sender_address = "0x21fed3c4340f67dbf2b78c670ebd1940668ca03e";
+        let indexer_address = "0x54d7db28ce0d0e2e87764cd09298f9e4e913e567";
+        let collection_id = CollectionId::from(
+            sender_address
+                .parse::<thegraph_core::alloy::primitives::Address>()
+                .unwrap(),
+        );
+
+        mock_server
+            .register(
+                Mock::given(body_string_contains("paymentsEscrowTransactions")).respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({ "errors": [{ "message": "boom" }] })),
+                ),
+            )
+            .await;
+
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        let result = super::query_network_redeem_transactions(
+            collection_id,
+            sender_address.parse().unwrap(),
+            indexer_address.parse().unwrap(),
+            network_subgraph,
+        )
+        .await;
+
+        assert!(result.is_err());
     }
 }
