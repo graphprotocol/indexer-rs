@@ -6,13 +6,13 @@ use std::{
     future::Future,
     pin::Pin,
     str::FromStr,
-    sync::LazyLock,
+    sync::{Arc, LazyLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use bip39::Mnemonic;
 use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
-use sqlx::{migrate, migrate::Migrator, PgPool, Postgres};
+use sqlx::{migrate, migrate::Migrator, postgres::PgPoolOptions, PgPool, Postgres};
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
 use tap_graph::{Receipt, SignedReceipt};
 use thegraph_core::{
@@ -23,7 +23,7 @@ use thegraph_core::{
     },
     collection_id, deployment_id, CollectionId, DeploymentId,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, OnceCell};
 
 /// Assert something is true while sleeping and retrying
 ///
@@ -520,7 +520,24 @@ use testcontainers_modules::{
 pub struct TestDatabase {
     pub pool: sqlx::PgPool,
     pub url: String,
-    _container: ContainerAsync<postgres::Postgres>,
+    _container: Arc<ContainerAsync<postgres::Postgres>>,
+}
+
+static SHARED_PG_CONTAINER: OnceCell<Arc<ContainerAsync<postgres::Postgres>>> =
+    OnceCell::const_new();
+
+async fn shared_postgres_container() -> Arc<ContainerAsync<postgres::Postgres>> {
+    SHARED_PG_CONTAINER
+        .get_or_init(|| async {
+            Arc::new(
+                postgres::Postgres::default()
+                    .start()
+                    .await
+                    .expect("Failed to start PostgreSQL container"),
+            )
+        })
+        .await
+        .clone()
 }
 
 /// Set up a test database using testcontainers
@@ -536,10 +553,7 @@ pub async fn setup_shared_test_db() -> TestDatabase {
     let db_id = DB_COUNTER.fetch_add(1, Ordering::SeqCst);
     let unique_db_name = format!("test_db_{db_id}");
 
-    let pg_container = postgres::Postgres::default()
-        .start()
-        .await
-        .expect("Failed to start PostgreSQL container");
+    let pg_container = shared_postgres_container().await;
 
     let host_port = pg_container
         .get_host_port_ipv4(5432)
@@ -565,7 +579,10 @@ pub async fn setup_shared_test_db() -> TestDatabase {
         "Attempting to connect to admin database: {}",
         admin_connection_string
     );
-    let admin_pool = sqlx::PgPool::connect(&admin_connection_string)
+    let admin_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(&admin_connection_string)
         .await
         .expect("Failed to connect to admin database");
 
@@ -578,7 +595,10 @@ pub async fn setup_shared_test_db() -> TestDatabase {
     // Connect to our test database
     let connection_string =
         format!("postgres://postgres:postgres@{host}:{host_port}/{unique_db_name}");
-    let pool = sqlx::PgPool::connect(&connection_string)
+    let pool = PgPoolOptions::new()
+        .max_connections(20)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(&connection_string)
         .await
         .expect("Failed to connect to test database");
 
@@ -617,10 +637,7 @@ pub async fn setup_test_db_with_migrator(migrator: Migrator) -> TestDatabase {
     let db_id = DB_COUNTER.fetch_add(1, Ordering::SeqCst);
     let unique_db_name = format!("test_db_custom_{db_id}");
 
-    let pg_container = postgres::Postgres::default()
-        .start()
-        .await
-        .expect("Failed to start PostgreSQL container");
+    let pg_container = shared_postgres_container().await;
 
     let host_port = pg_container
         .get_host_port_ipv4(5432)
@@ -646,7 +663,10 @@ pub async fn setup_test_db_with_migrator(migrator: Migrator) -> TestDatabase {
         "Attempting to connect to admin database: {}",
         admin_connection_string
     );
-    let admin_pool = sqlx::PgPool::connect(&admin_connection_string)
+    let admin_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(&admin_connection_string)
         .await
         .expect("Failed to connect to admin database");
 
@@ -659,7 +679,10 @@ pub async fn setup_test_db_with_migrator(migrator: Migrator) -> TestDatabase {
     // Connect to our test database
     let connection_string =
         format!("postgres://postgres:postgres@{host}:{host_port}/{unique_db_name}");
-    let pool = sqlx::PgPool::connect(&connection_string)
+    let pool = PgPoolOptions::new()
+        .max_connections(20)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(&connection_string)
         .await
         .expect("Failed to connect to test database");
 
