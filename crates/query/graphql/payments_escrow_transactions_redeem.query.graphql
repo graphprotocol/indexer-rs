@@ -1,0 +1,18 @@
+query PaymentsEscrowTransactionsRedeemQuery(
+  $payer: Bytes!
+  $receiver: Bytes!
+  $allocationIds: [Bytes!]
+) {
+  paymentsEscrowTransactions(
+    where: {
+      type: "redeem"
+      payer_: { id: $payer }
+      receiver_: { id: $receiver }
+      allocationId_in: $allocationIds
+    }
+  ) {
+    id
+    allocationId
+    timestamp
+  }
+}

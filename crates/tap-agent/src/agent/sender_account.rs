@@ -509,6 +509,7 @@ impl State {
                     .sender(self.sender)
                     .escrow_accounts(self.escrow_accounts.clone())
                     .escrow_subgraph(self.escrow_subgraph)
+                    .network_subgraph(self.network_subgraph)
                     .domain_separator(self.domain_separator.clone())
                     .sender_account_ref(sender_account_ref.clone())
                     .sender_aggregator(self.aggregator_v1.clone())
@@ -529,6 +530,7 @@ impl State {
                     .sender(self.sender)
                     .escrow_accounts(self.escrow_accounts.clone())
                     .escrow_subgraph(self.escrow_subgraph)
+                    .network_subgraph(self.network_subgraph)
                     .domain_separator(self.domain_separator_v2.clone())
                     .sender_account_ref(sender_account_ref.clone())
                     .sender_aggregator(self.aggregator_v2.clone())
@@ -957,10 +959,10 @@ impl Actor for SenderAccount {
                                     unfinalized_ravs_allocation_ids: last_non_final_ravs
                                         .iter()
                                         .map(|(allocation_id, _)| {
-                                            allocation_id.address().to_string()
+                                            allocation_id.address().encode_hex()
                                         })
                                         .collect::<Vec<_>>(),
-                                    sender: format!("{sender_id:x?}"),
+                                    sender: sender_id.encode_hex(),
                                 },
                             )
                             .await
@@ -979,75 +981,56 @@ impl Actor for SenderAccount {
                     }
                     SenderType::Horizon => {
                         if config.tap_mode.is_horizon() {
-                            // V2 doesn't have transaction tracking like V1, but we can check if the RAVs
-                            // we're about to redeem are still the latest ones by querying LatestRavs.
-                            // If the subgraph has newer RAVs, it means ours were already redeemed.
-                            use indexer_query::latest_ravs_v2::{self, LatestRavs};
+                            // V2 doesn't have transaction tracking like V1; use paymentsEscrowTransactions
+                            // from the network subgraph to determine if the RAVs were redeemed.
+                            use indexer_query::payments_escrow_transactions_redeem::{
+                                self, PaymentsEscrowTransactionsRedeemQuery,
+                            };
 
                             let collection_ids: Vec<String> = last_non_final_ravs
                                 .iter()
-                                .map(|(collection_id, _)| collection_id.address().to_string())
+                                .filter_map(|(allocation_id, _)| match allocation_id {
+                                    AllocationId::Horizon(collection_id) => {
+                                        Some(collection_id.encode_hex())
+                                    }
+                                    AllocationId::Legacy(_) => None,
+                                })
                                 .collect();
 
                             if !collection_ids.is_empty() {
-                                // For V2/Horizon: data_service must be the SubgraphService address to match
-                                // on-chain RAV lookups (service_provider is the indexer address)
-                                let data_service =
-                                    config.tap_mode.require_subgraph_service_address();
-
-                                match escrow_subgraph
-                                    .query::<LatestRavs, _>(latest_ravs_v2::Variables {
-                                        payer: format!("{sender_id:x?}"),
-                                        data_service: format!("{data_service:x?}"),
-                                        service_provider: format!("{:x?}", config.indexer_address),
-                                        collection_ids: collection_ids.clone(),
-                                    })
+                                match network_subgraph
+                                    .query::<PaymentsEscrowTransactionsRedeemQuery, _>(
+                                        payments_escrow_transactions_redeem::Variables {
+                                            payer: sender_id.encode_hex(),
+                                            receiver: config.indexer_address.encode_hex(),
+                                            allocation_ids: Some(collection_ids.clone()),
+                                        },
+                                    )
                                     .await
                                 {
-                                    Ok(Ok(response)) => {
-                                        // Create a map of our current RAVs for easy lookup
-                                        let our_ravs: HashMap<String, u128> = last_non_final_ravs
-                                            .iter()
-                                            .map(|(collection_id, value)| {
-                                                let value_u128 = value
-                                                    .to_bigint()
-                                                    .and_then(|v| v.to_u128())
-                                                    .unwrap_or(0);
-                                                (collection_id.address().to_string(), value_u128)
-                                            })
-                                            .collect();
-
-                                        // Check which RAVs have been updated (indicating redemption)
-                                        let mut finalized_allocation_ids = vec![];
-                                        for rav in response.latest_ravs {
-                                            if let Some(&our_value) = our_ravs.get(&rav.id) {
-                                                // If the subgraph RAV has higher value, our RAV was redeemed
-                                                if let Ok(subgraph_value) =
-                                                    rav.value_aggregate.parse::<u128>()
-                                                {
-                                                    if subgraph_value > our_value {
-                                                        // Convert collection_id to address format for consistent comparison
-                                                        if let Ok(collection_id) =
-                                                            CollectionId::from_str(&rav.id)
-                                                        {
-                                                            let addr = AllocationIdCore::from(
-                                                                collection_id,
-                                                            )
-                                                            .into_inner();
-                                                            finalized_allocation_ids
-                                                                .push(format!("{addr:x?}"));
-                                                        }
-                                                    }
-                                                }
+                                    Ok(Ok(response)) => response
+                                        .payments_escrow_transactions
+                                        .into_iter()
+                                        .filter_map(|tx| tx.allocation_id)
+                                        .filter_map(|allocation_id| {
+                                            // Normalize to 20-byte allocation address for comparison.
+                                            if let Ok(collection_id) =
+                                                CollectionId::from_str(&allocation_id)
+                                            {
+                                                let addr = AllocationIdCore::from(collection_id)
+                                                    .into_inner();
+                                                return Some(addr.encode_hex());
                                             }
-                                        }
-                                        finalized_allocation_ids
-                                    }
+                                            AllocationIdCore::from_str(&allocation_id)
+                                                .map(|id| id.as_ref().encode_hex())
+                                                .ok()
+                                        })
+                                        .collect::<Vec<_>>(),
                                     Ok(Err(e)) => {
                                         tracing::warn!(
                                             error = %e,
                                             sender = %sender_id,
-                                            "Failed to query V2 latest RAVs, assuming none are finalized"
+                                            "Failed to query paymentsEscrowTransactions, assuming none are finalized"
                                         );
                                         vec![]
                                     }
@@ -1055,7 +1038,7 @@ impl Actor for SenderAccount {
                                         tracing::warn!(
                                             error = %e,
                                             sender = %sender_id,
-                                            "Failed to execute V2 latest RAVs query, assuming none are finalized"
+                                            "Failed to execute paymentsEscrowTransactions query, assuming none are finalized"
                                         );
                                         vec![]
                                     }
@@ -1078,7 +1061,10 @@ impl Actor for SenderAccount {
                         Some((address, value))
                     })
                     .filter(|(allocation, _value)| {
-                        !redeemed_ravs_allocation_ids.contains(&format!("{allocation:x?}"))
+                        let allocation_hex = allocation.encode_hex();
+                        !redeemed_ravs_allocation_ids
+                            .iter()
+                            .any(|id| id.eq_ignore_ascii_case(&allocation_hex))
                     })
                     .collect::<HashMap<_, _>>();
 
@@ -1962,6 +1948,19 @@ pub mod tests {
                 .await;
         mock_escrow_subgraph_server
     }
+
+    async fn register_payments_escrow_transactions_empty(mock_server: &MockServer) {
+        mock_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("paymentsEscrowTransactions"))
+                    .respond_with(
+                        ResponseTemplate::new(200)
+                            .set_body_json(json!({ "data": { "paymentsEscrowTransactions": [] } })),
+                    ),
+            )
+            .await;
+    }
     struct TestSenderAccount {
         sender_account: ActorRef<SenderAccountMessage>,
         msg_receiver: mpsc::Receiver<SenderAccountMessage>,
@@ -1975,6 +1974,7 @@ pub mod tests {
         let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
+        register_payments_escrow_transactions_empty(&mock_server).await;
 
         let no_allocations_closed_guard = mock_server
             .register_as_scoped(
@@ -2066,6 +2066,7 @@ pub mod tests {
         let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
+        register_payments_escrow_transactions_empty(&mock_server).await;
 
         let no_closed = mock_server
             .register_as_scoped(
@@ -2539,6 +2540,8 @@ pub mod tests {
     async fn test_initialization_with_pending_ravs_over_the_limit() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
+        let mock_server = MockServer::start().await;
+        register_payments_escrow_transactions_empty(&mock_server).await;
         // add last non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
         store_rav_with_options()
@@ -2554,6 +2557,7 @@ pub mod tests {
         let (sender_account, _notify, _, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .max_amount_willing_to_lose_grt(u128::MAX)
+            .network_subgraph_endpoint(&mock_server.uri())
             .call()
             .await;
 
@@ -2752,7 +2756,7 @@ pub mod tests {
                     .and(body_string_contains("transactions"))
                     .respond_with(ResponseTemplate::new(200).set_body_json(
                         json!({ "data": { "transactions": [
-                            {"allocationID": ALLOCATION_ID_0 }
+                            {"allocationID": ALLOCATION_ID_0.encode_hex() }
                         ]}}),
                     )),
             )
@@ -2801,8 +2805,8 @@ pub mod tests {
                     .and(body_string_contains("transactions"))
                     .respond_with(ResponseTemplate::new(200).set_body_json(
                         json!({ "data": { "transactions": [
-                            {"allocationID": ALLOCATION_ID_0 },
-                            {"allocationID": ALLOCATION_ID_1 }
+                            {"allocationID": ALLOCATION_ID_0.encode_hex() },
+                            {"allocationID": ALLOCATION_ID_1.encode_hex() }
                         ]}}),
                     )),
             )

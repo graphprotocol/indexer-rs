@@ -255,6 +255,8 @@ pub struct SenderAllocationArgs<T: NetworkVersion> {
     pub escrow_accounts: Receiver<EscrowAccounts>,
     /// SubgraphClient of the escrow subgraph
     pub escrow_subgraph: &'static SubgraphClient,
+    /// SubgraphClient of the network subgraph
+    pub network_subgraph: &'static SubgraphClient,
     /// Domain separator used for tap
     pub domain_separator: Eip712Domain,
     /// Reference to [super::sender_account::SenderAccount] actor
@@ -510,12 +512,19 @@ where
             sender,
             escrow_accounts,
             escrow_subgraph,
+            network_subgraph,
             domain_separator,
             sender_account_ref,
             sender_aggregator,
             config,
         }: SenderAllocationArgs<T>,
     ) -> anyhow::Result<Self> {
+        let collection_id = match T::to_allocation_id_enum(&allocation_id) {
+            crate::agent::sender_accounts_manager::AllocationId::Legacy(_) => None,
+            crate::agent::sender_accounts_manager::AllocationId::Horizon(collection_id) => {
+                Some(collection_id)
+            }
+        };
         let required_checks: Vec<Arc<dyn Check<TapReceipt> + Send + Sync>> = vec![
             Arc::new(
                 AllocationId::new(
@@ -523,7 +532,9 @@ where
                     config.escrow_polling_interval,
                     sender,
                     T::allocation_id_to_address(&allocation_id),
+                    collection_id,
                     escrow_subgraph,
+                    network_subgraph,
                 )
                 .await,
             ),
@@ -1570,6 +1581,7 @@ pub mod tests {
         let args = create_sender_allocation_args()
             .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .network_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .call()
             .await;
 
@@ -1601,6 +1613,7 @@ pub mod tests {
         pgpool: PgPool,
         sender_aggregator_endpoint: Option<String>,
         escrow_subgraph_endpoint: &str,
+        network_subgraph_endpoint: &str,
         #[builder(default = 1000)] rav_request_receipt_limit: u64,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
     ) -> SenderAllocationArgs<Legacy> {
@@ -1609,6 +1622,14 @@ pub mod tests {
                 reqwest::Client::new(),
                 None,
                 DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
+            )
+            .await,
+        ));
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(network_subgraph_endpoint).unwrap(),
             )
             .await,
         ));
@@ -1646,6 +1667,7 @@ pub mod tests {
             .sender(SENDER.1)
             .escrow_accounts(escrow_accounts_rx)
             .escrow_subgraph(escrow_subgraph)
+            .network_subgraph(network_subgraph)
             .domain_separator(TAP_EIP712_DOMAIN_SEPARATOR.clone())
             .sender_account_ref(sender_account_ref)
             .sender_aggregator(sender_aggregator)
@@ -1664,6 +1686,7 @@ pub mod tests {
         pgpool: PgPool,
         sender_aggregator_endpoint: Option<String>,
         escrow_subgraph_endpoint: &str,
+        network_subgraph_endpoint: &str,
         #[builder(default = 1000)] rav_request_receipt_limit: u64,
         sender_account: Option<ActorRef<SenderAccountMessage>>,
     ) -> (
@@ -1674,6 +1697,7 @@ pub mod tests {
             .pgpool(pgpool)
             .maybe_sender_aggregator_endpoint(sender_aggregator_endpoint)
             .escrow_subgraph_endpoint(escrow_subgraph_endpoint)
+            .network_subgraph_endpoint(network_subgraph_endpoint)
             .sender_account(sender_account.unwrap())
             .rav_request_receipt_limit(rav_request_receipt_limit)
             .call()
@@ -1705,6 +1729,7 @@ pub mod tests {
         let (sender_allocation, _notify) = create_sender_allocation()
             .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
+            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
             .await;
@@ -1741,6 +1766,7 @@ pub mod tests {
         let (sender_allocation, _notify) = create_sender_allocation()
             .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
+            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
             .await;
@@ -1773,6 +1799,7 @@ pub mod tests {
         let (sender_allocation, mut msg_receiver) = create_sender_allocation()
             .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
+            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
             .await;
@@ -1863,6 +1890,7 @@ pub mod tests {
         let (sender_allocation, mut msg_receiver_alloc) = create_sender_allocation()
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_server.uri())
+            .network_subgraph_endpoint(&mock_server.uri())
             .sender_account(sender_account)
             .call()
             .await;
@@ -1921,6 +1949,7 @@ pub mod tests {
         let (sender_allocation, mut msg_receiver_alloc) = create_sender_allocation()
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_server.uri())
+            .network_subgraph_endpoint(&mock_server.uri())
             .rav_request_receipt_limit(2000)
             .sender_account(sender_account)
             .call()
@@ -1997,6 +2026,7 @@ pub mod tests {
         let (sender_allocation, _notify) = create_sender_allocation()
             .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
+            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
             .await;
@@ -2069,6 +2099,7 @@ pub mod tests {
                 mock_aggregator.address().port()
             ))
             .escrow_subgraph_endpoint(&mock_server.uri())
+            .network_subgraph_endpoint(&mock_server.uri())
             .sender_account(sender_account)
             .call()
             .await;
@@ -2092,6 +2123,7 @@ pub mod tests {
         let args = create_sender_allocation_args()
             .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
+            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .call()
             .await;
         let state = SenderAllocationState::new(args).await.unwrap();
@@ -2120,6 +2152,7 @@ pub mod tests {
         let args = create_sender_allocation_args()
             .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
+            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .call()
             .await;
         let state = SenderAllocationState::new(args).await.unwrap();
@@ -2154,6 +2187,7 @@ pub mod tests {
         let args = create_sender_allocation_args()
             .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
+            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .call()
             .await;
         let state = SenderAllocationState::new(args).await.unwrap();
@@ -2264,6 +2298,7 @@ pub mod tests {
         let (sender_allocation, mut notify) = create_sender_allocation()
             .pgpool(pgpool.pool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
+            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
             .await;
@@ -2334,6 +2369,7 @@ pub mod tests {
         let (sender_allocation, mut notify) = create_sender_allocation()
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_server.uri())
+            .network_subgraph_endpoint(&mock_server.uri())
             .sender_account(sender_account)
             .call()
             .await;

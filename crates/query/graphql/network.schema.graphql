@@ -6682,6 +6682,142 @@ enum PaymentsEscrowAccount_orderBy {
   thawEndTimestamp
 }
 
+type PaymentsEscrowTransaction @entity {
+  id: Bytes!
+  transactionGroupId: Bytes
+  type: String!
+  payer: Payer!
+  collector: Bytes!
+  receiver: Receiver!
+  allocationId: Bytes
+  amount: BigInt!
+  escrowAccount: PaymentsEscrowAccount!
+  timestamp: BigInt!
+}
+
+input PaymentsEscrowTransaction_filter {
+  id: Bytes
+  id_not: Bytes
+  id_in: [Bytes!]
+  id_not_in: [Bytes!]
+  transactionGroupId: Bytes
+  transactionGroupId_not: Bytes
+  transactionGroupId_in: [Bytes!]
+  transactionGroupId_not_in: [Bytes!]
+  type: String
+  type_not: String
+  type_in: [String!]
+  type_not_in: [String!]
+  payer: String
+  payer_not: String
+  payer_in: [String!]
+  payer_not_in: [String!]
+  payer_: Payer_filter
+  collector: Bytes
+  collector_not: Bytes
+  collector_in: [Bytes!]
+  collector_not_in: [Bytes!]
+  receiver: String
+  receiver_not: String
+  receiver_in: [String!]
+  receiver_not_in: [String!]
+  receiver_: Receiver_filter
+  allocationId: Bytes
+  allocationId_not: Bytes
+  allocationId_in: [Bytes!]
+  allocationId_not_in: [Bytes!]
+  amount: BigInt
+  amount_not: BigInt
+  amount_gt: BigInt
+  amount_lt: BigInt
+  amount_gte: BigInt
+  amount_lte: BigInt
+  amount_in: [BigInt!]
+  amount_not_in: [BigInt!]
+  escrowAccount: String
+  escrowAccount_not: String
+  escrowAccount_in: [String!]
+  escrowAccount_not_in: [String!]
+  escrowAccount_: PaymentsEscrowAccount_filter
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
+  timestamp_in: [BigInt!]
+  timestamp_not_in: [BigInt!]
+  _change_block: BlockChangedFilter
+  and: [PaymentsEscrowTransaction_filter]
+  or: [PaymentsEscrowTransaction_filter]
+}
+
+enum PaymentsEscrowTransaction_orderBy {
+  id
+  transactionGroupId
+  type
+  payer
+  payer__id
+  collector
+  receiver
+  receiver__id
+  allocationId
+  amount
+  escrowAccount
+  escrowAccount__id
+  timestamp
+}
+
+type GraphTallyTokensCollected @entity {
+  id: Bytes!
+  payer: Payer!
+  receiver: Receiver!
+  collectionId: Bytes!
+  tokens: BigInt!
+}
+
+input GraphTallyTokensCollected_filter {
+  id: Bytes
+  id_not: Bytes
+  id_in: [Bytes!]
+  id_not_in: [Bytes!]
+  payer: String
+  payer_not: String
+  payer_in: [String!]
+  payer_not_in: [String!]
+  payer_: Payer_filter
+  receiver: String
+  receiver_not: String
+  receiver_in: [String!]
+  receiver_not_in: [String!]
+  receiver_: Receiver_filter
+  collectionId: Bytes
+  collectionId_not: Bytes
+  collectionId_in: [Bytes!]
+  collectionId_not_in: [Bytes!]
+  tokens: BigInt
+  tokens_not: BigInt
+  tokens_gt: BigInt
+  tokens_lt: BigInt
+  tokens_gte: BigInt
+  tokens_lte: BigInt
+  tokens_in: [BigInt!]
+  tokens_not_in: [BigInt!]
+  _change_block: BlockChangedFilter
+  and: [GraphTallyTokensCollected_filter]
+  or: [GraphTallyTokensCollected_filter]
+}
+
+enum GraphTallyTokensCollected_orderBy {
+  id
+  payer
+  payer__id
+  receiver
+  receiver__id
+  collectionId
+  tokens
+}
+
 type Collector @entity {
   id: Bytes!
   type: String
@@ -8361,6 +8497,34 @@ type Query {
     """
     subgraphError: _SubgraphErrorPolicy_! = deny
   ): [PaymentsEscrowAccount!]!
+  paymentsEscrowTransaction(
+    id: ID!
+    block: Block_height
+    subgraphError: _SubgraphErrorPolicy_! = deny
+  ): PaymentsEscrowTransaction
+  paymentsEscrowTransactions(
+    skip: Int = 0
+    first: Int = 100
+    orderBy: PaymentsEscrowTransaction_orderBy
+    orderDirection: OrderDirection
+    where: PaymentsEscrowTransaction_filter
+    block: Block_height
+    subgraphError: _SubgraphErrorPolicy_! = deny
+  ): [PaymentsEscrowTransaction!]!
+  graphTallyTokensCollected(
+    id: ID!
+    block: Block_height
+    subgraphError: _SubgraphErrorPolicy_! = deny
+  ): GraphTallyTokensCollected
+  graphTallyTokensCollecteds(
+    skip: Int = 0
+    first: Int = 100
+    orderBy: GraphTallyTokensCollected_orderBy
+    orderDirection: OrderDirection
+    where: GraphTallyTokensCollected_filter
+    block: Block_height
+    subgraphError: _SubgraphErrorPolicy_! = deny
+  ): [GraphTallyTokensCollected!]!
   collector(
     id: ID!
     block: Block_height
@@ -12385,6 +12549,34 @@ type Subscription {
     block: Block_height
     subgraphError: _SubgraphErrorPolicy_! = deny
   ): [PaymentsEscrowAccount!]!
+  paymentsEscrowTransaction(
+    id: ID!
+    block: Block_height
+    subgraphError: _SubgraphErrorPolicy_! = deny
+  ): PaymentsEscrowTransaction
+  paymentsEscrowTransactions(
+    skip: Int = 0
+    first: Int = 100
+    orderBy: PaymentsEscrowTransaction_orderBy
+    orderDirection: OrderDirection
+    where: PaymentsEscrowTransaction_filter
+    block: Block_height
+    subgraphError: _SubgraphErrorPolicy_! = deny
+  ): [PaymentsEscrowTransaction!]!
+  graphTallyTokensCollected(
+    id: ID!
+    block: Block_height
+    subgraphError: _SubgraphErrorPolicy_! = deny
+  ): GraphTallyTokensCollected
+  graphTallyTokensCollecteds(
+    skip: Int = 0
+    first: Int = 100
+    orderBy: GraphTallyTokensCollected_orderBy
+    orderDirection: OrderDirection
+    where: GraphTallyTokensCollected_filter
+    block: Block_height
+    subgraphError: _SubgraphErrorPolicy_! = deny
+  ): [GraphTallyTokensCollected!]!
   collector(
     id: ID!
     block: Block_height
