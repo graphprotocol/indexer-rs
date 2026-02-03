@@ -999,6 +999,15 @@ impl Actor for SenderAccount {
                                 .collect();
 
                             if !collection_ids.is_empty() {
+                                let sample_ids =
+                                    collection_ids.iter().take(3).cloned().collect::<Vec<_>>();
+                                tracing::trace!(
+                                    sender = %sender_id,
+                                    receiver = %config.indexer_address,
+                                    allocation_ids_count = collection_ids.len(),
+                                    allocation_ids_sample = ?sample_ids,
+                                    "Querying paymentsEscrowTransactions for redeemed allocations"
+                                );
                                 match network_subgraph
                                     .query::<PaymentsEscrowTransactionsRedeemQuery, _>(
                                         payments_escrow_transactions_redeem::Variables {
