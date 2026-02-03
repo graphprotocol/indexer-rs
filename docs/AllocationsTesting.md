@@ -43,7 +43,7 @@ Environment variables:
 - `CONTAINER_NAME` (default: `indexer-cli`)
 - `NETWORK` (default: `hardhat`)
 - `POI` (default: zero POI)
-- `BLOCK_NUMBER` (optional, Horizon/V2; auto-detected from local network subgraph if unset)
+- `BLOCK_NUMBER` (optional, Horizon/V2; auto-detected from network subgraph if unset)
 - `PUBLIC_POI` (optional, Horizon/V2)
 - `FORCE_FLAG` (default: `--force`)
 

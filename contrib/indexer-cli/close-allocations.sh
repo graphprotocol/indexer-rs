@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 CONTAINER_NAME="${CONTAINER_NAME:-indexer-cli}"
 NETWORK="${NETWORK:-hardhat}"
+NETWORK_SUBGRAPH_URL="${NETWORK_SUBGRAPH_URL:-http://localhost:8000/subgraphs/name/graph-network}"
 POI="${POI:-0x0000000000000000000000000000000000000000000000000000000000000000}"
 BLOCK_NUMBER="${BLOCK_NUMBER:-}"
 PUBLIC_POI="${PUBLIC_POI:-}"
@@ -17,6 +18,7 @@ Usage:
 Env:
   CONTAINER_NAME   indexer-cli container name (default: indexer-cli)
   NETWORK          network name (default: hardhat)
+  NETWORK_SUBGRAPH_URL  network subgraph URL for block auto-detect (default: http://localhost:8000/subgraphs/name/graph-network)
   POI              POI to submit (default: 0x00..00)
   BLOCK_NUMBER     Block number for Horizon close (optional, required if POI provided)
   PUBLIC_POI       Public POI for Horizon close (optional, required if POI provided)
@@ -57,7 +59,7 @@ fi
 
 if [ -z "${BLOCK_NUMBER}" ]; then
   if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-    block_json="$(curl -s http://localhost:8000/subgraphs/name/graph-network -H 'content-type: application/json' -d '{\"query\":\"{ _meta { block { number } } }\" }' || true)"
+    block_json="$(curl -s "$NETWORK_SUBGRAPH_URL" -H 'content-type: application/json' -d '{\"query\":\"{ _meta { block { number } } }\" }' || true)"
     BLOCK_NUMBER="$(printf '%s' "$block_json" | jq -r '.data._meta.block.number // empty' 2>/dev/null || true)"
     if [ -n "$BLOCK_NUMBER" ]; then
       echo "Detected network subgraph block number: $BLOCK_NUMBER"
@@ -73,6 +75,6 @@ for allocation_id in "${allocation_ids[@]}"; do
     ${BLOCK_NUMBER:+$BLOCK_NUMBER} \
     ${PUBLIC_POI:+$PUBLIC_POI} \
     --network "$NETWORK" \
-    $FORCE_FLAG
+    ${FORCE_FLAG:+"$FORCE_FLAG"}
   echo ""
 done
