@@ -292,16 +292,19 @@ impl ServiceRouter {
                     .subgraph_service_address
                     .map(|addr| vec![addr]);
 
-                let checks = IndexerTapContext::get_checks(TapChecksConfig {
-                    pgpool: self.database,
-                    indexer_allocations: allocations.clone(),
-                    escrow_accounts_v1: escrow_accounts_v1.clone(),
-                    escrow_accounts_v2: escrow_accounts_v2.clone(),
-                    timestamp_error_tolerance,
-                    receipt_max_value,
-                    allowed_data_services,
-                    service_provider: self.indexer.indexer_address,
-                })
+        let checks = IndexerTapContext::get_checks(TapChecksConfig {
+            pgpool: self.database,
+            indexer_allocations: allocations.clone(),
+            escrow_accounts_v1: escrow_accounts_v1.clone(),
+            escrow_accounts_v2: escrow_accounts_v2.clone(),
+            escrow_subgraph: self.escrow_subgraph.map(|(client, _)| client),
+            network_subgraph: self.network_subgraph.map(|(client, _)| client),
+            indexer_address: self.indexer.indexer_address,
+            timestamp_error_tolerance,
+            receipt_max_value,
+            allowed_data_services,
+            service_provider: self.indexer.indexer_address,
+        })
                 .await;
 
                 // Returned static Manager

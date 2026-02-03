@@ -16,7 +16,8 @@ use tokio::sync::{
 use tokio_util::sync::CancellationToken;
 
 use crate::tap::checks::{
-    allocation_eligible::AllocationEligible, data_service_check::DataServiceCheck,
+    allocation_eligible::AllocationEligible, allocation_redeemed::AllocationRedeemedCheck,
+    data_service_check::DataServiceCheck,
     deny_list_check::DenyListCheck, payer_check::PayerCheck,
     receipt_max_val_check::ReceiptMaxValueCheck, sender_balance_check::SenderBalanceCheck,
     timestamp_check::TimestampCheck, value_check::MinimumValue,
@@ -40,6 +41,9 @@ pub struct TapChecksConfig {
     pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     pub escrow_accounts_v1: Option<Receiver<EscrowAccounts>>,
     pub escrow_accounts_v2: Option<Receiver<EscrowAccounts>>,
+    pub escrow_subgraph: Option<&'static indexer_monitor::SubgraphClient>,
+    pub network_subgraph: Option<&'static indexer_monitor::SubgraphClient>,
+    pub indexer_address: Address,
     pub timestamp_error_tolerance: Duration,
     pub receipt_max_value: u128,
     pub allowed_data_services: Option<Vec<Address>>,
@@ -67,6 +71,11 @@ impl IndexerTapContext {
     pub async fn get_checks(config: TapChecksConfig) -> Vec<ReceiptCheck<TapReceipt>> {
         let mut checks: Vec<ReceiptCheck<TapReceipt>> = vec![
             Arc::new(AllocationEligible::new(config.indexer_allocations)),
+            Arc::new(AllocationRedeemedCheck::new(
+                config.indexer_address,
+                config.escrow_subgraph,
+                config.network_subgraph,
+            )),
             Arc::new(SenderBalanceCheck::new(
                 config.escrow_accounts_v1,
                 config.escrow_accounts_v2,

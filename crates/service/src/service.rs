@@ -214,6 +214,7 @@ pub async fn run() -> anyhow::Result<()> {
             .blockchain(config.blockchain)
             .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
             .network_subgraph(network_subgraph, config.subgraphs.network)
+            .escrow_subgraph(escrow_subgraph_v1, config.subgraphs.escrow)
             .escrow_accounts_v1(v1_watcher)
             .escrow_accounts_v2(v2_watcher)
             .build()
@@ -250,6 +251,7 @@ pub async fn run() -> anyhow::Result<()> {
             .blockchain(config.blockchain)
             .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
             .network_subgraph(network_subgraph, config.subgraphs.network)
+            .escrow_subgraph(escrow_subgraph_v1, config.subgraphs.escrow)
             .escrow_accounts_v1(v1_watcher)
             .build()
     };
