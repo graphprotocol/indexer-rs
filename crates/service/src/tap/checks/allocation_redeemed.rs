@@ -98,8 +98,12 @@ impl Check<TapReceipt> for AllocationRedeemedCheck {
 
         match receipt.signed_receipt() {
             TapReceipt::V1(r) => {
-                let allocation_id = Address::from(r.message.allocation_id);
-                if self.v1_allocation_redeemed(*sender, allocation_id).await? {
+                let allocation_id = r.message.allocation_id;
+                let redeemed = self
+                    .v1_allocation_redeemed(*sender, allocation_id)
+                    .await
+                    .map_err(|e| CheckError::Failed(anyhow!(e)))?;
+                if redeemed {
                     return Err(CheckError::Failed(anyhow!(
                         "Allocation already redeemed (v1): {}",
                         allocation_id
@@ -109,10 +113,11 @@ impl Check<TapReceipt> for AllocationRedeemedCheck {
             }
             TapReceipt::V2(r) => {
                 let collection_id = CollectionId::from(r.message.collection_id);
-                if self
+                let redeemed = self
                     .v2_allocation_redeemed(*sender, collection_id)
-                    .await?
-                {
+                    .await
+                    .map_err(|e| CheckError::Failed(anyhow!(e)))?;
+                if redeemed {
                     return Err(CheckError::Failed(anyhow!(
                         "Allocation already redeemed (v2): {}",
                         collection_id.as_address()
@@ -128,9 +133,13 @@ impl Check<TapReceipt> for AllocationRedeemedCheck {
 mod tests {
     use indexer_monitor::{DeploymentDetails, SubgraphClient};
     use serde_json::json;
-    use tap_core::{receipt::Context, signed_message::Eip712SignedMessage, tap_eip712_domain, TapVersion};
+    use tap_core::{
+        receipt::{checks::Check, Context},
+        signed_message::Eip712SignedMessage,
+        tap_eip712_domain, TapVersion,
+    };
     use tap_graph::v2::Receipt as ReceiptV2;
-    use test_assets::{create_signed_receipt, SIGNER};
+    use test_assets::{create_signed_receipt, TAP_SIGNER};
     use thegraph_core::alloy::{
         primitives::{Address, FixedBytes},
         signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
@@ -172,7 +181,7 @@ mod tests {
             .register(
                 Mock::given(body_string_contains("paymentsEscrowTransactions")).respond_with(
                     ResponseTemplate::new(200).set_body_json(json!({
-                        "data": { "paymentsEscrowTransactions": [ { "id": "0x01", "allocationId": SIGNER.1.to_string(), "timestamp": "1" } ] }
+                        "data": { "paymentsEscrowTransactions": [ { "id": "0x01", "allocationId": TAP_SIGNER.1.to_string(), "timestamp": "1" } ] }
                     })),
                 ),
             )
@@ -187,15 +196,12 @@ mod tests {
             .await,
         ));
 
-        let check = AllocationRedeemedCheck::new(
-            Address::from([0x22u8; 20]),
-            None,
-            Some(network_subgraph),
-        );
+        let check =
+            AllocationRedeemedCheck::new(Address::from([0x22u8; 20]), None, Some(network_subgraph));
 
         let mut ctx = Context::default();
-        ctx.insert(Sender(SIGNER.1));
-        let receipt = create_v2_receipt(SIGNER.1);
+        ctx.insert(Sender(TAP_SIGNER.1));
+        let receipt = create_v2_receipt(TAP_SIGNER.1);
         let checking = crate::tap::CheckingReceipt::new(receipt);
 
         let result = check.check(&ctx, &checking).await;
@@ -224,20 +230,15 @@ mod tests {
             .await,
         ));
 
-        let receipt = create_signed_receipt(
-            test_assets::SignedReceiptRequest::builder().build(),
-        )
-        .await;
+        let receipt =
+            create_signed_receipt(test_assets::SignedReceiptRequest::builder().build()).await;
         let checking = crate::tap::CheckingReceipt::new(TapReceipt::V1(receipt));
 
-        let check = AllocationRedeemedCheck::new(
-            Address::from([0x22u8; 20]),
-            Some(escrow_subgraph),
-            None,
-        );
+        let check =
+            AllocationRedeemedCheck::new(Address::from([0x22u8; 20]), Some(escrow_subgraph), None);
 
         let mut ctx = Context::default();
-        ctx.insert(Sender(SIGNER.1));
+        ctx.insert(Sender(TAP_SIGNER.1));
         let result = check.check(&ctx, &checking).await;
         assert!(result.is_ok());
     }
