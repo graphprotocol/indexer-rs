@@ -26,7 +26,7 @@ use tokio::{net::TcpListener, signal};
 use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
-use crate::{cli::Cli, database, metrics::serve_metrics};
+use crate::{cli::Cli, constants::HTTP_CLIENT_TIMEOUT, database, metrics::serve_metrics};
 
 mod release;
 mod router;
@@ -41,8 +41,6 @@ pub struct GraphNodeState {
     pub graph_node_status_url: Url,
     pub graph_node_query_base_url: Url,
 }
-
-const HTTP_CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Run the subgraph indexer service
 pub async fn run() -> anyhow::Result<()> {

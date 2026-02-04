@@ -14,6 +14,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use super::{AdapterError, CheckingReceipt, IndexerTapContext, TapReceipt};
+use crate::constants::TAP_RECEIPT_STORAGE_BATCH_SIZE;
 
 #[derive(Clone)]
 pub struct InnerContext {
@@ -235,13 +236,12 @@ impl IndexerTapContext {
         mut receiver: Receiver<(DatabaseReceipt, OneShotSender<Result<(), AdapterError>>)>,
         cancelation_token: CancellationToken,
     ) -> JoinHandle<()> {
-        const BUFFER_SIZE: usize = 100;
         tokio::spawn(async move {
             loop {
-                let mut buffer = Vec::with_capacity(BUFFER_SIZE);
+                let mut buffer = Vec::with_capacity(TAP_RECEIPT_STORAGE_BATCH_SIZE);
                 tokio::select! {
                     biased;
-                    _ = receiver.recv_many(&mut buffer, BUFFER_SIZE) => {
+                    _ = receiver.recv_many(&mut buffer, TAP_RECEIPT_STORAGE_BATCH_SIZE) => {
                         if let Err(e) = inner_context.process_db_receipts(buffer).await {
                             tracing::error!(error = %e, "Failed to process buffered receipts");
                         }
