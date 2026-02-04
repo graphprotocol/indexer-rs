@@ -59,7 +59,10 @@ fi
 
 if [ -z "${BLOCK_NUMBER}" ]; then
   if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-    block_json="$(curl -s "$NETWORK_SUBGRAPH_URL" -H 'content-type: application/json' -d '{"query":"{ _meta { block { number } } }"}' || true)"
+    if ! block_json="$(curl -s "$NETWORK_SUBGRAPH_URL" -H 'content-type: application/json' -d '{"query":"{ _meta { block { number } } }"}')"; then
+      echo "Warning: failed to query network subgraph for block number; set BLOCK_NUMBER manually if needed." >&2
+      block_json=""
+    fi
     BLOCK_NUMBER="$(printf '%s' "$block_json" | jq -r '.data._meta.block.number // empty' 2>/dev/null || true)"
     if [ -n "$BLOCK_NUMBER" ]; then
       echo "Detected network subgraph block number: $BLOCK_NUMBER"
@@ -69,6 +72,7 @@ fi
 
 for allocation_id in "${allocation_ids[@]}"; do
   echo "Closing allocation $allocation_id (network=$NETWORK)"
+  # The ${VAR:+...} expansion only adds the flag if VAR is non-empty.
   docker exec "$CONTAINER_NAME" graph indexer allocations close \
     "$allocation_id" \
     "$POI" \
