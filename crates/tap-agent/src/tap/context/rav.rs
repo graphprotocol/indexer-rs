@@ -383,7 +383,7 @@ mod test {
         let context = TapAgentContext::builder()
             .pgpool(test_db.pool.clone())
             .escrow_accounts(watch::channel(EscrowAccounts::default()).1)
-            .subgraph_service_address(Address::from(SUBGRAPH_SERVICE_ADDRESS))
+            .subgraph_service_address(SUBGRAPH_SERVICE_ADDRESS)
             .build();
         TestContextWithContainer {
             context,

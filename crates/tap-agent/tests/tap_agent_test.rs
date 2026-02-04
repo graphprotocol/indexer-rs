@@ -109,7 +109,7 @@ pub async fn start_agent(
         tap_sender_timeout: Duration::from_secs(30),
         trusted_senders: HashSet::new(),
         tap_mode: indexer_config::TapMode::Horizon {
-            subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+            subgraph_service_address: SUBGRAPH_SERVICE_ADDRESS,
         },
         allocation_reconciliation_interval: Duration::from_secs(300),
     }));

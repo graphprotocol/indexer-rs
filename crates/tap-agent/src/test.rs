@@ -20,13 +20,12 @@ use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Url;
 use sqlx::{types::BigDecimal, PgPool};
 use tap_aggregator::server::run_server;
-use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
+use tap_core::signed_message::Eip712SignedMessage;
 use tap_graph::{Receipt, ReceiptAggregateVoucher, SignedRav, SignedReceipt};
 use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
 use thegraph_core::alloy::{
     primitives::{hex::ToHexExt, Address, Bytes, FixedBytes, U256},
     signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
-    sol_types::Eip712Domain,
 };
 
 pub const ALLOCATION_ID_0: Address = test_assets::ALLOCATION_ID_0;
@@ -56,12 +55,11 @@ use crate::{
 // pub static ref SENDER: (PrivateKeySigner, Address) = wallet(0);
 pub static SENDER_2: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wallet(1));
 pub static INDEXER: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wallet(3));
-pub static TAP_EIP712_DOMAIN_SEPARATOR: LazyLock<Eip712Domain> =
-    LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20]), tap_core::TapVersion::V1));
-pub static TAP_EIP712_DOMAIN_SEPARATOR_V2: LazyLock<Eip712Domain> =
-    LazyLock::new(|| tap_eip712_domain(1, Address::from([0x11u8; 20]), tap_core::TapVersion::V2));
 
-pub static SUBGRAPH_SERVICE_ADDRESS: [u8; 20] = [0x11u8; 20];
+// Re-export test_assets EIP712 domain constants for convenience
+pub use test_assets::TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR;
+pub use test_assets::TAP_EIP712_DOMAIN_V2 as TAP_EIP712_DOMAIN_SEPARATOR_V2;
+pub use test_assets::VERIFIER_ADDRESS as SUBGRAPH_SERVICE_ADDRESS;
 
 pub const TRIGGER_VALUE: u128 = 500;
 pub const RECEIPT_LIMIT: u64 = 10000;
@@ -97,7 +95,7 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
         tap_sender_timeout: Duration::from_secs(63),
         trusted_senders: HashSet::new(),
         tap_mode: indexer_config::TapMode::Horizon {
-            subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+            subgraph_service_address: SUBGRAPH_SERVICE_ADDRESS,
         },
         allocation_reconciliation_interval: Duration::from_secs(300),
     }))
@@ -143,7 +141,7 @@ pub async fn create_sender_account(
         tap_sender_timeout: TAP_SENDER_TIMEOUT,
         trusted_senders,
         tap_mode: indexer_config::TapMode::Horizon {
-            subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+            subgraph_service_address: SUBGRAPH_SERVICE_ADDRESS,
         },
         allocation_reconciliation_interval,
     }));
@@ -345,7 +343,7 @@ pub fn create_rav_v2(
             timestampNs: timestamp_ns,
             valueAggregate: value_aggregate,
             payer: SENDER.1,
-            dataService: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+            dataService: SUBGRAPH_SERVICE_ADDRESS,
             serviceProvider: INDEXER.1,
             metadata: Bytes::new(),
         },
@@ -385,7 +383,7 @@ impl CreateReceipt for Horizon {
                 collection_id,
                 payer: SENDER.1,
                 service_provider: INDEXER.1,
-                data_service: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+                data_service: SUBGRAPH_SERVICE_ADDRESS,
                 nonce,
                 timestamp_ns,
                 value,
@@ -460,7 +458,7 @@ pub fn create_received_receipt_v2(
             collection_id,
             payer: SENDER.1,
             service_provider: INDEXER.1,
-            data_service: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+            data_service: SUBGRAPH_SERVICE_ADDRESS,
             nonce,
             timestamp_ns,
             value,
