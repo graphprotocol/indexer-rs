@@ -5,9 +5,9 @@ services:
       context: ..
     container_name: indexer-service
     volumes:
-      - ./local-network/tap-contracts.json:/opt/contracts.json:ro
-      - ./local-network/horizon.json:/opt/horizon.json:ro
-      - ./local-network/subgraph-service.json:/opt/subgraph-service.json:ro
+      - ./local-network/config/local/tap-contracts.json:/opt/contracts.json:ro
+      - ./local-network/config/local/horizon.json:/opt/horizon.json:ro
+      - ./local-network/config/local/subgraph-service.json:/opt/subgraph-service.json:ro
       - ./local-network/.env:/opt/.env:ro
       - ./profiling:/opt/profiling:rw
       - ./indexer-service/start.sh:/usr/local/bin/start.sh
@@ -20,6 +20,7 @@ services:
       - PROFILER=${PROFILER:-none}
     ports:
       - "7601:7601"
+      - "7302:7300"
     networks:
       - local-network
     healthcheck:
@@ -42,9 +43,9 @@ services:
       - ./tap-agent/start.sh:/usr/local/bin/start.sh
       - ./profiling:/opt/profiling:rw
       - ./local-network/.env:/opt/.env:ro
-      - ./local-network/tap-contracts.json:/opt/contracts.json:ro
-      - ./local-network/horizon.json:/opt/horizon.json:ro
-      - ./local-network/subgraph-service.json:/opt/subgraph-service.json:ro
+      - ./local-network/config/local/tap-contracts.json:/opt/contracts.json:ro
+      - ./local-network/config/local/horizon.json:/opt/horizon.json:ro
+      - ./local-network/config/local/subgraph-service.json:/opt/subgraph-service.json:ro
       - ../migrations:/opt/migrations:ro
     entrypoint: ["/usr/local/bin/start.sh"]
     environment:
@@ -53,7 +54,7 @@ services:
       - PROFILER=${PROFILER:-none}
     ports:
       # to expose the metrics port
-      - "7300:7300"
+      - "7303:7300"
     networks:
       - local-network
     healthcheck:

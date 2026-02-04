@@ -123,8 +123,8 @@ fund_escrow() {
     fi
 
     # Use L2GraphToken from horizon.json for horizon upgrade
-    GRAPH_TOKEN=$(jq -r '."1337".L2GraphToken.address' local-network/horizon.json)
-    TAP_ESCROW=$(jq -r '."1337".Escrow' local-network/tap-contracts.json)
+    GRAPH_TOKEN=$(jq -r '."1337".L2GraphToken.address' local-network/config/local/horizon.json)
+    TAP_ESCROW=$(jq -r '."1337".Escrow' local-network/config/local/tap-contracts.json)
 
     # Override with test values taken from test-assets/src/lib.rs
     ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
