@@ -72,13 +72,11 @@ fi
 
 for allocation_id in "${allocation_ids[@]}"; do
   echo "Closing allocation $allocation_id (network=$NETWORK)"
-  # The ${VAR:+...} expansion only adds the flag if VAR is non-empty.
-  docker exec "$CONTAINER_NAME" graph indexer allocations close \
-    "$allocation_id" \
-    "$POI" \
-    ${BLOCK_NUMBER:+"$BLOCK_NUMBER"} \
-    ${PUBLIC_POI:+"$PUBLIC_POI"} \
-    --network "$NETWORK" \
-    ${FORCE_FLAG:+"$FORCE_FLAG"}
+  cmd=(docker exec "$CONTAINER_NAME" graph indexer allocations close "$allocation_id" "$POI")
+  [ -n "$BLOCK_NUMBER" ] && cmd+=("$BLOCK_NUMBER")
+  [ -n "$PUBLIC_POI" ] && cmd+=("$PUBLIC_POI")
+  cmd+=(--network "$NETWORK")
+  [ -n "$FORCE_FLAG" ] && cmd+=("$FORCE_FLAG")
+  "${cmd[@]}"
   echo ""
 done
