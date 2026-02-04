@@ -674,18 +674,16 @@ impl State {
             sender_balance = self.sender_balance.to_u128(),
             "Allowing sender."
         );
-        if self.config.tap_mode.is_horizon() {
-            sqlx::query!(
-                r#"
-                    DELETE FROM tap_horizon_denylist
-                    WHERE sender_address = $1
-                "#,
-                self.sender.encode_hex(),
-            )
-            .execute(&self.pgpool)
-            .await
-            .expect("Should not fail to delete from horizon denylist");
-        }
+        sqlx::query(
+            r#"
+                DELETE FROM tap_horizon_denylist
+                WHERE sender_address = $1
+            "#,
+        )
+        .bind(self.sender.encode_hex())
+        .execute(&self.pgpool)
+        .await
+        .expect("Should not fail to delete from horizon denylist");
         self.denied = false;
 
         SENDER_DENIED
@@ -809,115 +807,104 @@ impl Actor for SenderAccount {
                 .get_balance_for_sender(&sender_id)
                 .unwrap_or_default();
             async move {
-                let last_non_final_ravs: Vec<(AllocationId, BigDecimal)> =
-                    if config.tap_mode.is_horizon() {
-                        sqlx::query(
-                            r#"
-                            SELECT collection_id, value_aggregate
-                            FROM tap_horizon_ravs
-                            WHERE payer = $1
-                            AND service_provider = $2
-                            AND data_service = $3
-                            AND last AND NOT final;
-                        "#,
-                        )
-                        .bind(sender_id.encode_hex())
-                        // service_provider is the indexer address; data_service comes from TapMode config
-                        .bind(config.indexer_address.encode_hex())
-                        .bind(
-                            config
-                                .tap_mode
-                                .require_subgraph_service_address()
-                                .encode_hex(),
-                        )
-                        .fetch_all(&pgpool)
-                        .await
-                        .expect("Should not fail to fetch from \"horizon\" tap_horizon_ravs")
-                        .into_iter()
-                        .filter_map(|record| {
-                            let collection_id: String = record.try_get("collection_id").ok()?;
-                            let value_aggregate: BigDecimal =
-                                record.try_get("value_aggregate").ok()?;
-                            let collection_id = CollectionId::from_str(&collection_id).ok()?;
-                            Some((AllocationId::Horizon(collection_id), value_aggregate))
-                        })
-                        .collect()
-                    } else {
-                        vec![]
-                    };
+                let last_non_final_ravs: Vec<(AllocationId, BigDecimal)> = sqlx::query(
+                    r#"
+                    SELECT collection_id, value_aggregate
+                    FROM tap_horizon_ravs
+                    WHERE payer = $1
+                    AND service_provider = $2
+                    AND data_service = $3
+                    AND last AND NOT final;
+                "#,
+                )
+                .bind(sender_id.encode_hex())
+                // service_provider is the indexer address; data_service comes from TapMode config
+                .bind(config.indexer_address.encode_hex())
+                .bind(
+                    config
+                        .tap_mode
+                        .require_subgraph_service_address()
+                        .encode_hex(),
+                )
+                .fetch_all(&pgpool)
+                .await
+                .expect("Should not fail to fetch from tap_horizon_ravs")
+                .into_iter()
+                .filter_map(|record| {
+                    let collection_id: String = record.try_get("collection_id").ok()?;
+                    let value_aggregate: BigDecimal = record.try_get("value_aggregate").ok()?;
+                    let collection_id = CollectionId::from_str(&collection_id).ok()?;
+                    Some((AllocationId::Horizon(collection_id), value_aggregate))
+                })
+                .collect();
 
-                // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
-                let redeemed_ravs_allocation_ids = if config.tap_mode.is_horizon() {
-                    // V2 doesn't have transaction tracking like V1; use paymentsEscrowTransactions
-                    // from the network subgraph to determine if the RAVs were redeemed.
-                    use indexer_query::payments_escrow_transactions_redeem::{
-                        self, PaymentsEscrowTransactionsRedeemQuery,
-                    };
+                // Get a list from the subgraph of which allocations were already redeemed but not marked as final.
+                // Use paymentsEscrowTransactions from the network subgraph to determine if the RAVs were redeemed.
+                use indexer_query::payments_escrow_transactions_redeem::{
+                    self, PaymentsEscrowTransactionsRedeemQuery,
+                };
 
-                    let collection_ids: Vec<String> = last_non_final_ravs
-                        .iter()
-                        .filter_map(|(allocation_id, _)| match allocation_id {
-                            AllocationId::Horizon(collection_id) => {
-                                // Network subgraph stores allocationId as 20-byte address.
-                                Some(collection_id.as_address().encode_hex())
+                let collection_ids: Vec<String> = last_non_final_ravs
+                    .iter()
+                    .filter_map(|(allocation_id, _)| match allocation_id {
+                        AllocationId::Horizon(collection_id) => {
+                            // Network subgraph stores allocationId as 20-byte address.
+                            Some(collection_id.as_address().encode_hex())
+                        }
+                        AllocationId::Legacy(_) => None,
+                    })
+                    .collect();
+
+                let redeemed_ravs_allocation_ids = if !collection_ids.is_empty() {
+                    const ALLOCATION_ID_BATCH_SIZE: usize = 200;
+                    let sample_ids = collection_ids.iter().take(3).cloned().collect::<Vec<_>>();
+                    tracing::trace!(
+                        sender = %sender_id,
+                        receiver = %config.indexer_address,
+                        allocation_ids_count = collection_ids.len(),
+                        allocation_ids_sample = ?sample_ids,
+                        "Querying paymentsEscrowTransactions for redeemed allocations"
+                    );
+                    let mut redeemed_ids = Vec::new();
+                    for batch in collection_ids.chunks(ALLOCATION_ID_BATCH_SIZE) {
+                        match network_subgraph
+                            .query::<PaymentsEscrowTransactionsRedeemQuery, _>(
+                                payments_escrow_transactions_redeem::Variables {
+                                    payer: sender_id.encode_hex(),
+                                    receiver: config.indexer_address.encode_hex(),
+                                    allocation_ids: Some(batch.to_vec()),
+                                },
+                            )
+                            .await
+                        {
+                            Ok(Ok(response)) => redeemed_ids.extend(
+                                response
+                                    .payments_escrow_transactions
+                                    .into_iter()
+                                    .filter_map(|tx| tx.allocation_id)
+                                    .filter_map(|allocation_id| {
+                                        AllocationIdCore::from_str(&allocation_id)
+                                            .map(|id| id.as_ref().encode_hex())
+                                            .ok()
+                                    }),
+                            ),
+                            Ok(Err(e)) => {
+                                tracing::warn!(
+                                    error = %e,
+                                    sender = %sender_id,
+                                    "Failed to query paymentsEscrowTransactions, assuming none are finalized"
+                                );
                             }
-                            AllocationId::Legacy(_) => None,
-                        })
-                        .collect();
-
-                    if !collection_ids.is_empty() {
-                        const ALLOCATION_ID_BATCH_SIZE: usize = 200;
-                        let sample_ids = collection_ids.iter().take(3).cloned().collect::<Vec<_>>();
-                        tracing::trace!(
-                            sender = %sender_id,
-                            receiver = %config.indexer_address,
-                            allocation_ids_count = collection_ids.len(),
-                            allocation_ids_sample = ?sample_ids,
-                            "Querying paymentsEscrowTransactions for redeemed allocations"
-                        );
-                        let mut redeemed_ids = Vec::new();
-                        for batch in collection_ids.chunks(ALLOCATION_ID_BATCH_SIZE) {
-                            match network_subgraph
-                                .query::<PaymentsEscrowTransactionsRedeemQuery, _>(
-                                    payments_escrow_transactions_redeem::Variables {
-                                        payer: sender_id.encode_hex(),
-                                        receiver: config.indexer_address.encode_hex(),
-                                        allocation_ids: Some(batch.to_vec()),
-                                    },
-                                )
-                                .await
-                            {
-                                Ok(Ok(response)) => redeemed_ids.extend(
-                                    response
-                                        .payments_escrow_transactions
-                                        .into_iter()
-                                        .filter_map(|tx| tx.allocation_id)
-                                        .filter_map(|allocation_id| {
-                                            AllocationIdCore::from_str(&allocation_id)
-                                                .map(|id| id.as_ref().encode_hex())
-                                                .ok()
-                                        }),
-                                ),
-                                Ok(Err(e)) => {
-                                    tracing::warn!(
-                                        error = %e,
-                                        sender = %sender_id,
-                                        "Failed to query paymentsEscrowTransactions, assuming none are finalized"
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        error = %e,
-                                        sender = %sender_id,
-                                        "Failed to execute paymentsEscrowTransactions query, assuming none are finalized"
-                                    );
-                                }
+                            Err(e) => {
+                                tracing::warn!(
+                                    error = %e,
+                                    sender = %sender_id,
+                                    "Failed to execute paymentsEscrowTransactions query, assuming none are finalized"
+                                );
                             }
                         }
-                        redeemed_ids
-                    } else {
-                        vec![]
                     }
+                    redeemed_ids
                 } else {
                     vec![]
                 };
@@ -955,20 +942,18 @@ impl Actor for SenderAccount {
             }
         });
 
-        let denied = sqlx::query!(
+        let denied: bool = sqlx::query_scalar(
             r#"
                 SELECT EXISTS (
                     SELECT 1
                     FROM tap_horizon_denylist
                     WHERE sender_address = $1
-                ) as denied
+                )
             "#,
-            sender_id.encode_hex(),
         )
+        .bind(sender_id.encode_hex())
         .fetch_one(&pgpool)
-        .await?
-        .denied
-        .expect("Deny status cannot be null");
+        .await?;
 
         let sender_balance = escrow_accounts
             .borrow()
@@ -1644,16 +1629,16 @@ impl SenderAccount {
     }
 
     async fn deny_v2_sender(pool: &PgPool, sender: Address) {
-        sqlx::query!(
+        sqlx::query(
             r#"
-                    INSERT INTO tap_horizon_denylist (sender_address)
-                    VALUES ($1) ON CONFLICT DO NOTHING
-                "#,
-            sender.encode_hex(),
+                INSERT INTO tap_horizon_denylist (sender_address)
+                VALUES ($1) ON CONFLICT DO NOTHING
+            "#,
         )
+        .bind(sender.encode_hex())
         .execute(pool)
         .await
-        .expect("Should not fail to insert into \"horizon\" denylist");
+        .expect("Should not fail to insert into horizon denylist");
     }
 }
 
