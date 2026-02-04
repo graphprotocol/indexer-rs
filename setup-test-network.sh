@@ -185,8 +185,10 @@ if [ -f "../local-network.patch" ]; then
     if git apply --check ../local-network.patch >/dev/null 2>&1; then
         echo "Applying local-network.patch (see docs/LocalNetworkOverrides.md)..."
         git apply ../local-network.patch
+    elif git apply --reverse --check ../local-network.patch >/dev/null 2>&1; then
+        echo "local-network.patch already applied; skipping."
     else
-        echo "local-network.patch already applied or not cleanly applicable; skipping."
+        echo "local-network.patch does not apply cleanly; skipping."
     fi
 fi
 
@@ -373,6 +375,10 @@ docker build \
     local-network/gateway
 # docker build -t local-gateway:latest ./local-network/gateway
 
+echo "Ensuring indexer-service is running before gateway startup..."
+docker compose up -d indexer-service
+interruptible_wait 120 'docker ps | grep indexer-service | grep -q healthy' "Waiting for indexer-service to be healthy"
+
 echo "Running gateway container..."
 # Verify required files exist before starting gateway
 if [ ! -f "local-network/config/local/horizon.json" ]; then
@@ -402,6 +408,21 @@ docker run -d --name gateway \
     local-gateway:latest
 
 echo "Waiting for gateway to be available..."
+if ! interruptible_wait 100 "curl -f http://localhost:7700/ > /dev/null 2>&1" "Waiting for gateway service"; then
+    echo "Gateway did not become ready; restarting once..."
+    docker rm -f gateway
+    docker run -d --name gateway \
+        --network "$NETWORK_NAME" \
+        -p 7700:7700 \
+        -v "$(pwd)/local-network/config/local/horizon.json":/opt/horizon.json:ro \
+        -v "$(pwd)/local-network/config/local/tap-contracts.json":/opt/tap-contracts.json:ro \
+        -v "$(pwd)/local-network/config/local/subgraph-service.json":/opt/subgraph-service.json:ro \
+        -v "$(pwd)/local-network/.env":/opt/.env:ro \
+        -e RUST_LOG=info,graph_gateway=trace \
+        --restart on-failure:3 \
+        local-gateway:latest
+    interruptible_wait 100 "curl -f http://localhost:7700/ > /dev/null 2>&1" "Waiting for gateway service (after restart)"
+fi
 
 # Try to fund escrow up to 3 times
 for i in {1..3}; do
@@ -414,9 +435,6 @@ for i in {1..3}; do
         sleep 10
     fi
 done
-
-# Ensure gateway is ready before testing
-interruptible_wait 100 'curl -f http://localhost:7700/ > /dev/null 2>&1' "Waiting for gateway service"
 
 # Build and start indexer-cli for integration testing (last container)
 echo "Building and starting indexer-cli container for integration testing..."
