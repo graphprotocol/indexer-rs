@@ -222,10 +222,7 @@ pub struct AllocationConfig {
     pub indexer_address: Address,
     /// Polling interval for escrow subgraph
     pub escrow_polling_interval: Duration,
-    /// TAP protocol operation mode
-    ///
-    /// Defines whether the indexer operates in legacy mode (V1 TAP receipts only)
-    /// or horizon mode (hybrid V1/V2 TAP receipts support).
+    /// TAP protocol operation mode (Horizon mode required)
     pub tap_mode: indexer_config::TapMode,
 }
 
@@ -615,7 +612,6 @@ where
                 // Determine TAP version based on NetworkVersion type
                 let version = get_tap_version::<T>();
 
-                // by_version counter (both V1 and V2)
                 RAVS_CREATED_BY_VERSION
                     .with_label_values(&[
                         &self.sender.to_string(),
@@ -623,7 +619,7 @@ where
                         version,
                     ])
                     .inc();
-                // Keep legacy counter for V1 only
+                // Legacy counter retained for backwards compatibility with existing dashboards
                 if version == TAP_V1 {
                     RAVS_CREATED
                         .with_label_values(&[
@@ -647,6 +643,7 @@ where
                         version,
                     ])
                     .inc();
+                // Legacy counter retained for backwards compatibility with existing dashboards
                 if version == TAP_V1 {
                     RAVS_FAILED
                         .with_label_values(&[

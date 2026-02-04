@@ -409,10 +409,7 @@ pub struct SenderAccountConfig {
     /// over the escrow balance
     pub trusted_senders: HashSet<Address>,
 
-    /// TAP protocol operation mode
-    ///
-    /// Defines whether the indexer operates in legacy mode (V1 TAP receipts only)
-    /// or horizon mode (hybrid V1/V2 TAP receipts support).
+    /// TAP protocol operation mode (Horizon mode required)
     pub tap_mode: indexer_config::TapMode,
 
     /// Interval for periodic allocation reconciliation.
