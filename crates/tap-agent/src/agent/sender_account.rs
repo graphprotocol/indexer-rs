@@ -958,25 +958,20 @@ impl Actor for SenderAccount {
             }
         });
 
-        let denied = if config.tap_mode.is_horizon() {
-            sqlx::query!(
-                r#"
+        let denied = sqlx::query!(
+            r#"
                 SELECT EXISTS (
                     SELECT 1
                     FROM tap_horizon_denylist
                     WHERE sender_address = $1
                 ) as denied
             "#,
-                sender_id.encode_hex(),
-            )
-            .fetch_one(&pgpool)
-            .await?
-            .denied
-            .expect("Deny status cannot be null")
-        } else {
-            // If horizon is disabled, just ignore this sender.
-            false
-        };
+            sender_id.encode_hex(),
+        )
+        .fetch_one(&pgpool)
+        .await?
+        .denied
+        .expect("Deny status cannot be null");
 
         let sender_balance = escrow_accounts
             .borrow()
