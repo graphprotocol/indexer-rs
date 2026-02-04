@@ -2394,7 +2394,7 @@ pub mod tests {
 
         flush_messages(&mut msg_receiver).await;
 
-        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        let deny = wait_for_deny_state(&sender_account, true).await;
         assert!(deny);
     }
 
