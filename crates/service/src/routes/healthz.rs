@@ -19,15 +19,27 @@ pub async fn healthz(State(state): State<HealthzState>) -> impl IntoResponse {
     let mut checks = serde_json::Map::new();
 
     // Database health
-    match sqlx::query("SELECT 1").execute(&state.db).await {
-        Ok(_) => {
-            checks.insert("database".into(), json!({ "status": "ok" }));
+    match tokio::time::timeout(
+        Duration::from_secs(5),
+        sqlx::query("SELECT 1").execute(&state.db),
+    )
+    .await
+    {
+        Ok(Ok(_)) => {
+            checks.insert("database".into(), json!({ "status": "healthy" }));
         }
-        Err(err) => {
+        Ok(Err(err)) => {
             ok = false;
             checks.insert(
                 "database".into(),
-                json!({ "status": "error", "error": err.to_string() }),
+                json!({ "status": "unhealthy", "error": err.to_string() }),
+            );
+        }
+        Err(_) => {
+            ok = false;
+            checks.insert(
+                "database".into(),
+                json!({ "status": "unhealthy", "error": "timeout" }),
             );
         }
     }
@@ -50,7 +62,7 @@ pub async fn healthz(State(state): State<HealthzState>) -> impl IntoResponse {
                 checks.insert(
                     "graph_node".into(),
                     json!({
-                        "status": "error",
+                        "status": "unhealthy",
                         "error": format!("status {}", response.status())
                     }),
                 );
@@ -61,17 +73,17 @@ pub async fn healthz(State(state): State<HealthzState>) -> impl IntoResponse {
                             ok = false;
                             checks.insert(
                                 "graph_node".into(),
-                                json!({ "status": "error", "error": "graphql errors returned" }),
+                                json!({ "status": "unhealthy", "error": "graphql errors returned" }),
                             );
                         } else {
-                            checks.insert("graph_node".into(), json!({ "status": "ok" }));
+                            checks.insert("graph_node".into(), json!({ "status": "healthy" }));
                         }
                     }
                     Err(err) => {
                         ok = false;
                         checks.insert(
                             "graph_node".into(),
-                            json!({ "status": "error", "error": err.to_string() }),
+                            json!({ "status": "unhealthy", "error": err.to_string() }),
                         );
                     }
                 }
@@ -81,7 +93,7 @@ pub async fn healthz(State(state): State<HealthzState>) -> impl IntoResponse {
             ok = false;
             checks.insert(
                 "graph_node".into(),
-                json!({ "status": "error", "error": err.to_string() }),
+                json!({ "status": "unhealthy", "error": err.to_string() }),
             );
         }
     }
