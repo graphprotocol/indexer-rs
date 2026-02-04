@@ -108,7 +108,7 @@ pub async fn start_agent(
                                 query_url: escrow_query_url,
                                 query_auth_token: escrow_query_auth_token,
                                 deployment_id: escrow_deployment_id,
-                                syncing_interval_secs: _escrow_sync_interval,
+                                ..
                             },
                     },
             },
@@ -168,53 +168,46 @@ pub async fn start_agent(
         .await,
     ));
 
-    // Determine if we should check for Horizon contracts and enable Horizon mode.
-    let is_horizon_enabled = if CONFIG.tap_mode().is_horizon() {
-        tracing::info!("Horizon mode configured; checking Network Subgraph readiness");
-        match indexer_monitor::is_horizon_active(network_subgraph).await {
-            Ok(true) => {
-                tracing::info!(
-                    "Horizon schema available in network subgraph - enabling Horizon mode"
-                );
-                tracing::info!(
-                    "V2 watcher will automatically detect new PaymentsEscrow accounts as they appear"
-                );
-                true
-            }
-            Ok(false) => {
-                anyhow::bail!(
-                    "Horizon enabled, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). Deploy Horizon (V2) contracts and the updated Network Subgraph, or disable Horizon ([horizon].enabled = false)"
-                );
-            }
-            Err(e) => {
-                anyhow::bail!(
-                    "Failed to detect Horizon contracts due to network/subgraph error: {}. Cannot start with Horizon enabled when network status is unknown.",
-                    e
-                );
-            }
-        }
-    } else {
+    // Verify Horizon mode is enabled and the network subgraph is ready
+    if !CONFIG.tap_mode().is_horizon() {
         anyhow::bail!("Legacy TAP mode is no longer supported; enable Horizon mode");
-    };
+    }
 
-    // Create V2 escrow accounts watcher only if Horizon is active
+    tracing::info!("Horizon mode configured; checking Network Subgraph readiness");
+    match indexer_monitor::is_horizon_active(network_subgraph).await {
+        Ok(true) => {
+            tracing::info!("Horizon schema available in network subgraph - enabling Horizon mode");
+            tracing::info!(
+                "V2 watcher will automatically detect new PaymentsEscrow accounts as they appear"
+            );
+        }
+        Ok(false) => {
+            anyhow::bail!(
+                "Horizon enabled, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). Deploy Horizon (V2) contracts and the updated Network Subgraph, or disable Horizon ([horizon].enabled = false)"
+            );
+        }
+        Err(e) => {
+            anyhow::bail!(
+                "Failed to detect Horizon contracts due to network/subgraph error: {}. Cannot start with Horizon enabled when network status is unknown.",
+                e
+            );
+        }
+    }
+
+    // Create V2 escrow accounts watcher
     // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
-    let escrow_accounts_v2 = if is_horizon_enabled {
-        tracing::info!(
-            "Initializing V2 escrow accounts watcher with indexer {}",
-            indexer_address
-        );
-        escrow_accounts_v2(
-            network_subgraph,
-            *indexer_address,
-            *network_sync_interval,
-            false,
-        )
-        .await
-        .with_context(|| "Error creating escrow_accounts_v2 channel")?
-    } else {
-        unreachable!("Horizon is required for TAP Agent");
-    };
+    tracing::info!(
+        "Initializing V2 escrow accounts watcher with indexer {}",
+        indexer_address
+    );
+    let escrow_accounts_v2 = escrow_accounts_v2(
+        network_subgraph,
+        *indexer_address,
+        *network_sync_interval,
+        false,
+    )
+    .await
+    .with_context(|| "Error creating escrow_accounts_v2 channel")?;
 
     let config = Box::leak(Box::new(SenderAccountConfig::from_config(&CONFIG)));
 
