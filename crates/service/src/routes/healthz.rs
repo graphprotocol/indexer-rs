@@ -46,7 +46,7 @@ pub async fn healthz(State(state): State<HealthzState>) -> impl IntoResponse {
 
     // Graph-node health (status endpoint is GraphQL)
     let graph_node_query = json!({
-        "query": "{ indexingStatuses(first: 1) { subgraph } }"
+        "query": "{ __typename }"
     });
     match state
         .http_client

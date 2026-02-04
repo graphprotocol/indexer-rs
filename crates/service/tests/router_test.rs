@@ -35,9 +35,8 @@ struct RouterInputs {
     network_subgraph_config: SubgraphConfig,
     escrow_accounts_v1: watch::Receiver<EscrowAccounts>,
     escrow_accounts_v2: watch::Receiver<EscrowAccounts>,
-    allocations: watch::Receiver<
-        std::collections::HashMap<Address, indexer_allocation::Allocation>,
-    >,
+    allocations:
+        watch::Receiver<std::collections::HashMap<Address, indexer_allocation::Allocation>>,
     dispute_manager: watch::Receiver<Address>,
 }
 
