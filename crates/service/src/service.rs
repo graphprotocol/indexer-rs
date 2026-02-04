@@ -23,6 +23,7 @@ use release::IndexerServiceRelease;
 use reqwest::Url;
 use tap_core::tap_eip712_domain;
 use tokio::{net::TcpListener, signal};
+use tokio_util::sync::CancellationToken;
 use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
@@ -256,6 +257,9 @@ pub async fn run() -> anyhow::Result<()> {
 
     serve_metrics(config.metrics.get_socket_addr());
 
+    // Create a cancellation token for coordinated graceful shutdown
+    let shutdown_token = CancellationToken::new();
+
     tracing::info!(
         address = %host_and_port,
         "Serving requests",
@@ -328,10 +332,9 @@ pub async fn run() -> anyhow::Result<()> {
 
         info!(address = %addr, "Starting DIPS gRPC server");
 
+        let dips_shutdown_token = shutdown_token.clone();
         tokio::spawn(async move {
-            info!(address = %addr, "Starting DIPS gRPC server");
-
-            start_dips_server(addr, dips).await;
+            start_dips_server(addr, dips, dips_shutdown_token.cancelled()).await;
         });
     }
 
@@ -344,15 +347,22 @@ pub async fn run() -> anyhow::Result<()> {
     //
     let service = ServiceExt::<Request>::into_make_service_with_connect_info::<SocketAddr>(router);
     Ok(serve(listener, service)
-        .with_graceful_shutdown(shutdown_handler())
+        .with_graceful_shutdown(shutdown_handler(shutdown_token))
         .await?)
 }
-async fn start_dips_server(addr: SocketAddr, service: impl IndexerDipsService) {
-    tonic::transport::Server::builder()
+
+async fn start_dips_server(
+    addr: SocketAddr,
+    service: impl IndexerDipsService,
+    shutdown: impl std::future::Future<Output = ()>,
+) {
+    if let Err(e) = tonic::transport::Server::builder()
         .add_service(IndexerDipsServiceServer::new(service))
-        .serve(addr)
+        .serve_with_shutdown(addr, shutdown)
         .await
-        .expect("unable to start dips grpc");
+    {
+        tracing::error!(error = %e, "DIPS gRPC server error");
+    }
 }
 
 async fn create_subgraph_client(
@@ -379,8 +389,8 @@ async fn create_subgraph_client(
     ))
 }
 
-/// Graceful shutdown handler
-async fn shutdown_handler() {
+/// Graceful shutdown handler that coordinates shutdown across all servers
+async fn shutdown_handler(shutdown_token: CancellationToken) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -400,4 +410,5 @@ async fn shutdown_handler() {
     }
 
     tracing::info!("Signal received, starting graceful shutdown");
+    shutdown_token.cancel();
 }
