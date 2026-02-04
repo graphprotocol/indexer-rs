@@ -143,8 +143,8 @@ pub async fn run() -> anyhow::Result<()> {
             }
             Ok(false) => {
                 anyhow::bail!(
-                    "Horizon enabled, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
-                    Deploy Horizon (V2) contracts and the updated Network Subgraph, or disable Horizon ([horizon].enabled = false)"
+                    "Horizon mode is required, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
+                    Deploy Horizon (V2) contracts and the updated Network Subgraph before starting the indexer service."
                 );
             }
             Err(e) => {
