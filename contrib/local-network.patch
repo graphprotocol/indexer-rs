@@ -1,0 +1,173 @@
+diff --git i/docker-compose.yaml w/docker-compose.yaml
+index cbff112..da5fa33 100644
+--- i/docker-compose.yaml
++++ w/docker-compose.yaml
+@@ -236,6 +236,7 @@ services:
+       tap-escrow-manager: { condition: service_started }
+     ports: 
+       - "${INDEXER_SERVICE}:7601"
++      - "7302:7300"
+     stop_signal: SIGKILL
+     volumes:
+       - ./.env:/opt/.env:ro
+@@ -257,6 +258,8 @@ services:
+         INDEXER_TAP_AGENT_VERSION: ${INDEXER_TAP_AGENT_VERSION}
+     depends_on:
+       indexer-agent: { condition: service_healthy }
++    ports:
++      - "7303:7300"
+     stop_signal: SIGKILL
+     volumes:
+       - ./.env:/opt/.env:ro
+@@ -265,4 +268,4 @@ services:
+       - ./tap-contracts.json:/opt/tap-contracts.json:ro
+     environment:
+       RUST_LOG: info,indexer_tap_agent=trace
+-      RUST_BACKTRACE: 1
+\ No newline at end of file
++      RUST_BACKTRACE: 1
+diff --git i/gateway/run.sh w/gateway/run.sh
+index b3ad829..130b17f 100755
+--- i/gateway/run.sh
++++ w/gateway/run.sh
+@@ -5,8 +5,19 @@ set -eu
+ cd /opt
+ graph_tally_verifier=$(jq -r '."1337".GraphTallyCollector.address' /opt/horizon.json)
+ tap_verifier=$(jq -r '."1337".TAPVerifier' /opt/tap-contracts.json)
+-dispute_manager=$(jq -r '."1337".DisputeManager.address' /opt/subgraph-service.json)
++# Use the network subgraph for DisputeManager to match indexer-service attestation domain
++dispute_manager=$(curl -s "http://graph-node:${GRAPH_NODE_GRAPHQL}/subgraphs/name/graph-network" \
++  -H 'content-type: application/json' \
++  -d '{"query": "{ graphNetwork(id: \"1\") { disputeManager } }" }' \
++  | jq -r '.data.graphNetwork.disputeManager')
+ legacy_dispute_manager=$(jq -r '."1337".LegacyDisputeManager.address' /opt/subgraph-service.json)
++
++if [ "$dispute_manager" = "null" ] || [ -z "$dispute_manager" ]; then
++  dispute_manager="0x0000000000000000000000000000000000000001"
++fi
++if [ "$legacy_dispute_manager" = "null" ] || [ -z "$legacy_dispute_manager" ]; then
++  legacy_dispute_manager="0x0000000000000000000000000000000000000000"
++fi
+ subgraph_service=$(jq -r '."1337".SubgraphService.address' /opt/subgraph-service.json)
+ network_subgraph_deployment=$(curl -s "http://graph-node:${GRAPH_NODE_GRAPHQL}/subgraphs/name/graph-network" \
+   -H 'content-type: application/json' \
+diff --git i/indexer-service/run.sh w/indexer-service/run.sh
+index 2d86987..69605d3 100755
+--- i/indexer-service/run.sh
++++ w/indexer-service/run.sh
+@@ -6,11 +6,37 @@ tap_verifier="$(jq -r '."1337".TAPVerifier' /opt/tap-contracts.json)"
+ graph_tally_verifier=$(jq -r '."1337".GraphTallyCollector.address' /opt/horizon.json)
+ subgraph_service=$(jq -r '."1337".SubgraphService.address' /opt/subgraph-service.json)
+ 
++format_toml_array() {
++  input="$1"
++  oldIFS="$IFS"
++  IFS=','; set -- $input; IFS="$oldIFS"
++  out=""
++  for item in "$@"; do
++    item="$(echo "$item" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
++    [ -n "$item" ] || continue
++    out="${out}\"${item}\", "
++  done
++  out="${out%, }"
++  printf "[%s]" "$out"
++}
++
+ cat >config.toml <<-EOF
+ [indexer]
+ indexer_address = "${RECEIVER_ADDRESS}"
++EOF
++
++if [ -n "${INDEXER_MNEMONICS:-}" ]; then
++  cat >>config.toml <<-EOF
++operator_mnemonic = "${INDEXER_MNEMONIC}"
++operator_mnemonics = $(format_toml_array "${INDEXER_MNEMONICS}")
++EOF
++else
++  cat >>config.toml <<-EOF
+ operator_mnemonic = "${INDEXER_MNEMONIC}"
++EOF
++fi
+ 
++cat >>config.toml <<-EOF
+ [database]
+ postgres_url = "postgresql://postgres@postgres:${POSTGRES}/indexer_components_1"
+ 
+@@ -42,6 +68,15 @@ serve_escrow_subgraph = false
+ 
+ [tap]
+ max_amount_willing_to_lose_grt = 1
++EOF
++
++if [ -n "${TRUSTED_SENDERS:-}" ]; then
++  cat >>config.toml <<-EOF
++trusted_senders = $(format_toml_array "${TRUSTED_SENDERS}")
++EOF
++fi
++
++cat >>config.toml <<-EOF
+ 
+ [tap.rav_request]
+ timestamp_buffer_secs = 15
+diff --git i/tap-agent/run.sh w/tap-agent/run.sh
+index a7663bc..fdadddb 100755
+--- i/tap-agent/run.sh
++++ w/tap-agent/run.sh
+@@ -7,6 +7,20 @@ tap_verifier="$(jq -r '."1337".TAPVerifier' /opt/tap-contracts.json)"
+ graph_tally_verifier=$(jq -r '."1337".GraphTallyCollector.address' /opt/horizon.json)
+ subgraph_service=$(jq -r '."1337".SubgraphService.address' /opt/subgraph-service.json)
+ 
++format_toml_array() {
++  input="$1"
++  oldIFS="$IFS"
++  IFS=','; set -- $input; IFS="$oldIFS"
++  out=""
++  for item in "$@"; do
++    item="$(echo "$item" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
++    [ -n "$item" ] || continue
++    out="${out}\"${item}\", "
++  done
++  out="${out%, }"
++  printf "[%s]" "$out"
++}
++
+ cat >endpoints.yaml <<-EOF
+ ${ACCOUNT0_ADDRESS}: "http://tap-aggregator:${TAP_AGGREGATOR}"
+ EOF
+@@ -14,8 +28,20 @@ EOF
+ cat >config.toml <<-EOF
+ [indexer]
+ indexer_address = "${RECEIVER_ADDRESS}"
++EOF
++
++if [ -n "${INDEXER_MNEMONICS:-}" ]; then
++  cat >>config.toml <<-EOF
++operator_mnemonic = "${INDEXER_MNEMONIC}"
++operator_mnemonics = $(format_toml_array "${INDEXER_MNEMONICS}")
++EOF
++else
++  cat >>config.toml <<-EOF
+ operator_mnemonic = "${INDEXER_MNEMONIC}"
++EOF
++fi
+ 
++cat >>config.toml <<-EOF
+ [database]
+ postgres_url = "postgresql://postgres@postgres:${POSTGRES}/indexer_components_1"
+ 
+@@ -46,6 +72,15 @@ serve_escrow_subgraph = false
+ 
+ [tap]
+ max_amount_willing_to_lose_grt = 1
++EOF
++
++if [ -n "${TRUSTED_SENDERS:-}" ]; then
++  cat >>config.toml <<-EOF
++trusted_senders = $(format_toml_array "${TRUSTED_SENDERS}")
++EOF
++fi
++
++cat >>config.toml <<-EOF
+ 
+ [tap.rav_request]
+ timestamp_buffer_secs = 15

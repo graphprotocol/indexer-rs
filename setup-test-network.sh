@@ -180,6 +180,16 @@ fi
 # Start the required services from local-network
 cd local-network
 
+# Apply local patches if available (kept in contrib/local-network.patch)
+if [ -f "../local-network.patch" ]; then
+    if git apply --check ../local-network.patch >/dev/null 2>&1; then
+        echo "Applying local-network.patch (see docs/LocalNetworkOverrides.md)..."
+        git apply ../local-network.patch
+    else
+        echo "local-network.patch already applied or not cleanly applicable; skipping."
+    fi
+fi
+
 echo "Starting core infrastructure services..."
 docker compose up -d chain ipfs postgres graph-node
 # Wait for graph-node to be healthy
