@@ -38,6 +38,23 @@ Or run it standalone:
 docker exec indexer-cli graph indexer allocations get --network hardhat
 ```
 
+### Programmatic Close (Helper Script)
+
+```bash
+# Close one allocation
+./contrib/indexer-cli/close-allocations.sh 0x<allocation-id>
+
+# Close all allocations (requires jq)
+./contrib/indexer-cli/close-allocations.sh --all
+```
+
+Horizon/V2 (optional block + public POI; block auto-detected if curl/jq available):
+
+```bash
+BLOCK_NUMBER=121 PUBLIC_POI=0x00..00 \
+  ./contrib/indexer-cli/close-allocations.sh 0x<allocation-id>
+```
+
 ### Close an Allocation
 
 With a valid POI:

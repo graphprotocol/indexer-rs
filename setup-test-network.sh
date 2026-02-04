@@ -103,8 +103,8 @@ fund_escrow() {
     fi
 
     # Use L2GraphToken from horizon.json for horizon upgrade
-    GRAPH_TOKEN=$(jq -r '."1337".L2GraphToken.address' local-network/horizon.json)
-    TAP_ESCROW=$(jq -r '."1337".Escrow' local-network/tap-contracts.json)
+    GRAPH_TOKEN=$(jq -r '."1337".L2GraphToken.address' local-network/config/local/horizon.json)
+    TAP_ESCROW=$(jq -r '."1337".Escrow' local-network/config/local/tap-contracts.json)
 
     # Override with test values taken from test-assets/src/lib.rs
     ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
@@ -180,6 +180,18 @@ fi
 # Start the required services from local-network
 cd local-network
 
+# Apply local patches if available (kept in contrib/local-network.patch)
+if [ -f "../local-network.patch" ]; then
+    if git apply --check ../local-network.patch >/dev/null 2>&1; then
+        echo "Applying local-network.patch (see docs/LocalNetworkOverrides.md)..."
+        git apply ../local-network.patch
+    elif git apply --reverse --check ../local-network.patch >/dev/null 2>&1; then
+        echo "local-network.patch already applied; skipping."
+    else
+        echo "local-network.patch does not apply cleanly; skipping."
+    fi
+fi
+
 echo "Starting core infrastructure services..."
 docker compose up -d chain ipfs postgres graph-node
 # Wait for graph-node to be healthy
@@ -194,8 +206,9 @@ docker compose up -d graph-contracts
 interruptible_wait 300 'docker ps -a | grep graph-contracts | grep -q "Exited (0)"' "Waiting for contracts to be deployed"
 
 # Verify the contracts have code using horizon structure
-l2_graph_token_address=$(jq -r '."1337".L2GraphToken.address' horizon.json)
-controller_address=$(jq -r '."1337".Controller.address' horizon.json)
+horizon_path="config/local/horizon.json"
+l2_graph_token_address=$(jq -r '."1337".L2GraphToken.address' "$horizon_path")
+controller_address=$(jq -r '."1337".Controller.address' "$horizon_path")
 
 echo "Checking L2GraphToken contract at $l2_graph_token_address"
 code=$(docker exec chain cast code $l2_graph_token_address --rpc-url http://localhost:8545)
@@ -214,7 +227,7 @@ fi
 echo "Controller contract verified."
 
 # Ensure HorizonStaking is deployed before proceeding (agent needs it at startup)
-staking_address=$(jq -r '."1337".HorizonStaking.address' horizon.json)
+staking_address=$(jq -r '."1337".HorizonStaking.address' "$horizon_path")
 echo "Checking HorizonStaking contract at $staking_address"
 
 # Retry a few times in case chain is still settling
@@ -232,14 +245,14 @@ done
 if [ -z "$code" ] || [ "$code" = "0x" ]; then
     echo "HorizonStaking has no code; forcing graph-contracts redeploy..."
     # Keep files as files (avoid bind mount turning into a directory)
-    echo "{}" >horizon.json
-    echo "{}" >subgraph-service.json
+    echo "{}" >"$horizon_path"
+    echo "{}" >config/local/subgraph-service.json
     docker compose up -d --no-deps --force-recreate graph-contracts
     # Wait for contracts to be deployed
     interruptible_wait 300 'docker ps -a | grep graph-contracts | grep -q "Exited (0)"' "Waiting for contracts to be deployed (redeploy)"
 
     # Re-check the (possibly updated) staking address and code
-    staking_address=$(jq -r '."1337".HorizonStaking.address' horizon.json)
+    staking_address=$(jq -r '."1337".HorizonStaking.address' "$horizon_path")
     echo "Re-checking HorizonStaking contract at $staking_address"
     code=$(docker exec chain cast code $staking_address --rpc-url http://localhost:8545 2>/dev/null || true)
     if [ -z "$code" ] || [ "$code" = "0x" ]; then
@@ -348,7 +361,7 @@ echo "Verifying indexer-service is responding..."
 interruptible_wait 60 'curl -f http://localhost:7601/health > /dev/null 2>&1' "Verifying indexer-service is responding"
 
 echo "Verifying tap-agent is responding..."
-interruptible_wait 60 'curl -f http://localhost:7300/metrics > /dev/null 2>&1' "Verifying tap-agent is responding"
+interruptible_wait 60 'curl -f http://localhost:7303/metrics > /dev/null 2>&1' "Verifying tap-agent is responding"
 
 # Wait for indexer to sync with chain before starting gateway
 echo "Checking chain and indexer synchronization..."
@@ -362,36 +375,54 @@ docker build \
     local-network/gateway
 # docker build -t local-gateway:latest ./local-network/gateway
 
+echo "Ensuring indexer-service is running before gateway startup..."
+docker compose up -d indexer-service
+interruptible_wait 120 'docker ps | grep indexer-service | grep -q healthy' "Waiting for indexer-service to be healthy"
+
 echo "Running gateway container..."
 # Verify required files exist before starting gateway
-if [ ! -f "local-network/horizon.json" ]; then
-    echo "ERROR: local-network/horizon.json not found!"
+if [ ! -f "local-network/config/local/horizon.json" ]; then
+    echo "ERROR: local-network/config/local/horizon.json not found!"
     exit 1
 fi
-if [ ! -f "local-network/tap-contracts.json" ]; then
-    echo "ERROR: local-network/tap-contracts.json not found!"
+if [ ! -f "local-network/config/local/tap-contracts.json" ]; then
+    echo "ERROR: local-network/config/local/tap-contracts.json not found!"
     exit 1
 fi
-if [ ! -f "local-network/subgraph-service.json" ]; then
-    echo "ERROR: local-network/subgraph-service.json not found!"
+if [ ! -f "local-network/config/local/subgraph-service.json" ]; then
+    echo "ERROR: local-network/config/local/subgraph-service.json not found!"
     exit 1
 fi
 
 # Updated to use the horizon file structure and include tap-contracts.json
 # Gateway now generates config with increased max_lag_seconds in gateway/run.sh
-# -v "$(pwd)/local-network/tap-contracts.json":/opt/tap-contracts.json:ro \
 docker run -d --name gateway \
     --network "$NETWORK_NAME" \
     -p 7700:7700 \
-    -v "$(pwd)/local-network/horizon.json":/opt/horizon.json:ro \
-    -v "$(pwd)/local-network/tap-contracts.json":/opt/contracts.json:ro \
-    -v "$(pwd)/local-network/subgraph-service.json":/opt/subgraph-service.json:ro \
+    -v "$(pwd)/local-network/config/local/horizon.json":/opt/horizon.json:ro \
+    -v "$(pwd)/local-network/config/local/tap-contracts.json":/opt/tap-contracts.json:ro \
+    -v "$(pwd)/local-network/config/local/subgraph-service.json":/opt/subgraph-service.json:ro \
     -v "$(pwd)/local-network/.env":/opt/.env:ro \
     -e RUST_LOG=info,graph_gateway=trace \
     --restart on-failure:3 \
     local-gateway:latest
 
 echo "Waiting for gateway to be available..."
+if ! interruptible_wait 100 "curl -f http://localhost:7700/ > /dev/null 2>&1" "Waiting for gateway service"; then
+    echo "Gateway did not become ready; restarting once..."
+    docker rm -f gateway
+    docker run -d --name gateway \
+        --network "$NETWORK_NAME" \
+        -p 7700:7700 \
+        -v "$(pwd)/local-network/config/local/horizon.json":/opt/horizon.json:ro \
+        -v "$(pwd)/local-network/config/local/tap-contracts.json":/opt/tap-contracts.json:ro \
+        -v "$(pwd)/local-network/config/local/subgraph-service.json":/opt/subgraph-service.json:ro \
+        -v "$(pwd)/local-network/.env":/opt/.env:ro \
+        -e RUST_LOG=info,graph_gateway=trace \
+        --restart on-failure:3 \
+        local-gateway:latest
+    interruptible_wait 100 "curl -f http://localhost:7700/ > /dev/null 2>&1" "Waiting for gateway service (after restart)"
+fi
 
 # Try to fund escrow up to 3 times
 for i in {1..3}; do
@@ -404,9 +435,6 @@ for i in {1..3}; do
         sleep 10
     fi
 done
-
-# Ensure gateway is ready before testing
-interruptible_wait 100 'curl -f http://localhost:7700/ > /dev/null 2>&1' "Waiting for gateway service"
 
 # Build and start indexer-cli for integration testing (last container)
 echo "Building and starting indexer-cli container for integration testing..."
@@ -426,7 +454,8 @@ echo "Indexer CLI is ready for integration testing!"
 echo "Example commands:"
 echo "  List allocations:  docker exec indexer-cli graph indexer allocations get --network hardhat"
 # FIXME: Provided by edge&node team, this does not work tho
-echo "  Close allocation:  docker exec indexer-cli graph indexer allocations close 0x0a067bd57ad79716c2133ae414b8f6bb47aaa22d 0x0000000000000000000000000000000000000000000000000000000000000000 100 0x0000000000000000000000000000000000000000000000000000000000000000 --network hardhat --force"
+echo "  Close allocation:  docker exec indexer-cli graph indexer allocations close 0x0a067bd57ad79716c2133ae414b8f6bb47aaa22d 0x0000000000000000000000000000000000000000000000000000000000000000 --network hardhat --force"
+echo "  Close allocations (script): ./contrib/indexer-cli/close-allocations.sh 0x<allocation-id>"
 echo "============================================"
 
 # Calculate timing and final reports
@@ -453,7 +482,7 @@ echo "==========================================="
 echo ""
 echo "============ SERVICES RUNNING ============"
 echo "✓ Indexer Service: http://localhost:7601"
-echo "✓ TAP Agent: http://localhost:7300/metrics"
+echo "✓ TAP Agent: http://localhost:7303/metrics"
 echo "✓ Gateway: http://localhost:7700"
 echo "✓ Indexer CLI: Ready (container: indexer-cli)"
 echo "   Use: docker exec indexer-cli graph-indexer indexer --help"

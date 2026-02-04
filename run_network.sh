@@ -123,8 +123,8 @@ fund_escrow() {
     fi
 
     # Use L2GraphToken from horizon.json for horizon upgrade
-    GRAPH_TOKEN=$(jq -r '."1337".L2GraphToken.address' local-network/horizon.json)
-    TAP_ESCROW=$(jq -r '."1337".Escrow' local-network/tap-contracts.json)
+    GRAPH_TOKEN=$(jq -r '."1337".L2GraphToken.address' local-network/config/local/horizon.json)
+    TAP_ESCROW=$(jq -r '."1337".Escrow' local-network/config/local/tap-contracts.json)
 
     # Override with test values taken from test-assets/src/lib.rs
     ALLOCATION_ID="0xfa44c72b753a66591f241c7dc04e8178c30e13af" # ALLOCATION_ID_0
@@ -271,7 +271,8 @@ echo "Indexer CLI is ready for integration testing!"
 echo "Example commands:"
 echo "  List allocations:  docker exec indexer-cli graph indexer allocations get --network hardhat"
 # FIXME: Provided by edge&node team, this does not work tho
-echo "  Close allocation:  docker exec indexer-cli graph indexer allocations close 0x0a067bd57ad79716c2133ae414b8f6bb47aaa22d 0x0000000000000000000000000000000000000000000000000000000000000000 100 0x0000000000000000000000000000000000000000000000000000000000000000 --network hardhat --force"
+echo "  Close allocation:  docker exec indexer-cli graph indexer allocations close 0x0a067bd57ad79716c2133ae414b8f6bb47aaa22d 0x0000000000000000000000000000000000000000000000000000000000000000 --network hardhat --force"
+echo "  Close allocations (script): ./contrib/indexer-cli/close-allocations.sh 0x<allocation-id>"
 echo "============================================"
 
 # Calculate timing and final reports
