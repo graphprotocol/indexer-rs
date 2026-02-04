@@ -84,15 +84,15 @@ impl IntoResponse for IndexerServiceError {
 #[derive(Debug, Error)]
 pub enum SubgraphServiceError {
     #[error("Invalid status query: {0}")]
-    InvalidStatusQuery(Error),
+    InvalidStatusQuery(#[source] Error),
     #[error("Unsupported status query fields: {0:?}")]
     UnsupportedStatusQueryFields(Vec<String>),
     #[error("Internal server error: {0}")]
-    StatusQueryError(Error),
+    StatusQueryError(#[source] Error),
     #[error("Invalid deployment: {0}")]
     InvalidDeployment(DeploymentId),
     #[error("Failed to process query: {0}")]
-    QueryForwardingError(reqwest::Error),
+    QueryForwardingError(#[source] reqwest::Error),
 }
 
 impl StatusCodeExt for SubgraphServiceError {

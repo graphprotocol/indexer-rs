@@ -64,8 +64,17 @@ pub struct IndexerTapContext {
 
 #[derive(Debug, thiserror::Error)]
 pub enum AdapterError {
-    #[error(transparent)]
-    AnyhowError(#[from] anyhow::Error),
+    #[error("Database operation failed")]
+    Database(#[source] sqlx::Error),
+
+    #[error("Failed to recover signer from receipt")]
+    SignerRecovery(#[source] tap_core::signed_message::Eip712Error),
+
+    #[error("Failed to queue receipt for storage: channel closed")]
+    ChannelSend,
+
+    #[error("Failed to receive storage result")]
+    ChannelRecv(#[source] tokio::sync::oneshot::error::RecvError),
 }
 
 impl IndexerTapContext {
