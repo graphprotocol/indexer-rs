@@ -7,6 +7,7 @@ mod client;
 mod deployment_to_allocation;
 mod dispute_manager;
 mod escrow_accounts;
+mod freshness;
 mod horizon_detection;
 
 pub use crate::{
