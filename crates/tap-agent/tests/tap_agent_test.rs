@@ -16,7 +16,7 @@ use indexer_tap_agent::{
         },
         sender_allocation::SenderAllocationMessage,
     },
-    test::{actors::TestableActor, create_received_receipt, get_grpc_url, store_batch_receipts},
+    test::{actors::TestableActor, create_received_receipt_v2, get_grpc_url, store_receipt},
 };
 use ractor::{call, concurrency::JoinHandle, Actor, ActorRef};
 use reqwest::Url;
@@ -25,7 +25,7 @@ use sqlx::PgPool;
 use test_assets::{
     assert_while_retry, flush_messages, ALLOCATION_ID_0, ALLOCATION_ID_1, ALLOCATION_ID_2,
     ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS, INDEXER_ADDRESS,
-    INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN, TAP_EIP712_DOMAIN_V2, TAP_SENDER, TAP_SIGNER,
+    INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN_V2, TAP_SENDER, TAP_SIGNER,
 };
 use thegraph_core::alloy::primitives::Address;
 use tokio::sync::{mpsc, watch};
@@ -107,18 +107,18 @@ pub async fn start_agent(
         escrow_polling_interval: Duration::from_secs(10),
         tap_sender_timeout: Duration::from_secs(30),
         trusted_senders: HashSet::new(),
-        tap_mode: indexer_config::TapMode::Legacy,
+        tap_mode: indexer_config::TapMode::Horizon {
+            subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+        },
         allocation_reconciliation_interval: Duration::from_secs(300),
     }));
 
     let args = SenderAccountsManagerArgs {
         config,
-        domain_separator: TAP_EIP712_DOMAIN.clone(),
         domain_separator_v2: TAP_EIP712_DOMAIN_V2.clone(),
         pgpool,
         indexer_allocations: indexer_allocations1,
-        escrow_accounts_v1: escrow_accounts.clone(),
-        escrow_accounts_v2: watch::channel(EscrowAccounts::default()).1,
+        escrow_accounts_v2: escrow_accounts.clone(),
         escrow_subgraph,
         network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
@@ -139,7 +139,7 @@ async fn test_start_tap_agent() {
 
     // verify if create sender account
     assert_while_retry!(ActorRef::<SenderAccountMessage>::where_is(format!(
-        "legacy:{}",
+        "horizon:{}",
         TAP_SENDER.1
     ))
     .is_none());
@@ -151,7 +151,7 @@ async fn test_start_tap_agent() {
     for i in 0..AMOUNT_OF_RECEIPTS {
         // This would select the 3 defined allocations in order
         let allocation_selected = (i % 3) as usize;
-        let receipt = create_received_receipt(
+        let receipt = create_received_receipt_v2(
             allocations.get(allocation_selected).unwrap(),
             &TAP_SIGNER.0,
             i,
@@ -160,8 +160,11 @@ async fn test_start_tap_agent() {
         );
         receipts.push(receipt);
     }
-    let res = store_batch_receipts(&pgpool, receipts).await;
-    assert!(res.is_ok());
+    for receipt in receipts {
+        store_receipt(&pgpool, receipt.signed_receipt())
+            .await
+            .expect("store receipt");
+    }
 
     assert_while_retry!({
         ActorRef::<SenderAllocationMessage>::where_is(format!(

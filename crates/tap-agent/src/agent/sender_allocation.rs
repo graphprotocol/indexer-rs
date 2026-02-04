@@ -1513,7 +1513,7 @@ pub mod tests {
         flush_messages, ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
         TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
-    use thegraph_core::AllocationId as AllocationIdCore;
+    use thegraph_core::{alloy::hex::ToHexExt, AllocationId as AllocationIdCore, CollectionId};
     use tokio::sync::{mpsc, watch};
     use tonic::{transport::Endpoint, Code};
     use wiremock::{
@@ -1528,9 +1528,7 @@ pub mod tests {
     use crate::{
         agent::{
             sender_account::{ReceiptFees, SenderAccountMessage},
-            sender_accounts_manager::{
-                AllocationId, NewReceiptNotification, NewReceiptNotificationV1,
-            },
+            sender_accounts_manager::{AllocationId, NewReceiptNotification},
             sender_allocation::DatabaseInteractions,
         },
         tap::{context::Legacy, CheckingReceipt},
@@ -1804,18 +1802,18 @@ pub mod tests {
             .call()
             .await;
 
+        let collection_id = CollectionId::from(ALLOCATION_ID_0).encode_hex();
+
         // should validate with id less than last_id
         cast!(
             sender_allocation,
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification::V1(
-                NewReceiptNotificationV1 {
-                    id: 0,
-                    value: 10,
-                    allocation_id: ALLOCATION_ID_0,
-                    signer_address: SIGNER.1,
-                    timestamp_ns: 0,
-                }
-            ))
+            SenderAllocationMessage::NewReceipt(NewReceiptNotification {
+                id: 0,
+                value: 10,
+                collection_id: collection_id.clone(),
+                signer_address: SIGNER.1,
+                timestamp_ns: 0,
+            })
         )
         .unwrap();
 
@@ -1826,15 +1824,13 @@ pub mod tests {
 
         cast!(
             sender_allocation,
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification::V1(
-                NewReceiptNotificationV1 {
-                    id: 1,
-                    value: 20,
-                    allocation_id: ALLOCATION_ID_0,
-                    signer_address: SIGNER.1,
-                    timestamp_ns,
-                }
-            ))
+            SenderAllocationMessage::NewReceipt(NewReceiptNotification {
+                id: 1,
+                value: 20,
+                collection_id,
+                signer_address: SIGNER.1,
+                timestamp_ns,
+            })
         )
         .unwrap();
 

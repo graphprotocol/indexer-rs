@@ -44,7 +44,7 @@ use crate::{
         },
         sender_accounts_manager::{
             AllocationId, SenderAccountsManager, SenderAccountsManagerArgs,
-            SenderAccountsManagerMessage, SenderType,
+            SenderAccountsManagerMessage,
         },
     },
     tap::{
@@ -96,7 +96,9 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
         escrow_polling_interval: ESCROW_POLLING_INTERVAL,
         tap_sender_timeout: Duration::from_secs(63),
         trusted_senders: HashSet::new(),
-        tap_mode: indexer_config::TapMode::Legacy,
+        tap_mode: indexer_config::TapMode::Horizon {
+            subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+        },
         allocation_reconciliation_interval: Duration::from_secs(300),
     }))
 }
@@ -140,7 +142,9 @@ pub async fn create_sender_account(
         escrow_polling_interval: ESCROW_POLLING_INTERVAL,
         tap_sender_timeout: TAP_SENDER_TIMEOUT,
         trusted_senders,
-        tap_mode: indexer_config::TapMode::Legacy,
+        tap_mode: indexer_config::TapMode::Horizon {
+            subgraph_service_address: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+        },
         allocation_reconciliation_interval,
     }));
 
@@ -187,13 +191,11 @@ pub async fn create_sender_account(
         indexer_allocations: indexer_allocations_rx,
         escrow_subgraph,
         network_subgraph,
-        domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
         domain_separator_v2: TAP_EIP712_DOMAIN_SEPARATOR_V2.clone(),
         sender_aggregator_endpoint: aggregator_url,
         allocation_ids: HashSet::new(),
         prefix: Some(prefix.clone()),
         retry_interval: RETRY_DURATION,
-        sender_type: SenderType::Legacy,
     };
 
     let (sender, mut receiver) = mpsc::channel(100);
@@ -221,7 +223,6 @@ pub async fn create_sender_accounts_manager(
     pgpool: PgPool,
     network_subgraph: Option<&str>,
     escrow_subgraph: Option<&str>,
-    initial_escrow_accounts_v1: Option<EscrowAccounts>,
     initial_escrow_accounts_v2: Option<EscrowAccounts>,
 ) -> (
     String,
@@ -246,13 +247,6 @@ pub async fn create_sender_accounts_manager(
         )
         .await,
     ));
-    let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
-    if let Some(escrow_acccounts) = initial_escrow_accounts_v1 {
-        escrow_accounts_tx
-            .send(escrow_acccounts)
-            .expect("Failed to update escrow_accounts channel");
-    }
-
     let (escrow_accounts_tx_v2, escrow_accounts_rx_v2) = watch::channel(EscrowAccounts::default());
     if let Some(escrow_acccounts) = initial_escrow_accounts_v2 {
         escrow_accounts_tx_v2
@@ -263,11 +257,9 @@ pub async fn create_sender_accounts_manager(
     let prefix = generate_random_prefix();
     let args = SenderAccountsManagerArgs {
         config,
-        domain_separator: TAP_EIP712_DOMAIN_SEPARATOR.clone(),
         domain_separator_v2: TAP_EIP712_DOMAIN_SEPARATOR_V2.clone(),
         pgpool,
         indexer_allocations: allocations_rx,
-        escrow_accounts_v1: escrow_accounts_rx,
         escrow_accounts_v2: escrow_accounts_rx_v2,
         escrow_subgraph,
         network_subgraph,
@@ -347,13 +339,13 @@ pub fn create_rav_v2(
     value_aggregate: u128,
 ) -> tap_graph::v2::SignedRav {
     Eip712SignedMessage::new(
-        &TAP_EIP712_DOMAIN_SEPARATOR,
+        &TAP_EIP712_DOMAIN_SEPARATOR_V2,
         tap_graph::v2::ReceiptAggregateVoucher {
             collectionId: collection_id,
             timestampNs: timestamp_ns,
             valueAggregate: value_aggregate,
             payer: SENDER.1,
-            dataService: SENDER.1, // Use TAP_SENDER address to match context query
+            dataService: Address::from(SUBGRAPH_SERVICE_ADDRESS),
             serviceProvider: INDEXER.1,
             metadata: Bytes::new(),
         },
@@ -388,12 +380,12 @@ impl CreateReceipt for Horizon {
         use thegraph_core::CollectionId;
         let collection_id = *CollectionId::from(allocation_id);
         let receipt = Eip712SignedMessage::new(
-            &TAP_EIP712_DOMAIN_SEPARATOR,
+            &TAP_EIP712_DOMAIN_SEPARATOR_V2,
             tap_graph::v2::Receipt {
                 collection_id,
                 payer: SENDER.1,
                 service_provider: INDEXER.1,
-                data_service: SENDER.1, // Use TAP_SENDER address to match context query
+                data_service: Address::from(SUBGRAPH_SERVICE_ADDRESS),
                 nonce,
                 timestamp_ns,
                 value,
@@ -453,6 +445,32 @@ pub fn create_received_receipt(
     CheckingReceipt::new(indexer_receipt::TapReceipt::V1(receipt))
 }
 
+/// Fixture to generate a signed V2 receipt using the wallet from `keys()`
+pub fn create_received_receipt_v2(
+    allocation_id: &Address,
+    signer_wallet: &PrivateKeySigner,
+    nonce: u64,
+    timestamp_ns: u64,
+    value: u128,
+) -> CheckingReceipt {
+    let collection_id = *thegraph_core::CollectionId::from(*allocation_id);
+    let receipt = Eip712SignedMessage::new(
+        &TAP_EIP712_DOMAIN_SEPARATOR_V2,
+        tap_graph::v2::Receipt {
+            collection_id,
+            payer: SENDER.1,
+            service_provider: INDEXER.1,
+            data_service: Address::from(SUBGRAPH_SERVICE_ADDRESS),
+            nonce,
+            timestamp_ns,
+            value,
+        },
+        signer_wallet,
+    )
+    .unwrap();
+    CheckingReceipt::new(indexer_receipt::TapReceipt::V2(receipt))
+}
+
 pub async fn store_receipt(pgpool: &PgPool, signed_receipt: &TapReceipt) -> anyhow::Result<u64> {
     match signed_receipt {
         TapReceipt::V1(signed_receipt) => store_receipt_v1(pgpool, signed_receipt).await,
@@ -499,7 +517,7 @@ pub async fn store_receipt_v2(
     let encoded_signature = signed_receipt.signature.as_bytes().to_vec();
 
     let signer = signed_receipt
-        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR_V2)
         .unwrap()
         .encode_hex();
 
@@ -571,7 +589,7 @@ pub async fn store_batch_receipts(
                         .into_inner();
                 signers.push(
                     receipt
-                        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                        .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR_V2)
                         .unwrap()
                         .encode_hex(),
                 );
@@ -717,6 +735,21 @@ pub async fn store_rav(
         .await
 }
 
+pub async fn store_rav_v2(
+    pgpool: &PgPool,
+    signed_rav: tap_graph::v2::SignedRav,
+    sender: Address,
+) -> anyhow::Result<()> {
+    store_rav_v2_with_options()
+        .pgpool(pgpool)
+        .signed_rav(signed_rav)
+        .sender(sender)
+        .last(false)
+        .final_rav(false)
+        .call()
+        .await
+}
+
 // TODO use static and check for possible errors with connection refused
 pub async fn get_grpc_url() -> String {
     let (_, addr) = create_grpc_aggregator().await;
@@ -772,6 +805,51 @@ pub async fn store_rav_with_options(
         last,
         final_rav,
     )
+    .execute(pgpool)
+    .await?;
+
+    Ok(())
+}
+
+#[bon::builder]
+pub async fn store_rav_v2_with_options(
+    pgpool: &PgPool,
+    signed_rav: tap_graph::v2::SignedRav,
+    sender: Address,
+    last: bool,
+    final_rav: bool,
+) -> anyhow::Result<()> {
+    let signature_bytes = signed_rav.signature.as_bytes().to_vec();
+
+    sqlx::query(
+        r#"
+            INSERT INTO tap_horizon_ravs (
+                payer,
+                data_service,
+                service_provider,
+                metadata,
+                signature,
+                collection_id,
+                timestamp_ns,
+                value_aggregate,
+                last,
+                final
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        "#,
+    )
+    .bind(sender.encode_hex())
+    .bind(signed_rav.message.dataService.encode_hex())
+    .bind(signed_rav.message.serviceProvider.encode_hex())
+    .bind(signed_rav.message.metadata.as_ref())
+    .bind(signature_bytes)
+    .bind(signed_rav.message.collectionId.encode_hex())
+    .bind(BigDecimal::from(signed_rav.message.timestampNs))
+    .bind(BigDecimal::from(BigInt::from(
+        signed_rav.message.valueAggregate,
+    )))
+    .bind(last)
+    .bind(final_rav)
     .execute(pgpool)
     .await?;
 

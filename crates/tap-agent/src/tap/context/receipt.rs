@@ -422,16 +422,28 @@ mod test {
     use thegraph_core::alloy::{
         primitives::{Address, U256},
         signers::local::PrivateKeySigner,
+        sol_types::Eip712Domain,
     };
     use tokio::sync::watch::{self, Receiver};
 
     use super::*;
-    use crate::test::{store_receipt, CreateReceipt, SENDER_2};
+    use crate::test::{
+        store_receipt, CreateReceipt, SENDER_2, SUBGRAPH_SERVICE_ADDRESS,
+        TAP_EIP712_DOMAIN_SEPARATOR_V2,
+    };
 
     const ALLOCATION_ID_IRRELEVANT: Address = ALLOCATION_ID_1;
 
     static SENDER_IRRELEVANT: LazyLock<(PrivateKeySigner, Address)> =
         LazyLock::new(|| SENDER_2.clone());
+
+    fn receipt_domain_separator(receipt: &CheckingReceipt) -> &'static Eip712Domain {
+        if receipt.signed_receipt().collection_id().is_some() {
+            &TAP_EIP712_DOMAIN_SEPARATOR_V2
+        } else {
+            &TAP_EIP712_DOMAIN_SEPARATOR
+        }
+    }
 
     #[fixture]
     fn escrow_accounts() -> Receiver<EscrowAccounts> {
@@ -459,7 +471,7 @@ mod test {
         TapAgentContext::builder()
             .pgpool(pgpool)
             .escrow_accounts(escrow_accounts)
-            .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
+            .subgraph_service_address(Address::from(SUBGRAPH_SERVICE_ADDRESS))
             .build()
     }
 
@@ -541,7 +553,7 @@ mod test {
                         .get_sender_for_signer(
                             &received_receipt
                                 .signed_receipt()
-                                .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                                .recover_signer(receipt_domain_separator(received_receipt))
                                 .unwrap(),
                         )
                         .is_ok_and(|v| v == storage_adapter.sender)
@@ -618,7 +630,7 @@ mod test {
                             .get_sender_for_signer(
                                 &received_receipt
                                     .signed_receipt()
-                                    .recover_signer(&TAP_EIP712_DOMAIN_SEPARATOR)
+                                    .recover_signer(receipt_domain_separator(received_receipt))
                                     .unwrap(),
                             )
                             .is_ok_and(|v| v == storage_adapter.sender)
@@ -947,7 +959,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts)
-                .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
+                .subgraph_service_address(Address::from(SUBGRAPH_SERVICE_ADDRESS))
                 .build(),
             _test_db: test_db,
         };
@@ -1145,7 +1157,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts.clone())
-                .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
+                .subgraph_service_address(Address::from(SUBGRAPH_SERVICE_ADDRESS))
                 .build(),
             _test_db: test_db,
         };
@@ -1391,7 +1403,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts.clone())
-                .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
+                .subgraph_service_address(Address::from(SUBGRAPH_SERVICE_ADDRESS))
                 .build(),
             _test_db: test_db,
         };

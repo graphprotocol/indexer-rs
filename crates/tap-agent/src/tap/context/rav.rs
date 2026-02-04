@@ -336,7 +336,7 @@ mod test {
     use super::*;
     use crate::{
         tap::context::NetworkVersion,
-        test::{CreateRav, ALLOCATION_ID_0},
+        test::{CreateRav, ALLOCATION_ID_0, SUBGRAPH_SERVICE_ADDRESS},
     };
 
     #[derive(Debug)]
@@ -383,7 +383,7 @@ mod test {
         let context = TapAgentContext::builder()
             .pgpool(test_db.pool.clone())
             .escrow_accounts(watch::channel(EscrowAccounts::default()).1)
-            .subgraph_service_address(test_assets::TAP_SENDER.1) // Use a dummy address for tests
+            .subgraph_service_address(Address::from(SUBGRAPH_SERVICE_ADDRESS))
             .build();
         TestContextWithContainer {
             context,
