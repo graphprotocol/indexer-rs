@@ -15,11 +15,15 @@ use tokio::sync::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::tap::checks::{
-    allocation_eligible::AllocationEligible, allocation_redeemed::AllocationRedeemedCheck,
-    data_service_check::DataServiceCheck, deny_list_check::DenyListCheck, payer_check::PayerCheck,
-    receipt_max_val_check::ReceiptMaxValueCheck, sender_balance_check::SenderBalanceCheck,
-    timestamp_check::TimestampCheck, value_check::MinimumValue,
+use crate::{
+    constants::{TAP_RECEIPT_GRACE_PERIOD, TAP_RECEIPT_MAX_QUEUE_SIZE},
+    tap::checks::{
+        allocation_eligible::AllocationEligible, allocation_redeemed::AllocationRedeemedCheck,
+        data_service_check::DataServiceCheck, deny_list_check::DenyListCheck,
+        payer_check::PayerCheck, receipt_max_val_check::ReceiptMaxValueCheck,
+        sender_balance_check::SenderBalanceCheck, timestamp_check::TimestampCheck,
+        value_check::MinimumValue,
+    },
 };
 
 mod checks;
@@ -31,8 +35,6 @@ pub use checks::value_check::AgoraQuery;
 use self::checks::service_provider::ServiceProviderCheck;
 
 pub type CheckingReceipt = ReceiptWithState<Checking, TapReceipt>;
-
-const GRACE_PERIOD: u64 = 60;
 
 /// Configuration for TAP receipt checks.
 pub struct TapChecksConfig {
@@ -82,7 +84,7 @@ impl IndexerTapContext {
             Arc::new(TimestampCheck::new(config.timestamp_error_tolerance)),
             Arc::new(DenyListCheck::new(config.pgpool.clone()).await),
             Arc::new(ReceiptMaxValueCheck::new(config.receipt_max_value)),
-            Arc::new(MinimumValue::new(config.pgpool, Duration::from_secs(GRACE_PERIOD)).await),
+            Arc::new(MinimumValue::new(config.pgpool, TAP_RECEIPT_GRACE_PERIOD).await),
             Arc::new(ServiceProviderCheck::new(config.service_provider)),
             Arc::new(PayerCheck::new()),
         ];
@@ -99,8 +101,7 @@ impl IndexerTapContext {
         domain_separator: Eip712Domain,
         domain_separator_v2: Eip712Domain,
     ) -> Self {
-        const MAX_RECEIPT_QUEUE_SIZE: usize = 1000;
-        let (tx, rx) = mpsc::channel(MAX_RECEIPT_QUEUE_SIZE);
+        let (tx, rx) = mpsc::channel(TAP_RECEIPT_MAX_QUEUE_SIZE);
         let cancelation_token = CancellationToken::new();
         let inner = InnerContext { pgpool };
         Self::spawn_store_receipt_task(inner, rx, cancelation_token.clone());

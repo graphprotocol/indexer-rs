@@ -37,6 +37,11 @@ use tower_http::{
 
 use super::{release::IndexerServiceRelease, GraphNodeState};
 use crate::{
+    constants::{
+        DEFAULT_ROUTE_PATH, DISPUTE_MANAGER_POLL_INTERVAL, MISC_RATE_LIMIT_BURST_SIZE,
+        MISC_RATE_LIMIT_REPLENISH_INTERVAL, STATIC_SUBGRAPH_RATE_LIMIT_BURST_SIZE,
+        STATIC_SUBGRAPH_RATE_LIMIT_REPLENISH_INTERVAL,
+    },
     metrics::{FAILED_RECEIPT, HANDLER_HISTOGRAM},
     middleware::{
         allocation_middleware, attestation_middleware,
@@ -91,18 +96,6 @@ pub struct ServiceRouter {
     allocations: Option<AllocationWatcher>,
     dispute_manager: Option<DisputeManagerWatcher>,
 }
-
-const MISC_BURST_SIZE: u32 = 10;
-/// Replenish interval in milliseconds. 100ms = 10 req/s after burst is exhausted.
-const MISC_REPLENISH_INTERVAL_MS: u64 = 100;
-
-const STATIC_BURST_SIZE: u32 = 50;
-/// Replenish interval in milliseconds. 20ms = 50 req/s after burst is exhausted.
-const STATIC_REPLENISH_INTERVAL_MS: u64 = 20;
-
-const DISPUTE_MANAGER_INTERVAL: Duration = Duration::from_secs(3600);
-
-const DEFAULT_ROUTE: &str = "/";
 
 impl ServiceRouter {
     pub async fn create_router(self) -> anyhow::Result<Router> {
@@ -194,7 +187,7 @@ impl ServiceRouter {
         let dispute_manager = match (self.dispute_manager, self.network_subgraph.as_ref()) {
             (Some(dispute_manager), _) => dispute_manager,
             (_, Some((network_subgraph, _))) => {
-                dispute_manager(network_subgraph, DISPUTE_MANAGER_INTERVAL)
+                dispute_manager(network_subgraph, DISPUTE_MANAGER_POLL_INTERVAL)
                     .await
                     .expect("Failed to initialize dispute manager")
             }
@@ -214,13 +207,18 @@ impl ServiceRouter {
         // Rate limits by allowing bursts of 10 requests and requiring 100ms of
         // time between consecutive requests after that, effectively rate
         // limiting to 10 req/s.
-        let misc_rate_limiter = create_rate_limiter(MISC_REPLENISH_INTERVAL_MS, MISC_BURST_SIZE);
+        let misc_rate_limiter = create_rate_limiter(
+            MISC_RATE_LIMIT_REPLENISH_INTERVAL,
+            MISC_RATE_LIMIT_BURST_SIZE,
+        );
 
         // Rate limits by allowing bursts of 50 requests and requiring 20ms of
         // time between consecutive requests after that, effectively rate
         // limiting to 50 req/s.
-        let static_subgraph_rate_limiter =
-            create_rate_limiter(STATIC_REPLENISH_INTERVAL_MS, STATIC_BURST_SIZE);
+        let static_subgraph_rate_limiter = create_rate_limiter(
+            STATIC_SUBGRAPH_RATE_LIMIT_REPLENISH_INTERVAL,
+            STATIC_SUBGRAPH_RATE_LIMIT_BURST_SIZE,
+        );
 
         // load serve_network_subgraph route
         let serve_network_subgraph = match (
@@ -234,7 +232,7 @@ impl ServiceRouter {
                 let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
 
                 Router::new().route(
-                    DEFAULT_ROUTE,
+                    DEFAULT_ROUTE_PATH,
                     post(static_subgraph_request_handler)
                         .route_layer(auth_layer)
                         .route_layer(static_subgraph_rate_limiter.clone())
@@ -260,7 +258,7 @@ impl ServiceRouter {
                 let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
 
                 Router::new().route(
-                    DEFAULT_ROUTE,
+                    DEFAULT_ROUTE_PATH,
                     post(static_subgraph_request_handler)
                         .route_layer(auth_layer)
                         .route_layer(static_subgraph_rate_limiter)
@@ -425,7 +423,7 @@ impl ServiceRouter {
             );
 
         let version = match self.release {
-            Some(release) => Router::new().route(DEFAULT_ROUTE, get(Json(release))),
+            Some(release) => Router::new().route(DEFAULT_ROUTE_PATH, get(Json(release))),
             None => Router::new(),
         };
 
@@ -495,13 +493,13 @@ impl ServiceRouter {
 }
 
 fn create_rate_limiter(
-    replenish_interval_ms: u64,
+    replenish_interval: Duration,
     burst_size: u32,
 ) -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware<QuantaInstant>> {
     GovernorLayer {
         config: Arc::new(
             GovernorConfigBuilder::default()
-                .per_millisecond(replenish_interval_ms)
+                .per_millisecond(replenish_interval.as_millis() as u64)
                 .burst_size(burst_size)
                 .key_extractor(SmartIpKeyExtractor)
                 .finish()

@@ -16,15 +16,11 @@ use axum::{
 use graphql::graphql_parser::query as q;
 use serde::Deserialize;
 
-use crate::{error::SubgraphServiceError, service::GraphNodeState};
-
-/// Maximum allowed query size in bytes for status queries.
-/// 4KB is generous; legitimate queries are typically < 500 bytes.
-const MAX_STATUS_QUERY_SIZE: usize = 4096;
-
-/// Maximum nesting depth for query selection sets.
-/// Prevents stack overflow from deeply nested inline fragments or fragment spreads.
-const MAX_SELECTION_DEPTH: usize = 10;
+use crate::{
+    constants::{STATUS_QUERY_MAX_SELECTION_DEPTH, STATUS_QUERY_MAX_SIZE_BYTES},
+    error::SubgraphServiceError,
+    service::GraphNodeState,
+};
 
 static SUPPORTED_ROOT_FIELDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
@@ -62,10 +58,10 @@ fn extract_root_fields<'a>(
     visited_fragments: &mut HashSet<&'a str>,
     depth: usize,
 ) -> Result<HashSet<&'a str>, SubgraphServiceError> {
-    if depth > MAX_SELECTION_DEPTH {
+    if depth > STATUS_QUERY_MAX_SELECTION_DEPTH {
         return Err(SubgraphServiceError::InvalidStatusQuery(anyhow::anyhow!(
             "Query exceeds maximum nesting depth of {}",
-            MAX_SELECTION_DEPTH
+            STATUS_QUERY_MAX_SELECTION_DEPTH
         )));
     }
 
@@ -120,10 +116,10 @@ pub async fn status(
     body: Bytes,
 ) -> Result<impl IntoResponse, SubgraphServiceError> {
     // Check query size before any parsing to prevent memory exhaustion
-    if body.len() > MAX_STATUS_QUERY_SIZE {
+    if body.len() > STATUS_QUERY_MAX_SIZE_BYTES {
         return Err(SubgraphServiceError::InvalidStatusQuery(anyhow::anyhow!(
             "Query exceeds maximum size of {} bytes",
-            MAX_STATUS_QUERY_SIZE
+            STATUS_QUERY_MAX_SIZE_BYTES
         )));
     }
 
