@@ -1783,6 +1783,26 @@ pub mod tests {
             ))
             .await;
     }
+
+    /// Waits for the sender account deny state to match the expected value.
+    ///
+    /// Polls the deny state up to 10 times with 50ms intervals, returning early
+    /// if the expected state is reached. Returns the final deny state.
+    async fn wait_for_deny_state(
+        sender_account: &ActorRef<SenderAccountMessage>,
+        expected: bool,
+    ) -> bool {
+        let mut deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        for _ in 0..10 {
+            if deny == expected {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        }
+        deny
+    }
+
     struct TestSenderAccount {
         sender_account: ActorRef<SenderAccountMessage>,
         msg_receiver: mpsc::Receiver<SenderAccountMessage>,
@@ -2199,14 +2219,7 @@ pub mod tests {
         let (sender_account, _notify, _, _, _, _) =
             create_sender_account().pgpool(pgpool.clone()).call().await;
 
-        let mut deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
-        for _ in 0..10 {
-            if deny {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
-        }
+        let deny = wait_for_deny_state(&sender_account, true).await;
         assert!(deny);
     }
 
@@ -2652,14 +2665,7 @@ pub mod tests {
                 .await;
 
         flush_messages(&mut msg_receiver).await;
-        let mut deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
-        for _ in 0..10 {
-            if !deny {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
-        }
+        let deny = wait_for_deny_state(&sender_account, false).await;
         assert!(!deny, "should start unblocked");
 
         mock_server.reset().await;
@@ -2677,14 +2683,7 @@ pub mod tests {
         flush_messages(&mut msg_receiver).await;
 
         // should still be active with a 1 escrow available
-        let mut deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
-        for _ in 0..10 {
-            if !deny {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
-        }
+        let deny = wait_for_deny_state(&sender_account, false).await;
         assert!(!deny, "should keep unblocked");
 
         sender_account.stop_and_wait(None, None).await.unwrap();
@@ -2731,14 +2730,7 @@ pub mod tests {
 
         flush_messages(&mut msg_receiver).await;
 
-        let mut deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
-        for _ in 0..10 {
-            if deny {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
-        }
+        let deny = wait_for_deny_state(&sender_account, true).await;
         assert!(deny, "should block the sender");
 
         // simulate deposit
@@ -2751,14 +2743,7 @@ pub mod tests {
 
         flush_messages(&mut msg_receiver).await;
 
-        let mut deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
-        for _ in 0..10 {
-            if !deny {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
-        }
+        let deny = wait_for_deny_state(&sender_account, false).await;
         assert!(!deny, "should unblock the sender");
 
         sender_account.stop_and_wait(None, None).await.unwrap();
