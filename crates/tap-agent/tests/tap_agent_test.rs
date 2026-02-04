@@ -16,7 +16,10 @@ use indexer_tap_agent::{
         },
         sender_allocation::SenderAllocationMessage,
     },
-    test::{actors::TestableActor, create_received_receipt_v2, get_grpc_url, store_receipt},
+    test::{
+        actors::TestableActor, create_received_receipt_v2, get_grpc_url, store_receipt,
+        SUBGRAPH_SERVICE_ADDRESS,
+    },
 };
 use ractor::{call, concurrency::JoinHandle, Actor, ActorRef};
 use reqwest::Url;
@@ -33,8 +36,6 @@ use wiremock::{
     matchers::{body_string_contains, method},
     Mock, MockServer, ResponseTemplate,
 };
-
-pub static SUBGRAPH_SERVICE_ADDRESS: [u8; 20] = [0x11u8; 20];
 
 pub async fn start_agent(
     pgpool: PgPool,

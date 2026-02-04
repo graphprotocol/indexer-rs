@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use futures::{stream, StreamExt};
 use indexer_allocation::Allocation;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
@@ -856,7 +856,13 @@ async fn handle_notification(
         );
     };
 
-    let allocation_id = new_receipt_notification.allocation_id()?;
+    let allocation_id = new_receipt_notification.allocation_id().with_context(|| {
+        format!(
+            "Failed to parse collection_id from receipt notification (id={}, signer={})",
+            new_receipt_notification.id(),
+            new_receipt_notification.signer_address()
+        )
+    })?;
     let allocation_str = allocation_id.to_hex();
     tracing::info!(
         sender_address = %sender_address,

@@ -1539,8 +1539,6 @@ pub mod tests {
         },
     };
 
-    pub static SUBGRAPH_SERVICE_ADDRESS: [u8; 20] = [0x11u8; 20];
-
     #[rstest::fixture]
     async fn mock_escrow_subgraph_server() -> (MockServer, MockGuard) {
         mock_escrow_subgraph().await
