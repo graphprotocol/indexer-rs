@@ -218,14 +218,14 @@ pub(crate) mod test {
 
     pub async fn add_cost_models(pool: &PgPool, models: Vec<DbCostModel>) {
         for model in models {
-            sqlx::query!(
+            sqlx::query(
                 r#"
                 INSERT INTO "CostModels" (deployment, model)
                 VALUES ($1, $2);
                 "#,
-                model.deployment,
-                model.model,
             )
+            .bind(model.deployment)
+            .bind(model.model)
             .execute(pool)
             .await
             .expect("Create test instance in db");

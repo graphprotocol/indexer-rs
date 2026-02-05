@@ -161,11 +161,7 @@ async fn test_start_tap_agent() {
         receipts.push(receipt);
     }
     for receipt in receipts {
-        let signed = receipt
-            .signed_receipt()
-            .clone()
-            .as_v2()
-            .expect("expected v2 receipt");
+        let signed = receipt.signed_receipt().clone().as_v2();
         store_receipt(&pgpool, &signed)
             .await
             .expect("store receipt");

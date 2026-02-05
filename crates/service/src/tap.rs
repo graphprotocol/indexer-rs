@@ -120,9 +120,6 @@ pub enum AdapterError {
 
     #[error("Failed to receive storage result")]
     ChannelRecv(#[source] tokio::sync::oneshot::error::RecvError),
-
-    #[error("Receipt version not supported in Horizon-only mode")]
-    UnsupportedReceiptVersion,
 }
 
 impl IndexerTapContext {

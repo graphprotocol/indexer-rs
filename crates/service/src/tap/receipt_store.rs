@@ -106,7 +106,7 @@ impl InnerContext {
             nonces.push(receipt.nonce);
             values.push(receipt.value);
         }
-        let query_res = sqlx::query!(
+        let query_res = sqlx::query(
             r#"INSERT INTO tap_horizon_receipts (
                 signer_address,
                 signature,
@@ -128,16 +128,16 @@ impl InnerContext {
                 $8::NUMERIC(20)[],
                 $9::NUMERIC(40)[]
             )"#,
-            &signers,
-            &signatures,
-            &collection_ids,
-            &payers,
-            &data_services,
-            &service_providers,
-            &timestamps,
-            &nonces,
-            &values,
         )
+        .bind(&signers)
+        .bind(&signatures)
+        .bind(&collection_ids)
+        .bind(&payers)
+        .bind(&data_services)
+        .bind(&service_providers)
+        .bind(&timestamps)
+        .bind(&nonces)
+        .bind(&values)
         .execute(&self.pgpool)
         .await
         .map_err(|e| {
@@ -177,10 +177,7 @@ impl ReceiptStore<TapReceipt> for IndexerTapContext {
     type AdapterError = AdapterError;
 
     async fn store_receipt(&self, receipt: CheckingReceipt) -> Result<u64, Self::AdapterError> {
-        let separator = match receipt.signed_receipt() {
-            TapReceipt::V2(_) => &self.domain_separator_v2,
-            TapReceipt::V1(_) => return Err(AdapterError::UnsupportedReceiptVersion),
-        };
+        let separator = &self.domain_separator_v2;
         let db_receipt = DatabaseReceipt::from_receipt(receipt, separator)?;
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
         self.receipt_producer
@@ -205,10 +202,10 @@ impl DatabaseReceipt {
         receipt: CheckingReceipt,
         separator: &Eip712Domain,
     ) -> Result<Self, AdapterError> {
-        match receipt.signed_receipt() {
-            TapReceipt::V2(receipt) => Ok(Self(DbReceiptV2::from_receipt(receipt, separator)?)),
-            TapReceipt::V1(_) => Err(AdapterError::UnsupportedReceiptVersion),
-        }
+        Ok(Self(DbReceiptV2::from_receipt(
+            receipt.signed_receipt().get_v2_receipt(),
+            separator,
+        )?))
     }
 }
 

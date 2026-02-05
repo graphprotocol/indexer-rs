@@ -9,7 +9,7 @@ use std::{
 
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use indexer_receipt::TapReceipt;
-use sqlx::{postgres::types::PgRange, types::BigDecimal};
+use sqlx::{postgres::types::PgRange, types::BigDecimal, Row};
 use tap_core::manager::adapters::{safe_truncate_receipts, ReceiptDelete, ReceiptRead};
 use thegraph_core::{
     alloy::{
@@ -105,7 +105,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
             "retrieve_receipts_in_timestamp_range called",
         );
 
-        let records = sqlx::query!(
+        let records = sqlx::query(
             r#"
                 SELECT 
                     id,
@@ -128,46 +128,72 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                 ORDER BY timestamp_ns ASC
                 LIMIT $7
             "#,
-            CollectionId::from(self.allocation_id).encode_hex(),
-            self.sender.encode_hex(),
+        )
+        .bind(CollectionId::from(self.allocation_id).encode_hex())
+        .bind(self.sender.encode_hex())
+        .bind(
             self.subgraph_service_address()
                 .ok_or_else(|| AdapterError::ReceiptRead {
                     error: "SubgraphService address not available - check TapMode configuration"
                         .to_string(),
                 })?
                 .encode_hex(),
-            self.indexer_address.encode_hex(),
-            &signers,
-            rangebounds_to_pgrange(timestamp_range_ns),
-            (receipts_limit + 1) as i64,
         )
+        .bind(self.indexer_address.encode_hex())
+        .bind(&signers)
+        .bind(rangebounds_to_pgrange(timestamp_range_ns))
+        .bind((receipts_limit + 1) as i64)
         .fetch_all(&self.pgpool)
         .await?;
         let mut receipts = records
             .into_iter()
             .map(|record| {
-                let signature = record.signature.as_slice().try_into()
-                    .map_err(|e| AdapterError::ReceiptRead {
+                let signature_bytes: Vec<u8> = record.try_get("signature").map_err(|e| {
+                    AdapterError::ReceiptRead {
                         error: format!(
                             "Error decoding signature while retrieving receipt from database: {e}"
                         ),
-                    })?;
-                let collection_id = FixedBytes::<32>::from_str(&record.collection_id).map_err(|e| {
+                    }
+                })?;
+                let signature = signature_bytes.as_slice().try_into().map_err(|e| {
+                    AdapterError::ReceiptRead {
+                        error: format!(
+                            "Error decoding signature while retrieving receipt from database: {e}"
+                        ),
+                    }
+                })?;
+                let collection_id: String = record.try_get("collection_id").map_err(|e| {
                     AdapterError::ReceiptRead {
                         error: format!(
                             "Error decoding collection_id while retrieving receipt from database: {e}"
                         ),
                     }
                 })?;
-                let payer = Address::from_str(&record.payer).map_err(|e| {
+                let collection_id = FixedBytes::<32>::from_str(&collection_id).map_err(|e| {
                     AdapterError::ReceiptRead {
                         error: format!(
-                            "Error decoding payer while retrieving receipt from database: {e}"
+                            "Error decoding collection_id while retrieving receipt from database: {e}"
                         ),
                     }
                 })?;
+                let payer: String = record.try_get("payer").map_err(|e| AdapterError::ReceiptRead {
+                    error: format!(
+                        "Error decoding payer while retrieving receipt from database: {e}"
+                    ),
+                })?;
+                let payer = Address::from_str(&payer).map_err(|e| AdapterError::ReceiptRead {
+                    error: format!(
+                        "Error decoding payer while retrieving receipt from database: {e}"
+                    ),
+                })?;
 
-                let data_service = Address::from_str(&record.data_service).map_err(|e| {
+                let data_service: String =
+                    record.try_get("data_service").map_err(|e| AdapterError::ReceiptRead {
+                        error: format!(
+                            "Error decoding data_service while retrieving receipt from database: {e}"
+                        ),
+                    })?;
+                let data_service = Address::from_str(&data_service).map_err(|e| {
                     AdapterError::ReceiptRead {
                         error: format!(
                             "Error decoding data_service while retrieving receipt from database: {e}"
@@ -175,7 +201,13 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                     }
                 })?;
 
-                let service_provider = Address::from_str(&record.service_provider).map_err(|e| {
+                let service_provider: String =
+                    record.try_get("service_provider").map_err(|e| AdapterError::ReceiptRead {
+                        error: format!(
+                            "Error decoding service_provider while retrieving receipt from database: {e}"
+                        ),
+                    })?;
+                let service_provider = Address::from_str(&service_provider).map_err(|e| {
                     AdapterError::ReceiptRead {
                         error: format!(
                             "Error decoding service_provider while retrieving receipt from database: {e}"
@@ -183,21 +215,41 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                     }
                 })?;
 
-                let timestamp_ns = record
-                    .timestamp_ns
+                let timestamp_ns: BigDecimal =
+                    record.try_get("timestamp_ns").map_err(|e| AdapterError::ReceiptRead {
+                        error: format!(
+                            "Error decoding timestamp_ns while retrieving receipt from database: {e}"
+                        ),
+                    })?;
+                let timestamp_ns = timestamp_ns
                     .to_u64()
                     .ok_or(AdapterError::ReceiptRead {
                         error: "Error decoding timestamp_ns while retrieving receipt from database"
                             .to_string(),
                     })?;
-                let nonce = record.nonce.to_u64().ok_or(AdapterError::ReceiptRead {
+                let nonce: BigDecimal =
+                    record.try_get("nonce").map_err(|e| AdapterError::ReceiptRead {
+                        error: format!(
+                            "Error decoding nonce while retrieving receipt from database: {e}"
+                        ),
+                    })?;
+                let nonce = nonce.to_u64().ok_or(AdapterError::ReceiptRead {
                     error: "Error decoding nonce while retrieving receipt from database".to_string(),
                 })?;
                 // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
                 // So we're converting to BigInt to get a proper implementation of to_u128().
-                let value = record.value.to_bigint().and_then(|v| v.to_u128()).ok_or(AdapterError::ReceiptRead {
-                    error: "Error decoding value while retrieving receipt from database".to_string(),
-                })?;
+                let value: BigDecimal =
+                    record.try_get("value").map_err(|e| AdapterError::ReceiptRead {
+                        error: format!(
+                            "Error decoding value while retrieving receipt from database: {e}"
+                        ),
+                    })?;
+                let value = value
+                    .to_bigint()
+                    .and_then(|v| v.to_u128())
+                    .ok_or(AdapterError::ReceiptRead {
+                        error: "Error decoding value while retrieving receipt from database".to_string(),
+                    })?;
 
                 let signed_receipt = tap_graph::v2::SignedReceipt {
                     message: tap_graph::v2::Receipt {
@@ -242,7 +294,7 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
                 error: format!("{e:?}."),
             })?;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
                 DELETE FROM tap_horizon_receipts
                 WHERE
@@ -253,18 +305,20 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
                     AND data_service = $5
                     AND service_provider = $6
             "#,
-            CollectionId::from(self.allocation_id).encode_hex(),
-            &signers,
-            rangebounds_to_pgrange(timestamp_ns),
-            self.sender.encode_hex(),
+        )
+        .bind(CollectionId::from(self.allocation_id).encode_hex())
+        .bind(&signers)
+        .bind(rangebounds_to_pgrange(timestamp_ns))
+        .bind(self.sender.encode_hex())
+        .bind(
             self.subgraph_service_address()
                 .ok_or_else(|| AdapterError::ReceiptDelete {
                     error: "SubgraphService address not available - check TapMode configuration"
                         .to_string(),
                 })?
                 .encode_hex(),
-            self.indexer_address.encode_hex(),
         )
+        .bind(self.indexer_address.encode_hex())
         .execute(&self.pgpool)
         .await?;
         Ok(())
@@ -283,7 +337,7 @@ mod test {
     use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
     use indexer_monitor::EscrowAccounts;
     use rstest::fixture;
-    use sqlx::PgPool;
+    use sqlx::{PgPool, Row};
     use tap_core::{
         manager::adapters::{ReceiptDelete, ReceiptRead},
         receipt::{WithUniqueId, WithValueAndTimestamp},
@@ -349,11 +403,7 @@ mod test {
             T::create_received_receipt(ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX);
 
         // Storing the receipt
-        let signed = received_receipt
-            .signed_receipt()
-            .clone()
-            .as_v2()
-            .expect("expected v2 receipt");
+        let signed = received_receipt.signed_receipt().clone().as_v2();
         store_receipt(&context.pgpool, &signed).await.unwrap();
 
         let retrieved_receipt = context
@@ -385,13 +435,9 @@ mod test {
         let received_receipt_vec: Vec<_> = received_receipt_vec
             .iter()
             .filter(|received_receipt| {
-                use thegraph_core::CollectionId;
-                let expected_collection_id = *CollectionId::from(storage_adapter.allocation_id);
-
-                let id_matches = received_receipt.signed_receipt().allocation_id()
-                    == Some(storage_adapter.allocation_id)
-                    || received_receipt.signed_receipt().collection_id()
-                        == Some(expected_collection_id);
+                let expected_collection_id = CollectionId::from(storage_adapter.allocation_id);
+                let id_matches =
+                    expected_collection_id == received_receipt.signed_receipt().collection_id();
 
                 range.contains(&received_receipt.signed_receipt().timestamp_ns())
                     && id_matches
@@ -450,11 +496,7 @@ mod test {
             // Storing the receipts
             let mut received_receipt_id_vec = Vec::new();
             for received_receipt in received_receipt_vec.iter() {
-                let signed = received_receipt
-                    .signed_receipt()
-                    .clone()
-                    .as_v2()
-                    .expect("expected v2 receipt");
+                let signed = received_receipt.signed_receipt().clone().as_v2();
                 received_receipt_id_vec.push(
                     store_receipt(&storage_adapter.pgpool, &signed)
                         .await
@@ -473,10 +515,8 @@ mod test {
             let received_receipt_vec: Vec<_> = received_receipt_vec
                 .iter()
                 .filter(|(_, received_receipt)| {
-                    use thegraph_core::CollectionId;
-                    let expected_collection_id = *CollectionId::from(storage_adapter.allocation_id);
-                    if (received_receipt.signed_receipt().collection_id()
-                        == Some(expected_collection_id))
+                    let expected_collection_id = CollectionId::from(storage_adapter.allocation_id);
+                    if expected_collection_id == received_receipt.signed_receipt().collection_id()
                         && escrow_accounts_snapshot
                             .get_sender_for_signer(
                                 &received_receipt
@@ -501,7 +541,7 @@ mod test {
                 .await?;
 
             // Retrieving all receipts in DB (including irrelevant ones)
-            let records = sqlx::query!(
+            let records = sqlx::query(
                 r#"
                 SELECT 
                     signature,
@@ -513,7 +553,7 @@ mod test {
                     nonce,
                     value
                 FROM tap_horizon_receipts
-            "#
+            "#,
             )
             .fetch_all(&storage_adapter.pgpool)
             .await?;
@@ -525,21 +565,24 @@ mod test {
             let recovered_received_receipt_set: Vec<_> = records
                 .into_iter()
                 .map(|record| {
-                    let signature = record.signature.as_slice().try_into().unwrap();
-                    let collection_id = FixedBytes::<32>::from_str(&record.collection_id).unwrap();
-                    let payer = Address::from_str(&record.payer).unwrap();
-                    let data_service = Address::from_str(&record.data_service).unwrap();
-                    let service_provider = Address::from_str(&record.service_provider).unwrap();
-                    let timestamp_ns = record.timestamp_ns.to_u64().unwrap();
-                    let nonce = record.nonce.to_u64().unwrap();
+                    let signature_bytes: Vec<u8> = record.try_get("signature").unwrap();
+                    let signature = signature_bytes.as_slice().try_into().unwrap();
+                    let collection_id: String = record.try_get("collection_id").unwrap();
+                    let collection_id = FixedBytes::<32>::from_str(&collection_id).unwrap();
+                    let payer: String = record.try_get("payer").unwrap();
+                    let payer = Address::from_str(&payer).unwrap();
+                    let data_service: String = record.try_get("data_service").unwrap();
+                    let data_service = Address::from_str(&data_service).unwrap();
+                    let service_provider: String = record.try_get("service_provider").unwrap();
+                    let service_provider = Address::from_str(&service_provider).unwrap();
+                    let timestamp_ns: BigDecimal = record.try_get("timestamp_ns").unwrap();
+                    let timestamp_ns = timestamp_ns.to_u64().unwrap();
+                    let nonce: BigDecimal = record.try_get("nonce").unwrap();
+                    let nonce = nonce.to_u64().unwrap();
                     // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
                     // So we're converting to BigInt to get a proper implementation of to_u128().
-                    let value = record
-                        .value
-                        .to_bigint()
-                        .map(|v| v.to_u128())
-                        .unwrap()
-                        .unwrap();
+                    let value: BigDecimal = record.try_get("value").unwrap();
+                    let value = value.to_bigint().map(|v| v.to_u128()).unwrap().unwrap();
 
                     let signed_receipt = tap_graph::v2::SignedReceipt {
                         message: tap_graph::v2::Receipt {
@@ -564,24 +607,25 @@ mod test {
             }));
 
             // Removing all the receipts in the DB
-            sqlx::query!(
+            sqlx::query(
                 r#"
                 DELETE FROM tap_horizon_receipts
-            "#
+            "#,
             )
             .execute(&storage_adapter.pgpool)
             .await?;
 
             // Checking that there are no receipts left
-            let scalar_tap_receipts_db_count: i64 = sqlx::query!(
+            let scalar_tap_receipts_db_count: i64 = sqlx::query(
                 r#"
                 SELECT count(*)
                 FROM tap_horizon_receipts
-            "#
+            "#,
             )
             .fetch_one(&storage_adapter.pgpool)
             .await?
-            .count
+            .try_get::<Option<i64>, _>("count")
+            .unwrap()
             .unwrap();
             assert_eq!(scalar_tap_receipts_db_count, 0);
             Ok(())
@@ -627,11 +671,7 @@ mod test {
                 i + 42,
                 (i + 124).into(),
             );
-            let signed = receipt
-                .signed_receipt()
-                .clone()
-                .as_v2()
-                .expect("expected v2 receipt");
+            let signed = receipt.signed_receipt().clone().as_v2();
             store_receipt(&context.pgpool, &signed).await.unwrap();
         }
 
@@ -656,11 +696,7 @@ mod test {
                 i + 43,
                 (i + 124).into(),
             );
-            let signed = receipt
-                .signed_receipt()
-                .clone()
-                .as_v2()
-                .expect("expected v2 receipt");
+            let signed = receipt.signed_receipt().clone().as_v2();
             store_receipt(&context.pgpool, &signed).await.unwrap();
         }
 
@@ -726,11 +762,7 @@ mod test {
         // Storing the receipts
         let mut received_receipt_id_vec = Vec::new();
         for received_receipt in received_receipt_vec.iter() {
-            let signed = received_receipt
-                .signed_receipt()
-                .clone()
-                .as_v2()
-                .expect("expected v2 receipt");
+            let signed = received_receipt.signed_receipt().clone().as_v2();
             received_receipt_id_vec.push(store_receipt(&context.pgpool, &signed).await.unwrap());
         }
 

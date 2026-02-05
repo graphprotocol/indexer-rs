@@ -157,24 +157,17 @@ impl Check<TapReceipt> for DenyListCheck {
     async fn check(
         &self,
         ctx: &tap_core::receipt::Context,
-        receipt: &CheckingReceipt,
+        _receipt: &CheckingReceipt,
     ) -> CheckResult {
         let Sender(receipt_sender) = ctx
             .get::<Sender>()
             .ok_or(CheckError::Failed(anyhow::anyhow!("Could not find sender")))?;
 
-        let denied = match receipt.signed_receipt() {
-            TapReceipt::V2(_) => self
-                .sender_denylist_v2
-                .read()
-                .unwrap()
-                .contains(receipt_sender),
-            TapReceipt::V1(_) => {
-                return Err(CheckError::Failed(anyhow::anyhow!(
-                    "Receipt v1 received but Horizon-only mode is enabled"
-                )))
-            }
-        };
+        let denied = self
+            .sender_denylist_v2
+            .read()
+            .unwrap()
+            .contains(receipt_sender);
 
         // Check that the sender is not denylisted
         if denied {

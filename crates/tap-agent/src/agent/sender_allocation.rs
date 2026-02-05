@@ -13,7 +13,7 @@ use bigdecimal::{num_bigint::BigInt, ToPrimitive};
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
-use sqlx::{types::BigDecimal, PgPool};
+use sqlx::{types::BigDecimal, PgPool, Row};
 use tap_core::{
     manager::adapters::{RavRead, RavStore, ReceiptDelete, ReceiptRead},
     rav_request::RavRequest,
@@ -625,11 +625,10 @@ where
 
                 // Instrumentation: log details before calling the aggregator
                 let receipt_count = valid_receipts.len();
-                let first_signer = valid_receipts.first().and_then(|r| match r {
-                    indexer_receipt::TapReceipt::V2(sr) => {
-                        sr.recover_signer(&self.domain_separator).ok()
-                    }
-                    indexer_receipt::TapReceipt::V1(_) => None,
+                let first_signer = valid_receipts.first().and_then(|r| {
+                    r.get_v2_receipt()
+                        .recover_signer(&self.domain_separator)
+                        .ok()
                 });
                 tracing::info!(
                     sender = %self.sender,
@@ -740,12 +739,8 @@ where
         let mut receipts_v2 = Vec::with_capacity(receipts.len());
         for receipt in receipts {
             let error = receipt.clone().error().to_string();
-            match receipt.signed_receipt().clone() {
-                TapReceipt::V2(receipt) => receipts_v2.push((receipt, error)),
-                TapReceipt::V1(_) => {
-                    anyhow::bail!("V1 receipt encountered in Horizon-only mode");
-                }
-            }
+            let receipt = receipt.signed_receipt().clone().as_v2();
+            receipts_v2.push((receipt, error));
         }
 
         if let Err(err) = self.store_v2_invalid_receipts(receipts_v2).await {
@@ -823,7 +818,7 @@ where
             values.push(BigDecimal::from(BigInt::from(receipt.message.value)));
             error_logs.push(receipt_error);
         }
-        sqlx::query!(
+        sqlx::query(
             r#"INSERT INTO tap_horizon_receipts_invalid (
                 signer_address,
                 signature,
@@ -847,17 +842,17 @@ where
                 $9::NUMERIC(40)[],
                 $10::TEXT[]
             )"#,
-            &reciepts_signers,
-            &encoded_signatures,
-            &collection_ids,
-            &payers,
-            &data_services,
-            &service_providers,
-            &timestamps,
-            &nonces,
-            &values,
-            &error_logs
         )
+        .bind(&reciepts_signers)
+        .bind(&encoded_signatures)
+        .bind(&collection_ids)
+        .bind(&payers)
+        .bind(&data_services)
+        .bind(&service_providers)
+        .bind(&timestamps)
+        .bind(&nonces)
+        .bind(&values)
+        .bind(&error_logs)
         .execute(&self.pgpool)
         .await
         .map_err(|e: sqlx::Error| {
@@ -877,7 +872,7 @@ where
     ) -> anyhow::Result<()> {
         // Failed Ravs are stored as json, we don't need to have a copy of the table
         // TODO update table name?
-        sqlx::query!(
+        sqlx::query(
             r#"
                 INSERT INTO scalar_tap_rav_requests_failed (
                     allocation_id,
@@ -888,12 +883,12 @@ where
                 )
                 VALUES ($1, $2, $3, $4, $5)
             "#,
-            T::allocation_id_to_address(&self.allocation_id).encode_hex(),
-            self.sender.encode_hex(),
-            serde_json::to_value(expected_rav)?,
-            serde_json::to_value(rav)?,
-            reason
         )
+        .bind(T::allocation_id_to_address(&self.allocation_id).encode_hex())
+        .bind(self.sender.encode_hex())
+        .bind(serde_json::to_value(expected_rav)?)
+        .bind(serde_json::to_value(rav)?)
+        .bind(reason)
         .execute(&self.pgpool)
         .await
         .map_err(|e| anyhow!("Failed to store failed RAV: {:?}", e))?;
@@ -935,7 +930,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
         min_timestamp: u64,
         max_timestamp: u64,
     ) -> anyhow::Result<()> {
-        sqlx::query!(
+        sqlx::query(
             r#"
                         DELETE FROM tap_horizon_receipts
                         WHERE timestamp_ns BETWEEN $1 AND $2
@@ -945,17 +940,19 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                         AND data_service = $6
                         AND signer_address IN (SELECT unnest($7::text[]));
                     "#,
-            BigDecimal::from(min_timestamp),
-            BigDecimal::from(max_timestamp),
-            // self.allocation_id is already a CollectionId in Horizon state
-            self.allocation_id.encode_hex(),
-            self.indexer_address.encode_hex(),
-            self.sender.encode_hex(),
+        )
+        .bind(BigDecimal::from(min_timestamp))
+        .bind(BigDecimal::from(max_timestamp))
+        // self.allocation_id is already a CollectionId in Horizon state
+        .bind(self.allocation_id.encode_hex())
+        .bind(self.indexer_address.encode_hex())
+        .bind(self.sender.encode_hex())
+        .bind(
             self.data_service
                 .expect("data_service should be available in Horizon mode")
                 .encode_hex(),
-            &signers,
         )
+        .bind(signers)
         .execute(&self.pgpool)
         .await?;
         Ok(())
@@ -965,7 +962,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
         tracing::trace!("calculate_invalid_receipts_fee()");
         let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
 
-        let res = sqlx::query!(
+        let res = sqlx::query(
             r#"
             SELECT
                 MAX(id),
@@ -980,32 +977,36 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 AND data_service = $4
                 AND signer_address IN (SELECT unnest($5::text[]))
             "#,
-            // self.allocation_id is already a CollectionId in Horizon state
-            self.allocation_id.encode_hex(),
-            self.indexer_address.encode_hex(),
-            self.sender.encode_hex(),
+        )
+        // self.allocation_id is already a CollectionId in Horizon state
+        .bind(self.allocation_id.encode_hex())
+        .bind(self.indexer_address.encode_hex())
+        .bind(self.sender.encode_hex())
+        .bind(
             self.data_service
                 .expect("data_service should be available in Horizon mode")
                 .encode_hex(),
-            &signers
         )
+        .bind(signers)
         .fetch_one(&self.pgpool)
         .await?;
 
+        let max: Option<i64> = res.try_get("max")?;
+        let sum: Option<BigDecimal> = res.try_get("sum")?;
+        let count: Option<i64> = res.try_get("count")?;
+
         ensure!(
-            res.sum.is_none() == res.max.is_none(),
+            sum.is_none() == max.is_none(),
             "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
         );
 
         Ok(UnaggregatedReceipts {
-            last_id: res.max.unwrap_or(0).try_into()?,
-            value: res
-                .sum
+            last_id: max.unwrap_or(0).try_into()?,
+            value: sum
                 .unwrap_or(BigDecimal::from(0))
                 .to_string()
                 .parse::<u128>()?,
-            counter: res
-                .count
+            counter: count
                 .unwrap_or(0)
                 .to_u64()
                 .expect("default value exists, this shouldn't be empty"),
@@ -1020,7 +1021,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
         self.tap_manager.remove_obsolete_receipts().await?;
 
         let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
-        let res = sqlx::query!(
+        let res = sqlx::query(
             r#"
             SELECT
                 MAX(id),
@@ -1037,39 +1038,43 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 AND signer_address IN (SELECT unnest($6::text[]))
                 AND timestamp_ns > $7
             "#,
-            // self.allocation_id is already a CollectionId in Horizon state
-            self.allocation_id.encode_hex(),
-            self.indexer_address.encode_hex(),
-            self.sender.encode_hex(),
+        )
+        // self.allocation_id is already a CollectionId in Horizon state
+        .bind(self.allocation_id.encode_hex())
+        .bind(self.indexer_address.encode_hex())
+        .bind(self.sender.encode_hex())
+        .bind(
             self.data_service
                 .expect("data_service should be available in Horizon mode")
                 .encode_hex(),
-            last_id,
-            &signers,
-            BigDecimal::from(
-                self.latest_rav
-                    .as_ref()
-                    .map(|rav| rav.message.timestamp_ns())
-                    .unwrap_or_default()
-            ),
         )
+        .bind(last_id)
+        .bind(signers)
+        .bind(BigDecimal::from(
+            self.latest_rav
+                .as_ref()
+                .map(|rav| rav.message.timestamp_ns())
+                .unwrap_or_default(),
+        ))
         .fetch_one(&self.pgpool)
         .await?;
 
+        let max: Option<i64> = res.try_get("max")?;
+        let sum: Option<BigDecimal> = res.try_get("sum")?;
+        let count: Option<i64> = res.try_get("count")?;
+
         ensure!(
-            res.sum.is_none() == res.max.is_none(),
+            sum.is_none() == max.is_none(),
             "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
         );
 
         Ok(UnaggregatedReceipts {
-            last_id: res.max.unwrap_or(0).try_into()?,
-            value: res
-                .sum
+            last_id: max.unwrap_or(0).try_into()?,
+            value: sum
                 .unwrap_or(BigDecimal::from(0))
                 .to_string()
                 .parse::<u128>()?,
-            counter: res
-                .count
+            counter: count
                 .unwrap_or(0)
                 .to_u64()
                 .expect("default value exists, this shouldn't be empty"),
@@ -1084,7 +1089,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             "Marking rav as last!",
         );
 
-        let updated_rows = sqlx::query!(
+        let updated_rows = sqlx::query(
             r#"
                 UPDATE tap_horizon_ravs
                     SET last = true
@@ -1094,10 +1099,12 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                     AND service_provider = $3
                     AND data_service = $4
             "#,
-            // self.allocation_id is already a CollectionId in Horizon state
-            self.allocation_id.encode_hex(),
-            self.sender.encode_hex(),
-            self.indexer_address.encode_hex(),
+        )
+        // self.allocation_id is already a CollectionId in Horizon state
+        .bind(self.allocation_id.encode_hex())
+        .bind(self.sender.encode_hex())
+        .bind(self.indexer_address.encode_hex())
+        .bind(
             self.data_service
                 .expect("data_service should be available in Horizon mode")
                 .encode_hex(),

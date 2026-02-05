@@ -27,29 +27,20 @@ impl Check<TapReceipt> for SenderBalanceCheck {
     async fn check(
         &self,
         ctx: &tap_core::receipt::Context,
-        receipt: &CheckingReceipt,
+        _receipt: &CheckingReceipt,
     ) -> CheckResult {
         let Sender(receipt_sender) = ctx
             .get::<Sender>()
             .ok_or(CheckError::Failed(anyhow::anyhow!("Could not find sender")))?;
 
         // get balance for escrow account given receipt type
-        let balance_result = match receipt.signed_receipt() {
-            TapReceipt::V2(_) => {
-                if let Some(ref escrow_accounts_v2) = self.escrow_accounts_v2 {
-                    let escrow_accounts_snapshot_v2 = escrow_accounts_v2.borrow();
-                    escrow_accounts_snapshot_v2.get_balance_for_sender(receipt_sender)
-                } else {
-                    return Err(CheckError::Failed(anyhow!(
-                        "Receipt v2 received but no escrow accounts v2 watcher is available"
-                    )));
-                }
-            }
-            TapReceipt::V1(_) => {
-                return Err(CheckError::Failed(anyhow!(
-                    "Receipt v1 received but Horizon-only mode is enabled"
-                )));
-            }
+        let balance_result = if let Some(ref escrow_accounts_v2) = self.escrow_accounts_v2 {
+            let escrow_accounts_snapshot_v2 = escrow_accounts_v2.borrow();
+            escrow_accounts_snapshot_v2.get_balance_for_sender(receipt_sender)
+        } else {
+            return Err(CheckError::Failed(anyhow!(
+                "Receipt v2 received but no escrow accounts v2 watcher is available"
+            )));
         };
 
         // Check that the sender has a non-zero balance -- more advanced accounting is done in

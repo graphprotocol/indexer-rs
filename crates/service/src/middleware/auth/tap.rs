@@ -64,14 +64,7 @@ where
                     IndexerServiceError::ReceiptNotFound
                 })?;
 
-                let version = match &receipt {
-                    TapReceipt::V2(_) => "V2",
-                    TapReceipt::V1(_) => {
-                        return Err(IndexerServiceError::InvalidTapReceipt(
-                            "Receipt v1 received but Horizon-only mode is enabled".into(),
-                        ))
-                    }
-                };
+                let version = "V2";
                 tracing::debug!(receipt_version = version, "Starting TAP receipt validation");
 
                 // Verify the receipt and store it in the database

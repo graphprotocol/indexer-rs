@@ -16,7 +16,7 @@ use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Url;
-use sqlx::{types::BigDecimal, PgPool};
+use sqlx::{types::BigDecimal, PgPool, Row};
 use tap_aggregator::server::run_server;
 use tap_core::signed_message::Eip712SignedMessage;
 use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
@@ -378,7 +378,7 @@ pub async fn store_receipt(
         .unwrap()
         .encode_hex();
 
-    let record = sqlx::query!(
+    let record = sqlx::query(
         r#"
             INSERT INTO tap_horizon_receipts (
                 signer_address,
@@ -393,21 +393,22 @@ pub async fn store_receipt(
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id
         "#,
-        signer,
-        encoded_signature,
-        signed_receipt.message.collection_id.encode_hex(),
-        signed_receipt.message.payer.encode_hex(),
-        signed_receipt.message.data_service.encode_hex(),
-        signed_receipt.message.service_provider.encode_hex(),
-        BigDecimal::from(signed_receipt.message.timestamp_ns),
-        BigDecimal::from(signed_receipt.message.nonce),
-        BigDecimal::from(BigInt::from(signed_receipt.message.value)),
     )
+    .bind(signer)
+    .bind(encoded_signature)
+    .bind(signed_receipt.message.collection_id.encode_hex())
+    .bind(signed_receipt.message.payer.encode_hex())
+    .bind(signed_receipt.message.data_service.encode_hex())
+    .bind(signed_receipt.message.service_provider.encode_hex())
+    .bind(BigDecimal::from(signed_receipt.message.timestamp_ns))
+    .bind(BigDecimal::from(signed_receipt.message.nonce))
+    .bind(BigDecimal::from(BigInt::from(signed_receipt.message.value)))
     .fetch_one(pgpool)
     .await?;
 
     // id is BIGSERIAL, so it should be safe to cast to u64.
-    let id: u64 = record.id.try_into()?;
+    let id: i64 = record.try_get("id")?;
+    let id: u64 = id.try_into()?;
     Ok(id)
 }
 

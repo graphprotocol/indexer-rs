@@ -31,10 +31,9 @@ pub async fn allocation_middleware(
     next: Next,
 ) -> Response {
     if let Some(receipt) = request.extensions().get::<TapReceipt>() {
-        if let TapReceipt::V2(r) = receipt {
-            let allocation_id = AllocationId::from(CollectionId::from(r.message.collection_id));
-            request.extensions_mut().insert(allocation_id);
-        }
+        let receipt = receipt.get_v2_receipt();
+        let allocation_id = AllocationId::from(CollectionId::from(receipt.message.collection_id));
+        request.extensions_mut().insert(allocation_id);
     } else if let Some(deployment_id) = request.extensions().get::<DeploymentId>() {
         if let Some(allocation_id) = my_state
             .deployment_to_allocation

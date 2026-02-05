@@ -60,10 +60,7 @@ impl Check<TapReceipt> for AllocationId {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let collection_id = receipt
-            .signed_receipt()
-            .collection_id()
-            .ok_or_else(|| CheckError::Failed(anyhow!("Receipt does not have a collection_id")))?;
+        let collection_id = receipt.signed_receipt().collection_id();
         if self.collection_id != collection_id {
             return Err(CheckError::Failed(anyhow!(
                 "Receipt collection_id different from expected: collection_id: {:?}, expected_collection_id: {}",

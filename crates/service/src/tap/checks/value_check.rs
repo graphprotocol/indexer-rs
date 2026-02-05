@@ -11,6 +11,7 @@ use std::{
 use ::cost_model::CostModel;
 use anyhow::anyhow;
 use bigdecimal::ToPrimitive;
+use sqlx::Row;
 use sqlx::{
     postgres::{PgListener, PgNotification},
     PgPool,
@@ -265,25 +266,24 @@ impl MinimumValue {
         cost_model_map: CostModelMap,
         global_model: GlobalModel,
     ) -> anyhow::Result<()> {
-        let models = sqlx::query!(
+        let models = sqlx::query(
             r#"
             SELECT deployment, model, variables
             FROM "CostModels"
             WHERE deployment != 'global'
             ORDER BY deployment ASC
-            "#
+            "#,
         )
         .fetch_all(pgpool)
         .await?;
         let models = models
             .into_iter()
             .flat_map(|record| {
-                let deployment_id = DeploymentId::from_str(&record.deployment).ok()?;
-                let model = compile_cost_model(
-                    record.model?,
-                    record.variables.map(|v| v.to_string()).unwrap_or_default(),
-                )
-                .ok()?;
+                let deployment: String = record.try_get("deployment").ok()?;
+                let model: Option<String> = record.try_get("model").ok()?;
+                let variables: Option<String> = record.try_get("variables").ok()?;
+                let deployment_id = DeploymentId::from_str(&deployment).ok()?;
+                let model = compile_cost_model(model?, variables.unwrap_or_default()).ok()?;
                 Some((deployment_id, model))
             })
             .collect::<HashMap<_, _>>();
@@ -432,7 +432,7 @@ mod tests {
         assert_eq!(check.cost_model_map.read().unwrap().len(), 2);
 
         // remove
-        sqlx::query!(r#"DELETE FROM "CostModels""#)
+        sqlx::query(r#"DELETE FROM "CostModels""#)
             .execute(&pgpool)
             .await
             .unwrap();
@@ -477,7 +477,7 @@ mod tests {
         let mut check = MinimumValue::new(pgpool.clone(), Duration::from_secs(0)).await;
         assert!(check.global_model.read().unwrap().is_some());
 
-        sqlx::query!(r#"DELETE FROM "CostModels""#)
+        sqlx::query(r#"DELETE FROM "CostModels""#)
             .execute(&pgpool)
             .await
             .unwrap();

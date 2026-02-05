@@ -7,7 +7,10 @@ use bigdecimal::{
     num_bigint::{BigInt, ToBigInt},
     ToPrimitive,
 };
-use sqlx::types::{chrono, BigDecimal};
+use sqlx::{
+    types::{chrono, BigDecimal},
+    Row,
+};
 use tap_core::manager::adapters::{RavRead, RavStore};
 #[allow(deprecated)]
 use thegraph_core::alloy::signers::Signature;
@@ -31,7 +34,7 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
     type AdapterError = AdapterError;
 
     async fn last_rav(&self) -> Result<Option<tap_graph::v2::SignedRav>, Self::AdapterError> {
-        let row = sqlx::query!(
+        let row = sqlx::query(
             r#"
                 SELECT 
                     signature,
@@ -49,17 +52,19 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                     AND data_service = $3
                     AND service_provider = $4
             "#,
-            CollectionId::from(self.allocation_id).encode_hex(),
-            self.sender.encode_hex(),
-            // For Horizon (V2): data_service is the SubgraphService address, service_provider is the indexer
+        )
+        .bind(CollectionId::from(self.allocation_id).encode_hex())
+        .bind(self.sender.encode_hex())
+        // For Horizon (V2): data_service is the SubgraphService address, service_provider is the indexer
+        .bind(
             self.subgraph_service_address()
                 .ok_or_else(|| AdapterError::RavRead {
                     error: "SubgraphService address not available - check TapMode configuration"
                         .to_string(),
                 })?
                 .encode_hex(),
-            self.indexer_address.encode_hex()
         )
+        .bind(self.indexer_address.encode_hex())
         .fetch_optional(&self.pgpool)
         .await
         .map_err(|e| AdapterError::RavRead {
@@ -69,8 +74,16 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
         match row {
             Some(row) => {
                 #[allow(deprecated)]
+                let signature_bytes: Vec<u8> =
+                    row.try_get("signature")
+                        .map_err(|e| AdapterError::RavRead {
+                            error: format!(
+                                "Error decoding signature while retrieving RAV from database: {e}"
+                            ),
+                        })?;
+                #[allow(deprecated)]
                 let signature: Signature =
-                    row.signature
+                    signature_bytes
                         .as_slice()
                         .try_into()
                         .map_err(|e| AdapterError::RavRead {
@@ -78,22 +91,39 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                                 "Error decoding signature while retrieving RAV from database: {e}"
                             ),
                         })?;
-                let collection_id =
-                    FixedBytes::<32>::from_str(&row.collection_id).map_err(|e| {
-                        AdapterError::RavRead {
+                let collection_id: String =
+                    row.try_get("collection_id")
+                        .map_err(|e| AdapterError::RavRead {
                             error: format!(
                             "Error decoding collection_id while retrieving RAV from database: {e}"
                         ),
-                        }
-                    })?;
+                        })?;
+                let collection_id = FixedBytes::<32>::from_str(&collection_id).map_err(|e| {
+                    AdapterError::RavRead {
+                        error: format!(
+                            "Error decoding collection_id while retrieving RAV from database: {e}"
+                        ),
+                    }
+                })?;
 
-                let payer = Address::from_str(&row.payer).map_err(|e| AdapterError::RavRead {
+                let payer: String = row.try_get("payer").map_err(|e| AdapterError::RavRead {
+                    error: format!(
+                        "Error decoding payer while retrieving receipt from database: {e}"
+                    ),
+                })?;
+                let payer = Address::from_str(&payer).map_err(|e| AdapterError::RavRead {
                     error: format!(
                         "Error decoding payer while retrieving receipt from database: {e}"
                     ),
                 })?;
 
-                let data_service = Address::from_str(&row.data_service).map_err(|e| {
+                let data_service: String =
+                    row.try_get("data_service").map_err(|e| AdapterError::RavRead {
+                        error: format!(
+                            "Error decoding data_service while retrieving receipt from database: {e}"
+                        ),
+                    })?;
+                let data_service = Address::from_str(&data_service).map_err(|e| {
                     AdapterError::RavRead {
                         error: format!(
                             "Error decoding data_service while retrieving receipt from database: {e}"
@@ -101,7 +131,13 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                     }
                 })?;
 
-                let service_provider = Address::from_str(&row.service_provider).map_err(|e| {
+                let service_provider: String =
+                    row.try_get("service_provider").map_err(|e| AdapterError::RavRead {
+                        error: format!(
+                            "Error decoding service_provider while retrieving receipt from database: {e}"
+                        ),
+                    })?;
+                let service_provider = Address::from_str(&service_provider).map_err(|e| {
                     AdapterError::RavRead {
                         error: format!(
                             "Error decoding service_provider while retrieving receipt from database: {e}"
@@ -109,14 +145,33 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                     }
                 })?;
 
-                let metadata = Bytes::from(row.metadata);
+                let metadata: Vec<u8> =
+                    row.try_get("metadata").map_err(|e| AdapterError::RavRead {
+                        error: format!(
+                            "Error decoding metadata while retrieving RAV from database: {e}"
+                        ),
+                    })?;
+                let metadata = Bytes::from(metadata);
 
-                let timestamp_ns = row.timestamp_ns.to_u64().ok_or(AdapterError::RavRead {
+                let timestamp_ns: BigDecimal =
+                    row.try_get("timestamp_ns")
+                        .map_err(|e| AdapterError::RavRead {
+                            error: format!(
+                            "Error decoding timestamp_ns while retrieving RAV from database: {e}"
+                        ),
+                        })?;
+                let timestamp_ns = timestamp_ns.to_u64().ok_or(AdapterError::RavRead {
                     error: "Error decoding timestamp_ns while retrieving RAV from database"
                         .to_string(),
                 })?;
-                let value_aggregate = row
-                    .value_aggregate
+                let value_aggregate: BigDecimal =
+                    row.try_get("value_aggregate")
+                        .map_err(|e| AdapterError::RavRead {
+                            error: format!(
+                            "Error decoding value_aggregate while retrieving RAV from database: {e}"
+                        ),
+                        })?;
+                let value_aggregate = value_aggregate
                     // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood.
                     // So we're converting to BigInt to get a proper implementation of to_u128().
                     .to_bigint()
@@ -160,7 +215,7 @@ impl RavStore<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizo
     ) -> Result<(), Self::AdapterError> {
         let signature_bytes: Vec<u8> = rav.signature.as_bytes().to_vec();
 
-        let _fut = sqlx::query!(
+        let _fut = sqlx::query(
             r#"
                 INSERT INTO tap_horizon_ravs (
                     payer,
@@ -183,16 +238,16 @@ impl RavStore<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizo
                     updated_at = $9,
                     metadata = $4
             "#,
-            rav.message.payer.encode_hex(),
-            rav.message.dataService.encode_hex(),
-            rav.message.serviceProvider.encode_hex(),
-            rav.message.metadata.as_ref(),
-            signature_bytes,
-            rav.message.collectionId.encode_hex(),
-            BigDecimal::from(rav.message.timestampNs),
-            BigDecimal::from(BigInt::from(rav.message.valueAggregate)),
-            chrono::Utc::now()
         )
+        .bind(rav.message.payer.encode_hex())
+        .bind(rav.message.dataService.encode_hex())
+        .bind(rav.message.serviceProvider.encode_hex())
+        .bind(rav.message.metadata.as_ref())
+        .bind(signature_bytes)
+        .bind(rav.message.collectionId.encode_hex())
+        .bind(BigDecimal::from(rav.message.timestampNs))
+        .bind(BigDecimal::from(BigInt::from(rav.message.valueAggregate)))
+        .bind(chrono::Utc::now())
         .execute(&self.pgpool)
         .await
         .map_err(|e| AdapterError::RavStore {

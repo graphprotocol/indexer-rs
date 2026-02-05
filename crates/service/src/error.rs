@@ -58,9 +58,6 @@ pub enum IndexerServiceError {
     #[error("Issues with provided receipt: {0}")]
     Eip712Error(#[from] tap_core::signed_message::Eip712Error),
 
-    #[error("Issues with provided receipt: {0}")]
-    InvalidTapReceipt(String),
-
     #[error("There was an error while accessing escrow account: {0}")]
     EscrowAccount(#[from] EscrowAccountsError),
 }
@@ -96,7 +93,7 @@ impl StatusCodeExt for IndexerServiceError {
             E::EscrowAccount(_) | E::ReceiptNotFound => StatusCode::PAYMENT_REQUIRED,
             E::DeploymentIdNotFound => StatusCode::INTERNAL_SERVER_ERROR,
             E::AxumError(_) | E::SerializationError(_) => StatusCode::BAD_GATEWAY,
-            E::Eip712Error(_) | E::InvalidTapReceipt(_) => StatusCode::BAD_REQUEST,
+            E::Eip712Error(_) => StatusCode::BAD_REQUEST,
         }
     }
 }

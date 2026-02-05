@@ -18,7 +18,7 @@ use prometheus::{register_counter_vec, CounterVec};
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use reqwest::Url;
 use serde::Deserialize;
-use sqlx::{postgres::PgListener, PgPool};
+use sqlx::{postgres::PgListener, PgPool, Row};
 use thegraph_core::{
     alloy::{hex::ToHexExt, primitives::Address, sol_types::Eip712Domain},
     AllocationId as AllocationIdCore, CollectionId,
@@ -496,7 +496,7 @@ impl State {
         let mut unfinalized_sender_allocations_map: HashMap<Address, HashSet<AllocationId>> =
             HashMap::new();
 
-        let receipts_signer_collections_in_db = sqlx::query!(
+        let receipts_signer_collections_in_db = sqlx::query(
             r#"
                 WITH grouped AS (
                     SELECT signer_address, collection_id
@@ -510,19 +510,23 @@ impl State {
                 FROM grouped
                 GROUP BY signer_address
             "#,
+        )
+        .bind(
             self.config
                 .tap_mode
                 .require_subgraph_service_address()
                 .encode_hex(),
-            self.config.indexer_address.encode_hex()
         )
+        .bind(self.config.indexer_address.encode_hex())
         .fetch_all(&self.pgpool)
         .await
         .expect("should be able to fetch pending V2 receipts from the database");
 
         for row in receipts_signer_collections_in_db {
-            let collection_ids = row
-                .collection_ids
+            let collection_ids: Option<Vec<String>> = row
+                .try_get("collection_ids")
+                .expect("collection_ids should be present");
+            let collection_ids = collection_ids
                 .expect("all receipts V2 should have a collection_id")
                 .iter()
                 .filter_map(|collection_id| {
@@ -539,7 +543,10 @@ impl State {
                     }
                 })
                 .collect::<HashSet<_>>();
-            let signer_id = Address::from_str(&row.signer_address)
+            let signer_address: String = row
+                .try_get("signer_address")
+                .expect("signer_address should be present");
+            let signer_id = Address::from_str(&signer_address)
                 .expect("signer_address should be a valid address");
             let sender_id = self
                 .escrow_accounts_v2
@@ -554,7 +561,7 @@ impl State {
                 .extend(collection_ids);
         }
 
-        let nonfinal_ravs_sender_allocations_in_db = sqlx::query!(
+        let nonfinal_ravs_sender_allocations_in_db = sqlx::query(
             r#"
                 SELECT
                     payer,
@@ -563,13 +570,15 @@ impl State {
                 WHERE data_service = $1 AND service_provider = $2
                 GROUP BY payer
             "#,
-            // Constrain to our Horizon bucket to avoid conflating RAVs across services/providers
+        )
+        // Constrain to our Horizon bucket to avoid conflating RAVs across services/providers
+        .bind(
             self.config
                 .tap_mode
                 .require_subgraph_service_address()
                 .encode_hex(),
-            self.config.indexer_address.encode_hex()
         )
+        .bind(self.config.indexer_address.encode_hex())
         .fetch_all(&self.pgpool)
         .await
         .expect("should be able to fetch unfinalized V2 RAVs from the database");
@@ -578,7 +587,10 @@ impl State {
             // Check if allocation_ids is Some before processing,
             // as ARRAY_AGG with FILTER returns NULL instead of an
             // empty array
-            if let Some(allocation_id_strings) = row.allocation_ids {
+            let allocation_id_strings: Option<Vec<String>> = row
+                .try_get("allocation_ids")
+                .expect("allocation_ids should be present");
+            if let Some(allocation_id_strings) = allocation_id_strings {
                 let allocation_ids = allocation_id_strings
                     .iter()
                     .filter_map(|collection_id| {
@@ -597,7 +609,8 @@ impl State {
                     .collect::<HashSet<_>>();
 
                 if !allocation_ids.is_empty() {
-                    let sender_id = Address::from_str(&row.payer)
+                    let payer: String = row.try_get("payer").expect("payer should be present");
+                    let sender_id = Address::from_str(&payer)
                         .expect("sender_address should be a valid address");
 
                     unfinalized_sender_allocations_map
@@ -943,7 +956,7 @@ mod tests {
     use ractor::{Actor, ActorRef, ActorStatus};
     use reqwest::Url;
     use ruint::aliases::U256;
-    use sqlx::{postgres::PgListener, PgPool};
+    use sqlx::{postgres::PgListener, PgPool, Row};
     use test_assets::{
         assert_while_retry, flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
@@ -1044,11 +1057,7 @@ mod tests {
         // add receipts to the database
         for i in 1..=10 {
             let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            let signed = receipt
-                .signed_receipt()
-                .clone()
-                .as_v2()
-                .expect("expected v2 receipt");
+            let signed = receipt.signed_receipt().clone().as_v2();
             store_receipt(&pgpool, &signed).await.unwrap();
         }
         // add non-final ravs
@@ -1146,7 +1155,7 @@ mod tests {
             .create_or_deny_sender(supervisor.get_cell(), INDEXER.1, HashSet::new())
             .await;
 
-        let denied = sqlx::query!(
+        let denied = sqlx::query(
             r#"
                 SELECT EXISTS (
                     SELECT 1
@@ -1154,12 +1163,13 @@ mod tests {
                     WHERE sender_address = $1
                 ) as denied
             "#,
-            INDEXER.1.encode_hex(),
         )
+        .bind(INDEXER.1.encode_hex())
         .fetch_one(&pgpool)
         .await
         .unwrap()
-        .denied
+        .try_get::<Option<bool>, _>("denied")
+        .expect("Deny status cannot be null")
         .expect("Deny status cannot be null");
 
         assert!(denied, "Sender was not denied after failing.");
@@ -1218,11 +1228,7 @@ mod tests {
         // add receipts to the database
         for i in 1..=receipts_count {
             let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            let signed = receipt
-                .signed_receipt()
-                .clone()
-                .as_v2()
-                .expect("expected v2 receipt");
+            let signed = receipt.signed_receipt().clone().as_v2();
             store_receipt(&pgpool, &signed).await.unwrap();
         }
         flush_messages(&mut notify).await;

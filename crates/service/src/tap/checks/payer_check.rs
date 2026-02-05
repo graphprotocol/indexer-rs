@@ -8,10 +8,9 @@ use crate::{
     tap::{CheckingReceipt, TapReceipt},
 };
 
-/// Validates that the V2 receipt's `payer` field matches the on-chain
+/// Validates that the receipt's `payer` field matches the on-chain
 /// recovered sender (from signer → payer escrow mapping).
 ///
-/// - V1 receipts are ignored by this check (always Ok).
 /// - On mismatch, returns a CheckFailure with a descriptive message.
 ///
 /// This prevents attackers from submitting receipts with mismatched payer
@@ -37,29 +36,23 @@ impl Check<TapReceipt> for PayerCheck {
         ctx: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        match receipt.signed_receipt() {
-            TapReceipt::V2(r) => {
-                // Get the recovered sender from context (injected by sender middleware)
-                let Sender(recovered_sender) = ctx.get::<Sender>().ok_or_else(|| {
-                    CheckError::Failed(anyhow::anyhow!(
-                        "Could not find recovered sender in context"
-                    ))
-                })?;
+        // Get the recovered sender from context (injected by sender middleware)
+        let Sender(recovered_sender) = ctx.get::<Sender>().ok_or_else(|| {
+            CheckError::Failed(anyhow::anyhow!(
+                "Could not find recovered sender in context"
+            ))
+        })?;
 
-                // Compare claimed payer against on-chain recovered sender
-                if r.message.payer == *recovered_sender {
-                    Ok(())
-                } else {
-                    Err(CheckError::Failed(anyhow::anyhow!(
-                        "Invalid payer: receipt claims payer {} but signer is authorized for {}",
-                        r.message.payer,
-                        recovered_sender
-                    )))
-                }
-            }
-            TapReceipt::V1(_) => Err(CheckError::Failed(anyhow::anyhow!(
-                "Receipt v1 received but Horizon-only mode is enabled"
-            ))),
+        let receipt = receipt.signed_receipt().get_v2_receipt();
+        // Compare claimed payer against on-chain recovered sender
+        if receipt.message.payer == *recovered_sender {
+            Ok(())
+        } else {
+            Err(CheckError::Failed(anyhow::anyhow!(
+                "Invalid payer: receipt claims payer {} but signer is authorized for {}",
+                receipt.message.payer,
+                recovered_sender
+            )))
         }
     }
 }

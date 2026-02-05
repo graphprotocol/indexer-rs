@@ -44,22 +44,13 @@ pub async fn sender_middleware(
     next: Next,
 ) -> Result<Response, IndexerServiceError> {
     if let Some(receipt) = request.extensions().get::<TapReceipt>() {
-        let sender = match receipt {
-            TapReceipt::V2(_) => {
-                let signer = receipt.recover_signer(&state.domain_separator_v2)?;
-                if let Some(ref escrow_accounts_v2) = state.escrow_accounts_v2 {
-                    escrow_accounts_v2.borrow().get_sender_for_signer(&signer)?
-                } else {
-                    return Err(IndexerServiceError::EscrowAccount(
-                        EscrowAccountsError::NoSenderFound { signer },
-                    ));
-                }
-            }
-            TapReceipt::V1(_) => {
-                return Err(IndexerServiceError::InvalidTapReceipt(
-                    "Receipt v1 received but Horizon-only mode is enabled".into(),
-                ))
-            }
+        let signer = receipt.recover_signer(&state.domain_separator_v2)?;
+        let sender = if let Some(ref escrow_accounts_v2) = state.escrow_accounts_v2 {
+            escrow_accounts_v2.borrow().get_sender_for_signer(&signer)?
+        } else {
+            return Err(IndexerServiceError::EscrowAccount(
+                EscrowAccountsError::NoSenderFound { signer },
+            ));
         };
         request.extensions_mut().insert(Sender(sender));
     }
