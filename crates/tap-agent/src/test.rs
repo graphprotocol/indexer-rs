@@ -57,9 +57,11 @@ pub static SENDER_2: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wa
 pub static INDEXER: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| wallet(3));
 
 // Re-export test_assets EIP712 domain constants for convenience
-pub use test_assets::TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR;
-pub use test_assets::TAP_EIP712_DOMAIN_V2 as TAP_EIP712_DOMAIN_SEPARATOR_V2;
-pub use test_assets::VERIFIER_ADDRESS as SUBGRAPH_SERVICE_ADDRESS;
+pub use test_assets::{
+    TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
+    TAP_EIP712_DOMAIN_V2 as TAP_EIP712_DOMAIN_SEPARATOR_V2,
+    VERIFIER_ADDRESS as SUBGRAPH_SERVICE_ADDRESS,
+};
 
 pub const TRIGGER_VALUE: u128 = 500;
 pub const RECEIPT_LIMIT: u64 = 10000;

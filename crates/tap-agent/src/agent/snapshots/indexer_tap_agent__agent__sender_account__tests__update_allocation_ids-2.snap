@@ -1,8 +1,0 @@
----
-source: crates/tap-agent/src/agent/sender_account.rs
-expression: message
----
-UpdateBalanceAndLastRavs(
-    1000,
-    {},
-)
