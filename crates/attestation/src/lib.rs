@@ -23,7 +23,7 @@ pub fn derive_key_pair(
     deployment: &DeploymentId,
     index: u64,
 ) -> Result<PrivateKeySigner, anyhow::Error> {
-    // Try the primary derivation method first for compatibility
+    // Try the primary derivation method first.
     match derive_key_pair_primary(indexer_mnemonic, epoch, deployment, index) {
         Ok(wallet) => Ok(wallet),
         Err(e) => {
@@ -40,7 +40,7 @@ pub fn derive_key_pair(
     }
 }
 
-/// Primary derivation method - kept for compatibility
+/// Primary derivation method.
 fn derive_key_pair_primary(
     indexer_mnemonic: &str,
     epoch: u64,
