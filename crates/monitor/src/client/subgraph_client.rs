@@ -37,7 +37,6 @@ pub enum SubgraphQueryError {
     PartialResponse(String),
 }
 
-
 #[derive(Debug, Clone)]
 pub struct DeploymentDetails {
     deployment: Option<DeploymentId>,
@@ -161,10 +160,7 @@ impl DeploymentClient {
             req = req.header(header::AUTHORIZATION, format!("Bearer {token}"));
         }
 
-        let reqwest_response = req
-            .send()
-            .await
-            .map_err(SubgraphQueryError::HttpRequest)?;
+        let reqwest_response = req.send().await.map_err(SubgraphQueryError::HttpRequest)?;
         let response: graphql_client::Response<T::ResponseData> = reqwest_response
             .json()
             .await
