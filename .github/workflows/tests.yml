@@ -14,6 +14,7 @@ jobs:
       image: rust:1.90-bookworm
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - run: rustup component add rustfmt
       - run: cargo fmt --all -- --check
 
   sqlx:
@@ -84,6 +85,7 @@ jobs:
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
+      - run: rustup component add clippy
       - run: cargo clippy --all-features --all-targets -- -A dead-code -D warnings
 
   test-and-coverage:
