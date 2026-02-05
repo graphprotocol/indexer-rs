@@ -13,7 +13,7 @@ mod horizon_detection;
 pub use crate::{
     allocations::{indexer_allocations, AllocationWatcher},
     attestation::{attestation_signers, AttestationWatcher},
-    client::{DeploymentDetails, SubgraphClient},
+    client::{DeploymentDetails, SubgraphClient, SubgraphQueryError},
     deployment_to_allocation::{deployment_to_allocation, DeploymentToAllocationWatcher},
     dispute_manager::{dispute_manager, DisputeManagerWatcher},
     escrow_accounts::{

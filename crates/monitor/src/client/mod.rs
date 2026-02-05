@@ -4,4 +4,4 @@
 mod monitor;
 mod subgraph_client;
 
-pub use subgraph_client::{DeploymentDetails, SubgraphClient};
+pub use subgraph_client::{DeploymentDetails, SubgraphClient, SubgraphQueryError};

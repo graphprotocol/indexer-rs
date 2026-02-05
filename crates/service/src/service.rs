@@ -276,12 +276,14 @@ pub async fn run() -> anyhow::Result<()> {
             additional_networks,
         } = dips;
 
-        let addr = format!("{host}:{port}")
+        let addr: SocketAddr = format!("{host}:{port}")
             .parse()
-            .expect("invalid dips host port");
+            .with_context(|| format!("Invalid DIPS host:port '{host}:{port}'"))?;
 
-        let ipfs_fetcher: Arc<dyn IpfsFetcher> =
-            Arc::new(IpfsClient::new(ipfs_url.as_str()).unwrap());
+        let ipfs_fetcher: Arc<dyn IpfsFetcher> = Arc::new(
+            IpfsClient::new(ipfs_url.as_str())
+                .with_context(|| format!("Failed to create IPFS client for URL '{ipfs_url}'"))?,
+        );
 
         // TODO: Try to re-use the same watcher for both DIPS and TAP
         // DIPS requires Horizon/V2, so always use V2 escrow from network subgraph
@@ -310,7 +312,9 @@ pub async fn run() -> anyhow::Result<()> {
         .await
         .with_context(|| "Failed to create escrow accounts V2 watcher for DIPS")?;
 
-        let registry = NetworksRegistry::from_latest_version().await.unwrap();
+        let registry = NetworksRegistry::from_latest_version()
+            .await
+            .context("Failed to fetch networks registry")?;
 
         let ctx = DipsServerContext {
             store: Arc::new(PsqlAgreementStore {
@@ -340,7 +344,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     let listener = TcpListener::bind(&host_and_port)
         .await
-        .expect("Failed to bind to indexer-service port");
+        .with_context(|| format!("Failed to bind to indexer-service port '{host_and_port}'"))?;
 
     let app = router.create_router().await?;
     let router = NormalizePath::trim_trailing_slash(app);

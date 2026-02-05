@@ -1,8 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::anyhow;
-use indexer_monitor::SubgraphClient;
+use indexer_monitor::{SubgraphClient, SubgraphQueryError};
 use indexer_query::{payments_escrow_transactions_redeem, tap_transactions, TapTransactions};
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
 use thegraph_core::{
@@ -14,6 +13,19 @@ use crate::{
     middleware::Sender,
     tap::{CheckingReceipt, TapReceipt},
 };
+
+/// Errors that can occur during allocation redemption checks.
+#[derive(Debug, thiserror::Error)]
+pub enum AllocationCheckError {
+    #[error("Missing escrow subgraph client for V1 receipts")]
+    MissingEscrowSubgraph,
+
+    #[error("Missing network subgraph client for V2 receipts")]
+    MissingNetworkSubgraph,
+
+    #[error("Subgraph query failed")]
+    SubgraphQuery(#[from] SubgraphQueryError),
+}
 
 pub struct AllocationRedeemedCheck {
     indexer_address: Address,
@@ -38,10 +50,10 @@ impl AllocationRedeemedCheck {
         &self,
         sender: Address,
         allocation_id: Address,
-    ) -> anyhow::Result<bool> {
+    ) -> Result<bool, AllocationCheckError> {
         let escrow_subgraph = self
             .escrow_subgraph
-            .ok_or_else(|| anyhow!("Missing escrow subgraph client for v1 receipts"))?;
+            .ok_or(AllocationCheckError::MissingEscrowSubgraph)?;
 
         let response = escrow_subgraph
             .query::<TapTransactions, _>(tap_transactions::Variables {
@@ -51,19 +63,17 @@ impl AllocationRedeemedCheck {
             })
             .await?;
 
-        response
-            .map(|data| !data.transactions.is_empty())
-            .map_err(|err| anyhow!(err))
+        Ok(!response.transactions.is_empty())
     }
 
     async fn v2_allocation_redeemed(
         &self,
         sender: Address,
         collection_id: CollectionId,
-    ) -> anyhow::Result<bool> {
+    ) -> Result<bool, AllocationCheckError> {
         let network_subgraph = self
             .network_subgraph
-            .ok_or_else(|| anyhow!("Missing network subgraph client for v2 receipts"))?;
+            .ok_or(AllocationCheckError::MissingNetworkSubgraph)?;
 
         // Horizon network subgraph stores allocationId as the 20-byte address derived
         // from the 32-byte collection_id (rightmost 20 bytes).
@@ -79,9 +89,7 @@ impl AllocationRedeemedCheck {
             )
             .await?;
 
-        response
-            .map(|data| !data.payments_escrow_transactions.is_empty())
-            .map_err(|err| anyhow!(err))
+        Ok(!response.payments_escrow_transactions.is_empty())
     }
 }
 
@@ -92,9 +100,9 @@ impl Check<TapReceipt> for AllocationRedeemedCheck {
         ctx: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let Sender(sender) = ctx.get::<Sender>().ok_or_else(|| {
-            CheckError::Failed(anyhow!("Could not find recovered sender in context"))
-        })?;
+        let Sender(sender) = ctx
+            .get::<Sender>()
+            .ok_or_else(|| CheckError::Failed(anyhow::anyhow!("Missing sender in context")))?;
 
         match receipt.signed_receipt() {
             TapReceipt::V1(r) => {
@@ -102,11 +110,10 @@ impl Check<TapReceipt> for AllocationRedeemedCheck {
                 let redeemed = self
                     .v1_allocation_redeemed(*sender, allocation_id)
                     .await
-                    .map_err(|e| CheckError::Failed(anyhow!(e)))?;
+                    .map_err(|e| CheckError::Failed(e.into()))?;
                 if redeemed {
-                    return Err(CheckError::Failed(anyhow!(
-                        "Allocation already redeemed (v1): {}",
-                        allocation_id
+                    return Err(CheckError::Failed(anyhow::anyhow!(
+                        "Allocation already redeemed (V1): {allocation_id}"
                     )));
                 }
                 Ok(())
@@ -116,10 +123,10 @@ impl Check<TapReceipt> for AllocationRedeemedCheck {
                 let redeemed = self
                     .v2_allocation_redeemed(*sender, collection_id)
                     .await
-                    .map_err(|e| CheckError::Failed(anyhow!(e)))?;
+                    .map_err(|e| CheckError::Failed(e.into()))?;
                 if redeemed {
-                    return Err(CheckError::Failed(anyhow!(
-                        "Allocation already redeemed (v2): {}",
+                    return Err(CheckError::Failed(anyhow::anyhow!(
+                        "Allocation already redeemed (V2): {}",
                         collection_id.as_address()
                     )));
                 }

@@ -794,7 +794,7 @@ impl State {
         let page_size = 200;
 
         loop {
-            let result = self
+            let mut data = self
                 .network_subgraph
                 .query::<ClosedAllocations, _>(closed_allocations::Variables {
                     allocation_ids: allocation_ids.clone(),
@@ -806,10 +806,7 @@ impl State {
                         number_gte: None,
                     }),
                 })
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-            let mut data = result?;
+                .await?;
             let page_len = data.allocations.len();
 
             hash = data.meta.and_then(|meta| meta.block.hash);
@@ -967,7 +964,7 @@ impl Actor for SenderAccount {
                             )
                             .await
                         {
-                            Ok(Ok(response)) => response
+                            Ok(response) => response
                                 .transactions
                                 .into_iter()
                                 .map(|tx| {
@@ -976,7 +973,7 @@ impl Actor for SenderAccount {
                                 })
                                 .collect::<Vec<_>>(),
                             // if we have any problems, we don't want to filter out
-                            _ => vec![],
+                            Err(_) => vec![],
                         }
                     }
                     SenderType::Horizon => {
@@ -1021,7 +1018,7 @@ impl Actor for SenderAccount {
                                         )
                                         .await
                                     {
-                                        Ok(Ok(response)) => redeemed_ids.extend(
+                                        Ok(response) => redeemed_ids.extend(
                                             response
                                                 .payments_escrow_transactions
                                                 .into_iter()
@@ -1032,18 +1029,11 @@ impl Actor for SenderAccount {
                                                         .ok()
                                                 }),
                                         ),
-                                        Ok(Err(e)) => {
-                                            tracing::warn!(
-                                                error = %e,
-                                                sender = %sender_id,
-                                                "Failed to query paymentsEscrowTransactions, assuming none are finalized"
-                                            );
-                                        }
                                         Err(e) => {
                                             tracing::warn!(
                                                 error = %e,
                                                 sender = %sender_id,
-                                                "Failed to execute paymentsEscrowTransactions query, assuming none are finalized"
+                                                "Failed to query paymentsEscrowTransactions, assuming none are finalized"
                                             );
                                         }
                                     }

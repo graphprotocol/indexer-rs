@@ -30,8 +30,6 @@ pub async fn is_horizon_active(network_subgraph: &SubgraphClient) -> Result<bool
         .query::<HorizonDetectionQuery, _>(horizon_detection::Variables {})
         .await?;
 
-    let response = response?;
-
     let account_count = response.payments_escrow_accounts.len();
 
     if account_count > 0 {

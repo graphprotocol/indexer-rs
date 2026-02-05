@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use axum::{body::Bytes, extract::State, response::IntoResponse};
-use indexer_monitor::SubgraphClient;
+use indexer_monitor::{SubgraphClient, SubgraphQueryError};
 use reqwest::StatusCode;
 
 use crate::error::StatusCodeExt;
@@ -25,18 +25,18 @@ pub async fn static_subgraph_request_handler(
 
 #[derive(Debug, thiserror::Error)]
 pub enum StaticSubgraphError {
-    #[error("Failed to query subgraph: {0}")]
-    FailedToQuery(#[from] anyhow::Error),
+    #[error("Failed to query subgraph")]
+    SubgraphQuery(#[from] SubgraphQueryError),
 
-    #[error("Failed to parse subgraph response: {0}")]
-    FailedToParse(#[from] reqwest::Error),
+    #[error("Failed to parse subgraph response")]
+    ResponseParse(#[from] reqwest::Error),
 }
 
 impl StatusCodeExt for StaticSubgraphError {
     fn status_code(&self) -> StatusCode {
         match self {
-            StaticSubgraphError::FailedToQuery(_) => StatusCode::SERVICE_UNAVAILABLE,
-            StaticSubgraphError::FailedToParse(_) => StatusCode::BAD_GATEWAY,
+            StaticSubgraphError::SubgraphQuery(_) => StatusCode::SERVICE_UNAVAILABLE,
+            StaticSubgraphError::ResponseParse(_) => StatusCode::BAD_GATEWAY,
         }
     }
 }

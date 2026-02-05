@@ -23,7 +23,7 @@ pub async fn dispute_manager(
         let response = network_subgraph
             .query::<DisputeManager, _>(dispute_manager::Variables {})
             .await?;
-        response?
+        response
             .graph_network
             .map(|network| network.dispute_manager)
             .ok_or_else(|| Error::msg("Network 1 not found in network subgraph"))
