@@ -3,18 +3,13 @@
 
 use std::string::FromUtf8Error;
 
-use axum::{
-    body::to_bytes,
-    extract::Request,
-    middleware::Next,
-    response::{IntoResponse, Response},
-};
+use axum::{body::to_bytes, extract::Request, middleware::Next, response::Response};
 use indexer_attestation::AttestationSigner;
 use reqwest::StatusCode;
 use serde::Serialize;
 use thegraph_core::attestation::Attestation;
 
-use crate::error::{ErrorResponse, StatusCodeExt};
+use crate::error::StatusCodeExt;
 
 #[derive(Clone)]
 pub enum AttestationInput {
@@ -109,13 +104,7 @@ impl StatusCodeExt for AttestationError {
     }
 }
 
-impl IntoResponse for AttestationError {
-    fn into_response(self) -> Response {
-        tracing::error!(error=%self, "Attestation error");
-        let status_code = self.status_code();
-        ErrorResponse::new(self).into_response(status_code)
-    }
-}
+crate::impl_service_error_response!(AttestationError, "AttestationError");
 
 #[cfg(test)]
 mod attestation_tests {

@@ -1,6 +1,54 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! # TAP Receipt Processing
+//!
+//! This module handles Timeline Aggregation Protocol (TAP) receipt validation,
+//! storage, and check execution for the indexer service.
+//!
+//! ## Overview
+//!
+//! TAP is a payment protocol that enables efficient micropayments for GraphQL queries.
+//! Gateways attach signed receipts to each query, and the indexer validates and stores
+//! these receipts for later aggregation into Receipt Aggregate Vouchers (RAVs).
+//!
+//! ## Receipt Types
+//!
+//! The system supports two receipt versions:
+//! - **V1 (Legacy)**: Allocation-based receipts tied to specific allocations
+//! - **V2 (Horizon)**: Collection-based receipts using the Horizon payment contracts
+//!
+//! ## Validation Checks
+//!
+//! Receipts pass through a series of validation checks before being stored:
+//!
+//! 1. [`AllocationEligible`](checks::allocation_eligible::AllocationEligible) -
+//!    Verifies the allocation/collection exists and is active
+//! 2. [`AllocationRedeemedCheck`](checks::allocation_redeemed::AllocationRedeemedCheck) -
+//!    Ensures the allocation hasn't been closed/redeemed
+//! 3. [`SenderBalanceCheck`](checks::sender_balance_check::SenderBalanceCheck) -
+//!    Confirms sender has sufficient escrow balance
+//! 4. [`TimestampCheck`](checks::timestamp_check::TimestampCheck) -
+//!    Validates receipt timestamp is within acceptable bounds
+//! 5. [`DenyListCheck`](checks::deny_list_check::DenyListCheck) -
+//!    Rejects receipts from denied senders
+//! 6. [`ReceiptMaxValueCheck`](checks::receipt_max_val_check::ReceiptMaxValueCheck) -
+//!    Caps maximum receipt value to prevent abuse
+//! 7. [`MinimumValue`](checks::value_check::MinimumValue) -
+//!    Ensures receipt meets minimum cost model requirements
+//! 8. [`ServiceProviderCheck`](checks::service_provider::ServiceProviderCheck) -
+//!    Verifies the service provider matches the indexer
+//! 9. [`PayerCheck`](checks::payer_check::PayerCheck) -
+//!    Validates payer field for V2 receipts
+//! 10. [`DataServiceCheck`](checks::data_service_check::DataServiceCheck) -
+//!     Optional check for allowed data services (V2)
+//!
+//! ## Storage Pipeline
+//!
+//! Valid receipts are queued for batch storage via an async channel. The
+//! [`IndexerTapContext`] manages this pipeline with configurable queue size
+//! and batch processing for database efficiency.
+
 use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 
 use indexer_allocation::Allocation;
