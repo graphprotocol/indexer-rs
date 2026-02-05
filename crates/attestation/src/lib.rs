@@ -24,7 +24,7 @@ pub fn derive_key_pair(
     index: u64,
 ) -> Result<PrivateKeySigner, anyhow::Error> {
     // Try the primary derivation method first for compatibility
-    match derive_key_pair_v1(indexer_mnemonic, epoch, deployment, index) {
+    match derive_key_pair_primary(indexer_mnemonic, epoch, deployment, index) {
         Ok(wallet) => Ok(wallet),
         Err(e) => {
             // If the primary method fails (likely due to path length), try the fallback
@@ -35,13 +35,13 @@ pub fn derive_key_pair(
                 index,
                 e
             );
-            derive_key_pair_v2(indexer_mnemonic, epoch, deployment, index)
+            derive_key_pair_fallback(indexer_mnemonic, epoch, deployment, index)
         }
     }
 }
 
 /// Primary derivation method - kept for compatibility
-fn derive_key_pair_v1(
+fn derive_key_pair_primary(
     indexer_mnemonic: &str,
     epoch: u64,
     deployment: &DeploymentId,
@@ -78,7 +78,7 @@ fn derive_key_pair_v1(
 }
 
 /// Fallback derivation method - uses hash of deployment to create shorter, deterministic paths
-fn derive_key_pair_v2(
+fn derive_key_pair_fallback(
     indexer_mnemonic: &str,
     epoch: u64,
     deployment: &DeploymentId,
@@ -368,13 +368,13 @@ mod tests {
 
         // Test both primary and fallback derivations for this deployment
         println!("\n--- Testing primary derivation ---");
-        match derive_key_pair_v1(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index) {
+        match derive_key_pair_primary(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index) {
             Ok(wallet) => println!("Primary result: 0x{:x}", wallet.address()),
             Err(e) => println!("Primary failed: {e}"),
         }
 
         println!("\n--- Testing fallback derivation ---");
-        match derive_key_pair_v2(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index) {
+        match derive_key_pair_fallback(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index) {
             Ok(wallet) => println!("Fallback result: 0x{:x}", wallet.address()),
             Err(e) => println!("Fallback failed: {e}"),
         }
@@ -487,7 +487,8 @@ mod tests {
         println!("Exceeds 200 chars: {}", derivation_path.len() > 200);
 
         // Test primary derivation - should work if path <= 200 chars
-        let v1_result = derive_key_pair_v1(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index);
+        let v1_result =
+            derive_key_pair_primary(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index);
         match &v1_result {
             Ok(wallet) => println!("Primary succeeded: 0x{:x}", wallet.address()),
             Err(e) => println!("Primary failed: {e}"),
@@ -495,7 +496,7 @@ mod tests {
 
         // Test fallback derivation
         let v2_result =
-            derive_key_pair_v2(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index).unwrap();
+            derive_key_pair_fallback(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index).unwrap();
         println!("Fallback result: 0x{:x}", v2_result.address());
 
         // Test the main function
@@ -517,7 +518,8 @@ mod tests {
         let very_long_deployment = format!("Qm{}", "x".repeat(200)); // This will be way too long
         if let Ok(long_deployment) = DeploymentId::from_str(&very_long_deployment) {
             println!("\n--- Testing artificially long deployment ---");
-            match derive_key_pair_v1(INDEXER_OPERATOR_MNEMONIC, epoch, &long_deployment, index) {
+            match derive_key_pair_primary(INDEXER_OPERATOR_MNEMONIC, epoch, &long_deployment, index)
+            {
                 Ok(_) => {
                     panic!("Primary derivation should have failed for artificially long deployment")
                 }
@@ -525,7 +527,7 @@ mod tests {
             }
 
             let long_v2_result =
-                derive_key_pair_v2(INDEXER_OPERATOR_MNEMONIC, epoch, &long_deployment, index)
+                derive_key_pair_fallback(INDEXER_OPERATOR_MNEMONIC, epoch, &long_deployment, index)
                     .unwrap();
             let long_main_result =
                 derive_key_pair(INDEXER_OPERATOR_MNEMONIC, epoch, &long_deployment, index).unwrap();
