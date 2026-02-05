@@ -48,7 +48,7 @@ mod tests {
 
     async fn create_signed_receipt_with_custom_value(value: u128) -> CheckingReceipt {
         let receipt = create_signed_receipt_v2().value(value).call().await;
-        CheckingReceipt::new(TapReceipt::V2(receipt))
+        CheckingReceipt::new(TapReceipt(receipt))
     }
 
     const RECEIPT_LIMIT: u128 = 10;

@@ -337,7 +337,7 @@ impl CreateReceipt for Horizon {
             signer_wallet,
         )
         .unwrap();
-        CheckingReceipt::new(indexer_receipt::TapReceipt::V2(receipt))
+        CheckingReceipt::new(indexer_receipt::TapReceipt(receipt))
     }
 }
 
@@ -364,7 +364,7 @@ pub fn create_received_receipt_v2(
         signer_wallet,
     )
     .unwrap();
-    CheckingReceipt::new(indexer_receipt::TapReceipt::V2(receipt))
+    CheckingReceipt::new(indexer_receipt::TapReceipt(receipt))
 }
 
 pub async fn store_receipt(

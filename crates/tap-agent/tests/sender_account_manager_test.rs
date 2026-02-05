@@ -99,7 +99,7 @@ async fn sender_account_manager_layer_test() {
     assert!(sender_account_ref.is_some());
 
     let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 10);
-    let signed = receipt.signed_receipt().clone().as_v2();
+    let signed = receipt.signed_receipt().0.clone();
     store_receipt(&pgpool, &signed).await.unwrap();
 
     // we expect it to create a sender allocation

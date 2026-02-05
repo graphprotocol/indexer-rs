@@ -27,11 +27,7 @@ impl Check<TapReceipt> for DataServiceCheck {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let got = receipt
-            .signed_receipt()
-            .get_v2_receipt()
-            .message
-            .data_service;
+        let got = receipt.signed_receipt().as_ref().message.data_service;
         if self.allowed.contains(&got) {
             Ok(())
         } else {

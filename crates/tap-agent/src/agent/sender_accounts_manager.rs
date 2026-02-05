@@ -1070,7 +1070,7 @@ mod tests {
         // add receipts to the database
         for i in 1..=10 {
             let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            let signed = receipt.signed_receipt().clone().as_v2();
+            let signed = receipt.signed_receipt().0.clone();
             store_receipt(&pgpool, &signed).await.unwrap();
         }
         // add non-final ravs
@@ -1241,7 +1241,7 @@ mod tests {
         // add receipts to the database
         for i in 1..=receipts_count {
             let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            let signed = receipt.signed_receipt().clone().as_v2();
+            let signed = receipt.signed_receipt().0.clone();
             store_receipt(&pgpool, &signed).await.unwrap();
         }
         flush_messages(&mut notify).await;

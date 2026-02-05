@@ -30,11 +30,7 @@ impl Check<TapReceipt> for AllocationEligible {
         receipt: &CheckingReceipt,
     ) -> CheckResult {
         let allocation_id = AllocationId::from(CollectionId::from(
-            receipt
-                .signed_receipt()
-                .get_v2_receipt()
-                .message
-                .collection_id,
+            receipt.signed_receipt().as_ref().message.collection_id,
         ));
         let allocation_address = allocation_id.into_inner();
         if !self

@@ -49,8 +49,8 @@ impl Header for TapHeader {
                         tracing::debug!(error = %e, "Failed to convert v2 receipt");
                         e
                     })?;
-                    tracing::debug!("Successfully converted v2 receipt to TapReceipt::V2");
-                    Ok(TapHeader(TapReceipt::V2(converted_receipt)))
+                    tracing::debug!("Successfully converted v2 receipt to TapReceipt");
+                    Ok(TapHeader(TapReceipt(converted_receipt)))
                 }
                 Err(e) => {
                     tracing::debug!(error = %e, "Could not base64 decode v2 receipt");
@@ -100,7 +100,7 @@ mod test {
         let decoded_receipt = TapHeader::decode(&mut header_values.into_iter())
             .expect("tap receipt header value should be valid");
 
-        assert_eq!(decoded_receipt, TapHeader(TapReceipt::V2(original_receipt)));
+        assert_eq!(decoded_receipt, TapHeader(TapReceipt(original_receipt)));
     }
 
     #[test]

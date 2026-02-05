@@ -31,7 +31,7 @@ pub async fn allocation_middleware(
     next: Next,
 ) -> Response {
     if let Some(receipt) = request.extensions().get::<TapReceipt>() {
-        let receipt = receipt.get_v2_receipt();
+        let receipt = receipt.as_ref();
         let allocation_id = AllocationId::from(CollectionId::from(receipt.message.collection_id));
         request.extensions_mut().insert(allocation_id);
     } else if let Some(deployment_id) = request.extensions().get::<DeploymentId>() {
@@ -120,7 +120,7 @@ mod tests {
             .collection_id(COLLECTION_ID_0)
             .call()
             .await;
-        let tap_receipt = TapReceipt::V2(receipt);
+        let tap_receipt = TapReceipt(receipt);
 
         let res = app
             .oneshot(

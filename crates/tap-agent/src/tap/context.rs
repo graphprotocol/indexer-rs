@@ -107,7 +107,7 @@ impl NetworkVersion for Horizon {
         valid_receipts: Vec<TapReceipt>,
         previous_rav: Option<Eip712SignedMessage<Self::Rav>>,
     ) -> anyhow::Result<Eip712SignedMessage<Self::Rav>> {
-        let valid_receipts: Vec<_> = valid_receipts.into_iter().map(|r| r.as_v2()).collect();
+        let valid_receipts: Vec<_> = valid_receipts.into_iter().map(|r| r.0).collect();
         let rav_request = AggregatorRequestV2::new(valid_receipts, previous_rav);
 
         let response = client.aggregate_receipts(rav_request).await.inspect_err(

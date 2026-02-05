@@ -189,7 +189,7 @@ mod tests {
 
         // check with receipt
         let mut req = Request::new(Body::default());
-        req.extensions_mut().insert(TapReceipt::V2(receipt));
+        req.extensions_mut().insert(TapReceipt(receipt));
         let res = service.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -226,7 +226,7 @@ mod tests {
         // change the nonce to make the receipt invalid
         receipt.message.nonce = FAILED_NONCE;
         let mut req = Request::new(Body::default());
-        req.extensions_mut().insert(TapReceipt::V2(receipt));
+        req.extensions_mut().insert(TapReceipt(receipt));
         req.extensions_mut().insert(labels);
         let response = service.call(req);
 

@@ -27,7 +27,7 @@ impl Check<TapReceipt> for ServiceProviderCheck {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let receipt = receipt.signed_receipt().get_v2_receipt();
+        let receipt = receipt.signed_receipt().as_ref();
         if self.indexer_address == receipt.message.service_provider {
             Ok(())
         } else {

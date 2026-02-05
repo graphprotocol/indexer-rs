@@ -264,7 +264,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                     signature,
                 };
 
-                Ok(CheckingReceipt::new(TapReceipt::V2(signed_receipt)))
+                Ok(CheckingReceipt::new(TapReceipt(signed_receipt)))
 
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
@@ -403,7 +403,7 @@ mod test {
             T::create_received_receipt(ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX);
 
         // Storing the receipt
-        let signed = received_receipt.signed_receipt().clone().as_v2();
+        let signed = received_receipt.signed_receipt().0.clone();
         store_receipt(&context.pgpool, &signed).await.unwrap();
 
         let retrieved_receipt = context
@@ -496,7 +496,7 @@ mod test {
             // Storing the receipts
             let mut received_receipt_id_vec = Vec::new();
             for received_receipt in received_receipt_vec.iter() {
-                let signed = received_receipt.signed_receipt().clone().as_v2();
+                let signed = received_receipt.signed_receipt().0.clone();
                 received_receipt_id_vec.push(
                     store_receipt(&storage_adapter.pgpool, &signed)
                         .await
@@ -671,7 +671,7 @@ mod test {
                 i + 42,
                 (i + 124).into(),
             );
-            let signed = receipt.signed_receipt().clone().as_v2();
+            let signed = receipt.signed_receipt().0.clone();
             store_receipt(&context.pgpool, &signed).await.unwrap();
         }
 
@@ -696,7 +696,7 @@ mod test {
                 i + 43,
                 (i + 124).into(),
             );
-            let signed = receipt.signed_receipt().clone().as_v2();
+            let signed = receipt.signed_receipt().0.clone();
             store_receipt(&context.pgpool, &signed).await.unwrap();
         }
 
@@ -762,7 +762,7 @@ mod test {
         // Storing the receipts
         let mut received_receipt_id_vec = Vec::new();
         for received_receipt in received_receipt_vec.iter() {
-            let signed = received_receipt.signed_receipt().clone().as_v2();
+            let signed = received_receipt.signed_receipt().0.clone();
             received_receipt_id_vec.push(store_receipt(&context.pgpool, &signed).await.unwrap());
         }
 

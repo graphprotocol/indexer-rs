@@ -105,7 +105,7 @@ mod tests {
 
         // check with receipt
         let mut req = Request::new(Default::default());
-        req.extensions_mut().insert(TapReceipt::V2(receipt));
+        req.extensions_mut().insert(TapReceipt(receipt));
         let res = service.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 

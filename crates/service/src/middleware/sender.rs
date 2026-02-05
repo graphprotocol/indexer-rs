@@ -104,7 +104,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/")
-                    .extension(TapReceipt::V2(receipt))
+                    .extension(TapReceipt(receipt))
                     .body(Body::empty())
                     .unwrap(),
             )

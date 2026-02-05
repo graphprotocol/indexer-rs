@@ -63,7 +63,7 @@ mod tests {
             .timestamp_ns(timestamp_ns)
             .call()
             .await;
-        CheckingReceipt::new(TapReceipt::V2(receipt))
+        CheckingReceipt::new(TapReceipt(receipt))
     }
 
     #[tokio::test]

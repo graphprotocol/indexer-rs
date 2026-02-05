@@ -61,7 +61,7 @@ mod tests {
         let encoded = protobuf_receipt.encode_to_vec();
         let receipt_b64 = BASE64_STANDARD.encode(encoded);
 
-        let receipt = TapReceipt::V2(receipt);
+        let receipt = TapReceipt(receipt);
 
         let handle = move |extensions: Extensions| async move {
             let received_receipt = extensions

@@ -43,7 +43,7 @@ impl Check<TapReceipt> for PayerCheck {
             ))
         })?;
 
-        let receipt = receipt.signed_receipt().get_v2_receipt();
+        let receipt = receipt.signed_receipt().as_ref();
         // Compare claimed payer against on-chain recovered sender
         if receipt.message.payer == *recovered_sender {
             Ok(())
@@ -106,7 +106,7 @@ mod tests {
         };
 
         let signed = Eip712SignedMessage::new(&eip712_domain, receipt, &wallet).unwrap();
-        CheckingReceipt::new(TapReceipt::V2(signed))
+        CheckingReceipt::new(TapReceipt(signed))
     }
 
     #[tokio::test]

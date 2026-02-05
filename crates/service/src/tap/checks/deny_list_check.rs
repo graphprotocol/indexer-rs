@@ -223,7 +223,7 @@ mod tests {
 
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
-        let checking_receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
+        let checking_receipt = CheckingReceipt::new(TapReceipt(signed_receipt));
 
         let mut ctx = Context::new();
         ctx.insert(Sender(TAP_SENDER.1));
@@ -244,7 +244,7 @@ mod tests {
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
         // Check that the receipt is valid
-        let checking_receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
+        let checking_receipt = CheckingReceipt::new(TapReceipt(signed_receipt));
 
         let mut ctx = Context::new();
         ctx.insert(Sender(TAP_SENDER.1));

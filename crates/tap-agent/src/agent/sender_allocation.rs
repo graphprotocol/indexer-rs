@@ -619,11 +619,9 @@ where
 
                 // Instrumentation: log details before calling the aggregator
                 let receipt_count = valid_receipts.len();
-                let first_signer = valid_receipts.first().and_then(|r| {
-                    r.get_v2_receipt()
-                        .recover_signer(&self.domain_separator)
-                        .ok()
-                });
+                let first_signer = valid_receipts
+                    .first()
+                    .and_then(|r| r.as_ref().recover_signer(&self.domain_separator).ok());
                 tracing::info!(
                     sender = %self.sender,
                     allocation_id = %self.allocation_id,
@@ -733,7 +731,7 @@ where
         let mut receipts_v2 = Vec::with_capacity(receipts.len());
         for receipt in receipts {
             let error = receipt.clone().error().to_string();
-            let receipt = receipt.signed_receipt().clone().as_v2();
+            let receipt = receipt.signed_receipt().0.clone();
             receipts_v2.push((receipt, error));
         }
 
@@ -1263,7 +1261,7 @@ mod tests {
         for i in 0..AMOUNT_OF_RECEIPTS {
             let receipt =
                 create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
-            let signed = receipt.signed_receipt().clone().as_v2();
+            let signed = receipt.signed_receipt().0.clone();
             store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
@@ -1300,7 +1298,7 @@ mod tests {
         for i in 0..AMOUNT_OF_RECEIPTS {
             let receipt =
                 create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
-            let signed = receipt.signed_receipt().clone().as_v2();
+            let signed = receipt.signed_receipt().0.clone();
             store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
@@ -1360,7 +1358,7 @@ mod tests {
         for i in 0..10 {
             let receipt =
                 create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
-            let signed = receipt.signed_receipt().clone().as_v2();
+            let signed = receipt.signed_receipt().0.clone();
             store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
@@ -1394,7 +1392,7 @@ mod tests {
 
         for i in 1..10 {
             let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            let signed = receipt.signed_receipt().clone().as_v2();
+            let signed = receipt.signed_receipt().0.clone();
             store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
@@ -1482,7 +1480,7 @@ mod tests {
 
         for i in 1..10 {
             let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            let signed = receipt.signed_receipt().clone().as_v2();
+            let signed = receipt.signed_receipt().0.clone();
             store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
@@ -1615,7 +1613,7 @@ mod tests {
                 i + 1,
                 i.into(),
             );
-            let signed = receipt.signed_receipt().clone().as_v2();
+            let signed = receipt.signed_receipt().0.clone();
             store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
@@ -1654,7 +1652,7 @@ mod tests {
                 timestamp,
                 RECEIPT_VALUE,
             );
-            let signed = receipt.signed_receipt().clone().as_v2();
+            let signed = receipt.signed_receipt().0.clone();
             store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 

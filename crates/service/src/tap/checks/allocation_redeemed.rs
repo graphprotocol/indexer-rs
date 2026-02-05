@@ -78,13 +78,8 @@ impl Check<TapReceipt> for AllocationRedeemedCheck {
             .get::<Sender>()
             .ok_or_else(|| CheckError::Failed(anyhow::anyhow!("Missing sender in context")))?;
 
-        let collection_id = CollectionId::from(
-            receipt
-                .signed_receipt()
-                .get_v2_receipt()
-                .message
-                .collection_id,
-        );
+        let collection_id =
+            CollectionId::from(receipt.signed_receipt().as_ref().message.collection_id);
         let redeemed = self
             .v2_allocation_redeemed(*sender, collection_id)
             .await
@@ -141,7 +136,7 @@ mod tests {
             value: 100,
         };
         let signed = Eip712SignedMessage::new(&eip712_domain, receipt, &wallet).unwrap();
-        TapReceipt::V2(signed)
+        TapReceipt(signed)
     }
 
     #[tokio::test]

@@ -39,7 +39,7 @@ async fn sender_account_layer_test() {
 
     let receipt =
         create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 100);
-    let signed = receipt.signed_receipt().clone().as_v2();
+    let signed = receipt.signed_receipt().0.clone();
     store_receipt(&pgpool, &signed).await.unwrap();
 
     let (sender_account, mut msg_receiver, _, _, _, _) = create_sender_account()

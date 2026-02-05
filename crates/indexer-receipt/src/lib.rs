@@ -1,6 +1,8 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::ops::Deref;
+
 use tap_core::{
     receipt::{
         rav::{Aggregate, AggregationError},
@@ -15,8 +17,26 @@ use thegraph_core::alloy::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TapReceipt {
-    V2(tap_graph::v2::SignedReceipt),
+pub struct TapReceipt(pub tap_graph::v2::SignedReceipt);
+
+impl Deref for TapReceipt {
+    type Target = tap_graph::v2::SignedReceipt;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsRef<tap_graph::v2::SignedReceipt> for TapReceipt {
+    fn as_ref(&self) -> &tap_graph::v2::SignedReceipt {
+        &self.0
+    }
+}
+
+impl From<tap_graph::v2::SignedReceipt> for TapReceipt {
+    fn from(receipt: tap_graph::v2::SignedReceipt) -> Self {
+        Self(receipt)
+    }
 }
 
 impl Aggregate<TapReceipt> for tap_graph::v2::ReceiptAggregateVoucher {
@@ -32,7 +52,7 @@ impl Aggregate<TapReceipt> for tap_graph::v2::ReceiptAggregateVoucher {
         }
         let receipts: Vec<_> = receipts
             .iter()
-            .map(|receipt| receipt.signed_receipt().get_v2_receipt().clone())
+            .map(|receipt| receipt.signed_receipt().0.clone())
             .collect();
         let collection_id = receipts[0].message.collection_id;
         let payer = receipts[0].message.payer;
@@ -51,45 +71,33 @@ impl Aggregate<TapReceipt> for tap_graph::v2::ReceiptAggregateVoucher {
 }
 
 impl TapReceipt {
-    pub fn as_v2(self) -> tap_graph::v2::SignedReceipt {
-        match self {
-            TapReceipt::V2(receipt) => receipt,
-        }
-    }
-
-    pub fn get_v2_receipt(&self) -> &tap_graph::v2::SignedReceipt {
-        match self {
-            TapReceipt::V2(receipt) => receipt,
-        }
-    }
-
     pub fn collection_id(&self) -> FixedBytes<32> {
-        self.get_v2_receipt().message.collection_id
+        self.0.message.collection_id
     }
 
     pub fn signature(&self) -> Signature {
-        self.get_v2_receipt().signature
+        self.0.signature
     }
 
     pub fn nonce(&self) -> u64 {
-        self.get_v2_receipt().message.nonce
+        self.0.message.nonce
     }
 
     pub fn recover_signer(
         &self,
         domain_separator: &Eip712Domain,
     ) -> Result<Address, tap_core::signed_message::Eip712Error> {
-        self.get_v2_receipt().recover_signer(domain_separator)
+        self.0.recover_signer(domain_separator)
     }
 }
 
 impl WithValueAndTimestamp for TapReceipt {
     fn value(&self) -> u128 {
-        self.get_v2_receipt().value()
+        self.0.value()
     }
 
     fn timestamp_ns(&self) -> u64 {
-        self.get_v2_receipt().timestamp_ns()
+        self.0.timestamp_ns()
     }
 }
 
@@ -97,6 +105,6 @@ impl WithUniqueId for TapReceipt {
     type Output = SignatureBytes;
 
     fn unique_id(&self) -> Self::Output {
-        self.get_v2_receipt().unique_id()
+        self.0.unique_id()
     }
 }

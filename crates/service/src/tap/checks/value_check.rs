@@ -509,7 +509,7 @@ mod tests {
         });
 
         let signed_receipt = create_signed_receipt_v2().value(0).call().await;
-        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt(signed_receipt));
 
         assert!(
             check.check(&ctx, &receipt).await.is_err(),
@@ -517,7 +517,7 @@ mod tests {
         );
 
         let signed_receipt = create_signed_receipt_v2().value(1).call().await;
-        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt(signed_receipt));
         assert!(
             check.check(&ctx, &receipt).await.is_ok(),
             "Should accept if value is more than 0 for any query"
@@ -537,7 +537,7 @@ mod tests {
             .call()
             .await;
 
-        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt(signed_receipt));
 
         assert!(
             check.check(&ctx, &receipt).await.is_ok(),
@@ -553,7 +553,7 @@ mod tests {
 
         let signed_receipt = create_signed_receipt_v2().value(minimal_value).call().await;
 
-        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt(signed_receipt));
         check
             .check(&ctx, &receipt)
             .await
@@ -564,7 +564,7 @@ mod tests {
             .call()
             .await;
 
-        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt(signed_receipt));
         check
             .check(&ctx, &receipt)
             .await
@@ -599,7 +599,7 @@ mod tests {
             .call()
             .await;
 
-        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt(signed_receipt));
 
         assert!(
             check.check(&ctx, &receipt).await.is_err(),
@@ -610,7 +610,7 @@ mod tests {
             .value(minimal_global_value)
             .call()
             .await;
-        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt(signed_receipt));
         check
             .check(&ctx, &receipt)
             .await
@@ -620,7 +620,7 @@ mod tests {
             .value(minimal_global_value + 1)
             .call()
             .await;
-        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt(signed_receipt));
         check
             .check(&ctx, &receipt)
             .await

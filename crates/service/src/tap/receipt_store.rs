@@ -203,7 +203,7 @@ impl DatabaseReceipt {
         separator: &Eip712Domain,
     ) -> Result<Self, AdapterError> {
         Ok(Self(DbReceiptV2::from_receipt(
-            receipt.signed_receipt().get_v2_receipt(),
+            receipt.signed_receipt().as_ref(),
             separator,
         )?))
     }
