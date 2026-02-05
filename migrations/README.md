@@ -1,8 +1,8 @@
 # Database Migration setup
 
-Indexer service binary does _NOT_ run database migrations automatically in the program binary, as it might introduce conflicts with the migrations run by indexer agent. Indexer agent is solely responsible for syncing and migrating the database. 
+Do not run migrations from `indexer-rs` binaries; use `indexer-agent` to sync and migrate the database.
 
-The migration files here are included here for testing only. 
+Use the migration files here for local testing only. The source of truth lives in the `graphprotocol/indexer` repo.
 
 ### Prerequisite: Install sqlx-cli
 

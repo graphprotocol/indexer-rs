@@ -64,79 +64,10 @@ where
                     IndexerServiceError::ReceiptNotFound
                 })?;
 
-                let version = match &receipt {
-                    TapReceipt::V1(_) => "V1",
-                    TapReceipt::V2(_) => "V2",
-                };
+                let version = "V2";
                 tracing::debug!(receipt_version = version, "Starting TAP receipt validation");
 
                 // Verify the receipt and store it in the database
-                tap_manager
-                    .verify_and_store_receipt(&ctx.unwrap_or_default(), receipt)
-                    .await
-                    .inspect_err(|err| {
-                        tracing::debug!(error = %err, receipt_version = version, "TAP receipt validation failed");
-                        if let Some(labels) = &labels {
-                            failed_receipt_metric
-                                .with_label_values(&labels.get_labels())
-                                .inc()
-                        }
-                    })?;
-
-                tracing::debug!(
-                    receipt_version = version,
-                    "TAP receipt validation successful"
-                );
-                Ok::<_, IndexerServiceError>(request)
-            };
-            execute().await.map_err(|error| {
-                tracing::debug!(error = %error, "TAP authorization failed, returning HTTP error response");
-                error.into_response()
-            })
-        }
-    }
-}
-
-pub fn dual_tap_receipt_authorize<T, B>(
-    tap_manager_v1: Arc<Manager<T, TapReceipt>>,
-    tap_manager_v2: Arc<Manager<T, TapReceipt>>,
-    failed_receipt_metric: &'static prometheus::CounterVec,
-) -> impl AsyncAuthorizeRequest<
-    B,
-    RequestBody = B,
-    ResponseBody = Body,
-    Future = impl Future<Output = Result<Request<B>, Response<Body>>> + Send,
-> + Clone
-       + Send
-where
-    T: ReceiptStore<TapReceipt> + Sync + Send + 'static,
-    B: Send,
-{
-    move |mut request: Request<B>| {
-        let receipt = request.extensions_mut().remove::<TapReceipt>();
-        let labels = request.extensions().get::<MetricLabels>().cloned();
-        let ctx = request.extensions().get::<Arc<Context>>().cloned();
-        let manager_v1 = tap_manager_v1.clone();
-        let manager_v2 = tap_manager_v2.clone();
-
-        async move {
-            let execute = || async {
-                let receipt = receipt.ok_or_else(|| {
-                    tracing::debug!(
-                        "TAP receipt validation failed: receipt not found in request extensions"
-                    );
-                    IndexerServiceError::ReceiptNotFound
-                })?;
-
-                // SELECT THE RIGHT MANAGER BASED ON RECEIPT VERSION
-                let (tap_manager, version) = match &receipt {
-                    TapReceipt::V1(_) => (manager_v1, "V1"),
-                    TapReceipt::V2(_) => (manager_v2, "V2"),
-                };
-
-                tracing::debug!(receipt_version = version, "Using version-specific manager");
-
-                // Use the version-appropriate manager
                 tap_manager
                     .verify_and_store_receipt(&ctx.unwrap_or_default(), receipt)
                     .await
@@ -181,10 +112,7 @@ mod tests {
         manager::Manager,
         receipt::checks::{Check, CheckError, CheckList, CheckResult},
     };
-    use test_assets::{
-        assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
-        TAP_EIP712_DOMAIN_V2,
-    };
+    use test_assets::{assert_while_retry, create_signed_receipt_v2, TAP_EIP712_DOMAIN_V2};
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
@@ -215,12 +143,7 @@ mod tests {
         metric: &'static prometheus::CounterVec,
         pgpool: PgPool,
     ) -> impl Service<Request<Body>, Response = Response<Body>, Error = impl std::fmt::Debug> {
-        let context = IndexerTapContext::new(
-            pgpool,
-            TAP_EIP712_DOMAIN.clone(),
-            TAP_EIP712_DOMAIN_V2.clone(),
-        )
-        .await;
+        let context = IndexerTapContext::new(pgpool, TAP_EIP712_DOMAIN_V2.clone()).await;
 
         struct MyCheck;
         #[async_trait::async_trait]
@@ -239,7 +162,7 @@ mod tests {
         }
 
         let manager = Arc::new(Manager::new(
-            TAP_EIP712_DOMAIN.clone(),
+            TAP_EIP712_DOMAIN_V2.clone(),
             context,
             CheckList::new(vec![Arc::new(MyCheck)]),
         ));
@@ -262,17 +185,17 @@ mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let mut service = service(metric, test_db.pool.clone()).await;
 
-        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let receipt = create_signed_receipt_v2().call().await;
 
         // check with receipt
         let mut req = Request::new(Body::default());
-        req.extensions_mut().insert(TapReceipt::V1(receipt));
+        req.extensions_mut().insert(TapReceipt(receipt));
         let res = service.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
         // verify receipts
         assert_while_retry!({
-            sqlx::query!("SELECT * FROM scalar_tap_receipts")
+            sqlx::query("SELECT * FROM tap_horizon_receipts")
                 .fetch_all(&test_db.pool)
                 .await
                 .unwrap()
@@ -299,11 +222,11 @@ mod tests {
         // default labels, all empty
         let labels: MetricLabels = Arc::new(TestLabel);
 
-        let mut receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let mut receipt = create_signed_receipt_v2().call().await;
         // change the nonce to make the receipt invalid
         receipt.message.nonce = FAILED_NONCE;
         let mut req = Request::new(Body::default());
-        req.extensions_mut().insert(TapReceipt::V1(receipt));
+        req.extensions_mut().insert(TapReceipt(receipt));
         req.extensions_mut().insert(labels);
         let response = service.call(req);
 

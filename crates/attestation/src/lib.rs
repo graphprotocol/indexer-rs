@@ -23,25 +23,25 @@ pub fn derive_key_pair(
     deployment: &DeploymentId,
     index: u64,
 ) -> Result<PrivateKeySigner, anyhow::Error> {
-    // Try the original method first for backward compatibility
-    match derive_key_pair_v1(indexer_mnemonic, epoch, deployment, index) {
+    // Try the primary derivation method first.
+    match derive_key_pair_primary(indexer_mnemonic, epoch, deployment, index) {
         Ok(wallet) => Ok(wallet),
         Err(e) => {
-            // If the original method fails (likely due to path length), try v2
+            // If the primary method fails (likely due to path length), try the fallback
             tracing::debug!(
-                "V1 derivation failed for epoch={}, deployment={}, index={}: {}. Trying V2.",
+                "Primary derivation failed for epoch={}, deployment={}, index={}: {}. Trying fallback.",
                 epoch,
                 deployment,
                 index,
                 e
             );
-            derive_key_pair_v2(indexer_mnemonic, epoch, deployment, index)
+            derive_key_pair_fallback(indexer_mnemonic, epoch, deployment, index)
         }
     }
 }
 
-/// Original derivation method - kept for backward compatibility
-fn derive_key_pair_v1(
+/// Primary derivation method.
+fn derive_key_pair_primary(
     indexer_mnemonic: &str,
     epoch: u64,
     deployment: &DeploymentId,
@@ -77,8 +77,8 @@ fn derive_key_pair_v1(
         .build()?)
 }
 
-/// V2 derivation method - uses hash of deployment to create shorter, deterministic paths
-fn derive_key_pair_v2(
+/// Fallback derivation method - uses hash of deployment to create shorter, deterministic paths
+fn derive_key_pair_fallback(
     indexer_mnemonic: &str,
     epoch: u64,
     deployment: &DeploymentId,
@@ -102,7 +102,7 @@ fn derive_key_pair_v2(
     let derivation_path = format!("m/{epoch}'/{deployment_part1}'/{deployment_part2}'/{index}'");
 
     tracing::debug!(
-        "V2 derivation: epoch={}, deployment={}, index={}, path={}",
+        "Fallback derivation: epoch={}, deployment={}, index={}, path={}",
         epoch,
         deployment,
         index,
@@ -237,7 +237,7 @@ fn wallet_for_allocation_multi(
                 }
 
                 // Check if wallet address matches allocation ID
-                // This works for both Legacy (V1) and Horizon (V2) as both use 20-byte allocation IDs
+                // Allocation IDs are 20-byte addresses in all supported modes
                 if wallet_address == allocation.id {
                     tracing::debug!(
                         "Found matching wallet! mnemonic={}, epoch={}, index={}, address={}",
@@ -366,17 +366,17 @@ mod tests {
             derivation_path.len() > 120
         );
 
-        // Test both v1 and v2 derivations for this deployment
-        println!("\n--- Testing V1 derivation ---");
-        match derive_key_pair_v1(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index) {
-            Ok(wallet) => println!("V1 result: 0x{:x}", wallet.address()),
-            Err(e) => println!("V1 failed: {e}"),
+        // Test both primary and fallback derivations for this deployment
+        println!("\n--- Testing primary derivation ---");
+        match derive_key_pair_primary(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index) {
+            Ok(wallet) => println!("Primary result: 0x{:x}", wallet.address()),
+            Err(e) => println!("Primary failed: {e}"),
         }
 
-        println!("\n--- Testing V2 derivation ---");
-        match derive_key_pair_v2(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index) {
-            Ok(wallet) => println!("V2 result: 0x{:x}", wallet.address()),
-            Err(e) => println!("V2 failed: {e}"),
+        println!("\n--- Testing fallback derivation ---");
+        match derive_key_pair_fallback(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index) {
+            Ok(wallet) => println!("Fallback result: 0x{:x}", wallet.address()),
+            Err(e) => println!("Fallback failed: {e}"),
         }
     }
 
@@ -486,49 +486,53 @@ mod tests {
         println!("Path length: {}", derivation_path.len());
         println!("Exceeds 200 chars: {}", derivation_path.len() > 200);
 
-        // Test V1 - should work if path <= 200 chars
-        let v1_result = derive_key_pair_v1(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index);
+        // Test primary derivation - should work if path <= 200 chars
+        let v1_result =
+            derive_key_pair_primary(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index);
         match &v1_result {
-            Ok(wallet) => println!("V1 succeeded: 0x{:x}", wallet.address()),
-            Err(e) => println!("V1 failed: {e}"),
+            Ok(wallet) => println!("Primary succeeded: 0x{:x}", wallet.address()),
+            Err(e) => println!("Primary failed: {e}"),
         }
 
-        // Test V2
+        // Test fallback derivation
         let v2_result =
-            derive_key_pair_v2(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index).unwrap();
-        println!("V2 result: 0x{:x}", v2_result.address());
+            derive_key_pair_fallback(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index).unwrap();
+        println!("Fallback result: 0x{:x}", v2_result.address());
 
         // Test the main function
         let main_result =
             derive_key_pair(INDEXER_OPERATOR_MNEMONIC, epoch, &deployment, index).unwrap();
         println!("Main function result: 0x{:x}", main_result.address());
 
-        // Main function should use V1 if it works, otherwise V2
+        // Main function should use primary if it works, otherwise fallback
         if v1_result.is_ok() {
             assert_eq!(v1_result.unwrap().address(), main_result.address());
-            println!("✓ Main function correctly used V1 for this deployment");
+            println!("✓ Main function correctly used primary derivation for this deployment");
         } else {
             assert_eq!(v2_result.address(), main_result.address());
-            println!("✓ Main function correctly fell back to V2 for this deployment");
+            println!("✓ Main function correctly fell back for this deployment");
         }
 
-        // Now test with an artificially long deployment that definitely triggers V2
+        // Now test with an artificially long deployment that definitely triggers fallback
         // Create a deployment string that will exceed 200 chars
         let very_long_deployment = format!("Qm{}", "x".repeat(200)); // This will be way too long
         if let Ok(long_deployment) = DeploymentId::from_str(&very_long_deployment) {
             println!("\n--- Testing artificially long deployment ---");
-            match derive_key_pair_v1(INDEXER_OPERATOR_MNEMONIC, epoch, &long_deployment, index) {
-                Ok(_) => panic!("V1 should have failed for artificially long deployment"),
-                Err(e) => println!("V1 correctly failed for long deployment: {e}"),
+            match derive_key_pair_primary(INDEXER_OPERATOR_MNEMONIC, epoch, &long_deployment, index)
+            {
+                Ok(_) => {
+                    panic!("Primary derivation should have failed for artificially long deployment")
+                }
+                Err(e) => println!("Primary derivation correctly failed for long deployment: {e}"),
             }
 
             let long_v2_result =
-                derive_key_pair_v2(INDEXER_OPERATOR_MNEMONIC, epoch, &long_deployment, index)
+                derive_key_pair_fallback(INDEXER_OPERATOR_MNEMONIC, epoch, &long_deployment, index)
                     .unwrap();
             let long_main_result =
                 derive_key_pair(INDEXER_OPERATOR_MNEMONIC, epoch, &long_deployment, index).unwrap();
             assert_eq!(long_v2_result.address(), long_main_result.address());
-            println!("✓ V2 fallback working for artificially long deployment");
+            println!("✓ Fallback derivation working for artificially long deployment");
         }
     }
 

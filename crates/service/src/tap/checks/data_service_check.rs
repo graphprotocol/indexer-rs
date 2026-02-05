@@ -6,10 +6,9 @@ use thegraph_core::alloy::{hex::ToHexExt, primitives::Address};
 
 use crate::tap::{CheckingReceipt, TapReceipt};
 
-/// Validates that the V2 receipt's `data_service` field matches an
+/// Validates that the receipt's `data_service` field matches an
 /// allowed SubgraphService address (or one of them).
 ///
-/// - V1 receipts are ignored by this check (always Ok).
 /// - On mismatch, returns a CheckFailure with a descriptive message.
 pub struct DataServiceCheck {
     allowed: Vec<Address>,
@@ -28,22 +27,14 @@ impl Check<TapReceipt> for DataServiceCheck {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        match receipt.signed_receipt() {
-            // Not applicable for V1
-            TapReceipt::V1(_) => Ok(()),
-
-            // Validate data_service for V2
-            TapReceipt::V2(r) => {
-                let got = r.message.data_service;
-                if self.allowed.contains(&got) {
-                    Ok(())
-                } else {
-                    Err(CheckError::Failed(anyhow::anyhow!(
-                        "Invalid data_service: {} is not allowed for this indexer",
-                        got.encode_hex()
-                    )))
-                }
-            }
+        let got = receipt.signed_receipt().as_ref().message.data_service;
+        if self.allowed.contains(&got) {
+            Ok(())
+        } else {
+            Err(CheckError::Failed(anyhow::anyhow!(
+                "Invalid data_service: {} is not allowed for this indexer",
+                got.encode_hex()
+            )))
         }
     }
 }

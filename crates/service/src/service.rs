@@ -90,25 +90,9 @@ pub async fn run() -> anyhow::Result<()> {
     let database =
         database::connect(config.database.clone().get_formated_postgres_url().as_ref()).await;
 
-    let domain_separator = tap_eip712_domain(
-        config.blockchain.chain_id as u64,
-        config.blockchain.receipts_verifier_address,
-        tap_core::TapVersion::V1,
-    );
-
     let domain_separator_v2 = tap_eip712_domain(
         config.blockchain.chain_id as u64,
-        if config.tap_mode().is_horizon() {
-            config
-                .blockchain
-                .receipts_verifier_address_v2
-                .expect("receipts_verifier_address_v2 is required when Horizon mode is enabled ([horizon].enabled = true)")
-        } else {
-            config
-                .blockchain
-                .receipts_verifier_address_v2
-                .unwrap_or(config.blockchain.receipts_verifier_address)
-        },
+        config.blockchain.horizon_receipts_verifier_address(),
         tap_core::TapVersion::V2,
     );
     let chain_id = config.blockchain.chain_id as u64;
@@ -117,145 +101,78 @@ pub async fn run() -> anyhow::Result<()> {
     let indexer_address = config.indexer.indexer_address;
     let ipfs_url = config.service.ipfs_url.clone();
 
-    // DIPS requires Horizon mode - validate early before any initialization
-    if config.dips.is_some() && !config.tap_mode().is_horizon() {
-        anyhow::bail!(
-            "DIPS is configured but Horizon is not enabled. \
-            DIPS requires Horizon mode ([horizon].enabled = true) to function correctly."
-        );
+    // Horizon is required; verify contracts are active.
+    if !config.tap_mode().is_horizon() {
+        anyhow::bail!("Horizon mode is required; legacy mode is no longer supported.");
     }
 
     // V2 escrow accounts (used by DIPS) are in the network subgraph
     let escrow_v2_query_url_for_dips = config.subgraphs.network.config.query_url.clone();
 
-    // Determine if we should check for Horizon contracts and potentially enable hybrid mode:
-    // - Legacy mode: if [horizon].enabled = false
-    // - Horizon mode: if [horizon].enabled = true; verify network readiness
-    let is_horizon_active = if config.tap_mode().is_horizon() {
-        tracing::info!(
-            "Horizon mode configured - checking if Horizon contracts are active in the network"
-        );
-        match indexer_monitor::is_horizon_active(network_subgraph).await {
-            Ok(true) => {
-                tracing::info!("Horizon contracts detected in network subgraph - enabling hybrid migration mode");
-                tracing::info!("Mode: Accept new V2 receipts only, continue processing existing V1 receipts for RAVs");
-                true
-            }
-            Ok(false) => {
-                anyhow::bail!(
-                    "Horizon enabled, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
-                    Deploy Horizon (V2) contracts and the updated Network Subgraph, or disable Horizon ([horizon].enabled = false)"
-                );
-            }
-            Err(e) => {
-                anyhow::bail!(
-                    "Failed to detect Horizon contracts due to network/subgraph error: {}. \
-                    Cannot start with Horizon mode enabled when network status is unknown.",
-                    e
-                );
-            }
+    tracing::info!("Horizon mode configured; checking network subgraph readiness");
+    match indexer_monitor::is_horizon_active(network_subgraph).await {
+        Ok(true) => {
+            tracing::info!("Horizon contracts detected in network subgraph");
         }
-    } else {
-        tracing::info!("Horizon not configured - using pure legacy mode");
-        false
+        Ok(false) => {
+            anyhow::bail!(
+                "Horizon mode is required, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
+                Ensure Horizon contracts are deployed and the Network Subgraph is updated before starting the indexer service."
+            );
+        }
+        Err(e) => {
+            anyhow::bail!(
+                "Failed to detect Horizon contracts due to network/subgraph error: {}. \
+                Cannot start with Horizon mode enabled when network status is unknown.",
+                e
+            );
+        }
+    }
+
+    tracing::info!("Horizon contracts detected - using Horizon (V2) mode");
+
+    let v2_watcher = match indexer_monitor::escrow_accounts_v2(
+        network_subgraph,
+        indexer_address,
+        config.subgraphs.network.config.syncing_interval_secs,
+        true, // Reject thawing signers eagerly
+    )
+    .await
+    {
+        Ok(watcher) => {
+            tracing::info!("V2 escrow accounts successfully initialized from network subgraph");
+            watcher
+        }
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                "Failed to initialize V2 escrow accounts; service cannot continue",
+            );
+            std::process::exit(1);
+        }
     };
 
-    // Configure router with escrow watchers based on automatic Horizon detection
-    let router = if is_horizon_active {
-        tracing::info!("Horizon contracts detected - using Horizon migration mode: V2 receipts only, but processing existing V1 receipts");
+    let escrow_subgraph = create_subgraph_client(
+        http_client.clone(),
+        &config.graph_node,
+        &config.subgraphs.escrow.config,
+    )
+    .await;
 
-        // Create V1 escrow watcher for processing existing receipts
-        let escrow_subgraph_v1 = create_subgraph_client(
-            http_client.clone(),
-            &config.graph_node,
-            &config.subgraphs.escrow.config,
-        )
-        .await;
-
-        let v1_watcher = indexer_monitor::escrow_accounts_v1(
-            escrow_subgraph_v1,
-            indexer_address,
-            config.subgraphs.escrow.config.syncing_interval_secs,
-            true, // Reject thawing signers eagerly
-        )
-        .await
-        .with_context(|| "Error creating escrow_accounts_v1 channel")?;
-
-        // Create V2 escrow watcher for new receipts (V2 escrow accounts are in the network subgraph)
-        let v2_watcher = match indexer_monitor::escrow_accounts_v2(
-            network_subgraph,
-            indexer_address,
-            config.subgraphs.network.config.syncing_interval_secs,
-            true, // Reject thawing signers eagerly
-        )
-        .await
-        {
-            Ok(watcher) => {
-                tracing::info!("V2 escrow accounts successfully initialized from network subgraph");
-                watcher
-            }
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    "Failed to initialize V2 escrow accounts; service cannot continue",
-                );
-                std::process::exit(1);
-            }
-        };
-
-        ServiceRouter::builder()
-            .database(database.clone())
-            .domain_separator(domain_separator.clone())
-            .domain_separator_v2(domain_separator_v2.clone())
-            .graph_node(config.graph_node)
-            .http_client(http_client)
-            .release(release)
-            .indexer(config.indexer)
-            .service(config.service)
-            .blockchain(config.blockchain)
-            .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
-            .network_subgraph(network_subgraph, config.subgraphs.network)
-            .escrow_subgraph(escrow_subgraph_v1, config.subgraphs.escrow)
-            .escrow_accounts_v1(v1_watcher)
-            .escrow_accounts_v2(v2_watcher)
-            .build()
-    } else {
-        tracing::info!(
-            "No Horizon contracts detected - using Legacy (V1) mode with escrow accounts v1 only"
-        );
-        // Only create v1 watcher for legacy mode
-        let escrow_subgraph_v1 = create_subgraph_client(
-            http_client.clone(),
-            &config.graph_node,
-            &config.subgraphs.escrow.config,
-        )
-        .await;
-
-        let v1_watcher = indexer_monitor::escrow_accounts_v1(
-            escrow_subgraph_v1,
-            indexer_address,
-            config.subgraphs.escrow.config.syncing_interval_secs,
-            true, // Reject thawing signers eagerly
-        )
-        .await
-        .with_context(|| "Error creating escrow_accounts_v1 channel")?;
-
-        ServiceRouter::builder()
-            .database(database.clone())
-            .domain_separator(domain_separator.clone())
-            .domain_separator_v2(domain_separator_v2.clone())
-            .graph_node(config.graph_node)
-            .http_client(http_client)
-            .release(release)
-            .indexer(config.indexer)
-            .service(config.service)
-            .blockchain(config.blockchain)
-            .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
-            .network_subgraph(network_subgraph, config.subgraphs.network)
-            .escrow_subgraph(escrow_subgraph_v1, config.subgraphs.escrow)
-            .escrow_accounts_v1(v1_watcher)
-            .build()
-    };
+    let router = ServiceRouter::builder()
+        .database(database.clone())
+        .domain_separator_v2(domain_separator_v2.clone())
+        .graph_node(config.graph_node)
+        .http_client(http_client)
+        .release(release)
+        .indexer(config.indexer)
+        .service(config.service)
+        .blockchain(config.blockchain)
+        .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
+        .network_subgraph(network_subgraph, config.subgraphs.network)
+        .escrow_subgraph(escrow_subgraph, config.subgraphs.escrow)
+        .escrow_accounts_v2(v2_watcher)
+        .build();
 
     serve_metrics(config.metrics.get_socket_addr());
 

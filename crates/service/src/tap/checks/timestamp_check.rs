@@ -52,44 +52,18 @@ impl Check<TapReceipt> for TimestampCheck {
 mod tests {
     use std::time::{Duration, SystemTime};
 
-    use tap_core::{
-        receipt::{checks::Check, Context},
-        signed_message::Eip712SignedMessage,
-        tap_eip712_domain,
-    };
-    use tap_graph::Receipt;
-    use thegraph_core::alloy::{
-        primitives::{address, Address},
-        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
-    };
+    use tap_core::receipt::{checks::Check, Context};
+    use test_assets::create_signed_receipt_v2;
 
     use super::TimestampCheck;
-    use crate::tap::{CheckingReceipt, Eip712Domain, TapReceipt};
+    use crate::tap::{CheckingReceipt, TapReceipt};
 
-    fn create_signed_receipt_with_custom_timestamp(timestamp_ns: u64) -> CheckingReceipt {
-        let index: u32 = 0;
-        let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
-            .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
-            .index(index)
-            .unwrap()
-            .build()
-            .unwrap();
-        let eip712_domain_separator: Eip712Domain =
-            tap_eip712_domain(1, Address::from([0x11u8; 20]), tap_core::TapVersion::V1);
-        let value: u128 = 1234;
-        let nonce: u64 = 10;
-        let receipt = Eip712SignedMessage::new(
-            &eip712_domain_separator,
-            Receipt {
-                allocation_id: address!("abababababababababababababababababababab"),
-                nonce,
-                timestamp_ns,
-                value,
-            },
-            &wallet,
-        )
-        .unwrap();
-        CheckingReceipt::new(TapReceipt::V1(receipt))
+    async fn create_signed_receipt_with_custom_timestamp(timestamp_ns: u64) -> CheckingReceipt {
+        let receipt = create_signed_receipt_v2()
+            .timestamp_ns(timestamp_ns)
+            .call()
+            .await;
+        CheckingReceipt::new(TapReceipt(receipt))
     }
 
     #[tokio::test]
@@ -100,7 +74,7 @@ mod tests {
             .as_nanos()
             + Duration::from_secs(15).as_nanos();
         let timestamp_ns = timestamp as u64;
-        let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns);
+        let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns).await;
         let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
         assert!(timestamp_check
             .check(&Context::new(), &signed_receipt)
@@ -116,7 +90,7 @@ mod tests {
             .as_nanos()
             + Duration::from_secs(33).as_nanos();
         let timestamp_ns = timestamp as u64;
-        let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns);
+        let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns).await;
         let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
         assert!(timestamp_check
             .check(&Context::new(), &signed_receipt)
@@ -132,7 +106,7 @@ mod tests {
             .as_nanos()
             - Duration::from_secs(33).as_nanos();
         let timestamp_ns = timestamp as u64;
-        let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns);
+        let signed_receipt = create_signed_receipt_with_custom_timestamp(timestamp_ns).await;
         let timestamp_check = TimestampCheck::new(Duration::from_secs(30));
         assert!(timestamp_check
             .check(&Context::new(), &signed_receipt)

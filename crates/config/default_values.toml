@@ -37,13 +37,19 @@ max_receipts_per_request = 10000
 0xDDE4cfFd3D9052A9cb618fC05a1Cd02be1f2F467 = "https://tap-aggregator.network.thegraph.com"
 0xDD6a6f76eb36B873C1C184e8b9b9e762FE216490 = "https://tap-aggregator-arbitrum-one.graphops.xyz"
 
+[blockchain]
+# Default chain ID for tests and local setups.
+chain_id = 1337
+# Horizon verifier (required).
+receipts_verifier_address_v2 = "0x3333333333333333333333333333333333333333"
+# SubgraphService contract (required).
+subgraph_service_address = "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9"
+
 [horizon]
-# Enable Horizon migration support and detection
-# When enabled: Check if Horizon contracts are active in the network
-#   - If Horizon contracts detected: Hybrid migration mode (new V2 receipts only, process existing V1 receipts)
-#   - If Horizon contracts not detected: Errors 
+# Enable Horizon support and detection
+# When enabled: checks that Horizon contracts are active via the network subgraph
 # When enabled, set `blockchain.subgraph_service_address` and
 # `blockchain.receipts_verifier_address_v2`
-
-# When disabled: Pure legacy mode, no Horizon detection performed
-enabled = false
+#
+# Horizon is required in production.
+enabled = true

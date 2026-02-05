@@ -8,10 +8,9 @@ use crate::{
     tap::{CheckingReceipt, TapReceipt},
 };
 
-/// Validates that the V2 receipt's `payer` field matches the on-chain
+/// Validates that the receipt's `payer` field matches the on-chain
 /// recovered sender (from signer → payer escrow mapping).
 ///
-/// - V1 receipts are ignored by this check (always Ok).
 /// - On mismatch, returns a CheckFailure with a descriptive message.
 ///
 /// This prevents attackers from submitting receipts with mismatched payer
@@ -37,30 +36,23 @@ impl Check<TapReceipt> for PayerCheck {
         ctx: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        match receipt.signed_receipt() {
-            // Not applicable for V1 (no payer field in V1 receipts)
-            TapReceipt::V1(_) => Ok(()),
+        // Get the recovered sender from context (injected by sender middleware)
+        let Sender(recovered_sender) = ctx.get::<Sender>().ok_or_else(|| {
+            CheckError::Failed(anyhow::anyhow!(
+                "Could not find recovered sender in context"
+            ))
+        })?;
 
-            // Validate payer for V2
-            TapReceipt::V2(r) => {
-                // Get the recovered sender from context (injected by sender middleware)
-                let Sender(recovered_sender) = ctx.get::<Sender>().ok_or_else(|| {
-                    CheckError::Failed(anyhow::anyhow!(
-                        "Could not find recovered sender in context"
-                    ))
-                })?;
-
-                // Compare claimed payer against on-chain recovered sender
-                if r.message.payer == *recovered_sender {
-                    Ok(())
-                } else {
-                    Err(CheckError::Failed(anyhow::anyhow!(
-                        "Invalid payer: receipt claims payer {} but signer is authorized for {}",
-                        r.message.payer,
-                        recovered_sender
-                    )))
-                }
-            }
+        let receipt = receipt.signed_receipt().as_ref();
+        // Compare claimed payer against on-chain recovered sender
+        if receipt.message.payer == *recovered_sender {
+            Ok(())
+        } else {
+            Err(CheckError::Failed(anyhow::anyhow!(
+                "Invalid payer: receipt claims payer {} but signer is authorized for {}",
+                receipt.message.payer,
+                recovered_sender
+            )))
         }
     }
 }
@@ -73,7 +65,6 @@ mod tests {
     use tap_core::{
         receipt::Context, signed_message::Eip712SignedMessage, tap_eip712_domain, TapVersion,
     };
-    use tap_graph::Receipt;
     use test_assets::{TAP_SENDER, TAP_SIGNER};
     use thegraph_core::alloy::{
         primitives::{Address, FixedBytes, U256},
@@ -115,22 +106,7 @@ mod tests {
         };
 
         let signed = Eip712SignedMessage::new(&eip712_domain, receipt, &wallet).unwrap();
-        CheckingReceipt::new(TapReceipt::V2(signed))
-    }
-
-    fn create_v1_receipt() -> CheckingReceipt {
-        let wallet = create_wallet();
-        let eip712_domain = tap_eip712_domain(1, Address::from([0x11u8; 20]), TapVersion::V1);
-
-        let receipt = Receipt {
-            allocation_id: Address::ZERO,
-            timestamp_ns: 1000,
-            nonce: 1,
-            value: 100,
-        };
-
-        let signed = Eip712SignedMessage::new(&eip712_domain, receipt, &wallet).unwrap();
-        CheckingReceipt::new(TapReceipt::V1(signed))
+        CheckingReceipt::new(TapReceipt(signed))
     }
 
     #[tokio::test]
@@ -184,16 +160,5 @@ mod tests {
         let err = result.unwrap_err();
         let err_msg = err.to_string();
         assert!(err_msg.contains("Could not find recovered sender"));
-    }
-
-    #[tokio::test]
-    async fn test_payer_check_ignores_v1_receipts() {
-        let check = PayerCheck::new();
-        let ctx = Context::new(); // No sender needed for V1
-
-        let checking = create_v1_receipt();
-
-        let result = check.check(&ctx, &checking).await;
-        assert!(result.is_ok());
     }
 }

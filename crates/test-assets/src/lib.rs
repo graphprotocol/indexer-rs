@@ -14,7 +14,6 @@ use bip39::Mnemonic;
 use indexer_allocation::{Allocation, AllocationStatus, SubgraphDeployment};
 use sqlx::{migrate, migrate::Migrator, postgres::PgPoolOptions, PgPool, Postgres};
 use tap_core::{signed_message::Eip712SignedMessage, tap_eip712_domain};
-use tap_graph::{Receipt, SignedReceipt};
 use thegraph_core::{
     alloy::{
         primitives::{address, Address, U256},
@@ -374,50 +373,8 @@ pub static TAP_SIGNER: LazyLock<(PrivateKeySigner, Address)> = LazyLock::new(|| 
     (wallet, address)
 });
 
-pub static TAP_EIP712_DOMAIN: LazyLock<Eip712Domain> =
-    LazyLock::new(|| tap_eip712_domain(1, VERIFIER_ADDRESS, tap_core::TapVersion::V1));
-
 pub static TAP_EIP712_DOMAIN_V2: LazyLock<Eip712Domain> =
     LazyLock::new(|| tap_eip712_domain(1, VERIFIER_ADDRESS, tap_core::TapVersion::V2));
-
-#[derive(bon::Builder)]
-pub struct SignedReceiptRequest {
-    #[builder(default = Address::ZERO)]
-    allocation_id: Address,
-    #[builder(default)]
-    nonce: u64,
-    #[builder(default = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64)]
-    timestamp_ns: u64,
-    #[builder(default = 1)]
-    value: u128,
-}
-
-/// Function to generate a signed receipt using the TAP_SIGNER wallet.
-pub async fn create_signed_receipt(
-    SignedReceiptRequest {
-        allocation_id,
-        nonce,
-        timestamp_ns,
-        value,
-    }: SignedReceiptRequest,
-) -> SignedReceipt {
-    let (wallet, _) = &*self::TAP_SIGNER;
-
-    Eip712SignedMessage::new(
-        &self::TAP_EIP712_DOMAIN,
-        Receipt {
-            allocation_id,
-            nonce,
-            timestamp_ns,
-            value,
-        },
-        wallet,
-    )
-    .unwrap()
-}
 
 /// Function to generate a signed receipt using the TAP_SIGNER wallet.
 #[bon::builder]
@@ -434,7 +391,7 @@ pub async fn create_signed_receipt_v2(
     let (wallet, _) = &*self::TAP_SIGNER;
 
     Eip712SignedMessage::new(
-        &self::TAP_EIP712_DOMAIN,
+        &self::TAP_EIP712_DOMAIN_V2,
         tap_graph::v2::Receipt {
             payer: TAP_SENDER.1,
             service_provider: INDEXER_ADDRESS,
@@ -509,7 +466,7 @@ pub fn pgpool() -> Pin<Box<dyn Future<Output = PgPool>>> {
     })
 }
 
-// Testcontainers utilities for SQLX_OFFLINE compatibility
+// Testcontainers utilities for database integration testing
 
 use testcontainers_modules::{
     postgres,
