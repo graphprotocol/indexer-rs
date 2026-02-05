@@ -539,12 +539,19 @@ pub enum TheGraphChainId {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
-    /// Deprecated verifier address; keep it the same as the Horizon verifier.
+    /// Legacy verifier address (fallback). Prefer `receipts_verifier_address_v2`.
     pub receipts_verifier_address: Address,
     /// Verifier address for Horizon receipts.
     pub receipts_verifier_address_v2: Option<Address>,
     /// Address of the SubgraphService contract used for Horizon operations
     pub subgraph_service_address: Option<Address>,
+}
+
+impl BlockchainConfig {
+    pub fn horizon_receipts_verifier_address(&self) -> Address {
+        self.receipts_verifier_address_v2
+            .expect("receipts_verifier_address_v2 should be validated during Config::validate()")
+    }
 }
 
 #[derive(Debug, Deserialize)]

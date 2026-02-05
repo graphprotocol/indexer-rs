@@ -40,7 +40,7 @@ max_receipts_per_request = 10000
 [blockchain]
 # Default chain ID for tests and local setups.
 chain_id = 1337
-# Deprecated verifier address; keep it the same as the Horizon verifier.
+# Legacy verifier address (fallback). Prefer `receipts_verifier_address_v2`.
 receipts_verifier_address = "0x3333333333333333333333333333333333333333"
 # Horizon verifier (required).
 receipts_verifier_address_v2 = "0x3333333333333333333333333333333333333333"

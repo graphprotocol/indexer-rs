@@ -25,10 +25,7 @@ pub static CONFIG: LazyLock<Config> =
 pub static EIP_712_DOMAIN_V2: LazyLock<Eip712Domain> = LazyLock::new(|| {
     tap_eip712_domain(
         CONFIG.blockchain.chain_id as u64,
-        CONFIG
-            .blockchain
-            .receipts_verifier_address_v2
-            .expect("receipts_verifier_address_v2 is required when Horizon is enabled"),
+        CONFIG.blockchain.horizon_receipts_verifier_address(),
         tap_core::TapVersion::V2,
     )
 });
