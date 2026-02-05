@@ -15,6 +15,31 @@ use tap_core::{receipt::ReceiptError, Error as TapError};
 use thegraph_core::DeploymentId;
 use thiserror::Error;
 
+/// Implements `IntoResponse` for error types that implement `StatusCodeExt`.
+///
+/// This macro reduces boilerplate for service error types by providing a
+/// consistent error response pattern:
+/// 1. Logs the error at ERROR level with structured tracing
+/// 2. Extracts the status code via `StatusCodeExt`
+/// 3. Returns a JSON response with `{ "message": "<error>" }` format
+///
+/// # Example
+/// ```ignore
+/// impl_service_error_response!(MyError, "MyError");
+/// ```
+#[macro_export]
+macro_rules! impl_service_error_response {
+    ($error_type:ty, $error_name:literal) => {
+        impl axum::response::IntoResponse for $error_type {
+            fn into_response(self) -> axum::response::Response {
+                tracing::error!(error = %self, concat!($error_name, " occurred"));
+                let status_code = <Self as $crate::error::StatusCodeExt>::status_code(&self);
+                $crate::error::ErrorResponse::new(&self).into_response(status_code)
+            }
+        }
+    };
+}
+
 #[derive(Debug, Error)]
 pub enum IndexerServiceError {
     #[error("No Tap receipt was found in the request")]
@@ -73,13 +98,7 @@ impl StatusCodeExt for IndexerServiceError {
     }
 }
 
-impl IntoResponse for IndexerServiceError {
-    fn into_response(self) -> Response {
-        tracing::error!(%self, "An IndexerServiceError occurred.");
-        let status_code = self.status_code();
-        ErrorResponse::new(self).into_response(status_code)
-    }
-}
+impl_service_error_response!(IndexerServiceError, "IndexerServiceError");
 
 #[derive(Debug, Error)]
 pub enum SubgraphServiceError {
@@ -107,14 +126,7 @@ impl StatusCodeExt for SubgraphServiceError {
     }
 }
 
-// Tell axum how to convert `SubgraphServiceError` into a response.
-impl IntoResponse for SubgraphServiceError {
-    fn into_response(self) -> Response {
-        tracing::error!(%self, "An SubgraphServiceError occurred.");
-        let status_code = self.status_code();
-        ErrorResponse::new(self).into_response(status_code)
-    }
-}
+impl_service_error_response!(SubgraphServiceError, "SubgraphServiceError");
 
 pub trait StatusCodeExt {
     fn status_code(&self) -> StatusCode;

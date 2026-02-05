@@ -27,7 +27,12 @@ use tokio_util::sync::CancellationToken;
 use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
-use crate::{cli::Cli, constants::HTTP_CLIENT_TIMEOUT, database, metrics::serve_metrics};
+use crate::{
+    cli::Cli,
+    constants::{DIPS_HTTP_CLIENT_TIMEOUT, HTTP_CLIENT_TIMEOUT},
+    database,
+    metrics::serve_metrics,
+};
 
 mod release;
 mod router;
@@ -63,11 +68,8 @@ pub async fn run() -> anyhow::Result<()> {
     build_info::build_info!(fn build_info);
     let release = IndexerServiceRelease::from(build_info());
 
-    let http_client = reqwest::Client::builder()
-        .tcp_nodelay(true)
-        .timeout(HTTP_CLIENT_TIMEOUT)
-        .build()
-        .expect("Failed to init HTTP client");
+    let http_client = create_http_client(HTTP_CLIENT_TIMEOUT, true)
+        .context("Failed to create HTTP client")?;
 
     let network_subgraph = create_subgraph_client(
         http_client.clone(),
@@ -283,10 +285,8 @@ pub async fn run() -> anyhow::Result<()> {
 
         // TODO: Try to re-use the same watcher for both DIPS and TAP
         // DIPS requires Horizon/V2, so always use V2 escrow from network subgraph
-        let dips_http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to init HTTP client");
+        let dips_http_client = create_http_client(DIPS_HTTP_CLIENT_TIMEOUT, false)
+            .context("Failed to create DIPS HTTP client")?;
 
         tracing::info!("DIPS using V2 escrow from network subgraph");
         let escrow_subgraph_for_dips = Box::leak(Box::new(
@@ -387,6 +387,18 @@ async fn create_subgraph_client(
         )
         .await,
     ))
+}
+
+/// Creates an HTTP client with the specified timeout configuration.
+///
+/// # Arguments
+/// * `timeout` - Maximum duration to wait for a response
+/// * `tcp_nodelay` - If true, disables Nagle's algorithm for lower latency
+fn create_http_client(timeout: Duration, tcp_nodelay: bool) -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .tcp_nodelay(tcp_nodelay)
+        .timeout(timeout)
+        .build()
 }
 
 /// Graceful shutdown handler that coordinates shutdown across all servers
