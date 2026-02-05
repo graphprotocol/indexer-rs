@@ -4,6 +4,27 @@
 
 
 
+## [2.0.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.4...indexer-tap-agent-v2.0.0) (2026-02-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* TAP agent now requires Horizon mode to be enabled. Legacy V1 receipt handling has been removed in favor of exclusive V2 (Horizon) protocol support. The V1 escrow accounts watcher and hybrid migration mode are no longer available.
+
+### Features
+
+* **tap-agent:** use network subgraph for Horizon RAV redemption tracking ([#922](https://github.com/graphprotocol/indexer-rs/issues/922)) ([1aafc9b](https://github.com/graphprotocol/indexer-rs/commit/1aafc9b386f063e8977a12c90f73d88a5777948e))
+
+
+### Bug Fixes
+
+* **tap-agent:** use unique sender ID in metrics cleanup test ([#913](https://github.com/graphprotocol/indexer-rs/issues/913)) ([83219bb](https://github.com/graphprotocol/indexer-rs/commit/83219bb01d4b9f0267f29e64eac6c04f9dff9833))
+
+
+### Miscellaneous Chores
+
+* remove support for legacy v1 receipts ([#929](https://github.com/graphprotocol/indexer-rs/issues/929)) ([262c908](https://github.com/graphprotocol/indexer-rs/commit/262c908b77b7fac3a39faf2854657ba1de284454))
+
 ## [1.12.4](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.3...indexer-tap-agent-v1.12.4) (2026-01-26)
 
 

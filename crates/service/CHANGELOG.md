@@ -6,6 +6,28 @@
 
 
 
+## [2.0.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.8.1...indexer-service-rs-v2.0.0) (2026-02-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* TAP agent now requires Horizon mode to be enabled. Legacy V1 receipt handling has been removed in favor of exclusive V2 (Horizon) protocol support. The V1 escrow accounts watcher and hybrid migration mode are no longer available.
+
+### Features
+
+* **service:** add /healthz endpoint for dependency health checks ([#925](https://github.com/graphprotocol/indexer-rs/issues/925)) ([9e7b67a](https://github.com/graphprotocol/indexer-rs/commit/9e7b67acdb9c57f562587be5d66ab0a256e2bd11))
+* **tap-agent:** use network subgraph for Horizon RAV redemption tracking ([#922](https://github.com/graphprotocol/indexer-rs/issues/922)) ([1aafc9b](https://github.com/graphprotocol/indexer-rs/commit/1aafc9b386f063e8977a12c90f73d88a5777948e))
+
+
+### Bug Fixes
+
+* **service:** add PayerCheck to validate V2 receipt payer field ([#915](https://github.com/graphprotocol/indexer-rs/issues/915)) ([3ec85ba](https://github.com/graphprotocol/indexer-rs/commit/3ec85ba1fdbf240b10569d8f2243b03e96486f78))
+
+
+### Miscellaneous Chores
+
+* remove support for legacy v1 receipts ([#929](https://github.com/graphprotocol/indexer-rs/issues/929)) ([262c908](https://github.com/graphprotocol/indexer-rs/commit/262c908b77b7fac3a39faf2854657ba1de284454))
+
 ## [1.8.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v1.8.0...indexer-service-rs-v1.8.1) (2026-01-26)
 
 
