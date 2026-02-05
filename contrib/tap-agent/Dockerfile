@@ -1,9 +1,6 @@
 FROM rust:1.90-bookworm as build
 WORKDIR /root
 COPY . .
-# Force SQLx to use the offline mode to statically check the database queries against
-# the prepared files in the `.sqlx` directory.
-ENV SQLX_OFFLINE=true
 RUN apt-get update && apt-get install -y --no-install-recommends \
     protobuf-compiler libsasl2-dev && rm -rf /var/lib/apt/lists/*
 RUN cargo build --release --bin indexer-tap-agent
