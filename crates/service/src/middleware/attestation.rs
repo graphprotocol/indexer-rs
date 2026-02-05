@@ -3,12 +3,7 @@
 
 use std::string::FromUtf8Error;
 
-use axum::{
-    body::to_bytes,
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{body::to_bytes, extract::Request, middleware::Next, response::Response};
 use indexer_attestation::AttestationSigner;
 use reqwest::StatusCode;
 use serde::Serialize;

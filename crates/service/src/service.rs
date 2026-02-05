@@ -68,8 +68,8 @@ pub async fn run() -> anyhow::Result<()> {
     build_info::build_info!(fn build_info);
     let release = IndexerServiceRelease::from(build_info());
 
-    let http_client = create_http_client(HTTP_CLIENT_TIMEOUT, true)
-        .context("Failed to create HTTP client")?;
+    let http_client =
+        create_http_client(HTTP_CLIENT_TIMEOUT, true).context("Failed to create HTTP client")?;
 
     let network_subgraph = create_subgraph_client(
         http_client.clone(),
@@ -394,7 +394,10 @@ async fn create_subgraph_client(
 /// # Arguments
 /// * `timeout` - Maximum duration to wait for a response
 /// * `tcp_nodelay` - If true, disables Nagle's algorithm for lower latency
-fn create_http_client(timeout: Duration, tcp_nodelay: bool) -> Result<reqwest::Client, reqwest::Error> {
+fn create_http_client(
+    timeout: Duration,
+    tcp_nodelay: bool,
+) -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .tcp_nodelay(tcp_nodelay)
         .timeout(timeout)
