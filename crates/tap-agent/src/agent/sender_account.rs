@@ -1756,7 +1756,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_update_allocation_ids() {
-        let _mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
@@ -1846,7 +1845,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_new_allocation_id() {
-        let _mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
@@ -2093,8 +2091,8 @@ pub mod tests {
     async fn test_remove_sender_account() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
-        register_payments_escrow_transactions_empty(&mock_escrow_subgraph).await;
+        let mock_network_subgraph = setup_mock_escrow_subgraph().await;
+        register_payments_escrow_transactions_empty(&mock_network_subgraph).await;
         let (sender_account, _, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .initial_allocation(
@@ -2102,7 +2100,7 @@ pub mod tests {
                     .into_iter()
                     .collect(),
             )
-            .network_subgraph_endpoint(&mock_escrow_subgraph.uri())
+            .network_subgraph_endpoint(&mock_network_subgraph.uri())
             .call()
             .await;
 
@@ -2760,7 +2758,6 @@ pub mod tests {
         // with the current allocations from the watcher
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let _mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let mock_network_subgraph = MockServer::start().await;
 
         let allocation_set = HashSet::from_iter([
@@ -2912,7 +2909,6 @@ pub mod tests {
     async fn test_reconcile_allocations_handles_empty_set() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let _mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let mock_network_subgraph = MockServer::start().await;
 
         // Start with one allocation
