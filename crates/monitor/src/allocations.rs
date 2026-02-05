@@ -171,7 +171,7 @@ pub async fn get_allocations_with_metadata(
     let mut responses = vec![];
     let page_size = 200;
     loop {
-        let result = network_subgraph
+        let mut data = network_subgraph
             .query::<AllocationsQuery, _>(allocations_query::Variables {
                 indexer: indexer_address.to_string().to_ascii_lowercase(),
                 closed_at_threshold: closed_at_threshold.as_secs() as i64,
@@ -183,10 +183,7 @@ pub async fn get_allocations_with_metadata(
                     number_gte: None,
                 }),
             })
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-        let mut data = result?;
+            .await?;
         let page_len = data.allocations.len();
 
         // Capture block info from meta (first page sets it, subsequent pages use hash for consistency)

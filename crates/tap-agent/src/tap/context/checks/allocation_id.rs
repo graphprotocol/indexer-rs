@@ -145,7 +145,7 @@ async fn query_escrow_check_transactions(
     indexer_address: Address,
     escrow_subgraph: &'static SubgraphClient,
 ) -> anyhow::Result<bool> {
-    let response = escrow_subgraph
+    let data = escrow_subgraph
         .query::<TapTransactions, _>(tap_transactions::Variables {
             sender_id: sender_address.to_string().to_lowercase(),
             receiver_id: indexer_address.to_string().to_lowercase(),
@@ -153,9 +153,7 @@ async fn query_escrow_check_transactions(
         })
         .await?;
 
-    response
-        .map(|data| !data.transactions.is_empty())
-        .map_err(|err| anyhow!(err))
+    Ok(!data.transactions.is_empty())
 }
 
 async fn query_network_redeem_transactions(
@@ -167,7 +165,7 @@ async fn query_network_redeem_transactions(
     // Horizon network subgraph stores allocationId as the 20-byte address derived
     // from the 32-byte collection_id (rightmost 20 bytes).
     let allocation_ids = vec![collection_id.as_address().encode_hex()];
-    let response = network_subgraph
+    let data = network_subgraph
         .query::<payments_escrow_transactions_redeem::PaymentsEscrowTransactionsRedeemQuery, _>(
             payments_escrow_transactions_redeem::Variables {
                 payer: sender_address.encode_hex(),
@@ -177,9 +175,7 @@ async fn query_network_redeem_transactions(
         )
         .await?;
 
-    response
-        .map(|data| !data.payments_escrow_transactions.is_empty())
-        .map_err(|err| anyhow!(err))
+    Ok(!data.payments_escrow_transactions.is_empty())
 }
 
 #[cfg(test)]
