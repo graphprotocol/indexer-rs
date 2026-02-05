@@ -6,7 +6,6 @@ use std::{
     fmt::Display,
     str::FromStr,
     sync::LazyLock,
-    time::Duration,
 };
 
 use anyhow::{anyhow, bail};
@@ -38,8 +37,6 @@ pub(crate) static RECEIPTS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-
-const RETRY_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Notification received by pgnotify for V1 (legacy) receipts
 ///
@@ -1093,7 +1090,6 @@ impl State {
                 .clone(),
             allocation_ids,
             prefix: self.prefix.clone(),
-            retry_interval: RETRY_INTERVAL,
             sender_type,
         })
     }

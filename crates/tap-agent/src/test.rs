@@ -68,7 +68,6 @@ pub const RECEIPT_LIMIT: u64 = 10000;
 pub const DUMMY_URL: &str = "http://localhost:1234";
 pub const ESCROW_VALUE: u128 = 1000;
 const BUFFER_DURATION: Duration = Duration::from_millis(100);
-const RETRY_DURATION: Duration = Duration::from_millis(1000);
 const RAV_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const TAP_SENDER_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -192,7 +191,6 @@ pub async fn create_sender_account(
         sender_aggregator_endpoint: aggregator_url,
         allocation_ids: HashSet::new(),
         prefix: Some(prefix.clone()),
-        retry_interval: RETRY_DURATION,
         sender_type: SenderType::Legacy,
     };
 
@@ -1117,5 +1115,53 @@ pub mod actors {
         .await
         .unwrap();
         (rx, sender_account)
+    }
+}
+
+#[cfg(test)]
+mod retry_helpers_tests {
+    use super::*;
+    use crate::{backoff::BackoffInfo, tracker::SenderFeeTracker};
+    use std::time::Duration;
+    use thegraph_core::alloy::primitives::Address;
+
+    #[test]
+    fn backoff_info_remaining_resets_after_ok() {
+        let mut info = BackoffInfo::default();
+        assert!(info.remaining().is_none());
+        assert!(!info.in_backoff());
+
+        info.fail();
+        let remaining = info
+            .remaining()
+            .expect("backoff duration should be tracked after a failure");
+        assert!(remaining > Duration::ZERO);
+        assert!(info.in_backoff());
+
+        info.ok();
+        assert!(info.remaining().is_none());
+        assert!(!info.in_backoff());
+    }
+
+    #[test]
+    fn sender_fee_tracker_min_remaining_backoff_roundtrip() {
+        let mut tracker = SenderFeeTracker::new(Duration::ZERO);
+        assert!(tracker.min_remaining_backoff().is_none());
+
+        let allocation = Address::from_low_u64_be(1);
+        tracker.failed_rav_backoff(allocation);
+        let first_delay = tracker
+            .min_remaining_backoff()
+            .expect("tracker should expose backoff after failure");
+        assert!(first_delay > Duration::ZERO);
+
+        tracker.failed_rav_backoff(allocation);
+        let second_delay = tracker
+            .min_remaining_backoff()
+            .expect("tracker should keep tracking backoff durations");
+        assert!(second_delay >= first_delay);
+
+        tracker.ok_rav_request(allocation);
+        assert!(tracker.min_remaining_backoff().is_none());
     }
 }

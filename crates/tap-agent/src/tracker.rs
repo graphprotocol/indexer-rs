@@ -27,6 +27,8 @@ mod tracker_tests;
 
 pub use generic_tracker::GlobalFeeTracker;
 
+use std::time::Duration;
+
 use crate::agent::unaggregated_receipts::UnaggregatedReceipts;
 
 /// Simple Tracker used for just `u128` fees and no extra blocking or unblocking feature
@@ -40,6 +42,16 @@ pub type SimpleFeeTracker = GenericTracker<u128, u128, NoExtraData, u128>;
 /// more logic about if an allocation is available for selection or not.
 pub type SenderFeeTracker =
     GenericTracker<GlobalFeeTracker, SenderFeeStats, DurationInfo, UnaggregatedReceipts>;
+
+impl SenderFeeTracker {
+    /// Returns the smallest remaining backoff across all tracked allocations, if any
+    pub fn min_remaining_backoff(&self) -> Option<Duration> {
+        self.id_to_fee
+            .values()
+            .filter_map(|stats| stats.backoff_info.remaining())
+            .min()
+    }
+}
 
 /// Stats trait used by the Counter of a given allocation.
 ///
