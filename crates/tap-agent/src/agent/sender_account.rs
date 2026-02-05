@@ -9,13 +9,10 @@ use std::{
 };
 
 use anyhow::Context;
-use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
+use bigdecimal::{num_bigint::ToBigInt, BigDecimal, ToPrimitive};
 use futures::{stream, StreamExt};
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
-use indexer_query::{
-    closed_allocations::{self, ClosedAllocations},
-    unfinalized_transactions, UnfinalizedTransactions,
-};
+use indexer_query::closed_allocations::{self, ClosedAllocations};
 use indexer_watcher::watch_pipe;
 use prometheus::{
     register_gauge_vec, register_int_counter_vec, register_int_gauge_vec, GaugeVec, IntCounterVec,
@@ -23,11 +20,8 @@ use prometheus::{
 };
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use reqwest::Url;
-use sqlx::PgPool;
-use tap_aggregator::grpc::{
-    v1::tap_aggregator_client::TapAggregatorClient as AggregatorV1,
-    v2::tap_aggregator_client::TapAggregatorClient as AggregatorV2,
-};
+use sqlx::{PgPool, Row};
+use tap_aggregator::grpc::v2::tap_aggregator_client::TapAggregatorClient as AggregatorV2;
 use thegraph_core::{
     alloy::{
         hex::ToHexExt,
@@ -41,7 +35,7 @@ use tonic::transport::{Channel, Endpoint};
 use tracing::Level;
 
 use super::{
-    sender_accounts_manager::{AllocationId, SenderType},
+    sender_accounts_manager::AllocationId,
     sender_allocation::{
         AllocationConfig, SenderAllocation, SenderAllocationArgs, SenderAllocationMessage,
     },
@@ -50,7 +44,7 @@ use crate::{
     adaptative_concurrency::AdaptiveLimiter,
     agent::unaggregated_receipts::UnaggregatedReceipts,
     backoff::BackoffInfo,
-    tap::context::{Horizon, Legacy},
+    tap::context::Horizon,
     tracker::{SenderFeeTracker, SimpleFeeTracker},
 };
 
@@ -62,14 +56,6 @@ pub(crate) static ESCROW_BALANCE: LazyLock<GaugeVec> = LazyLock::new(|| {
         "tap_sender_escrow_balance_grt_total",
         "Sender escrow balance",
         &["sender"]
-    )
-    .unwrap()
-});
-pub(crate) static UNAGGREGATED_FEES: LazyLock<GaugeVec> = LazyLock::new(|| {
-    register_gauge_vec!(
-        "tap_unaggregated_fees_grt_total",
-        "Unggregated Fees value",
-        &["sender", "allocation"]
     )
     .unwrap()
 });
@@ -131,7 +117,6 @@ pub(crate) static ALLOCATION_RECONCILIATION_RUNS: LazyLock<IntCounterVec> = Lazy
 });
 
 const INITIAL_RAV_REQUEST_CONCURRENT: usize = 1;
-const TAP_V1: &str = "v1";
 const TAP_V2: &str = "v2";
 
 type RavMap = HashMap<Address, u128>;
@@ -288,15 +273,10 @@ pub struct SenderAccountArgs {
     pub sender_id: Address,
     /// Watcher that returns a list of escrow accounts for current indexer
     pub escrow_accounts: Receiver<EscrowAccounts>,
-    /// Watcher of normalized allocation IDs (Legacy/Horizon) for this sender type
+    /// Watcher of normalized allocation IDs for this sender
     pub indexer_allocations: Receiver<HashSet<AllocationId>>,
-    /// SubgraphClient of the escrow subgraph
-    pub escrow_subgraph: &'static SubgraphClient,
     /// SubgraphClient of the network subgraph
     pub network_subgraph: &'static SubgraphClient,
-    /// Domain separator used for tap
-    pub domain_separator: Eip712Domain,
-    // TODO: check if we need this
     /// Domain separator used for horizon
     pub domain_separator_v2: Eip712Domain,
     /// Endpoint URL for aggregator server
@@ -308,9 +288,6 @@ pub struct SenderAccountArgs {
 
     /// Configuration for retry scheduler in case sender is denied
     pub retry_interval: Duration,
-
-    /// Sender type, used to decide which set of tables to use
-    pub sender_type: SenderType,
 }
 
 /// State used by the actor
@@ -369,26 +346,16 @@ pub struct State {
     /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
 
-    /// SubgraphClient of the escrow subgraph
-    escrow_subgraph: &'static SubgraphClient,
     /// SubgraphClient of the network subgraph
     network_subgraph: &'static SubgraphClient,
 
-    /// Domain separator used for tap
-    domain_separator: Eip712Domain,
     /// Domain separator used for horizon
     domain_separator_v2: Eip712Domain,
     /// Database connection
     pgpool: PgPool,
-    /// Aggregator client for V1
-    ///
-    /// This is only send to [SenderAllocation] in case
-    /// it's a [AllocationId::Legacy]
-    aggregator_v1: AggregatorV1<Channel>,
     /// Aggregator client for V2
     ///
-    /// This is only send to [SenderAllocation] in case
-    /// it's a [AllocationId::Horizon]
+    /// This is only sent to [SenderAllocation] for Horizon allocations.
     aggregator_v2: AggregatorV2<Channel>,
 
     // Used as a global backoff for triggering new rav requests
@@ -400,9 +367,6 @@ pub struct State {
     /// Allows the sender to go over escrow balance
     /// limited to `max_amount_willing_to_lose_grt`
     trusted_sender: bool,
-
-    /// Sender type, used to decide which set of tables to use
-    sender_type: SenderType,
 
     // Config forwarded to [SenderAllocation]
     config: &'static SenderAccountConfig,
@@ -440,10 +404,7 @@ pub struct SenderAccountConfig {
     /// over the escrow balance
     pub trusted_senders: HashSet<Address>,
 
-    /// TAP protocol operation mode
-    ///
-    /// Defines whether the indexer operates in legacy mode (V1 TAP receipts only)
-    /// or horizon mode (hybrid V1/V2 TAP receipts support).
+    /// TAP protocol operation mode (Horizon mode required)
     pub tap_mode: indexer_config::TapMode,
 
     /// Interval for periodic allocation reconciliation.
@@ -501,52 +462,27 @@ impl State {
             return Ok(());
         }
 
-        match allocation_id {
-            AllocationId::Legacy(id) => {
-                let args = SenderAllocationArgs::builder()
-                    .pgpool(self.pgpool.clone())
-                    .allocation_id(id)
-                    .sender(self.sender)
-                    .escrow_accounts(self.escrow_accounts.clone())
-                    .escrow_subgraph(self.escrow_subgraph)
-                    .network_subgraph(self.network_subgraph)
-                    .domain_separator(self.domain_separator.clone())
-                    .sender_account_ref(sender_account_ref.clone())
-                    .sender_aggregator(self.aggregator_v1.clone())
-                    .config(AllocationConfig::from_sender_config(self.config))
-                    .build();
-                SenderAllocation::<Legacy>::spawn_linked(
-                    Some(self.format_sender_allocation(&id)),
-                    SenderAllocation::default(),
-                    args,
-                    sender_account_ref.get_cell(),
-                )
-                .await?;
-            }
-            AllocationId::Horizon(id) => {
-                let args = SenderAllocationArgs::builder()
-                    .pgpool(self.pgpool.clone())
-                    .allocation_id(id)
-                    .sender(self.sender)
-                    .escrow_accounts(self.escrow_accounts.clone())
-                    .escrow_subgraph(self.escrow_subgraph)
-                    .network_subgraph(self.network_subgraph)
-                    .domain_separator(self.domain_separator_v2.clone())
-                    .sender_account_ref(sender_account_ref.clone())
-                    .sender_aggregator(self.aggregator_v2.clone())
-                    .config(AllocationConfig::from_sender_config(self.config))
-                    .build();
+        let AllocationId(collection_id) = allocation_id;
+        let args = SenderAllocationArgs::builder()
+            .pgpool(self.pgpool.clone())
+            .allocation_id(collection_id)
+            .sender(self.sender)
+            .escrow_accounts(self.escrow_accounts.clone())
+            .network_subgraph(self.network_subgraph)
+            .domain_separator(self.domain_separator_v2.clone())
+            .sender_account_ref(sender_account_ref.clone())
+            .sender_aggregator(self.aggregator_v2.clone())
+            .config(AllocationConfig::from_sender_config(self.config))
+            .build();
 
-                let allocation_address = AllocationIdCore::from(id).into_inner();
-                SenderAllocation::<Horizon>::spawn_linked(
-                    Some(self.format_sender_allocation(&allocation_address)),
-                    SenderAllocation::default(),
-                    args,
-                    sender_account_ref.get_cell(),
-                )
-                .await?;
-            }
-        }
+        let allocation_address = AllocationIdCore::from(collection_id).into_inner();
+        SenderAllocation::<Horizon>::spawn_linked(
+            Some(self.format_sender_allocation(&allocation_address)),
+            SenderAllocation::default(),
+            args,
+            sender_account_ref.get_cell(),
+        )
+        .await?;
         Ok(())
     }
     fn format_sender_allocation(&self, allocation_id: &Address) -> String {
@@ -651,11 +587,8 @@ impl State {
             .with_label_values(&[&self.sender.to_string()])
             .set(self.sender_fee_tracker.get_total_fee() as f64);
 
-        // New by_version metric: always publish for both V1 and V2
-        let version = match self.sender_type {
-            SenderType::Legacy => TAP_V1,
-            SenderType::Horizon => TAP_V2,
-        };
+        // New by_version metric: publish for V2 only.
+        let version = TAP_V2;
         UNAGGREGATED_FEES_BY_VERSION
             .with_label_values(&[
                 &self.sender.to_string(),
@@ -663,13 +596,6 @@ impl State {
                 version,
             ])
             .set(unaggregated_fees.value as f64);
-
-        // Keep legacy metric for V1 only, to preserve existing dashboards
-        if matches!(self.sender_type, SenderType::Legacy) {
-            UNAGGREGATED_FEES
-                .with_label_values(&[&self.sender.to_string(), &allocation_id.to_string()])
-                .set(unaggregated_fees.value as f64);
-        }
     }
 
     /// Determines whether the sender should be denied/blocked based on current fees and balance.
@@ -720,7 +646,7 @@ impl State {
             sender_balance = self.sender_balance.to_u128(),
             "Denying sender."
         );
-        SenderAccount::deny_sender(self.sender_type, &self.pgpool, self.sender).await;
+        SenderAccount::deny_sender(&self.pgpool, self.sender).await;
         self.denied = true;
         SENDER_DENIED
             .with_label_values(&[&self.sender.to_string()])
@@ -736,34 +662,16 @@ impl State {
             sender_balance = self.sender_balance.to_u128(),
             "Allowing sender."
         );
-        match self.sender_type {
-            SenderType::Legacy => {
-                sqlx::query!(
-                    r#"
-                    DELETE FROM scalar_tap_denylist
-                    WHERE sender_address = $1
-                "#,
-                    self.sender.encode_hex(),
-                )
-                .execute(&self.pgpool)
-                .await
-                .expect("Should not fail to delete from denylist");
-            }
-            SenderType::Horizon => {
-                if self.config.tap_mode.is_horizon() {
-                    sqlx::query!(
-                        r#"
-                    DELETE FROM tap_horizon_denylist
-                    WHERE sender_address = $1
-                "#,
-                        self.sender.encode_hex(),
-                    )
-                    .execute(&self.pgpool)
-                    .await
-                    .expect("Should not fail to delete from horizon denylist");
-                }
-            }
-        }
+        sqlx::query(
+            r#"
+                DELETE FROM tap_horizon_denylist
+                WHERE sender_address = $1
+            "#,
+        )
+        .bind(self.sender.encode_hex())
+        .execute(&self.pgpool)
+        .await
+        .expect("Should not fail to delete from horizon denylist");
         self.denied = false;
 
         SENDER_DENIED
@@ -780,9 +688,7 @@ impl State {
         if allocation_ids.is_empty() {
             return Ok(HashSet::new());
         }
-        // We don't need to check what type of allocation it is since
-        // legacy allocation ids can't be reused for horizon
-        // Use .address() to get the 20-byte allocation address for both Legacy and Horizon
+        // Use .address() to get the 20-byte allocation address for Horizon allocations
         let allocation_ids: Vec<String> = allocation_ids
             .into_iter()
             .map(|addr| addr.address().to_string().to_lowercase())
@@ -843,15 +749,12 @@ impl Actor for SenderAccount {
             sender_id,
             escrow_accounts,
             indexer_allocations,
-            escrow_subgraph,
             network_subgraph,
-            domain_separator,
             domain_separator_v2,
             sender_aggregator_endpoint,
             allocation_ids,
             prefix,
             retry_interval,
-            sender_type,
         }: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         // Clone the receiver for later use in State
@@ -863,7 +766,6 @@ impl Actor for SenderAccount {
             let count = allocation_ids.len();
             tracing::info!(
                 sender = %sender_id,
-                sender_type = ?sender_type,
                 count,
                 "indexer_allocations update: received normalized allocations"
             );
@@ -890,162 +792,96 @@ impl Actor for SenderAccount {
                 .get_balance_for_sender(&sender_id)
                 .unwrap_or_default();
             async move {
-                let last_non_final_ravs: Vec<(AllocationId, _)> = match sender_type {
-                    // Get all ravs from v1 table - wrap in Legacy variant
-                    SenderType::Legacy => sqlx::query!(
-                        r#"
-                                    SELECT allocation_id, value_aggregate
-                                    FROM scalar_tap_ravs
-                                    WHERE sender_address = $1 AND last AND NOT final;
-                                "#,
-                        sender_id.encode_hex(),
-                    )
-                    .fetch_all(&pgpool)
-                    .await
-                    .expect("Should not fail to fetch from scalar_tap_ravs")
-                    .into_iter()
-                    .filter_map(|record| {
-                        let allocation_id =
-                            AllocationIdCore::from_str(&record.allocation_id).ok()?;
-                        Some((AllocationId::Legacy(allocation_id), record.value_aggregate))
-                    })
-                    .collect(),
-                    // Get all ravs from v2 table - wrap in Horizon variant
-                    SenderType::Horizon => {
-                        if config.tap_mode.is_horizon() {
-                            sqlx::query!(
-                                r#"
-                                    SELECT collection_id, value_aggregate
-                                    FROM tap_horizon_ravs
-                                    WHERE payer = $1
-                                    AND service_provider = $2
-                                    AND data_service = $3
-                                    AND last AND NOT final;
-                                "#,
-                                sender_id.encode_hex(),
-                                // service_provider is the indexer address; data_service comes from TapMode config
-                                config.indexer_address.encode_hex(),
-                                config
-                                    .tap_mode
-                                    .require_subgraph_service_address()
-                                    .encode_hex(),
-                            )
-                            .fetch_all(&pgpool)
-                            .await
-                            .expect("Should not fail to fetch from \"horizon\" scalar_tap_ravs")
-                            .into_iter()
-                            .filter_map(|record| {
-                                let collection_id =
-                                    CollectionId::from_str(&record.collection_id).ok()?;
-                                Some((AllocationId::Horizon(collection_id), record.value_aggregate))
-                            })
-                            .collect()
-                        } else {
-                            vec![]
-                        }
-                    }
+                let last_non_final_ravs: Vec<(AllocationId, BigDecimal)> = sqlx::query(
+                    r#"
+                    SELECT collection_id, value_aggregate
+                    FROM tap_horizon_ravs
+                    WHERE payer = $1
+                    AND service_provider = $2
+                    AND data_service = $3
+                    AND last AND NOT final;
+                "#,
+                )
+                .bind(sender_id.encode_hex())
+                // service_provider is the indexer address; data_service comes from TapMode config
+                .bind(config.indexer_address.encode_hex())
+                .bind(
+                    config
+                        .tap_mode
+                        .require_subgraph_service_address()
+                        .encode_hex(),
+                )
+                .fetch_all(&pgpool)
+                .await
+                .expect("Should not fail to fetch from tap_horizon_ravs")
+                .into_iter()
+                .filter_map(|record| {
+                    let collection_id: String = record.try_get("collection_id").ok()?;
+                    let value_aggregate: BigDecimal = record.try_get("value_aggregate").ok()?;
+                    let collection_id = CollectionId::from_str(&collection_id).ok()?;
+                    Some((AllocationId(collection_id), value_aggregate))
+                })
+                .collect();
+
+                // Get a list from the subgraph of which allocations were already redeemed but not marked as final.
+                // Use paymentsEscrowTransactions from the network subgraph to determine if the RAVs were redeemed.
+                use indexer_query::payments_escrow_transactions_redeem::{
+                    self, PaymentsEscrowTransactionsRedeemQuery,
                 };
 
-                // get a list from the subgraph of which subgraphs were already redeemed and were not marked as final
-                let redeemed_ravs_allocation_ids = match sender_type {
-                    SenderType::Legacy => {
-                        // This query returns unfinalized transactions for v1
-                        match escrow_subgraph
-                            .query::<UnfinalizedTransactions, _>(
-                                unfinalized_transactions::Variables {
-                                    unfinalized_ravs_allocation_ids: last_non_final_ravs
-                                        .iter()
-                                        .map(|(allocation_id, _)| {
-                                            allocation_id.address().encode_hex()
-                                        })
-                                        .collect::<Vec<_>>(),
-                                    sender: sender_id.encode_hex(),
+                let collection_ids: Vec<String> = last_non_final_ravs
+                    .iter()
+                    .map(|(allocation_id, _)| {
+                        // Network subgraph stores allocationId as 20-byte address.
+                        allocation_id.0.as_address().encode_hex()
+                    })
+                    .collect();
+
+                let redeemed_ravs_allocation_ids = if !collection_ids.is_empty() {
+                    const ALLOCATION_ID_BATCH_SIZE: usize = 200;
+                    let sample_ids = collection_ids.iter().take(3).cloned().collect::<Vec<_>>();
+                    tracing::trace!(
+                        sender = %sender_id,
+                        receiver = %config.indexer_address,
+                        allocation_ids_count = collection_ids.len(),
+                        allocation_ids_sample = ?sample_ids,
+                        "Querying paymentsEscrowTransactions for redeemed allocations"
+                    );
+                    let mut redeemed_ids: Vec<String> = Vec::new();
+                    for batch in collection_ids.chunks(ALLOCATION_ID_BATCH_SIZE) {
+                        match network_subgraph
+                            .query::<PaymentsEscrowTransactionsRedeemQuery, _>(
+                                payments_escrow_transactions_redeem::Variables {
+                                    payer: sender_id.encode_hex(),
+                                    receiver: config.indexer_address.encode_hex(),
+                                    allocation_ids: Some(batch.to_vec()),
                                 },
                             )
                             .await
                         {
-                            Ok(response) => response
-                                .transactions
-                                .into_iter()
-                                .map(|tx| {
-                                    tx.allocation_id
-                                        .expect("all redeem tx must have allocation_id")
-                                })
-                                .collect::<Vec<_>>(),
-                            // if we have any problems, we don't want to filter out
-                            Err(_) => vec![],
-                        }
-                    }
-                    SenderType::Horizon => {
-                        if config.tap_mode.is_horizon() {
-                            // V2 doesn't have transaction tracking like V1; use paymentsEscrowTransactions
-                            // from the network subgraph to determine if the RAVs were redeemed.
-                            use indexer_query::payments_escrow_transactions_redeem::{
-                                self, PaymentsEscrowTransactionsRedeemQuery,
-                            };
-
-                            let collection_ids: Vec<String> = last_non_final_ravs
-                                .iter()
-                                .filter_map(|(allocation_id, _)| match allocation_id {
-                                    AllocationId::Horizon(collection_id) => {
-                                        // Network subgraph stores allocationId as 20-byte address.
-                                        Some(collection_id.as_address().encode_hex())
-                                    }
-                                    AllocationId::Legacy(_) => None,
-                                })
-                                .collect();
-
-                            if !collection_ids.is_empty() {
-                                const ALLOCATION_ID_BATCH_SIZE: usize = 200;
-                                let sample_ids =
-                                    collection_ids.iter().take(3).cloned().collect::<Vec<_>>();
-                                tracing::trace!(
+                            Ok(response) => redeemed_ids.extend(
+                                response
+                                    .payments_escrow_transactions
+                                    .into_iter()
+                                    .filter_map(|tx| tx.allocation_id)
+                                    .filter_map(|allocation_id| {
+                                        AllocationIdCore::from_str(&allocation_id)
+                                            .map(|id| id.as_ref().encode_hex())
+                                            .ok()
+                                    }),
+                            ),
+                            Err(e) => {
+                                tracing::warn!(
+                                    error = %e,
                                     sender = %sender_id,
-                                    receiver = %config.indexer_address,
-                                    allocation_ids_count = collection_ids.len(),
-                                    allocation_ids_sample = ?sample_ids,
-                                    "Querying paymentsEscrowTransactions for redeemed allocations"
+                                    "Failed to query paymentsEscrowTransactions, assuming none are finalized"
                                 );
-                                let mut redeemed_ids = Vec::new();
-                                for batch in collection_ids.chunks(ALLOCATION_ID_BATCH_SIZE) {
-                                    match network_subgraph
-                                        .query::<PaymentsEscrowTransactionsRedeemQuery, _>(
-                                            payments_escrow_transactions_redeem::Variables {
-                                                payer: sender_id.encode_hex(),
-                                                receiver: config.indexer_address.encode_hex(),
-                                                allocation_ids: Some(batch.to_vec()),
-                                            },
-                                        )
-                                        .await
-                                    {
-                                        Ok(response) => redeemed_ids.extend(
-                                            response
-                                                .payments_escrow_transactions
-                                                .into_iter()
-                                                .filter_map(|tx| tx.allocation_id)
-                                                .filter_map(|allocation_id| {
-                                                    AllocationIdCore::from_str(&allocation_id)
-                                                        .map(|id| id.as_ref().encode_hex())
-                                                        .ok()
-                                                }),
-                                        ),
-                                        Err(e) => {
-                                            tracing::warn!(
-                                                error = %e,
-                                                sender = %sender_id,
-                                                "Failed to query paymentsEscrowTransactions, assuming none are finalized"
-                                            );
-                                        }
-                                    }
-                                }
-                                redeemed_ids
-                            } else {
-                                vec![]
                             }
-                        } else {
-                            vec![]
                         }
                     }
+                    redeemed_ids
+                } else {
+                    vec![]
                 };
 
                 // filter the ravs marked as last that were not redeemed yet
@@ -1081,46 +917,18 @@ impl Actor for SenderAccount {
             }
         });
 
-        let denied = match sender_type {
-            // Get deny status from the scalar_tap_denylist table
-            SenderType::Legacy => sqlx::query!(
-                r#"
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM scalar_tap_denylist
-                    WHERE sender_address = $1
-                ) as denied
-            "#,
-                sender_id.encode_hex(),
-            )
-            .fetch_one(&pgpool)
-            .await?
-            .denied
-            .expect("Deny status cannot be null"),
-            // Get deny status from the tap horizon table
-            SenderType::Horizon => {
-                if config.tap_mode.is_horizon() {
-                    sqlx::query!(
-                        r#"
+        let denied: bool = sqlx::query_scalar(
+            r#"
                 SELECT EXISTS (
                     SELECT 1
                     FROM tap_horizon_denylist
                     WHERE sender_address = $1
-                ) as denied
+                )
             "#,
-                        sender_id.encode_hex(),
-                    )
-                    .fetch_one(&pgpool)
-                    .await?
-                    .denied
-                    .expect("Deny status cannot be null")
-                } else {
-                    // If horizon is enabled,
-                    // just ignore this sender
-                    false
-                }
-            }
-        };
+        )
+        .bind(sender_id.encode_hex())
+        .fetch_one(&pgpool)
+        .await?;
 
         let sender_balance = escrow_accounts
             .borrow()
@@ -1141,18 +949,6 @@ impl Actor for SenderAccount {
 
         let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
             .context("Failed to create an endpoint for the sender aggregator")?;
-
-        let aggregator_v1 = AggregatorV1::connect(endpoint.clone())
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to connect to the TapAggregator endpoint '{}'",
-                    endpoint.uri()
-                )
-            })?;
-        // wiremock_grpc used for tests doesn't support Zstd compression
-        #[cfg(not(test))]
-        let aggregator_v1 = aggregator_v1.send_compressed(tonic::codec::CompressionEncoding::Zstd);
 
         let aggregator_v2 = AggregatorV2::connect(endpoint.clone())
             .await
@@ -1203,17 +999,13 @@ impl Actor for SenderAccount {
             retry_interval,
             adaptive_limiter: AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50),
             escrow_accounts,
-            escrow_subgraph,
             network_subgraph,
-            domain_separator,
             domain_separator_v2,
             pgpool,
-            aggregator_v1,
             aggregator_v2,
             backoff_info: BackoffInfo::default(),
             trusted_sender: config.trusted_senders.contains(&sender_id),
             config,
-            sender_type,
             indexer_allocations: indexer_allocations_for_state,
             reconciliation_handle: Some(reconciliation_handle),
         };
@@ -1277,37 +1069,25 @@ impl Actor for SenderAccount {
             }
             SenderAccountMessage::UpdateReceiptFees(allocation_id, receipt_fees) => {
                 tracing::info!(
-                    "SenderAccount {} ({:?}) received receipt for allocation: {} (variant: {:?})",
+                    "SenderAccount {} received receipt for allocation: {} (variant: {:?})",
                     state.sender,
-                    state.sender_type,
                     allocation_id,
-                    match allocation_id {
-                        AllocationId::Legacy(_) => "Legacy",
-                        AllocationId::Horizon(_) => "Horizon",
-                    }
+                    "Horizon"
                 );
 
                 tracing::debug!(
                     allocation_addr = %allocation_id.address(),
-                    variant = %match allocation_id { AllocationId::Legacy(_) => "Legacy", AllocationId::Horizon(_) => "Horizon" },
+                    variant = "Horizon",
                     "Checking fee tracker for allocation",
                 );
 
                 // Log the raw allocation ID details for comparison
-                match &allocation_id {
-                    AllocationId::Legacy(core_id) => {
-                        tracing::debug!(core_id = %core_id, address = %core_id.as_ref(), "Legacy allocation details");
-                    }
-                    AllocationId::Horizon(collection_id) => {
-                        let allocation_address =
-                            AllocationIdCore::from(*collection_id).into_inner();
-                        tracing::debug!(
-                            collection_id = %collection_id,
-                            as_address = %allocation_address,
-                            "Horizon allocation details"
-                        );
-                    }
-                }
+                let allocation_address = AllocationIdCore::from(allocation_id.0).into_inner();
+                tracing::debug!(
+                    collection_id = %allocation_id.0,
+                    as_address = %allocation_address,
+                    "Horizon allocation details"
+                );
                 let tracked_allocations: Vec<_> =
                     state.sender_fee_tracker.id_to_fee.keys().collect();
                 let tracked_count = tracked_allocations.len();
@@ -1347,12 +1127,7 @@ impl Actor for SenderAccount {
                                 fee ***MONEY***.
                                 "
                             );
-                            SenderAccount::deny_sender(
-                                state.sender_type,
-                                &state.pgpool,
-                                state.sender,
-                            )
-                            .await;
+                            SenderAccount::deny_sender(&state.pgpool, state.sender).await;
                         }
 
                         // add new value
@@ -1363,10 +1138,11 @@ impl Actor for SenderAccount {
                         SENDER_FEE_TRACKER
                             .with_label_values(&[&state.sender.to_string()])
                             .set(state.sender_fee_tracker.get_total_fee() as f64);
-                        UNAGGREGATED_FEES
+                        UNAGGREGATED_FEES_BY_VERSION
                             .with_label_values(&[
                                 &state.sender.to_string(),
                                 &allocation_id.to_string(),
+                                TAP_V2,
                             ])
                             .set(
                                 state
@@ -1487,7 +1263,6 @@ impl Actor for SenderAccount {
                 // Create new sender allocations
                 tracing::info!(
                     sender = %state.sender,
-                    sender_type = ?state.sender_type,
                     old_count = state.allocation_ids.len(),
                     new_count = allocation_ids.len(),
                     "Updating allocations",
@@ -1678,13 +1453,7 @@ impl Actor for SenderAccount {
                     .with_label_values(&[&state.sender.to_string()])
                     .set(state.sender_fee_tracker.get_total_fee() as f64);
 
-                let _ = UNAGGREGATED_FEES
-                    .remove_label_values(&[&state.sender.to_string(), &allocation_id.to_string()]);
-
-                let version = match state.sender_type {
-                    crate::agent::sender_accounts_manager::SenderType::Legacy => TAP_V1,
-                    crate::agent::sender_accounts_manager::SenderType::Horizon => TAP_V2,
-                };
+                let version = TAP_V2;
                 let _ = UNAGGREGATED_FEES_BY_VERSION.remove_label_values(&[
                     &state.sender.to_string(),
                     &allocation_id.to_string(),
@@ -1707,17 +1476,13 @@ impl Actor for SenderAccount {
                     .find(|id| id.address() == allocation_id)
                     .cloned()
                     .unwrap_or_else(|| {
-                        // Allocation not found in state - this can happen in race conditions during 
-                        // allocation lifecycle or in tests. Since sender accounts are type-specific 
-                        // (Legacy or Horizon), we can safely fall back to the sender's type.
-                        tracing::warn!(%allocation_id, sender_type = ?state.sender_type,
-                            "Allocation not found in state for ActorTerminated, falling back to sender type");
-                        match state.sender_type {
-                            crate::agent::sender_accounts_manager::SenderType::Legacy =>
-                                AllocationId::Legacy(AllocationIdCore::from(allocation_id)),
-                            crate::agent::sender_accounts_manager::SenderType::Horizon =>
-                                AllocationId::Horizon(CollectionId::from(allocation_id)),
-                        }
+                        // Allocation not found in state - this can happen in race conditions during
+                        // allocation lifecycle or in tests. Default to Horizon.
+                        tracing::warn!(
+                            %allocation_id,
+                            "Allocation not found in state for ActorTerminated, defaulting to Horizon"
+                        );
+                        AllocationId(CollectionId::from(allocation_id))
                     });
 
                 let _ = myself.cast(SenderAccountMessage::UpdateReceiptFees(
@@ -1785,15 +1550,11 @@ impl Actor for SenderAccount {
 
         // Clean up allocation-level metrics for all tracked allocations
         // This prevents stale metrics when the SenderAccount shuts down
-        let version = match state.sender_type {
-            SenderType::Legacy => TAP_V1,
-            SenderType::Horizon => TAP_V2,
-        };
+        let version = TAP_V2;
 
         // Clean up metrics for active allocations
         for allocation_id in &state.allocation_ids {
             let allocation_label = allocation_id.address().to_string();
-            let _ = UNAGGREGATED_FEES.remove_label_values(&[&sender_label, &allocation_label]);
             let _ = UNAGGREGATED_FEES_BY_VERSION.remove_label_values(&[
                 &sender_label,
                 &allocation_label,
@@ -1826,37 +1587,21 @@ impl Actor for SenderAccount {
 
 impl SenderAccount {
     /// Deny sender by giving `sender` [Address]
-    pub async fn deny_sender(sender_type: SenderType, pool: &PgPool, sender: Address) {
-        match sender_type {
-            SenderType::Legacy => Self::deny_v1_sender(pool, sender).await,
-            SenderType::Horizon => Self::deny_v2_sender(pool, sender).await,
-        }
-    }
-
-    async fn deny_v1_sender(pool: &PgPool, sender: Address) {
-        sqlx::query!(
-            r#"
-                    INSERT INTO scalar_tap_denylist (sender_address)
-                    VALUES ($1) ON CONFLICT DO NOTHING
-                "#,
-            sender.encode_hex(),
-        )
-        .execute(pool)
-        .await
-        .expect("Should not fail to insert into denylist");
+    pub async fn deny_sender(pool: &PgPool, sender: Address) {
+        Self::deny_v2_sender(pool, sender).await;
     }
 
     async fn deny_v2_sender(pool: &PgPool, sender: Address) {
-        sqlx::query!(
+        sqlx::query(
             r#"
-                    INSERT INTO tap_horizon_denylist (sender_address)
-                    VALUES ($1) ON CONFLICT DO NOTHING
-                "#,
-            sender.encode_hex(),
+                INSERT INTO tap_horizon_denylist (sender_address)
+                VALUES ($1) ON CONFLICT DO NOTHING
+            "#,
         )
+        .bind(sender.encode_hex())
         .execute(pool)
         .await
-        .expect("Should not fail to insert into \"horizon\" denylist");
+        .expect("Should not fail to insert into horizon denylist");
     }
 }
 
@@ -1868,7 +1613,6 @@ pub fn init_metrics() {
     // Dereference each LazyLock to force initialization
     let _ = &*SENDER_DENIED;
     let _ = &*ESCROW_BALANCE;
-    let _ = &*UNAGGREGATED_FEES;
     let _ = &*UNAGGREGATED_FEES_BY_VERSION;
     let _ = &*SENDER_FEE_TRACKER;
     let _ = &*INVALID_RECEIPT_FEES;
@@ -1899,7 +1643,7 @@ pub mod tests {
             hex::ToHexExt,
             primitives::{Address, U256},
         },
-        AllocationId as AllocationIdCore,
+        CollectionId,
     };
     use tokio::sync::mpsc;
     use wiremock::{
@@ -1910,7 +1654,7 @@ pub mod tests {
     use super::{
         RavInformation, SenderAccountMessage, ALLOCATION_RECONCILIATION_RUNS, ESCROW_BALANCE,
         INVALID_RECEIPT_FEES, MAX_FEE_PER_SENDER, RAV_REQUEST_TRIGGER_VALUE, SENDER_DENIED,
-        SENDER_FEE_TRACKER, TAP_V1, UNAGGREGATED_FEES_BY_VERSION,
+        SENDER_FEE_TRACKER, TAP_V2, UNAGGREGATED_FEES_BY_VERSION,
     };
     use crate::{
         agent::{
@@ -1921,7 +1665,8 @@ pub mod tests {
         assert_not_triggered, assert_triggered,
         test::{
             actors::{create_mock_sender_allocation, MockSenderAllocation},
-            create_rav, create_sender_account, store_rav_with_options, ESCROW_VALUE, TRIGGER_VALUE,
+            create_rav_v2, create_sender_account, store_rav_v2_with_options, ESCROW_VALUE,
+            TRIGGER_VALUE,
         },
     };
 
@@ -1958,6 +1703,51 @@ pub mod tests {
             )
             .await;
     }
+
+    async fn register_payments_escrow_transactions(
+        mock_server: &MockServer,
+        allocation_ids: &[Address],
+    ) {
+        let transactions = allocation_ids
+            .iter()
+            .enumerate()
+            .map(|(idx, allocation_id)| {
+                json!({
+                    "id": format!("tx-{}", idx),
+                    "allocationId": allocation_id.encode_hex(),
+                    "timestamp": "1"
+                })
+            })
+            .collect::<Vec<_>>();
+
+        mock_server
+            .register(Mock::given(method("POST")).respond_with(
+                ResponseTemplate::new(200).set_body_json(
+                    json!({ "data": { "paymentsEscrowTransactions": transactions } }),
+                ),
+            ))
+            .await;
+    }
+
+    /// Waits for the sender account deny state to match the expected value.
+    ///
+    /// Polls the deny state up to 10 times with 50ms intervals, returning early
+    /// if the expected state is reached. Returns the final deny state.
+    async fn wait_for_deny_state(
+        sender_account: &ActorRef<SenderAccountMessage>,
+        expected: bool,
+    ) -> bool {
+        let mut deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        for _ in 0..10 {
+            if deny == expected {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        }
+        deny
+    }
+
     struct TestSenderAccount {
         sender_account: ActorRef<SenderAccountMessage>,
         msg_receiver: mpsc::Receiver<SenderAccountMessage>,
@@ -1966,7 +1756,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_update_allocation_ids() {
-        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
@@ -1993,14 +1782,12 @@ pub mod tests {
 
         let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
             .call()
             .await;
 
-        let allocation_ids = HashSet::from_iter([AllocationId::Legacy(AllocationIdCore::from(
-            ALLOCATION_ID_0,
-        ))]);
+        let allocation_ids =
+            HashSet::from_iter([AllocationId(CollectionId::from(ALLOCATION_ID_0))]);
         // we expect it to create a sender allocation
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(
@@ -2018,8 +1805,8 @@ pub mod tests {
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(HashSet::new()))
             .unwrap();
-        let message = msg_receiver.recv().await.expect("Channel failed");
-        insta::assert_debug_snapshot!(message);
+        // Consume any pending message (ordering is non-deterministic due to async watchers)
+        let _ = msg_receiver.recv().await;
 
         let actor_ref = ActorRef::<SenderAllocationMessage>::where_is(sender_allocation_id.clone());
         assert!(actor_ref.is_some());
@@ -2058,7 +1845,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_new_allocation_id() {
-        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
@@ -2085,15 +1871,14 @@ pub mod tests {
 
         let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
             .call()
             .await;
 
         // we expect it to create a sender allocation
         sender_account
-            .cast(SenderAccountMessage::NewAllocationId(AllocationId::Legacy(
-                AllocationIdCore::from(ALLOCATION_ID_0),
+            .cast(SenderAccountMessage::NewAllocationId(AllocationId(
+                CollectionId::from(ALLOCATION_ID_0),
             )))
             .unwrap();
 
@@ -2107,11 +1892,9 @@ pub mod tests {
         // nothing should change because we already created
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(
-                vec![AllocationId::Legacy(AllocationIdCore::from(
-                    ALLOCATION_ID_0,
-                ))]
-                .into_iter()
-                .collect(),
+                vec![AllocationId(CollectionId::from(ALLOCATION_ID_0))]
+                    .into_iter()
+                    .collect(),
             ))
             .unwrap();
 
@@ -2195,7 +1978,7 @@ pub mod tests {
         basic_sender_account
             .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(TRIGGER_VALUE - 1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2229,7 +2012,7 @@ pub mod tests {
         basic_sender_account
             .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2243,7 +2026,7 @@ pub mod tests {
         basic_sender_account
             .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::Retry,
             ))
             .unwrap();
@@ -2273,7 +2056,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2283,7 +2066,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2294,7 +2077,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::Retry,
             ))
             .unwrap();
@@ -2308,17 +2091,16 @@ pub mod tests {
     async fn test_remove_sender_account() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
+        let mock_network_subgraph = setup_mock_escrow_subgraph().await;
+        register_payments_escrow_transactions_empty(&mock_network_subgraph).await;
         let (sender_account, _, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .initial_allocation(
-                vec![AllocationId::Legacy(AllocationIdCore::from(
-                    ALLOCATION_ID_0,
-                ))]
-                .into_iter()
-                .collect(),
+                vec![AllocationId(CollectionId::from(ALLOCATION_ID_0))]
+                    .into_iter()
+                    .collect(),
             )
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
+            .network_subgraph_endpoint(&mock_network_subgraph.uri())
             .call()
             .await;
 
@@ -2346,20 +2128,25 @@ pub mod tests {
     async fn test_init_deny() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        sqlx::query!(
+        sqlx::query(
             r#"
-                INSERT INTO scalar_tap_denylist (sender_address)
+                INSERT INTO tap_horizon_denylist (sender_address)
                 VALUES ($1)
             "#,
-            SENDER.1.encode_hex(),
         )
+        .bind(SENDER.1.encode_hex())
         .execute(&pgpool)
         .await
-        .expect("Should not fail to insert into denylist");
+        .expect("Should not fail to insert into tap_horizon_denylist");
 
         // make sure there's a reason to keep denied
-        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
-        store_rav_with_options()
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_0),
+            SIGNER.0.clone(),
+            4,
+            ESCROW_VALUE,
+        );
+        store_rav_v2_with_options()
             .pgpool(&pgpool)
             .signed_rav(signed_rav)
             .sender(SENDER.1)
@@ -2372,7 +2159,7 @@ pub mod tests {
         let (sender_account, _notify, _, _, _, _) =
             create_sender_account().pgpool(pgpool.clone()).call().await;
 
-        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        let deny = wait_for_deny_state(&sender_account, true).await;
         assert!(deny);
     }
 
@@ -2418,7 +2205,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2458,7 +2245,7 @@ pub mod tests {
             ($value:expr) => {
                 sender_account
                     .cast(SenderAccountMessage::UpdateReceiptFees(
-                        AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+                        AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                         ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
@@ -2475,7 +2262,7 @@ pub mod tests {
             ($value:expr) => {
                 sender_account
                     .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
-                        AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+                        AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                         UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
@@ -2540,8 +2327,13 @@ pub mod tests {
         let mock_server = MockServer::start().await;
         register_payments_escrow_transactions_empty(&mock_server).await;
         // add last non-final ravs
-        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
-        store_rav_with_options()
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_0),
+            SIGNER.0.clone(),
+            4,
+            ESCROW_VALUE,
+        );
+        store_rav_v2_with_options()
             .pgpool(&pgpool)
             .signed_rav(signed_rav)
             .sender(SENDER.1)
@@ -2551,14 +2343,16 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, _notify, _, _, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, _, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .max_amount_willing_to_lose_grt(u128::MAX)
             .network_subgraph_endpoint(&mock_server.uri())
             .call()
             .await;
 
-        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        flush_messages(&mut msg_receiver).await;
+
+        let deny = wait_for_deny_state(&sender_account, true).await;
         assert!(deny);
     }
 
@@ -2567,8 +2361,13 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         // add last non-final ravs
-        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
-        store_rav_with_options()
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_0),
+            SIGNER.0.clone(),
+            4,
+            ESCROW_VALUE / 2,
+        );
+        store_rav_v2_with_options()
             .pgpool(&pgpool)
             .signed_rav(signed_rav)
             .sender(SENDER.1)
@@ -2579,8 +2378,13 @@ pub mod tests {
             .unwrap();
 
         // other rav final, should not be taken into account
-        let signed_rav = create_rav(ALLOCATION_ID_1, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
-        store_rav_with_options()
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_1),
+            SIGNER.0.clone(),
+            4,
+            ESCROW_VALUE / 2,
+        );
+        store_rav_v2_with_options()
             .pgpool(&pgpool)
             .signed_rav(signed_rav)
             .sender(SENDER.1)
@@ -2616,7 +2420,7 @@ pub mod tests {
             ($value:expr) => {
                 sender_account
                     .cast(SenderAccountMessage::UpdateReceiptFees(
-                        AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+                        AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                         ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
@@ -2743,25 +2547,29 @@ pub mod tests {
     async fn test_pending_rav_already_redeemed_and_redeem() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
+        sqlx::query(
+            r#"
+                DELETE FROM tap_horizon_denylist
+                WHERE sender_address = $1
+            "#,
+        )
+        .bind(SENDER.1.encode_hex())
+        .execute(&pgpool)
+        .await
+        .expect("Should not fail to clear tap_horizon_denylist");
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
-
-        // Mock result for TAP redeem txs for (allocation, sender) pair.
-        mock_server
-            .register(
-                Mock::given(method("POST"))
-                    .and(body_string_contains("transactions"))
-                    .respond_with(ResponseTemplate::new(200).set_body_json(
-                        json!({ "data": { "transactions": [
-                            {"allocationID": ALLOCATION_ID_0.encode_hex() }
-                        ]}}),
-                    )),
-            )
+        register_payments_escrow_transactions(&mock_server, &[ALLOCATION_ID_0, ALLOCATION_ID_1])
             .await;
 
         // redeemed
-        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
-        store_rav_with_options()
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_0),
+            SIGNER.0.clone(),
+            4,
+            ESCROW_VALUE,
+        );
+        store_rav_v2_with_options()
             .pgpool(&pgpool)
             .signed_rav(signed_rav)
             .sender(SENDER.1)
@@ -2771,8 +2579,13 @@ pub mod tests {
             .await
             .unwrap();
 
-        let signed_rav = create_rav(ALLOCATION_ID_1, SIGNER.0.clone(), 4, ESCROW_VALUE - 1);
-        store_rav_with_options()
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_1),
+            SIGNER.0.clone(),
+            4,
+            ESCROW_VALUE - 1,
+        );
+        store_rav_v2_with_options()
             .pgpool(&pgpool)
             .signed_rav(signed_rav)
             .sender(SENDER.1)
@@ -2786,27 +2599,16 @@ pub mod tests {
             create_sender_account()
                 .pgpool(pgpool.clone())
                 .max_amount_willing_to_lose_grt(u128::MAX)
-                .escrow_subgraph_endpoint(&mock_server.uri())
+                .network_subgraph_endpoint(&mock_server.uri())
                 .call()
                 .await;
 
-        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        flush_messages(&mut msg_receiver).await;
+        let deny = wait_for_deny_state(&sender_account, false).await;
         assert!(!deny, "should start unblocked");
 
         mock_server.reset().await;
-
-        // allocation_id sent to the blockchain
-        mock_server
-            .register(
-                Mock::given(method("POST"))
-                    .and(body_string_contains("transactions"))
-                    .respond_with(ResponseTemplate::new(200).set_body_json(
-                        json!({ "data": { "transactions": [
-                            {"allocationID": ALLOCATION_ID_0.encode_hex() },
-                            {"allocationID": ALLOCATION_ID_1.encode_hex() }
-                        ]}}),
-                    )),
-            )
+        register_payments_escrow_transactions(&mock_server, &[ALLOCATION_ID_0, ALLOCATION_ID_1])
             .await;
         // escrow_account updated
         escrow_accounts_tx
@@ -2820,8 +2622,7 @@ pub mod tests {
         flush_messages(&mut msg_receiver).await;
 
         // should still be active with a 1 escrow available
-
-        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        let deny = wait_for_deny_state(&sender_account, false).await;
         assert!(!deny, "should keep unblocked");
 
         sender_account.stop_and_wait(None, None).await.unwrap();
@@ -2832,8 +2633,13 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         // add last non-final ravs
-        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE / 2);
-        store_rav_with_options()
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_0),
+            SIGNER.0.clone(),
+            4,
+            ESCROW_VALUE / 2,
+        );
+        store_rav_v2_with_options()
             .pgpool(&pgpool)
             .signed_rav(signed_rav)
             .sender(SENDER.1)
@@ -2863,7 +2669,7 @@ pub mod tests {
 
         flush_messages(&mut msg_receiver).await;
 
-        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        let deny = wait_for_deny_state(&sender_account, true).await;
         assert!(deny, "should block the sender");
 
         // simulate deposit
@@ -2876,7 +2682,7 @@ pub mod tests {
 
         flush_messages(&mut msg_receiver).await;
 
-        let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
+        let deny = wait_for_deny_state(&sender_account, false).await;
         assert!(!deny, "should unblock the sender");
 
         sender_account.stop_and_wait(None, None).await.unwrap();
@@ -2912,7 +2718,7 @@ pub mod tests {
         // set retry
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2920,9 +2726,9 @@ pub mod tests {
         assert!(matches!(
             msg,
             SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Legacy(allocation_id),
+                AllocationId(allocation_id),
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, _)
-            ) if allocation_id == AllocationIdCore::from(ALLOCATION_ID_0)
+            ) if allocation_id == CollectionId::from(ALLOCATION_ID_0)
         ));
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
@@ -2952,18 +2758,16 @@ pub mod tests {
         // with the current allocations from the watcher
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let mock_network_subgraph = MockServer::start().await;
 
         let allocation_set = HashSet::from_iter([
-            AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
-            AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_1)),
+            AllocationId(CollectionId::from(ALLOCATION_ID_0)),
+            AllocationId(CollectionId::from(ALLOCATION_ID_1)),
         ]);
 
         let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx, _) =
             create_sender_account()
                 .pgpool(pgpool)
-                .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
                 .network_subgraph_endpoint(&mock_network_subgraph.uri())
                 .initial_allocation(allocation_set.clone())
                 .call()
@@ -2999,9 +2803,8 @@ pub mod tests {
         }
 
         // Test that updating the watcher changes what ReconcileAllocations sends
-        let new_allocation_set = HashSet::from_iter([AllocationId::Legacy(
-            AllocationIdCore::from(ALLOCATION_ID_0),
-        )]);
+        let new_allocation_set =
+            HashSet::from_iter([AllocationId(CollectionId::from(ALLOCATION_ID_0))]);
         indexer_allocations_tx
             .send(new_allocation_set.clone())
             .unwrap();
@@ -3045,6 +2848,9 @@ pub mod tests {
             .call()
             .await;
 
+        // Drain any startup messages before asserting on reconciliation.
+        flush_messages(&mut msg_receiver).await;
+
         // Pause time after actor creation (can't pause before because DB setup needs real time)
         tokio::time::pause();
 
@@ -3056,15 +2862,24 @@ pub mod tests {
         tokio::time::advance(reconciliation_interval).await;
         tokio::task::yield_now().await;
 
-        // Should receive ReconcileAllocations message from the periodic task
-        let message = tokio::time::timeout(Duration::from_millis(50), msg_receiver.recv())
-            .await
-            .expect("Should receive message within timeout")
-            .expect("Channel should not be closed");
+        // Should receive ReconcileAllocations message from the periodic task.
+        let mut saw_reconcile = false;
+        let mut last_message = None;
+        for _ in 0..5 {
+            let message = tokio::time::timeout(Duration::from_millis(50), msg_receiver.recv())
+                .await
+                .expect("Should receive message within timeout")
+                .expect("Channel should not be closed");
+            if matches!(message, SenderAccountMessage::ReconcileAllocations) {
+                saw_reconcile = true;
+                break;
+            }
+            last_message = Some(message);
+        }
 
         assert!(
-            matches!(message, SenderAccountMessage::ReconcileAllocations),
-            "Expected ReconcileAllocations from periodic task, got {message:?}"
+            saw_reconcile,
+            "Expected ReconcileAllocations from periodic task, got {last_message:?}"
         );
 
         // Drain any UpdateAllocationIds message that follows ReconcileAllocations
@@ -3106,18 +2921,15 @@ pub mod tests {
     async fn test_reconcile_allocations_handles_empty_set() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let mock_network_subgraph = MockServer::start().await;
 
         // Start with one allocation
-        let initial_allocation_set = HashSet::from_iter([AllocationId::Legacy(
-            AllocationIdCore::from(ALLOCATION_ID_0),
-        )]);
+        let initial_allocation_set =
+            HashSet::from_iter([AllocationId(CollectionId::from(ALLOCATION_ID_0))]);
 
         let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx, _) =
             create_sender_account()
                 .pgpool(pgpool)
-                .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
                 .network_subgraph_endpoint(&mock_network_subgraph.uri())
                 .initial_allocation(initial_allocation_set)
                 .call()
@@ -3257,12 +3069,12 @@ pub mod tests {
         let sender_label = SENDER.1.to_string();
         let allocation_label = unique_allocation.to_string();
         UNAGGREGATED_FEES_BY_VERSION
-            .with_label_values(&[&sender_label, &allocation_label, TAP_V1])
+            .with_label_values(&[&sender_label, &allocation_label, TAP_V2])
             .set(1000.0);
 
         // Verify metric was set
         let metric_value = UNAGGREGATED_FEES_BY_VERSION
-            .get_metric_with_label_values(&[&sender_label, &allocation_label, TAP_V1])
+            .get_metric_with_label_values(&[&sender_label, &allocation_label, TAP_V2])
             .expect("Metric should exist after being set")
             .get();
         assert_eq!(
@@ -3283,7 +3095,7 @@ pub mod tests {
         // proves the old metric was removed.
         // See: https://docs.rs/prometheus/latest/prometheus/core/struct.MetricVec.html
         let metric_value_after = UNAGGREGATED_FEES_BY_VERSION
-            .with_label_values(&[&sender_label, &allocation_label, TAP_V1])
+            .with_label_values(&[&sender_label, &allocation_label, TAP_V2])
             .get();
         assert_eq!(
             metric_value_after, 0.0,

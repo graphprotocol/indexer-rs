@@ -11,14 +11,14 @@ use indexer_tap_agent::{
         sender_allocation::SenderAllocationMessage,
     },
     test::{
-        create_received_receipt, create_sender_accounts_manager, store_receipt, ALLOCATION_ID_0,
+        create_received_receipt_v2, create_sender_accounts_manager, store_receipt, ALLOCATION_ID_0,
         ESCROW_VALUE,
     },
 };
 use ractor::{ActorRef, ActorStatus};
 use serde_json::json;
 use test_assets::{assert_while_retry, flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
-use thegraph_core::{alloy::primitives::U256, AllocationId as AllocationIdCore};
+use thegraph_core::{alloy::primitives::U256, CollectionId};
 use wiremock::{
     matchers::{body_string_contains, method},
     Mock, MockServer, ResponseTemplate,
@@ -63,21 +63,12 @@ async fn sender_account_manager_layer_test() {
         )
         .await;
 
-    let mock_escrow_subgraph_server: MockServer = MockServer::start().await;
-    mock_escrow_subgraph_server
-        .register(Mock::given(method("POST")).respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({ "data": {
-                    "transactions": [],
-                }
-            })),
-        ))
-        .await;
+    let _mock_escrow_subgraph_server: MockServer = MockServer::start().await;
 
     let (prefix, mut msg_receiver, (actor, join_handle)) = create_sender_accounts_manager()
         .pgpool(pgpool.clone())
         .network_subgraph(&mock_network_subgraph_server.uri())
-        .escrow_subgraph(&mock_escrow_subgraph_server.uri())
-        .initial_escrow_accounts_v1(EscrowAccounts::new(
+        .initial_escrow_accounts_v2(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
         ))
@@ -85,14 +76,14 @@ async fn sender_account_manager_layer_test() {
         .await;
 
     actor
-        .cast(SenderAccountsManagerMessage::UpdateSenderAccountsV1(
+        .cast(SenderAccountsManagerMessage::UpdateSenderAccountsV2(
             vec![SENDER.1].into_iter().collect(),
         ))
         .unwrap();
     flush_messages(&mut msg_receiver).await;
     assert_while_retry!({
         ActorRef::<SenderAccountMessage>::where_is(format!(
-            "{}:legacy:{}",
+            "{}:horizon:{}",
             prefix.clone(),
             SENDER.1
         ))
@@ -101,27 +92,24 @@ async fn sender_account_manager_layer_test() {
 
     // verify if create sender account
     let sender_account_ref = ActorRef::<SenderAccountMessage>::where_is(format!(
-        "{}:legacy:{}",
+        "{}:horizon:{}",
         prefix.clone(),
         SENDER.1
     ));
     assert!(sender_account_ref.is_some());
 
-    let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 10);
-    store_receipt(&pgpool, receipt.signed_receipt())
-        .await
-        .unwrap();
+    let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 10);
+    let signed = receipt.signed_receipt().0.clone();
+    store_receipt(&pgpool, &signed).await.unwrap();
 
     // we expect it to create a sender allocation
     sender_account_ref
         .clone()
         .unwrap()
         .cast(SenderAccountMessage::UpdateAllocationIds(
-            vec![AllocationId::Legacy(AllocationIdCore::from(
-                ALLOCATION_ID_0,
-            ))]
-            .into_iter()
-            .collect(),
+            vec![AllocationId(CollectionId::from(ALLOCATION_ID_0))]
+                .into_iter()
+                .collect(),
         ))
         .unwrap();
 
@@ -155,7 +143,7 @@ async fn sender_account_manager_layer_test() {
 
     // this calls and closes acounts manager sender accounts
     actor
-        .cast(SenderAccountsManagerMessage::UpdateSenderAccountsV1(
+        .cast(SenderAccountsManagerMessage::UpdateSenderAccountsV2(
             HashSet::new(),
         ))
         .unwrap();
@@ -163,17 +151,17 @@ async fn sender_account_manager_layer_test() {
     sender_account_ref.unwrap().wait(None).await.unwrap();
     // verify if it gets removed
     let actor_ref =
-        ActorRef::<SenderAccountMessage>::where_is(format!("{}:legacy:{}", prefix, SENDER.1));
+        ActorRef::<SenderAccountMessage>::where_is(format!("{}:horizon:{}", prefix, SENDER.1));
     assert!(actor_ref.is_none());
 
-    let rav_marked_as_last = sqlx::query!(
+    let rav_marked_as_last = sqlx::query(
         r#"
-            SELECT * FROM scalar_tap_ravs WHERE last;
+            SELECT * FROM tap_horizon_ravs WHERE last;
         "#,
     )
     .fetch_all(&pgpool)
     .await
-    .expect("Should not fail to fetch from scalar_tap_ravs");
+    .expect("Should not fail to fetch from tap_horizon_ravs");
 
     assert!(!rav_marked_as_last.is_empty());
 

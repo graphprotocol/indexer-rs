@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use build_info::chrono::{DateTime, Utc};
-use sqlx::{types::BigDecimal, PgPool};
+use sqlx::{types::BigDecimal, PgPool, Row};
 use thegraph_core::alloy::{core::primitives::U256 as uint256, hex::ToHexExt, sol_types::SolType};
 use uuid::Uuid;
 
@@ -28,7 +28,8 @@ fn uint256_to_bigdecimal(value: &uint256, field: &str) -> Result<BigDecimal, Dip
 #[async_trait]
 impl AgreementStore for PsqlAgreementStore {
     async fn get_by_id(&self, id: Uuid) -> Result<Option<StoredIndexingAgreement>, DipsError> {
-        let item = sqlx::query!("SELECT * FROM indexing_agreements WHERE id=$1", id,)
+        let item = sqlx::query("SELECT * FROM indexing_agreements WHERE id=$1")
+            .bind(id)
             .fetch_one(&self.pool)
             .await;
 
@@ -38,19 +39,34 @@ impl AgreementStore for PsqlAgreementStore {
             Err(err) => return Err(DipsError::UnknownError(err.into())),
         };
 
-        let signed = SignedIndexingAgreementVoucher::abi_decode(item.signed_payload.as_ref())
+        let signed_payload: Vec<u8> = item
+            .try_get("signed_payload")
+            .map_err(|e| DipsError::UnknownError(e.into()))?;
+        let signed = SignedIndexingAgreementVoucher::abi_decode(signed_payload.as_ref())
             .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
         let metadata =
             SubgraphIndexingVoucherMetadata::abi_decode(signed.voucher.metadata.as_ref())
                 .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
-        let cancelled = item.cancelled_at.is_some();
+        let cancelled_at: Option<DateTime<Utc>> = item
+            .try_get("cancelled_at")
+            .map_err(|e| DipsError::UnknownError(e.into()))?;
+        let cancelled = cancelled_at.is_some();
+        let current_allocation_id: Option<String> = item
+            .try_get("current_allocation_id")
+            .map_err(|e| DipsError::UnknownError(e.into()))?;
+        let last_allocation_id: Option<String> = item
+            .try_get("last_allocation_id")
+            .map_err(|e| DipsError::UnknownError(e.into()))?;
+        let last_payment_collected_at: Option<DateTime<Utc>> = item
+            .try_get("last_payment_collected_at")
+            .map_err(|e| DipsError::UnknownError(e.into()))?;
         Ok(Some(StoredIndexingAgreement {
             voucher: signed,
             metadata,
             cancelled,
-            current_allocation_id: item.current_allocation_id,
-            last_allocation_id: item.last_allocation_id,
-            last_payment_collected_at: item.last_payment_collected_at,
+            current_allocation_id,
+            last_allocation_id,
+            last_payment_collected_at,
         }))
     }
     async fn create_agreement(
@@ -80,28 +96,28 @@ impl AgreementStore for PsqlAgreementStore {
         )?;
         let min_epochs_per_collection: i64 = agreement.voucher.minEpochsPerCollection.into();
         let max_epochs_per_collection: i64 = agreement.voucher.maxEpochsPerCollection.into();
-        sqlx::query!(
+        sqlx::query(
             "INSERT INTO indexing_agreements VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,null,null,null,null,null)",
-            id,
-            agreement.signature.as_ref(),
-            bs,
-            metadata.protocolNetwork,
-            metadata.chainId,
-            base_price_per_epoch,
-            price_per_entity,
-            metadata.subgraphDeploymentId,
-            agreement.voucher.service.encode_hex(),
-            agreement.voucher.recipient.encode_hex(),
-            agreement.voucher.payer.encode_hex(),
-            deadline,
-            duration_epochs,
-            max_initial_amount,
-            max_ongoing_amount_per_epoch,
-            min_epochs_per_collection,
-            max_epochs_per_collection,
-            now,
-            now
         )
+        .bind(id)
+        .bind(agreement.signature.as_ref())
+        .bind(bs)
+        .bind(metadata.protocolNetwork)
+        .bind(metadata.chainId)
+        .bind(base_price_per_epoch)
+        .bind(price_per_entity)
+        .bind(metadata.subgraphDeploymentId)
+        .bind(agreement.voucher.service.encode_hex())
+        .bind(agreement.voucher.recipient.encode_hex())
+        .bind(agreement.voucher.payer.encode_hex())
+        .bind(deadline)
+        .bind(duration_epochs)
+        .bind(max_initial_amount)
+        .bind(max_ongoing_amount_per_epoch)
+        .bind(min_epochs_per_collection)
+        .bind(max_epochs_per_collection)
+        .bind(now)
+        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| DipsError::UnknownError(e.into()))?;
@@ -116,12 +132,12 @@ impl AgreementStore for PsqlAgreementStore {
         let bs = signed_cancellation.encode_vec();
         let now = Utc::now();
 
-        sqlx::query!(
+        sqlx::query(
             "UPDATE indexing_agreements SET updated_at=$1, cancelled_at=$1, signed_cancellation_payload=$2 WHERE id=$3",
-            now,
-            bs,
-            id,
         )
+        .bind(now)
+        .bind(bs)
+        .bind(id)
         .execute(&self.pool)
         .await
         .map_err(|_| DipsError::AgreementNotFound)?;
@@ -135,6 +151,7 @@ pub(crate) mod test {
     use std::sync::Arc;
 
     use build_info::chrono::Duration;
+    use sqlx::Row;
     use thegraph_core::alloy::{
         primitives::{ruint::aliases::U256, Address},
         sol_types::SolValue,
@@ -184,16 +201,23 @@ pub(crate) mod test {
             .unwrap();
 
         // Verify stored agreement
-        let row = sqlx::query!("SELECT * FROM indexing_agreements WHERE id = $1", id)
+        let row = sqlx::query("SELECT * FROM indexing_agreements WHERE id = $1")
+            .bind(id)
             .fetch_one(&store.pool)
             .await
             .unwrap();
 
-        assert_eq!(row.id, id);
-        assert_eq!(row.signature, agreement.signature);
-        assert_eq!(row.protocol_network, "eip155:42161");
-        assert_eq!(row.chain_id, "eip155:1");
-        assert_eq!(row.subgraph_deployment_id, "Qm123");
+        let row_id: Uuid = row.try_get("id").unwrap();
+        let signature: Vec<u8> = row.try_get("signature").unwrap();
+        let protocol_network: String = row.try_get("protocol_network").unwrap();
+        let chain_id: String = row.try_get("chain_id").unwrap();
+        let subgraph_deployment_id: String = row.try_get("subgraph_deployment_id").unwrap();
+
+        assert_eq!(row_id, id);
+        assert_eq!(signature, agreement.signature);
+        assert_eq!(protocol_network, "eip155:42161");
+        assert_eq!(chain_id, "eip155:1");
+        assert_eq!(subgraph_deployment_id, "Qm123");
     }
 
     #[tokio::test]
@@ -327,15 +351,16 @@ pub(crate) mod test {
         store.cancel_agreement(cancellation.clone()).await.unwrap();
 
         // Verify stored agreement
-        let row = sqlx::query!("SELECT * FROM indexing_agreements WHERE id = $1", id)
+        let row = sqlx::query("SELECT * FROM indexing_agreements WHERE id = $1")
+            .bind(id)
             .fetch_one(&store.pool)
             .await
             .unwrap();
 
-        assert!(row.cancelled_at.is_some());
-        assert_eq!(
-            row.signed_cancellation_payload,
-            Some(cancellation.encode_vec())
-        );
+        let cancelled_at: Option<DateTime<Utc>> = row.try_get("cancelled_at").unwrap();
+        let signed_cancellation_payload: Option<Vec<u8>> =
+            row.try_get("signed_cancellation_payload").unwrap();
+        assert!(cancelled_at.is_some());
+        assert_eq!(signed_cancellation_payload, Some(cancellation.encode_vec()));
     }
 }

@@ -29,12 +29,9 @@ impl Check<TapReceipt> for AllocationEligible {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let allocation_id = match receipt.signed_receipt() {
-            TapReceipt::V1(receipt) => AllocationId::from(receipt.message.allocation_id),
-            TapReceipt::V2(receipt) => {
-                AllocationId::from(CollectionId::from(receipt.message.collection_id))
-            }
-        };
+        let allocation_id = AllocationId::from(CollectionId::from(
+            receipt.signed_receipt().as_ref().message.collection_id,
+        ));
         let allocation_address = allocation_id.into_inner();
         if !self
             .indexer_allocations

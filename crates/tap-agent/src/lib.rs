@@ -21,30 +21,11 @@ use thegraph_core::alloy::sol_types::Eip712Domain;
 pub static CONFIG: LazyLock<Config> =
     LazyLock::new(|| cli::get_config().expect("Failed to load configuration"));
 
-/// Static EIP_712_DOMAIN used with config values for V1
-pub static EIP_712_DOMAIN: LazyLock<Eip712Domain> = LazyLock::new(|| {
-    tap_eip712_domain(
-        CONFIG.blockchain.chain_id as u64,
-        CONFIG.blockchain.receipts_verifier_address,
-        tap_core::TapVersion::V1,
-    )
-});
-
 /// Static EIP_712_DOMAIN used with config values for V2(Horizon)
 pub static EIP_712_DOMAIN_V2: LazyLock<Eip712Domain> = LazyLock::new(|| {
     tap_eip712_domain(
         CONFIG.blockchain.chain_id as u64,
-        if CONFIG.horizon.enabled {
-            CONFIG
-                .blockchain
-                .receipts_verifier_address_v2
-                .expect("receipts_verifier_address_v2 is required when Horizon is enabled")
-        } else {
-            CONFIG
-                .blockchain
-                .receipts_verifier_address_v2
-                .unwrap_or(CONFIG.blockchain.receipts_verifier_address)
-        },
+        CONFIG.blockchain.horizon_receipts_verifier_address(),
         tap_core::TapVersion::V2,
     )
 });

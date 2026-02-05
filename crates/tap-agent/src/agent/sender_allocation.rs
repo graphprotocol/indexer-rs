@@ -11,10 +11,9 @@ use std::{
 use anyhow::{anyhow, ensure};
 use bigdecimal::{num_bigint::BigInt, ToPrimitive};
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
-use itertools::{Either, Itertools};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
-use sqlx::{types::BigDecimal, PgPool};
+use sqlx::{types::BigDecimal, PgPool, Row};
 use tap_core::{
     manager::adapters::{RavRead, RavStore, ReceiptDelete, ReceiptRead},
     rav_request::RavRequest,
@@ -40,7 +39,7 @@ use crate::{
     tap::{
         context::{
             checks::{AllocationId, Signature},
-            Horizon, Legacy, NetworkVersion, TapAgentContext,
+            Horizon, NetworkVersion, TapAgentContext,
         },
         signers_trimmed, TapReceipt,
     },
@@ -54,14 +53,6 @@ pub(crate) static CLOSED_SENDER_ALLOCATIONS: LazyLock<CounterVec> = LazyLock::ne
     )
     .unwrap()
 });
-pub(crate) static RAVS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
-    register_counter_vec!(
-        "tap_ravs_created_total",
-        "RAVs updated or created per sender allocation since the start of the program",
-        &["sender", "allocation"]
-    )
-    .unwrap()
-});
 pub(crate) static RAVS_CREATED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_ravs_created_total_by_version",
@@ -70,27 +61,11 @@ pub(crate) static RAVS_CREATED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(
     )
     .unwrap()
 });
-pub(crate) static RAVS_FAILED: LazyLock<CounterVec> = LazyLock::new(|| {
-    register_counter_vec!(
-        "tap_ravs_failed_total",
-        "RAV requests failed since the start of the program",
-        &["sender", "allocation"]
-    )
-    .unwrap()
-});
 pub(crate) static RAVS_FAILED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_ravs_failed_total_by_version",
         "RAV requests failed per sender allocation and TAP version",
         &["sender", "allocation", "version"]
-    )
-    .unwrap()
-});
-pub(crate) static RAV_RESPONSE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
-    register_histogram_vec!(
-        "tap_rav_response_time_seconds",
-        "RAV response time per sender",
-        &["sender"]
     )
     .unwrap()
 });
@@ -135,18 +110,7 @@ pub enum RavError {
 
 type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
 
-const TAP_V1: &str = "v1";
-const TAP_V2: &str = "v2";
-
-/// Helper function to determine TAP version from NetworkVersion type parameter
-/// Since Legacy and Horizon are uninhabitable enums, we use type_name introspection
-fn get_tap_version<T: NetworkVersion>() -> &'static str {
-    if std::any::type_name::<T>().contains("Legacy") {
-        TAP_V1
-    } else {
-        TAP_V2
-    }
-}
+const TAP_VERSION: &str = "v2";
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 ///
@@ -185,29 +149,20 @@ pub struct SenderAllocationState<T: NetworkVersion> {
 
     /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
-    /// Domain separator used for tap/horizon
-    /// depending if SenderAllocationState<Legacy> or SenderAllocationState<Horizon>??
-    /// TODO: Double check if we actually need to add an additional domain_sepparator_v2 field
-    /// at first glance it seems like each sender allocation will deal only with one allocation
-    /// type. not both
+    /// Domain separator used for Horizon receipts.
     domain_separator: Eip712Domain,
     /// Reference to [super::sender_account::SenderAccount] actor
     ///
     /// This is needed to return back Rav responses
     sender_account_ref: ActorRef<SenderAccountMessage>,
-    /// Aggregator client
-    ///
-    /// This is defined by [NetworkVersion::AggregatorClient] depending
-    /// if it's a [crate::tap::context::Legacy] or a [crate::tap::context::Horizon] version
+    /// Aggregator client for Horizon receipts.
     sender_aggregator: T::AggregatorClient,
     /// Buffer configuration used by TAP so gives some room to receive receipts
     /// that are delayed since timestamp_ns is defined by the gateway
     timestamp_buffer_ns: u64,
     /// Limit of receipts sent in a Rav Request
     rav_request_receipt_limit: u64,
-    /// Data service address for Horizon mode
-    /// - None for Legacy mode
-    /// - Some(SubgraphService address) for Horizon mode from config
+    /// Data service address for Horizon mode from config
     data_service: Option<Address>,
 }
 
@@ -222,10 +177,7 @@ pub struct AllocationConfig {
     pub indexer_address: Address,
     /// Polling interval for escrow subgraph
     pub escrow_polling_interval: Duration,
-    /// TAP protocol operation mode
-    ///
-    /// Defines whether the indexer operates in legacy mode (V1 TAP receipts only)
-    /// or horizon mode (hybrid V1/V2 TAP receipts support).
+    /// TAP protocol operation mode (Horizon mode required)
     pub tap_mode: indexer_config::TapMode,
 }
 
@@ -253,8 +205,6 @@ pub struct SenderAllocationArgs<T: NetworkVersion> {
     pub sender: Address,
     /// Watcher containing the escrow accounts
     pub escrow_accounts: Receiver<EscrowAccounts>,
-    /// SubgraphClient of the escrow subgraph
-    pub escrow_subgraph: &'static SubgraphClient,
     /// SubgraphClient of the network subgraph
     pub network_subgraph: &'static SubgraphClient,
     /// Domain separator used for tap
@@ -263,10 +213,7 @@ pub struct SenderAllocationArgs<T: NetworkVersion> {
     ///
     /// This is needed to return back Rav responses
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
-    /// Aggregator client
-    ///
-    /// This is defined by [crate::tap::context::NetworkVersion::AggregatorClient] depending
-    /// if it's a [crate::tap::context::Legacy] or a [crate::tap::context::Horizon] version
+    /// Aggregator client for Horizon receipts.
     pub sender_aggregator: T::AggregatorClient,
 
     /// General configuration from config.toml
@@ -511,7 +458,6 @@ where
             allocation_id,
             sender,
             escrow_accounts,
-            escrow_subgraph,
             network_subgraph,
             domain_separator,
             sender_account_ref,
@@ -519,12 +465,7 @@ where
             config,
         }: SenderAllocationArgs<T>,
     ) -> anyhow::Result<Self> {
-        let collection_id = match T::to_allocation_id_enum(&allocation_id) {
-            crate::agent::sender_accounts_manager::AllocationId::Legacy(_) => None,
-            crate::agent::sender_accounts_manager::AllocationId::Horizon(collection_id) => {
-                Some(collection_id)
-            }
-        };
+        let collection_id = T::to_allocation_id_enum(&allocation_id).0;
         let required_checks: Vec<Arc<dyn Check<TapReceipt> + Send + Sync>> = vec![
             Arc::new(
                 AllocationId::new(
@@ -533,7 +474,6 @@ where
                     sender,
                     T::allocation_id_to_address(&allocation_id),
                     collection_id,
-                    escrow_subgraph,
                     network_subgraph,
                 )
                 .await,
@@ -543,26 +483,15 @@ where
                 escrow_accounts.clone(),
             )),
         ];
-        // Build context based on TapMode
-        let context = match &config.tap_mode {
-            indexer_config::TapMode::Legacy => TapAgentContext::builder()
-                .pgpool(pgpool.clone())
-                .allocation_id(T::allocation_id_to_address(&allocation_id))
-                .indexer_address(config.indexer_address)
-                .sender(sender)
-                .escrow_accounts(escrow_accounts.clone())
-                .build(),
-            indexer_config::TapMode::Horizon {
-                subgraph_service_address,
-            } => TapAgentContext::builder()
-                .pgpool(pgpool.clone())
-                .allocation_id(T::allocation_id_to_address(&allocation_id))
-                .indexer_address(config.indexer_address)
-                .sender(sender)
-                .escrow_accounts(escrow_accounts.clone())
-                .subgraph_service_address(*subgraph_service_address)
-                .build(),
-        };
+        let subgraph_service_address = config.tap_mode.subgraph_service_address();
+        let context = TapAgentContext::builder()
+            .pgpool(pgpool.clone())
+            .allocation_id(T::allocation_id_to_address(&allocation_id))
+            .indexer_address(config.indexer_address)
+            .sender(sender)
+            .escrow_accounts(escrow_accounts.clone())
+            .subgraph_service_address(subgraph_service_address)
+            .build();
 
         let latest_rav = context.last_rav().await.unwrap_or_default();
         let tap_manager = TapManager::new(
@@ -571,13 +500,7 @@ where
             CheckList::new(required_checks),
         );
 
-        // Extract data_service from config based on TapMode
-        let data_service = match &config.tap_mode {
-            indexer_config::TapMode::Legacy => None,
-            indexer_config::TapMode::Horizon {
-                subgraph_service_address,
-            } => Some(*subgraph_service_address),
-        };
+        let data_service = Some(subgraph_service_address);
 
         Ok(Self {
             pgpool,
@@ -612,49 +535,26 @@ where
             Ok(rav) => {
                 self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
                 self.latest_rav = Some(rav);
-                // Determine TAP version based on NetworkVersion type
-                let version = get_tap_version::<T>();
-
-                // by_version counter (both V1 and V2)
                 RAVS_CREATED_BY_VERSION
                     .with_label_values(&[
                         &self.sender.to_string(),
                         &self.allocation_id.to_string(),
-                        version,
+                        TAP_VERSION,
                     ])
                     .inc();
-                // Keep legacy counter for V1 only
-                if version == TAP_V1 {
-                    RAVS_CREATED
-                        .with_label_values(&[
-                            &self.sender.to_string(),
-                            &self.allocation_id.to_string(),
-                        ])
-                        .inc();
-                }
                 Ok(())
             }
             Err(e) => {
                 if let RavError::AllReceiptsInvalid = e {
                     self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
                 }
-                let version = get_tap_version::<T>();
-
                 RAVS_FAILED_BY_VERSION
                     .with_label_values(&[
                         &self.sender.to_string(),
                         &self.allocation_id.to_string(),
-                        version,
+                        TAP_VERSION,
                     ])
                     .inc();
-                if version == TAP_V1 {
-                    RAVS_FAILED
-                        .with_label_values(&[
-                            &self.sender.to_string(),
-                            &self.allocation_id.to_string(),
-                        ])
-                        .inc();
-                }
                 Err(e.into())
             }
         }
@@ -719,14 +619,9 @@ where
 
                 // Instrumentation: log details before calling the aggregator
                 let receipt_count = valid_receipts.len();
-                let first_signer = valid_receipts.first().and_then(|r| match r {
-                    indexer_receipt::TapReceipt::V1(sr) => {
-                        sr.recover_signer(&self.domain_separator).ok()
-                    }
-                    indexer_receipt::TapReceipt::V2(sr) => {
-                        sr.recover_signer(&self.domain_separator).ok()
-                    }
-                });
+                let first_signer = valid_receipts
+                    .first()
+                    .and_then(|r| r.as_ref().recover_signer(&self.domain_separator).ok());
                 tracing::info!(
                     sender = %self.sender,
                     allocation_id = %self.allocation_id,
@@ -743,16 +638,9 @@ where
                     T::aggregate(&mut self.sender_aggregator, valid_receipts, previous_rav).await?;
 
                 let rav_response_time = rav_response_time_start.elapsed();
-                let version = get_tap_version::<T>();
-
                 RAV_RESPONSE_TIME_BY_VERSION
-                    .with_label_values(&[&self.sender.to_string(), version])
+                    .with_label_values(&[&self.sender.to_string(), TAP_VERSION])
                     .observe(rav_response_time.as_secs_f64());
-                if version == TAP_V1 {
-                    RAV_RESPONSE_TIME
-                        .with_label_values(&[&self.sender.to_string()])
-                        .observe(rav_response_time.as_secs_f64());
-                }
                 // we only save invalid receipts when we are about to store our rav
                 //
                 // store them before we call remove_obsolete_receipts()
@@ -815,20 +703,17 @@ where
                 Ok(signed_rav)
             }
             (Err(AggregationError::NoValidReceiptsForRavRequest), true, true) => {
-                let table_name = match std::any::type_name::<T>() {
-                    name if name.contains("Legacy") => "scalar_tap_receipts (V1/Legacy)",
-                    name if name.contains("Horizon") => "tap_horizon_receipts (V2/Horizon)",
-                    _ => "unknown receipt table",
-                };
+                let table_name = "tap_horizon_receipts (V2/Horizon)";
 
                 Err(anyhow!(
                     "It looks like there are no valid receipts for the RAV request from table: {}.\
                     This may happen if your `rav_request_trigger_value` is too low \
                     and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
                     You can fix this by increasing the `rav_request_trigger_value`.\
-                    \nDuring Horizon migration: Verify receipts are in the correct table for this allocation type.",
+                    \nVerify receipts are in the Horizon receipts table for this allocation.",
                     table_name
-                ).into())
+                )
+                .into())
             }
             (Err(e), ..) => Err(e.into()),
         }
@@ -843,26 +728,14 @@ where
             .map(|receipt| receipt.signed_receipt().value())
             .sum();
 
-        let (receipts_v1, receipts_v2): (Vec<_>, Vec<_>) =
-            receipts.into_iter().partition_map(|r| {
-                // note: it would be nice if we could get signed_receipt and error by value without
-                // cloning
-                let error = r.clone().error().to_string();
-                match r.signed_receipt().clone() {
-                    TapReceipt::V1(receipt) => Either::Left((receipt, error)),
-                    TapReceipt::V2(receipt) => Either::Right((receipt, error)),
-                }
-            });
-
-        let (result1, result2) = tokio::join!(
-            self.store_v1_invalid_receipts(receipts_v1),
-            self.store_v2_invalid_receipts(receipts_v2),
-        );
-        if let Err(err) = result1 {
-            tracing::error!(%err, "There was an error while storing invalid v1 receipts.");
+        let mut receipts_v2 = Vec::with_capacity(receipts.len());
+        for receipt in receipts {
+            let error = receipt.clone().error().to_string();
+            let receipt = receipt.signed_receipt().0.clone();
+            receipts_v2.push((receipt, error));
         }
 
-        if let Err(err) = result2 {
+        if let Err(err) = self.store_v2_invalid_receipts(receipts_v2).await {
             tracing::error!(%err, "There was an error while storing invalid v2 receipts.");
         }
 
@@ -892,93 +765,21 @@ where
         Ok(())
     }
 
-    async fn store_v1_invalid_receipts(
-        &self,
-        receipts: Vec<(tap_graph::SignedReceipt, String)>,
-    ) -> anyhow::Result<()> {
-        let reciepts_len = receipts.len();
-        let mut reciepts_signers = Vec::with_capacity(reciepts_len);
-        let mut encoded_signatures = Vec::with_capacity(reciepts_len);
-        let mut allocation_ids = Vec::with_capacity(reciepts_len);
-        let mut timestamps = Vec::with_capacity(reciepts_len);
-        let mut nounces = Vec::with_capacity(reciepts_len);
-        let mut values = Vec::with_capacity(reciepts_len);
-        let mut error_logs = Vec::with_capacity(reciepts_len);
-
-        for (receipt, receipt_error) in receipts {
-            let allocation_id = receipt.message.allocation_id;
-            let encoded_signature = receipt.signature.as_bytes().to_vec();
-            let receipt_signer = receipt
-                .recover_signer(&self.domain_separator)
-                .map_err(|e| {
-                    tracing::error!(error = %e, "Failed to recover receipt signer");
-                    anyhow!(e)
-                })?;
-            tracing::debug!(
-                allocation_id = %allocation_id.encode_hex(),
-                signer = %receipt_signer.encode_hex(),
-                reason = %receipt_error,
-                "Invalid receipt stored",
-            );
-            reciepts_signers.push(receipt_signer.encode_hex());
-            encoded_signatures.push(encoded_signature);
-            allocation_ids.push(allocation_id.encode_hex());
-            timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
-            nounces.push(BigDecimal::from(receipt.message.nonce));
-            values.push(BigDecimal::from(BigInt::from(receipt.message.value)));
-            error_logs.push(receipt_error);
-        }
-        sqlx::query!(
-            r#"INSERT INTO scalar_tap_receipts_invalid (
-                signer_address,
-                signature,
-                allocation_id,
-                timestamp_ns,
-                nonce,
-                value,
-                error_log
-            ) SELECT * FROM UNNEST(
-                $1::CHAR(40)[],
-                $2::BYTEA[],
-                $3::CHAR(40)[],
-                $4::NUMERIC(20)[],
-                $5::NUMERIC(20)[],
-                $6::NUMERIC(40)[],
-                $7::TEXT[]
-            )"#,
-            &reciepts_signers,
-            &encoded_signatures,
-            &allocation_ids,
-            &timestamps,
-            &nounces,
-            &values,
-            &error_logs
-        )
-        .execute(&self.pgpool)
-        .await
-        .map_err(|e: sqlx::Error| {
-            tracing::error!(error = %e, "Failed to store invalid receipt");
-            anyhow!(e)
-        })?;
-
-        Ok(())
-    }
-
     async fn store_v2_invalid_receipts(
         &self,
         receipts: Vec<(tap_graph::v2::SignedReceipt, String)>,
     ) -> anyhow::Result<()> {
-        let reciepts_len = receipts.len();
-        let mut reciepts_signers = Vec::with_capacity(reciepts_len);
-        let mut encoded_signatures = Vec::with_capacity(reciepts_len);
-        let mut collection_ids = Vec::with_capacity(reciepts_len);
-        let mut payers = Vec::with_capacity(reciepts_len);
-        let mut data_services = Vec::with_capacity(reciepts_len);
-        let mut service_providers = Vec::with_capacity(reciepts_len);
-        let mut timestamps = Vec::with_capacity(reciepts_len);
-        let mut nonces = Vec::with_capacity(reciepts_len);
-        let mut values = Vec::with_capacity(reciepts_len);
-        let mut error_logs = Vec::with_capacity(reciepts_len);
+        let receipts_len = receipts.len();
+        let mut reciepts_signers = Vec::with_capacity(receipts_len);
+        let mut encoded_signatures = Vec::with_capacity(receipts_len);
+        let mut collection_ids = Vec::with_capacity(receipts_len);
+        let mut payers = Vec::with_capacity(receipts_len);
+        let mut data_services = Vec::with_capacity(receipts_len);
+        let mut service_providers = Vec::with_capacity(receipts_len);
+        let mut timestamps = Vec::with_capacity(receipts_len);
+        let mut nonces = Vec::with_capacity(receipts_len);
+        let mut values = Vec::with_capacity(receipts_len);
+        let mut error_logs = Vec::with_capacity(receipts_len);
 
         for (receipt, receipt_error) in receipts {
             let collection_id = receipt.message.collection_id;
@@ -1009,7 +810,7 @@ where
             values.push(BigDecimal::from(BigInt::from(receipt.message.value)));
             error_logs.push(receipt_error);
         }
-        sqlx::query!(
+        sqlx::query(
             r#"INSERT INTO tap_horizon_receipts_invalid (
                 signer_address,
                 signature,
@@ -1033,17 +834,17 @@ where
                 $9::NUMERIC(40)[],
                 $10::TEXT[]
             )"#,
-            &reciepts_signers,
-            &encoded_signatures,
-            &collection_ids,
-            &payers,
-            &data_services,
-            &service_providers,
-            &timestamps,
-            &nonces,
-            &values,
-            &error_logs
         )
+        .bind(&reciepts_signers)
+        .bind(&encoded_signatures)
+        .bind(&collection_ids)
+        .bind(&payers)
+        .bind(&data_services)
+        .bind(&service_providers)
+        .bind(&timestamps)
+        .bind(&nonces)
+        .bind(&values)
+        .bind(&error_logs)
         .execute(&self.pgpool)
         .await
         .map_err(|e: sqlx::Error| {
@@ -1063,7 +864,7 @@ where
     ) -> anyhow::Result<()> {
         // Failed Ravs are stored as json, we don't need to have a copy of the table
         // TODO update table name?
-        sqlx::query!(
+        sqlx::query(
             r#"
                 INSERT INTO scalar_tap_rav_requests_failed (
                     allocation_id,
@@ -1074,12 +875,12 @@ where
                 )
                 VALUES ($1, $2, $3, $4, $5)
             "#,
-            T::allocation_id_to_address(&self.allocation_id).encode_hex(),
-            self.sender.encode_hex(),
-            serde_json::to_value(expected_rav)?,
-            serde_json::to_value(rav)?,
-            reason
         )
+        .bind(T::allocation_id_to_address(&self.allocation_id).encode_hex())
+        .bind(self.sender.encode_hex())
+        .bind(serde_json::to_value(expected_rav)?)
+        .bind(serde_json::to_value(rav)?)
+        .bind(reason)
         .execute(&self.pgpool)
         .await
         .map_err(|e| anyhow!("Failed to store failed RAV: {:?}", e))?;
@@ -1114,167 +915,6 @@ pub trait DatabaseInteractions {
     fn mark_rav_last(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
-impl DatabaseInteractions for SenderAllocationState<Legacy> {
-    async fn delete_receipts_between(
-        &self,
-        signers: &[String],
-        min_timestamp: u64,
-        max_timestamp: u64,
-    ) -> anyhow::Result<()> {
-        sqlx::query!(
-            r#"
-                        DELETE FROM scalar_tap_receipts
-                        WHERE timestamp_ns BETWEEN $1 AND $2
-                        AND allocation_id = $3
-                        AND signer_address IN (SELECT unnest($4::text[]));
-                    "#,
-            BigDecimal::from(min_timestamp),
-            BigDecimal::from(max_timestamp),
-            (**self.allocation_id).encode_hex(),
-            &signers,
-        )
-        .execute(&self.pgpool)
-        .await?;
-        Ok(())
-    }
-    async fn calculate_invalid_receipts_fee(&self) -> anyhow::Result<UnaggregatedReceipts> {
-        tracing::trace!("calculate_invalid_receipts_fee()");
-        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
-
-        let res = sqlx::query!(
-            r#"
-            SELECT
-                MAX(id),
-                SUM(value),
-                COUNT(*)
-            FROM
-                scalar_tap_receipts_invalid
-            WHERE
-                allocation_id = $1
-                AND signer_address IN (SELECT unnest($2::text[]))
-            "#,
-            (**self.allocation_id).encode_hex(),
-            &signers
-        )
-        .fetch_one(&self.pgpool)
-        .await?;
-
-        ensure!(
-            res.sum.is_none() == res.max.is_none(),
-            "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
-        );
-
-        Ok(UnaggregatedReceipts {
-            last_id: res.max.unwrap_or(0).try_into()?,
-            value: res
-                .sum
-                .unwrap_or(BigDecimal::from(0))
-                .to_string()
-                .parse::<u128>()?,
-            counter: res
-                .count
-                .unwrap_or(0)
-                .to_u64()
-                .expect("default value exists, this shouldn't be empty"),
-        })
-    }
-
-    /// Delete obsolete receipts in the DB w.r.t. the last RAV in DB, then update the tap manager
-    /// with the latest unaggregated fees from the database.
-    async fn calculate_fee_until_last_id(
-        &self,
-        last_id: i64,
-    ) -> anyhow::Result<UnaggregatedReceipts> {
-        tracing::trace!("calculate_unaggregated_fee()");
-        self.tap_manager.remove_obsolete_receipts().await?;
-
-        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
-        let res = sqlx::query!(
-            r#"
-            SELECT
-                MAX(id),
-                SUM(value),
-                COUNT(*)
-            FROM
-                scalar_tap_receipts
-            WHERE
-                allocation_id = $1
-                AND id <= $2
-                AND signer_address IN (SELECT unnest($3::text[]))
-                AND timestamp_ns > $4
-            "#,
-            (**self.allocation_id).encode_hex(),
-            last_id,
-            &signers,
-            BigDecimal::from(
-                self.latest_rav
-                    .as_ref()
-                    .map(|rav| rav.message.timestamp_ns())
-                    .unwrap_or_default()
-            ),
-        )
-        .fetch_one(&self.pgpool)
-        .await?;
-
-        ensure!(
-            res.sum.is_none() == res.max.is_none(),
-            "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
-        );
-
-        Ok(UnaggregatedReceipts {
-            last_id: res.max.unwrap_or(0).try_into()?,
-            value: res
-                .sum
-                .unwrap_or(BigDecimal::from(0))
-                .to_string()
-                .parse::<u128>()?,
-            counter: res
-                .count
-                .unwrap_or(0)
-                .to_u64()
-                .expect("default value exists, this shouldn't be empty"),
-        })
-    }
-
-    /// Sends a database query and mark the allocation rav as last
-    async fn mark_rav_last(&self) -> anyhow::Result<()> {
-        tracing::info!(
-            sender = %self.sender,
-            allocation_id = %self.allocation_id,
-            "Marking rav as last!",
-        );
-        let updated_rows = sqlx::query!(
-            r#"
-                        UPDATE scalar_tap_ravs
-                        SET last = true
-                        WHERE allocation_id = $1 AND sender_address = $2
-                    "#,
-            (**self.allocation_id).encode_hex(),
-            self.sender.encode_hex(),
-        )
-        .execute(&self.pgpool)
-        .await?;
-
-        match updated_rows.rows_affected() {
-            // in case no rav was marked as final
-            0 => {
-                tracing::warn!(
-                    allocation_id = %self.allocation_id,
-                    sender = %self.sender,
-                    "No RAVs were updated as last",
-                );
-                Ok(())
-            }
-            1 => Ok(()),
-            _ => anyhow::bail!(
-                "Expected exactly one row to be updated in the latest RAVs table, \
-                        but {} were updated.",
-                updated_rows.rows_affected()
-            ),
-        }
-    }
-}
-
 impl DatabaseInteractions for SenderAllocationState<Horizon> {
     async fn delete_receipts_between(
         &self,
@@ -1282,7 +922,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
         min_timestamp: u64,
         max_timestamp: u64,
     ) -> anyhow::Result<()> {
-        sqlx::query!(
+        sqlx::query(
             r#"
                         DELETE FROM tap_horizon_receipts
                         WHERE timestamp_ns BETWEEN $1 AND $2
@@ -1292,17 +932,19 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                         AND data_service = $6
                         AND signer_address IN (SELECT unnest($7::text[]));
                     "#,
-            BigDecimal::from(min_timestamp),
-            BigDecimal::from(max_timestamp),
-            // self.allocation_id is already a CollectionId in Horizon state
-            self.allocation_id.encode_hex(),
-            self.indexer_address.encode_hex(),
-            self.sender.encode_hex(),
+        )
+        .bind(BigDecimal::from(min_timestamp))
+        .bind(BigDecimal::from(max_timestamp))
+        // self.allocation_id is already a CollectionId in Horizon state
+        .bind(self.allocation_id.encode_hex())
+        .bind(self.indexer_address.encode_hex())
+        .bind(self.sender.encode_hex())
+        .bind(
             self.data_service
                 .expect("data_service should be available in Horizon mode")
                 .encode_hex(),
-            &signers,
         )
+        .bind(signers)
         .execute(&self.pgpool)
         .await?;
         Ok(())
@@ -1312,7 +954,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
         tracing::trace!("calculate_invalid_receipts_fee()");
         let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
 
-        let res = sqlx::query!(
+        let res = sqlx::query(
             r#"
             SELECT
                 MAX(id),
@@ -1327,32 +969,36 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 AND data_service = $4
                 AND signer_address IN (SELECT unnest($5::text[]))
             "#,
-            // self.allocation_id is already a CollectionId in Horizon state
-            self.allocation_id.encode_hex(),
-            self.indexer_address.encode_hex(),
-            self.sender.encode_hex(),
+        )
+        // self.allocation_id is already a CollectionId in Horizon state
+        .bind(self.allocation_id.encode_hex())
+        .bind(self.indexer_address.encode_hex())
+        .bind(self.sender.encode_hex())
+        .bind(
             self.data_service
                 .expect("data_service should be available in Horizon mode")
                 .encode_hex(),
-            &signers
         )
+        .bind(signers)
         .fetch_one(&self.pgpool)
         .await?;
 
+        let max: Option<i64> = res.try_get("max")?;
+        let sum: Option<BigDecimal> = res.try_get("sum")?;
+        let count: Option<i64> = res.try_get("count")?;
+
         ensure!(
-            res.sum.is_none() == res.max.is_none(),
+            sum.is_none() == max.is_none(),
             "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
         );
 
         Ok(UnaggregatedReceipts {
-            last_id: res.max.unwrap_or(0).try_into()?,
-            value: res
-                .sum
+            last_id: max.unwrap_or(0).try_into()?,
+            value: sum
                 .unwrap_or(BigDecimal::from(0))
                 .to_string()
                 .parse::<u128>()?,
-            counter: res
-                .count
+            counter: count
                 .unwrap_or(0)
                 .to_u64()
                 .expect("default value exists, this shouldn't be empty"),
@@ -1367,7 +1013,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
         self.tap_manager.remove_obsolete_receipts().await?;
 
         let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
-        let res = sqlx::query!(
+        let res = sqlx::query(
             r#"
             SELECT
                 MAX(id),
@@ -1384,39 +1030,43 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 AND signer_address IN (SELECT unnest($6::text[]))
                 AND timestamp_ns > $7
             "#,
-            // self.allocation_id is already a CollectionId in Horizon state
-            self.allocation_id.encode_hex(),
-            self.indexer_address.encode_hex(),
-            self.sender.encode_hex(),
+        )
+        // self.allocation_id is already a CollectionId in Horizon state
+        .bind(self.allocation_id.encode_hex())
+        .bind(self.indexer_address.encode_hex())
+        .bind(self.sender.encode_hex())
+        .bind(
             self.data_service
                 .expect("data_service should be available in Horizon mode")
                 .encode_hex(),
-            last_id,
-            &signers,
-            BigDecimal::from(
-                self.latest_rav
-                    .as_ref()
-                    .map(|rav| rav.message.timestamp_ns())
-                    .unwrap_or_default()
-            ),
         )
+        .bind(last_id)
+        .bind(signers)
+        .bind(BigDecimal::from(
+            self.latest_rav
+                .as_ref()
+                .map(|rav| rav.message.timestamp_ns())
+                .unwrap_or_default(),
+        ))
         .fetch_one(&self.pgpool)
         .await?;
 
+        let max: Option<i64> = res.try_get("max")?;
+        let sum: Option<BigDecimal> = res.try_get("sum")?;
+        let count: Option<i64> = res.try_get("count")?;
+
         ensure!(
-            res.sum.is_none() == res.max.is_none(),
+            sum.is_none() == max.is_none(),
             "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
         );
 
         Ok(UnaggregatedReceipts {
-            last_id: res.max.unwrap_or(0).try_into()?,
-            value: res
-                .sum
+            last_id: max.unwrap_or(0).try_into()?,
+            value: sum
                 .unwrap_or(BigDecimal::from(0))
                 .to_string()
                 .parse::<u128>()?,
-            counter: res
-                .count
+            counter: count
                 .unwrap_or(0)
                 .to_u64()
                 .expect("default value exists, this shouldn't be empty"),
@@ -1431,7 +1081,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             "Marking rav as last!",
         );
 
-        let updated_rows = sqlx::query!(
+        let updated_rows = sqlx::query(
             r#"
                 UPDATE tap_horizon_ravs
                     SET last = true
@@ -1441,10 +1091,12 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                     AND service_provider = $3
                     AND data_service = $4
             "#,
-            // self.allocation_id is already a CollectionId in Horizon state
-            self.allocation_id.encode_hex(),
-            self.sender.encode_hex(),
-            self.indexer_address.encode_hex(),
+        )
+        // self.allocation_id is already a CollectionId in Horizon state
+        .bind(self.allocation_id.encode_hex())
+        .bind(self.sender.encode_hex())
+        .bind(self.indexer_address.encode_hex())
+        .bind(
             self.data_service
                 .expect("data_service should be available in Horizon mode")
                 .encode_hex(),
@@ -1479,775 +1131,308 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
 pub fn init_metrics() {
     // Dereference each LazyLock to force initialization
     let _ = &*CLOSED_SENDER_ALLOCATIONS;
-    let _ = &*RAVS_CREATED;
     let _ = &*RAVS_CREATED_BY_VERSION;
-    let _ = &*RAVS_FAILED;
     let _ = &*RAVS_FAILED_BY_VERSION;
-    let _ = &*RAV_RESPONSE_TIME;
     let _ = &*RAV_RESPONSE_TIME_BY_VERSION;
 }
 
 #[cfg(test)]
-pub mod tests {
-    #![allow(missing_docs)]
-    use std::{
-        collections::HashMap,
-        future::Future,
-        sync::Arc,
-        time::{Duration, SystemTime, UNIX_EPOCH},
-    };
+mod tests {
+    use std::collections::HashMap;
 
     use futures::future::join_all;
     use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
-    use indexer_receipt::TapReceipt;
-    use ractor::{call, cast, Actor, ActorRef, ActorStatus};
-    use ruint::aliases::U256;
+    use ractor::{call, ActorStatus};
     use serde_json::json;
-    use sqlx::PgPool;
-    use tap_aggregator::grpc::v1::{tap_aggregator_client::TapAggregatorClient, RavResponse};
-    use tap_core::receipt::{
-        checks::{Check, CheckError, CheckList, CheckResult},
-        Context,
-    };
-    use test_assets::{
-        flush_messages, ALLOCATION_ID_0, TAP_EIP712_DOMAIN as TAP_EIP712_DOMAIN_SEPARATOR,
-        TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
-    };
-    use thegraph_core::AllocationId as AllocationIdCore;
-    use tokio::sync::{mpsc, watch};
-    use tonic::{transport::Endpoint, Code};
-    use wiremock::{
-        matchers::{body_string_contains, method},
-        Mock, MockGuard, MockServer, ResponseTemplate,
-    };
-    use wiremock_grpc::{MockBuilder, Then};
+    use tap_aggregator::grpc::v2::tap_aggregator_client::TapAggregatorClient;
+    use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
+    use thegraph_core::{alloy::primitives::U256, CollectionId};
+    use tokio::sync::watch;
+    use wiremock::{matchers::body_string_contains, Mock, MockServer, ResponseTemplate};
 
-    use super::{
-        SenderAllocation, SenderAllocationArgs, SenderAllocationMessage, SenderAllocationState,
-    };
-    use crate::{
-        agent::{
-            sender_account::{ReceiptFees, SenderAccountMessage},
-            sender_accounts_manager::{
-                AllocationId, NewReceiptNotification, NewReceiptNotificationV1,
-            },
-            sender_allocation::DatabaseInteractions,
-        },
-        tap::{context::Legacy, CheckingReceipt},
-        test::{
-            actors::{create_mock_sender_account, TestableActor},
-            create_rav, create_received_receipt, get_grpc_url, store_batch_receipts,
-            store_invalid_receipt, store_rav, store_receipt, INDEXER,
-        },
+    use super::*;
+    use crate::tap::CheckingReceipt;
+    use crate::test::actors::create_mock_sender_account;
+    use crate::test::{
+        create_rav_v2, create_received_receipt_v2, get_grpc_url, store_rav_v2, store_receipt,
+        ALLOCATION_ID_0, ESCROW_VALUE, TAP_EIP712_DOMAIN_SEPARATOR_V2,
     };
 
-    pub static SUBGRAPH_SERVICE_ADDRESS: [u8; 20] = [0x11u8; 20];
+    async fn setup_network_subgraph(redeemed: bool) -> MockServer {
+        let mock_server = MockServer::start().await;
+        let response = if redeemed {
+            json!({
+                "data": {
+                    "paymentsEscrowTransactions": [
+                        { "id": "0x01", "allocationId": ALLOCATION_ID_0.encode_hex(), "timestamp": "1" }
+                    ]
+                }
+            })
+        } else {
+            json!({ "data": { "paymentsEscrowTransactions": [] } })
+        };
 
-    #[rstest::fixture]
-    async fn mock_escrow_subgraph_server() -> (MockServer, MockGuard) {
-        mock_escrow_subgraph().await
-    }
-
-    #[rstest::fixture]
-    async fn pgpool() -> test_assets::TestDatabase {
-        test_assets::setup_shared_test_db().await
-    }
-
-    struct StateWithContainer {
-        state: SenderAllocationState<Legacy>,
-        _test_db: test_assets::TestDatabase,
-    }
-
-    impl std::ops::Deref for StateWithContainer {
-        type Target = SenderAllocationState<Legacy>;
-        fn deref(&self) -> &Self::Target {
-            &self.state
-        }
-    }
-
-    impl std::ops::DerefMut for StateWithContainer {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.state
-        }
-    }
-
-    #[rstest::fixture]
-    async fn state(
-        #[future(awt)] pgpool: test_assets::TestDatabase,
-        #[future(awt)] mock_escrow_subgraph_server: (MockServer, MockGuard),
-    ) -> StateWithContainer {
-        let (mock_escrow_subgraph_server, _mock_escrow_subgraph_guard) =
-            mock_escrow_subgraph_server;
-        let args = create_sender_allocation_args()
-            .pgpool(pgpool.pool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
-            .network_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
-            .call()
+        mock_server
+            .register(
+                Mock::given(body_string_contains("paymentsEscrowTransactions"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(response)),
+            )
             .await;
 
-        let state = SenderAllocationState::new(args).await.unwrap();
-        StateWithContainer {
-            state,
-            _test_db: pgpool,
-        }
+        mock_server
     }
 
-    async fn mock_escrow_subgraph() -> (MockServer, MockGuard) {
-        let mock_ecrow_subgraph_server: MockServer = MockServer::start().await;
-        let _mock_ecrow_subgraph = mock_ecrow_subgraph_server
-                .register_as_scoped(
-                    Mock::given(method("POST"))
-                        .and(body_string_contains("TapTransactions"))
-                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
-                                "transactions": [{
-                                    "id": "0x00224ee6ad4ae77b817b4e509dc29d644da9004ad0c44005a7f34481d421256409000000"
-                                }],
-                            }
-                        }))),
-                )
-                .await;
-        (mock_ecrow_subgraph_server, _mock_ecrow_subgraph)
-    }
-    #[bon::builder]
-    async fn create_sender_allocation_args(
+    async fn build_sender_allocation_args(
         pgpool: PgPool,
-        sender_aggregator_endpoint: Option<String>,
-        escrow_subgraph_endpoint: &str,
-        network_subgraph_endpoint: &str,
-        #[builder(default = 1000)] rav_request_receipt_limit: u64,
-        sender_account: Option<ActorRef<SenderAccountMessage>>,
-    ) -> SenderAllocationArgs<Legacy> {
-        let escrow_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(escrow_subgraph_endpoint).unwrap(),
-            )
-            .await,
-        ));
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(network_subgraph_endpoint).unwrap(),
-            )
-            .await,
-        ));
+        network_subgraph: &'static SubgraphClient,
+        sender_account_ref: ActorRef<SenderAccountMessage>,
+    ) -> SenderAllocationArgs<Horizon> {
+        let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
+        escrow_accounts_tx
+            .send(EscrowAccounts::new(
+                HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
+                HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+            ))
+            .unwrap();
 
-        let escrow_accounts_rx = watch::channel(EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(1000))]),
-            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        ))
-        .1;
-
-        let sender_account_ref = match sender_account {
-            Some(sender) => sender,
-            None => create_mock_sender_account().await.1,
-        };
-
-        let aggregator_url = match sender_aggregator_endpoint {
-            Some(url) => url,
-            None => get_grpc_url().await,
-        };
-
-        let endpoint = Endpoint::new(aggregator_url).unwrap();
-
-        let sender_aggregator = TapAggregatorClient::connect(endpoint.clone())
+        let aggregator_url = get_grpc_url().await;
+        let sender_aggregator = TapAggregatorClient::connect(aggregator_url)
             .await
-            .unwrap_or_else(|err| {
-                panic!(
-                    "Failed to connect to the TapAggregator endpoint '{}': Err: {err:?}",
-                    endpoint.uri()
-                )
-            });
+            .expect("Failed to connect to test aggregator");
 
         SenderAllocationArgs::builder()
-            .pgpool(pgpool.clone())
-            .allocation_id(AllocationIdCore::from(ALLOCATION_ID_0))
+            .pgpool(pgpool)
+            .allocation_id(CollectionId::from(ALLOCATION_ID_0))
             .sender(SENDER.1)
             .escrow_accounts(escrow_accounts_rx)
-            .escrow_subgraph(escrow_subgraph)
             .network_subgraph(network_subgraph)
-            .domain_separator(TAP_EIP712_DOMAIN_SEPARATOR.clone())
+            .domain_separator(TAP_EIP712_DOMAIN_SEPARATOR_V2.clone())
             .sender_account_ref(sender_account_ref)
             .sender_aggregator(sender_aggregator)
-            .config(super::AllocationConfig {
-                timestamp_buffer_ns: 1,
-                rav_request_receipt_limit,
-                indexer_address: INDEXER.1,
-                escrow_polling_interval: Duration::from_millis(1000),
-                tap_mode: indexer_config::TapMode::Legacy,
-            })
+            .config(AllocationConfig::from_sender_config(
+                crate::test::get_sender_account_config(),
+            ))
             .build()
     }
 
-    #[bon::builder]
-    async fn create_sender_allocation(
+    async fn build_state(
         pgpool: PgPool,
-        sender_aggregator_endpoint: Option<String>,
-        escrow_subgraph_endpoint: &str,
-        network_subgraph_endpoint: &str,
-        #[builder(default = 1000)] rav_request_receipt_limit: u64,
-        sender_account: Option<ActorRef<SenderAccountMessage>>,
+        network_subgraph: &'static SubgraphClient,
+    ) -> SenderAllocationState<Horizon> {
+        let (_receiver, sender_account_ref) = create_mock_sender_account().await;
+        let args = build_sender_allocation_args(pgpool, network_subgraph, sender_account_ref).await;
+        SenderAllocationState::new(args).await.unwrap()
+    }
+
+    async fn spawn_sender_allocation(
+        pgpool: PgPool,
+        network_subgraph: &'static SubgraphClient,
     ) -> (
         ActorRef<SenderAllocationMessage>,
-        mpsc::Receiver<SenderAllocationMessage>,
+        tokio::sync::mpsc::Receiver<SenderAccountMessage>,
     ) {
-        let args = create_sender_allocation_args()
-            .pgpool(pgpool)
-            .maybe_sender_aggregator_endpoint(sender_aggregator_endpoint)
-            .escrow_subgraph_endpoint(escrow_subgraph_endpoint)
-            .network_subgraph_endpoint(network_subgraph_endpoint)
-            .sender_account(sender_account.unwrap())
-            .rav_request_receipt_limit(rav_request_receipt_limit)
-            .call()
-            .await;
-
-        let (sender, msg_receiver) = mpsc::channel(10);
-        let actor = TestableActor::new(SenderAllocation::default(), sender);
-
-        let (allocation_ref, _join_handle) = Actor::spawn(None, actor, args).await.unwrap();
-
-        (allocation_ref, msg_receiver)
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn should_update_unaggregated_fees_on_start(
-        #[future(awt)] pgpool: test_assets::TestDatabase,
-        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
-    ) {
-        let (mut last_message_emitted, sender_account) = create_mock_sender_account().await;
-        // Add receipts to the database.
-        for i in 1..=10 {
-            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_receipt(&pgpool.pool, receipt.signed_receipt())
+        let (mut receiver, sender_account_ref) = create_mock_sender_account().await;
+        let args = build_sender_allocation_args(pgpool, network_subgraph, sender_account_ref).await;
+        let (sender_allocation, _) =
+            SenderAllocation::<Horizon>::spawn(None, SenderAllocation::default(), args)
                 .await
                 .unwrap();
-        }
-
-        let (sender_allocation, _notify) = create_sender_allocation()
-            .pgpool(pgpool.pool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .sender_account(sender_account)
-            .call()
-            .await;
-
-        // Get total_unaggregated_fees
-        let total_unaggregated_fees = call!(
-            sender_allocation,
-            SenderAllocationMessage::GetUnaggregatedReceipts
-        )
-        .unwrap();
-
-        let last_message_emitted = last_message_emitted.recv().await.unwrap();
-        insta::assert_debug_snapshot!(last_message_emitted);
-
-        // Check that the unaggregated fees are correct.
-        assert_eq!(total_unaggregated_fees.value, 55u128);
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn should_return_invalid_receipts_on_startup(
-        #[future(awt)] pgpool: test_assets::TestDatabase,
-        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
-    ) {
-        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
-        // Add receipts to the database.
-        for i in 1..=10 {
-            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_invalid_receipt(&pgpool.pool, receipt.signed_receipt())
-                .await
-                .unwrap();
-        }
-
-        let (sender_allocation, _notify) = create_sender_allocation()
-            .pgpool(pgpool.pool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .sender_account(sender_account)
-            .call()
-            .await;
-
-        // Get total_unaggregated_fees
-        let total_unaggregated_fees = call!(
-            sender_allocation,
-            SenderAllocationMessage::GetUnaggregatedReceipts
-        )
-        .unwrap();
-
-        let update_invalid_msg = message_receiver.recv().await.unwrap();
-        insta::assert_debug_snapshot!(update_invalid_msg);
-
-        let last_message_emitted = message_receiver.recv().await.unwrap();
-        insta::assert_debug_snapshot!(last_message_emitted);
-
-        // Check that the unaggregated fees are correct.
-        assert_eq!(total_unaggregated_fees.value, 0u128);
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn test_receive_new_receipt(
-        #[future(awt)] pgpool: test_assets::TestDatabase,
-        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
-    ) {
-        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
-
-        let (sender_allocation, mut msg_receiver) = create_sender_allocation()
-            .pgpool(pgpool.pool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .sender_account(sender_account)
-            .call()
-            .await;
-
-        // should validate with id less than last_id
-        cast!(
-            sender_allocation,
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification::V1(
-                NewReceiptNotificationV1 {
-                    id: 0,
-                    value: 10,
-                    allocation_id: ALLOCATION_ID_0,
-                    signer_address: SIGNER.1,
-                    timestamp_ns: 0,
-                }
-            ))
-        )
-        .unwrap();
-
-        let timestamp_ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-
-        cast!(
-            sender_allocation,
-            SenderAllocationMessage::NewReceipt(NewReceiptNotification::V1(
-                NewReceiptNotificationV1 {
-                    id: 1,
-                    value: 20,
-                    allocation_id: ALLOCATION_ID_0,
-                    signer_address: SIGNER.1,
-                    timestamp_ns,
-                }
-            ))
-        )
-        .unwrap();
-
-        flush_messages(&mut msg_receiver).await;
-
-        // should emit update aggregate fees message to sender account
-        let startup_load_msg = message_receiver.recv().await.unwrap();
-        insta::assert_debug_snapshot!(startup_load_msg);
-
-        let last_message_emitted = message_receiver.recv().await.unwrap();
-        let expected_message = SenderAccountMessage::UpdateReceiptFees(
-            AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
-            ReceiptFees::NewReceipt(20u128, timestamp_ns),
-        );
-        assert_eq!(last_message_emitted, expected_message);
-    }
-
-    #[tokio::test]
-    async fn test_trigger_rav_request() {
-        let test_db = test_assets::setup_shared_test_db().await;
-        let pgpool = test_db.pool;
-        // Start a mock graphql server using wiremock
-        let mock_server = MockServer::start().await;
-
-        // Mock result for TAP redeem txs for (allocation, sender) pair.
-        mock_server
-            .register(
-                Mock::given(method("POST"))
-                    .and(body_string_contains("transactions"))
-                    .respond_with(
-                        ResponseTemplate::new(200)
-                            .set_body_json(json!({ "data": { "transactions": []}})),
-                    ),
-            )
-            .await;
-
-        // Add receipts to the database.
-
-        for i in 0..10 {
-            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
-            store_receipt(&pgpool, receipt.signed_receipt())
-                .await
-                .unwrap();
-
-            // store a copy that should fail in the uniqueness test
-            store_receipt(&pgpool, receipt.signed_receipt())
-                .await
-                .unwrap();
-        }
-        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
-
-        // Create a sender_allocation.
-        let (sender_allocation, mut msg_receiver_alloc) = create_sender_allocation()
-            .pgpool(pgpool.clone())
-            .escrow_subgraph_endpoint(&mock_server.uri())
-            .network_subgraph_endpoint(&mock_server.uri())
-            .sender_account(sender_account)
-            .call()
-            .await;
-
-        // Trigger a RAV request manually and wait for updated fees.
-        sender_allocation
-            .cast(SenderAllocationMessage::TriggerRavRequest)
-            .unwrap();
-
-        flush_messages(&mut msg_receiver_alloc).await;
-
-        let total_unaggregated_fees = call!(
-            sender_allocation,
-            SenderAllocationMessage::GetUnaggregatedReceipts
-        )
-        .unwrap();
-
-        // Check that the unaggregated fees are correct.
-        assert_eq!(total_unaggregated_fees.value, 0u128);
-
-        let startup_msg = message_receiver.recv().await.unwrap();
-        insta::assert_debug_snapshot!(startup_msg);
-
-        // Check if the sender received invalid receipt fees
-        let msg = message_receiver.recv().await.unwrap();
-        insta::assert_debug_snapshot!(msg);
-
-        let updated_receipt_fees = message_receiver.recv().await.unwrap();
-        insta::assert_debug_snapshot!(updated_receipt_fees);
-    }
-
-    async fn execute<Fut>(pgpool: PgPool, populate: impl FnOnce(PgPool) -> Fut)
-    where
-        Fut: Future<Output = ()>,
-    {
-        // Start a mock graphql server using wiremock
-        let mock_server = MockServer::start().await;
-
-        // Mock result for TAP redeem txs for (allocation, sender) pair.
-        mock_server
-            .register(
-                Mock::given(method("POST"))
-                    .and(body_string_contains("transactions"))
-                    .respond_with(
-                        ResponseTemplate::new(200)
-                            .set_body_json(json!({ "data": { "transactions": []}})),
-                    ),
-            )
-            .await;
-
-        populate(pgpool.clone()).await;
-
-        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
-
-        // Create a sender_allocation.
-        let (sender_allocation, mut msg_receiver_alloc) = create_sender_allocation()
-            .pgpool(pgpool.clone())
-            .escrow_subgraph_endpoint(&mock_server.uri())
-            .network_subgraph_endpoint(&mock_server.uri())
-            .rav_request_receipt_limit(2000)
-            .sender_account(sender_account)
-            .call()
-            .await;
-
-        // Trigger a RAV request manually and wait for updated fees.
-        sender_allocation
-            .cast(SenderAllocationMessage::TriggerRavRequest)
-            .unwrap();
-
-        flush_messages(&mut msg_receiver_alloc).await;
-
-        let total_unaggregated_fees = call!(
-            sender_allocation,
-            SenderAllocationMessage::GetUnaggregatedReceipts
-        )
-        .unwrap();
-
-        // Check that the unaggregated fees are correct.
-        assert_eq!(total_unaggregated_fees.value, 0u128);
-
-        let startup_msg = message_receiver.recv().await.unwrap();
-        insta::assert_debug_snapshot!(startup_msg);
+        flush_messages(&mut receiver).await;
+        (sender_allocation, receiver)
     }
 
     #[tokio::test]
     async fn test_several_receipts_rav_request() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let pgpool = test_db.pool;
-        const AMOUNT_OF_RECEIPTS: u64 = 1000;
-        execute(pgpool, |pgpool| async move {
-            // Add receipts to the database.
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
 
-            for i in 0..AMOUNT_OF_RECEIPTS {
-                let receipt =
-                    create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
-                store_receipt(&pgpool, receipt.signed_receipt())
-                    .await
-                    .unwrap();
-            }
-        })
-        .await;
+        let (sender_allocation, mut receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+
+        const AMOUNT_OF_RECEIPTS: u64 = 1000;
+        for i in 0..AMOUNT_OF_RECEIPTS {
+            let receipt =
+                create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
+            let signed = receipt.signed_receipt().0.clone();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
+        }
+
+        sender_allocation
+            .cast(SenderAllocationMessage::TriggerRavRequest)
+            .unwrap();
+
+        let _ = receiver.recv().await;
+        let total_unaggregated_fees = call!(
+            sender_allocation,
+            SenderAllocationMessage::GetUnaggregatedReceipts
+        )
+        .unwrap();
+        assert_eq!(total_unaggregated_fees.value, 0u128);
     }
 
     #[tokio::test]
     async fn test_several_receipts_batch_insert_rav_request() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let pgpool = test_db.pool;
-        // Add batch receipts to the database.
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        let (sender_allocation, mut receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+
         const AMOUNT_OF_RECEIPTS: u64 = 1000;
-        execute(pgpool, |pgpool| async move {
-            // Add receipts to the database.
-            let mut receipts = Vec::with_capacity(1000);
-            for i in 0..AMOUNT_OF_RECEIPTS {
-                let receipt =
-                    create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
-                receipts.push(receipt);
-            }
-            let res = store_batch_receipts(&pgpool, receipts).await;
-            assert!(res.is_ok());
-        })
-        .await;
+        for i in 0..AMOUNT_OF_RECEIPTS {
+            let receipt =
+                create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
+            let signed = receipt.signed_receipt().0.clone();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
+        }
+
+        sender_allocation
+            .cast(SenderAllocationMessage::TriggerRavRequest)
+            .unwrap();
+
+        let _ = receiver.recv().await;
+        let total_unaggregated_fees = call!(
+            sender_allocation,
+            SenderAllocationMessage::GetUnaggregatedReceipts
+        )
+        .unwrap();
+        assert_eq!(total_unaggregated_fees.value, 0u128);
     }
 
-    #[rstest::rstest]
     #[tokio::test]
-    async fn test_close_allocation_no_pending_fees(
-        #[future(awt)] pgpool: test_assets::TestDatabase,
-        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
-    ) {
-        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
+    async fn test_close_allocation_no_pending_fees() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
 
-        // create allocation
-        let (sender_allocation, _notify) = create_sender_allocation()
-            .pgpool(pgpool.pool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .sender_account(sender_account)
-            .call()
-            .await;
+        let (sender_allocation, _receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
 
         sender_allocation.stop_and_wait(None, None).await.unwrap();
-
-        // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
 
-        // check if message is sent to sender account
-        insta::assert_debug_snapshot!(message_receiver.recv().await);
+        let res = sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_ravs")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        let count: i64 = res.try_get("count").unwrap();
+        assert_eq!(count, 0);
     }
 
-    // used for test_close_allocation_with_pending_fees(pgpool:
-    mod wiremock_gen {
-        wiremock_grpc::generate!("tap_aggregator.v1.TapAggregator", MockTapAggregator);
-    }
-
-    #[test_log::test(tokio::test)]
+    #[tokio::test]
     async fn test_close_allocation_with_pending_fees() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let pgpool = test_db.pool;
-        use wiremock_gen::MockTapAggregator;
-        let mut mock_aggregator = MockTapAggregator::start_default().await;
-
-        let request1 = mock_aggregator.setup(
-            MockBuilder::when()
-                //    👇 RPC prefix
-                .path("/tap_aggregator.v1.TapAggregator/AggregateReceipts")
-                .then()
-                .return_status(Code::Ok)
-                .return_body(|| {
-                    let mock_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 10, 45);
-                    RavResponse {
-                        rav: Some(mock_rav.into()),
-                    }
-                }),
-        );
-
-        // Start a mock graphql server using wiremock
-        let mock_server = MockServer::start().await;
-
-        // Mock result for TAP redeem txs for (allocation, sender) pair.
-        mock_server
-            .register(
-                Mock::given(method("POST"))
-                    .and(body_string_contains("transactions"))
-                    .respond_with(
-                        ResponseTemplate::new(200)
-                            .set_body_json(json!({ "data": { "transactions": []}})),
-                    ),
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
             )
-            .await;
+            .await,
+        ));
 
-        // Add receipts to the database.
         for i in 0..10 {
-            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
-            store_receipt(&pgpool, receipt.signed_receipt())
-                .await
-                .unwrap();
+            let receipt =
+                create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
+            let signed = receipt.signed_receipt().0.clone();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
-        let (_, sender_account) = create_mock_sender_account().await;
-
-        // create allocation
-        let (sender_allocation, _notify) = create_sender_allocation()
-            .pgpool(pgpool.clone())
-            .sender_aggregator_endpoint(format!(
-                "http://[::1]:{}",
-                mock_aggregator.address().port()
-            ))
-            .escrow_subgraph_endpoint(&mock_server.uri())
-            .network_subgraph_endpoint(&mock_server.uri())
-            .sender_account(sender_account)
-            .call()
-            .await;
+        let (sender_allocation, _receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
 
         sender_allocation.stop_and_wait(None, None).await.unwrap();
-
-        // check if rav request was made
-        assert!(mock_aggregator.find_request_count() > 0);
-        assert!(mock_aggregator.find(&request1).is_some());
-
-        // check if the actor is actually stopped
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
+
+        let res = sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_ravs WHERE last = true")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        let count: i64 = res.try_get("count").unwrap();
+        assert_eq!(count, 1);
     }
 
-    #[rstest::rstest]
     #[tokio::test]
-    async fn should_return_unaggregated_fees_without_rav(
-        #[future(awt)] pgpool: test_assets::TestDatabase,
-        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
-    ) {
-        let args = create_sender_allocation_args()
-            .pgpool(pgpool.pool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .call()
-            .await;
-        let state = SenderAllocationState::new(args).await.unwrap();
+    async fn should_return_unaggregated_fees_without_rav() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let state = build_state(test_db.pool.clone(), network_subgraph).await;
 
-        // Add receipts to the database.
         for i in 1..10 {
-            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_receipt(&pgpool.pool, receipt.signed_receipt())
-                .await
-                .unwrap();
+            let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
+            let signed = receipt.signed_receipt().0.clone();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
-        // calculate unaggregated fee
         let total_unaggregated_fees = state.recalculate_all_unaggregated_fees().await.unwrap();
-
-        // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 45u128);
     }
 
-    #[rstest::rstest]
     #[tokio::test]
-    async fn should_calculate_invalid_receipts_fee(
-        #[future(awt)] pgpool: test_assets::TestDatabase,
-        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
-    ) {
-        let args = create_sender_allocation_args()
-            .pgpool(pgpool.pool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .call()
-            .await;
-        let state = SenderAllocationState::new(args).await.unwrap();
+    async fn should_calculate_invalid_receipts_fee() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
 
-        // Add receipts to the database.
-        for i in 1..10 {
-            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_invalid_receipt(&pgpool.pool, receipt.signed_receipt())
-                .await
-                .unwrap();
-        }
-
-        // calculate invalid unaggregated fee
-        let total_invalid_receipts = state.calculate_invalid_receipts_fee().await.unwrap();
-
-        // Check that the unaggregated fees are correct.
-        assert_eq!(total_invalid_receipts.value, 45u128);
-    }
-
-    /// Test that the sender_allocation correctly updates the unaggregated fees from the
-    /// database when there is a RAV in the database as well as receipts which timestamp are lesser
-    /// and greater than the RAV's timestamp.
-    ///
-    /// The sender_allocation should only consider receipts with a timestamp greater
-    /// than the RAV's timestamp.
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn should_return_unaggregated_fees_with_rav(
-        #[future(awt)] pgpool: test_assets::TestDatabase,
-        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
-    ) {
-        let args = create_sender_allocation_args()
-            .pgpool(pgpool.pool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .call()
-            .await;
-        let state = SenderAllocationState::new(args).await.unwrap();
-        // Add the RAV to the database.
-        // This RAV has timestamp 4. The sender_allocation should only consider receipts
-        // with a timestamp greater than 4.
-        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
-        store_rav(&pgpool.pool, signed_rav, SENDER.1).await.unwrap();
-
-        // Add receipts to the database.
-        for i in 1..10 {
-            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_receipt(&pgpool.pool, receipt.signed_receipt())
-                .await
-                .unwrap();
-        }
-
-        let total_unaggregated_fees = state.recalculate_all_unaggregated_fees().await.unwrap();
-
-        // Check that the unaggregated fees are correct.
-        assert_eq!(total_unaggregated_fees.value, 35u128);
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn test_store_failed_rav(#[future[awt]] state: StateWithContainer) {
-        let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
-
-        // just unit test if it is working
-        let result = state
-            .store_failed_rav(&signed_rav.message, &signed_rav, "test")
-            .await;
-
-        assert!(result.is_ok());
-    }
-
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn test_store_invalid_receipts(#[future[awt]] mut state: StateWithContainer) {
         struct FailingCheck;
-
         #[async_trait::async_trait]
         impl Check<TapReceipt> for FailingCheck {
             async fn check(
                 &self,
                 _: &tap_core::receipt::Context,
                 _receipt: &CheckingReceipt,
-            ) -> CheckResult {
-                Err(CheckError::Failed(anyhow::anyhow!("Failing check")))
+            ) -> tap_core::receipt::checks::CheckResult {
+                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
+                    "Failing check"
+                )))
             }
         }
 
         let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
-
-        // create some checks
         let checking_receipts = vec![
-            create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
-            create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
         ];
-        // make sure to fail them
         let failing_receipts = checking_receipts
             .into_iter()
             .map(|receipt| async {
@@ -2258,165 +1443,241 @@ pub mod tests {
                     .unwrap_err()
             })
             .collect::<Vec<_>>();
-        let failing_receipts: Vec<_> = join_all(failing_receipts).await;
+        let failing_receipts = join_all(failing_receipts).await;
 
-        // store the failing receipts
-        let result = state.store_invalid_receipts(failing_receipts).await;
-
-        // we just store a few and make sure it doesn't fail
-        assert!(result.is_ok());
+        state
+            .store_invalid_receipts(failing_receipts)
+            .await
+            .unwrap();
+        let total_invalid_receipts = state.calculate_invalid_receipts_fee().await.unwrap();
+        assert_eq!(total_invalid_receipts.value, 3u128);
     }
 
-    #[rstest::rstest]
     #[tokio::test]
-    async fn test_mark_rav_last(#[future[awt]] state: StateWithContainer) {
-        // mark rav as final
-        let result = state.mark_rav_last().await;
+    async fn should_return_unaggregated_fees_with_rav() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
 
-        // check if it fails
-        assert!(result.is_ok());
-    }
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_0),
+            SIGNER.0.clone(),
+            4,
+            10,
+        );
+        store_rav_v2(&test_db.pool, signed_rav, SENDER.1)
+            .await
+            .unwrap();
 
-    #[rstest::rstest]
-    #[tokio::test]
-    async fn test_failed_rav_request(
-        #[future(awt)] pgpool: test_assets::TestDatabase,
-        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
-    ) {
-        // Add receipts to the database.
-        for i in 0..10 {
-            let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, u64::MAX, i.into());
-            store_receipt(&pgpool.pool, receipt.signed_receipt())
-                .await
-                .unwrap();
+        let state = build_state(test_db.pool.clone(), network_subgraph).await;
+
+        for i in 1..10 {
+            let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
+            let signed = receipt.signed_receipt().0.clone();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
-        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
+        let total_unaggregated_fees = state.recalculate_all_unaggregated_fees().await.unwrap();
+        assert_eq!(total_unaggregated_fees.value, 35u128);
+    }
 
-        // Create a sender_allocation.
-        let (sender_allocation, mut notify) = create_sender_allocation()
-            .pgpool(pgpool.pool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .network_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
-            .sender_account(sender_account)
-            .call()
-            .await;
+    #[tokio::test]
+    async fn test_store_failed_rav() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let state = build_state(test_db.pool.clone(), network_subgraph).await;
 
-        // Trigger a RAV request manually and wait for updated fees.
-        // this should fail because there's no receipt with valid timestamp
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_0),
+            SIGNER.0.clone(),
+            4,
+            10,
+        );
+        state
+            .store_failed_rav(&signed_rav.message, &signed_rav, "test")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_store_invalid_receipts() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
+
+        struct FailingCheck;
+        #[async_trait::async_trait]
+        impl Check<TapReceipt> for FailingCheck {
+            async fn check(
+                &self,
+                _: &tap_core::receipt::Context,
+                _receipt: &CheckingReceipt,
+            ) -> tap_core::receipt::checks::CheckResult {
+                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
+                    "Failing check"
+                )))
+            }
+        }
+
+        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
+        let checking_receipts = vec![
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
+        ];
+        let failing_receipts = checking_receipts
+            .into_iter()
+            .map(|receipt| async {
+                receipt
+                    .finalize_receipt_checks(&Context::new(), &checks)
+                    .await
+                    .unwrap()
+                    .unwrap_err()
+            })
+            .collect::<Vec<_>>();
+        let failing_receipts = join_all(failing_receipts).await;
+
+        let result = state.store_invalid_receipts(failing_receipts).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_mark_rav_last() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let state = build_state(test_db.pool.clone(), network_subgraph).await;
+
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_0),
+            SIGNER.0.clone(),
+            4,
+            10,
+        );
+        store_rav_v2(&test_db.pool, signed_rav, SENDER.1)
+            .await
+            .unwrap();
+
+        let result = state.mark_rav_last().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_failed_rav_request() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        // Use receipts signed by a wallet not in escrow_accounts to force invalid receipts.
+        for i in 0..10 {
+            let receipt = create_received_receipt_v2(
+                &ALLOCATION_ID_0,
+                &crate::test::SENDER_2.0,
+                i,
+                i + 1,
+                i.into(),
+            );
+            let signed = receipt.signed_receipt().0.clone();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
+        }
+
+        let (sender_allocation, mut receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+
         sender_allocation
             .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
-        flush_messages(&mut notify).await;
-
-        // If it is an error then rav request failed
-
-        let startup_msg = message_receiver.recv().await.unwrap();
-        insta::assert_debug_snapshot!(startup_msg);
-
-        let rav_error_response_message = message_receiver.recv().await.unwrap();
-        insta::assert_debug_snapshot!(rav_error_response_message);
-
-        // expect the actor to keep running
+        let _ = receiver.recv().await;
         assert_eq!(sender_allocation.get_status(), ActorStatus::Running);
-
-        // Check that the unaggregated fees return the same value
-        // TODO: Maybe this can no longer be checked?
-        //assert_eq!(total_unaggregated_fees.value, 45u128);
     }
 
     #[tokio::test]
     async fn test_rav_request_when_all_receipts_invalid() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let pgpool = test_db.pool;
-        // Start a mock graphql server using wiremock
-        let mock_server = MockServer::start().await;
-
-        // Mock result for TAP redeem txs for (allocation, sender) pair.
-        mock_server
-            .register(
-                Mock::given(method("POST"))
-                    .and(body_string_contains("transactions"))
-                    .respond_with(ResponseTemplate::new(200).set_body_json(
-                        json!({ "data": { "transactions": [
-                            {
-                                "id": "redeemed"
-                            }
-                        ]}}),
-                    )),
+        let network_mock = setup_network_subgraph(true).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
             )
-            .await;
-        // Add invalid receipts to the database. ( already redeemed )
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_nanos() as u64;
-        const RECEIPT_VALUE: u128 = 1622018441284756158;
-        const TOTAL_RECEIPTS: u64 = 10;
+            .await,
+        ));
 
+        let timestamp = 1u64;
+        const RECEIPT_VALUE: u128 = 10;
+        const TOTAL_RECEIPTS: u64 = 10;
         for i in 0..TOTAL_RECEIPTS {
-            let receipt =
-                create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, timestamp, RECEIPT_VALUE);
-            store_receipt(&pgpool, receipt.signed_receipt())
-                .await
-                .unwrap();
+            let receipt = create_received_receipt_v2(
+                &ALLOCATION_ID_0,
+                &SIGNER.0,
+                i,
+                timestamp,
+                RECEIPT_VALUE,
+            );
+            let signed = receipt.signed_receipt().0.clone();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
-        let (mut message_receiver, sender_account) = create_mock_sender_account().await;
+        let (sender_allocation, mut receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
 
-        let (sender_allocation, mut notify) = create_sender_allocation()
-            .pgpool(pgpool.clone())
-            .escrow_subgraph_endpoint(&mock_server.uri())
-            .network_subgraph_endpoint(&mock_server.uri())
-            .sender_account(sender_account)
-            .call()
-            .await;
-
-        // Trigger a RAV request manually and wait for updated fees.
-        // this should fail because there's no receipt with valid timestamp
         sender_allocation
             .cast(SenderAllocationMessage::TriggerRavRequest)
             .unwrap();
 
-        flush_messages(&mut notify).await;
+        let _ = receiver.recv().await;
 
-        // If it is an error then rav request failed
+        let invalid_receipts =
+            sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_receipts_invalid")
+                .fetch_one(&test_db.pool)
+                .await
+                .unwrap();
+        let invalid_count: i64 = invalid_receipts.try_get("count").unwrap();
+        assert_eq!(invalid_count, 10);
 
-        let startup_msg = message_receiver.recv().await.unwrap();
-        insta::assert_debug_snapshot!(startup_msg);
-
-        let invalid_receipts = message_receiver.recv().await.unwrap();
-
-        insta::assert_debug_snapshot!(invalid_receipts);
-
-        let rav_error_response_message = message_receiver.recv().await.unwrap();
-        insta::assert_debug_snapshot!(rav_error_response_message);
-
-        let invalid_receipts = sqlx::query!(
-            r#"
-                SELECT * FROM scalar_tap_receipts_invalid;
-            "#,
-        )
-        .fetch_all(&pgpool)
-        .await
-        .expect("Should not fail to fetch from scalar_tap_receipts_invalid");
-
-        // Invalid receipts should be found inside the table
-        assert_eq!(invalid_receipts.len(), 10);
-
-        // make sure scalar_tap_receipts gets emptied
-        let all_receipts = sqlx::query!(
-            r#"
-                SELECT * FROM scalar_tap_receipts;
-            "#,
-        )
-        .fetch_all(&pgpool)
-        .await
-        .expect("Should not fail to fetch from scalar_tap_receipts");
-
-        // Invalid receipts should be found inside the table
-        assert!(all_receipts.is_empty());
+        let remaining = sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_receipts")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        let remaining_count: i64 = remaining.try_get("count").unwrap();
+        assert_eq!(remaining_count, 0);
     }
 }

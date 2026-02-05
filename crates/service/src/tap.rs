@@ -88,9 +88,7 @@ pub type CheckingReceipt = ReceiptWithState<Checking, TapReceipt>;
 pub struct TapChecksConfig {
     pub pgpool: PgPool,
     pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
-    pub escrow_accounts_v1: Option<Receiver<EscrowAccounts>>,
-    pub escrow_accounts_v2: Option<Receiver<EscrowAccounts>>,
-    pub escrow_subgraph: Option<&'static indexer_monitor::SubgraphClient>,
+    pub escrow_accounts_v2: Receiver<EscrowAccounts>,
     pub network_subgraph: Option<&'static indexer_monitor::SubgraphClient>,
     pub indexer_address: Address,
     pub timestamp_error_tolerance: Duration,
@@ -101,7 +99,6 @@ pub struct TapChecksConfig {
 
 #[derive(Clone)]
 pub struct IndexerTapContext {
-    domain_separator: Arc<Eip712Domain>,
     domain_separator_v2: Arc<Eip712Domain>,
     receipt_producer: Sender<(
         DatabaseReceipt,
@@ -131,13 +128,9 @@ impl IndexerTapContext {
             Arc::new(AllocationEligible::new(config.indexer_allocations)),
             Arc::new(AllocationRedeemedCheck::new(
                 config.indexer_address,
-                config.escrow_subgraph,
                 config.network_subgraph,
             )),
-            Arc::new(SenderBalanceCheck::new(
-                config.escrow_accounts_v1,
-                config.escrow_accounts_v2,
-            )),
+            Arc::new(SenderBalanceCheck::new(config.escrow_accounts_v2)),
             Arc::new(TimestampCheck::new(config.timestamp_error_tolerance)),
             Arc::new(DenyListCheck::new(config.pgpool.clone()).await),
             Arc::new(ReceiptMaxValueCheck::new(config.receipt_max_value)),
@@ -153,11 +146,7 @@ impl IndexerTapContext {
         checks
     }
 
-    pub async fn new(
-        pgpool: PgPool,
-        domain_separator: Eip712Domain,
-        domain_separator_v2: Eip712Domain,
-    ) -> Self {
+    pub async fn new(pgpool: PgPool, domain_separator_v2: Eip712Domain) -> Self {
         let (tx, rx) = mpsc::channel(TAP_RECEIPT_MAX_QUEUE_SIZE);
         let cancelation_token = CancellationToken::new();
         let inner = InnerContext { pgpool };
@@ -166,7 +155,6 @@ impl IndexerTapContext {
         Self {
             cancelation_token,
             receipt_producer: tx,
-            domain_separator: Arc::new(domain_separator),
             domain_separator_v2: Arc::new(domain_separator_v2),
         }
     }

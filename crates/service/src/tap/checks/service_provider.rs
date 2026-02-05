@@ -6,10 +6,9 @@ use thegraph_core::alloy::primitives::Address;
 
 use crate::tap::{CheckingReceipt, TapReceipt};
 
-/// Validates that the V2 receipt's `service_provider` field matches
+/// Validates that the receipt's `service_provider` field matches
 /// this indexer's address.
 ///
-/// - V1 receipts are ignored by this check (always Ok).
 /// - On mismatch, returns a CheckFailure with a descriptive message.
 pub struct ServiceProviderCheck {
     indexer_address: Address,
@@ -28,20 +27,13 @@ impl Check<TapReceipt> for ServiceProviderCheck {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        match receipt.signed_receipt() {
-            // Not applicable for V1
-            TapReceipt::V1(_) => Ok(()),
-
-            // Validate data_service for V2
-            TapReceipt::V2(r) => {
-                if self.indexer_address == r.message.service_provider {
-                    Ok(())
-                } else {
-                    Err(CheckError::Failed(anyhow::anyhow!(
-                        "Invalid service_provider: receipt is not addressed to this indexer",
-                    )))
-                }
-            }
+        let receipt = receipt.signed_receipt().as_ref();
+        if self.indexer_address == receipt.message.service_provider {
+            Ok(())
+        } else {
+            Err(CheckError::Failed(anyhow::anyhow!(
+                "Invalid service_provider: receipt is not addressed to this indexer",
+            )))
         }
     }
 }

@@ -7,7 +7,7 @@ mod tap;
 
 pub use bearer::Bearer;
 pub use or::OrExt;
-pub use tap::dual_tap_receipt_authorize;
+pub use tap::tap_receipt_authorize;
 
 #[cfg(test)]
 mod tests {
@@ -20,10 +20,7 @@ mod tests {
     use reqwest::{header, StatusCode};
     use sqlx::PgPool;
     use tap_core::{manager::Manager, receipt::checks::CheckList};
-    use test_assets::{
-        assert_while_retry, create_signed_receipt, SignedReceiptRequest, TAP_EIP712_DOMAIN,
-        TAP_EIP712_DOMAIN_V2,
-    };
+    use test_assets::{assert_while_retry, create_signed_receipt_v2, TAP_EIP712_DOMAIN_V2};
     use tower::{Service, ServiceBuilder, ServiceExt};
     use tower_http::auth::AsyncRequireAuthorizationLayer;
 
@@ -37,14 +34,9 @@ mod tests {
     async fn service(
         pgpool: PgPool,
     ) -> impl Service<Request<Body>, Response = Response<Body>, Error = impl std::fmt::Debug> {
-        let context = IndexerTapContext::new(
-            pgpool.clone(),
-            TAP_EIP712_DOMAIN.clone(),
-            TAP_EIP712_DOMAIN_V2.clone(),
-        )
-        .await;
+        let context = IndexerTapContext::new(pgpool.clone(), TAP_EIP712_DOMAIN_V2.clone()).await;
         let tap_manager = Arc::new(Manager::new(
-            TAP_EIP712_DOMAIN.clone(),
+            TAP_EIP712_DOMAIN_V2.clone(),
             context,
             CheckList::empty(),
         ));
@@ -109,17 +101,17 @@ mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let mut service = service(test_db.pool.clone()).await;
 
-        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let receipt = create_signed_receipt_v2().call().await;
 
         // check with receipt
         let mut req = Request::new(Default::default());
-        req.extensions_mut().insert(TapReceipt::V1(receipt));
+        req.extensions_mut().insert(TapReceipt(receipt));
         let res = service.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
         // verify receipts
         assert_while_retry!({
-            let result = sqlx::query!("SELECT * FROM scalar_tap_receipts")
+            let result = sqlx::query("SELECT * FROM tap_horizon_receipts")
                 .fetch_all(&test_db.pool)
                 .await
                 .unwrap();

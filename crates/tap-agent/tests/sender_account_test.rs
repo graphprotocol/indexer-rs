@@ -5,12 +5,12 @@ use std::collections::HashSet;
 
 use indexer_tap_agent::{
     agent::{sender_account::SenderAccountMessage, sender_accounts_manager::AllocationId},
-    test::{create_received_receipt, create_sender_account, store_receipt},
+    test::{create_received_receipt_v2, create_sender_account, store_receipt},
 };
 use ractor::concurrency::Duration;
 use serde_json::json;
 use test_assets::{ALLOCATION_ID_0, TAP_SIGNER as SIGNER};
-use thegraph_core::{alloy::hex::ToHexExt, AllocationId as AllocationIdCore};
+use thegraph_core::{alloy::hex::ToHexExt, CollectionId};
 use wiremock::{
     matchers::{body_string_contains, method},
     Mock, MockServer, ResponseTemplate,
@@ -35,33 +35,22 @@ async fn sender_account_layer_test() {
                 ),
         )
         .await;
-    let mock_escrow_subgraph_server: MockServer = MockServer::start().await;
-    mock_escrow_subgraph_server
-        .register(Mock::given(method("POST")).respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({ "data": {
-                "transactions": [],
-            }
-            })),
-        ))
-        .await;
+    let _mock_escrow_subgraph_server: MockServer = MockServer::start().await;
 
-    let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 100);
-    store_receipt(&pgpool, receipt.signed_receipt())
-        .await
-        .unwrap();
+    let receipt =
+        create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 100);
+    let signed = receipt.signed_receipt().0.clone();
+    store_receipt(&pgpool, &signed).await.unwrap();
 
     let (sender_account, mut msg_receiver, _, _, _, _) = create_sender_account()
         .pgpool(pgpool.clone())
         .max_amount_willing_to_lose_grt(TRIGGER_VALUE + 1000)
-        .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
         .network_subgraph_endpoint(&mock_server.uri())
         .call()
         .await;
 
     // we expect it to create a sender allocation
-    let allocation_ids = HashSet::from_iter([AllocationId::Legacy(AllocationIdCore::from(
-        ALLOCATION_ID_0,
-    ))]);
+    let allocation_ids = HashSet::from_iter([AllocationId(CollectionId::from(ALLOCATION_ID_0))]);
     sender_account
         .cast(SenderAccountMessage::UpdateAllocationIds(
             allocation_ids.clone(),
@@ -102,14 +91,15 @@ async fn sender_account_layer_test() {
         .stop_children_and_wait(None, Some(Duration::from_secs(10)))
         .await;
 
-    let rav_marked_as_last = sqlx::query!(
+    let collection_id = CollectionId::from(ALLOCATION_ID_0).encode_hex();
+    let rav_marked_as_last = sqlx::query(
         r#"
-                SELECT * FROM scalar_tap_ravs WHERE last = true AND allocation_id = $1;
+                SELECT * FROM tap_horizon_ravs WHERE last = true AND collection_id = $1;
             "#,
-        ALLOCATION_ID_0.encode_hex()
     )
+    .bind(collection_id)
     .fetch_all(&pgpool)
     .await
-    .expect("Should not fail to fetch from scalar_tap_ravs");
+    .expect("Should not fail to fetch from tap_horizon_ravs");
     assert!(!rav_marked_as_last.is_empty());
 }
