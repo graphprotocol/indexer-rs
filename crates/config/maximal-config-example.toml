@@ -204,12 +204,10 @@ hardhat = "100"
 "eip155:1337" = "hardhat"
 
 [horizon]
-# Enable Horizon migration support and detection
-# When enabled: Check if Horizon contracts are active in the network
-#   - If Horizon contracts detected: Hybrid migration mode (new V2 receipts only, process existing V1 receipts)
-#   - If Horizon contracts not detected: Errors 
+# Enable Horizon support and detection
+# When enabled: Horizon-only operation, checks Horizon contracts via the network subgraph
 # When enabled, set `blockchain.subgraph_service_address` and
 # `blockchain.receipts_verifier_address_v2`
-
-# When disabled: Pure legacy mode, no Horizon detection performed
+#
+# When disabled: legacy compatibility mode (not supported; kept only to accept older configs)
 enabled = false
