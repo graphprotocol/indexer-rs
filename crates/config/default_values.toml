@@ -43,5 +43,5 @@ max_receipts_per_request = 10000
 # When enabled, set `blockchain.subgraph_service_address` and
 # `blockchain.receipts_verifier_address_v2`
 #
-# When disabled: legacy compatibility mode (not supported; kept only to accept older configs)
-enabled = false
+# Horizon is required in production.
+enabled = true

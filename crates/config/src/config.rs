@@ -310,24 +310,21 @@ impl Config {
             "subgraphs.escrow",
         );
 
-        // Horizon configuration validation
-        // Explicit toggle via `horizon.enabled`. When enabled, require both
-        // `blockchain.subgraph_service_address` and
-        // `blockchain.receipts_verifier_address_v2` to be present.
-        // When disabled, Horizon addresses are ignored.
-        if self.horizon.enabled {
-            if self.blockchain.subgraph_service_address.is_none() {
-                return Err(
-                    "When horizon.enabled = true, `blockchain.subgraph_service_address` must be set"
-                        .to_string(),
-                );
-            }
-            if self.blockchain.receipts_verifier_address_v2.is_none() {
-                return Err(
-                    "When horizon.enabled = true, `blockchain.receipts_verifier_address_v2` must be set"
-                        .to_string(),
-                );
-            }
+        // Horizon configuration validation (required).
+        if !self.horizon.enabled {
+            return Err("Horizon is required; set [horizon].enabled = true".to_string());
+        }
+        if self.blockchain.subgraph_service_address.is_none() {
+            return Err(
+                "When horizon.enabled = true, `blockchain.subgraph_service_address` must be set"
+                    .to_string(),
+            );
+        }
+        if self.blockchain.receipts_verifier_address_v2.is_none() {
+            return Err(
+                "When horizon.enabled = true, `blockchain.receipts_verifier_address_v2` must be set"
+                    .to_string(),
+            );
         }
 
         Ok(())
@@ -368,7 +365,7 @@ impl Config {
     ///
     /// - [`TapMode::Horizon`] when `horizon.enabled = true` with the configured
     ///   `blockchain.subgraph_service_address`
-    /// - the compatibility variant when `horizon.enabled = false` (not supported)
+    /// - the compatibility variant when `horizon.enabled = false` (rejected by validation)
     pub fn tap_mode(&self) -> TapMode {
         if self.horizon.enabled {
             TapMode::Horizon {
@@ -694,11 +691,11 @@ pub struct RavRequestConfig {
 /// TAP protocol operation mode.
 ///
 /// Horizon is the production mode; the compatibility variant is kept for
-/// configuration compatibility but is not supported in production.
+/// configuration compatibility but is rejected by validation.
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum TapMode {
-    /// Compatibility-only mode (not supported).
+    /// Compatibility-only mode (rejected by validation).
     Legacy,
 
     /// Horizon TAP mode.
@@ -716,7 +713,7 @@ impl TapMode {
         matches!(self, TapMode::Horizon { .. })
     }
 
-    /// Compatibility check for non-Horizon mode (not supported in production).
+    /// Compatibility check for non-Horizon mode (rejected by validation).
     pub fn is_legacy(&self) -> bool {
         matches!(self, TapMode::Legacy)
     }
@@ -755,7 +752,7 @@ impl TapMode {
         self.is_horizon()
     }
 
-    /// Compatibility check for non-Horizon-only support (not supported in production).
+    /// Compatibility check for non-Horizon-only support (rejected by validation).
     pub fn v1_only(&self) -> bool {
         self.is_legacy()
     }
@@ -768,8 +765,6 @@ pub struct HorizonConfig {
     /// Enable Horizon support and detection.
     /// When enabled, set `blockchain.subgraph_service_address` and
     /// `blockchain.receipts_verifier_address_v2`
-
-    /// When disabled: compatibility-only mode (not supported).
     #[serde(default)]
     pub enabled: bool,
 }
