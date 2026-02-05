@@ -539,9 +539,9 @@ pub enum TheGraphChainId {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
-    /// Legacy verifier address (deprecated; not used).
+    /// Legacy verifier address (deprecated; optional, not used).
     #[deprecated(note = "Use `receipts_verifier_address_v2` for Horizon receipts.")]
-    pub receipts_verifier_address: Address,
+    pub receipts_verifier_address: Option<Address>,
     /// Verifier address for Horizon receipts.
     pub receipts_verifier_address_v2: Option<Address>,
     /// Address of the SubgraphService contract used for Horizon operations
@@ -734,7 +734,7 @@ impl TapMode {
 pub struct HorizonConfig {
     /// Enable Horizon support and detection.
     /// When enabled, set `blockchain.subgraph_service_address` and
-    /// `blockchain.receipts_verifier_address_v2`
+    /// `blockchain.receipts_verifier_address_v2`.
     #[serde(default)]
     pub enabled: bool,
 }
