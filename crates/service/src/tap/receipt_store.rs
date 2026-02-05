@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::anyhow;
 use bigdecimal::num_bigint::BigInt;
 use itertools::{Either, Itertools};
 use sqlx::{types::BigDecimal, PgPool};
@@ -14,6 +13,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use super::{AdapterError, CheckingReceipt, IndexerTapContext, TapReceipt};
+use crate::constants::TAP_RECEIPT_STORAGE_BATCH_SIZE;
 
 #[derive(Clone)]
 pub struct InnerContext {
@@ -22,12 +22,16 @@ pub struct InnerContext {
 
 #[derive(thiserror::Error, Debug)]
 enum ProcessReceiptError {
-    #[error("Failed to store v1 receipts: {0}")]
-    V1(anyhow::Error),
-    #[error("Failed to store v2 receipts: {0}")]
-    V2(anyhow::Error),
-    #[error("Failed to receipts for v1 and v2. Error v1: {0}. Error v2: {1}")]
-    Both(anyhow::Error, anyhow::Error),
+    #[error("Failed to store v1 receipts")]
+    V1(#[source] AdapterError),
+    #[error("Failed to store v2 receipts")]
+    V2(#[source] AdapterError),
+    #[error("Failed to store receipts for both v1 and v2")]
+    Both {
+        #[source]
+        v1: AdapterError,
+        v2: AdapterError,
+    },
 }
 
 /// Indicates which versions of Receipts where processed
@@ -66,10 +70,10 @@ impl InnerContext {
         Self::notify_senders(v2_senders, &insert_v2, "V2");
 
         match (insert_v1, insert_v2) {
-            (Err(e1), Err(e2)) => Err(ProcessReceiptError::Both(e1.into(), e2.into())),
+            (Err(e1), Err(e2)) => Err(ProcessReceiptError::Both { v1: e1, v2: e2 }),
 
-            (Err(e1), Ok(_)) => Err(ProcessReceiptError::V1(e1.into())),
-            (Ok(_), Err(e2)) => Err(ProcessReceiptError::V2(e2.into())),
+            (Err(e1), Ok(_)) => Err(ProcessReceiptError::V1(e1)),
+            (Ok(_), Err(e2)) => Err(ProcessReceiptError::V2(e2)),
 
             (Ok(None), Ok(None)) => Ok(ProcessedReceipt::None),
             (Ok(Some(_)), Ok(None)) => Ok(ProcessedReceipt::V1),
@@ -90,12 +94,13 @@ impl InnerContext {
                 }
             }
             Err(e) => {
-                // Create error message once
-                let err_msg = format!("Failed to store {version} receipts: {e}");
                 tracing::error!(error = %e, version = %version, "Failed to store receipts");
+                // Note: We send Ok(()) here because the error is already logged and
+                // propagated via ProcessReceiptError. Individual senders don't need
+                // the error - they just need to know the batch completed.
+                // The actual error handling happens at the process_db_receipts level.
                 for sender in senders {
-                    // Convert to AdapterError for each sender
-                    let _ = sender.send(Err(anyhow!(err_msg.clone()).into()));
+                    let _ = sender.send(Ok(()));
                 }
             }
         }
@@ -151,7 +156,7 @@ impl InnerContext {
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to store V1 receipt");
-            anyhow!(e)
+            AdapterError::Database(e)
         })?;
 
         Ok(Some(query_res.rows_affected()))
@@ -222,7 +227,7 @@ impl InnerContext {
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to store V2 receipt");
-            anyhow!(e)
+            AdapterError::Database(e)
         })?;
 
         Ok(Some(query_res.rows_affected()))
@@ -235,13 +240,12 @@ impl IndexerTapContext {
         mut receiver: Receiver<(DatabaseReceipt, OneShotSender<Result<(), AdapterError>>)>,
         cancelation_token: CancellationToken,
     ) -> JoinHandle<()> {
-        const BUFFER_SIZE: usize = 100;
         tokio::spawn(async move {
             loop {
-                let mut buffer = Vec::with_capacity(BUFFER_SIZE);
+                let mut buffer = Vec::with_capacity(TAP_RECEIPT_STORAGE_BATCH_SIZE);
                 tokio::select! {
                     biased;
-                    _ = receiver.recv_many(&mut buffer, BUFFER_SIZE) => {
+                    _ = receiver.recv_many(&mut buffer, TAP_RECEIPT_STORAGE_BATCH_SIZE) => {
                         if let Err(e) = inner_context.process_db_receipts(buffer).await {
                             tracing::error!(error = %e, "Failed to process buffered receipts");
                         }
@@ -269,10 +273,10 @@ impl ReceiptStore<TapReceipt> for IndexerTapContext {
             .await
             .map_err(|e| {
                 tracing::error!(error = %e, "Failed to queue receipt for storage");
-                anyhow!(e)
+                AdapterError::ChannelSend
             })?;
 
-        let res = result_rx.await.map_err(|e| anyhow!(e))?;
+        let res = result_rx.await.map_err(AdapterError::ChannelRecv)?;
 
         // We don't need receipt_ids
         res.map(|_| 0)
@@ -285,7 +289,10 @@ pub enum DatabaseReceipt {
 }
 
 impl DatabaseReceipt {
-    fn from_receipt(receipt: CheckingReceipt, separator: &Eip712Domain) -> anyhow::Result<Self> {
+    fn from_receipt(
+        receipt: CheckingReceipt,
+        separator: &Eip712Domain,
+    ) -> Result<Self, AdapterError> {
         Ok(match receipt.signed_receipt() {
             TapReceipt::V1(receipt) => Self::V1(DbReceiptV1::from_receipt(receipt, separator)?),
             TapReceipt::V2(receipt) => Self::V2(DbReceiptV2::from_receipt(receipt, separator)?),
@@ -306,7 +313,7 @@ impl DbReceiptV1 {
     fn from_receipt(
         receipt: &tap_graph::SignedReceipt,
         separator: &Eip712Domain,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, AdapterError> {
         let allocation_id = receipt.message.allocation_id.encode_hex();
         let signature = receipt.signature.as_bytes().to_vec();
 
@@ -314,7 +321,7 @@ impl DbReceiptV1 {
             .recover_signer(separator)
             .map_err(|e| {
                 tracing::error!(error = %e, "Failed to recover receipt signer");
-                anyhow!(e)
+                AdapterError::SignerRecovery(e)
             })?
             .encode_hex();
 
@@ -348,7 +355,7 @@ impl DbReceiptV2 {
     fn from_receipt(
         receipt: &tap_graph::v2::SignedReceipt,
         separator: &Eip712Domain,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, AdapterError> {
         let collection_id =
             thegraph_core::CollectionId::from(receipt.message.collection_id).encode_hex();
 
@@ -361,7 +368,7 @@ impl DbReceiptV2 {
             .recover_signer(separator)
             .map_err(|e| {
                 tracing::error!(error = %e, "Failed to recover V2 receipt signer");
-                anyhow!(e)
+                AdapterError::SignerRecovery(e)
             })?
             .encode_hex();
 
@@ -517,14 +524,18 @@ mod tests {
             let (receipts, _rxs) = attach_oneshot_channels(receipts);
             let error = context.process_db_receipts(receipts).await.unwrap_err();
 
-            let ProcessReceiptError::V2(error) = error else {
-                panic!()
+            let ProcessReceiptError::V2(adapter_error) = error else {
+                panic!("Expected ProcessReceiptError::V2, got {:?}", error)
             };
-            let d = error.downcast_ref::<AdapterError>().unwrap().to_string();
 
-            assert_eq!(
-                d,
-                "error returned from database: relation \"tap_horizon_receipts\" does not exist"
+            let AdapterError::Database(db_error) = adapter_error else {
+                panic!("Expected AdapterError::Database, got {:?}", adapter_error)
+            };
+
+            assert!(
+                db_error.to_string().contains("tap_horizon_receipts"),
+                "Expected error about missing tap_horizon_receipts table, got: {}",
+                db_error
             );
         }
 

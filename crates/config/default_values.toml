@@ -4,6 +4,7 @@ port = 7300
 [subgraphs.network]
 syncing_interval_secs = 60
 recently_closed_allocation_buffer_secs = 3600
+max_data_staleness_mins = 30
 
 [subgraphs.escrow]
 syncing_interval_secs = 60

@@ -9,7 +9,7 @@ deps:
 url:
     @echo export DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432
 clippy:
-    cargo +nightly clippy --all-targets --all-features
+    cargo clippy --all-targets --all-features -- -A dead-code -D warnings
 #  run everything that is needed for ci to pass
 ci:
   just fmt
@@ -21,7 +21,7 @@ test:
 review:
     RUST_LOG=debug cargo insta review
 fmt:
-    cargo +nightly fmt
+    cargo fmt
 sqlx-prepare:
     cargo sqlx prepare --workspace  -- --all-targets --all-features
 psql-up: 

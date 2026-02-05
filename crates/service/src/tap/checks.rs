@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod allocation_eligible;
+pub mod allocation_redeemed;
 pub mod data_service_check;
 pub mod deny_list_check;
+pub mod payer_check;
 pub mod receipt_max_val_check;
 pub mod sender_balance_check;
 pub mod service_provider;

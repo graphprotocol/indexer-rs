@@ -8,6 +8,18 @@ use serde_json::Value;
 use sqlx::PgPool;
 use thegraph_core::{DeploymentId, ParseDeploymentIdError};
 
+/// Errors that can occur when querying or processing cost models.
+#[derive(Debug, thiserror::Error)]
+pub enum CostModelError {
+    /// Database query failed.
+    #[error("Database query failed")]
+    Database(#[source] sqlx::Error),
+
+    /// Invalid deployment ID in database record.
+    #[error("Invalid deployment ID in database record")]
+    InvalidDeploymentId(#[source] ParseDeploymentIdError),
+}
+
 /// Internal cost model representation as stored in the database.
 ///
 /// These can have "global" as the deployment ID.
@@ -56,7 +68,7 @@ impl From<CostModel> for DbCostModel {
 pub async fn cost_models(
     pool: &PgPool,
     deployments: &[DeploymentId],
-) -> Result<Vec<CostModel>, anyhow::Error> {
+) -> Result<Vec<CostModel>, CostModelError> {
     let hex_ids = deployments
         .iter()
         .map(|d| format!("{d:#x}"))
@@ -73,7 +85,8 @@ pub async fn cost_models(
             "#
         )
         .fetch_all(pool)
-        .await?
+        .await
+        .map_err(CostModelError::Database)?
     } else {
         sqlx::query_as!(
             DbCostModel,
@@ -87,11 +100,13 @@ pub async fn cost_models(
             &hex_ids
         )
         .fetch_all(pool)
-        .await?
+        .await
+        .map_err(CostModelError::Database)?
     }
     .into_iter()
     .map(CostModel::try_from)
-    .collect::<Result<Vec<_>, _>>()?;
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(CostModelError::InvalidDeploymentId)?;
 
     let deployments_with_models = models
         .iter()
@@ -129,7 +144,7 @@ pub async fn cost_models(
 pub async fn cost_model(
     pool: &PgPool,
     deployment: &DeploymentId,
-) -> Result<Option<CostModel>, anyhow::Error> {
+) -> Result<Option<CostModel>, CostModelError> {
     let model = sqlx::query_as!(
         DbCostModel,
         r#"
@@ -141,9 +156,11 @@ pub async fn cost_model(
         format!("{:#x}", deployment),
     )
     .fetch_optional(pool)
-    .await?
+    .await
+    .map_err(CostModelError::Database)?
     .map(CostModel::try_from)
-    .transpose()?;
+    .transpose()
+    .map_err(CostModelError::InvalidDeploymentId)?;
 
     let global_model = global_cost_model(pool).await?;
 
@@ -165,7 +182,9 @@ pub async fn cost_model(
 }
 
 /// Query global cost model
-pub(crate) async fn global_cost_model(pool: &PgPool) -> Result<Option<DbCostModel>, anyhow::Error> {
+pub(crate) async fn global_cost_model(
+    pool: &PgPool,
+) -> Result<Option<DbCostModel>, CostModelError> {
     sqlx::query_as!(
         DbCostModel,
         r#"
@@ -177,7 +196,7 @@ pub(crate) async fn global_cost_model(pool: &PgPool) -> Result<Option<DbCostMode
     )
     .fetch_optional(pool)
     .await
-    .map_err(Into::into)
+    .map_err(CostModelError::Database)
 }
 
 fn merge_global(model: CostModel, global_model: &DbCostModel) -> CostModel {

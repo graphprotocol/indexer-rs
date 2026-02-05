@@ -224,7 +224,9 @@ impl AllocationId {
     pub fn address(&self) -> Address {
         match self {
             AllocationId::Legacy(allocation_id) => **allocation_id,
-            AllocationId::Horizon(collection_id) => collection_id.as_address(),
+            AllocationId::Horizon(collection_id) => {
+                AllocationIdCore::from(*collection_id).into_inner()
+            }
         }
     }
 
@@ -233,7 +235,7 @@ impl AllocationId {
     /// Behavior:
     /// - Legacy (V1): returns the allocation address as hex.
     /// - Horizon (V2): derives the 20-byte address from the 32-byte `CollectionId`
-    ///   using `collection_id.as_address()` (last 20 bytes) and encodes as hex.
+    ///   via `thegraph_core::AllocationId::from(collection_id)` (last 20 bytes) and encodes as hex.
     ///
     /// Use for:
     /// - Actor names and routing (consistent identity across versions)

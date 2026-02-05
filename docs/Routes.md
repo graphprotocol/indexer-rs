@@ -8,6 +8,7 @@ This section lists the routes currently exposed by the Subgraph Service. Each ro
 |-------------------------|----------------------------------------------------------------------------------------------|
 | `/`                     | Returns a simple greetings message.                                                         |
 | `/info`                 | Displays the operator's public address.                                                     |
+| `/healthz`              | Reports service dependency health (database and graph-node).                                |
 | `/version`              | Provides the current version of `indexer-service-rs` and its dependencies.                  |
 
 ## Token-Protected Routes

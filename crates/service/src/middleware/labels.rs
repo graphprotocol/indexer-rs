@@ -4,10 +4,9 @@
 use std::sync::Arc;
 
 use axum::{extract::Request, middleware::Next, response::Response};
-use thegraph_core::DeploymentId;
+use thegraph_core::{AllocationId, DeploymentId};
 
 use super::{
-    allocation::Allocation,
     prometheus_metrics::{MetricLabelProvider, MetricLabels},
     sender::Sender,
 };
@@ -51,7 +50,7 @@ impl MetricLabelProvider for SenderAllocationDeploymentLabels {
 
 /// Injects Metric Labels to be used by MetricMiddleware
 ///
-/// Soft requirement for Sender, Allocation and Deployment extensions
+/// Soft requirement for Sender, AllocationId and Deployment extensions
 pub async fn labels_middleware(mut request: Request, next: Next) -> Response {
     let sender: Option<String> = request
         .extensions()
@@ -60,8 +59,8 @@ pub async fn labels_middleware(mut request: Request, next: Next) -> Response {
 
     let allocation: Option<String> = request
         .extensions()
-        .get::<Allocation>()
-        .map(|s| s.clone().into());
+        .get::<AllocationId>()
+        .map(|s| s.to_string());
 
     let deployment_id: Option<String> = request
         .extensions()
@@ -90,12 +89,11 @@ mod tests {
     };
     use reqwest::StatusCode;
     use test_assets::ESCROW_SUBGRAPH_DEPLOYMENT;
-    use thegraph_core::alloy::primitives::Address;
+    use thegraph_core::{alloy::primitives::Address, AllocationId};
     use tower::ServiceExt;
 
     use super::labels_middleware;
     use crate::middleware::{
-        allocation::Allocation,
         labels::{NO_ALLOCATION, NO_DEPLOYMENT_ID, NO_SENDER},
         prometheus_metrics::MetricLabels,
         sender::Sender,
@@ -132,7 +130,7 @@ mod tests {
                     .uri("/")
                     .extension(Sender(sender))
                     .extension(deployment)
-                    .extension(Allocation(allocation))
+                    .extension(AllocationId::from(allocation))
                     .body(Body::empty())
                     .unwrap(),
             )

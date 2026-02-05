@@ -169,9 +169,9 @@ impl Query {
         deployment_id: DeploymentId,
     ) -> Result<Option<GraphQlCostModel>, anyhow::Error> {
         let pool = &ctx.data_unchecked::<PgPool>();
-        cost_model::cost_model(pool, &deployment_id)
+        Ok(cost_model::cost_model(pool, &deployment_id)
             .await
-            .map(|model_opt| model_opt.map(GraphQlCostModel::from))
+            .map(|model_opt| model_opt.map(GraphQlCostModel::from))?)
     }
 }
 

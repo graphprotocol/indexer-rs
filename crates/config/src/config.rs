@@ -504,6 +504,18 @@ pub struct NetworkSubgraphConfig {
 
     #[serde_as(as = "DurationSecondsWithFrac<f64>")]
     pub recently_closed_allocation_buffer_secs: Duration,
+
+    /// Maximum allowed age of network subgraph data in minutes.
+    /// Responses older than this are rejected to prevent stale data from replacing fresh data.
+    /// This protects against Gateway routing queries to indexers that are significantly behind.
+    /// Set to 0 to disable staleness checking.
+    /// Default: 30 (minutes)
+    #[serde(default = "default_max_data_staleness_mins")]
+    pub max_data_staleness_mins: u64,
+}
+
+fn default_max_data_staleness_mins() -> u64 {
+    30
 }
 
 #[derive(Debug, Deserialize)]

@@ -509,6 +509,7 @@ impl State {
                     .sender(self.sender)
                     .escrow_accounts(self.escrow_accounts.clone())
                     .escrow_subgraph(self.escrow_subgraph)
+                    .network_subgraph(self.network_subgraph)
                     .domain_separator(self.domain_separator.clone())
                     .sender_account_ref(sender_account_ref.clone())
                     .sender_aggregator(self.aggregator_v1.clone())
@@ -529,14 +530,16 @@ impl State {
                     .sender(self.sender)
                     .escrow_accounts(self.escrow_accounts.clone())
                     .escrow_subgraph(self.escrow_subgraph)
+                    .network_subgraph(self.network_subgraph)
                     .domain_separator(self.domain_separator_v2.clone())
                     .sender_account_ref(sender_account_ref.clone())
                     .sender_aggregator(self.aggregator_v2.clone())
                     .config(AllocationConfig::from_sender_config(self.config))
                     .build();
 
+                let allocation_address = AllocationIdCore::from(id).into_inner();
                 SenderAllocation::<Horizon>::spawn_linked(
-                    Some(self.format_sender_allocation(&id.as_address())),
+                    Some(self.format_sender_allocation(&allocation_address)),
                     SenderAllocation::default(),
                     args,
                     sender_account_ref.get_cell(),
@@ -791,7 +794,7 @@ impl State {
         let page_size = 200;
 
         loop {
-            let result = self
+            let mut data = self
                 .network_subgraph
                 .query::<ClosedAllocations, _>(closed_allocations::Variables {
                     allocation_ids: allocation_ids.clone(),
@@ -803,10 +806,7 @@ impl State {
                         number_gte: None,
                     }),
                 })
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-            let mut data = result?;
+                .await?;
             let page_len = data.allocations.len();
 
             hash = data.meta.and_then(|meta| meta.block.hash);
@@ -956,15 +956,15 @@ impl Actor for SenderAccount {
                                     unfinalized_ravs_allocation_ids: last_non_final_ravs
                                         .iter()
                                         .map(|(allocation_id, _)| {
-                                            allocation_id.address().to_string()
+                                            allocation_id.address().encode_hex()
                                         })
                                         .collect::<Vec<_>>(),
-                                    sender: format!("{sender_id:x?}"),
+                                    sender: sender_id.encode_hex(),
                                 },
                             )
                             .await
                         {
-                            Ok(Ok(response)) => response
+                            Ok(response) => response
                                 .transactions
                                 .into_iter()
                                 .map(|tx| {
@@ -973,92 +973,72 @@ impl Actor for SenderAccount {
                                 })
                                 .collect::<Vec<_>>(),
                             // if we have any problems, we don't want to filter out
-                            _ => vec![],
+                            Err(_) => vec![],
                         }
                     }
                     SenderType::Horizon => {
                         if config.tap_mode.is_horizon() {
-                            // V2 doesn't have transaction tracking like V1, but we can check if the RAVs
-                            // we're about to redeem are still the latest ones by querying LatestRavs.
-                            // If the subgraph has newer RAVs, it means ours were already redeemed.
-                            use indexer_query::latest_ravs_v2::{self, LatestRavs};
+                            // V2 doesn't have transaction tracking like V1; use paymentsEscrowTransactions
+                            // from the network subgraph to determine if the RAVs were redeemed.
+                            use indexer_query::payments_escrow_transactions_redeem::{
+                                self, PaymentsEscrowTransactionsRedeemQuery,
+                            };
 
                             let collection_ids: Vec<String> = last_non_final_ravs
                                 .iter()
-                                .map(|(collection_id, _)| collection_id.address().to_string())
+                                .filter_map(|(allocation_id, _)| match allocation_id {
+                                    AllocationId::Horizon(collection_id) => {
+                                        // Network subgraph stores allocationId as 20-byte address.
+                                        Some(collection_id.as_address().encode_hex())
+                                    }
+                                    AllocationId::Legacy(_) => None,
+                                })
                                 .collect();
 
                             if !collection_ids.is_empty() {
-                                // For V2/Horizon: data_service must be the SubgraphService address to match
-                                // on-chain RAV lookups (service_provider is the indexer address)
-                                let data_service =
-                                    config.tap_mode.require_subgraph_service_address();
-
-                                match escrow_subgraph
-                                    .query::<LatestRavs, _>(latest_ravs_v2::Variables {
-                                        payer: format!("{sender_id:x?}"),
-                                        data_service: format!("{data_service:x?}"),
-                                        service_provider: format!("{:x?}", config.indexer_address),
-                                        collection_ids: collection_ids.clone(),
-                                    })
-                                    .await
-                                {
-                                    Ok(Ok(response)) => {
-                                        // Create a map of our current RAVs for easy lookup
-                                        let our_ravs: HashMap<String, u128> = last_non_final_ravs
-                                            .iter()
-                                            .map(|(collection_id, value)| {
-                                                let value_u128 = value
-                                                    .to_bigint()
-                                                    .and_then(|v| v.to_u128())
-                                                    .unwrap_or(0);
-                                                (collection_id.address().to_string(), value_u128)
-                                            })
-                                            .collect();
-
-                                        // Check which RAVs have been updated (indicating redemption)
-                                        let mut finalized_allocation_ids = vec![];
-                                        for rav in response.latest_ravs {
-                                            if let Some(&our_value) = our_ravs.get(&rav.id) {
-                                                // If the subgraph RAV has higher value, our RAV was redeemed
-                                                if let Ok(subgraph_value) =
-                                                    rav.value_aggregate.parse::<u128>()
-                                                {
-                                                    if subgraph_value > our_value {
-                                                        // Convert collection_id to address format for consistent comparison
-                                                        if let Ok(collection_id) =
-                                                            CollectionId::from_str(&rav.id)
-                                                        {
-                                                            let addr = AllocationIdCore::from(
-                                                                collection_id,
-                                                            )
-                                                            .into_inner();
-                                                            finalized_allocation_ids
-                                                                .push(format!("{addr:x?}"));
-                                                        }
-                                                    }
-                                                }
-                                            }
+                                const ALLOCATION_ID_BATCH_SIZE: usize = 200;
+                                let sample_ids =
+                                    collection_ids.iter().take(3).cloned().collect::<Vec<_>>();
+                                tracing::trace!(
+                                    sender = %sender_id,
+                                    receiver = %config.indexer_address,
+                                    allocation_ids_count = collection_ids.len(),
+                                    allocation_ids_sample = ?sample_ids,
+                                    "Querying paymentsEscrowTransactions for redeemed allocations"
+                                );
+                                let mut redeemed_ids = Vec::new();
+                                for batch in collection_ids.chunks(ALLOCATION_ID_BATCH_SIZE) {
+                                    match network_subgraph
+                                        .query::<PaymentsEscrowTransactionsRedeemQuery, _>(
+                                            payments_escrow_transactions_redeem::Variables {
+                                                payer: sender_id.encode_hex(),
+                                                receiver: config.indexer_address.encode_hex(),
+                                                allocation_ids: Some(batch.to_vec()),
+                                            },
+                                        )
+                                        .await
+                                    {
+                                        Ok(response) => redeemed_ids.extend(
+                                            response
+                                                .payments_escrow_transactions
+                                                .into_iter()
+                                                .filter_map(|tx| tx.allocation_id)
+                                                .filter_map(|allocation_id| {
+                                                    AllocationIdCore::from_str(&allocation_id)
+                                                        .map(|id| id.as_ref().encode_hex())
+                                                        .ok()
+                                                }),
+                                        ),
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                error = %e,
+                                                sender = %sender_id,
+                                                "Failed to query paymentsEscrowTransactions, assuming none are finalized"
+                                            );
                                         }
-                                        finalized_allocation_ids
-                                    }
-                                    Ok(Err(e)) => {
-                                        tracing::warn!(
-                                            error = %e,
-                                            sender = %sender_id,
-                                            "Failed to query V2 latest RAVs, assuming none are finalized"
-                                        );
-                                        vec![]
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            error = %e,
-                                            sender = %sender_id,
-                                            "Failed to execute V2 latest RAVs query, assuming none are finalized"
-                                        );
-                                        vec![]
                                     }
                                 }
+                                redeemed_ids
                             } else {
                                 vec![]
                             }
@@ -1077,7 +1057,11 @@ impl Actor for SenderAccount {
                         Some((address, value))
                     })
                     .filter(|(allocation, _value)| {
-                        !redeemed_ravs_allocation_ids.contains(&format!("{allocation:x?}"))
+                        let allocation_hex = allocation.encode_hex();
+                        // Subgraph IDs can be mixed case depending on hex formatting.
+                        !redeemed_ravs_allocation_ids
+                            .iter()
+                            .any(|id| id.eq_ignore_ascii_case(&allocation_hex))
                     })
                     .collect::<HashMap<_, _>>();
 
@@ -1315,7 +1299,13 @@ impl Actor for SenderAccount {
                         tracing::debug!(core_id = %core_id, address = %core_id.as_ref(), "Legacy allocation details");
                     }
                     AllocationId::Horizon(collection_id) => {
-                        tracing::debug!(collection_id = %collection_id, as_address = %collection_id.as_address(), "Horizon allocation details");
+                        let allocation_address =
+                            AllocationIdCore::from(*collection_id).into_inner();
+                        tracing::debug!(
+                            collection_id = %collection_id,
+                            as_address = %allocation_address,
+                            "Horizon allocation details"
+                        );
                     }
                 }
                 let tracked_allocations: Vec<_> =
@@ -1898,13 +1888,17 @@ pub mod tests {
 
     use indexer_monitor::EscrowAccounts;
     use ractor::{call, Actor, ActorRef, ActorStatus};
+    use rand;
     use serde_json::json;
     use test_assets::{
         flush_messages, ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER,
         TAP_SIGNER as SIGNER,
     };
     use thegraph_core::{
-        alloy::{hex::ToHexExt, primitives::U256},
+        alloy::{
+            hex::ToHexExt,
+            primitives::{Address, U256},
+        },
         AllocationId as AllocationIdCore,
     };
     use tokio::sync::mpsc;
@@ -1951,6 +1945,19 @@ pub mod tests {
                 .await;
         mock_escrow_subgraph_server
     }
+
+    async fn register_payments_escrow_transactions_empty(mock_server: &MockServer) {
+        mock_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("paymentsEscrowTransactions"))
+                    .respond_with(
+                        ResponseTemplate::new(200)
+                            .set_body_json(json!({ "data": { "paymentsEscrowTransactions": [] } })),
+                    ),
+            )
+            .await;
+    }
     struct TestSenderAccount {
         sender_account: ActorRef<SenderAccountMessage>,
         msg_receiver: mpsc::Receiver<SenderAccountMessage>,
@@ -1964,6 +1971,7 @@ pub mod tests {
         let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
+        register_payments_escrow_transactions_empty(&mock_server).await;
 
         let no_allocations_closed_guard = mock_server
             .register_as_scoped(
@@ -1983,7 +1991,7 @@ pub mod tests {
             )
             .await;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
@@ -2055,6 +2063,7 @@ pub mod tests {
         let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
         let mock_server = MockServer::start().await;
+        register_payments_escrow_transactions_empty(&mock_server).await;
 
         let no_closed = mock_server
             .register_as_scoped(
@@ -2074,7 +2083,7 @@ pub mod tests {
             )
             .await;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
@@ -2167,7 +2176,7 @@ pub mod tests {
     async fn test_update_receipt_fees_no_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let (sender_account, msg_receiver, prefix, _, _) =
+        let (sender_account, msg_receiver, prefix, _, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
         let basic_sender_account = TestSenderAccount {
             sender_account,
@@ -2201,7 +2210,7 @@ pub mod tests {
     async fn test_update_receipt_fees_trigger_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let (sender_account, msg_receiver, prefix, _, _) =
+        let (sender_account, msg_receiver, prefix, _, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
         let mut basic_sender_account = TestSenderAccount {
             sender_account,
@@ -2247,7 +2256,7 @@ pub mod tests {
     async fn test_counter_greater_limit_trigger_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .rav_request_receipt_limit(2)
             .call()
@@ -2300,7 +2309,7 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
-        let (sender_account, _, prefix, _, _) = create_sender_account()
+        let (sender_account, _, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .initial_allocation(
                 vec![AllocationId::Legacy(AllocationIdCore::from(
@@ -2360,7 +2369,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, _notify, _, _, _) =
+        let (sender_account, _notify, _, _, _, _) =
             create_sender_account().pgpool(pgpool.clone()).call().await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
@@ -2389,7 +2398,7 @@ pub mod tests {
         // we set to zero to block the sender, no matter the fee
         let max_unaggregated_fees_per_sender: u128 = 0;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
             .call()
@@ -2438,7 +2447,7 @@ pub mod tests {
         let max_unaggregated_fees_per_sender: u128 = 1000;
 
         // Making sure no RAV is going to be triggered during the test
-        let (sender_account, mut msg_receiver, _, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, _, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .rav_request_trigger_value(u128::MAX)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
@@ -2528,6 +2537,8 @@ pub mod tests {
     async fn test_initialization_with_pending_ravs_over_the_limit() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
+        let mock_server = MockServer::start().await;
+        register_payments_escrow_transactions_empty(&mock_server).await;
         // add last non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, ESCROW_VALUE);
         store_rav_with_options()
@@ -2540,9 +2551,10 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, _notify, _, _, _) = create_sender_account()
+        let (sender_account, _notify, _, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .max_amount_willing_to_lose_grt(u128::MAX)
+            .network_subgraph_endpoint(&mock_server.uri())
             .call()
             .await;
 
@@ -2581,7 +2593,7 @@ pub mod tests {
         let trigger_rav_request = ESCROW_VALUE * 2;
 
         // initialize with no trigger value and no max receipt deny
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool.clone())
             .rav_request_trigger_value(trigger_rav_request)
             .max_amount_willing_to_lose_grt(u128::MAX)
@@ -2661,7 +2673,7 @@ pub mod tests {
         let pgpool = test_db.pool;
         let max_amount_willing_to_lose_grt = ESCROW_VALUE / 10;
         // initialize with no trigger value and no max receipt deny
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .trusted_sender(true)
             .rav_request_trigger_value(u128::MAX)
@@ -2741,7 +2753,7 @@ pub mod tests {
                     .and(body_string_contains("transactions"))
                     .respond_with(ResponseTemplate::new(200).set_body_json(
                         json!({ "data": { "transactions": [
-                            {"allocationID": ALLOCATION_ID_0 }
+                            {"allocationID": ALLOCATION_ID_0.encode_hex() }
                         ]}}),
                     )),
             )
@@ -2770,12 +2782,13 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, mut msg_receiver, _, escrow_accounts_tx, _) = create_sender_account()
-            .pgpool(pgpool.clone())
-            .max_amount_willing_to_lose_grt(u128::MAX)
-            .escrow_subgraph_endpoint(&mock_server.uri())
-            .call()
-            .await;
+        let (sender_account, mut msg_receiver, _, escrow_accounts_tx, _, _) =
+            create_sender_account()
+                .pgpool(pgpool.clone())
+                .max_amount_willing_to_lose_grt(u128::MAX)
+                .escrow_subgraph_endpoint(&mock_server.uri())
+                .call()
+                .await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(!deny, "should start unblocked");
@@ -2789,8 +2802,8 @@ pub mod tests {
                     .and(body_string_contains("transactions"))
                     .respond_with(ResponseTemplate::new(200).set_body_json(
                         json!({ "data": { "transactions": [
-                            {"allocationID": ALLOCATION_ID_0 },
-                            {"allocationID": ALLOCATION_ID_1 }
+                            {"allocationID": ALLOCATION_ID_0.encode_hex() },
+                            {"allocationID": ALLOCATION_ID_1.encode_hex() }
                         ]}}),
                     )),
             )
@@ -2830,11 +2843,12 @@ pub mod tests {
             .await
             .unwrap();
 
-        let (sender_account, mut msg_receiver, _, escrow_accounts_tx, _) = create_sender_account()
-            .pgpool(pgpool.clone())
-            .max_amount_willing_to_lose_grt(u128::MAX)
-            .call()
-            .await;
+        let (sender_account, mut msg_receiver, _, escrow_accounts_tx, _, _) =
+            create_sender_account()
+                .pgpool(pgpool.clone())
+                .max_amount_willing_to_lose_grt(u128::MAX)
+                .call()
+                .await;
 
         let deny = call!(sender_account, SenderAccountMessage::GetDeny).unwrap();
         assert!(!deny, "should start unblocked");
@@ -2875,7 +2889,7 @@ pub mod tests {
         // we set to 1 to block the sender on a really low value
         let max_unaggregated_fees_per_sender: u128 = 1;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .max_amount_willing_to_lose_grt(max_unaggregated_fees_per_sender)
             .call()
@@ -2938,20 +2952,28 @@ pub mod tests {
         // with the current allocations from the watcher
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
+        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
+        let mock_network_subgraph = MockServer::start().await;
 
         let allocation_set = HashSet::from_iter([
             AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_0)),
             AllocationId::Legacy(AllocationIdCore::from(ALLOCATION_ID_1)),
         ]);
 
-        let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx) =
+        let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx, _) =
             create_sender_account()
                 .pgpool(pgpool)
+                .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
+                .network_subgraph_endpoint(&mock_network_subgraph.uri())
                 .initial_allocation(allocation_set.clone())
                 .call()
                 .await;
 
-        // Verify initial state - indexer_allocations should have the allocations
+        // Drain initial UpdateAllocationIds from watch_pipe trigger (may take longer than 10ms)
+        // Use a longer timeout to ensure the async watch_pipe task completes
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        flush_messages(&mut msg_receiver).await;
+
         // Send ReconcileAllocations message
         sender_account
             .cast(SenderAccountMessage::ReconcileAllocations)
@@ -3017,7 +3039,7 @@ pub mod tests {
         // Use a short reconciliation interval for testing
         let reconciliation_interval = Duration::from_millis(100);
 
-        let (sender_account, mut msg_receiver, _, _, _) = create_sender_account()
+        let (sender_account, mut msg_receiver, _, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .allocation_reconciliation_interval(reconciliation_interval)
             .call()
@@ -3084,18 +3106,26 @@ pub mod tests {
     async fn test_reconcile_allocations_handles_empty_set() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
+        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
+        let mock_network_subgraph = MockServer::start().await;
 
         // Start with one allocation
         let initial_allocation_set = HashSet::from_iter([AllocationId::Legacy(
             AllocationIdCore::from(ALLOCATION_ID_0),
         )]);
 
-        let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx) =
+        let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx, _) =
             create_sender_account()
                 .pgpool(pgpool)
+                .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
+                .network_subgraph_endpoint(&mock_network_subgraph.uri())
                 .initial_allocation(initial_allocation_set)
                 .call()
                 .await;
+
+        // Drain initial UpdateAllocationIds from watch_pipe trigger
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        flush_messages(&mut msg_receiver).await;
 
         // Simulate all allocations closing during connectivity outage:
         // update watcher to empty set
@@ -3103,6 +3133,10 @@ pub mod tests {
         indexer_allocations_tx
             .send(empty_allocation_set.clone())
             .unwrap();
+
+        // Wait for watch_pipe to process the update
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        flush_messages(&mut msg_receiver).await;
 
         // Trigger reconciliation
         sender_account
@@ -3138,7 +3172,7 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
 
-        let (sender_account, mut msg_receiver, _, _, _) =
+        let (sender_account, mut msg_receiver, _, _, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
 
         // Get metric value before reconciliation
@@ -3197,7 +3231,7 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) =
+        let (sender_account, mut msg_receiver, prefix, _, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
 
         // Create a mock sender allocation and link it to the sender account
@@ -3267,7 +3301,7 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
 
-        let (sender_account, mut msg_receiver, prefix, _, _) =
+        let (sender_account, mut msg_receiver, prefix, _, _, _) =
             create_sender_account().pgpool(pgpool).call().await;
 
         let (mock_sender_allocation, _, next_unaggregated_fees) =
@@ -3322,12 +3356,18 @@ pub mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
 
-        let (sender_account, mut msg_receiver, _, _, _) =
-            create_sender_account().pgpool(pgpool).call().await;
+        // Use a unique sender ID to avoid interference from parallel tests
+        let random_bytes: [u8; 20] = rand::random();
+        let unique_sender = Address::from_slice(&random_bytes);
+        let (sender_account, mut msg_receiver, _, _, _, sender_id) = create_sender_account()
+            .pgpool(pgpool)
+            .sender_id(unique_sender)
+            .call()
+            .await;
 
         flush_messages(&mut msg_receiver).await;
 
-        let sender_label = SENDER.1.to_string();
+        let sender_label = sender_id.to_string();
 
         // Set all sender-level metrics to non-zero values
         SENDER_DENIED.with_label_values(&[&sender_label]).set(1);

@@ -3,6 +3,7 @@
 
 use std::{
     collections::HashMap,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -12,34 +13,151 @@ use indexer_watcher::new_watcher;
 use thegraph_core::alloy::primitives::{Address, TxHash};
 use tokio::sync::watch::Receiver;
 
-use crate::client::SubgraphClient;
+use crate::{
+    client::SubgraphClient,
+    freshness::{FreshnessResult, FreshnessTracker},
+};
 
 /// Receiver of Map between allocation id and allocation struct
 pub type AllocationWatcher = Receiver<HashMap<Address, Allocation>>;
 
+/// Response from allocation query including metadata for freshness validation.
+#[derive(Debug)]
+pub struct AllocationQueryResponse {
+    /// The allocations indexed by their address
+    pub allocations: HashMap<Address, Allocation>,
+    /// Block number from `_meta.block.number`
+    pub block_number: Option<i64>,
+    /// Block timestamp from `_meta.block.timestamp` (Unix seconds)
+    pub block_timestamp: Option<i64>,
+}
+
 /// An always up-to-date list of an indexer's active and recently closed allocations.
+///
+/// # Arguments
+/// * `network_subgraph` - The subgraph client to query
+/// * `indexer_address` - The indexer's address
+/// * `interval` - How often to poll for updates
+/// * `recently_closed_allocation_buffer` - How long to keep closed allocations
+/// * `max_data_staleness_mins` - Maximum allowed age of data in minutes. Set to 0 to disable.
+///   When data is older than this threshold, the update is rejected unless it's fresher than
+///   the current best data. This protects against Gateway routing to stale indexers.
+///
+/// # Freshness Behavior
+/// Data is accepted if ANY of these conditions are met:
+/// - Data is fresh (within `max_data_staleness_mins` threshold)
+/// - Data is stale but fresher than the current best (an improvement)
+///
+/// This ensures:
+/// - Fresh data always wins (even if it shows 0 allocations — that's the current truth)
+/// - Stale-but-better data replaces stale-and-worse data
+/// - Stale-and-worse data is rejected to preserve better data
+///
+/// # Escalation
+/// If no fresh data is received for an extended period (2 hours), logging escalates from
+/// warning to error level to alert operators of potential network subgraph issues.
 pub async fn indexer_allocations(
     network_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     interval: Duration,
     recently_closed_allocation_buffer: Duration,
+    max_data_staleness_mins: u64,
 ) -> anyhow::Result<AllocationWatcher> {
-    new_watcher(interval, move || async move {
-        get_allocations(
-            network_subgraph,
-            indexer_address,
-            recently_closed_allocation_buffer,
-        )
-        .await
+    let tracker = Arc::new(FreshnessTracker::new(max_data_staleness_mins));
+
+    new_watcher(interval, move || {
+        let tracker = tracker.clone();
+        async move {
+            let response = get_allocations_with_metadata(
+                network_subgraph,
+                indexer_address,
+                recently_closed_allocation_buffer,
+            )
+            .await?;
+
+            // Validate freshness and handle result
+            match tracker.check_and_update(response.block_timestamp) {
+                Some(FreshnessResult::Fresh) => {
+                    tracing::debug!(
+                        block_number = ?response.block_number,
+                        block_timestamp = ?response.block_timestamp,
+                        allocations = response.allocations.len(),
+                        "Accepted fresh network subgraph data"
+                    );
+                }
+                Some(FreshnessResult::StaleButImprovement { age_mins }) => {
+                    // Log at appropriate level based on escalation state
+                    if tracker.should_escalate() {
+                        tracing::error!(
+                            block_number = ?response.block_number,
+                            block_timestamp = ?response.block_timestamp,
+                            age_minutes = age_mins,
+                            time_since_fresh = ?tracker.time_since_fresh_update(),
+                            allocations = response.allocations.len(),
+                            "No fresh network subgraph data for extended period, accepting stale-but-improved data"
+                        );
+                    } else {
+                        tracing::info!(
+                            block_number = ?response.block_number,
+                            block_timestamp = ?response.block_timestamp,
+                            age_minutes = age_mins,
+                            allocations = response.allocations.len(),
+                            "Accepted stale network subgraph data (fresher than previous best)"
+                        );
+                    }
+                }
+                Some(FreshnessResult::StaleRejected { age_mins }) => {
+                    // Log at appropriate level based on escalation state
+                    if tracker.should_escalate() {
+                        tracing::error!(
+                            block_number = ?response.block_number,
+                            block_timestamp = ?response.block_timestamp,
+                            current_best_timestamp = tracker.best_timestamp(),
+                            age_minutes = age_mins,
+                            time_since_fresh = ?tracker.time_since_fresh_update(),
+                            max_staleness_minutes = tracker.max_staleness_mins(),
+                            "No fresh network subgraph data for extended period, rejecting stale data"
+                        );
+                    } else {
+                        tracing::warn!(
+                            block_number = ?response.block_number,
+                            block_timestamp = ?response.block_timestamp,
+                            current_best_timestamp = tracker.best_timestamp(),
+                            age_minutes = age_mins,
+                            max_staleness_minutes = tracker.max_staleness_mins(),
+                            "Rejecting stale network subgraph data (not fresher than current best)"
+                        );
+                    }
+                    return Err(anyhow::anyhow!(
+                        "Network subgraph data is {} minutes old, not fresher than current best",
+                        age_mins
+                    ));
+                }
+                None => {
+                    // Staleness check disabled or invalid timestamp
+                    tracing::debug!(
+                        block_number = ?response.block_number,
+                        allocations = response.allocations.len(),
+                        "Network subgraph data accepted (staleness check disabled or no timestamp)"
+                    );
+                }
+            }
+
+            Ok(response.allocations)
+        }
     })
     .await
 }
 
-pub async fn get_allocations(
+/// Fetches allocations from the network subgraph with metadata for freshness validation.
+///
+/// This function does NOT perform staleness validation - that is the caller's responsibility.
+/// Use `validate_freshness()` to check if the response is fresh enough.
+pub async fn get_allocations_with_metadata(
     network_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     recently_closed_allocation_buffer: Duration,
-) -> Result<HashMap<Address, Allocation>, anyhow::Error> {
+) -> Result<AllocationQueryResponse, anyhow::Error> {
     let start = SystemTime::now();
     let since_the_epoch = start
         .duration_since(UNIX_EPOCH)
@@ -47,11 +165,13 @@ pub async fn get_allocations(
     let closed_at_threshold = since_the_epoch - recently_closed_allocation_buffer;
 
     let mut hash: Option<TxHash> = None;
+    let mut block_number: Option<i64> = None;
+    let mut block_timestamp: Option<i64> = None;
     let mut last: Option<String> = None;
     let mut responses = vec![];
     let page_size = 200;
     loop {
-        let result = network_subgraph
+        let mut data = network_subgraph
             .query::<AllocationsQuery, _>(allocations_query::Variables {
                 indexer: indexer_address.to_string().to_ascii_lowercase(),
                 closed_at_threshold: closed_at_threshold.as_secs() as i64,
@@ -63,12 +183,16 @@ pub async fn get_allocations(
                     number_gte: None,
                 }),
             })
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-        let mut data = result?;
+            .await?;
         let page_len = data.allocations.len();
 
+        // Capture block info from meta (first page sets it, subsequent pages use hash for consistency)
+        if let Some(ref meta) = data.meta {
+            if block_number.is_none() {
+                block_number = Some(meta.block.number);
+                block_timestamp = meta.block.timestamp;
+            }
+        }
         hash = data.meta.and_then(|meta| meta.block.hash);
         last = data.allocations.last().map(|entry| entry.id.to_string());
 
@@ -77,23 +201,46 @@ pub async fn get_allocations(
             break;
         }
     }
-    let responses = responses
+
+    let allocations: HashMap<Address, Allocation> = responses
         .into_iter()
         .map(|allocation| allocation.try_into())
-        .collect::<Result<Vec<Allocation>, _>>()?;
-
-    let result: HashMap<Address, Allocation> = responses
+        .collect::<Result<Vec<Allocation>, _>>()?
         .into_iter()
         .map(|allocation| (allocation.id, allocation))
         .collect();
 
     tracing::info!(
-        allocations = result.len(),
+        allocations = allocations.len(),
+        block_number = ?block_number,
+        block_timestamp = ?block_timestamp,
         indexer_address = ?indexer_address,
         "Network subgraph query returned allocations for indexer"
     );
 
-    Ok(result)
+    Ok(AllocationQueryResponse {
+        allocations,
+        block_number,
+        block_timestamp,
+    })
+}
+
+/// Convenience wrapper that fetches allocations without metadata.
+///
+/// This is useful for callers that don't need freshness validation.
+#[allow(dead_code)] // Used in tests and kept as public API for external callers
+pub async fn get_allocations(
+    network_subgraph: &'static SubgraphClient,
+    indexer_address: Address,
+    recently_closed_allocation_buffer: Duration,
+) -> Result<HashMap<Address, Allocation>, anyhow::Error> {
+    let response = get_allocations_with_metadata(
+        network_subgraph,
+        indexer_address,
+        recently_closed_allocation_buffer,
+    )
+    .await?;
+    Ok(response.allocations)
 }
 
 #[cfg(test)]

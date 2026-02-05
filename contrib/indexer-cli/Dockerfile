@@ -8,10 +8,10 @@ RUN apt-get update && apt-get install -y python3 build-essential git curl
 
 WORKDIR /opt
 
-# Clone the indexer repository and checkout horizon branch
+# Clone the indexer repository and checkout main branch
 RUN git clone https://github.com/graphprotocol/indexer.git && \
     cd indexer && \
-    git checkout horizon
+    git checkout main
 
 WORKDIR /opt/indexer
 

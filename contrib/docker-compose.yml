@@ -5,10 +5,9 @@ services:
       dockerfile: ./contrib/indexer-service/Dockerfile
     container_name: indexer-service
     volumes:
-      - ./local-network/tap-contracts.json:/opt/contracts.json:ro
-      - ./local-network/horizon.json:/opt/horizon.json:ro
-      - ./local-network/subgraph-service.json:/opt/subgraph-service.json:ro
-
+      - ./local-network/config/local/tap-contracts.json:/opt/contracts.json:ro
+      - ./local-network/config/local/horizon.json:/opt/horizon.json:ro
+      - ./local-network/config/local/subgraph-service.json:/opt/subgraph-service.json:ro
       - ./local-network/.env:/opt/.env:ro
       - ../migrations:/opt/migrations:ro
     environment:
@@ -16,6 +15,7 @@ services:
       - RUST_LOG=debug
     ports:
       - "7601:7601"
+      - "7302:7300"
     networks:
       - local-network
     healthcheck:
@@ -41,16 +41,16 @@ services:
         condition: service_healthy
     volumes:
       - ./local-network/.env:/opt/.env:ro
-      - ./local-network/tap-contracts.json:/opt/contracts.json:ro
-      - ./local-network/horizon.json:/opt/horizon.json:ro
-      - ./local-network/subgraph-service.json:/opt/subgraph-service.json:ro
+      - ./local-network/config/local/tap-contracts.json:/opt/contracts.json:ro
+      - ./local-network/config/local/horizon.json:/opt/horizon.json:ro
+      - ./local-network/config/local/subgraph-service.json:/opt/subgraph-service.json:ro
       - ../migrations:/opt/migrations:ro
     environment:
       - RUST_BACKTRACE=1
       - RUST_LOG=debug
       - PROFILER=${PROFILER:-none}
     ports:
-      - "7300:7300"
+      - "7303:7300"
     networks:
       - local-network
     healthcheck:

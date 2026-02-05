@@ -13,12 +13,9 @@ jobs:
     container:
       image: rust:1.90-bookworm
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
-      - run: |
-          # Install and use nightly rustfmt to honor repo's rustfmt.toml
-          rustup toolchain install nightly --profile minimal
-          rustup component add --toolchain nightly rustfmt
-          cargo +nightly fmt --all -- --check
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - run: rustup component add rustfmt
+      - run: cargo fmt --all -- --check
 
   sqlx:
     name: prepared query metadata is up-to-date
@@ -40,7 +37,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres@postgres:5432
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install libsasl2-dev
         run: apt-get update && apt-get install -y libsasl2-dev
       - name: Install protobuf compiler
@@ -72,7 +69,7 @@ jobs:
       DATABASE_URL: postgres://postgres@postgres:5432
       SQLX_OFFLINE: true
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install libsasl2-dev
         run: apt-get update && apt-get install -y libsasl2-dev
       - name: Install protobuf compiler
@@ -88,12 +85,8 @@ jobs:
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
         if: ${{ !startsWith(github.head_ref, 'renovate/') }}
-      - run: |
-          # Install and use nightly clippy per repo guidelines
-          rustup toolchain install nightly --profile minimal
-          rustup component add --toolchain nightly clippy
-          # Temporarily allowing dead-code, while denying all other warnings
-          cargo +nightly clippy --all-features --all-targets -- -A dead-code -D warnings
+      - run: rustup component add clippy
+      - run: cargo clippy --all-features --all-targets -- -A dead-code -D warnings
 
   test-and-coverage:
     name: cargo test and coverage
@@ -106,7 +99,7 @@ jobs:
       SQLX_OFFLINE: true
       DOCKER_HOST: unix:///var/run/docker.sock
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install Docker CLI and verify
         run: |
           apt-get update
@@ -151,7 +144,7 @@ jobs:
       SQLX_OFFLINE: true
       DOCKER_HOST: unix:///var/run/docker.sock
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install Docker CLI and verify
         run: |
           apt-get update

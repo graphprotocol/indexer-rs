@@ -1,10 +1,11 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use axum::{body::Bytes, extract::State, response::IntoResponse, Json};
-use indexer_monitor::SubgraphClient;
+use axum::{body::Bytes, extract::State, response::IntoResponse};
+use indexer_monitor::{SubgraphClient, SubgraphQueryError};
 use reqwest::StatusCode;
-use serde_json::json;
+
+use crate::error::StatusCodeExt;
 
 #[autometrics::autometrics]
 pub async fn static_subgraph_request_handler(
@@ -24,31 +25,20 @@ pub async fn static_subgraph_request_handler(
 
 #[derive(Debug, thiserror::Error)]
 pub enum StaticSubgraphError {
-    #[error("Failed to query subgraph: {0}")]
-    FailedToQuery(#[from] anyhow::Error),
+    #[error("Failed to query subgraph")]
+    SubgraphQuery(#[from] SubgraphQueryError),
 
-    #[error("Failed to parse subgraph response: {0}")]
-    FailedToParse(#[from] reqwest::Error),
+    #[error("Failed to parse subgraph response")]
+    ResponseParse(#[from] reqwest::Error),
 }
 
-impl From<&StaticSubgraphError> for StatusCode {
-    fn from(value: &StaticSubgraphError) -> Self {
-        match value {
-            StaticSubgraphError::FailedToQuery(_) => StatusCode::SERVICE_UNAVAILABLE,
-            StaticSubgraphError::FailedToParse(_) => StatusCode::BAD_GATEWAY,
+impl StatusCodeExt for StaticSubgraphError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            StaticSubgraphError::SubgraphQuery(_) => StatusCode::SERVICE_UNAVAILABLE,
+            StaticSubgraphError::ResponseParse(_) => StatusCode::BAD_GATEWAY,
         }
     }
 }
 
-impl IntoResponse for StaticSubgraphError {
-    fn into_response(self) -> axum::response::Response {
-        tracing::error!(%self, "StaticSubgraphError occurred.");
-        (
-            StatusCode::from(&self),
-            Json(json! {{
-                "message": self.to_string(),
-            }}),
-        )
-            .into_response()
-    }
-}
+crate::impl_service_error_response!(StaticSubgraphError, "StaticSubgraphError");

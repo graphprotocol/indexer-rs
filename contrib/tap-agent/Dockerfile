@@ -23,8 +23,7 @@ RUN mkdir -p /opt/profiling && chmod 777 /opt/profiling
 COPY contrib/tap-agent/start.sh /usr/local/bin/start.sh
 
 # Copy the horizon.json and .env files
-COPY contrib/local-network/horizon.json /opt/horizon.json
-COPY contrib/local-network/tap-contracts.json /opt/contracts.json
+# These config files are mounted at runtime by docker-compose.
 COPY contrib/local-network/.env /opt/.env
 RUN chmod +x /usr/local/bin/start.sh
 

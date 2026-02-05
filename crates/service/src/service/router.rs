@@ -37,6 +37,11 @@ use tower_http::{
 
 use super::{release::IndexerServiceRelease, GraphNodeState};
 use crate::{
+    constants::{
+        DEFAULT_ROUTE_PATH, DISPUTE_MANAGER_POLL_INTERVAL, MISC_RATE_LIMIT_BURST_SIZE,
+        MISC_RATE_LIMIT_REPLENISH_INTERVAL, STATIC_SUBGRAPH_RATE_LIMIT_BURST_SIZE,
+        STATIC_SUBGRAPH_RATE_LIMIT_REPLENISH_INTERVAL,
+    },
     metrics::{FAILED_RECEIPT, HANDLER_HISTOGRAM},
     middleware::{
         allocation_middleware, attestation_middleware,
@@ -45,7 +50,9 @@ use crate::{
         sender_middleware, signer_middleware, AllocationState, AttestationState,
         PrometheusMetricsMiddlewareLayer, SenderState, TapContextState,
     },
-    routes::{self, health, request_handler, static_subgraph_request_handler},
+    routes::{
+        self, health, healthz, request_handler, static_subgraph_request_handler, HealthzState,
+    },
     tap::{IndexerTapContext, TapChecksConfig},
     wallet::public_key,
 };
@@ -90,18 +97,6 @@ pub struct ServiceRouter {
     dispute_manager: Option<DisputeManagerWatcher>,
 }
 
-const MISC_BURST_SIZE: u32 = 10;
-/// Replenish interval in milliseconds. 100ms = 10 req/s after burst is exhausted.
-const MISC_REPLENISH_INTERVAL_MS: u64 = 100;
-
-const STATIC_BURST_SIZE: u32 = 50;
-/// Replenish interval in milliseconds. 20ms = 50 req/s after burst is exhausted.
-const STATIC_REPLENISH_INTERVAL_MS: u64 = 20;
-
-const DISPUTE_MANAGER_INTERVAL: Duration = Duration::from_secs(3600);
-
-const DEFAULT_ROUTE: &str = "/";
-
 impl ServiceRouter {
     pub async fn create_router(self) -> anyhow::Result<Router> {
         let indexer_address = self.indexer.indexer_address;
@@ -141,6 +136,7 @@ impl ServiceRouter {
                 indexer_address,
                 network.config.syncing_interval_secs,
                 network.recently_closed_allocation_buffer_secs,
+                network.max_data_staleness_mins,
             )
             .await
             .expect("Failed to initialize indexer_allocations watcher"),
@@ -191,7 +187,7 @@ impl ServiceRouter {
         let dispute_manager = match (self.dispute_manager, self.network_subgraph.as_ref()) {
             (Some(dispute_manager), _) => dispute_manager,
             (_, Some((network_subgraph, _))) => {
-                dispute_manager(network_subgraph, DISPUTE_MANAGER_INTERVAL)
+                dispute_manager(network_subgraph, DISPUTE_MANAGER_POLL_INTERVAL)
                     .await
                     .expect("Failed to initialize dispute manager")
             }
@@ -211,13 +207,18 @@ impl ServiceRouter {
         // Rate limits by allowing bursts of 10 requests and requiring 100ms of
         // time between consecutive requests after that, effectively rate
         // limiting to 10 req/s.
-        let misc_rate_limiter = create_rate_limiter(MISC_REPLENISH_INTERVAL_MS, MISC_BURST_SIZE);
+        let misc_rate_limiter = create_rate_limiter(
+            MISC_RATE_LIMIT_REPLENISH_INTERVAL,
+            MISC_RATE_LIMIT_BURST_SIZE,
+        );
 
         // Rate limits by allowing bursts of 50 requests and requiring 20ms of
         // time between consecutive requests after that, effectively rate
         // limiting to 50 req/s.
-        let static_subgraph_rate_limiter =
-            create_rate_limiter(STATIC_REPLENISH_INTERVAL_MS, STATIC_BURST_SIZE);
+        let static_subgraph_rate_limiter = create_rate_limiter(
+            STATIC_SUBGRAPH_RATE_LIMIT_REPLENISH_INTERVAL,
+            STATIC_SUBGRAPH_RATE_LIMIT_BURST_SIZE,
+        );
 
         // load serve_network_subgraph route
         let serve_network_subgraph = match (
@@ -231,7 +232,7 @@ impl ServiceRouter {
                 let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
 
                 Router::new().route(
-                    DEFAULT_ROUTE,
+                    DEFAULT_ROUTE_PATH,
                     post(static_subgraph_request_handler)
                         .route_layer(auth_layer)
                         .route_layer(static_subgraph_rate_limiter.clone())
@@ -249,7 +250,7 @@ impl ServiceRouter {
         let serve_escrow_subgraph = match (
             serve_auth_token.as_ref(),
             serve_escrow_subgraph,
-            self.escrow_subgraph,
+            self.escrow_subgraph.as_ref(),
         ) {
             (Some(free_auth_token), true, Some((escrow_subgraph, _))) => {
                 tracing::info!("Serving escrow subgraph at /escrow");
@@ -257,11 +258,11 @@ impl ServiceRouter {
                 let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
 
                 Router::new().route(
-                    DEFAULT_ROUTE,
+                    DEFAULT_ROUTE_PATH,
                     post(static_subgraph_request_handler)
                         .route_layer(auth_layer)
                         .route_layer(static_subgraph_rate_limiter)
-                        .with_state(escrow_subgraph),
+                        .with_state(*escrow_subgraph),
                 )
             }
             (_, true, _) => {
@@ -270,6 +271,9 @@ impl ServiceRouter {
             }
             _ => Router::new(),
         };
+
+        let escrow_subgraph_client = self.escrow_subgraph.as_ref().map(|(client, _)| *client);
+        let network_subgraph_client = self.network_subgraph.as_ref().map(|(client, _)| *client);
 
         let post_request_handler = {
             // Create tap manager to validate receipts
@@ -292,10 +296,13 @@ impl ServiceRouter {
                     .map(|addr| vec![addr]);
 
                 let checks = IndexerTapContext::get_checks(TapChecksConfig {
-                    pgpool: self.database,
+                    pgpool: self.database.clone(),
                     indexer_allocations: allocations.clone(),
                     escrow_accounts_v1: escrow_accounts_v1.clone(),
                     escrow_accounts_v2: escrow_accounts_v2.clone(),
+                    escrow_subgraph: escrow_subgraph_client,
+                    network_subgraph: network_subgraph_client,
+                    indexer_address: self.indexer.indexer_address,
                     timestamp_error_tolerance,
                     receipt_max_value,
                     allowed_data_services,
@@ -416,7 +423,7 @@ impl ServiceRouter {
             );
 
         let version = match self.release {
-            Some(release) => Router::new().route(DEFAULT_ROUTE, get(Json(release))),
+            Some(release) => Router::new().route(DEFAULT_ROUTE_PATH, get(Json(release))),
             None => Router::new(),
         };
 
@@ -434,8 +441,8 @@ impl ServiceRouter {
 
         // Graph node state
         let graphnode_state = GraphNodeState {
-            graph_node_client: self.http_client,
-            graph_node_status_url: self.graph_node.status_url,
+            graph_node_client: self.http_client.clone(),
+            graph_node_status_url: self.graph_node.status_url.clone(),
             graph_node_query_base_url: self.graph_node.query_url,
         };
 
@@ -451,9 +458,16 @@ impl ServiceRouter {
             Router::new().nest(&url_prefix, data_routes)
         };
 
+        let healthz_state = HealthzState {
+            db: self.database.clone(),
+            http_client: self.http_client.clone(),
+            graph_node_status_url: self.graph_node.status_url.clone(),
+        };
+
         let misc_routes = Router::new()
             .route("/", get("Service is up and running"))
             .route("/info", get(operator_address))
+            .route("/healthz", get(healthz).with_state(healthz_state))
             .nest("/version", version)
             .nest("/escrow", serve_escrow_subgraph)
             .nest("/network", serve_network_subgraph)
@@ -479,13 +493,13 @@ impl ServiceRouter {
 }
 
 fn create_rate_limiter(
-    replenish_interval_ms: u64,
+    replenish_interval: Duration,
     burst_size: u32,
 ) -> GovernorLayer<SmartIpKeyExtractor, NoOpMiddleware<QuantaInstant>> {
     GovernorLayer {
         config: Arc::new(
             GovernorConfigBuilder::default()
-                .per_millisecond(replenish_interval_ms)
+                .per_millisecond(replenish_interval.as_millis() as u64)
                 .burst_size(burst_size)
                 .key_extractor(SmartIpKeyExtractor)
                 .finish()

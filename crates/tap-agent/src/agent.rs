@@ -102,6 +102,7 @@ pub async fn start_agent(
                                 syncing_interval_secs: network_sync_interval,
                             },
                         recently_closed_allocation_buffer_secs: recently_closed_allocation_buffer,
+                        max_data_staleness_mins,
                     },
                 escrow:
                     EscrowSubgraphConfig {
@@ -147,6 +148,7 @@ pub async fn start_agent(
         *indexer_address,
         *network_sync_interval,
         *recently_closed_allocation_buffer,
+        *max_data_staleness_mins,
     )
     .await
     .with_context(|| "Failed to initialize indexer_allocations watcher")?;

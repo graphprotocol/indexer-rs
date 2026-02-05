@@ -23,8 +23,7 @@ COPY --from=build /root/target/release/indexer-service-rs /usr/local/bin/indexer
 # Copy our start script into the image
 COPY contrib/local-network/.env /opt/.env
 COPY contrib/indexer-service/start.sh /usr/local/bin/start.sh
-COPY contrib/local-network/horizon.json /opt/horizon.json
-COPY contrib/local-network/tap-contracts.json /opt/contracts.json
+# These config files are mounted at runtime by docker-compose.
 
 RUN chmod +x /usr/local/bin/start.sh
 

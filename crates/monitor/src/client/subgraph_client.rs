@@ -1,7 +1,6 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::anyhow;
 use axum::body::Bytes;
 use graphql_client::GraphQLQuery;
 use reqwest::{header, Url};
@@ -10,7 +9,33 @@ use tokio::sync::watch::Receiver;
 
 use super::monitor::{monitor_deployment_status, DeploymentStatus};
 
-pub type ResponseResult<T> = Result<T, anyhow::Error>;
+/// Errors that can occur when querying a subgraph.
+#[derive(Debug, thiserror::Error)]
+pub enum SubgraphQueryError {
+    /// The deployment is not synced or healthy.
+    #[error("Deployment '{0}' is not ready or healthy to be queried")]
+    DeploymentNotReady(Url),
+
+    /// HTTP request failed.
+    #[error("HTTP request failed")]
+    HttpRequest(#[source] reqwest::Error),
+
+    /// Failed to parse HTTP response as JSON.
+    #[error("Failed to parse response")]
+    ResponseParse(#[source] reqwest::Error),
+
+    /// GraphQL query returned errors.
+    #[error("GraphQL errors: {0}")]
+    GraphQLErrors(String),
+
+    /// GraphQL response contained neither data nor errors.
+    #[error("No data or errors in response for query to {0}")]
+    EmptyResponse(Url),
+
+    /// GraphQL response contained partial data with errors (unsupported).
+    #[error("Partial response with errors (unsupported): {0}")]
+    PartialResponse(String),
+}
 
 #[derive(Debug, Clone)]
 pub struct DeploymentDetails {
@@ -113,14 +138,13 @@ impl DeploymentClient {
     pub async fn query<T: GraphQLQuery>(
         &self,
         variables: T::Variables,
-    ) -> Result<ResponseResult<T::ResponseData>, anyhow::Error> {
+    ) -> Result<T::ResponseData, SubgraphQueryError> {
         if let Some(ref status) = self.status {
             let deployment_status = status.borrow();
 
             if !deployment_status.synced || &deployment_status.health != "healthy" {
-                return Err(anyhow!(
-                    "Deployment `{}` is not ready or healthy to be queried",
-                    self.query_url
+                return Err(SubgraphQueryError::DeploymentNotReady(
+                    self.query_url.clone(),
                 ));
             }
         }
@@ -136,32 +160,29 @@ impl DeploymentClient {
             req = req.header(header::AUTHORIZATION, format!("Bearer {token}"));
         }
 
-        let reqwest_response = req.send().await?;
-        let response: graphql_client::Response<T::ResponseData> = reqwest_response.json().await?;
+        let reqwest_response = req.send().await.map_err(SubgraphQueryError::HttpRequest)?;
+        let response: graphql_client::Response<T::ResponseData> = reqwest_response
+            .json()
+            .await
+            .map_err(SubgraphQueryError::ResponseParse)?;
 
-        // TODO handle partial responses
-        Ok(match (response.data, response.errors) {
+        match (response.data, response.errors) {
             (Some(data), None) => Ok(data),
-            (None, Some(errors)) => Err(anyhow!("{errors:?}")),
-            (Some(_data), Some(err)) => Err(anyhow!("Unsupported partial results. Error: {err:?}")),
-            (None, None) => {
-                let body = serde_json::to_string(&body).unwrap_or_default();
-                Err(anyhow!(
-                    "No data or error returned for query: {body}. Endpoint: {}",
-                    self.query_url.as_str()
-                ))
+            (None, Some(errors)) => Err(SubgraphQueryError::GraphQLErrors(format!("{errors:?}"))),
+            (Some(_data), Some(errors)) => {
+                Err(SubgraphQueryError::PartialResponse(format!("{errors:?}")))
             }
-        })
+            (None, None) => Err(SubgraphQueryError::EmptyResponse(self.query_url.clone())),
+        }
     }
 
-    pub async fn query_raw(&self, body: Bytes) -> Result<reqwest::Response, anyhow::Error> {
+    pub async fn query_raw(&self, body: Bytes) -> Result<reqwest::Response, SubgraphQueryError> {
         if let Some(ref status) = self.status {
             let deployment_status = status.borrow();
 
             if !deployment_status.synced || &deployment_status.health != "healthy" {
-                return Err(anyhow!(
-                    "Deployment `{}` is not ready or healthy to be queried",
-                    self.query_url
+                return Err(SubgraphQueryError::DeploymentNotReady(
+                    self.query_url.clone(),
                 ));
             }
         }
@@ -177,7 +198,7 @@ impl DeploymentClient {
             req = req.header(header::AUTHORIZATION, format!("Bearer {token}"));
         }
 
-        Ok(req.send().await?)
+        req.send().await.map_err(SubgraphQueryError::HttpRequest)
     }
 }
 
@@ -212,7 +233,7 @@ impl SubgraphClient {
     pub async fn query<Q, V>(
         &self,
         variables: Q::Variables,
-    ) -> Result<ResponseResult<Q::ResponseData>, anyhow::Error>
+    ) -> Result<Q::ResponseData, SubgraphQueryError>
     where
         Q: GraphQLQuery<Variables = V>,
         V: Clone,
@@ -234,18 +255,16 @@ impl SubgraphClient {
         self.remote_client
             .query::<Q>(variables)
             .await
-            .map_err(|err| {
+            .inspect_err(|err| {
                 tracing::warn!(
                     query_url = %self.remote_client.query_url,
                     error = %err,
                     "Failed to query remote subgraph deployment"
                 );
-
-                err
             })
     }
 
-    pub async fn query_raw(&self, query: Bytes) -> Result<reqwest::Response, anyhow::Error> {
+    pub async fn query_raw(&self, query: Bytes) -> Result<reqwest::Response, SubgraphQueryError> {
         // Try the local client first; if that fails, log the error and move on
         // to the remote client
         if let Some(ref local_client) = self.local_client {
@@ -260,15 +279,16 @@ impl SubgraphClient {
         }
 
         // Try the remote client
-        self.remote_client.query_raw(query).await.map_err(|err| {
-            tracing::warn!(
-                query_url = %self.remote_client.query_url,
-                error = %err,
-                "Failed to query remote subgraph deployment"
-            );
-
-            err
-        })
+        self.remote_client
+            .query_raw(query)
+            .await
+            .inspect_err(|err| {
+                tracing::warn!(
+                    query_url = %self.remote_client.query_url,
+                    error = %err,
+                    "Failed to query remote subgraph deployment"
+                );
+            })
     }
 }
 
@@ -328,8 +348,7 @@ mod test {
         let result = network_subgraph_client()
             .await
             .query::<CurrentEpoch, _>(current_epoch::Variables {})
-            .await
-            .unwrap();
+            .await;
 
         assert!(result.is_ok());
     }
@@ -408,8 +427,7 @@ mod test {
             .await
             .query::<UserQuery, _>(user_query::Variables {})
             .await
-            .expect("Query should succeed")
-            .expect("Query result should have a value");
+            .expect("Query should succeed");
 
         assert_eq!(data.user.name, "local".to_string());
     }
@@ -488,8 +506,7 @@ mod test {
             .await
             .query::<UserQuery, _>(user_query::Variables {})
             .await
-            .expect("Query should succeed")
-            .expect("Query result should have a value");
+            .expect("Query should succeed");
 
         assert_eq!(data.user.name, "remote".to_string());
     }
@@ -568,8 +585,7 @@ mod test {
             .await
             .query::<UserQuery, _>(user_query::Variables {})
             .await
-            .expect("Query should succeed")
-            .expect("Query result should have a value");
+            .expect("Query should succeed");
 
         assert_eq!(data.user.name, "remote".to_string());
     }
@@ -636,8 +652,7 @@ mod test {
         let data = client
             .query::<UserQuery, _>(user_query::Variables {})
             .await
-            .expect("Query should succeed")
-            .expect("Query result should have a value");
+            .expect("Query should succeed");
 
         // Since status monitoring failed, local_client is None and we use remote only
         assert_eq!(data.user.name, "remote".to_string());

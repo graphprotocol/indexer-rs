@@ -3,12 +3,9 @@
 
 pub mod cost_model;
 
-use std::time::Duration;
-
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
-const DATABASE_TIMEOUT: Duration = Duration::from_secs(30);
-const DATABASE_MAX_CONNECTIONS: u32 = 50;
+use crate::constants::{DATABASE_MAX_CONNECTIONS, DATABASE_TIMEOUT};
 
 pub async fn connect(url: &str) -> PgPool {
     tracing::debug!("Connecting to database");

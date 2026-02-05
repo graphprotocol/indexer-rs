@@ -25,6 +25,16 @@ async fn sender_account_layer_test() {
     let test_db = test_assets::setup_shared_test_db().await;
     let pgpool = test_db.pool;
     let mock_server = MockServer::start().await;
+    mock_server
+        .register(
+            Mock::given(method("POST"))
+                .and(body_string_contains("paymentsEscrowTransactions"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({ "data": { "paymentsEscrowTransactions": [] } })),
+                ),
+        )
+        .await;
     let mock_escrow_subgraph_server: MockServer = MockServer::start().await;
     mock_escrow_subgraph_server
         .register(Mock::given(method("POST")).respond_with(
@@ -40,7 +50,7 @@ async fn sender_account_layer_test() {
         .await
         .unwrap();
 
-    let (sender_account, mut msg_receiver, _, _, _) = create_sender_account()
+    let (sender_account, mut msg_receiver, _, _, _, _) = create_sender_account()
         .pgpool(pgpool.clone())
         .max_amount_willing_to_lose_grt(TRIGGER_VALUE + 1000)
         .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
