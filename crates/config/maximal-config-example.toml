@@ -103,7 +103,7 @@ syncing_interval_secs = 60
 [blockchain]
 # The chain ID of the network that the graph network is running on
 chain_id = 1337
-# Legacy verifier (deprecated; set to the same as v2 for compatibility).
+# Deprecated verifier address; keep it the same as the Horizon verifier.
 receipts_verifier_address = "0x3333333333333333333333333333333333333333"
 # Horizon addresses; required when [horizon].enabled = true
 receipts_verifier_address_v2 = "0x3333333333333333333333333333333333333333"
@@ -205,7 +205,7 @@ hardhat = "100"
 
 [horizon]
 # Enable Horizon support and detection
-# When enabled: Horizon-only operation, checks Horizon contracts via the network subgraph
+# When enabled: checks that Horizon contracts are active via the network subgraph
 # When enabled, set `blockchain.subgraph_service_address` and
 # `blockchain.receipts_verifier_address_v2`
 #

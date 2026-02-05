@@ -379,7 +379,7 @@ impl Config {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct IndexerConfig {
     pub indexer_address: Address,
-    /// Single operator mnemonic (for backward compatibility).
+    /// Single operator mnemonic.
     /// Use `operator_mnemonics` for multiple mnemonics.
     #[serde(default)]
     pub operator_mnemonic: Option<Mnemonic>,
@@ -393,8 +393,7 @@ impl IndexerConfig {
     /// Get all configured operator mnemonics.
     ///
     /// Returns mnemonics from both `operator_mnemonic` (singular) and
-    /// `operator_mnemonics` (plural) fields combined. This allows for
-    /// backward compatibility while supporting multiple mnemonics.
+    /// `operator_mnemonics` (plural) fields combined.
     ///
     /// Note: Config validation ensures at least one mnemonic is configured
     /// before this method is called. Returns an empty Vec only if called
@@ -546,8 +545,7 @@ pub enum TheGraphChainId {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
-    /// Verifier address for legacy receipts (deprecated).
-    /// Horizon uses `receipts_verifier_address_v2` when set.
+    /// Deprecated verifier address; keep it the same as the Horizon verifier.
     pub receipts_verifier_address: Address,
     /// Verifier address for Horizon receipts.
     pub receipts_verifier_address_v2: Option<Address>,

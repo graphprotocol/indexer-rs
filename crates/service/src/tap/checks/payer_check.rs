@@ -161,6 +161,4 @@ mod tests {
         let err_msg = err.to_string();
         assert!(err_msg.contains("Could not find recovered sender"));
     }
-
-    // V1 tests removed: service is Horizon-only.
 }
