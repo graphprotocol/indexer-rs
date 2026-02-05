@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.8.1...indexer-config-v2.0.0) (2026-02-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* TAP agent now requires Horizon mode to be enabled. Legacy V1 receipt handling has been removed in favor of exclusive V2 (Horizon) protocol support. The V1 escrow accounts watcher and hybrid migration mode are no longer available.
+
+### Miscellaneous Chores
+
+* remove support for legacy v1 receipts ([#929](https://github.com/graphprotocol/indexer-rs/issues/929)) ([262c908](https://github.com/graphprotocol/indexer-rs/commit/262c908b77b7fac3a39faf2854657ba1de284454))
+
 ## [1.8.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.8.0...indexer-config-v1.8.1) (2026-01-26)
 
 
