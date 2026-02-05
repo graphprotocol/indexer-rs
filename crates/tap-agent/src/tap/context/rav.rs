@@ -366,18 +366,6 @@ mod test {
         }
     }
 
-    async fn legacy_adapter_with_testcontainers() -> TestContextWithContainer<Legacy> {
-        let test_db = test_assets::setup_shared_test_db().await;
-        let context = TapAgentContext::builder()
-            .pgpool(test_db.pool.clone())
-            .escrow_accounts(watch::channel(EscrowAccounts::default()).1)
-            .build();
-        TestContextWithContainer {
-            context,
-            _test_db: test_db,
-        }
-    }
-
     async fn horizon_adapter_with_testcontainers() -> TestContextWithContainer<Horizon> {
         let test_db = test_assets::setup_shared_test_db().await;
         let context = TapAgentContext::builder()
@@ -394,7 +382,6 @@ mod test {
     /// Insert a single receipt and retrieve it from the database using the adapter.
     /// The point here it to test the deserialization of large numbers.
     #[rstest]
-    #[case(legacy_adapter_with_testcontainers())]
     #[case(horizon_adapter_with_testcontainers())]
     #[tokio::test]
     async fn update_and_retrieve_rav<T>(
