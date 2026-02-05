@@ -365,16 +365,12 @@ impl Config {
     ///
     /// - [`TapMode::Horizon`] when `horizon.enabled = true` with the configured
     ///   `blockchain.subgraph_service_address`
-    /// - the compatibility variant when `horizon.enabled = false` (rejected by validation)
     pub fn tap_mode(&self) -> TapMode {
-        if self.horizon.enabled {
-            TapMode::Horizon {
-                subgraph_service_address: self.blockchain.subgraph_service_address.expect(
-                    "subgraph_service_address should be validated during Config::validate()",
-                ),
-            }
-        } else {
-            TapMode::Legacy
+        TapMode::Horizon {
+            subgraph_service_address: self
+                .blockchain
+                .subgraph_service_address
+                .expect("subgraph_service_address should be validated during Config::validate()"),
         }
     }
 }
@@ -690,14 +686,9 @@ pub struct RavRequestConfig {
 
 /// TAP protocol operation mode.
 ///
-/// Horizon is the production mode; the compatibility variant is kept for
-/// configuration compatibility but is rejected by validation.
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum TapMode {
-    /// Compatibility-only mode (rejected by validation).
-    Legacy,
-
     /// Horizon TAP mode.
     Horizon {
         /// Address of the SubgraphService contract used for Horizon operations.
@@ -713,32 +704,16 @@ impl TapMode {
         matches!(self, TapMode::Horizon { .. })
     }
 
-    /// Compatibility check for non-Horizon mode (rejected by validation).
-    pub fn is_legacy(&self) -> bool {
-        matches!(self, TapMode::Legacy)
-    }
-
     /// Get the SubgraphService address if in Horizon mode
     ///
-    /// Returns `Some(Address)` in Horizon mode, `None` otherwise.
+    /// Returns `Some(Address)` in Horizon mode.
     pub fn subgraph_service_address(&self) -> Option<Address> {
-        match self {
-            TapMode::Legacy => None,
-            TapMode::Horizon {
-                subgraph_service_address,
-            } => Some(*subgraph_service_address),
-        }
+        Some(self.require_subgraph_service_address())
     }
 
     /// Get the SubgraphService address, panicking if not in Horizon mode.
     pub fn require_subgraph_service_address(&self) -> Address {
         match self {
-            TapMode::Legacy => {
-                panic!(
-                    "Attempted to access subgraph_service_address when Horizon is disabled. \
-                       Check tap_mode.is_horizon() before calling this method."
-                )
-            }
             TapMode::Horizon {
                 subgraph_service_address,
             } => *subgraph_service_address,
@@ -750,11 +725,6 @@ impl TapMode {
     /// Alias for [`is_horizon()`](Self::is_horizon) with more explicit naming.
     pub fn supports_v2(&self) -> bool {
         self.is_horizon()
-    }
-
-    /// Compatibility check for non-Horizon-only support (rejected by validation).
-    pub fn v1_only(&self) -> bool {
-        self.is_legacy()
     }
 }
 

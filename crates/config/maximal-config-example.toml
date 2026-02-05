@@ -103,11 +103,11 @@ syncing_interval_secs = 60
 [blockchain]
 # The chain ID of the network that the graph network is running on
 chain_id = 1337
-# Contract address of TAP's receipt aggregate voucher (RAV) verifier.
-receipts_verifier_address = "0x2222222222222222222222222222222222222222"
+# Legacy verifier (deprecated; set to the same as v2 for compatibility).
+receipts_verifier_address = "0x3333333333333333333333333333333333333333"
 # Horizon addresses; required when [horizon].enabled = true
-# receipts_verifier_address_v2 = "0x3333333333333333333333333333333333333333"
-# subgraph_service_address = "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9"
+receipts_verifier_address_v2 = "0x3333333333333333333333333333333333333333"
+subgraph_service_address = "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9"
 
 ##############################################
 # Specific configurations to indexer-service #
