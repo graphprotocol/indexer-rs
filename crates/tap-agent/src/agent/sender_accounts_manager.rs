@@ -576,21 +576,18 @@ impl State {
                 .collection_ids
                 .expect("all receipts V2 should have a collection_id")
                 .iter()
-                .map(|collection_id| {
-                    let trimmed = collection_id.trim();
-                    let hex_str = trimmed.strip_prefix("0x").unwrap_or(trimmed);
-                    if hex_str.len() != 64 {
-                        panic!(
-                            "Invalid collection_id length '{}': expected 64 hex characters, got {}",
-                            trimmed,
-                            hex_str.len()
-                        )
+                .filter_map(|collection_id| {
+                    match Self::parse_collection_id_to_allocation_id(collection_id) {
+                        Ok(allocation_id) => Some(allocation_id),
+                        Err(error) => {
+                            tracing::warn!(
+                                collection_id = %collection_id,
+                                %error,
+                                "Skipping invalid collection_id in tap_horizon_receipts"
+                            );
+                            None
+                        }
                     }
-                    let normalized = format!("0x{hex_str}");
-                    AllocationId::Horizon(
-                        CollectionId::from_str(&normalized)
-                            .unwrap_or_else(|e| panic!("Invalid collection_id '{trimmed}': {e}")),
-                    )
                 })
                 .collect::<HashSet<_>>();
             let signer_id = Address::from_str(&row.signer_address)
@@ -635,11 +632,18 @@ impl State {
             if let Some(allocation_id_strings) = row.allocation_ids {
                 let allocation_ids = allocation_id_strings
                     .iter()
-                    .map(|collection_id| {
-                        AllocationId::Horizon(
-                            CollectionId::from_str(collection_id)
-                                .expect("collection_id should be a valid collection ID"),
-                        )
+                    .filter_map(|collection_id| {
+                        match Self::parse_collection_id_to_allocation_id(collection_id) {
+                            Ok(allocation_id) => Some(allocation_id),
+                            Err(error) => {
+                                tracing::warn!(
+                                    collection_id = %collection_id,
+                                    %error,
+                                    "Skipping invalid collection_id in tap_horizon_ravs"
+                                );
+                                None
+                            }
+                        }
                     })
                     .collect::<HashSet<_>>();
 
@@ -660,6 +664,33 @@ impl State {
             }
         }
         unfinalized_sender_allocations_map
+    }
+
+    /// Parse collection_id strings that may be 20-byte (legacy migration) or 32-byte (Horizon V2).
+    fn parse_collection_id_to_allocation_id(raw: &str) -> anyhow::Result<AllocationId> {
+        let trimmed = raw.trim();
+        let hex_str = trimmed.strip_prefix("0x").unwrap_or(trimmed);
+        match hex_str.len() {
+            64 => {
+                let normalized = format!("0x{hex_str}");
+                let collection_id = CollectionId::from_str(&normalized)
+                    .map_err(|e| anyhow::anyhow!("Invalid 32-byte collection_id '{trimmed}': {e}"))?;
+                Ok(AllocationId::Horizon(collection_id))
+            }
+            40 => {
+                let normalized = format!("0x{hex_str}");
+                let address = Address::from_str(&normalized)
+                    .map_err(|e| anyhow::anyhow!("Invalid 20-byte allocation_id '{trimmed}': {e}"))?;
+                tracing::warn!(
+                    collection_id = %trimmed,
+                    "Found legacy 20-byte allocation_id in Horizon tables; treating as collection_id"
+                );
+                Ok(AllocationId::Horizon(CollectionId::from(address)))
+            }
+            other => Err(anyhow::anyhow!(
+                "Invalid collection_id length '{trimmed}': expected 64 or 40 hex characters, got {other}"
+            )),
+        }
     }
 
     /// Helper function to create [SenderAccountArgs]
