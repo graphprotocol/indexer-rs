@@ -708,11 +708,9 @@ impl TapMode {
         matches!(self, TapMode::Horizon { .. })
     }
 
-    /// Get the SubgraphService address if in Horizon mode
-    ///
-    /// Returns `Some(Address)` in Horizon mode.
-    pub fn subgraph_service_address(&self) -> Option<Address> {
-        Some(self.require_subgraph_service_address())
+    /// Get the SubgraphService address for Horizon mode.
+    pub fn subgraph_service_address(&self) -> Address {
+        self.require_subgraph_service_address()
     }
 
     /// Get the SubgraphService address, panicking if not in Horizon mode.

@@ -150,9 +150,6 @@ pub struct SenderAllocationState<T: NetworkVersion> {
     /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
     /// Domain separator used for Horizon receipts.
-    /// TODO: Double check if we actually need to add an additional domain_sepparator_v2 field
-    /// at first glance it seems like each sender allocation will deal only with one allocation
-    /// type. not both
     domain_separator: Eip712Domain,
     /// Reference to [super::sender_account::SenderAccount] actor
     ///
@@ -486,10 +483,7 @@ where
                 escrow_accounts.clone(),
             )),
         ];
-        let subgraph_service_address = config
-            .tap_mode
-            .subgraph_service_address()
-            .expect("Horizon mode required for sender allocation");
+        let subgraph_service_address = config.tap_mode.subgraph_service_address();
         let context = TapAgentContext::builder()
             .pgpool(pgpool.clone())
             .allocation_id(T::allocation_id_to_address(&allocation_id))
@@ -777,17 +771,17 @@ where
         &self,
         receipts: Vec<(tap_graph::v2::SignedReceipt, String)>,
     ) -> anyhow::Result<()> {
-        let reciepts_len = receipts.len();
-        let mut reciepts_signers = Vec::with_capacity(reciepts_len);
-        let mut encoded_signatures = Vec::with_capacity(reciepts_len);
-        let mut collection_ids = Vec::with_capacity(reciepts_len);
-        let mut payers = Vec::with_capacity(reciepts_len);
-        let mut data_services = Vec::with_capacity(reciepts_len);
-        let mut service_providers = Vec::with_capacity(reciepts_len);
-        let mut timestamps = Vec::with_capacity(reciepts_len);
-        let mut nonces = Vec::with_capacity(reciepts_len);
-        let mut values = Vec::with_capacity(reciepts_len);
-        let mut error_logs = Vec::with_capacity(reciepts_len);
+        let receipts_len = receipts.len();
+        let mut reciepts_signers = Vec::with_capacity(receipts_len);
+        let mut encoded_signatures = Vec::with_capacity(receipts_len);
+        let mut collection_ids = Vec::with_capacity(receipts_len);
+        let mut payers = Vec::with_capacity(receipts_len);
+        let mut data_services = Vec::with_capacity(receipts_len);
+        let mut service_providers = Vec::with_capacity(receipts_len);
+        let mut timestamps = Vec::with_capacity(receipts_len);
+        let mut nonces = Vec::with_capacity(receipts_len);
+        let mut values = Vec::with_capacity(receipts_len);
+        let mut error_logs = Vec::with_capacity(receipts_len);
 
         for (receipt, receipt_error) in receipts {
             let collection_id = receipt.message.collection_id;
