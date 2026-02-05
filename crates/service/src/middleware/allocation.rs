@@ -31,11 +31,10 @@ pub async fn allocation_middleware(
     next: Next,
 ) -> Response {
     if let Some(receipt) = request.extensions().get::<TapReceipt>() {
-        let allocation_id = match receipt {
-            TapReceipt::V1(r) => AllocationId::from(r.message.allocation_id),
-            TapReceipt::V2(r) => AllocationId::from(CollectionId::from(r.message.collection_id)),
-        };
-        request.extensions_mut().insert(allocation_id);
+        if let TapReceipt::V2(r) = receipt {
+            let allocation_id = AllocationId::from(CollectionId::from(r.message.collection_id));
+            request.extensions_mut().insert(allocation_id);
+        }
     } else if let Some(deployment_id) = request.extensions().get::<DeploymentId>() {
         if let Some(allocation_id) = my_state
             .deployment_to_allocation
@@ -62,8 +61,7 @@ mod tests {
     };
     use reqwest::StatusCode;
     use test_assets::{
-        create_signed_receipt, create_signed_receipt_v2, SignedReceiptRequest, ALLOCATION_ID_0,
-        COLLECTION_ID_0, ESCROW_SUBGRAPH_DEPLOYMENT,
+        create_signed_receipt_v2, ALLOCATION_ID_0, COLLECTION_ID_0, ESCROW_SUBGRAPH_DEPLOYMENT,
     };
     use thegraph_core::{AllocationId, DeploymentId};
     use tokio::sync::watch;
@@ -145,65 +143,6 @@ mod tests {
         assert_eq!(
             actual_allocation, expected_allocation,
             "V2 receipt CollectionId {COLLECTION_ID_0} should derive AllocationId {expected_allocation}"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_extracts_correct_allocation_id_from_tap_receipt_v1() {
-        // Verify V1 receipts correctly wrap the allocation address into AllocationId
-        let expected_allocation = AllocationId::from(ALLOCATION_ID_0);
-        let state = create_empty_state();
-        let middleware = from_fn_with_state(state, allocation_middleware);
-
-        let captured = Arc::new(Mutex::new(None::<AllocationId>));
-        let captured_clone = captured.clone();
-
-        let app = Router::new()
-            .route(
-                "/",
-                get(move |extensions: Extensions| {
-                    let captured = captured_clone.clone();
-                    async move {
-                        match extensions.get::<AllocationId>() {
-                            Some(id) => {
-                                *captured.lock().unwrap() = Some(*id);
-                                StatusCode::OK
-                            }
-                            None => StatusCode::BAD_REQUEST,
-                        }
-                    }
-                }),
-            )
-            .layer(middleware);
-
-        let receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .allocation_id(ALLOCATION_ID_0)
-                .build(),
-        )
-        .await;
-        let tap_receipt = TapReceipt::V1(receipt);
-
-        let res = app
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .extension(tap_receipt)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(res.status(), StatusCode::OK);
-
-        let actual_allocation = captured
-            .lock()
-            .unwrap()
-            .expect("Handler should have captured AllocationId");
-        assert_eq!(
-            actual_allocation, expected_allocation,
-            "V1 receipt allocation_id {ALLOCATION_ID_0} should map to AllocationId {expected_allocation}"
         );
     }
 

@@ -5,6 +5,7 @@ use std::{net::SocketAddr, time::Duration};
 
 use axum::{body::to_bytes, extract::ConnectInfo, http::Request, Extension};
 use axum_extra::headers::Header;
+use base64::prelude::*;
 use indexer_config::{
     BlockchainConfig, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
     NonZeroGRT, SubgraphConfig,
@@ -14,11 +15,11 @@ use indexer_service_rs::{
     service::{ServiceRouter, TapHeader},
     QueryBody,
 };
+use prost::Message;
 use reqwest::{Method, StatusCode, Url};
-use test_assets::{
-    create_signed_receipt, SignedReceiptRequest, INDEXER_ALLOCATIONS, TAP_EIP712_DOMAIN,
-};
-use thegraph_core::alloy::primitives::Address;
+use tap_aggregator::grpc::v2::SignedReceipt;
+use test_assets::{create_signed_receipt_v2, INDEXER_ALLOCATIONS};
+use thegraph_core::{alloy::primitives::Address, CollectionId};
 use tokio::sync::watch;
 use tower::Service;
 use wiremock::{
@@ -33,7 +34,6 @@ struct RouterInputs {
     subgraph_client: &'static SubgraphClient,
     escrow_subgraph_config: SubgraphConfig,
     network_subgraph_config: SubgraphConfig,
-    escrow_accounts_v1: watch::Receiver<EscrowAccounts>,
     escrow_accounts_v2: watch::Receiver<EscrowAccounts>,
     allocations:
         watch::Receiver<std::collections::HashMap<Address, indexer_allocation::Allocation>>,
@@ -43,7 +43,6 @@ struct RouterInputs {
 fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
     ServiceRouter::builder()
         .database(inputs.database)
-        .domain_separator(TAP_EIP712_DOMAIN.clone())
         .domain_separator_v2(test_assets::TAP_EIP712_DOMAIN_V2.clone())
         .http_client(inputs.http_client)
         .graph_node(GraphNodeConfig {
@@ -90,7 +89,6 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
                 max_data_staleness_mins: 0,
             },
         )
-        .escrow_accounts_v1(inputs.escrow_accounts_v1)
         .escrow_accounts_v2(inputs.escrow_accounts_v2)
         .dispute_manager(inputs.dispute_manager)
         .allocations(inputs.allocations)
@@ -178,7 +176,6 @@ async fn full_integration_test() {
         subgraph_client,
         escrow_subgraph_config: escrow_subgraph_config(),
         network_subgraph_config: escrow_subgraph_config(),
-        escrow_accounts_v1: escrow_accounts.clone(),
         escrow_accounts_v2: escrow_accounts,
         allocations: allocations.clone(),
         dispute_manager: dispute_manager.clone(),
@@ -227,7 +224,6 @@ async fn full_integration_test() {
         subgraph_client,
         escrow_subgraph_config: escrow_subgraph_config(),
         network_subgraph_config: escrow_subgraph_config(),
-        escrow_accounts_v1: escrow_accounts_fail.clone(),
         escrow_accounts_v2: escrow_accounts_fail,
         allocations,
         dispute_manager,
@@ -244,23 +240,24 @@ async fn full_integration_test() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
 
-    let receipt = create_signed_receipt(
-        SignedReceiptRequest::builder()
-            .allocation_id(allocation.id)
-            .value(100)
-            .build(),
-    )
-    .await;
+    let receipt = create_signed_receipt_v2()
+        .collection_id(CollectionId::from(allocation.id))
+        .value(100)
+        .call()
+        .await;
 
     let query = QueryBody {
         query: "query".into(),
         variables: None,
     };
 
+    let protobuf_receipt = SignedReceipt::from(receipt);
+    let encoded = protobuf_receipt.encode_to_vec();
+    let receipt_b64 = BASE64_STANDARD.encode(encoded);
     let request = Request::builder()
         .method(Method::POST)
         .uri(format!("/subgraphs/id/{deployment}"))
-        .header(TapHeader::name(), serde_json::to_string(&receipt).unwrap())
+        .header(TapHeader::name(), receipt_b64)
         .body(serde_json::to_string(&query).unwrap())
         .unwrap();
 

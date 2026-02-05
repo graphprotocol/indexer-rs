@@ -40,61 +40,21 @@ impl Check<TapReceipt> for ReceiptMaxValueCheck {
 }
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, SystemTime};
-
-    use tap_core::{
-        receipt::{checks::Check, Context},
-        signed_message::Eip712SignedMessage,
-        tap_eip712_domain,
-    };
-    use tap_graph::Receipt;
-    use thegraph_core::alloy::{
-        primitives::{address, Address},
-        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
-    };
+    use tap_core::receipt::{checks::Check, Context};
+    use test_assets::create_signed_receipt_v2;
 
     use super::*;
-    use crate::tap::{CheckingReceipt, Eip712Domain};
+    use crate::tap::CheckingReceipt;
 
-    fn create_signed_receipt_with_custom_value(value: u128) -> CheckingReceipt {
-        let index: u32 = 0;
-        let wallet: PrivateKeySigner = MnemonicBuilder::<English>::default()
-            .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
-            .index(index)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        let eip712_domain_separator: Eip712Domain =
-            tap_eip712_domain(1, Address::from([0x11u8; 20]), tap_core::TapVersion::V1);
-
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_nanos()
-            + Duration::from_secs(33).as_nanos();
-        let timestamp_ns = timestamp as u64;
-
-        let value: u128 = value;
-        let nonce: u64 = 10;
-        let receipt = Eip712SignedMessage::new(
-            &eip712_domain_separator,
-            Receipt {
-                allocation_id: address!("abababababababababababababababababababab"),
-                nonce,
-                timestamp_ns,
-                value,
-            },
-            &wallet,
-        )
-        .unwrap();
-        CheckingReceipt::new(TapReceipt::V1(receipt))
+    async fn create_signed_receipt_with_custom_value(value: u128) -> CheckingReceipt {
+        let receipt = create_signed_receipt_v2().value(value).call().await;
+        CheckingReceipt::new(TapReceipt::V2(receipt))
     }
 
     const RECEIPT_LIMIT: u128 = 10;
     #[tokio::test]
     async fn test_receipt_lower_than_limit() {
-        let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT - 1);
+        let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT - 1).await;
         let timestamp_check = ReceiptMaxValueCheck::new(RECEIPT_LIMIT);
         assert!(timestamp_check
             .check(&Context::new(), &signed_receipt)
@@ -104,7 +64,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_receipt_higher_than_limit() {
-        let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT + 1);
+        let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT + 1).await;
         let timestamp_check = ReceiptMaxValueCheck::new(RECEIPT_LIMIT);
         assert!(timestamp_check
             .check(&Context::new(), &signed_receipt)
@@ -114,7 +74,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_receipt_same_as_limit() {
-        let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT);
+        let signed_receipt = create_signed_receipt_with_custom_value(RECEIPT_LIMIT).await;
         let timestamp_check = ReceiptMaxValueCheck::new(RECEIPT_LIMIT);
         assert!(timestamp_check
             .check(&Context::new(), &signed_receipt)

@@ -30,9 +30,13 @@ impl Check<TapReceipt> for AllocationEligible {
         receipt: &CheckingReceipt,
     ) -> CheckResult {
         let allocation_id = match receipt.signed_receipt() {
-            TapReceipt::V1(receipt) => AllocationId::from(receipt.message.allocation_id),
             TapReceipt::V2(receipt) => {
                 AllocationId::from(CollectionId::from(receipt.message.collection_id))
+            }
+            TapReceipt::V1(_) => {
+                return Err(CheckError::Failed(anyhow!(
+                    "Receipt v1 received but Horizon-only mode is enabled"
+                )));
             }
         };
         let allocation_address = allocation_id.into_inner();

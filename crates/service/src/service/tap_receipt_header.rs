@@ -8,7 +8,6 @@ use base64::prelude::*;
 use prometheus::{register_counter, Counter};
 use prost::Message;
 use tap_aggregator::grpc;
-use tap_graph::SignedReceipt;
 
 use crate::tap::TapReceipt;
 
@@ -54,14 +53,8 @@ impl Header for TapHeader {
                     Ok(TapHeader(TapReceipt::V2(converted_receipt)))
                 }
                 Err(e) => {
-                    tracing::debug!(error = %e, "Could not base64 decode v2 receipt, trying v1");
-                    let parsed_receipt: SignedReceipt =
-                        serde_json::from_slice(raw_receipt.as_ref()).map_err(|e| {
-                            tracing::debug!(error = %e, "Failed to JSON decode v1 receipt");
-                            e
-                        })?;
-                    tracing::debug!("Successfully decoded v1 receipt");
-                    Ok(TapHeader(TapReceipt::V1(parsed_receipt)))
+                    tracing::debug!(error = %e, "Could not base64 decode v2 receipt");
+                    Err(e.into())
                 }
             }
         };
@@ -91,22 +84,10 @@ mod test {
     use base64::prelude::*;
     use prost::Message;
     use tap_aggregator::grpc::v2::SignedReceipt;
-    use test_assets::{create_signed_receipt, create_signed_receipt_v2, SignedReceiptRequest};
+    use test_assets::create_signed_receipt_v2;
 
     use super::TapHeader;
     use crate::tap::TapReceipt;
-
-    #[tokio::test]
-    async fn test_decode_valid_tap_v1_receipt_header() {
-        let original_receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
-        let serialized_receipt = serde_json::to_string(&original_receipt).unwrap();
-        let header_value = HeaderValue::from_str(&serialized_receipt).unwrap();
-        let header_values = vec![&header_value];
-        let decoded_receipt = TapHeader::decode(&mut header_values.into_iter())
-            .expect("tap receipt header value should be valid");
-
-        assert_eq!(decoded_receipt, TapHeader(TapReceipt::V1(original_receipt)));
-    }
 
     #[test_log::test(tokio::test)]
     async fn test_decode_valid_tap_v2_receipt_header() {

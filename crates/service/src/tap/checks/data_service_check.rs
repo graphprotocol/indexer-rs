@@ -29,10 +29,6 @@ impl Check<TapReceipt> for DataServiceCheck {
         receipt: &CheckingReceipt,
     ) -> CheckResult {
         match receipt.signed_receipt() {
-            // Not applicable for V1
-            TapReceipt::V1(_) => Ok(()),
-
-            // Validate data_service for V2
             TapReceipt::V2(r) => {
                 let got = r.message.data_service;
                 if self.allowed.contains(&got) {
@@ -44,6 +40,9 @@ impl Check<TapReceipt> for DataServiceCheck {
                     )))
                 }
             }
+            TapReceipt::V1(_) => Err(CheckError::Failed(anyhow::anyhow!(
+                "Receipt v1 received but Horizon-only mode is enabled"
+            ))),
         }
     }
 }

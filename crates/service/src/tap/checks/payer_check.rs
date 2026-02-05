@@ -38,10 +38,6 @@ impl Check<TapReceipt> for PayerCheck {
         receipt: &CheckingReceipt,
     ) -> CheckResult {
         match receipt.signed_receipt() {
-            // Not applicable for V1 (no payer field in V1 receipts)
-            TapReceipt::V1(_) => Ok(()),
-
-            // Validate payer for V2
             TapReceipt::V2(r) => {
                 // Get the recovered sender from context (injected by sender middleware)
                 let Sender(recovered_sender) = ctx.get::<Sender>().ok_or_else(|| {
@@ -61,6 +57,9 @@ impl Check<TapReceipt> for PayerCheck {
                     )))
                 }
             }
+            TapReceipt::V1(_) => Err(CheckError::Failed(anyhow::anyhow!(
+                "Receipt v1 received but Horizon-only mode is enabled"
+            ))),
         }
     }
 }
@@ -73,7 +72,6 @@ mod tests {
     use tap_core::{
         receipt::Context, signed_message::Eip712SignedMessage, tap_eip712_domain, TapVersion,
     };
-    use tap_graph::Receipt;
     use test_assets::{TAP_SENDER, TAP_SIGNER};
     use thegraph_core::alloy::{
         primitives::{Address, FixedBytes, U256},
@@ -116,21 +114,6 @@ mod tests {
 
         let signed = Eip712SignedMessage::new(&eip712_domain, receipt, &wallet).unwrap();
         CheckingReceipt::new(TapReceipt::V2(signed))
-    }
-
-    fn create_v1_receipt() -> CheckingReceipt {
-        let wallet = create_wallet();
-        let eip712_domain = tap_eip712_domain(1, Address::from([0x11u8; 20]), TapVersion::V1);
-
-        let receipt = Receipt {
-            allocation_id: Address::ZERO,
-            timestamp_ns: 1000,
-            nonce: 1,
-            value: 100,
-        };
-
-        let signed = Eip712SignedMessage::new(&eip712_domain, receipt, &wallet).unwrap();
-        CheckingReceipt::new(TapReceipt::V1(signed))
     }
 
     #[tokio::test]
@@ -186,14 +169,5 @@ mod tests {
         assert!(err_msg.contains("Could not find recovered sender"));
     }
 
-    #[tokio::test]
-    async fn test_payer_check_ignores_v1_receipts() {
-        let check = PayerCheck::new();
-        let ctx = Context::new(); // No sender needed for V1
-
-        let checking = create_v1_receipt();
-
-        let result = check.check(&ctx, &checking).await;
-        assert!(result.is_ok());
-    }
+    // V1 tests removed: service is Horizon-only.
 }

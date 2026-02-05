@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use sqlx::{postgres::PgListener, PgPool};
+use sqlx::{postgres::PgListener, PgPool, Row};
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
 use thegraph_core::alloy::primitives::Address;
 
@@ -16,14 +16,7 @@ use crate::{
     tap::{CheckingReceipt, TapReceipt},
 };
 
-#[derive(Debug)]
-enum DenyListVersion {
-    V1,
-    V2,
-}
-
 pub struct DenyListCheck {
-    sender_denylist_v1: Arc<RwLock<HashSet<Address>>>,
     sender_denylist_v2: Arc<RwLock<HashSet<Address>>>,
     sender_denylist_watcher_cancel_token: tokio_util::sync::CancellationToken,
 
@@ -35,16 +28,7 @@ impl DenyListCheck {
     pub async fn new(pgpool: PgPool) -> Self {
         // Listen to pg_notify events. We start it before updating the sender_denylist so that we
         // don't miss any updates. PG will buffer the notifications until we start consuming them.
-        let mut pglistener_v1 = PgListener::connect_with(&pgpool.clone()).await.unwrap();
         let mut pglistener_v2 = PgListener::connect_with(&pgpool.clone()).await.unwrap();
-        pglistener_v1
-            .listen("scalar_tap_deny_notification")
-            .await
-            .expect(
-                "should be able to subscribe to Postgres Notify events on the channel \
-                'scalar_tap_deny_notification'",
-            );
-
         pglistener_v2
             .listen("tap_horizon_deny_notification")
             .await
@@ -54,11 +38,10 @@ impl DenyListCheck {
             );
 
         // Fetch the denylist from the DB
-        let sender_denylist_v1 = Arc::new(RwLock::new(HashSet::new()));
         let sender_denylist_v2 = Arc::new(RwLock::new(HashSet::new()));
-        Self::sender_denylist_reload_v1(pgpool.clone(), sender_denylist_v1.clone())
+        Self::sender_denylist_reload_v2(pgpool.clone(), sender_denylist_v2.clone())
             .await
-            .expect("should be able to fetch the sender_denylist from the DB on startup");
+            .expect("should be able to fetch the sender denylist from the DB on startup");
 
         #[cfg(test)]
         let notify = std::sync::Arc::new(tokio::sync::Notify::new());
@@ -66,26 +49,14 @@ impl DenyListCheck {
         let sender_denylist_watcher_cancel_token = tokio_util::sync::CancellationToken::new();
         tokio::spawn(Self::sender_denylist_watcher(
             pgpool.clone(),
-            pglistener_v1,
-            sender_denylist_v1.clone(),
-            sender_denylist_watcher_cancel_token.clone(),
-            DenyListVersion::V1,
-            #[cfg(test)]
-            notify.clone(),
-        ));
-
-        tokio::spawn(Self::sender_denylist_watcher(
-            pgpool.clone(),
             pglistener_v2,
             sender_denylist_v2.clone(),
             sender_denylist_watcher_cancel_token.clone(),
-            DenyListVersion::V2,
             #[cfg(test)]
             notify.clone(),
         ));
 
         Self {
-            sender_denylist_v1,
             sender_denylist_v2,
             sender_denylist_watcher_cancel_token,
             #[cfg(test)]
@@ -93,42 +64,25 @@ impl DenyListCheck {
         }
     }
 
-    async fn sender_denylist_reload_v1(
-        pgpool: PgPool,
-        denylist_rwlock: Arc<RwLock<HashSet<Address>>>,
-    ) -> anyhow::Result<()> {
-        // Fetch the denylist from the DB
-        let sender_denylist = sqlx::query!(
-            r#"
-                SELECT sender_address FROM scalar_tap_denylist
-            "#
-        )
-        .fetch_all(&pgpool)
-        .await?
-        .iter()
-        .map(|row| Address::from_str(&row.sender_address))
-        .collect::<Result<HashSet<_>, _>>()?;
-
-        *(denylist_rwlock.write().unwrap()) = sender_denylist;
-
-        Ok(())
-    }
-
     async fn sender_denylist_reload_v2(
         pgpool: PgPool,
         denylist_rwlock: Arc<RwLock<HashSet<Address>>>,
     ) -> anyhow::Result<()> {
         // Fetch the denylist from the DB
-        let sender_denylist = sqlx::query!(
+        let rows = sqlx::query(
             r#"
                 SELECT sender_address FROM tap_horizon_denylist
-            "#
+            "#,
         )
         .fetch_all(&pgpool)
-        .await?
-        .iter()
-        .map(|row| Address::from_str(&row.sender_address))
-        .collect::<Result<HashSet<_>, _>>()?;
+        .await?;
+        let sender_denylist = rows
+            .iter()
+            .map(|row| row.try_get::<String, _>("sender_address"))
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .map(|address| Address::from_str(address))
+            .collect::<Result<HashSet<_>, _>>()?;
 
         *(denylist_rwlock.write().unwrap()) = sender_denylist;
 
@@ -140,7 +94,6 @@ impl DenyListCheck {
         mut pglistener: PgListener,
         denylist: Arc<RwLock<HashSet<Address>>>,
         cancel_token: tokio_util::sync::CancellationToken,
-        version: DenyListVersion,
         #[cfg(test)] notify: std::sync::Arc<tokio::sync::Notify>,
     ) {
         #[derive(serde::Deserialize)]
@@ -158,7 +111,7 @@ impl DenyListCheck {
                 pg_notification = pglistener.recv() => {
                     let pg_notification = pg_notification.expect(
                     "should be able to receive Postgres Notify events on the channel \
-                    'scalar_tap_deny_notification'",
+                    'tap_horizon_deny_notification'",
                     );
 
                     let denylist_notification: DenylistNotification =
@@ -184,17 +137,11 @@ impl DenyListCheck {
                         _ => {
                             tracing::error!(
                                 operation = %denylist_notification.tg_op,
-                                version = ?version,
                                 "Unexpected denylist table notification; reloading denylist"
                             );
-                            match version {
-                                DenyListVersion::V1 => Self::sender_denylist_reload_v1(pgpool.clone(), denylist.clone())
-                                                            .await
-                                                            .expect("should be able to reload the sender denylist"),
-                                DenyListVersion::V2 => Self::sender_denylist_reload_v2(pgpool.clone(), denylist.clone())
-                                                            .await
-                                                            .expect("should be able to reload the sender denylist"),
-                            }
+                            Self::sender_denylist_reload_v2(pgpool.clone(), denylist.clone())
+                                .await
+                                .expect("should be able to reload the sender denylist");
                         }
                     }
                     #[cfg(test)]
@@ -217,16 +164,16 @@ impl Check<TapReceipt> for DenyListCheck {
             .ok_or(CheckError::Failed(anyhow::anyhow!("Could not find sender")))?;
 
         let denied = match receipt.signed_receipt() {
-            TapReceipt::V1(_) => self
-                .sender_denylist_v1
-                .read()
-                .unwrap()
-                .contains(receipt_sender),
             TapReceipt::V2(_) => self
                 .sender_denylist_v2
                 .read()
                 .unwrap()
                 .contains(receipt_sender),
+            TapReceipt::V1(_) => {
+                return Err(CheckError::Failed(anyhow::anyhow!(
+                    "Receipt v1 received but Horizon-only mode is enabled"
+                )))
+            }
         };
 
         // Check that the sender is not denylisted
@@ -253,7 +200,7 @@ impl Drop for DenyListCheck {
 mod tests {
     use sqlx::PgPool;
     use tap_core::receipt::{checks::Check, Context};
-    use test_assets::{self, create_signed_receipt, SignedReceiptRequest, TAP_SENDER};
+    use test_assets::{self, create_signed_receipt_v2, TAP_SENDER};
     use thegraph_core::alloy::hex::ToHexExt;
 
     use super::*;
@@ -268,22 +215,22 @@ mod tests {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         // Add the sender to the denylist
-        sqlx::query!(
+        sqlx::query(
             r#"
-                INSERT INTO scalar_tap_denylist (sender_address)
+                INSERT INTO tap_horizon_denylist (sender_address)
                 VALUES ($1)
             "#,
-            TAP_SENDER.1.encode_hex()
         )
+        .bind(TAP_SENDER.1.encode_hex())
         .execute(&pgpool)
         .await
         .unwrap();
 
-        let signed_receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let signed_receipt = create_signed_receipt_v2().call().await;
 
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
-        let checking_receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
+        let checking_receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
 
         let mut ctx = Context::new();
         ctx.insert(Sender(TAP_SENDER.1));
@@ -299,12 +246,12 @@ mod tests {
     async fn test_sender_denylist_updates() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let signed_receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let signed_receipt = create_signed_receipt_v2().call().await;
 
         let deny_list_check = new_deny_list_check(pgpool.clone()).await;
 
         // Check that the receipt is valid
-        let checking_receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
+        let checking_receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
 
         let mut ctx = Context::new();
         ctx.insert(Sender(TAP_SENDER.1));
@@ -314,13 +261,13 @@ mod tests {
             .unwrap();
 
         // Add the sender to the denylist
-        sqlx::query!(
+        sqlx::query(
             r#"
-                INSERT INTO scalar_tap_denylist (sender_address)
+                INSERT INTO tap_horizon_denylist (sender_address)
                 VALUES ($1)
             "#,
-            TAP_SENDER.1.encode_hex()
         )
+        .bind(TAP_SENDER.1.encode_hex())
         .execute(&pgpool)
         .await
         .unwrap();
@@ -334,13 +281,13 @@ mod tests {
             .is_err());
 
         // Remove the sender from the denylist
-        sqlx::query!(
+        sqlx::query(
             r#"
-                DELETE FROM scalar_tap_denylist
+                DELETE FROM tap_horizon_denylist
                 WHERE sender_address = $1
             "#,
-            TAP_SENDER.1.encode_hex()
         )
+        .bind(TAP_SENDER.1.encode_hex())
         .execute(&pgpool)
         .await
         .unwrap();

@@ -29,10 +29,6 @@ impl Check<TapReceipt> for ServiceProviderCheck {
         receipt: &CheckingReceipt,
     ) -> CheckResult {
         match receipt.signed_receipt() {
-            // Not applicable for V1
-            TapReceipt::V1(_) => Ok(()),
-
-            // Validate data_service for V2
             TapReceipt::V2(r) => {
                 if self.indexer_address == r.message.service_provider {
                     Ok(())
@@ -42,6 +38,9 @@ impl Check<TapReceipt> for ServiceProviderCheck {
                     )))
                 }
             }
+            TapReceipt::V1(_) => Err(CheckError::Failed(anyhow::anyhow!(
+                "Receipt v1 received but Horizon-only mode is enabled"
+            ))),
         }
     }
 }

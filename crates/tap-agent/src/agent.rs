@@ -173,7 +173,7 @@ pub async fn start_agent(
         anyhow::bail!("Legacy TAP mode is no longer supported; enable Horizon mode");
     }
 
-    tracing::info!("Horizon mode configured; checking Network Subgraph readiness");
+    tracing::info!("Horizon mode configured; checking network subgraph readiness");
     match indexer_monitor::is_horizon_active(network_subgraph).await {
         Ok(true) => {
             tracing::info!("Horizon schema available in network subgraph - enabling Horizon mode");
@@ -183,7 +183,8 @@ pub async fn start_agent(
         }
         Ok(false) => {
             anyhow::bail!(
-                "Horizon mode is required, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). Deploy Horizon (V2) contracts and the updated Network Subgraph before starting the TAP agent."
+                "Horizon mode is required, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
+                Ensure Horizon contracts are deployed and the Network Subgraph is updated before starting the TAP agent."
             );
         }
         Err(e) => {

@@ -15,12 +15,8 @@ use crate::{error::IndexerServiceError, tap::TapReceipt};
 /// Stated used by sender middleware
 #[derive(Clone)]
 pub struct SenderState {
-    /// Used to recover the signer address
-    pub domain_separator: Eip712Domain,
     /// Used to recoer the signer addres for V2 receipts(Horizon)
     pub domain_separator_v2: Eip712Domain,
-    /// Used to get the sender address given the signer address if v1 receipt
-    pub escrow_accounts_v1: Option<watch::Receiver<EscrowAccounts>>,
     /// Used to get the sender address given the signer address if v2 receipt
     pub escrow_accounts_v2: Option<watch::Receiver<EscrowAccounts>>,
 }
@@ -49,16 +45,6 @@ pub async fn sender_middleware(
 ) -> Result<Response, IndexerServiceError> {
     if let Some(receipt) = request.extensions().get::<TapReceipt>() {
         let sender = match receipt {
-            TapReceipt::V1(_) => {
-                let signer = receipt.recover_signer(&state.domain_separator)?;
-                if let Some(ref escrow_accounts_v1) = state.escrow_accounts_v1 {
-                    escrow_accounts_v1.borrow().get_sender_for_signer(&signer)?
-                } else {
-                    return Err(IndexerServiceError::EscrowAccount(
-                        EscrowAccountsError::NoSenderFound { signer },
-                    ));
-                }
-            }
             TapReceipt::V2(_) => {
                 let signer = receipt.recover_signer(&state.domain_separator_v2)?;
                 if let Some(ref escrow_accounts_v2) = state.escrow_accounts_v2 {
@@ -68,6 +54,11 @@ pub async fn sender_middleware(
                         EscrowAccountsError::NoSenderFound { signer },
                     ));
                 }
+            }
+            TapReceipt::V1(_) => {
+                return Err(IndexerServiceError::InvalidTapReceipt(
+                    "Receipt v1 received but Horizon-only mode is enabled".into(),
+                ))
             }
         };
         request.extensions_mut().insert(Sender(sender));
@@ -88,8 +79,7 @@ mod tests {
     use indexer_monitor::EscrowAccounts;
     use reqwest::StatusCode;
     use test_assets::{
-        create_signed_receipt, SignedReceiptRequest, ESCROW_ACCOUNTS_BALANCES,
-        ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
+        create_signed_receipt_v2, ESCROW_ACCOUNTS_BALANCES, ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS,
     };
     use tokio::sync::watch;
     use tower::ServiceExt;
@@ -99,12 +89,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_sender_middleware() {
-        let escrow_accounts_v1 = watch::channel(EscrowAccounts::new(
-            ESCROW_ACCOUNTS_BALANCES.to_owned(),
-            ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
-        ))
-        .1;
-
         let escrow_accounts_v2 = watch::channel(EscrowAccounts::new(
             ESCROW_ACCOUNTS_BALANCES.to_owned(),
             ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
@@ -112,9 +96,7 @@ mod tests {
         .1;
 
         let state = SenderState {
-            domain_separator: test_assets::TAP_EIP712_DOMAIN.clone(),
             domain_separator_v2: test_assets::TAP_EIP712_DOMAIN_V2.clone(),
-            escrow_accounts_v1: Some(escrow_accounts_v1),
             escrow_accounts_v2: Some(escrow_accounts_v2),
         };
 
@@ -128,13 +110,13 @@ mod tests {
 
         let app = Router::new().route("/", get(handle)).layer(middleware);
 
-        let receipt = create_signed_receipt(SignedReceiptRequest::builder().build()).await;
+        let receipt = create_signed_receipt_v2().call().await;
 
         let res = app
             .oneshot(
                 Request::builder()
                     .uri("/")
-                    .extension(TapReceipt::V1(receipt))
+                    .extension(TapReceipt::V2(receipt))
                     .body(Body::empty())
                     .unwrap(),
             )

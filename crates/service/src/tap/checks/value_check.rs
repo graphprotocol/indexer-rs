@@ -368,7 +368,7 @@ mod tests {
     use std::time::Duration;
 
     use tap_core::receipt::{checks::Check, Context};
-    use test_assets::{create_signed_receipt, flush_messages, SignedReceiptRequest};
+    use test_assets::{create_signed_receipt_v2, flush_messages};
     use tokio::time::sleep;
 
     use super::{AgoraQuery, MinimumValue};
@@ -508,18 +508,16 @@ mod tests {
             variables: "".into(),
         });
 
-        let signed_receipt =
-            create_signed_receipt(SignedReceiptRequest::builder().value(0).build()).await;
-        let receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
+        let signed_receipt = create_signed_receipt_v2().value(0).call().await;
+        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
 
         assert!(
             check.check(&ctx, &receipt).await.is_err(),
             "Should deny if value is 0 for any query"
         );
 
-        let signed_receipt =
-            create_signed_receipt(SignedReceiptRequest::builder().value(1).build()).await;
-        let receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
+        let signed_receipt = create_signed_receipt_v2().value(1).call().await;
+        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
         assert!(
             check.check(&ctx, &receipt).await.is_ok(),
             "Should accept if value is more than 0 for any query"
@@ -534,14 +532,12 @@ mod tests {
         });
         let minimal_value = 500000000000000;
 
-        let signed_receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .value(minimal_value - 1)
-                .build(),
-        )
-        .await;
+        let signed_receipt = create_signed_receipt_v2()
+            .value(minimal_value - 1)
+            .call()
+            .await;
 
-        let receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
 
         assert!(
             check.check(&ctx, &receipt).await.is_ok(),
@@ -555,24 +551,20 @@ mod tests {
             "Should require minimal value"
         );
 
-        let signed_receipt =
-            create_signed_receipt(SignedReceiptRequest::builder().value(minimal_value).build())
-                .await;
+        let signed_receipt = create_signed_receipt_v2().value(minimal_value).call().await;
 
-        let receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
         check
             .check(&ctx, &receipt)
             .await
             .expect("should accept equals minimal");
 
-        let signed_receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .value(minimal_value + 1)
-                .build(),
-        )
-        .await;
+        let signed_receipt = create_signed_receipt_v2()
+            .value(minimal_value + 1)
+            .call()
+            .await;
 
-        let receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
         check
             .check(&ctx, &receipt)
             .await
@@ -602,39 +594,33 @@ mod tests {
 
         let minimal_global_value = 20000000000000;
 
-        let signed_receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .value(minimal_global_value - 1)
-                .build(),
-        )
-        .await;
+        let signed_receipt = create_signed_receipt_v2()
+            .value(minimal_global_value - 1)
+            .call()
+            .await;
 
-        let receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
+        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
 
         assert!(
             check.check(&ctx, &receipt).await.is_err(),
             "Should deny less than global"
         );
 
-        let signed_receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .value(minimal_global_value)
-                .build(),
-        )
-        .await;
-        let receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
+        let signed_receipt = create_signed_receipt_v2()
+            .value(minimal_global_value)
+            .call()
+            .await;
+        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
         check
             .check(&ctx, &receipt)
             .await
             .expect("should accept equals global");
 
-        let signed_receipt = create_signed_receipt(
-            SignedReceiptRequest::builder()
-                .value(minimal_global_value + 1)
-                .build(),
-        )
-        .await;
-        let receipt = CheckingReceipt::new(TapReceipt::V1(signed_receipt));
+        let signed_receipt = create_signed_receipt_v2()
+            .value(minimal_global_value + 1)
+            .call()
+            .await;
+        let receipt = CheckingReceipt::new(TapReceipt::V2(signed_receipt));
         check
             .check(&ctx, &receipt)
             .await
