@@ -539,7 +539,8 @@ pub enum TheGraphChainId {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
-    /// Legacy verifier address (fallback). Prefer `receipts_verifier_address_v2`.
+    /// Legacy verifier address (deprecated; not used).
+    #[deprecated(note = "Use `receipts_verifier_address_v2` for Horizon receipts.")]
     pub receipts_verifier_address: Address,
     /// Verifier address for Horizon receipts.
     pub receipts_verifier_address_v2: Option<Address>,

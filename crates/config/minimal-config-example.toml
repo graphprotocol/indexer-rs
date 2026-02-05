@@ -58,7 +58,7 @@ deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 [blockchain]
 # The chain ID of the network that the graph network is running on
 chain_id = 1337
-# Legacy verifier address (fallback). Prefer `receipts_verifier_address_v2`.
+# Legacy verifier address (deprecated; not used).
 receipts_verifier_address = "0x3333333333333333333333333333333333333333"
 # Horizon addresses; required when [horizon].enabled = true
 receipts_verifier_address_v2 = "0x3333333333333333333333333333333333333333"

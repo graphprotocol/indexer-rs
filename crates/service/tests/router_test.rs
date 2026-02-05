@@ -68,11 +68,14 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
             max_cost_model_batch_size: 200,
             max_request_body_size: 2 * 1024 * 1024,
         })
-        .blockchain(BlockchainConfig {
-            chain_id: indexer_config::TheGraphChainId::Test,
-            receipts_verifier_address: test_assets::VERIFIER_ADDRESS,
-            receipts_verifier_address_v2: Some(test_assets::VERIFIER_ADDRESS),
-            subgraph_service_address: None,
+        .blockchain({
+            #[allow(deprecated)]
+            BlockchainConfig {
+                chain_id: indexer_config::TheGraphChainId::Test,
+                receipts_verifier_address: test_assets::VERIFIER_ADDRESS,
+                receipts_verifier_address_v2: Some(test_assets::VERIFIER_ADDRESS),
+                subgraph_service_address: None,
+            }
         })
         .timestamp_buffer_secs(Duration::from_secs(10))
         .escrow_subgraph(
