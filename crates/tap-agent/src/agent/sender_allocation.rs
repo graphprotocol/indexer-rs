@@ -1143,3 +1143,549 @@ pub fn init_metrics() {
     let _ = &*RAVS_FAILED_BY_VERSION;
     let _ = &*RAV_RESPONSE_TIME_BY_VERSION;
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use futures::future::join_all;
+    use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
+    use ractor::{call, ActorStatus};
+    use serde_json::json;
+    use tap_aggregator::grpc::v2::tap_aggregator_client::TapAggregatorClient;
+    use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
+    use thegraph_core::{alloy::primitives::U256, CollectionId};
+    use tokio::sync::watch;
+    use wiremock::{matchers::body_string_contains, Mock, MockServer, ResponseTemplate};
+
+    use super::*;
+    use crate::tap::CheckingReceipt;
+    use crate::test::actors::create_mock_sender_account;
+    use crate::test::{
+        create_rav_v2, create_received_receipt_v2, get_grpc_url, store_rav_v2, store_receipt,
+        ALLOCATION_ID_0, ESCROW_VALUE, TAP_EIP712_DOMAIN_SEPARATOR_V2,
+    };
+
+    async fn setup_network_subgraph(redeemed: bool) -> MockServer {
+        let mock_server = MockServer::start().await;
+        let response = if redeemed {
+            json!({
+                "data": {
+                    "paymentsEscrowTransactions": [
+                        { "id": "0x01", "allocationId": ALLOCATION_ID_0.encode_hex(), "timestamp": "1" }
+                    ]
+                }
+            })
+        } else {
+            json!({ "data": { "paymentsEscrowTransactions": [] } })
+        };
+
+        mock_server
+            .register(
+                Mock::given(body_string_contains("paymentsEscrowTransactions"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(response)),
+            )
+            .await;
+
+        mock_server
+    }
+
+    async fn build_sender_allocation_args(
+        pgpool: PgPool,
+        network_subgraph: &'static SubgraphClient,
+        sender_account_ref: ActorRef<SenderAccountMessage>,
+    ) -> SenderAllocationArgs<Horizon> {
+        let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
+        escrow_accounts_tx
+            .send(EscrowAccounts::new(
+                HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
+                HashMap::from([(SENDER.1, vec![SIGNER.1])]),
+            ))
+            .unwrap();
+
+        let aggregator_url = get_grpc_url().await;
+        let sender_aggregator = TapAggregatorClient::connect(aggregator_url)
+            .await
+            .expect("Failed to connect to test aggregator");
+
+        SenderAllocationArgs::builder()
+            .pgpool(pgpool)
+            .allocation_id(CollectionId::from(ALLOCATION_ID_0))
+            .sender(SENDER.1)
+            .escrow_accounts(escrow_accounts_rx)
+            .network_subgraph(network_subgraph)
+            .domain_separator(TAP_EIP712_DOMAIN_SEPARATOR_V2.clone())
+            .sender_account_ref(sender_account_ref)
+            .sender_aggregator(sender_aggregator)
+            .config(AllocationConfig::from_sender_config(
+                crate::test::get_sender_account_config(),
+            ))
+            .build()
+    }
+
+    async fn build_state(
+        pgpool: PgPool,
+        network_subgraph: &'static SubgraphClient,
+    ) -> SenderAllocationState<Horizon> {
+        let (_receiver, sender_account_ref) = create_mock_sender_account().await;
+        let args = build_sender_allocation_args(pgpool, network_subgraph, sender_account_ref).await;
+        SenderAllocationState::new(args).await.unwrap()
+    }
+
+    async fn spawn_sender_allocation(
+        pgpool: PgPool,
+        network_subgraph: &'static SubgraphClient,
+    ) -> (
+        ActorRef<SenderAllocationMessage>,
+        tokio::sync::mpsc::Receiver<SenderAccountMessage>,
+    ) {
+        let (mut receiver, sender_account_ref) = create_mock_sender_account().await;
+        let args = build_sender_allocation_args(pgpool, network_subgraph, sender_account_ref).await;
+        let (sender_allocation, _) =
+            SenderAllocation::<Horizon>::spawn(None, SenderAllocation::default(), args)
+                .await
+                .unwrap();
+        flush_messages(&mut receiver).await;
+        (sender_allocation, receiver)
+    }
+
+    #[tokio::test]
+    async fn test_several_receipts_rav_request() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        let (sender_allocation, mut receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+
+        const AMOUNT_OF_RECEIPTS: u64 = 1000;
+        for i in 0..AMOUNT_OF_RECEIPTS {
+            let receipt =
+                create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
+            let signed = receipt.signed_receipt().clone().as_v2();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
+        }
+
+        sender_allocation
+            .cast(SenderAllocationMessage::TriggerRavRequest)
+            .unwrap();
+
+        let _ = receiver.recv().await;
+        let total_unaggregated_fees = call!(
+            sender_allocation,
+            SenderAllocationMessage::GetUnaggregatedReceipts
+        )
+        .unwrap();
+        assert_eq!(total_unaggregated_fees.value, 0u128);
+    }
+
+    #[tokio::test]
+    async fn test_several_receipts_batch_insert_rav_request() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        let (sender_allocation, mut receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+
+        const AMOUNT_OF_RECEIPTS: u64 = 1000;
+        for i in 0..AMOUNT_OF_RECEIPTS {
+            let receipt =
+                create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
+            let signed = receipt.signed_receipt().clone().as_v2();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
+        }
+
+        sender_allocation
+            .cast(SenderAllocationMessage::TriggerRavRequest)
+            .unwrap();
+
+        let _ = receiver.recv().await;
+        let total_unaggregated_fees = call!(
+            sender_allocation,
+            SenderAllocationMessage::GetUnaggregatedReceipts
+        )
+        .unwrap();
+        assert_eq!(total_unaggregated_fees.value, 0u128);
+    }
+
+    #[tokio::test]
+    async fn test_close_allocation_no_pending_fees() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        let (sender_allocation, _receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+
+        sender_allocation.stop_and_wait(None, None).await.unwrap();
+        assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
+
+        let res = sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_ravs")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        let count: i64 = res.try_get("count").unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_close_allocation_with_pending_fees() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        for i in 0..10 {
+            let receipt =
+                create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
+            let signed = receipt.signed_receipt().clone().as_v2();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
+        }
+
+        let (sender_allocation, _receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+
+        sender_allocation.stop_and_wait(None, None).await.unwrap();
+        assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
+
+        let res = sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_ravs WHERE last = true")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        let count: i64 = res.try_get("count").unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn should_return_unaggregated_fees_without_rav() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let state = build_state(test_db.pool.clone(), network_subgraph).await;
+
+        for i in 1..10 {
+            let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
+            let signed = receipt.signed_receipt().clone().as_v2();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
+        }
+
+        let total_unaggregated_fees = state.recalculate_all_unaggregated_fees().await.unwrap();
+        assert_eq!(total_unaggregated_fees.value, 45u128);
+    }
+
+    #[tokio::test]
+    async fn should_calculate_invalid_receipts_fee() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
+
+        struct FailingCheck;
+        #[async_trait::async_trait]
+        impl Check<TapReceipt> for FailingCheck {
+            async fn check(
+                &self,
+                _: &tap_core::receipt::Context,
+                _receipt: &CheckingReceipt,
+            ) -> tap_core::receipt::checks::CheckResult {
+                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
+                    "Failing check"
+                )))
+            }
+        }
+
+        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
+        let checking_receipts = vec![
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
+        ];
+        let failing_receipts = checking_receipts
+            .into_iter()
+            .map(|receipt| async {
+                receipt
+                    .finalize_receipt_checks(&Context::new(), &checks)
+                    .await
+                    .unwrap()
+                    .unwrap_err()
+            })
+            .collect::<Vec<_>>();
+        let failing_receipts = join_all(failing_receipts).await;
+
+        state
+            .store_invalid_receipts(failing_receipts)
+            .await
+            .unwrap();
+        let total_invalid_receipts = state.calculate_invalid_receipts_fee().await.unwrap();
+        assert_eq!(total_invalid_receipts.value, 3u128);
+    }
+
+    #[tokio::test]
+    async fn should_return_unaggregated_fees_with_rav() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_0),
+            SIGNER.0.clone(),
+            4,
+            10,
+        );
+        store_rav_v2(&test_db.pool, signed_rav, SENDER.1)
+            .await
+            .unwrap();
+
+        let state = build_state(test_db.pool.clone(), network_subgraph).await;
+
+        for i in 1..10 {
+            let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
+            let signed = receipt.signed_receipt().clone().as_v2();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
+        }
+
+        let total_unaggregated_fees = state.recalculate_all_unaggregated_fees().await.unwrap();
+        assert_eq!(total_unaggregated_fees.value, 35u128);
+    }
+
+    #[tokio::test]
+    async fn test_store_failed_rav() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let state = build_state(test_db.pool.clone(), network_subgraph).await;
+
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_0),
+            SIGNER.0.clone(),
+            4,
+            10,
+        );
+        state
+            .store_failed_rav(&signed_rav.message, &signed_rav, "test")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_store_invalid_receipts() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
+
+        struct FailingCheck;
+        #[async_trait::async_trait]
+        impl Check<TapReceipt> for FailingCheck {
+            async fn check(
+                &self,
+                _: &tap_core::receipt::Context,
+                _receipt: &CheckingReceipt,
+            ) -> tap_core::receipt::checks::CheckResult {
+                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
+                    "Failing check"
+                )))
+            }
+        }
+
+        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
+        let checking_receipts = vec![
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
+        ];
+        let failing_receipts = checking_receipts
+            .into_iter()
+            .map(|receipt| async {
+                receipt
+                    .finalize_receipt_checks(&Context::new(), &checks)
+                    .await
+                    .unwrap()
+                    .unwrap_err()
+            })
+            .collect::<Vec<_>>();
+        let failing_receipts = join_all(failing_receipts).await;
+
+        let result = state.store_invalid_receipts(failing_receipts).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_mark_rav_last() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let state = build_state(test_db.pool.clone(), network_subgraph).await;
+
+        let signed_rav = create_rav_v2(
+            *CollectionId::from(ALLOCATION_ID_0),
+            SIGNER.0.clone(),
+            4,
+            10,
+        );
+        store_rav_v2(&test_db.pool, signed_rav, SENDER.1)
+            .await
+            .unwrap();
+
+        let result = state.mark_rav_last().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_failed_rav_request() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        // Use receipts signed by a wallet not in escrow_accounts to force invalid receipts.
+        for i in 0..10 {
+            let receipt = create_received_receipt_v2(
+                &ALLOCATION_ID_0,
+                &crate::test::SENDER_2.0,
+                i,
+                i + 1,
+                i.into(),
+            );
+            let signed = receipt.signed_receipt().clone().as_v2();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
+        }
+
+        let (sender_allocation, mut receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+
+        sender_allocation
+            .cast(SenderAllocationMessage::TriggerRavRequest)
+            .unwrap();
+
+        let _ = receiver.recv().await;
+        assert_eq!(sender_allocation.get_status(), ActorStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn test_rav_request_when_all_receipts_invalid() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(true).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        let timestamp = 1u64;
+        const RECEIPT_VALUE: u128 = 10;
+        const TOTAL_RECEIPTS: u64 = 10;
+        for i in 0..TOTAL_RECEIPTS {
+            let receipt = create_received_receipt_v2(
+                &ALLOCATION_ID_0,
+                &SIGNER.0,
+                i,
+                timestamp,
+                RECEIPT_VALUE,
+            );
+            let signed = receipt.signed_receipt().clone().as_v2();
+            store_receipt(&test_db.pool, &signed).await.unwrap();
+        }
+
+        let (sender_allocation, mut receiver) =
+            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+
+        sender_allocation
+            .cast(SenderAllocationMessage::TriggerRavRequest)
+            .unwrap();
+
+        let _ = receiver.recv().await;
+
+        let invalid_receipts =
+            sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_receipts_invalid")
+                .fetch_one(&test_db.pool)
+                .await
+                .unwrap();
+        let invalid_count: i64 = invalid_receipts.try_get("count").unwrap();
+        assert_eq!(invalid_count, 10);
+
+        let remaining = sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_receipts")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        let remaining_count: i64 = remaining.try_get("count").unwrap();
+        assert_eq!(remaining_count, 0);
+    }
+}
