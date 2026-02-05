@@ -2848,6 +2848,9 @@ pub mod tests {
             .call()
             .await;
 
+        // Drain any startup messages before asserting on reconciliation.
+        flush_messages(&mut msg_receiver).await;
+
         // Pause time after actor creation (can't pause before because DB setup needs real time)
         tokio::time::pause();
 
@@ -2859,15 +2862,24 @@ pub mod tests {
         tokio::time::advance(reconciliation_interval).await;
         tokio::task::yield_now().await;
 
-        // Should receive ReconcileAllocations message from the periodic task
-        let message = tokio::time::timeout(Duration::from_millis(50), msg_receiver.recv())
-            .await
-            .expect("Should receive message within timeout")
-            .expect("Channel should not be closed");
+        // Should receive ReconcileAllocations message from the periodic task.
+        let mut saw_reconcile = false;
+        let mut last_message = None;
+        for _ in 0..5 {
+            let message = tokio::time::timeout(Duration::from_millis(50), msg_receiver.recv())
+                .await
+                .expect("Should receive message within timeout")
+                .expect("Channel should not be closed");
+            if matches!(message, SenderAccountMessage::ReconcileAllocations) {
+                saw_reconcile = true;
+                break;
+            }
+            last_message = Some(message);
+        }
 
         assert!(
-            matches!(message, SenderAccountMessage::ReconcileAllocations),
-            "Expected ReconcileAllocations from periodic task, got {message:?}"
+            saw_reconcile,
+            "Expected ReconcileAllocations from periodic task, got {last_message:?}"
         );
 
         // Drain any UpdateAllocationIds message that follows ReconcileAllocations
