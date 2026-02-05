@@ -466,7 +466,7 @@ pub fn pgpool() -> Pin<Box<dyn Future<Output = PgPool>>> {
     })
 }
 
-// Testcontainers utilities for SQLX_OFFLINE compatibility
+// Testcontainers utilities for database integration testing
 
 use testcontainers_modules::{
     postgres,

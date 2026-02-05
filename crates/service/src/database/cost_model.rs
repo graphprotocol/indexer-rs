@@ -23,7 +23,7 @@ pub enum CostModelError {
 /// Internal cost model representation as stored in the database.
 ///
 /// These can have "global" as the deployment ID.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct DbCostModel {
     pub deployment: String,
     pub model: Option<String>,
@@ -75,21 +75,19 @@ pub async fn cost_models(
         .collect::<Vec<_>>();
 
     let mut models = if deployments.is_empty() {
-        sqlx::query_as!(
-            DbCostModel,
+        sqlx::query_as::<_, DbCostModel>(
             r#"
             SELECT deployment, model, variables
             FROM "CostModels"
             WHERE deployment != 'global'
             ORDER BY deployment ASC
-            "#
+            "#,
         )
         .fetch_all(pool)
         .await
         .map_err(CostModelError::Database)?
     } else {
-        sqlx::query_as!(
-            DbCostModel,
+        sqlx::query_as::<_, DbCostModel>(
             r#"
             SELECT deployment, model, variables
             FROM "CostModels"
@@ -97,8 +95,8 @@ pub async fn cost_models(
             AND deployment != 'global'
             ORDER BY deployment ASC
             "#,
-            &hex_ids
         )
+        .bind(&hex_ids)
         .fetch_all(pool)
         .await
         .map_err(CostModelError::Database)?
@@ -145,16 +143,15 @@ pub async fn cost_model(
     pool: &PgPool,
     deployment: &DeploymentId,
 ) -> Result<Option<CostModel>, CostModelError> {
-    let model = sqlx::query_as!(
-        DbCostModel,
+    let model = sqlx::query_as::<_, DbCostModel>(
         r#"
         SELECT deployment, model, variables
         FROM "CostModels"
         WHERE deployment = $1
         AND deployment != 'global'
         "#,
-        format!("{:#x}", deployment),
     )
+    .bind(format!("{deployment:#x}"))
     .fetch_optional(pool)
     .await
     .map_err(CostModelError::Database)?
@@ -185,15 +182,14 @@ pub async fn cost_model(
 pub(crate) async fn global_cost_model(
     pool: &PgPool,
 ) -> Result<Option<DbCostModel>, CostModelError> {
-    sqlx::query_as!(
-        DbCostModel,
+    sqlx::query_as::<_, DbCostModel>(
         r#"
         SELECT deployment, model, variables
         FROM "CostModels"
         WHERE deployment = $1
         "#,
-        "global"
     )
+    .bind("global")
     .fetch_optional(pool)
     .await
     .map_err(CostModelError::Database)

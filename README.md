@@ -132,9 +132,10 @@ If you are migrating from an older stack, use the [Migration Configuration Guide
 ### Migrations
 
 - `postgres_url` is required to be set to the same database as `indexer-agent`;
-- No migrations are run in `indexer-rs` stack, since it could cause conflicts;
-- `indexer-agent` is solely responsible for database management;
-- `/migrations` folder is used **ONLY** for development purposes.
+- You do not run migrations from the `indexer-rs` stack to avoid conflicts;
+- Use `indexer-agent` for all database migration and management tasks;
+- The `/migrations` folder is **ONLY** for development/testing; the source of truth lives in the `graphprotocol/indexer` repo;
+- If the schema and queries drift, tests will surface the mismatch at runtime, so keep migrations in sync with the source of truth.
 
 
 ## Upgrading
