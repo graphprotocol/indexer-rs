@@ -629,6 +629,7 @@ impl State {
     }
 
     /// Parse collection_id strings that may be 20-byte (legacy migration) or 32-byte (Horizon V2).
+    /// TODO: remove the 20-byte fallback once all production DBs are confirmed migrated.
     fn parse_collection_id_to_allocation_id(raw: &str) -> anyhow::Result<AllocationId> {
         let trimmed = raw.trim();
         let hex_str = trimmed.strip_prefix("0x").unwrap_or(trimmed);

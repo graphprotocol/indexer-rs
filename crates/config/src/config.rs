@@ -315,16 +315,10 @@ impl Config {
             return Err("Horizon is required; set [horizon].enabled = true".to_string());
         }
         if self.blockchain.subgraph_service_address.is_none() {
-            return Err(
-                "When horizon.enabled = true, `blockchain.subgraph_service_address` must be set"
-                    .to_string(),
-            );
+            return Err("`blockchain.subgraph_service_address` must be set".to_string());
         }
         if self.blockchain.receipts_verifier_address_v2.is_none() {
-            return Err(
-                "When horizon.enabled = true, `blockchain.receipts_verifier_address_v2` must be set"
-                    .to_string(),
-            );
+            return Err("`blockchain.receipts_verifier_address_v2` must be set".to_string());
         }
 
         Ok(())
