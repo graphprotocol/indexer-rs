@@ -7,10 +7,23 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use reqwest::Url;
 use serde_json::json;
 
+/// State required by the `/healthz` endpoint for performing health checks.
+///
+/// This state is injected via Axum's `State` extractor and provides access to
+/// the resources needed to verify system health:
+/// - Database connectivity (via connection pool)
+/// - Graph-node availability (via HTTP client and status URL)
+///
+/// # Initialization Order
+/// Must be constructed after the database pool and HTTP client are initialized.
+/// Typically created during router setup in [`crate::service::router::ServiceRouter`].
 #[derive(Clone)]
 pub struct HealthzState {
+    /// PostgreSQL connection pool for database health checks.
     pub db: sqlx::PgPool,
+    /// Shared HTTP client for making health check requests to graph-node.
     pub http_client: reqwest::Client,
+    /// URL of the graph-node status endpoint (GraphQL).
     pub graph_node_status_url: Url,
 }
 

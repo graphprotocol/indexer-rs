@@ -10,6 +10,7 @@ use axum::{
 };
 use thegraph_core::{AllocationId, CollectionId, DeploymentId};
 use tokio::sync::watch;
+use tracing::warn;
 
 use crate::tap::TapReceipt;
 
@@ -43,6 +44,11 @@ pub async fn allocation_middleware(
             .get(deployment_id)
         {
             request.extensions_mut().insert(*allocation_id);
+        } else {
+            warn!(
+                %deployment_id,
+                "No allocation found for deployment; request will proceed without allocation context"
+            );
         }
     }
 

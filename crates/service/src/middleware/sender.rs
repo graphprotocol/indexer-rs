@@ -12,16 +12,35 @@ use tokio::sync::watch;
 
 use crate::{error::IndexerServiceError, tap::TapReceipt};
 
-/// Stated used by sender middleware
+/// State required by [`sender_middleware`] for resolving TAP receipt signers to senders.
+///
+/// This middleware recovers the signer address from a TAP receipt using the appropriate
+/// EIP-712 domain separator, then resolves the actual sender address via the escrow accounts
+/// mapping. The sender is the payment source tracked by the escrow contract.
+///
+/// # Request Flow
+/// 1. Receipt is extracted from request extensions (set by prior middleware)
+/// 2. Signer is recovered using the appropriate domain separator (V1 or V2)
+/// 3. Sender is resolved from escrow accounts (signer → sender mapping)
+/// 4. [`Sender`] is inserted into request extensions for downstream handlers
+///
+/// # Initialization Order
+/// Must be constructed after:
+/// - EIP-712 domain separators are configured
+/// - Escrow account watchers are started (from escrow subgraph monitoring)
+///
+/// # Version Handling
+/// - V1 receipts use `domain_separator` and `escrow_accounts_v1` (legacy Staking contract)
+/// - V2 receipts use `domain_separator_v2` and `escrow_accounts_v2` (Horizon protocol)
 #[derive(Clone)]
 pub struct SenderState {
-    /// Used to recover the signer address
+    /// EIP-712 domain separator for V1 TAP receipts (legacy Staking).
     pub domain_separator: Eip712Domain,
-    /// Used to recoer the signer addres for V2 receipts(Horizon)
+    /// EIP-712 domain separator for V2 TAP receipts (Horizon).
     pub domain_separator_v2: Eip712Domain,
-    /// Used to get the sender address given the signer address if v1 receipt
+    /// Escrow accounts watcher for V1 receipts. Provides signer → sender mapping.
     pub escrow_accounts_v1: Option<watch::Receiver<EscrowAccounts>>,
-    /// Used to get the sender address given the signer address if v2 receipt
+    /// Escrow accounts watcher for V2 receipts. Provides signer → sender mapping.
     pub escrow_accounts_v2: Option<watch::Receiver<EscrowAccounts>>,
 }
 
