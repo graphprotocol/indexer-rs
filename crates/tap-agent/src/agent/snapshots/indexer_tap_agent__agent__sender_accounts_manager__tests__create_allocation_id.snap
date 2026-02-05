@@ -3,7 +3,7 @@ source: crates/tap-agent/src/agent/sender_accounts_manager.rs
 expression: new_alloc_msg
 ---
 NewAllocationId(
-    Horizon(
+    AllocationId(
         0x000000000000000000000000fa44c72b753a66591f241c7dc04e8178c30e13af,
     ),
 )

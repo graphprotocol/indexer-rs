@@ -89,7 +89,7 @@ pub async fn start_agent(
         .await,
     ));
 
-    let escrow_subgraph = Box::leak(Box::new(
+    let _escrow_subgraph = Box::leak(Box::new(
         SubgraphClient::new(
             http_client.clone(),
             None,
@@ -120,7 +120,6 @@ pub async fn start_agent(
         pgpool,
         indexer_allocations: indexer_allocations1,
         escrow_accounts_v2: escrow_accounts.clone(),
-        escrow_subgraph,
         network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
         prefix: None,
@@ -162,7 +161,12 @@ async fn test_start_tap_agent() {
         receipts.push(receipt);
     }
     for receipt in receipts {
-        store_receipt(&pgpool, receipt.signed_receipt())
+        let signed = receipt
+            .signed_receipt()
+            .clone()
+            .as_v2()
+            .expect("expected v2 receipt");
+        store_receipt(&pgpool, &signed)
             .await
             .expect("store receipt");
     }

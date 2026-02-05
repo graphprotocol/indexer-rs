@@ -96,7 +96,7 @@ impl NewReceiptNotification {
         let normalized = format!("0x{hex_str}");
         let collection_id = CollectionId::from_str(&normalized)
             .map_err(|e| anyhow!("Failed to parse collection_id '{trimmed}': {e}"))?;
-        Ok(AllocationId::Horizon(collection_id))
+        Ok(AllocationId(collection_id))
     }
 }
 
@@ -104,67 +104,24 @@ impl NewReceiptNotification {
 #[derive(Debug, Clone)]
 pub struct SenderAccountsManager;
 
-/// Wrapped AllocationId with two possible variants
-///
-/// This is used by children actors to define what kind of
-/// SenderAllocation must be created to handle the correct
-/// Rav and Receipt types
+/// Horizon allocation identifier backed by a 32-byte CollectionId.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum AllocationId {
-    /// Legacy allocation using AllocationId from thegraph-core
-    Legacy(AllocationIdCore),
-    /// New Subgraph DataService allocation using CollectionId
-    Horizon(CollectionId),
-}
+pub struct AllocationId(pub CollectionId);
 
 impl AllocationId {
-    /// Canonical hex (no 0x); 40 chars for Legacy, 64 for Horizon
+    /// Canonical hex (no 0x); 64 chars for Horizon
     pub fn to_hex(&self) -> String {
-        match self {
-            AllocationId::Legacy(allocation_id) => (**allocation_id).encode_hex(),
-            AllocationId::Horizon(collection_id) => collection_id.encode_hex(),
-        }
+        self.0.encode_hex()
     }
 
-    /// Get the underlying Address for Legacy allocations.
-    ///
-    /// Deprecated: Prefer `address()` which returns a normalized Address for both Legacy and Horizon.
-    #[deprecated(
-        note = "Use `address()` for both Legacy and Horizon; this returns None for Horizon"
-    )]
-    pub fn as_address(&self) -> Option<Address> {
-        match self {
-            AllocationId::Legacy(allocation_id) => Some(**allocation_id),
-            AllocationId::Horizon(_) => None,
-        }
-    }
-
-    /// Legacy-only accessor returning an optional address.
-    ///
-    /// Returns:
-    /// - Some(address) for Legacy allocations
-    /// - None for Horizon allocations
-    pub fn legacy_address(&self) -> Option<Address> {
-        match self {
-            AllocationId::Legacy(allocation_id) => Some(**allocation_id),
-            AllocationId::Horizon(_) => None,
-        }
-    }
-
-    /// Get an Address representation for both allocation types
+    /// Get a 20-byte Address representation for Horizon allocations.
     pub fn address(&self) -> Address {
-        match self {
-            AllocationId::Legacy(allocation_id) => **allocation_id,
-            AllocationId::Horizon(collection_id) => {
-                AllocationIdCore::from(*collection_id).into_inner()
-            }
-        }
+        AllocationIdCore::from(self.0).into_inner()
     }
 
     /// Normalized 20-byte address as lowercase hex (no 0x prefix).
     ///
     /// Behavior:
-    /// - Legacy (V1): returns the allocation address as hex.
     /// - Horizon (V2): derives the 20-byte address from the 32-byte `CollectionId`
     ///   via `thegraph_core::AllocationId::from(collection_id)` (last 20 bytes) and encodes as hex.
     ///
@@ -182,10 +139,7 @@ impl AllocationId {
 
 impl Display for AllocationId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AllocationId::Legacy(allocation_id) => write!(f, "{allocation_id}"),
-            AllocationId::Horizon(collection_id) => write!(f, "{collection_id}"),
-        }
+        write!(f, "{}", self.0)
     }
 }
 
@@ -213,8 +167,6 @@ pub struct SenderAccountsManagerArgs {
     pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     /// Watcher containing the escrow accounts for v2
     pub escrow_accounts_v2: Receiver<EscrowAccounts>,
-    /// SubgraphClient of the escrow subgraph
-    pub escrow_subgraph: &'static SubgraphClient,
     /// SubgraphClient of the network subgraph
     pub network_subgraph: &'static SubgraphClient,
     /// Map containing all endpoints for senders provided in the config
@@ -239,7 +191,6 @@ pub struct State {
     indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     /// Watcher containing the escrow accounts for v2
     escrow_accounts_v2: Receiver<EscrowAccounts>,
-    escrow_subgraph: &'static SubgraphClient,
     network_subgraph: &'static SubgraphClient,
     sender_aggregator_endpoints: HashMap<Address, Url>,
     prefix: Option<String>,
@@ -263,7 +214,6 @@ impl Actor for SenderAccountsManager {
             indexer_allocations,
             pgpool,
             escrow_accounts_v2,
-            escrow_subgraph,
             network_subgraph,
             sender_aggregator_endpoints,
             prefix,
@@ -300,7 +250,6 @@ impl Actor for SenderAccountsManager {
             pgpool: pgpool.clone(),
             indexer_allocations,
             escrow_accounts_v2: escrow_accounts_v2.clone(),
-            escrow_subgraph,
             network_subgraph,
             sender_aggregator_endpoints,
             prefix: prefix.clone(),
@@ -480,7 +429,7 @@ impl State {
         for alloc_id in &allocation_ids {
             tracing::debug!(
                 allocation_id = %alloc_id,
-                variant = %match alloc_id { AllocationId::Legacy(_) => "Legacy", AllocationId::Horizon(_) => "Horizon" },
+                variant = "Horizon",
                 address = %alloc_id.address(),
                 "Initial allocation",
             );
@@ -675,7 +624,7 @@ impl State {
                 let normalized = format!("0x{hex_str}");
                 let collection_id = CollectionId::from_str(&normalized)
                     .map_err(|e| anyhow::anyhow!("Invalid 32-byte collection_id '{trimmed}': {e}"))?;
-                Ok(AllocationId::Horizon(collection_id))
+                Ok(AllocationId(collection_id))
             }
             40 => {
                 let normalized = format!("0x{hex_str}");
@@ -685,7 +634,7 @@ impl State {
                     collection_id = %trimmed,
                     "Found legacy 20-byte allocation_id in Horizon tables; treating as collection_id"
                 );
-                Ok(AllocationId::Horizon(CollectionId::from(address)))
+                Ok(AllocationId(CollectionId::from(address)))
             }
             other => Err(anyhow::anyhow!(
                 "Invalid collection_id length '{trimmed}': expected 64 or 40 hex characters, got {other}"
@@ -704,7 +653,7 @@ impl State {
     ) -> anyhow::Result<SenderAccountArgs> {
         let escrow_accounts = self.escrow_accounts_v2.clone();
 
-        // Build a normalized allocation watcher for Horizon using isLegacy flag
+        // Build a normalized allocation watcher for Horizon using the isLegacy field from the subgraph
         // from the Network Subgraph.
         let indexer_allocations = {
             map_watcher(self.indexer_allocations.clone(), move |alloc_map| {
@@ -721,7 +670,7 @@ impl State {
                             None
                         } else {
                             horizon_count += 1;
-                            Some(AllocationId::Horizon(CollectionId::from(*addr)))
+                            Some(AllocationId(CollectionId::from(*addr)))
                         }
                     })
                     .collect();
@@ -732,7 +681,7 @@ impl State {
                     horizon = horizon_count,
                     mismatched,
                     normalized = set.len(),
-                    "Normalized indexer allocations using isLegacy"
+                    "Normalized indexer allocations using isLegacy field"
                 );
                 set
             })
@@ -744,7 +693,6 @@ impl State {
             sender_id: *sender_id,
             escrow_accounts,
             indexer_allocations,
-            escrow_subgraph: self.escrow_subgraph,
             network_subgraph: self.network_subgraph,
             domain_separator_v2: self.domain_separator_v2.clone(),
             sender_aggregator_endpoint: self
@@ -920,7 +868,7 @@ async fn handle_notification(
     tracing::debug!(
         actor_name,
         allocation_id = %allocation_id,
-        variant = %match allocation_id { AllocationId::Legacy(_) => "Legacy", AllocationId::Horizon(_) => "Horizon" },
+        variant = "Horizon",
         "Looking for SenderAllocation actor",
     );
 
@@ -1078,7 +1026,6 @@ mod tests {
                 pgpool,
                 indexer_allocations: watch::channel(HashMap::new()).1,
                 escrow_accounts_v2: watch::channel(escrow_accounts).1,
-                escrow_subgraph: get_subgraph_client().await,
                 network_subgraph: get_subgraph_client().await,
                 sender_aggregator_endpoints: HashMap::from([
                     (SENDER.1, Url::parse(&get_grpc_url().await).unwrap()),
@@ -1097,9 +1044,12 @@ mod tests {
         // add receipts to the database
         for i in 1..=10 {
             let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_receipt(&pgpool, receipt.signed_receipt())
-                .await
-                .unwrap();
+            let signed = receipt
+                .signed_receipt()
+                .clone()
+                .as_v2()
+                .expect("expected v2 receipt");
+            store_receipt(&pgpool, &signed).await.unwrap();
         }
         // add non-final ravs
         let signed_rav = create_rav_v2(
@@ -1268,9 +1218,12 @@ mod tests {
         // add receipts to the database
         for i in 1..=receipts_count {
             let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
-            store_receipt(&pgpool, receipt.signed_receipt())
-                .await
-                .unwrap();
+            let signed = receipt
+                .signed_receipt()
+                .clone()
+                .as_v2()
+                .expect("expected v2 receipt");
+            store_receipt(&pgpool, &signed).await.unwrap();
         }
         flush_messages(&mut notify).await;
 

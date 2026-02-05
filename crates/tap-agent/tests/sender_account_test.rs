@@ -35,33 +35,26 @@ async fn sender_account_layer_test() {
                 ),
         )
         .await;
-    let mock_escrow_subgraph_server: MockServer = MockServer::start().await;
-    mock_escrow_subgraph_server
-        .register(Mock::given(method("POST")).respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({ "data": {
-                "transactions": [],
-            }
-            })),
-        ))
-        .await;
+    let _mock_escrow_subgraph_server: MockServer = MockServer::start().await;
 
     let receipt =
         create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 100);
-    store_receipt(&pgpool, receipt.signed_receipt())
-        .await
-        .unwrap();
+    let signed = receipt
+        .signed_receipt()
+        .clone()
+        .as_v2()
+        .expect("expected v2 receipt");
+    store_receipt(&pgpool, &signed).await.unwrap();
 
     let (sender_account, mut msg_receiver, _, _, _, _) = create_sender_account()
         .pgpool(pgpool.clone())
         .max_amount_willing_to_lose_grt(TRIGGER_VALUE + 1000)
-        .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
         .network_subgraph_endpoint(&mock_server.uri())
         .call()
         .await;
 
     // we expect it to create a sender allocation
-    let allocation_ids =
-        HashSet::from_iter([AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0))]);
+    let allocation_ids = HashSet::from_iter([AllocationId(CollectionId::from(ALLOCATION_ID_0))]);
     sender_account
         .cast(SenderAccountMessage::UpdateAllocationIds(
             allocation_ids.clone(),

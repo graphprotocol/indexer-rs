@@ -9,7 +9,6 @@ use bigdecimal::{
 };
 use sqlx::types::{chrono, BigDecimal};
 use tap_core::manager::adapters::{RavRead, RavStore};
-use tap_graph::{ReceiptAggregateVoucher, SignedRav};
 #[allow(deprecated)]
 use thegraph_core::alloy::signers::Signature;
 use thegraph_core::{
@@ -20,128 +19,7 @@ use thegraph_core::{
     CollectionId,
 };
 
-use super::{error::AdapterError, Horizon, Legacy, TapAgentContext};
-
-/// Implements a [RavRead] for [tap_graph::ReceiptAggregateVoucher]
-/// in case [super::NetworkVersion] is [Legacy]
-///
-/// This is important because RAVs for each network version
-/// are stored in a different database table
-#[async_trait::async_trait]
-impl RavRead<ReceiptAggregateVoucher> for TapAgentContext<Legacy> {
-    type AdapterError = AdapterError;
-
-    async fn last_rav(&self) -> Result<Option<SignedRav>, Self::AdapterError> {
-        let row = sqlx::query!(
-            r#"
-                SELECT signature, allocation_id, timestamp_ns, value_aggregate
-                FROM scalar_tap_ravs
-                WHERE allocation_id = $1 AND sender_address = $2
-            "#,
-            self.allocation_id.encode_hex(),
-            self.sender.encode_hex()
-        )
-        .fetch_optional(&self.pgpool)
-        .await
-        .map_err(|e| AdapterError::RavRead {
-            error: e.to_string(),
-        })?;
-
-        match row {
-            Some(row) => {
-                #[allow(deprecated)]
-                let signature: Signature =
-                    row.signature
-                        .as_slice()
-                        .try_into()
-                        .map_err(|e| AdapterError::RavRead {
-                            error: format!(
-                                "Error decoding signature while retrieving RAV from database: {e}"
-                            ),
-                        })?;
-                let allocation_id =
-                    Address::from_str(&row.allocation_id).map_err(|e| AdapterError::RavRead {
-                        error: format!(
-                            "Error decoding allocation_id while retrieving RAV from database: {e}"
-                        ),
-                    })?;
-                let timestamp_ns = row.timestamp_ns.to_u64().ok_or(AdapterError::RavRead {
-                    error: "Error decoding timestamp_ns while retrieving RAV from database"
-                        .to_string(),
-                })?;
-                let value_aggregate = row
-                    .value_aggregate
-                    // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood.
-                    // So we're converting to BigInt to get a proper implementation of to_u128().
-                    .to_bigint()
-                    .and_then(|v| v.to_u128())
-                    .ok_or(AdapterError::RavRead {
-                        error: "Error decoding value_aggregate while retrieving RAV from database"
-                            .to_string(),
-                    })?;
-
-                let rav = ReceiptAggregateVoucher {
-                    allocationId: allocation_id,
-                    timestampNs: timestamp_ns,
-                    valueAggregate: value_aggregate,
-                };
-                Ok(Some(SignedRav {
-                    message: rav,
-                    signature,
-                }))
-            }
-            None => Ok(None),
-        }
-    }
-}
-
-/// Implements a [RavStore] for [tap_graph::ReceiptAggregateVoucher]
-/// in case [super::NetworkVersion] is [Legacy]
-///
-/// This is important because RAVs for each network version
-/// are stored in a different database table
-#[async_trait::async_trait]
-impl RavStore<ReceiptAggregateVoucher> for TapAgentContext<Legacy> {
-    type AdapterError = AdapterError;
-
-    async fn update_last_rav(&self, rav: SignedRav) -> Result<(), Self::AdapterError> {
-        let signature_bytes: Vec<u8> = rav.signature.as_bytes().to_vec();
-
-        let _fut = sqlx::query!(
-            r#"
-                INSERT INTO scalar_tap_ravs (
-                    sender_address,
-                    signature,
-                    allocation_id,
-                    timestamp_ns,
-                    value_aggregate,
-                    created_at,
-                    updated_at
-
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $6)
-                ON CONFLICT (allocation_id, sender_address)
-                DO UPDATE SET
-                    signature = $2,
-                    timestamp_ns = $4,
-                    value_aggregate = $5,
-                    updated_at = $6
-            "#,
-            self.sender.encode_hex(),
-            signature_bytes,
-            self.allocation_id.encode_hex(),
-            BigDecimal::from(rav.message.timestampNs),
-            BigDecimal::from(BigInt::from(rav.message.valueAggregate)),
-            chrono::Utc::now()
-        )
-        .execute(&self.pgpool)
-        .await
-        .map_err(|e| AdapterError::RavStore {
-            error: e.to_string(),
-        })?;
-        Ok(())
-    }
-}
+use super::{error::AdapterError, Horizon, TapAgentContext};
 
 /// Implements a [RavRead] for [tap_graph::v2::ReceiptAggregateVoucher]
 /// in case [super::NetworkVersion] is [Horizon]

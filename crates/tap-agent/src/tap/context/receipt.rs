@@ -11,7 +11,6 @@ use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use indexer_receipt::TapReceipt;
 use sqlx::{postgres::types::PgRange, types::BigDecimal};
 use tap_core::manager::adapters::{safe_truncate_receipts, ReceiptDelete, ReceiptRead};
-use tap_graph::{Receipt, SignedReceipt};
 use thegraph_core::{
     alloy::{
         hex::ToHexExt,
@@ -20,7 +19,7 @@ use thegraph_core::{
     CollectionId,
 };
 
-use super::{error::AdapterError, Horizon, Legacy, TapAgentContext};
+use super::{error::AdapterError, Horizon, TapAgentContext};
 use crate::tap::{signers_trimmed, CheckingReceipt};
 impl From<TryFromIntError> for AdapterError {
     fn from(error: TryFromIntError) -> Self {
@@ -74,132 +73,6 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
         u64_bound_to_bigdecimal_bound(range.start_bound()),
         u64_bound_to_bigdecimal_bound(range.end_bound()),
     ))
-}
-
-/// Implements a [ReceiptRead] for [TapReceipt]
-/// in case [super::NetworkVersion] is [Legacy]
-///
-/// This is important because receipts for each network version
-/// are stored in a different database table
-#[async_trait::async_trait]
-impl ReceiptRead<TapReceipt> for TapAgentContext<Legacy> {
-    type AdapterError = AdapterError;
-
-    async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
-        &self,
-        timestamp_range_ns: R,
-        receipts_limit: Option<u64>,
-    ) -> Result<Vec<CheckingReceipt>, Self::AdapterError> {
-        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
-            .await
-            .map_err(|e| AdapterError::ReceiptRead {
-                error: format!("{e:?}."),
-            })?;
-
-        let receipts_limit = receipts_limit.map_or(1000, |limit| limit);
-
-        let records = sqlx::query!(
-            r#"
-                SELECT id, signature, allocation_id, timestamp_ns, nonce, value
-                FROM scalar_tap_receipts
-                WHERE allocation_id = $1 AND signer_address IN (SELECT unnest($2::text[]))
-                AND $3::numrange @> timestamp_ns
-                ORDER BY timestamp_ns ASC
-                LIMIT $4
-            "#,
-            self.allocation_id.encode_hex(),
-            &signers,
-            rangebounds_to_pgrange(timestamp_range_ns),
-            (receipts_limit + 1) as i64,
-        )
-        .fetch_all(&self.pgpool)
-        .await?;
-        let mut receipts = records
-            .into_iter()
-            .map(|record| {
-                let signature = record.signature.as_slice().try_into()
-                    .map_err(|e| AdapterError::ReceiptRead {
-                        error: format!(
-                            "Error decoding signature while retrieving receipt from database: {e}"
-                        ),
-                    })?;
-                let allocation_id = Address::from_str(&record.allocation_id).map_err(|e| {
-                    AdapterError::ReceiptRead {
-                        error: format!(
-                            "Error decoding allocation_id while retrieving receipt from database: {e}"
-                        ),
-                    }
-                })?;
-                let timestamp_ns = record
-                    .timestamp_ns
-                    .to_u64()
-                    .ok_or(AdapterError::ReceiptRead {
-                        error: "Error decoding timestamp_ns while retrieving receipt from database"
-                            .to_string(),
-                    })?;
-                let nonce = record.nonce.to_u64().ok_or(AdapterError::ReceiptRead {
-                    error: "Error decoding nonce while retrieving receipt from database".to_string(),
-                })?;
-                // Beware, BigDecimal::to_u128() actually uses to_u64() under the hood...
-                // So we're converting to BigInt to get a proper implementation of to_u128().
-                let value = record.value.to_bigint().and_then(|v| v.to_u128()).ok_or(AdapterError::ReceiptRead {
-                    error: "Error decoding value while retrieving receipt from database".to_string(),
-                })?;
-
-                let signed_receipt = SignedReceipt {
-                    message: Receipt {
-                        allocation_id,
-                        timestamp_ns,
-                        nonce,
-                        value,
-                    },
-                    signature,
-                };
-
-                Ok(CheckingReceipt::new(TapReceipt::V1(signed_receipt)))
-
-            })
-            .collect::<Result<Vec<_>, AdapterError>>()?;
-
-        safe_truncate_receipts(&mut receipts, receipts_limit);
-
-        Ok(receipts)
-    }
-}
-
-/// Implements a [ReceiptDelete] for [TapReceipt]
-/// in case [super::NetworkVersion] is [Legacy]
-///
-/// This is important because receipts for each network version
-/// are stored in a different database table
-#[async_trait::async_trait]
-impl ReceiptDelete for TapAgentContext<Legacy> {
-    type AdapterError = AdapterError;
-
-    async fn remove_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
-        &self,
-        timestamp_ns: R,
-    ) -> Result<(), Self::AdapterError> {
-        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender)
-            .await
-            .map_err(|e| AdapterError::ReceiptDelete {
-                error: format!("{e:?}."),
-            })?;
-
-        sqlx::query!(
-            r#"
-                DELETE FROM scalar_tap_receipts
-                WHERE allocation_id = $1 AND signer_address IN (SELECT unnest($2::text[]))
-                    AND $3::numrange @> timestamp_ns
-            "#,
-            self.allocation_id.encode_hex(),
-            &signers,
-            rangebounds_to_pgrange(timestamp_ns)
-        )
-        .execute(&self.pgpool)
-        .await?;
-        Ok(())
-    }
 }
 
 /// Implements a [ReceiptRead] for [TapReceipt]
@@ -476,9 +349,12 @@ mod test {
             T::create_received_receipt(ALLOCATION_ID_0, &SIGNER.0, u64::MAX, u64::MAX, u128::MAX);
 
         // Storing the receipt
-        store_receipt(&context.pgpool, received_receipt.signed_receipt())
-            .await
-            .unwrap();
+        let signed = received_receipt
+            .signed_receipt()
+            .clone()
+            .as_v2()
+            .expect("expected v2 receipt");
+        store_receipt(&context.pgpool, &signed).await.unwrap();
 
         let retrieved_receipt = context
             .retrieve_receipts_in_timestamp_range(.., None)
@@ -574,8 +450,13 @@ mod test {
             // Storing the receipts
             let mut received_receipt_id_vec = Vec::new();
             for received_receipt in received_receipt_vec.iter() {
+                let signed = received_receipt
+                    .signed_receipt()
+                    .clone()
+                    .as_v2()
+                    .expect("expected v2 receipt");
                 received_receipt_id_vec.push(
-                    store_receipt(&storage_adapter.pgpool, received_receipt.signed_receipt())
+                    store_receipt(&storage_adapter.pgpool, &signed)
                         .await
                         .unwrap(),
                 );
@@ -746,9 +627,12 @@ mod test {
                 i + 42,
                 (i + 124).into(),
             );
-            store_receipt(&context.pgpool, receipt.signed_receipt())
-                .await
-                .unwrap();
+            let signed = receipt
+                .signed_receipt()
+                .clone()
+                .as_v2()
+                .expect("expected v2 receipt");
+            store_receipt(&context.pgpool, &signed).await.unwrap();
         }
 
         let recovered_received_receipt_vec = context
@@ -772,9 +656,12 @@ mod test {
                 i + 43,
                 (i + 124).into(),
             );
-            store_receipt(&context.pgpool, receipt.signed_receipt())
-                .await
-                .unwrap();
+            let signed = receipt
+                .signed_receipt()
+                .clone()
+                .as_v2()
+                .expect("expected v2 receipt");
+            store_receipt(&context.pgpool, &signed).await.unwrap();
         }
 
         let recovered_received_receipt_vec = context
@@ -839,11 +726,12 @@ mod test {
         // Storing the receipts
         let mut received_receipt_id_vec = Vec::new();
         for received_receipt in received_receipt_vec.iter() {
-            received_receipt_id_vec.push(
-                store_receipt(&context.pgpool, received_receipt.signed_receipt())
-                    .await
-                    .unwrap(),
-            );
+            let signed = received_receipt
+                .signed_receipt()
+                .clone()
+                .as_v2()
+                .expect("expected v2 receipt");
+            received_receipt_id_vec.push(store_receipt(&context.pgpool, &signed).await.unwrap());
         }
 
         macro_rules! test_ranges{

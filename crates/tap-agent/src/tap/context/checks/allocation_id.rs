@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use indexer_monitor::SubgraphClient;
-use indexer_query::{payments_escrow_transactions_redeem, tap_transactions, TapTransactions};
+use indexer_query::payments_escrow_transactions_redeem;
 use indexer_watcher::new_watcher;
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
 use thegraph_core::{
@@ -22,7 +22,7 @@ use crate::tap::{CheckingReceipt, TapReceipt};
 pub struct AllocationId {
     tap_allocation_redeemed: Receiver<bool>,
     allocation_id: Address,
-    collection_id: Option<CollectionId>,
+    collection_id: CollectionId,
 }
 
 impl AllocationId {
@@ -32,16 +32,13 @@ impl AllocationId {
         escrow_polling_interval: Duration,
         sender_id: Address,
         allocation_id: Address,
-        collection_id: Option<CollectionId>,
-        escrow_subgraph: &'static SubgraphClient,
+        collection_id: CollectionId,
         network_subgraph: &'static SubgraphClient,
     ) -> Self {
         let tap_allocation_redeemed = tap_allocation_redeemed_watcher(
-            allocation_id,
             collection_id,
             sender_id,
             indexer_address,
-            escrow_subgraph,
             network_subgraph,
             escrow_polling_interval,
         )
@@ -63,25 +60,18 @@ impl Check<TapReceipt> for AllocationId {
         _: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        // Support both Legacy (V1) and Horizon (V2) receipts.
-        // V1 provides allocation_id directly; V2 provides collection_id which we map to an Address.
-        let allocation_id = if let Some(a) = receipt.signed_receipt().allocation_id() {
-            a
-        } else if let Some(cid) = receipt.signed_receipt().collection_id() {
-            // V2: collection_id is 32 bytes with the 20-byte address right-aligned (left-padded zeros).
-            let bytes = cid.as_slice();
-            if bytes.len() != 32 {
-                return Err(CheckError::Failed(anyhow!(
-                    "Invalid collection_id length: {} (expected 32)",
-                    bytes.len()
-                )));
-            }
-            Address::from_slice(&bytes[12..32])
-        } else {
+        let collection_id = receipt
+            .signed_receipt()
+            .collection_id()
+            .ok_or_else(|| CheckError::Failed(anyhow!("Receipt does not have a collection_id")))?;
+        if self.collection_id != collection_id {
             return Err(CheckError::Failed(anyhow!(
-                "Receipt does not have an allocation_id or collection_id"
+                "Receipt collection_id different from expected: collection_id: {:?}, expected_collection_id: {}",
+                collection_id,
+                self.collection_id
             )));
-        };
+        }
+        let allocation_id = self.collection_id.as_address();
 
         tracing::debug!(
             allocation_id = %allocation_id,
@@ -97,63 +87,29 @@ impl Check<TapReceipt> for AllocationId {
             false => Ok(()),
             true => Err(CheckError::Failed(anyhow!(
                 "Allocation {:?} already redeemed",
-                self.collection_id
-                    .map(|collection_id| collection_id.encode_hex())
-                    .unwrap_or_else(|| allocation_id.to_string())
+                self.collection_id.encode_hex()
             ))),
         }
     }
 }
 
 async fn tap_allocation_redeemed_watcher(
-    allocation_id: Address,
-    collection_id: Option<CollectionId>,
+    collection_id: CollectionId,
     sender_address: Address,
     indexer_address: Address,
-    escrow_subgraph: &'static SubgraphClient,
     network_subgraph: &'static SubgraphClient,
     escrow_polling_interval: Duration,
 ) -> anyhow::Result<Receiver<bool>> {
     new_watcher(escrow_polling_interval, move || async move {
-        match collection_id {
-            Some(collection_id) => {
-                query_network_redeem_transactions(
-                    collection_id,
-                    sender_address,
-                    indexer_address,
-                    network_subgraph,
-                )
-                .await
-            }
-            None => {
-                query_escrow_check_transactions(
-                    allocation_id,
-                    sender_address,
-                    indexer_address,
-                    escrow_subgraph,
-                )
-                .await
-            }
-        }
+        query_network_redeem_transactions(
+            collection_id,
+            sender_address,
+            indexer_address,
+            network_subgraph,
+        )
+        .await
     })
     .await
-}
-
-async fn query_escrow_check_transactions(
-    allocation_id: Address,
-    sender_address: Address,
-    indexer_address: Address,
-    escrow_subgraph: &'static SubgraphClient,
-) -> anyhow::Result<bool> {
-    let data = escrow_subgraph
-        .query::<TapTransactions, _>(tap_transactions::Variables {
-            sender_id: sender_address.to_string().to_lowercase(),
-            receiver_id: indexer_address.to_string().to_lowercase(),
-            allocation_id: allocation_id.to_string().to_lowercase(),
-        })
-        .await?;
-
-    Ok(!data.transactions.is_empty())
 }
 
 async fn query_network_redeem_transactions(
@@ -184,46 +140,6 @@ mod tests {
     use serde_json::json;
     use thegraph_core::{alloy::hex::ToHexExt, CollectionId};
     use wiremock::{matchers::body_string_contains, Mock, MockServer, ResponseTemplate};
-
-    #[tokio::test]
-    async fn test_transaction_exists() {
-        let allocation_id = "0x43f8ebe0b6181117eb2dcf8ec7d4e894fca060b8";
-        let sender_address = "0x21fed3c4340f67dbf2b78c670ebd1940668ca03e";
-        let indexer_address = "0x54d7db28ce0d0e2e87764cd09298f9e4e913e567";
-
-        let mock_server: MockServer = MockServer::start().await;
-        mock_server
-            .register(
-                Mock::given(body_string_contains("TapTransactions")).respond_with(
-                    ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                        "data": {
-                            "transactions": [
-                                { "id": "0x01" }
-                            ]
-                        }
-                    })),
-                ),
-            )
-            .await;
-
-        let escrow_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
-            )
-            .await,
-        ));
-
-        let result = super::query_escrow_check_transactions(
-            allocation_id.parse().unwrap(),
-            sender_address.parse().unwrap(),
-            indexer_address.parse().unwrap(),
-            escrow_subgraph,
-        );
-
-        assert!(result.await.unwrap());
-    }
 
     #[tokio::test]
     async fn test_network_redeem_transactions_true_when_present() {

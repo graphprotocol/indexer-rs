@@ -101,16 +101,7 @@ pub async fn start_agent(
                         recently_closed_allocation_buffer_secs: recently_closed_allocation_buffer,
                         max_data_staleness_mins,
                     },
-                escrow:
-                    EscrowSubgraphConfig {
-                        config:
-                            SubgraphConfig {
-                                query_url: escrow_query_url,
-                                query_auth_token: escrow_query_auth_token,
-                                deployment_id: escrow_deployment_id,
-                                ..
-                            },
-                    },
+                escrow: EscrowSubgraphConfig { .. },
             },
         tap: TapConfig {
             sender_aggregator_endpoints,
@@ -149,24 +140,6 @@ pub async fn start_agent(
     )
     .await
     .with_context(|| "Failed to initialize indexer_allocations watcher")?;
-
-    let escrow_subgraph = Box::leak(Box::new(
-        SubgraphClient::new(
-            http_client.clone(),
-            escrow_deployment_id.map(|deployment| {
-                DeploymentDetails::for_graph_node_url(
-                    graph_node_status_endpoint.clone(),
-                    graph_node_query_endpoint.clone(),
-                    deployment,
-                )
-            }),
-            DeploymentDetails::for_query_url_with_token(
-                escrow_query_url.clone(),
-                escrow_query_auth_token.clone(),
-            ),
-        )
-        .await,
-    ));
 
     // Verify Horizon mode is enabled and the network subgraph is ready
     if !CONFIG.tap_mode().is_horizon() {
@@ -218,7 +191,6 @@ pub async fn start_agent(
         pgpool,
         indexer_allocations,
         escrow_accounts_v2,
-        escrow_subgraph,
         network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
         prefix: None,
@@ -297,24 +269,12 @@ mod tests {
             "tap_closed_sender_allocation_total should be registered"
         );
         assert!(
-            !sender_allocation::RAVS_CREATED.desc().is_empty(),
-            "tap_ravs_created_total should be registered"
-        );
-        assert!(
             !sender_allocation::RAVS_CREATED_BY_VERSION.desc().is_empty(),
             "tap_ravs_created_total_by_version should be registered"
         );
         assert!(
-            !sender_allocation::RAVS_FAILED.desc().is_empty(),
-            "tap_ravs_failed_total should be registered"
-        );
-        assert!(
             !sender_allocation::RAVS_FAILED_BY_VERSION.desc().is_empty(),
             "tap_ravs_failed_total_by_version should be registered"
-        );
-        assert!(
-            !sender_allocation::RAV_RESPONSE_TIME.desc().is_empty(),
-            "tap_rav_response_time_seconds should be registered"
         );
         assert!(
             !sender_allocation::RAV_RESPONSE_TIME_BY_VERSION

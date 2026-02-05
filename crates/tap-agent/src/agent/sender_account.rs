@@ -275,8 +275,6 @@ pub struct SenderAccountArgs {
     pub escrow_accounts: Receiver<EscrowAccounts>,
     /// Watcher of normalized allocation IDs for this sender
     pub indexer_allocations: Receiver<HashSet<AllocationId>>,
-    /// SubgraphClient of the escrow subgraph
-    pub escrow_subgraph: &'static SubgraphClient,
     /// SubgraphClient of the network subgraph
     pub network_subgraph: &'static SubgraphClient,
     /// Domain separator used for horizon
@@ -348,8 +346,6 @@ pub struct State {
     /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
 
-    /// SubgraphClient of the escrow subgraph
-    escrow_subgraph: &'static SubgraphClient,
     /// SubgraphClient of the network subgraph
     network_subgraph: &'static SubgraphClient,
 
@@ -359,8 +355,7 @@ pub struct State {
     pgpool: PgPool,
     /// Aggregator client for V2
     ///
-    /// This is only send to [SenderAllocation] in case
-    /// it's a [AllocationId::Horizon]
+    /// This is only sent to [SenderAllocation] for Horizon allocations.
     aggregator_v2: AggregatorV2<Channel>,
 
     // Used as a global backoff for triggering new rav requests
@@ -467,34 +462,27 @@ impl State {
             return Ok(());
         }
 
-        match allocation_id {
-            AllocationId::Legacy(id) => {
-                anyhow::bail!("Legacy allocation_id {id} is not supported in Horizon-only mode");
-            }
-            AllocationId::Horizon(id) => {
-                let args = SenderAllocationArgs::builder()
-                    .pgpool(self.pgpool.clone())
-                    .allocation_id(id)
-                    .sender(self.sender)
-                    .escrow_accounts(self.escrow_accounts.clone())
-                    .escrow_subgraph(self.escrow_subgraph)
-                    .network_subgraph(self.network_subgraph)
-                    .domain_separator(self.domain_separator_v2.clone())
-                    .sender_account_ref(sender_account_ref.clone())
-                    .sender_aggregator(self.aggregator_v2.clone())
-                    .config(AllocationConfig::from_sender_config(self.config))
-                    .build();
+        let AllocationId(collection_id) = allocation_id;
+        let args = SenderAllocationArgs::builder()
+            .pgpool(self.pgpool.clone())
+            .allocation_id(collection_id)
+            .sender(self.sender)
+            .escrow_accounts(self.escrow_accounts.clone())
+            .network_subgraph(self.network_subgraph)
+            .domain_separator(self.domain_separator_v2.clone())
+            .sender_account_ref(sender_account_ref.clone())
+            .sender_aggregator(self.aggregator_v2.clone())
+            .config(AllocationConfig::from_sender_config(self.config))
+            .build();
 
-                let allocation_address = AllocationIdCore::from(id).into_inner();
-                SenderAllocation::<Horizon>::spawn_linked(
-                    Some(self.format_sender_allocation(&allocation_address)),
-                    SenderAllocation::default(),
-                    args,
-                    sender_account_ref.get_cell(),
-                )
-                .await?;
-            }
-        }
+        let allocation_address = AllocationIdCore::from(collection_id).into_inner();
+        SenderAllocation::<Horizon>::spawn_linked(
+            Some(self.format_sender_allocation(&allocation_address)),
+            SenderAllocation::default(),
+            args,
+            sender_account_ref.get_cell(),
+        )
+        .await?;
         Ok(())
     }
     fn format_sender_allocation(&self, allocation_id: &Address) -> String {
@@ -700,9 +688,7 @@ impl State {
         if allocation_ids.is_empty() {
             return Ok(HashSet::new());
         }
-        // We don't need to check what type of allocation it is since
-        // legacy allocation ids can't be reused for horizon
-        // Use .address() to get the 20-byte allocation address for both Legacy and Horizon
+        // Use .address() to get the 20-byte allocation address for Horizon allocations
         let allocation_ids: Vec<String> = allocation_ids
             .into_iter()
             .map(|addr| addr.address().to_string().to_lowercase())
@@ -763,7 +749,6 @@ impl Actor for SenderAccount {
             sender_id,
             escrow_accounts,
             indexer_allocations,
-            escrow_subgraph,
             network_subgraph,
             domain_separator_v2,
             sender_aggregator_endpoint,
@@ -834,7 +819,7 @@ impl Actor for SenderAccount {
                     let collection_id: String = record.try_get("collection_id").ok()?;
                     let value_aggregate: BigDecimal = record.try_get("value_aggregate").ok()?;
                     let collection_id = CollectionId::from_str(&collection_id).ok()?;
-                    Some((AllocationId::Horizon(collection_id), value_aggregate))
+                    Some((AllocationId(collection_id), value_aggregate))
                 })
                 .collect();
 
@@ -846,12 +831,9 @@ impl Actor for SenderAccount {
 
                 let collection_ids: Vec<String> = last_non_final_ravs
                     .iter()
-                    .filter_map(|(allocation_id, _)| match allocation_id {
-                        AllocationId::Horizon(collection_id) => {
-                            // Network subgraph stores allocationId as 20-byte address.
-                            Some(collection_id.as_address().encode_hex())
-                        }
-                        AllocationId::Legacy(_) => None,
+                    .map(|(allocation_id, _)| {
+                        // Network subgraph stores allocationId as 20-byte address.
+                        allocation_id.0.as_address().encode_hex()
                     })
                     .collect();
 
@@ -1024,7 +1006,6 @@ impl Actor for SenderAccount {
             retry_interval,
             adaptive_limiter: AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50),
             escrow_accounts,
-            escrow_subgraph,
             network_subgraph,
             domain_separator_v2,
             pgpool,
@@ -1098,33 +1079,22 @@ impl Actor for SenderAccount {
                     "SenderAccount {} received receipt for allocation: {} (variant: {:?})",
                     state.sender,
                     allocation_id,
-                    match allocation_id {
-                        AllocationId::Legacy(_) => "Legacy",
-                        AllocationId::Horizon(_) => "Horizon",
-                    }
+                    "Horizon"
                 );
 
                 tracing::debug!(
                     allocation_addr = %allocation_id.address(),
-                    variant = %match allocation_id { AllocationId::Legacy(_) => "Legacy", AllocationId::Horizon(_) => "Horizon" },
+                    variant = "Horizon",
                     "Checking fee tracker for allocation",
                 );
 
                 // Log the raw allocation ID details for comparison
-                match &allocation_id {
-                    AllocationId::Legacy(core_id) => {
-                        tracing::debug!(core_id = %core_id, address = %core_id.as_ref(), "Legacy allocation details");
-                    }
-                    AllocationId::Horizon(collection_id) => {
-                        let allocation_address =
-                            AllocationIdCore::from(*collection_id).into_inner();
-                        tracing::debug!(
-                            collection_id = %collection_id,
-                            as_address = %allocation_address,
-                            "Horizon allocation details"
-                        );
-                    }
-                }
+                let allocation_address = AllocationIdCore::from(allocation_id.0).into_inner();
+                tracing::debug!(
+                    collection_id = %allocation_id.0,
+                    as_address = %allocation_address,
+                    "Horizon allocation details"
+                );
                 let tracked_allocations: Vec<_> =
                     state.sender_fee_tracker.id_to_fee.keys().collect();
                 let tracked_count = tracked_allocations.len();
@@ -1519,7 +1489,7 @@ impl Actor for SenderAccount {
                             %allocation_id,
                             "Allocation not found in state for ActorTerminated, defaulting to Horizon"
                         );
-                        AllocationId::Horizon(CollectionId::from(allocation_id))
+                        AllocationId(CollectionId::from(allocation_id))
                     });
 
                 let _ = myself.cast(SenderAccountMessage::UpdateReceiptFees(
@@ -1793,7 +1763,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_update_allocation_ids() {
-        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
+        let _mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
@@ -1820,13 +1790,12 @@ pub mod tests {
 
         let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
             .call()
             .await;
 
         let allocation_ids =
-            HashSet::from_iter([AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0))]);
+            HashSet::from_iter([AllocationId(CollectionId::from(ALLOCATION_ID_0))]);
         // we expect it to create a sender allocation
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(
@@ -1884,7 +1853,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_new_allocation_id() {
-        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
+        let _mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
         // Start a mock graphql server using wiremock
@@ -1911,16 +1880,15 @@ pub mod tests {
 
         let (sender_account, mut msg_receiver, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_server.uri())
             .call()
             .await;
 
         // we expect it to create a sender allocation
         sender_account
-            .cast(SenderAccountMessage::NewAllocationId(
-                AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
-            ))
+            .cast(SenderAccountMessage::NewAllocationId(AllocationId(
+                CollectionId::from(ALLOCATION_ID_0),
+            )))
             .unwrap();
 
         flush_messages(&mut msg_receiver).await;
@@ -1933,7 +1901,7 @@ pub mod tests {
         // nothing should change because we already created
         sender_account
             .cast(SenderAccountMessage::UpdateAllocationIds(
-                vec![AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0))]
+                vec![AllocationId(CollectionId::from(ALLOCATION_ID_0))]
                     .into_iter()
                     .collect(),
             ))
@@ -2019,7 +1987,7 @@ pub mod tests {
         basic_sender_account
             .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(TRIGGER_VALUE - 1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2053,7 +2021,7 @@ pub mod tests {
         basic_sender_account
             .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2067,7 +2035,7 @@ pub mod tests {
         basic_sender_account
             .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::Retry,
             ))
             .unwrap();
@@ -2097,7 +2065,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2107,7 +2075,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(1, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2118,7 +2086,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::Retry,
             ))
             .unwrap();
@@ -2137,11 +2105,10 @@ pub mod tests {
         let (sender_account, _, prefix, _, _, _) = create_sender_account()
             .pgpool(pgpool)
             .initial_allocation(
-                vec![AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0))]
+                vec![AllocationId(CollectionId::from(ALLOCATION_ID_0))]
                     .into_iter()
                     .collect(),
             )
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .network_subgraph_endpoint(&mock_escrow_subgraph.uri())
             .call()
             .await;
@@ -2247,7 +2214,7 @@ pub mod tests {
 
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2287,7 +2254,7 @@ pub mod tests {
             ($value:expr) => {
                 sender_account
                     .cast(SenderAccountMessage::UpdateReceiptFees(
-                        AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
+                        AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                         ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
@@ -2304,7 +2271,7 @@ pub mod tests {
             ($value:expr) => {
                 sender_account
                     .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
-                        AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
+                        AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                         UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
@@ -2462,7 +2429,7 @@ pub mod tests {
             ($value:expr) => {
                 sender_account
                     .cast(SenderAccountMessage::UpdateReceiptFees(
-                        AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
+                        AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                         ReceiptFees::UpdateValue(UnaggregatedReceipts {
                             value: $value,
                             last_id: 11,
@@ -2641,7 +2608,6 @@ pub mod tests {
             create_sender_account()
                 .pgpool(pgpool.clone())
                 .max_amount_willing_to_lose_grt(u128::MAX)
-                .escrow_subgraph_endpoint(&mock_server.uri())
                 .network_subgraph_endpoint(&mock_server.uri())
                 .call()
                 .await;
@@ -2761,7 +2727,7 @@ pub mod tests {
         // set retry
         sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
+                AllocationId(CollectionId::from(ALLOCATION_ID_0)),
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
@@ -2769,7 +2735,7 @@ pub mod tests {
         assert!(matches!(
             msg,
             SenderAccountMessage::UpdateReceiptFees(
-                AllocationId::Horizon(allocation_id),
+                AllocationId(allocation_id),
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, _)
             ) if allocation_id == CollectionId::from(ALLOCATION_ID_0)
         ));
@@ -2801,18 +2767,17 @@ pub mod tests {
         // with the current allocations from the watcher
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
+        let _mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let mock_network_subgraph = MockServer::start().await;
 
         let allocation_set = HashSet::from_iter([
-            AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0)),
-            AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_1)),
+            AllocationId(CollectionId::from(ALLOCATION_ID_0)),
+            AllocationId(CollectionId::from(ALLOCATION_ID_1)),
         ]);
 
         let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx, _) =
             create_sender_account()
                 .pgpool(pgpool)
-                .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
                 .network_subgraph_endpoint(&mock_network_subgraph.uri())
                 .initial_allocation(allocation_set.clone())
                 .call()
@@ -2849,7 +2814,7 @@ pub mod tests {
 
         // Test that updating the watcher changes what ReconcileAllocations sends
         let new_allocation_set =
-            HashSet::from_iter([AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0))]);
+            HashSet::from_iter([AllocationId(CollectionId::from(ALLOCATION_ID_0))]);
         indexer_allocations_tx
             .send(new_allocation_set.clone())
             .unwrap();
@@ -2954,17 +2919,16 @@ pub mod tests {
     async fn test_reconcile_allocations_handles_empty_set() {
         let test_db = test_assets::setup_shared_test_db().await;
         let pgpool = test_db.pool;
-        let mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
+        let _mock_escrow_subgraph = setup_mock_escrow_subgraph().await;
         let mock_network_subgraph = MockServer::start().await;
 
         // Start with one allocation
         let initial_allocation_set =
-            HashSet::from_iter([AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0))]);
+            HashSet::from_iter([AllocationId(CollectionId::from(ALLOCATION_ID_0))]);
 
         let (sender_account, mut msg_receiver, _, _, indexer_allocations_tx, _) =
             create_sender_account()
                 .pgpool(pgpool)
-                .escrow_subgraph_endpoint(&mock_escrow_subgraph.uri())
                 .network_subgraph_endpoint(&mock_network_subgraph.uri())
                 .initial_allocation(initial_allocation_set)
                 .call()

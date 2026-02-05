@@ -11,7 +11,6 @@ use std::{
 use anyhow::{anyhow, ensure};
 use bigdecimal::{num_bigint::BigInt, ToPrimitive};
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
-use itertools::{Either, Itertools};
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use sqlx::{types::BigDecimal, PgPool};
@@ -40,7 +39,7 @@ use crate::{
     tap::{
         context::{
             checks::{AllocationId, Signature},
-            Horizon, Legacy, NetworkVersion, TapAgentContext,
+            Horizon, NetworkVersion, TapAgentContext,
         },
         signers_trimmed, TapReceipt,
     },
@@ -54,14 +53,6 @@ pub(crate) static CLOSED_SENDER_ALLOCATIONS: LazyLock<CounterVec> = LazyLock::ne
     )
     .unwrap()
 });
-pub(crate) static RAVS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
-    register_counter_vec!(
-        "tap_ravs_created_total",
-        "RAVs updated or created per sender allocation since the start of the program",
-        &["sender", "allocation"]
-    )
-    .unwrap()
-});
 pub(crate) static RAVS_CREATED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_ravs_created_total_by_version",
@@ -70,27 +61,11 @@ pub(crate) static RAVS_CREATED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(
     )
     .unwrap()
 });
-pub(crate) static RAVS_FAILED: LazyLock<CounterVec> = LazyLock::new(|| {
-    register_counter_vec!(
-        "tap_ravs_failed_total",
-        "RAV requests failed since the start of the program",
-        &["sender", "allocation"]
-    )
-    .unwrap()
-});
 pub(crate) static RAVS_FAILED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         "tap_ravs_failed_total_by_version",
         "RAV requests failed per sender allocation and TAP version",
         &["sender", "allocation", "version"]
-    )
-    .unwrap()
-});
-pub(crate) static RAV_RESPONSE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
-    register_histogram_vec!(
-        "tap_rav_response_time_seconds",
-        "RAV response time per sender",
-        &["sender"]
     )
     .unwrap()
 });
@@ -135,18 +110,7 @@ pub enum RavError {
 
 type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
 
-const TAP_V1: &str = "v1";
-const TAP_V2: &str = "v2";
-
-/// Helper function to determine TAP version from NetworkVersion type parameter
-/// Since Legacy and Horizon are uninhabitable enums, we use type_name introspection
-fn get_tap_version<T: NetworkVersion>() -> &'static str {
-    if std::any::type_name::<T>().contains("Legacy") {
-        TAP_V1
-    } else {
-        TAP_V2
-    }
-}
+const TAP_VERSION: &str = "v2";
 
 /// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
 ///
@@ -185,8 +149,7 @@ pub struct SenderAllocationState<T: NetworkVersion> {
 
     /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
-    /// Domain separator used for tap/horizon
-    /// depending if SenderAllocationState<Legacy> or SenderAllocationState<Horizon>??
+    /// Domain separator used for Horizon receipts.
     /// TODO: Double check if we actually need to add an additional domain_sepparator_v2 field
     /// at first glance it seems like each sender allocation will deal only with one allocation
     /// type. not both
@@ -195,19 +158,14 @@ pub struct SenderAllocationState<T: NetworkVersion> {
     ///
     /// This is needed to return back Rav responses
     sender_account_ref: ActorRef<SenderAccountMessage>,
-    /// Aggregator client
-    ///
-    /// This is defined by [NetworkVersion::AggregatorClient] depending
-    /// if it's a [crate::tap::context::Legacy] or a [crate::tap::context::Horizon] version
+    /// Aggregator client for Horizon receipts.
     sender_aggregator: T::AggregatorClient,
     /// Buffer configuration used by TAP so gives some room to receive receipts
     /// that are delayed since timestamp_ns is defined by the gateway
     timestamp_buffer_ns: u64,
     /// Limit of receipts sent in a Rav Request
     rav_request_receipt_limit: u64,
-    /// Data service address for Horizon mode
-    /// - None for Legacy mode
-    /// - Some(SubgraphService address) for Horizon mode from config
+    /// Data service address for Horizon mode from config
     data_service: Option<Address>,
 }
 
@@ -250,8 +208,6 @@ pub struct SenderAllocationArgs<T: NetworkVersion> {
     pub sender: Address,
     /// Watcher containing the escrow accounts
     pub escrow_accounts: Receiver<EscrowAccounts>,
-    /// SubgraphClient of the escrow subgraph
-    pub escrow_subgraph: &'static SubgraphClient,
     /// SubgraphClient of the network subgraph
     pub network_subgraph: &'static SubgraphClient,
     /// Domain separator used for tap
@@ -260,10 +216,7 @@ pub struct SenderAllocationArgs<T: NetworkVersion> {
     ///
     /// This is needed to return back Rav responses
     pub sender_account_ref: ActorRef<SenderAccountMessage>,
-    /// Aggregator client
-    ///
-    /// This is defined by [crate::tap::context::NetworkVersion::AggregatorClient] depending
-    /// if it's a [crate::tap::context::Legacy] or a [crate::tap::context::Horizon] version
+    /// Aggregator client for Horizon receipts.
     pub sender_aggregator: T::AggregatorClient,
 
     /// General configuration from config.toml
@@ -508,7 +461,6 @@ where
             allocation_id,
             sender,
             escrow_accounts,
-            escrow_subgraph,
             network_subgraph,
             domain_separator,
             sender_account_ref,
@@ -516,12 +468,7 @@ where
             config,
         }: SenderAllocationArgs<T>,
     ) -> anyhow::Result<Self> {
-        let collection_id = match T::to_allocation_id_enum(&allocation_id) {
-            crate::agent::sender_accounts_manager::AllocationId::Legacy(_) => None,
-            crate::agent::sender_accounts_manager::AllocationId::Horizon(collection_id) => {
-                Some(collection_id)
-            }
-        };
+        let collection_id = T::to_allocation_id_enum(&allocation_id).0;
         let required_checks: Vec<Arc<dyn Check<TapReceipt> + Send + Sync>> = vec![
             Arc::new(
                 AllocationId::new(
@@ -530,7 +477,6 @@ where
                     sender,
                     T::allocation_id_to_address(&allocation_id),
                     collection_id,
-                    escrow_subgraph,
                     network_subgraph,
                 )
                 .await,
@@ -540,26 +486,18 @@ where
                 escrow_accounts.clone(),
             )),
         ];
-        // Build context based on TapMode
-        let context = match &config.tap_mode {
-            indexer_config::TapMode::Legacy => TapAgentContext::builder()
-                .pgpool(pgpool.clone())
-                .allocation_id(T::allocation_id_to_address(&allocation_id))
-                .indexer_address(config.indexer_address)
-                .sender(sender)
-                .escrow_accounts(escrow_accounts.clone())
-                .build(),
-            indexer_config::TapMode::Horizon {
-                subgraph_service_address,
-            } => TapAgentContext::builder()
-                .pgpool(pgpool.clone())
-                .allocation_id(T::allocation_id_to_address(&allocation_id))
-                .indexer_address(config.indexer_address)
-                .sender(sender)
-                .escrow_accounts(escrow_accounts.clone())
-                .subgraph_service_address(*subgraph_service_address)
-                .build(),
-        };
+        let subgraph_service_address = config
+            .tap_mode
+            .subgraph_service_address()
+            .expect("Horizon mode required for sender allocation");
+        let context = TapAgentContext::builder()
+            .pgpool(pgpool.clone())
+            .allocation_id(T::allocation_id_to_address(&allocation_id))
+            .indexer_address(config.indexer_address)
+            .sender(sender)
+            .escrow_accounts(escrow_accounts.clone())
+            .subgraph_service_address(subgraph_service_address)
+            .build();
 
         let latest_rav = context.last_rav().await.unwrap_or_default();
         let tap_manager = TapManager::new(
@@ -568,13 +506,7 @@ where
             CheckList::new(required_checks),
         );
 
-        // Extract data_service from config based on TapMode
-        let data_service = match &config.tap_mode {
-            indexer_config::TapMode::Legacy => None,
-            indexer_config::TapMode::Horizon {
-                subgraph_service_address,
-            } => Some(*subgraph_service_address),
-        };
+        let data_service = Some(subgraph_service_address);
 
         Ok(Self {
             pgpool,
@@ -609,49 +541,26 @@ where
             Ok(rav) => {
                 self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
                 self.latest_rav = Some(rav);
-                // Determine TAP version based on NetworkVersion type
-                let version = get_tap_version::<T>();
-
                 RAVS_CREATED_BY_VERSION
                     .with_label_values(&[
                         &self.sender.to_string(),
                         &self.allocation_id.to_string(),
-                        version,
+                        TAP_VERSION,
                     ])
                     .inc();
-                // Legacy counter retained for backwards compatibility with existing dashboards
-                if version == TAP_V1 {
-                    RAVS_CREATED
-                        .with_label_values(&[
-                            &self.sender.to_string(),
-                            &self.allocation_id.to_string(),
-                        ])
-                        .inc();
-                }
                 Ok(())
             }
             Err(e) => {
                 if let RavError::AllReceiptsInvalid = e {
                     self.unaggregated_fees = self.calculate_unaggregated_fee().await?;
                 }
-                let version = get_tap_version::<T>();
-
                 RAVS_FAILED_BY_VERSION
                     .with_label_values(&[
                         &self.sender.to_string(),
                         &self.allocation_id.to_string(),
-                        version,
+                        TAP_VERSION,
                     ])
                     .inc();
-                // Legacy counter retained for backwards compatibility with existing dashboards
-                if version == TAP_V1 {
-                    RAVS_FAILED
-                        .with_label_values(&[
-                            &self.sender.to_string(),
-                            &self.allocation_id.to_string(),
-                        ])
-                        .inc();
-                }
                 Err(e.into())
             }
         }
@@ -717,12 +626,10 @@ where
                 // Instrumentation: log details before calling the aggregator
                 let receipt_count = valid_receipts.len();
                 let first_signer = valid_receipts.first().and_then(|r| match r {
-                    indexer_receipt::TapReceipt::V1(sr) => {
-                        sr.recover_signer(&self.domain_separator).ok()
-                    }
                     indexer_receipt::TapReceipt::V2(sr) => {
                         sr.recover_signer(&self.domain_separator).ok()
                     }
+                    indexer_receipt::TapReceipt::V1(_) => None,
                 });
                 tracing::info!(
                     sender = %self.sender,
@@ -740,16 +647,9 @@ where
                     T::aggregate(&mut self.sender_aggregator, valid_receipts, previous_rav).await?;
 
                 let rav_response_time = rav_response_time_start.elapsed();
-                let version = get_tap_version::<T>();
-
                 RAV_RESPONSE_TIME_BY_VERSION
-                    .with_label_values(&[&self.sender.to_string(), version])
+                    .with_label_values(&[&self.sender.to_string(), TAP_VERSION])
                     .observe(rav_response_time.as_secs_f64());
-                if version == TAP_V1 {
-                    RAV_RESPONSE_TIME
-                        .with_label_values(&[&self.sender.to_string()])
-                        .observe(rav_response_time.as_secs_f64());
-                }
                 // we only save invalid receipts when we are about to store our rav
                 //
                 // store them before we call remove_obsolete_receipts()
@@ -812,20 +712,17 @@ where
                 Ok(signed_rav)
             }
             (Err(AggregationError::NoValidReceiptsForRavRequest), true, true) => {
-                let table_name = match std::any::type_name::<T>() {
-                    name if name.contains("Legacy") => "scalar_tap_receipts (V1/Legacy)",
-                    name if name.contains("Horizon") => "tap_horizon_receipts (V2/Horizon)",
-                    _ => "unknown receipt table",
-                };
+                let table_name = "tap_horizon_receipts (V2/Horizon)";
 
                 Err(anyhow!(
                     "It looks like there are no valid receipts for the RAV request from table: {}.\
                     This may happen if your `rav_request_trigger_value` is too low \
                     and no receipts were found outside the `rav_request_timestamp_buffer_ms`.\
                     You can fix this by increasing the `rav_request_trigger_value`.\
-                    \nDuring Horizon migration: Verify receipts are in the correct table for this allocation type.",
+                    \nVerify receipts are in the Horizon receipts table for this allocation.",
                     table_name
-                ).into())
+                )
+                .into())
             }
             (Err(e), ..) => Err(e.into()),
         }
@@ -840,26 +737,18 @@ where
             .map(|receipt| receipt.signed_receipt().value())
             .sum();
 
-        let (receipts_v1, receipts_v2): (Vec<_>, Vec<_>) =
-            receipts.into_iter().partition_map(|r| {
-                // note: it would be nice if we could get signed_receipt and error by value without
-                // cloning
-                let error = r.clone().error().to_string();
-                match r.signed_receipt().clone() {
-                    TapReceipt::V1(receipt) => Either::Left((receipt, error)),
-                    TapReceipt::V2(receipt) => Either::Right((receipt, error)),
+        let mut receipts_v2 = Vec::with_capacity(receipts.len());
+        for receipt in receipts {
+            let error = receipt.clone().error().to_string();
+            match receipt.signed_receipt().clone() {
+                TapReceipt::V2(receipt) => receipts_v2.push((receipt, error)),
+                TapReceipt::V1(_) => {
+                    anyhow::bail!("V1 receipt encountered in Horizon-only mode");
                 }
-            });
-
-        let (result1, result2) = tokio::join!(
-            self.store_v1_invalid_receipts(receipts_v1),
-            self.store_v2_invalid_receipts(receipts_v2),
-        );
-        if let Err(err) = result1 {
-            tracing::error!(%err, "There was an error while storing invalid v1 receipts.");
+            }
         }
 
-        if let Err(err) = result2 {
+        if let Err(err) = self.store_v2_invalid_receipts(receipts_v2).await {
             tracing::error!(%err, "There was an error while storing invalid v2 receipts.");
         }
 
@@ -885,78 +774,6 @@ where
                 T::to_allocation_id_enum(&self.allocation_id),
                 self.invalid_receipts_fees,
             ))?;
-
-        Ok(())
-    }
-
-    async fn store_v1_invalid_receipts(
-        &self,
-        receipts: Vec<(tap_graph::SignedReceipt, String)>,
-    ) -> anyhow::Result<()> {
-        let reciepts_len = receipts.len();
-        let mut reciepts_signers = Vec::with_capacity(reciepts_len);
-        let mut encoded_signatures = Vec::with_capacity(reciepts_len);
-        let mut allocation_ids = Vec::with_capacity(reciepts_len);
-        let mut timestamps = Vec::with_capacity(reciepts_len);
-        let mut nounces = Vec::with_capacity(reciepts_len);
-        let mut values = Vec::with_capacity(reciepts_len);
-        let mut error_logs = Vec::with_capacity(reciepts_len);
-
-        for (receipt, receipt_error) in receipts {
-            let allocation_id = receipt.message.allocation_id;
-            let encoded_signature = receipt.signature.as_bytes().to_vec();
-            let receipt_signer = receipt
-                .recover_signer(&self.domain_separator)
-                .map_err(|e| {
-                    tracing::error!(error = %e, "Failed to recover receipt signer");
-                    anyhow!(e)
-                })?;
-            tracing::debug!(
-                allocation_id = %allocation_id.encode_hex(),
-                signer = %receipt_signer.encode_hex(),
-                reason = %receipt_error,
-                "Invalid receipt stored",
-            );
-            reciepts_signers.push(receipt_signer.encode_hex());
-            encoded_signatures.push(encoded_signature);
-            allocation_ids.push(allocation_id.encode_hex());
-            timestamps.push(BigDecimal::from(receipt.message.timestamp_ns));
-            nounces.push(BigDecimal::from(receipt.message.nonce));
-            values.push(BigDecimal::from(BigInt::from(receipt.message.value)));
-            error_logs.push(receipt_error);
-        }
-        sqlx::query!(
-            r#"INSERT INTO scalar_tap_receipts_invalid (
-                signer_address,
-                signature,
-                allocation_id,
-                timestamp_ns,
-                nonce,
-                value,
-                error_log
-            ) SELECT * FROM UNNEST(
-                $1::CHAR(40)[],
-                $2::BYTEA[],
-                $3::CHAR(40)[],
-                $4::NUMERIC(20)[],
-                $5::NUMERIC(20)[],
-                $6::NUMERIC(40)[],
-                $7::TEXT[]
-            )"#,
-            &reciepts_signers,
-            &encoded_signatures,
-            &allocation_ids,
-            &timestamps,
-            &nounces,
-            &values,
-            &error_logs
-        )
-        .execute(&self.pgpool)
-        .await
-        .map_err(|e: sqlx::Error| {
-            tracing::error!(error = %e, "Failed to store invalid receipt");
-            anyhow!(e)
-        })?;
 
         Ok(())
     }
@@ -1109,167 +926,6 @@ pub trait DatabaseInteractions {
 
     /// Sends a database query and mark the allocation rav as last
     fn mark_rav_last(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
-}
-
-impl DatabaseInteractions for SenderAllocationState<Legacy> {
-    async fn delete_receipts_between(
-        &self,
-        signers: &[String],
-        min_timestamp: u64,
-        max_timestamp: u64,
-    ) -> anyhow::Result<()> {
-        sqlx::query!(
-            r#"
-                        DELETE FROM scalar_tap_receipts
-                        WHERE timestamp_ns BETWEEN $1 AND $2
-                        AND allocation_id = $3
-                        AND signer_address IN (SELECT unnest($4::text[]));
-                    "#,
-            BigDecimal::from(min_timestamp),
-            BigDecimal::from(max_timestamp),
-            (**self.allocation_id).encode_hex(),
-            &signers,
-        )
-        .execute(&self.pgpool)
-        .await?;
-        Ok(())
-    }
-    async fn calculate_invalid_receipts_fee(&self) -> anyhow::Result<UnaggregatedReceipts> {
-        tracing::trace!("calculate_invalid_receipts_fee()");
-        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
-
-        let res = sqlx::query!(
-            r#"
-            SELECT
-                MAX(id),
-                SUM(value),
-                COUNT(*)
-            FROM
-                scalar_tap_receipts_invalid
-            WHERE
-                allocation_id = $1
-                AND signer_address IN (SELECT unnest($2::text[]))
-            "#,
-            (**self.allocation_id).encode_hex(),
-            &signers
-        )
-        .fetch_one(&self.pgpool)
-        .await?;
-
-        ensure!(
-            res.sum.is_none() == res.max.is_none(),
-            "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
-        );
-
-        Ok(UnaggregatedReceipts {
-            last_id: res.max.unwrap_or(0).try_into()?,
-            value: res
-                .sum
-                .unwrap_or(BigDecimal::from(0))
-                .to_string()
-                .parse::<u128>()?,
-            counter: res
-                .count
-                .unwrap_or(0)
-                .to_u64()
-                .expect("default value exists, this shouldn't be empty"),
-        })
-    }
-
-    /// Delete obsolete receipts in the DB w.r.t. the last RAV in DB, then update the tap manager
-    /// with the latest unaggregated fees from the database.
-    async fn calculate_fee_until_last_id(
-        &self,
-        last_id: i64,
-    ) -> anyhow::Result<UnaggregatedReceipts> {
-        tracing::trace!("calculate_unaggregated_fee()");
-        self.tap_manager.remove_obsolete_receipts().await?;
-
-        let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
-        let res = sqlx::query!(
-            r#"
-            SELECT
-                MAX(id),
-                SUM(value),
-                COUNT(*)
-            FROM
-                scalar_tap_receipts
-            WHERE
-                allocation_id = $1
-                AND id <= $2
-                AND signer_address IN (SELECT unnest($3::text[]))
-                AND timestamp_ns > $4
-            "#,
-            (**self.allocation_id).encode_hex(),
-            last_id,
-            &signers,
-            BigDecimal::from(
-                self.latest_rav
-                    .as_ref()
-                    .map(|rav| rav.message.timestamp_ns())
-                    .unwrap_or_default()
-            ),
-        )
-        .fetch_one(&self.pgpool)
-        .await?;
-
-        ensure!(
-            res.sum.is_none() == res.max.is_none(),
-            "Exactly one of SUM(value) and MAX(id) is null. This should not happen."
-        );
-
-        Ok(UnaggregatedReceipts {
-            last_id: res.max.unwrap_or(0).try_into()?,
-            value: res
-                .sum
-                .unwrap_or(BigDecimal::from(0))
-                .to_string()
-                .parse::<u128>()?,
-            counter: res
-                .count
-                .unwrap_or(0)
-                .to_u64()
-                .expect("default value exists, this shouldn't be empty"),
-        })
-    }
-
-    /// Sends a database query and mark the allocation rav as last
-    async fn mark_rav_last(&self) -> anyhow::Result<()> {
-        tracing::info!(
-            sender = %self.sender,
-            allocation_id = %self.allocation_id,
-            "Marking rav as last!",
-        );
-        let updated_rows = sqlx::query!(
-            r#"
-                        UPDATE scalar_tap_ravs
-                        SET last = true
-                        WHERE allocation_id = $1 AND sender_address = $2
-                    "#,
-            (**self.allocation_id).encode_hex(),
-            self.sender.encode_hex(),
-        )
-        .execute(&self.pgpool)
-        .await?;
-
-        match updated_rows.rows_affected() {
-            // in case no rav was marked as final
-            0 => {
-                tracing::warn!(
-                    allocation_id = %self.allocation_id,
-                    sender = %self.sender,
-                    "No RAVs were updated as last",
-                );
-                Ok(())
-            }
-            1 => Ok(()),
-            _ => anyhow::bail!(
-                "Expected exactly one row to be updated in the latest RAVs table, \
-                        but {} were updated.",
-                updated_rows.rows_affected()
-            ),
-        }
-    }
 }
 
 impl DatabaseInteractions for SenderAllocationState<Horizon> {
@@ -1476,10 +1132,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
 pub fn init_metrics() {
     // Dereference each LazyLock to force initialization
     let _ = &*CLOSED_SENDER_ALLOCATIONS;
-    let _ = &*RAVS_CREATED;
     let _ = &*RAVS_CREATED_BY_VERSION;
-    let _ = &*RAVS_FAILED;
     let _ = &*RAVS_FAILED_BY_VERSION;
-    let _ = &*RAV_RESPONSE_TIME;
     let _ = &*RAV_RESPONSE_TIME_BY_VERSION;
 }

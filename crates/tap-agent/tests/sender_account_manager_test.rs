@@ -63,20 +63,11 @@ async fn sender_account_manager_layer_test() {
         )
         .await;
 
-    let mock_escrow_subgraph_server: MockServer = MockServer::start().await;
-    mock_escrow_subgraph_server
-        .register(Mock::given(method("POST")).respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({ "data": {
-                    "transactions": [],
-                }
-            })),
-        ))
-        .await;
+    let _mock_escrow_subgraph_server: MockServer = MockServer::start().await;
 
     let (prefix, mut msg_receiver, (actor, join_handle)) = create_sender_accounts_manager()
         .pgpool(pgpool.clone())
         .network_subgraph(&mock_network_subgraph_server.uri())
-        .escrow_subgraph(&mock_escrow_subgraph_server.uri())
         .initial_escrow_accounts_v2(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
@@ -108,16 +99,19 @@ async fn sender_account_manager_layer_test() {
     assert!(sender_account_ref.is_some());
 
     let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, TRIGGER_VALUE - 10);
-    store_receipt(&pgpool, receipt.signed_receipt())
-        .await
-        .unwrap();
+    let signed = receipt
+        .signed_receipt()
+        .clone()
+        .as_v2()
+        .expect("expected v2 receipt");
+    store_receipt(&pgpool, &signed).await.unwrap();
 
     // we expect it to create a sender allocation
     sender_account_ref
         .clone()
         .unwrap()
         .cast(SenderAccountMessage::UpdateAllocationIds(
-            vec![AllocationId::Horizon(CollectionId::from(ALLOCATION_ID_0))]
+            vec![AllocationId(CollectionId::from(ALLOCATION_ID_0))]
                 .into_iter()
                 .collect(),
         ))
