@@ -314,7 +314,7 @@ impl Config {
         // Explicit toggle via `horizon.enabled`. When enabled, require both
         // `blockchain.subgraph_service_address` and
         // `blockchain.receipts_verifier_address_v2` to be present.
-        // When disabled, V2 addresses are ignored.
+        // When disabled, Horizon addresses are ignored.
         if self.horizon.enabled {
             if self.blockchain.subgraph_service_address.is_none() {
                 return Err(
@@ -553,9 +553,10 @@ pub enum TheGraphChainId {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
+    /// Verifier address for legacy receipts (deprecated).
+    /// Horizon uses `receipts_verifier_address_v2` when set.
     pub receipts_verifier_address: Address,
     /// Verifier address for Horizon receipts.
-    /// This is the only receipts verifier address used in production.
     pub receipts_verifier_address_v2: Option<Address>,
     /// Address of the SubgraphService contract used for Horizon operations
     pub subgraph_service_address: Option<Address>,
