@@ -104,21 +104,13 @@ pub async fn run() -> anyhow::Result<()> {
     let indexer_address = config.indexer.indexer_address;
     let ipfs_url = config.service.ipfs_url.clone();
 
-    // DIPS requires Horizon mode - validate early before any initialization
-    if config.dips.is_some() && !config.tap_mode().is_horizon() {
-        anyhow::bail!(
-            "DIPS is configured but Horizon is not enabled. \
-            DIPS requires Horizon mode ([horizon].enabled = true) to function correctly."
-        );
-    }
-
-    // V2 escrow accounts (used by DIPS) are in the network subgraph
-    let escrow_v2_query_url_for_dips = config.subgraphs.network.config.query_url.clone();
-
     // Horizon is required; verify contracts are active.
     if !config.tap_mode().is_horizon() {
         anyhow::bail!("Horizon mode is required; legacy mode is no longer supported.");
     }
+
+    // V2 escrow accounts (used by DIPS) are in the network subgraph
+    let escrow_v2_query_url_for_dips = config.subgraphs.network.config.query_url.clone();
 
     tracing::info!("Horizon mode configured; checking network subgraph readiness");
     match indexer_monitor::is_horizon_active(network_subgraph).await {
