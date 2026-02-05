@@ -847,7 +847,7 @@ impl Actor for SenderAccount {
                         allocation_ids_sample = ?sample_ids,
                         "Querying paymentsEscrowTransactions for redeemed allocations"
                     );
-                    let mut redeemed_ids = Vec::new();
+                    let mut redeemed_ids: Vec<String> = Vec::new();
                     for batch in collection_ids.chunks(ALLOCATION_ID_BATCH_SIZE) {
                         match network_subgraph
                             .query::<PaymentsEscrowTransactionsRedeemQuery, _>(
@@ -859,7 +859,7 @@ impl Actor for SenderAccount {
                             )
                             .await
                         {
-                            Ok(Ok(response)) => redeemed_ids.extend(
+                            Ok(response) => redeemed_ids.extend(
                                 response
                                     .payments_escrow_transactions
                                     .into_iter()
@@ -870,18 +870,11 @@ impl Actor for SenderAccount {
                                             .ok()
                                     }),
                             ),
-                            Ok(Err(e)) => {
-                                tracing::warn!(
-                                    error = %e,
-                                    sender = %sender_id,
-                                    "Failed to query paymentsEscrowTransactions, assuming none are finalized"
-                                );
-                            }
                             Err(e) => {
                                 tracing::warn!(
                                     error = %e,
                                     sender = %sender_id,
-                                    "Failed to execute paymentsEscrowTransactions query, assuming none are finalized"
+                                    "Failed to query paymentsEscrowTransactions, assuming none are finalized"
                                 );
                             }
                         }

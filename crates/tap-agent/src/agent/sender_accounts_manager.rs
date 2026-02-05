@@ -85,18 +85,30 @@ impl NewReceiptNotification {
         // Convert the hex string to CollectionId (trim spaces from fixed-length DB field)
         let trimmed = self.collection_id.trim();
         let hex_str = trimmed.strip_prefix("0x").unwrap_or(trimmed);
-        if hex_str.len() != 64 {
-            bail!(
-                "Invalid collection_id length: expected 64 hex chars, got {} ({})",
-                hex_str.len(),
+        match hex_str.len() {
+            64 => {
+                let normalized = format!("0x{hex_str}");
+                let collection_id = CollectionId::from_str(&normalized)
+                    .map_err(|e| anyhow!("Failed to parse collection_id '{trimmed}': {e}"))?;
+                Ok(AllocationId(collection_id))
+            }
+            40 => {
+                let normalized = format!("0x{hex_str}");
+                let address = Address::from_str(&normalized).map_err(|e| {
+                    anyhow!("Failed to parse legacy allocation_id '{trimmed}': {e}")
+                })?;
+                tracing::warn!(
+                    collection_id = %trimmed,
+                    "Received legacy 20-byte allocation_id in receipt notification; treating as collection_id"
+                );
+                Ok(AllocationId(CollectionId::from(address)))
+            }
+            other => bail!(
+                "Invalid collection_id length: expected 64 or 40 hex chars, got {} ({})",
+                other,
                 trimmed
-            );
+            ),
         }
-
-        let normalized = format!("0x{hex_str}");
-        let collection_id = CollectionId::from_str(&normalized)
-            .map_err(|e| anyhow!("Failed to parse collection_id '{trimmed}': {e}"))?;
-        Ok(AllocationId(collection_id))
     }
 }
 

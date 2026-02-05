@@ -63,9 +63,7 @@ impl AllocationRedeemedCheck {
             )
             .await?;
 
-        response
-            .map(|data| !data.payments_escrow_transactions.is_empty())
-            .map_err(AllocationCheckError::SubgraphQuery)
+        Ok(!response.payments_escrow_transactions.is_empty())
     }
 }
 
