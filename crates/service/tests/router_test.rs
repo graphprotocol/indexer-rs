@@ -73,7 +73,7 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
             BlockchainConfig {
                 chain_id: indexer_config::TheGraphChainId::Test,
                 receipts_verifier_address: None,
-                receipts_verifier_address_v2: Some(test_assets::VERIFIER_ADDRESS),
+                receipts_verifier_address_v2: test_assets::VERIFIER_ADDRESS,
                 subgraph_service_address: None,
             }
         })

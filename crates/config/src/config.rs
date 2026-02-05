@@ -319,11 +319,7 @@ impl Config {
                 "Horizon is required; set `blockchain.subgraph_service_address`".to_string(),
             );
         }
-        if self.blockchain.receipts_verifier_address_v2.is_none() {
-            return Err(
-                "Horizon is required; set `blockchain.receipts_verifier_address_v2`".to_string(),
-            );
-        }
+        // receipts_verifier_address_v2 is required by config schema.
 
         Ok(())
     }
@@ -547,7 +543,7 @@ pub struct BlockchainConfig {
     #[deprecated(note = "Use `receipts_verifier_address_v2` for Horizon receipts.")]
     pub receipts_verifier_address: Option<Address>,
     /// Verifier address for Horizon receipts.
-    pub receipts_verifier_address_v2: Option<Address>,
+    pub receipts_verifier_address_v2: Address,
     /// Address of the SubgraphService contract used for Horizon operations
     pub subgraph_service_address: Option<Address>,
 }
@@ -555,7 +551,6 @@ pub struct BlockchainConfig {
 impl BlockchainConfig {
     pub fn horizon_receipts_verifier_address(&self) -> Address {
         self.receipts_verifier_address_v2
-            .expect("receipts_verifier_address_v2 should be validated during Config::validate()")
     }
 }
 
