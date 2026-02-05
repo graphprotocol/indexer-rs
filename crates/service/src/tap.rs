@@ -88,7 +88,7 @@ pub type CheckingReceipt = ReceiptWithState<Checking, TapReceipt>;
 pub struct TapChecksConfig {
     pub pgpool: PgPool,
     pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
-    pub escrow_accounts_v2: Option<Receiver<EscrowAccounts>>,
+    pub escrow_accounts_v2: Receiver<EscrowAccounts>,
     pub network_subgraph: Option<&'static indexer_monitor::SubgraphClient>,
     pub indexer_address: Address,
     pub timestamp_error_tolerance: Duration,

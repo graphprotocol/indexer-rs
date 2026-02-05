@@ -6,7 +6,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use indexer_monitor::{EscrowAccounts, EscrowAccountsError};
+use indexer_monitor::EscrowAccounts;
 use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
 use tokio::sync::watch;
 
@@ -18,7 +18,7 @@ pub struct SenderState {
     /// Used to recoer the signer addres for V2 receipts(Horizon)
     pub domain_separator_v2: Eip712Domain,
     /// Used to get the sender address given the signer address if v2 receipt
-    pub escrow_accounts_v2: Option<watch::Receiver<EscrowAccounts>>,
+    pub escrow_accounts_v2: watch::Receiver<EscrowAccounts>,
 }
 
 /// The current query Sender address
@@ -45,13 +45,10 @@ pub async fn sender_middleware(
 ) -> Result<Response, IndexerServiceError> {
     if let Some(receipt) = request.extensions().get::<TapReceipt>() {
         let signer = receipt.recover_signer(&state.domain_separator_v2)?;
-        let sender = if let Some(ref escrow_accounts_v2) = state.escrow_accounts_v2 {
-            escrow_accounts_v2.borrow().get_sender_for_signer(&signer)?
-        } else {
-            return Err(IndexerServiceError::EscrowAccount(
-                EscrowAccountsError::NoSenderFound { signer },
-            ));
-        };
+        let sender = state
+            .escrow_accounts_v2
+            .borrow()
+            .get_sender_for_signer(&signer)?;
         request.extensions_mut().insert(Sender(sender));
     }
 
@@ -88,7 +85,7 @@ mod tests {
 
         let state = SenderState {
             domain_separator_v2: test_assets::TAP_EIP712_DOMAIN_V2.clone(),
-            escrow_accounts_v2: Some(escrow_accounts_v2),
+            escrow_accounts_v2,
         };
 
         let middleware = from_fn_with_state(state, sender_middleware);

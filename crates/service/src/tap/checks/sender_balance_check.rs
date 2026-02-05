@@ -13,11 +13,11 @@ use crate::{
 };
 
 pub struct SenderBalanceCheck {
-    escrow_accounts_v2: Option<Receiver<EscrowAccounts>>,
+    escrow_accounts_v2: Receiver<EscrowAccounts>,
 }
 
 impl SenderBalanceCheck {
-    pub fn new(escrow_accounts_v2: Option<Receiver<EscrowAccounts>>) -> Self {
+    pub fn new(escrow_accounts_v2: Receiver<EscrowAccounts>) -> Self {
         Self { escrow_accounts_v2 }
     }
 }
@@ -34,14 +34,8 @@ impl Check<TapReceipt> for SenderBalanceCheck {
             .ok_or(CheckError::Failed(anyhow::anyhow!("Could not find sender")))?;
 
         // get balance for escrow account given receipt type
-        let balance_result = if let Some(ref escrow_accounts_v2) = self.escrow_accounts_v2 {
-            let escrow_accounts_snapshot_v2 = escrow_accounts_v2.borrow();
-            escrow_accounts_snapshot_v2.get_balance_for_sender(receipt_sender)
-        } else {
-            return Err(CheckError::Failed(anyhow!(
-                "Receipt v2 received but no escrow accounts v2 watcher is available"
-            )));
-        };
+        let escrow_accounts_snapshot_v2 = self.escrow_accounts_v2.borrow();
+        let balance_result = escrow_accounts_snapshot_v2.get_balance_for_sender(receipt_sender);
 
         // Check that the sender has a non-zero balance -- more advanced accounting is done in
         // `tap-agent`.

@@ -142,23 +142,17 @@ impl ServiceRouter {
         // Monitor escrow accounts v2
         // if not provided, create monitor from subgraph
         let escrow_accounts_v2 = match (self.escrow_accounts_v2, self.escrow_subgraph.as_ref()) {
-            (Some(escrow_account), _) => Some(escrow_account),
-            (_, Some((escrow_subgraph, escrow))) => Some(
-                escrow_accounts_v2(
-                    escrow_subgraph,
-                    indexer_address,
-                    escrow.config.syncing_interval_secs,
-                    true, // Reject thawing signers eagerly
-                )
-                .await
-                .expect("Error creating escrow_accounts_v2 channel"),
-            ),
-            (None, None) => None,
+            (Some(escrow_account), _) => escrow_account,
+            (_, Some((escrow_subgraph, escrow))) => escrow_accounts_v2(
+                escrow_subgraph,
+                indexer_address,
+                escrow.config.syncing_interval_secs,
+                true, // Reject thawing signers eagerly
+            )
+            .await
+            .expect("Error creating escrow_accounts_v2 channel"),
+            (None, None) => panic!("Escrow accounts v2 watcher must be provided"),
         };
-
-        if escrow_accounts_v2.is_none() {
-            panic!("Escrow accounts v2 watcher must be provided");
-        }
 
         // Monitor dispute manager address
         // if not provided, create monitor from subgraph
