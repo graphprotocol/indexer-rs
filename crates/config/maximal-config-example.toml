@@ -187,14 +187,15 @@ max_receipts_per_request = 10000
 
 # DIPS (Decentralized Indexing Payment System)
 # NOTE: DIPS requires Horizon mode ([horizon].enabled = true)
+# Payer authorization is handled via escrow accounts (same trust model as TAP)
 [dips]
 host = "0.0.0.0"
 port = "7601"
-allowed_payers = ["0x3333333333333333333333333333333333333333"]
+recurring_collector = "0x4444444444444444444444444444444444444444"
 
-price_per_entity = "1000"
+tokens_per_entity_per_second = "1000"
 
-[dips.price_per_epoch]
+[dips.tokens_per_second]
 mainnet = "100"
 hardhat = "100"
 
