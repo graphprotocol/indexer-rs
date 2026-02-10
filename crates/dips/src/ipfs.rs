@@ -73,42 +73,47 @@ pub struct GraphManifest {
 }
 
 impl GraphManifest {
-    pub fn network(&self) -> Option<String> {
-        self.data_sources.first().map(|ds| ds.network.clone())
+    pub fn network(&self) -> Option<&str> {
+        self.data_sources.first().map(|ds| ds.network.as_str())
     }
 }
 
-#[cfg(test)]
-#[derive(Debug)]
-pub struct TestIpfsClient {
-    manifest: GraphManifest,
+/// Mock IPFS fetcher for testing with configurable network.
+#[derive(Debug, Clone)]
+pub struct MockIpfsFetcher {
+    pub network: String,
 }
 
-#[cfg(test)]
-impl TestIpfsClient {
-    pub fn mainnet() -> Self {
-        Self {
-            manifest: GraphManifest {
-                data_sources: vec![DataSource {
-                    network: "mainnet".to_string(),
-                }],
-            },
-        }
-    }
+impl MockIpfsFetcher {
     pub fn no_network() -> Self {
         Self {
-            manifest: GraphManifest {
-                data_sources: vec![],
-            },
+            network: String::new(),
         }
     }
 }
 
-#[cfg(test)]
+impl Default for MockIpfsFetcher {
+    fn default() -> Self {
+        Self {
+            network: "mainnet".to_string(),
+        }
+    }
+}
+
 #[async_trait]
-impl IpfsFetcher for TestIpfsClient {
+impl IpfsFetcher for MockIpfsFetcher {
     async fn fetch(&self, _file: &str) -> Result<GraphManifest, DipsError> {
-        Ok(self.manifest.clone())
+        if self.network.is_empty() {
+            Ok(GraphManifest {
+                data_sources: vec![],
+            })
+        } else {
+            Ok(GraphManifest {
+                data_sources: vec![DataSource {
+                    network: self.network.clone(),
+                }],
+            })
+        }
     }
 }
 

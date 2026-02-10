@@ -22,18 +22,9 @@ impl EscrowSignerValidator {
     }
 
     #[cfg(test)]
-    pub async fn mock(accounts: EscrowAccounts) -> Self {
-        use std::time::Duration;
-
-        let watcher = indexer_watcher::new_watcher(Duration::from_secs(100), move || {
-            let accounts = accounts.clone();
-
-            async move { Ok(accounts) }
-        })
-        .await
-        .unwrap();
-
-        Self::new(watcher)
+    pub fn mock(accounts: EscrowAccounts) -> Self {
+        let (_tx, rx) = tokio::sync::watch::channel(accounts);
+        Self::new(rx)
     }
 }
 
@@ -60,7 +51,7 @@ impl SignerValidator for NoopSignerValidator {
 
 #[cfg(test)]
 mod test {
-    use std::{collections::HashMap, time::Duration};
+    use std::collections::HashMap;
 
     use indexer_monitor::EscrowAccounts;
     use thegraph_core::alloy::primitives::Address;
@@ -71,14 +62,10 @@ mod test {
     async fn test_escrow_validator() {
         let one = Address::ZERO;
         let two = Address::from_slice(&[1u8; 20]);
-        let watcher = indexer_watcher::new_watcher(Duration::from_secs(100), move || async move {
-            Ok(EscrowAccounts::new(
-                HashMap::default(),
-                HashMap::from_iter(vec![(one, vec![two])]),
-            ))
-        })
-        .await
-        .unwrap();
+        let (_tx, watcher) = tokio::sync::watch::channel(EscrowAccounts::new(
+            HashMap::default(),
+            HashMap::from_iter(vec![(one, vec![two])]),
+        ));
 
         let validator = super::EscrowSignerValidator::new(watcher);
         validator.validate(&one, &one).unwrap_err();
