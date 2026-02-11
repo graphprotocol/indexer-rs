@@ -1,6 +1,28 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! PostgreSQL implementation of [`RcaStore`](crate::store::RcaStore).
+//!
+//! This module provides [`PsqlRcaStore`], which persists validated RCA proposals
+//! to the `pending_rca_proposals` table. The indexer-agent queries this table
+//! directly to find pending proposals and decide on-chain acceptance.
+//!
+//! # Shared Database
+//!
+//! indexer-rs (Rust) and indexer-agent (TypeScript) share the same PostgreSQL
+//! database. This module only writes; the agent reads and updates status:
+//!
+//! ```text
+//! indexer-rs ──INSERT──> pending_rca_proposals <──SELECT/UPDATE── indexer-agent
+//! ```
+//!
+//! # Status Lifecycle
+//!
+//! 1. indexer-rs inserts with status = "pending"
+//! 2. indexer-agent queries pending proposals
+//! 3. Agent validates allocation availability, accepts on-chain
+//! 4. Agent updates status to "accepted" or "rejected"
+
 use std::any::Any;
 
 use async_trait::async_trait;

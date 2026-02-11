@@ -1,6 +1,41 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! gRPC server for DIPS RCA proposals.
+//!
+//! This module implements the `IndexerDipsService` gRPC interface that receives
+//! RecurringCollectionAgreement (RCA) proposals from the Dipper service.
+//!
+//! # Request Flow
+//!
+//! ```text
+//! Dipper ──gRPC──> DipsServer::submit_agreement_proposal()
+//!                        │
+//!                        ├─ Version check (must be 2)
+//!                        ├─ Size validation (non-empty, max 10KB)
+//!                        ├─ Signature verification
+//!                        ├─ Signer authorization check
+//!                        ├─ Timestamp validation (deadline, endsAt)
+//!                        ├─ IPFS manifest fetch
+//!                        ├─ Network validation
+//!                        ├─ Price validation
+//!                        │
+//!                        └─> Store in pending_rca_proposals table
+//!                                    │
+//!                                    └─> Return Accept/Reject
+//! ```
+//!
+//! # Response Behavior
+//!
+//! Returns `Accept` if the RCA passes all validation and is stored successfully.
+//! Returns `Reject` if any validation fails. This enables the Dipper to reassign
+//! the indexing request to another indexer on rejection.
+//!
+//! # Cancellation
+//!
+//! The `cancel_agreement` endpoint is unimplemented. Cancellation is handled
+//! on-chain via the RecurringCollector contract, not through this gRPC interface.
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
