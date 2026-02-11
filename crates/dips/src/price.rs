@@ -70,3 +70,99 @@ impl PriceCalculator {
         self.tokens_per_entity_per_second
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_minimum_price_existing_network() {
+        // Arrange
+        let calculator = PriceCalculator::new(
+            BTreeMap::from([("mainnet".to_string(), U256::from(1000))]),
+            U256::from(50),
+        );
+
+        // Act
+        let price = calculator.get_minimum_price("mainnet");
+
+        // Assert
+        assert_eq!(price, Some(U256::from(1000)));
+    }
+
+    #[test]
+    fn test_get_minimum_price_missing_network() {
+        // Arrange
+        let calculator = PriceCalculator::new(
+            BTreeMap::from([("mainnet".to_string(), U256::from(1000))]),
+            U256::from(50),
+        );
+
+        // Act
+        let price = calculator.get_minimum_price("arbitrum-one");
+
+        // Assert
+        assert_eq!(price, None);
+    }
+
+    #[test]
+    fn test_is_supported_true() {
+        // Arrange
+        let calculator = PriceCalculator::new(
+            BTreeMap::from([
+                ("mainnet".to_string(), U256::from(1000)),
+                ("arbitrum-one".to_string(), U256::from(500)),
+            ]),
+            U256::from(50),
+        );
+
+        // Act & Assert
+        assert!(calculator.is_supported("mainnet"));
+        assert!(calculator.is_supported("arbitrum-one"));
+    }
+
+    #[test]
+    fn test_is_supported_false() {
+        // Arrange
+        let calculator = PriceCalculator::new(
+            BTreeMap::from([("mainnet".to_string(), U256::from(1000))]),
+            U256::from(50),
+        );
+
+        // Act & Assert
+        assert!(!calculator.is_supported("optimism"));
+        assert!(!calculator.is_supported(""));
+    }
+
+    #[test]
+    fn test_entity_price() {
+        // Arrange
+        let calculator = PriceCalculator::new(BTreeMap::new(), U256::from(12345));
+
+        // Act
+        let price = calculator.entity_price();
+
+        // Assert
+        assert_eq!(price, U256::from(12345));
+    }
+
+    #[test]
+    fn test_empty_networks_map() {
+        // Arrange
+        let calculator = PriceCalculator::new(BTreeMap::new(), U256::from(100));
+
+        // Act & Assert
+        assert!(!calculator.is_supported("mainnet"));
+        assert_eq!(calculator.get_minimum_price("mainnet"), None);
+    }
+
+    #[test]
+    fn test_default() {
+        // Arrange & Act
+        let calculator = PriceCalculator::default();
+
+        // Assert
+        assert!(!calculator.is_supported("mainnet"));
+        assert_eq!(calculator.entity_price(), U256::ZERO);
+    }
+}

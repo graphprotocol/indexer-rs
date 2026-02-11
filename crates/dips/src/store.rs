@@ -78,18 +78,43 @@ impl RcaStore for InMemoryRcaStore {
     }
 }
 
+/// Test store that always fails.
+#[derive(Default, Debug)]
+pub struct FailingRcaStore;
+
+#[async_trait]
+impl RcaStore for FailingRcaStore {
+    async fn store_rca(
+        &self,
+        _agreement_id: Uuid,
+        _signed_rca: Vec<u8>,
+        _version: u64,
+    ) -> Result<(), DipsError> {
+        Err(DipsError::UnknownError(anyhow::anyhow!(
+            "database connection failed (test store)"
+        )))
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
     async fn test_store_rca() {
+        // Arrange
         let store = InMemoryRcaStore::default();
         let id = Uuid::now_v7();
         let blob = vec![1, 2, 3, 4, 5];
 
+        // Act
         store.store_rca(id, blob.clone(), 2).await.unwrap();
 
+        // Assert
         let data = store.data.read().await;
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].0, id);
@@ -99,21 +124,43 @@ mod tests {
 
     #[tokio::test]
     async fn test_store_multiple_rcas() {
+        // Arrange
         let store = InMemoryRcaStore::default();
-
         let id1 = Uuid::now_v7();
         let id2 = Uuid::now_v7();
         let blob1 = vec![1, 2, 3];
         let blob2 = vec![4, 5, 6];
 
+        // Act
         store.store_rca(id1, blob1.clone(), 2).await.unwrap();
         store.store_rca(id2, blob2.clone(), 2).await.unwrap();
 
+        // Assert
         let data = store.data.read().await;
         assert_eq!(data.len(), 2);
         assert_eq!(data[0].0, id1);
         assert_eq!(data[0].1, blob1);
         assert_eq!(data[1].0, id2);
         assert_eq!(data[1].1, blob2);
+    }
+
+    #[tokio::test]
+    async fn test_failing_rca_store() {
+        // Arrange
+        let store = FailingRcaStore;
+        let id = Uuid::now_v7();
+        let blob = vec![1, 2, 3];
+
+        // Act
+        let result = store.store_rca(id, blob, 2).await;
+
+        // Assert
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, DipsError::UnknownError(_)),
+            "Expected UnknownError, got: {:?}",
+            err
+        );
     }
 }

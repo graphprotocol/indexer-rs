@@ -491,8 +491,12 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
-        ipfs::MockIpfsFetcher, price::PriceCalculator, rca_eip712_domain,
-        server::DipsServerContext, signers::NoopSignerValidator, store::InMemoryRcaStore,
+        ipfs::{FailingIpfsFetcher, MockIpfsFetcher},
+        price::PriceCalculator,
+        rca_eip712_domain,
+        server::DipsServerContext,
+        signers::{NoopSignerValidator, RejectingSignerValidator},
+        store::{FailingRcaStore, InMemoryRcaStore},
         AcceptIndexingAgreementMetadata, DipsError, IndexingAgreementTermsV1,
         RecurringCollectionAgreement,
     };
@@ -820,5 +824,257 @@ mod test {
             super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
 
         assert!(matches!(result, Err(DipsError::AgreementExpired { .. })));
+    }
+
+    // =========================================================================
+    // Additional tests for complete coverage (following test-arrange-act-assert)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_malformed_abi() {
+        // Arrange
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let ctx = create_test_context();
+
+        let malformed_bytes = vec![0xDE, 0xAD, 0xBE, 0xEF]; // Not valid ABI
+
+        // Act
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, malformed_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::AbiDecoding(_))),
+            "Expected AbiDecoding error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_unauthorized_signer() {
+        // Arrange
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        // Context with rejecting signer validator
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
+            price_calculator: Arc::new(PriceCalculator::new(
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            signer_validator: Arc::new(RejectingSignerValidator),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+        });
+
+        // Act
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::SignerNotAuthorised(_))),
+            "Expected SignerNotAuthorised error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_ipfs_failure() {
+        // Arrange
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        // Context with failing IPFS fetcher
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(FailingIpfsFetcher),
+            price_calculator: Arc::new(PriceCalculator::new(
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            signer_validator: Arc::new(NoopSignerValidator),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+        });
+
+        // Act
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::SubgraphManifestUnavailable(_))),
+            "Expected SubgraphManifestUnavailable error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_manifest_no_network() {
+        // Arrange
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        // Context with IPFS fetcher returning manifest without network
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher::no_network()),
+            price_calculator: Arc::new(PriceCalculator::new(
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            signer_validator: Arc::new(NoopSignerValidator),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+        });
+
+        // Act
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::InvalidSubgraphManifest(_))),
+            "Expected InvalidSubgraphManifest error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_store_failure() {
+        // Arrange
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        // Context with failing store
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(FailingRcaStore),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
+            price_calculator: Arc::new(PriceCalculator::new(
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            signer_validator: Arc::new(NoopSignerValidator),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+        });
+
+        // Act
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::UnknownError(_))),
+            "Expected UnknownError from store failure, got: {:?}",
+            result
+        );
+    }
+
+    // =========================================================================
+    // Unit tests for helper functions
+    // =========================================================================
+
+    #[test]
+    fn test_bytes32_to_ipfs_hash_format() {
+        // Arrange
+        let bytes: [u8; 32] = [0xAB; 32];
+
+        // Act
+        let hash = super::bytes32_to_ipfs_hash(&bytes);
+
+        // Assert - CIDv0 format starts with "Qm" and is 46 characters
+        assert!(
+            hash.starts_with("Qm"),
+            "IPFS CIDv0 should start with 'Qm', got: {}",
+            hash
+        );
+        assert_eq!(
+            hash.len(),
+            46,
+            "IPFS CIDv0 should be 46 characters, got: {}",
+            hash.len()
+        );
+    }
+
+    #[test]
+    fn test_bytes32_to_ipfs_hash_deterministic() {
+        // Arrange
+        let bytes: [u8; 32] = [0x12; 32];
+
+        // Act
+        let hash1 = super::bytes32_to_ipfs_hash(&bytes);
+        let hash2 = super::bytes32_to_ipfs_hash(&bytes);
+
+        // Assert
+        assert_eq!(hash1, hash2, "Same input should produce same output");
+    }
+
+    #[test]
+    fn test_bytes32_to_ipfs_hash_different_inputs() {
+        // Arrange
+        let bytes1: [u8; 32] = [0x00; 32];
+        let bytes2: [u8; 32] = [0xFF; 32];
+
+        // Act
+        let hash1 = super::bytes32_to_ipfs_hash(&bytes1);
+        let hash2 = super::bytes32_to_ipfs_hash(&bytes2);
+
+        // Assert
+        assert_ne!(
+            hash1, hash2,
+            "Different inputs should produce different outputs"
+        );
+    }
+
+    #[test]
+    fn test_bytes32_to_ipfs_hash_known_vector() {
+        // Arrange - all zeros should produce a known hash
+        // Multihash: 0x12 (sha256) + 0x20 (32 bytes) + 32 zero bytes
+        // Base58 encoding of [0x12, 0x20, 0x00 * 32]
+        let bytes: [u8; 32] = [0x00; 32];
+
+        // Act
+        let hash = super::bytes32_to_ipfs_hash(&bytes);
+
+        // Assert - verified by manual calculation
+        // The multihash [0x12, 0x20, 0, 0, ...] encodes to this CIDv0
+        assert_eq!(
+            hash, "QmNLei78zWmzUdbeRB3CiUfAizWUrbeeZh5K1rhAQKCh51",
+            "Known test vector mismatch"
+        );
     }
 }
