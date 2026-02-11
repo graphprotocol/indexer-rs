@@ -117,10 +117,24 @@ pub struct MockIpfsFetcher {
 }
 
 impl MockIpfsFetcher {
+    /// Creates a fetcher that returns a manifest with no network field.
     pub fn no_network() -> Self {
         Self {
             network: String::new(),
         }
+    }
+}
+
+/// Test IPFS fetcher that always fails.
+#[derive(Debug, Clone, Default)]
+pub struct FailingIpfsFetcher;
+
+#[async_trait]
+impl IpfsFetcher for FailingIpfsFetcher {
+    async fn fetch(&self, file: &str) -> Result<GraphManifest, DipsError> {
+        Err(DipsError::SubgraphManifestUnavailable(format!(
+            "{file}: connection refused (test fetcher)"
+        )))
     }
 }
 
@@ -151,11 +165,19 @@ impl IpfsFetcher for MockIpfsFetcher {
 
 #[cfg(test)]
 mod test {
-    use crate::ipfs::{DataSource, GraphManifest};
+    use crate::ipfs::{
+        DataSource, FailingIpfsFetcher, GraphManifest, IpfsFetcher, MockIpfsFetcher,
+    };
 
     #[test]
     fn test_deserialize_manifest() {
-        let manifest: GraphManifest = serde_yaml::from_str(MANIFEST).unwrap();
+        // Arrange
+        let yaml = MANIFEST;
+
+        // Act
+        let manifest: GraphManifest = serde_yaml::from_str(yaml).unwrap();
+
+        // Assert
         assert_eq!(
             manifest,
             GraphManifest {
@@ -169,6 +191,92 @@ mod test {
                 ],
             }
         )
+    }
+
+    #[test]
+    fn test_manifest_network_extraction() {
+        // Arrange
+        let manifest = GraphManifest {
+            data_sources: vec![DataSource {
+                network: "mainnet".to_string(),
+            }],
+        };
+
+        // Act
+        let network = manifest.network();
+
+        // Assert
+        assert_eq!(network, Some("mainnet"));
+    }
+
+    #[test]
+    fn test_manifest_network_empty_sources() {
+        // Arrange
+        let manifest = GraphManifest {
+            data_sources: vec![],
+        };
+
+        // Act
+        let network = manifest.network();
+
+        // Assert
+        assert_eq!(network, None);
+    }
+
+    #[tokio::test]
+    async fn test_mock_ipfs_fetcher_default() {
+        // Arrange
+        let fetcher = MockIpfsFetcher::default();
+
+        // Act
+        let manifest = fetcher.fetch("QmSomeHash").await.unwrap();
+
+        // Assert
+        assert_eq!(manifest.network(), Some("mainnet"));
+    }
+
+    #[tokio::test]
+    async fn test_mock_ipfs_fetcher_custom_network() {
+        // Arrange
+        let fetcher = MockIpfsFetcher {
+            network: "arbitrum-one".to_string(),
+        };
+
+        // Act
+        let manifest = fetcher.fetch("QmSomeHash").await.unwrap();
+
+        // Assert
+        assert_eq!(manifest.network(), Some("arbitrum-one"));
+    }
+
+    #[tokio::test]
+    async fn test_mock_ipfs_fetcher_no_network() {
+        // Arrange
+        let fetcher = MockIpfsFetcher::no_network();
+
+        // Act
+        let manifest = fetcher.fetch("QmSomeHash").await.unwrap();
+
+        // Assert
+        assert_eq!(manifest.network(), None);
+    }
+
+    #[tokio::test]
+    async fn test_failing_ipfs_fetcher() {
+        // Arrange
+        let fetcher = FailingIpfsFetcher;
+
+        // Act
+        let result = fetcher.fetch("QmSomeHash").await;
+
+        // Assert
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, crate::DipsError::SubgraphManifestUnavailable(_)),
+            "Expected SubgraphManifestUnavailable, got: {:?}",
+            err
+        );
     }
 
     const MANIFEST: &str = "

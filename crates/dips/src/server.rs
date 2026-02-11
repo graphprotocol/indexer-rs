@@ -200,6 +200,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_rejected() {
+        // Arrange
         let ctx = DipsServerContext::for_testing();
         let server = DipsServer {
             ctx,
@@ -207,19 +208,22 @@ mod tests {
             chain_id: 1,
             recurring_collector: Address::ZERO,
         };
-
         let request = Request::new(SubmitAgreementProposalRequest {
             version: 2,
             signed_voucher: vec![],
         });
 
+        // Act
         let err = server.submit_agreement_proposal(request).await.unwrap_err();
+
+        // Assert
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(err.message().contains("cannot be empty"));
     }
 
     #[tokio::test]
     async fn test_oversized_rejected() {
+        // Arrange
         let ctx = DipsServerContext::for_testing();
         let server = DipsServer {
             ctx,
@@ -227,20 +231,23 @@ mod tests {
             chain_id: 1,
             recurring_collector: Address::ZERO,
         };
-
         let large_payload = vec![0u8; 10_001];
         let request = Request::new(SubmitAgreementProposalRequest {
             version: 2,
             signed_voucher: large_payload,
         });
 
+        // Act
         let err = server.submit_agreement_proposal(request).await.unwrap_err();
+
+        // Assert
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(err.message().contains("exceeds maximum size"));
     }
 
     #[tokio::test]
     async fn test_unsupported_version_rejected() {
+        // Arrange
         let ctx = DipsServerContext::for_testing();
         let server = DipsServer {
             ctx,
@@ -248,13 +255,15 @@ mod tests {
             chain_id: 1,
             recurring_collector: Address::ZERO,
         };
-
         let request = Request::new(SubmitAgreementProposalRequest {
             version: 1,
             signed_voucher: vec![1, 2, 3],
         });
 
+        // Act
         let err = server.submit_agreement_proposal(request).await.unwrap_err();
+
+        // Assert
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(err.message().contains("Unsupported version"));
         assert!(err.message().contains("version 2"));
@@ -262,6 +271,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cancel_unimplemented() {
+        // Arrange
         let ctx = DipsServerContext::for_testing();
         let server = DipsServer {
             ctx,
@@ -269,13 +279,15 @@ mod tests {
             chain_id: 1,
             recurring_collector: Address::ZERO,
         };
-
         let request = Request::new(CancelAgreementRequest {
             version: 2,
             signed_cancellation: vec![],
         });
 
+        // Act
         let err = server.cancel_agreement(request).await.unwrap_err();
+
+        // Assert
         assert_eq!(err.code(), tonic::Code::Unimplemented);
         assert!(err.message().contains("RecurringCollector"));
     }

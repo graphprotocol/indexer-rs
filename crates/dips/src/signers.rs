@@ -75,6 +75,16 @@ impl SignerValidator for NoopSignerValidator {
     }
 }
 
+/// Test validator that always rejects signers.
+#[derive(Debug)]
+pub struct RejectingSignerValidator;
+
+impl SignerValidator for RejectingSignerValidator {
+    fn validate(&self, _payer: &Address, _signer: &Address) -> Result<(), anyhow::Error> {
+        Err(anyhow!("Signer not authorized (test validator)"))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
@@ -82,19 +92,94 @@ mod test {
     use indexer_monitor::EscrowAccounts;
     use thegraph_core::alloy::primitives::Address;
 
-    use crate::signers::SignerValidator;
+    use crate::signers::{NoopSignerValidator, RejectingSignerValidator, SignerValidator};
 
     #[tokio::test]
-    async fn test_escrow_validator() {
-        let one = Address::ZERO;
-        let two = Address::from_slice(&[1u8; 20]);
+    async fn test_escrow_validator_authorized_signer() {
+        // Arrange
+        let payer = Address::ZERO;
+        let authorized_signer = Address::from_slice(&[1u8; 20]);
         let (_tx, watcher) = tokio::sync::watch::channel(EscrowAccounts::new(
             HashMap::default(),
-            HashMap::from_iter(vec![(one, vec![two])]),
+            HashMap::from_iter(vec![(payer, vec![authorized_signer])]),
         ));
-
         let validator = super::EscrowSignerValidator::new(watcher);
-        validator.validate(&one, &one).unwrap_err();
-        validator.validate(&one, &two).unwrap();
+
+        // Act & Assert
+        assert!(
+            validator.validate(&payer, &authorized_signer).is_ok(),
+            "Authorized signer should be accepted"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_escrow_validator_unauthorized_signer() {
+        // Arrange
+        let payer = Address::ZERO;
+        let authorized_signer = Address::from_slice(&[1u8; 20]);
+        let unauthorized_signer = Address::from_slice(&[2u8; 20]);
+        let (_tx, watcher) = tokio::sync::watch::channel(EscrowAccounts::new(
+            HashMap::default(),
+            HashMap::from_iter(vec![(payer, vec![authorized_signer])]),
+        ));
+        let validator = super::EscrowSignerValidator::new(watcher);
+
+        // Act
+        let result = validator.validate(&payer, &unauthorized_signer);
+
+        // Assert
+        assert!(result.is_err(), "Unauthorized signer should be rejected");
+    }
+
+    #[tokio::test]
+    async fn test_escrow_validator_payer_not_signer() {
+        // Arrange - payer authorizes someone else, not themselves
+        let payer = Address::ZERO;
+        let other_signer = Address::from_slice(&[1u8; 20]);
+        let (_tx, watcher) = tokio::sync::watch::channel(EscrowAccounts::new(
+            HashMap::default(),
+            HashMap::from_iter(vec![(payer, vec![other_signer])]),
+        ));
+        let validator = super::EscrowSignerValidator::new(watcher);
+
+        // Act
+        let result = validator.validate(&payer, &payer);
+
+        // Assert
+        assert!(
+            result.is_err(),
+            "Payer signing for themselves without authorization should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_noop_validator_always_accepts() {
+        // Arrange
+        let validator = NoopSignerValidator;
+        let payer = Address::ZERO;
+        let signer = Address::from_slice(&[0xAB; 20]);
+
+        // Act
+        let result = validator.validate(&payer, &signer);
+
+        // Assert
+        assert!(result.is_ok(), "NoopSignerValidator should always accept");
+    }
+
+    #[test]
+    fn test_rejecting_validator_always_rejects() {
+        // Arrange
+        let validator = RejectingSignerValidator;
+        let payer = Address::ZERO;
+        let signer = Address::from_slice(&[0xAB; 20]);
+
+        // Act
+        let result = validator.validate(&payer, &signer);
+
+        // Assert
+        assert!(
+            result.is_err(),
+            "RejectingSignerValidator should always reject"
+        );
     }
 }
