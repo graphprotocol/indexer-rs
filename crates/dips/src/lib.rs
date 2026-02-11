@@ -1,6 +1,58 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! DIPS (Direct Indexer Payments) for The Graph.
+//!
+//! This crate implements the indexer-side handling of RecurringCollectionAgreement (RCA)
+//! proposals. When a payer wants indexing services, the Dipper service creates and signs
+//! an RCA on their behalf, then sends it to the indexer via gRPC.
+//!
+//! # Architecture
+//!
+//! ```text
+//! Payer (user) ──deposits──> PaymentsEscrow contract
+//!       │                           │
+//!       │ authorizes signer         │ escrow data indexed
+//!       ▼                           ▼
+//!    Dipper ───SignedRCA───> indexer-rs (this crate)
+//!       │                           │
+//!       │                           │ validates & stores
+//!       │                           ▼
+//!       │                    pending_rca_proposals table
+//!       │                           │
+//!       │                           │ agent queries & decides
+//!       │                           ▼
+//!       └──────────────────> on-chain acceptance
+//! ```
+//!
+//! # Validation Flow
+//!
+//! When an RCA arrives, this crate validates:
+//! 1. **Signature** - EIP-712 signature recovers to an authorized signer
+//! 2. **Signer authorization** - Signer is authorized for the payer (via escrow accounts)
+//! 3. **Service provider** - RCA is addressed to this indexer
+//! 4. **Timestamps** - Deadline and end time haven't passed
+//! 5. **IPFS manifest** - Subgraph deployment exists and is parseable
+//! 6. **Network** - Subgraph's network is supported by this indexer
+//! 7. **Pricing** - Offered price meets indexer's minimum
+//!
+//! # Trust Model
+//!
+//! Payers deposit funds into the PaymentsEscrow contract and authorize signers.
+//! The escrow has a **thawing period** for withdrawals, giving indexers time to
+//! collect owed fees before funds can be withdrawn. This crate checks signer
+//! authorization via the network subgraph, which may lag chain state slightly.
+//! The thawing period protects against this lag.
+//!
+//! # Modules
+//!
+//! - [`server`] - gRPC server handling RCA proposals
+//! - [`store`] - Storage trait for RCA proposals
+//! - [`database`] - PostgreSQL implementation
+//! - [`signers`] - Signer authorization via escrow accounts
+//! - [`ipfs`] - IPFS client for subgraph manifests
+//! - [`price`] - Minimum price enforcement
+
 use std::{str::FromStr, sync::Arc};
 
 use server::DipsServerContext;
