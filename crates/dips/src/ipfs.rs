@@ -1,6 +1,38 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! IPFS client for fetching subgraph manifests.
+//!
+//! When validating an RCA, we need to verify that the referenced subgraph
+//! deployment actually exists and determine which network it indexes.
+//! The subgraph deployment ID in the RCA is a bytes32 that maps to an IPFS
+//! CIDv0 hash pointing to the subgraph manifest.
+//!
+//! # Manifest Structure
+//!
+//! Subgraph manifests are YAML files containing data source definitions.
+//! We extract the `network` field to validate that this indexer supports
+//! the chain the subgraph indexes:
+//!
+//! ```yaml
+//! dataSources:
+//!   - network: mainnet    # <-- This is what we extract
+//!     kind: ethereum/contract
+//!     ...
+//! ```
+//!
+//! # What This Proves
+//!
+//! Successfully fetching a manifest proves:
+//! - The deployment ID maps to real content on IPFS
+//! - The content is a valid, parseable subgraph manifest
+//!
+//! What it does NOT prove:
+//! - The subgraph is published on The Graph Network (GNS)
+//! - The subgraph is not deprecated
+//!
+//! Those checks are the indexer-agent's responsibility.
+
 use std::sync::Arc;
 
 use async_trait::async_trait;

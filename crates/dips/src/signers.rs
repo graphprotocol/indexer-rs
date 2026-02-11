@@ -1,6 +1,32 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Signer authorization for DIPS agreements.
+//!
+//! When Dipper sends an RCA proposal, it's signed by a key that may differ from
+//! the payer's address. Payers authorize signers via the PaymentsEscrow contract,
+//! and this authorization data is indexed by the network subgraph.
+//!
+//! # How It Works
+//!
+//! [`EscrowSignerValidator`] wraps an `EscrowAccountsWatcher` that periodically
+//! syncs escrow account data from the network subgraph. When validating an RCA:
+//!
+//! 1. Recover the signer address from the EIP-712 signature
+//! 2. Look up authorized signers for the payer address
+//! 3. Verify the recovered signer is in the authorized list
+//!
+//! # Security Considerations
+//!
+//! The network subgraph may lag behind chain state. This means:
+//! - A newly authorized signer might be rejected briefly (UX issue, not security)
+//! - A revoked signer might be accepted briefly (security concern)
+//!
+//! The **thawing period** on escrow withdrawals mitigates the second case.
+//! Payers cannot withdraw funds instantly - they must wait through a thawing
+//! period that exceeds the maximum expected subgraph lag. This gives indexers
+//! time to collect owed fees before funds disappear.
+
 use anyhow::anyhow;
 #[cfg(test)]
 use indexer_monitor::EscrowAccounts;

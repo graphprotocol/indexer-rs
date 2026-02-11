@@ -1,6 +1,30 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Storage abstraction for RCA proposals.
+//!
+//! This module defines the [`RcaStore`] trait for persisting validated RCA proposals.
+//! The indexer-service validates incoming proposals and stores them; the indexer-agent
+//! (a separate TypeScript process) queries this table to decide on-chain acceptance.
+//!
+//! # Database Schema
+//!
+//! Proposals are stored in the `pending_rca_proposals` table:
+//!
+//! | Column         | Type        | Description                              |
+//! |----------------|-------------|------------------------------------------|
+//! | id             | UUID        | Agreement ID from the RCA                |
+//! | signed_payload | BYTEA       | Raw ABI-encoded SignedRCA bytes          |
+//! | version        | SMALLINT    | Protocol version (currently 2)           |
+//! | status         | VARCHAR(20) | "pending", "accepted", "rejected", etc.  |
+//! | created_at     | TIMESTAMPTZ | When the proposal was received           |
+//! | updated_at     | TIMESTAMPTZ | Last status change                       |
+//!
+//! # Implementations
+//!
+//! - [`InMemoryRcaStore`] - In-memory store for unit tests
+//! - [`PsqlRcaStore`](crate::database::PsqlRcaStore) - PostgreSQL implementation
+
 use std::any::Any;
 
 use async_trait::async_trait;

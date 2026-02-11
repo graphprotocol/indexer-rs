@@ -1,6 +1,34 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Minimum price enforcement for RCA proposals.
+//!
+//! Indexers configure minimum acceptable prices for their services. This module
+//! validates that RCA proposals meet these minimums before acceptance.
+//!
+//! # Pricing Model
+//!
+//! RCAs specify two pricing components:
+//!
+//! - **tokens_per_second** - Base rate for the indexing service, per network
+//! - **tokens_per_entity_per_second** - Additional rate based on indexed entities
+//!
+//! Both values are in wei GRT (10^-18 GRT). The indexer configures minimum
+//! acceptable values; proposals offering less are rejected.
+//!
+//! # Per-Network Pricing
+//!
+//! Different networks have different operational costs (RPC fees, storage, etc.).
+//! The `tokens_per_second` minimum is configured per network:
+//!
+//! ```toml
+//! [dips.tokens_per_second]
+//! mainnet = "1000000000000"  # Higher cost chain
+//! arbitrum-one = "500000000000"  # Lower cost L2
+//! ```
+//!
+//! Networks not in this map are considered unsupported and will be rejected.
+
 use std::collections::BTreeMap;
 
 use thegraph_core::alloy::primitives::U256;
