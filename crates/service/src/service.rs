@@ -22,6 +22,7 @@ use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
 use reqwest::Url;
 use tap_core::tap_eip712_domain;
+use thegraph_core::alloy::primitives::Address;
 use tokio::{net::TcpListener, signal};
 use tokio_util::sync::CancellationToken;
 use tower_http::normalize_path::NormalizePath;
@@ -100,8 +101,6 @@ pub async fn run() -> anyhow::Result<()> {
     if !config.tap_mode().is_horizon() {
         anyhow::bail!("Horizon mode is required; legacy mode is no longer supported.");
     }
-
-    // V2 escrow accounts (used by DIPS) are in the network subgraph
 
     tracing::info!("Horizon mode configured; checking network subgraph readiness");
     match indexer_monitor::is_horizon_active(network_subgraph).await {
@@ -187,6 +186,21 @@ pub async fn run() -> anyhow::Result<()> {
             tokens_per_entity_per_second,
             additional_networks,
         } = dips;
+
+        // Validate required configuration
+        if *recurring_collector == Address::ZERO {
+            anyhow::bail!(
+                "DIPS is enabled but dips.recurring_collector is not configured. \
+                 Set it to the deployed RecurringCollector contract address."
+            );
+        }
+
+        if tokens_per_second.is_empty() {
+            tracing::warn!(
+                "DIPS enabled but no networks configured in dips.tokens_per_second. \
+                 All proposals will be rejected. See issue #943 for pricing guidance."
+            );
+        }
 
         let addr: SocketAddr = format!("{host}:{port}")
             .parse()

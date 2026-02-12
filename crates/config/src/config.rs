@@ -637,6 +637,7 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
 /// before storing. The indexer agent queries pending proposals from the
 /// database and decides on-chain acceptance.
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DipsConfig {
     pub host: String,
