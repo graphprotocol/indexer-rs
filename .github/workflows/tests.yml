@@ -57,12 +57,9 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install Docker CLI and verify
         run: |
-          apt-get update
-          apt-get install -y docker.io
-          # Verify Docker is accessible
+          curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-29.2.1.tgz | tar xz --strip-components=1 -C /usr/local/bin docker/docker
           docker version
           docker ps
-          # Pre-pull the postgres:15 image to avoid timeouts
           docker pull postgres:15
       - name: Install libsasl2-dev
         run: apt-get update && apt-get install -y libsasl2-dev
@@ -101,12 +98,9 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install Docker CLI and verify
         run: |
-          apt-get update
-          apt-get install -y docker.io
-          # Verify Docker is accessible
+          curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-29.2.1.tgz | tar xz --strip-components=1 -C /usr/local/bin docker/docker
           docker version
           docker ps
-          # Pre-pull the postgres:15 image to avoid timeouts
           docker pull postgres:15
       - name: Install libsasl2-dev
         run: apt-get update && apt-get install -y libsasl2-dev
