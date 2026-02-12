@@ -21,6 +21,17 @@
 //!     ...
 //! ```
 //!
+//! # Timeout and Retry Behavior
+//!
+//! IPFS fetches have a 30-second timeout per attempt. On failure, the client
+//! retries up to 3 times with exponential backoff (10s, 20s, 40s delays). This
+//! gives IPFS meaningful recovery time between attempts.
+//!
+//! Worst case timing: 30s + 10s + 30s + 20s + 30s + 40s + 30s = 190 seconds.
+//!
+//! Dipper's gRPC timeout should be at least 220 seconds (190s + 30s buffer)
+//! to avoid timing out while indexer-rs is still retrying IPFS.
+//!
 //! # What This Proves
 //!
 //! Successfully fetching a manifest proves:
@@ -33,7 +44,7 @@
 //!
 //! Those checks are the indexer-agent's responsibility.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use derivative::Derivative;
@@ -42,6 +53,15 @@ use ipfs_api_backend_hyper::{IpfsApi, TryFromUri};
 use serde::Deserialize;
 
 use crate::DipsError;
+
+/// Timeout for a single IPFS fetch attempt.
+const IPFS_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Maximum number of IPFS fetch attempts (1 initial + 3 retries).
+const IPFS_MAX_ATTEMPTS: u32 = 4;
+
+/// Base delay for exponential backoff between retries (10s, 20s, 40s).
+const IPFS_RETRY_BASE_DELAY: Duration = Duration::from_secs(10);
 
 #[async_trait]
 pub trait IpfsFetcher: Send + Sync + std::fmt::Debug {
@@ -72,23 +92,69 @@ impl IpfsClient {
 #[async_trait]
 impl IpfsFetcher for IpfsClient {
     async fn fetch(&self, file: &str) -> Result<GraphManifest, DipsError> {
-        let content = self
-            .client
-            .cat(file.as_ref())
-            .map_ok(|chunk| chunk.to_vec())
-            .try_concat()
+        let mut last_error = None;
+
+        for attempt in 0..IPFS_MAX_ATTEMPTS {
+            if attempt > 0 {
+                // Exponential backoff: 1s, 2s, 4s
+                let delay = IPFS_RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
+                tracing::debug!(
+                    file = %file,
+                    attempt = attempt + 1,
+                    delay_ms = delay.as_millis(),
+                    "Retrying IPFS fetch after backoff"
+                );
+                tokio::time::sleep(delay).await;
+            }
+
+            match self.fetch_with_timeout(file).await {
+                Ok(manifest) => return Ok(manifest),
+                Err(e) => {
+                    tracing::warn!(
+                        file = %file,
+                        attempt = attempt + 1,
+                        max_attempts = IPFS_MAX_ATTEMPTS,
+                        error = %e,
+                        "IPFS fetch attempt failed"
+                    );
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        // All attempts failed
+        Err(last_error.unwrap_or_else(|| {
+            DipsError::SubgraphManifestUnavailable(format!("{file}: all attempts failed"))
+        }))
+    }
+}
+
+impl IpfsClient {
+    /// Fetch with timeout wrapper.
+    async fn fetch_with_timeout(&self, file: &str) -> Result<GraphManifest, DipsError> {
+        let fetch_future = async {
+            let content = self
+                .client
+                .cat(file.as_ref())
+                .map_ok(|chunk| chunk.to_vec())
+                .try_concat()
+                .await
+                .map_err(|e| DipsError::SubgraphManifestUnavailable(format!("{file}: {e}")))?;
+
+            let manifest: GraphManifest = serde_yaml::from_slice(&content)
+                .map_err(|e| DipsError::InvalidSubgraphManifest(format!("{file}: {e}")))?;
+
+            Ok(manifest)
+        };
+
+        tokio::time::timeout(IPFS_FETCH_TIMEOUT, fetch_future)
             .await
-            .map_err(|e| {
-                tracing::warn!("Failed to fetch subgraph manifest {}: {}", file, e);
-                DipsError::SubgraphManifestUnavailable(format!("{file}: {e}"))
-            })?;
-
-        let manifest: GraphManifest = serde_yaml::from_slice(&content).map_err(|e| {
-            tracing::warn!("Failed to parse subgraph manifest {}: {}", file, e);
-            DipsError::InvalidSubgraphManifest(format!("{file}: {e}"))
-        })?;
-
-        Ok(manifest)
+            .map_err(|_| {
+                DipsError::SubgraphManifestUnavailable(format!(
+                    "{file}: timeout after {}s",
+                    IPFS_FETCH_TIMEOUT.as_secs()
+                ))
+            })?
     }
 }
 
