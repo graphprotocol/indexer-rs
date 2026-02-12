@@ -364,7 +364,7 @@ pub async fn validate_and_create_rca(
     let offered_tokens_per_second = terms.tokensPerSecond;
     match price_calculator.get_minimum_price(network_name) {
         Some(price) if offered_tokens_per_second.lt(&Uint::from(price)) => {
-            tracing::debug!(
+            tracing::info!(
                 agreement_id = %agreement_id,
                 network = %network_name,
                 deployment_id = %deployment_id,
@@ -380,7 +380,7 @@ pub async fn validate_and_create_rca(
         }
         Some(_) => {}
         None => {
-            tracing::debug!(
+            tracing::info!(
                 agreement_id = %agreement_id,
                 network = %network_name,
                 deployment_id = %deployment_id,
@@ -394,7 +394,7 @@ pub async fn validate_and_create_rca(
     // Validate entity price minimum
     let offered_entity_price = terms.tokensPerEntityPerSecond;
     if offered_entity_price < price_calculator.entity_price() {
-        tracing::debug!(
+        tracing::info!(
             agreement_id = %agreement_id,
             network = %network_name,
             deployment_id = %deployment_id,
