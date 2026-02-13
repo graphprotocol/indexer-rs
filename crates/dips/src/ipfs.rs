@@ -96,7 +96,7 @@ impl IpfsFetcher for IpfsClient {
 
         for attempt in 0..IPFS_MAX_ATTEMPTS {
             if attempt > 0 {
-                // Exponential backoff: 1s, 2s, 4s
+                // Exponential backoff: 10s, 20s, 40s
                 let delay = IPFS_RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
                 tracing::debug!(
                     file = %file,
