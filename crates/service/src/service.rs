@@ -9,8 +9,8 @@ use clap::Parser;
 use graph_networks_registry::NetworksRegistry;
 use indexer_config::{Config, DipsConfig, GraphNodeConfig, SubgraphConfig};
 use indexer_dips::{
-    database::PsqlAgreementStore,
-    ipfs::{IpfsClient, IpfsFetcher},
+    database::PsqlRcaStore,
+    ipfs::IpfsClient,
     price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::indexer_dips_service_server::{
         IndexerDipsService, IndexerDipsServiceServer,
@@ -18,21 +18,17 @@ use indexer_dips::{
     server::{DipsServer, DipsServerContext},
     signers::EscrowSignerValidator,
 };
-use indexer_monitor::{escrow_accounts_v2, DeploymentDetails, SubgraphClient};
+use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
 use reqwest::Url;
 use tap_core::tap_eip712_domain;
+use thegraph_core::alloy::primitives::Address;
 use tokio::{net::TcpListener, signal};
 use tokio_util::sync::CancellationToken;
 use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
-use crate::{
-    cli::Cli,
-    constants::{DIPS_HTTP_CLIENT_TIMEOUT, HTTP_CLIENT_TIMEOUT},
-    database,
-    metrics::serve_metrics,
-};
+use crate::{cli::Cli, constants::HTTP_CLIENT_TIMEOUT, database, metrics::serve_metrics};
 
 mod release;
 mod router;
@@ -106,9 +102,6 @@ pub async fn run() -> anyhow::Result<()> {
         anyhow::bail!("Horizon mode is required; legacy mode is no longer supported.");
     }
 
-    // V2 escrow accounts (used by DIPS) are in the network subgraph
-    let escrow_v2_query_url_for_dips = config.subgraphs.network.config.query_url.clone();
-
     tracing::info!("Horizon mode configured; checking network subgraph readiness");
     match indexer_monitor::is_horizon_active(network_subgraph).await {
         Ok(true) => {
@@ -171,7 +164,7 @@ pub async fn run() -> anyhow::Result<()> {
         .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
         .network_subgraph(network_subgraph, config.subgraphs.network)
         .escrow_subgraph(escrow_subgraph, config.subgraphs.escrow)
-        .escrow_accounts_v2(v2_watcher)
+        .escrow_accounts_v2(v2_watcher.clone())
         .build();
 
     serve_metrics(config.metrics.get_socket_addr());
@@ -183,79 +176,76 @@ pub async fn run() -> anyhow::Result<()> {
         address = %host_and_port,
         "Serving requests",
     );
+    // DIPS: RecurringCollectionAgreement validation and storage
     if let Some(dips) = config.dips.as_ref() {
         let DipsConfig {
             host,
             port,
-            allowed_payers,
-            price_per_entity,
-            price_per_epoch,
+            recurring_collector,
+            tokens_per_second,
+            tokens_per_entity_per_second,
             additional_networks,
         } = dips;
+
+        // Validate required configuration
+        if *recurring_collector == Address::ZERO {
+            anyhow::bail!(
+                "DIPS is enabled but dips.recurring_collector is not configured. \
+                 Set it to the deployed RecurringCollector contract address."
+            );
+        }
+
+        if tokens_per_second.is_empty() {
+            tracing::warn!(
+                "DIPS enabled but no networks configured in dips.tokens_per_second. \
+                 All proposals will be rejected. See issue #943 for pricing guidance."
+            );
+        }
 
         let addr: SocketAddr = format!("{host}:{port}")
             .parse()
             .with_context(|| format!("Invalid DIPS host:port '{host}:{port}'"))?;
 
-        let ipfs_fetcher: Arc<dyn IpfsFetcher> = Arc::new(
-            IpfsClient::new(ipfs_url.as_str())
-                .with_context(|| format!("Failed to create IPFS client for URL '{ipfs_url}'"))?,
+        // Initialize validation dependencies
+        let ipfs_fetcher = Arc::new(IpfsClient::new(ipfs_url.as_str())?);
+        let registry = Arc::new(
+            NetworksRegistry::from_latest_version()
+                .await
+                .context("Failed to fetch NetworksRegistry for DIPS")?,
         );
 
-        // TODO: Try to re-use the same watcher for both DIPS and TAP
-        // DIPS requires Horizon/V2, so always use V2 escrow from network subgraph
-        let dips_http_client = create_http_client(DIPS_HTTP_CLIENT_TIMEOUT, false)
-            .context("Failed to create DIPS HTTP client")?;
-
-        tracing::info!("DIPS using V2 escrow from network subgraph");
-        let escrow_subgraph_for_dips = Box::leak(Box::new(
-            SubgraphClient::new(
-                dips_http_client,
-                None, // No local deployment
-                DeploymentDetails::for_query_url_with_token(
-                    escrow_v2_query_url_for_dips.clone(),
-                    None, // No auth token
-                ),
-            )
-            .await,
-        ));
-
-        let watcher = escrow_accounts_v2(
-            escrow_subgraph_for_dips,
-            indexer_address,
-            Duration::from_secs(500),
-            true,
-        )
-        .await
-        .with_context(|| "Failed to create escrow accounts V2 watcher for DIPS")?;
-
-        let registry = NetworksRegistry::from_latest_version()
-            .await
-            .context("Failed to fetch networks registry")?;
-
-        let ctx = DipsServerContext {
-            store: Arc::new(PsqlAgreementStore {
+        // Build server context
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(PsqlRcaStore {
                 pool: database.clone(),
             }),
             ipfs_fetcher,
-            price_calculator: PriceCalculator::new(price_per_epoch.clone(), *price_per_entity),
-            signer_validator: Arc::new(EscrowSignerValidator::new(watcher)),
-            registry: Arc::new(registry),
+            price_calculator: Arc::new(PriceCalculator::new(
+                tokens_per_second.clone(),
+                *tokens_per_entity_per_second,
+            )),
+            signer_validator: Arc::new(EscrowSignerValidator::new(v2_watcher.clone())),
+            registry,
             additional_networks: Arc::new(additional_networks.clone()),
-        };
+        });
 
-        let dips = DipsServer {
-            ctx: Arc::new(ctx),
+        // Create DIPS server
+        let server = DipsServer {
+            ctx,
             expected_payee: indexer_address,
-            allowed_payers: allowed_payers.clone(),
             chain_id,
+            recurring_collector: *recurring_collector,
         };
 
-        info!(address = %addr, "Starting DIPS gRPC server");
+        info!(
+            address = %addr,
+            recurring_collector = ?recurring_collector,
+            "Starting DIPS gRPC server (RecurringCollectionAgreement validation)"
+        );
 
         let dips_shutdown_token = shutdown_token.clone();
         tokio::spawn(async move {
-            start_dips_server(addr, dips, dips_shutdown_token.cancelled()).await;
+            start_dips_server(addr, server, dips_shutdown_token.cancelled()).await;
         });
     }
 
