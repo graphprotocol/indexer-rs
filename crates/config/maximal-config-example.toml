@@ -188,19 +188,123 @@ max_receipts_per_request = 10000
 # DIPS (Decentralized Indexing Payment System)
 # NOTE: DIPS requires Horizon mode ([horizon].enabled = true)
 # Payer authorization is handled via escrow accounts (same trust model as TAP)
+#
+# Pricing uses human-readable GRT values (not wei), e.g. "100" = 100 GRT per 30 days.
 [dips]
 host = "0.0.0.0"
 port = "7601"
 recurring_collector = "0x4444444444444444444444444444444444444444"
 
-tokens_per_entity_per_second = "1000"
+# Networks you explicitly support indexing. 
+# Proposals from the dipper for you to index networks that are not in the list below are rejected.
+# See https://github.com/graphprotocol/networks-registry/blob/main/docs/networks-table.md
+# e.g. supported_networks = ["mainnet", "arbitrum-one"]
+supported_networks = []
 
-[dips.tokens_per_second]
-mainnet = "100"
-hardhat = "100"
+# Minimum payment you are willing to accept in order to accept indexing agreements
+# (base price + entity-based price). Total payment = base price + (entities on sg * entity_rate)
+min_grt_per_million_entities_per_30_days = "0.2"  # entity-based component (global)
+
+[dips.min_grt_per_30_days]  # base rate component (per-network)
+# arbitrum-one = "450"
+# matic = "300"
+# fantom = "300"
+# avalanche = "225"
+# bsc = "200"
+# base = "80"
+# gnosis = "45"
+# near-mainnet = "45"
+# fuji = "45"
+# mainnet = "45"
+# optimism = "30"
+# xdai = "30"
+# polygon-zkevm = "30"
+# polygon-amoy = "30"
+# xlayer-mainnet = "30"
+# soneium = "30"
+# abstract = "30"
+# fantom-testnet = "30"
+# lens = "30"
+# rootstock-testnet = "30"
+# kaia = "30"
+# chiliz = "30"
+# linea-sepolia = "30"
+# joc-testnet = "30"
+# etherlink-mainnet = "30"
+# apechain = "30"
+# ink = "30"
+# unichain-testnet = "30"
+# blast-testnet = "30"
+# megaeth = "30"
+# sei-atlantic = "30"
+# zksync-era-sepolia = "30"
+# arbitrum-nova = "30"
+# hoodi = "30"
+# celo-sepolia = "30"
+# vana = "30"
+# joc = "30"
+# swellchain = "30"
+# soneium-testnet = "30"
+# zetachain = "30"
+# hemi-sepolia = "30"
+# megaeth-testnet = "30"
+# iotex = "30"
+# stable = "30"
+# cronos = "30"
+# ronin = "30"
+# fraxtal = "30"
+# kaia-testnet = "30"
+# abstract-testnet = "30"
+# neox-testnet = "30"
+# fuse-testnet = "30"
+# manta = "30"
+# viction = "30"
+# peaq = "30"
+# boba-testnet = "30"
+# hashkeychain = "30"
+# vana-moksha = "30"
+# botanix-testnet = "30"
+# corn = "30"
+# chiliz-testnet = "30"
+# apechain-curtis = "30"
+# megaeth-timothy = "30"
+# status-sepolia = "30"
+# etherlink-shadownet = "30"
+# etherlink-testnet = "30"
+# mint = "30"
+# ink-sepolia = "30"
+# iotex-testnet = "30"
+# neox = "30"
+# lumia = "30"
+# mint-sepolia = "30"
+# lens-testnet = "30"
+# berachain = "30"
+# sonic = "25"
+# katana = "25"
+# hemi = "20"
+# zksync-era = "20"
+# sei-mainnet = "20"
+# scroll = "15"
+# optimism-sepolia = "15"
+# celo = "15"
+# linea = "15"
+# base-sepolia = "15"
+# unichain = "15"
+# monad-testnet = "10"
+# monad = "10"
+# fuse = "10"
+# scroll-sepolia = "10"
+# rootstock = "10"
+# near-testnet = "10"
+# moonriver = "10"
+# chapel = "10"
+# moonbeam = "10"
+# blast-mainnet = "5"
+# arbitrum-sepolia = "5"
+# boba = "5"
+# sepolia = "5"
 
 [dips.additional_networks]
-"eip155:1337" = "hardhat"
 
 [horizon]
 # Enable Horizon support and detection

@@ -19,13 +19,10 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_repr::Deserialize_repr;
 use serde_with::{serde_as, DurationSecondsWithFrac};
-use thegraph_core::{
-    alloy::primitives::{Address, U256},
-    DeploymentId,
-};
+use thegraph_core::{alloy::primitives::Address, DeploymentId};
 use url::Url;
 
-use crate::NonZeroGRT;
+use crate::{NonZeroGRT, GRT};
 
 const SHARED_PREFIX: &str = "INDEXER_";
 
@@ -643,8 +640,12 @@ pub struct DipsConfig {
     pub host: String,
     pub port: String,
     pub recurring_collector: Address,
-    pub tokens_per_second: BTreeMap<String, U256>,
-    pub tokens_per_entity_per_second: U256,
+    /// Networks this indexer explicitly supports. Proposals for other networks are rejected.
+    pub supported_networks: HashSet<String>,
+    /// Minimum acceptable GRT per 30 days, per network. Converted to wei/second internally.
+    pub min_grt_per_30_days: BTreeMap<String, GRT>,
+    /// Minimum acceptable GRT per million entities per 30 days.
+    pub min_grt_per_million_entities_per_30_days: GRT,
     pub additional_networks: BTreeMap<String, String>,
 }
 
@@ -654,8 +655,9 @@ impl Default for DipsConfig {
             host: "0.0.0.0".to_string(),
             port: "7601".to_string(),
             recurring_collector: Address::ZERO,
-            tokens_per_second: BTreeMap::new(),
-            tokens_per_entity_per_second: U256::ZERO,
+            supported_networks: HashSet::new(),
+            min_grt_per_30_days: BTreeMap::new(),
+            min_grt_per_million_entities_per_30_days: GRT::ZERO,
             additional_networks: BTreeMap::new(),
         }
     }
@@ -743,17 +745,12 @@ pub struct HorizonConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{BTreeMap, HashSet},
-        env, fs,
-        path::PathBuf,
-        str::FromStr,
-    };
+    use std::{collections::HashSet, env, fs, path::PathBuf, str::FromStr};
 
     use bip39::Mnemonic;
     use figment::value::Uncased;
     use sealed_test::prelude::*;
-    use thegraph_core::alloy::primitives::{address, Address, FixedBytes, U256};
+    use thegraph_core::alloy::primitives::{address, Address, FixedBytes};
     use tracing_test::traced_test;
 
     use super::{DatabaseConfig, IndexerConfig, SHARED_PREFIX};
@@ -782,15 +779,7 @@ mod tests {
             recurring_collector: Address(
                 FixedBytes::<20>::from_str("0x4444444444444444444444444444444444444444").unwrap(),
             ),
-            tokens_per_entity_per_second: U256::from(1000),
-            tokens_per_second: BTreeMap::from_iter(vec![
-                ("mainnet".to_string(), U256::from(100)),
-                ("hardhat".to_string(), U256::from(100)),
-            ]),
-            additional_networks: BTreeMap::from([(
-                "eip155:1337".to_string(),
-                "hardhat".to_string(),
-            )]),
+            min_grt_per_million_entities_per_30_days: crate::GRT::from_grt("0.2"),
             ..Default::default()
         });
 
