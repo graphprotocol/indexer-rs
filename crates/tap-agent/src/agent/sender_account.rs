@@ -1211,7 +1211,11 @@ impl Actor for SenderAccount {
                             "Total fee greater than the trigger value. Triggering RAV request"
                         );
                         state.rav_request_for_heaviest_allocation().await
-                    } else if counter_greater_receipt_limit {
+                    } else if counter_greater_receipt_limit
+                        && !state
+                            .sender_fee_tracker
+                            .is_allocation_id_blocked(&allocation_id)
+                    {
                         tracing::debug!(
                             total_counter_for_allocation,
                             rav_request_receipt_limit = state.config.rav_request_receipt_limit,
