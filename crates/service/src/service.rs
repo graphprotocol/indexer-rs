@@ -215,20 +215,26 @@ pub async fn run() -> anyhow::Result<()> {
                 .context("Failed to fetch NetworksRegistry for DIPS")?,
         );
 
-        // Convert GRT/30days to wei/second for protocol compatibility
+        // Convert GRT/30days to wei/second for protocol compatibility.
+        // Use ceiling division to protect indexers: configured minimums round UP,
+        // ensuring indexers never accept less than their stated minimum.
         // 30 days = 2,592,000 seconds
         const SECONDS_PER_30_DAYS: u128 = 30 * 24 * 60 * 60;
         let tokens_per_second = min_grt_per_30_days
             .iter()
             .map(|(network, grt)| {
-                let wei_per_second = grt.wei() / SECONDS_PER_30_DAYS;
+                let wei_per_second = grt.wei().div_ceil(SECONDS_PER_30_DAYS);
                 (network.clone(), U256::from(wei_per_second))
             })
             .collect();
 
-        // Entity pricing: config is per-million-entities, convert to per-entity
+        // Entity pricing: config is per-million-entities, convert to per-entity.
+        // Ceiling division protects indexer from precision loss.
+        let entity_divisor = SECONDS_PER_30_DAYS * 1_000_000;
         let tokens_per_entity_per_second = U256::from(
-            min_grt_per_million_entities_per_30_days.wei() / SECONDS_PER_30_DAYS / 1_000_000,
+            min_grt_per_million_entities_per_30_days
+                .wei()
+                .div_ceil(entity_divisor),
         );
 
         // Build server context
