@@ -22,6 +22,15 @@
 //! 2. indexer-agent queries pending proposals
 //! 3. Agent validates allocation availability, accepts on-chain
 //! 4. Agent updates status to "accepted" or "rejected"
+//!
+//! # Idempotency
+//!
+//! The `store_rca` operation is idempotent: inserting the same agreement ID twice
+//! succeeds both times. This handles retry scenarios where Dipper re-sends an RCA
+//! after a timeout (network partition, crash after INSERT but before response, etc.).
+//!
+//! Without idempotency, the retry would fail with a duplicate key error, causing
+//! Dipper to mark the agreement as failed even though it was successfully stored.
 
 use std::any::Any;
 
@@ -45,9 +54,12 @@ impl RcaStore for PsqlRcaStore {
         signed_rca: Vec<u8>,
         version: u64,
     ) -> Result<(), DipsError> {
+        // ON CONFLICT DO NOTHING makes this idempotent: retries with the same
+        // agreement_id succeed without error, enabling safe Dipper retries.
         sqlx::query(
             "INSERT INTO pending_rca_proposals (id, signed_payload, version, status, created_at, updated_at)
-             VALUES ($1, $2, $3, 'pending', NOW(), NOW())"
+             VALUES ($1, $2, $3, 'pending', NOW(), NOW())
+             ON CONFLICT (id) DO NOTHING",
         )
         .bind(agreement_id)
         .bind(signed_rca)
