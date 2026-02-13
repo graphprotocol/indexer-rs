@@ -41,6 +41,12 @@ pub trait RcaStore: Sync + Send + std::fmt::Debug {
     /// Store a validated RCA proposal.
     ///
     /// Only called after successful validation (signature, IPFS, pricing).
+    ///
+    /// # Idempotency
+    ///
+    /// This operation MUST be idempotent: storing the same `agreement_id` twice
+    /// must succeed both times. This enables safe retries when Dipper re-sends
+    /// an RCA after timeout or network partition.
     async fn store_rca(
         &self,
         agreement_id: Uuid,
@@ -66,10 +72,11 @@ impl RcaStore for InMemoryRcaStore {
         signed_rca: Vec<u8>,
         version: u64,
     ) -> Result<(), DipsError> {
-        self.data
-            .write()
-            .await
-            .push((agreement_id, signed_rca, version));
+        let mut data = self.data.write().await;
+        // Idempotent: skip if already exists
+        if !data.iter().any(|(id, _, _)| *id == agreement_id) {
+            data.push((agreement_id, signed_rca, version));
+        }
         Ok(())
     }
 
@@ -162,5 +169,25 @@ mod tests {
             "Expected UnknownError, got: {:?}",
             err
         );
+    }
+
+    #[tokio::test]
+    async fn test_store_rca_idempotent() {
+        // Arrange
+        let store = InMemoryRcaStore::default();
+        let id = Uuid::now_v7();
+        let blob = vec![1, 2, 3, 4, 5];
+
+        // Act - store same ID twice
+        let result1 = store.store_rca(id, blob.clone(), 2).await;
+        let result2 = store.store_rca(id, blob.clone(), 2).await;
+
+        // Assert - both succeed, only one entry stored
+        assert!(result1.is_ok(), "First store should succeed");
+        assert!(result2.is_ok(), "Second store (retry) should also succeed");
+
+        let data = store.data.read().await;
+        assert_eq!(data.len(), 1, "Duplicate should not create second entry");
+        assert_eq!(data[0].0, id);
     }
 }
