@@ -481,7 +481,8 @@ pub async fn validate_and_create_rca(
 
 #[cfg(test)]
 mod test {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::collections::{BTreeMap, HashSet};
+    use std::sync::Arc;
 
     use thegraph_core::alloy::{
         primitives::{Address, FixedBytes, U256},
@@ -508,6 +509,7 @@ mod test {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(MockIpfsFetcher::default()), // Returns "mainnet"
             price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
@@ -677,6 +679,7 @@ mod test {
                 network: "unsupported-network".to_string(),
             }),
             price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
@@ -870,6 +873,7 @@ mod test {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
             price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
@@ -908,6 +912,7 @@ mod test {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(FailingIpfsFetcher),
             price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
@@ -946,6 +951,7 @@ mod test {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(MockIpfsFetcher::no_network()),
             price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
@@ -984,6 +990,7 @@ mod test {
             rca_store: Arc::new(FailingRcaStore),
             ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
             price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),

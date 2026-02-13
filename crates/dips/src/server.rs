@@ -181,13 +181,14 @@ mod tests {
 
     impl DipsServerContext {
         pub fn for_testing() -> Arc<Self> {
-            use std::collections::BTreeMap;
+            use std::collections::{BTreeMap, HashSet};
             use thegraph_core::alloy::primitives::U256;
 
             Arc::new(Self {
                 rca_store: Arc::new(InMemoryRcaStore::default()),
                 ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
                 price_calculator: Arc::new(PriceCalculator::new(
+                    HashSet::from(["mainnet".to_string()]),
                     BTreeMap::from([("mainnet".to_string(), U256::from(200))]),
                     U256::from(100),
                 )),
