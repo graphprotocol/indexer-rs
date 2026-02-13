@@ -1280,4 +1280,107 @@ mod tests {
             .unwrap_err()
             .contains("No operator mnemonic configured"));
     }
+
+    // === DIPS Startup Validation Tests ===
+
+    /// Test that minimal config has no DIPS section (safe default for existing indexers).
+    #[test]
+    fn test_dips_absent_in_minimal_config() {
+        // Arrange & Act
+        let config = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
+        )
+        .unwrap();
+
+        // Assert
+        assert!(
+            config.dips.is_none(),
+            "Minimal config should not have DIPS enabled"
+        );
+    }
+
+    /// Test that DipsConfig defaults have recurring_collector as Address::ZERO.
+    /// This is important because the service startup validation checks for this
+    /// and fails with a clear error message if DIPS is enabled but recurring_collector
+    /// is not configured.
+    #[test]
+    fn test_dips_config_defaults_recurring_collector_zero() {
+        // Arrange & Act
+        let dips_config = crate::DipsConfig::default();
+
+        // Assert
+        assert_eq!(
+            dips_config.recurring_collector,
+            Address::ZERO,
+            "Default recurring_collector should be Address::ZERO to trigger startup validation"
+        );
+    }
+
+    /// Test that DipsConfig defaults have empty supported_networks.
+    /// This triggers a warning at startup that all proposals will be rejected.
+    #[test]
+    fn test_dips_config_defaults_empty_supported_networks() {
+        // Arrange & Act
+        let dips_config = crate::DipsConfig::default();
+
+        // Assert
+        assert!(
+            dips_config.supported_networks.is_empty(),
+            "Default supported_networks should be empty"
+        );
+        assert!(
+            dips_config.min_grt_per_30_days.is_empty(),
+            "Default min_grt_per_30_days should be empty"
+        );
+    }
+
+    /// Test that a DIPS config with only recurring_collector set uses defaults for other fields.
+    #[test]
+    fn test_dips_partial_config_uses_defaults() {
+        // Arrange - create a DipsConfig with just recurring_collector set
+        let dips_config = crate::DipsConfig {
+            recurring_collector: Address(
+                FixedBytes::<20>::from_str("0x1234567890123456789012345678901234567890").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        // Assert - recurring_collector is set, others use defaults
+        assert_ne!(
+            dips_config.recurring_collector,
+            Address::ZERO,
+            "recurring_collector should be set"
+        );
+        assert_eq!(dips_config.host, "0.0.0.0", "host should use default");
+        assert_eq!(dips_config.port, "7601", "port should use default");
+        assert!(
+            dips_config.supported_networks.is_empty(),
+            "supported_networks should default to empty"
+        );
+        assert!(
+            dips_config.min_grt_per_30_days.is_empty(),
+            "min_grt_per_30_days should default to empty"
+        );
+    }
+
+    /// Test that maximal config with DIPS section parses correctly.
+    #[test]
+    fn test_dips_maximal_config_parses() {
+        // Arrange & Act
+        let config: Config = toml::from_str(
+            fs::read_to_string("maximal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+
+        // Assert
+        let dips = config.dips.expect("maximal config should have DIPS");
+        assert_ne!(
+            dips.recurring_collector,
+            Address::ZERO,
+            "recurring_collector should be set in maximal config"
+        );
+    }
 }
