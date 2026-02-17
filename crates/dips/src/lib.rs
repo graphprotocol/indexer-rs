@@ -1,12 +1,64 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! DIPS (Direct Indexer Payments) for The Graph.
+//!
+//! This crate implements the indexer-side handling of RecurringCollectionAgreement (RCA)
+//! proposals. When a payer wants indexing services, the Dipper service creates and signs
+//! an RCA on their behalf, then sends it to the indexer via gRPC.
+//!
+//! # Architecture
+//!
+//! ```text
+//! Payer (user) ──deposits──> PaymentsEscrow contract
+//!       │                           │
+//!       │ authorizes signer         │ escrow data indexed
+//!       ▼                           ▼
+//!    Dipper ───SignedRCA───> indexer-rs (this crate)
+//!       │                           │
+//!       │                           │ validates & stores
+//!       │                           ▼
+//!       │                    pending_rca_proposals table
+//!       │                           │
+//!       │                           │ agent queries & decides
+//!       │                           ▼
+//!       └──────────────────> on-chain acceptance
+//! ```
+//!
+//! # Validation Flow
+//!
+//! When an RCA arrives, this crate validates:
+//! 1. **Signature** - EIP-712 signature recovers to an authorized signer
+//! 2. **Signer authorization** - Signer is authorized for the payer (via escrow accounts)
+//! 3. **Service provider** - RCA is addressed to this indexer
+//! 4. **Timestamps** - Deadline and end time haven't passed
+//! 5. **IPFS manifest** - Subgraph deployment exists and is parseable
+//! 6. **Network** - Subgraph's network is supported by this indexer
+//! 7. **Pricing** - Offered price meets indexer's minimum
+//!
+//! # Trust Model
+//!
+//! Payers deposit funds into the PaymentsEscrow contract and authorize signers.
+//! The escrow has a **thawing period** for withdrawals, giving indexers time to
+//! collect owed fees before funds can be withdrawn. This crate checks signer
+//! authorization via the network subgraph, which may lag chain state slightly.
+//! The thawing period protects against this lag.
+//!
+//! # Modules
+//!
+//! - [`server`] - gRPC server handling RCA proposals
+//! - [`store`] - Storage trait for RCA proposals
+//! - [`database`] - PostgreSQL implementation
+//! - [`signers`] - Signer authorization via escrow accounts
+//! - [`ipfs`] - IPFS client for subgraph manifests
+//! - [`price`] - Minimum price enforcement
+
 use std::{str::FromStr, sync::Arc};
 
 use server::DipsServerContext;
 use thegraph_core::alloy::{
     core::primitives::Address,
-    primitives::{b256, ruint::aliases::U256, ChainId, Signature, Uint, B256},
+    primitives::{ruint::aliases::U256, ChainId, Signature, Uint},
     signers::SignerSync,
     sol,
     sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
@@ -25,86 +77,72 @@ pub mod server;
 pub mod signers;
 pub mod store;
 
-use store::AgreementStore;
 use thiserror::Error;
 use uuid::Uuid;
 
-/// DIPs EIP-712 domain salt
-const EIP712_DOMAIN_SALT: B256 =
-    b256!("b4632c657c26dce5d4d7da1d65bda185b14ff8f905ddbb03ea0382ed06c5ef28");
+/// Protocol version (seconds-based RCA)
+pub const PROTOCOL_VERSION: u64 = 2;
 
-/// DIPs Protocol version
-pub const PROTOCOL_VERSION: u64 = 1; // MVP
-
-/// Create an EIP-712 domain given a chain ID and dispute manager address.
-pub fn dips_agreement_eip712_domain(chain_id: ChainId) -> Eip712Domain {
+/// Create an EIP-712 domain for RecurringCollectionAgreement.
+///
+/// Used to sign `RecurringCollectionAgreement` messages. The `verifying_contract`
+/// is the deployed RecurringCollector address.
+pub fn rca_eip712_domain(chain_id: ChainId, recurring_collector: Address) -> Eip712Domain {
     eip712_domain! {
-        name: "Graph Protocol Indexing Agreement",
-        version: "0",
+        name: "RecurringCollector",
+        version: "1",
         chain_id: chain_id,
-        salt: EIP712_DOMAIN_SALT,
-    }
-}
-
-pub fn dips_cancellation_eip712_domain(chain_id: ChainId) -> Eip712Domain {
-    eip712_domain! {
-        name: "Graph Protocol Indexing Agreement Cancellation",
-        version: "0",
-        chain_id: chain_id,
-        salt: EIP712_DOMAIN_SALT,
-    }
-}
-
-pub fn dips_collection_eip712_domain(chain_id: ChainId) -> Eip712Domain {
-    eip712_domain! {
-        name: "Graph Protocol Indexing Agreement Collection",
-        version: "0",
-        chain_id: chain_id,
-        salt: EIP712_DOMAIN_SALT,
+        verifying_contract: recurring_collector,
     }
 }
 
 sol! {
-    // EIP712 encoded bytes
-    #[derive(Debug, PartialEq)]
-    struct SignedIndexingAgreementVoucher {
-        IndexingAgreementVoucher voucher;
-        bytes signature;
-    }
+    // === RCA Types (seconds-based RecurringCollectionAgreement) ===
 
+    /// The on-chain RecurringCollectionAgreement type.
+    ///
+    /// Matches `IRecurringCollector.RecurringCollectionAgreement` exactly.
     #[derive(Debug, PartialEq)]
-    struct IndexingAgreementVoucher {
-        // must be unique for each indexer/gateway pair
-        bytes16 agreement_id;
-        // should coincide with signer of this voucher
+    struct RecurringCollectionAgreement {
+        bytes16 agreementId;
+        // NB: The on-chain struct declares these as uint64 for storage efficiency,
+        // but the EIP-712 typehash uses uint256. We must match the typehash.
+        uint256 deadline;
+        uint256 endsAt;
         address payer;
-        // should coincide with indexer
-        address recipient;
-        // data service that will initiate payment collection
-        address service;
-
-        uint32 durationEpochs;
-
-        uint256 maxInitialAmount;
-        uint256 maxOngoingAmountPerEpoch;
-
-        uint32 minEpochsPerCollection;
-        uint32 maxEpochsPerCollection;
-
-        // Deadline for the indexer to accept the agreement
-        uint64 deadline;
+        address dataService;
+        address serviceProvider;
+        uint256 maxInitialTokens;
+        uint256 maxOngoingTokensPerSecond;
+        uint32 minSecondsPerCollection;
+        uint32 maxSecondsPerCollection;
         bytes metadata;
     }
 
-    // the vouchers are generic to each data service, in the case of subgraphs this is an ABI-encoded SubgraphIndexingVoucherMetadata
+    /// Wrapper pairing an RCA with its EIP-712 signature.
     #[derive(Debug, PartialEq)]
-    struct SubgraphIndexingVoucherMetadata {
-        uint256 basePricePerEpoch; // wei GRT
-        uint256 pricePerEntity; // wei GRT
-        string subgraphDeploymentId; // e.g. "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f" - TODO consider using bytes32
-        string protocolNetwork; // e.g. "eip155:42161"
-        string chainId; // indexed chain, e.g. "eip155:1"
+    struct SignedRecurringCollectionAgreement {
+        RecurringCollectionAgreement agreement;
+        bytes signature;
     }
+
+    /// Metadata for indexing agreement acceptance, ABI-encoded into
+    /// `RecurringCollectionAgreement.metadata`.
+    #[derive(Debug, PartialEq)]
+    struct AcceptIndexingAgreementMetadata {
+        bytes32 subgraphDeploymentId;
+        uint8 version;
+        bytes terms;
+    }
+
+    /// Pricing terms, ABI-encoded into `AcceptIndexingAgreementMetadata.terms`.
+    #[derive(Debug, PartialEq)]
+    struct IndexingAgreementTermsV1 {
+        uint256 tokensPerSecond;
+        uint256 tokensPerEntityPerSecond;
+    }
+
+    // === Cancellation ===
 
     #[derive(Debug, PartialEq)]
     struct SignedCancellationRequest {
@@ -116,124 +154,54 @@ sol! {
     struct CancellationRequest {
         bytes16 agreement_id;
     }
-
-    #[derive(Debug, PartialEq)]
-    struct SignedCollectionRequest {
-        CollectionRequest request;
-        bytes signature;
-    }
-
-    #[derive(Debug, PartialEq)]
-    struct CollectionRequest {
-        bytes16 agreement_id;
-        address allocation_id;
-        uint64 entity_count;
-    }
-
 }
 
 #[derive(Error, Debug)]
 pub enum DipsError {
-    // agreement creation
+    // RCA validation
     #[error("signature is not valid, error: {0}")]
     InvalidSignature(String),
-    #[error("payer {0} not authorised")]
-    PayerNotAuthorised(Address),
-    #[error("voucher payee {actual} does not match the expected address {expected}")]
-    UnexpectedPayee { expected: Address, actual: Address },
+    #[error("RCA service provider {actual} does not match the expected address {expected}")]
+    UnexpectedServiceProvider { expected: Address, actual: Address },
     #[error("cannot get subgraph manifest for {0}")]
     SubgraphManifestUnavailable(String),
     #[error("invalid subgraph id {0}")]
     InvalidSubgraphManifest(String),
-    #[error("chainId {0} is not supported")]
-    UnsupportedChainId(String),
-    #[error("price per epoch is below configured price for chain {0}, minimum: {1}, offered: {2}")]
-    PricePerEpochTooLow(String, U256, String),
+    #[error("network {0} is not supported")]
+    UnsupportedNetwork(String),
     #[error(
-        "price per entity is below configured price for chain {0}, minimum: {1}, offered: {2}"
+        "tokens per second {offered} is below configured minimum {minimum} for network {network}"
     )]
-    PricePerEntityTooLow(String, U256, String),
-    // cancellation
-    #[error("cancelled_by is expected to match the signer")]
-    UnexpectedSigner,
+    TokensPerSecondTooLow {
+        network: String,
+        minimum: U256,
+        offered: U256,
+    },
+    #[error("tokens per entity per second {offered} is below configured minimum {minimum}")]
+    TokensPerEntityPerSecondTooLow { minimum: U256, offered: U256 },
     #[error("signer {0} not authorised")]
     SignerNotAuthorised(Address),
-    #[error("cancellation request has expired")]
-    ExpiredRequest,
+    #[error("cancelled_by is expected to match the signer")]
+    UnexpectedSigner,
     // misc
     #[error("unknown error: {0}")]
     UnknownError(#[from] anyhow::Error),
-    #[error("agreement not found")]
-    AgreementNotFound,
     #[error("ABI decoding error: {0}")]
     AbiDecoding(String),
-    #[error("agreement is cancelled")]
-    AgreementCancelled,
-    #[error("invalid voucher: {0}")]
-    InvalidVoucher(String),
+    #[error("invalid RCA: {0}")]
+    InvalidRca(String),
+    #[error("unsupported metadata version: {0}")]
+    UnsupportedMetadataVersion(u8),
+    #[error("agreement deadline {deadline} has already passed (current time: {now})")]
+    DeadlineExpired { deadline: u64, now: u64 },
+    #[error("agreement end time {ends_at} has already passed (current time: {now})")]
+    AgreementExpired { ends_at: u64, now: u64 },
 }
 
 #[cfg(feature = "rpc")]
 impl From<DipsError> for tonic::Status {
     fn from(value: DipsError) -> Self {
         tonic::Status::internal(format!("{value}"))
-    }
-}
-
-impl IndexingAgreementVoucher {
-    pub fn sign<S: SignerSync>(
-        &self,
-        domain: &Eip712Domain,
-        signer: S,
-    ) -> anyhow::Result<SignedIndexingAgreementVoucher> {
-        let voucher = SignedIndexingAgreementVoucher {
-            voucher: self.clone(),
-            signature: signer.sign_typed_data_sync(self, domain)?.as_bytes().into(),
-        };
-
-        Ok(voucher)
-    }
-}
-
-impl SignedIndexingAgreementVoucher {
-    // TODO: Validate all values
-    pub fn validate(
-        &self,
-        signer_validator: &Arc<dyn signers::SignerValidator>,
-        domain: &Eip712Domain,
-        expected_payee: &Address,
-        allowed_payers: impl AsRef<[Address]>,
-    ) -> Result<(), DipsError> {
-        let sig = Signature::try_from(self.signature.as_ref())
-            .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
-
-        let payer = self.voucher.payer;
-        let signer = sig
-            .recover_address_from_prehash(&self.voucher.eip712_signing_hash(domain))
-            .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
-
-        if allowed_payers.as_ref().is_empty()
-            || !allowed_payers.as_ref().iter().any(|addr| addr.eq(&payer))
-        {
-            return Err(DipsError::PayerNotAuthorised(payer));
-        }
-
-        signer_validator
-            .validate(&payer, &signer)
-            .map_err(|_| DipsError::SignerNotAuthorised(signer))?;
-
-        if !self.voucher.recipient.eq(expected_payee) {
-            return Err(DipsError::UnexpectedPayee {
-                expected: *expected_payee,
-                actual: self.voucher.recipient,
-            });
-        }
-
-        Ok(())
-    }
-
-    pub fn encode_vec(&self) -> Vec<u8> {
-        self.abi_encode()
     }
 }
 
@@ -277,179 +245,234 @@ impl SignedCancellationRequest {
     }
 }
 
-impl SignedCollectionRequest {
+// === RCA Implementations ===
+
+impl RecurringCollectionAgreement {
+    pub fn sign<S: SignerSync>(
+        &self,
+        domain: &Eip712Domain,
+        signer: S,
+    ) -> anyhow::Result<SignedRecurringCollectionAgreement> {
+        let signed_rca = SignedRecurringCollectionAgreement {
+            agreement: self.clone(),
+            signature: signer.sign_typed_data_sync(self, domain)?.as_bytes().into(),
+        };
+
+        Ok(signed_rca)
+    }
+}
+
+impl SignedRecurringCollectionAgreement {
+    /// Validate the RCA signature and basic fields.
+    ///
+    /// Checks:
+    /// - EIP-712 signature is valid and recovers to an authorized signer for the payer
+    /// - Signer is authorized for the payer (via escrow accounts)
+    /// - Service provider matches expected indexer address
+    pub fn validate(
+        &self,
+        signer_validator: &Arc<dyn signers::SignerValidator>,
+        domain: &Eip712Domain,
+        expected_service_provider: &Address,
+    ) -> Result<(), DipsError> {
+        let sig = Signature::try_from(self.signature.as_ref())
+            .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
+
+        let payer = self.agreement.payer;
+        let signer = sig
+            .recover_address_from_prehash(&self.agreement.eip712_signing_hash(domain))
+            .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
+
+        signer_validator
+            .validate(&payer, &signer)
+            .map_err(|_| DipsError::SignerNotAuthorised(signer))?;
+
+        if !self.agreement.serviceProvider.eq(expected_service_provider) {
+            return Err(DipsError::UnexpectedServiceProvider {
+                expected: *expected_service_provider,
+                actual: self.agreement.serviceProvider,
+            });
+        }
+
+        Ok(())
+    }
+
     pub fn encode_vec(&self) -> Vec<u8> {
         self.abi_encode()
     }
 }
 
-impl CollectionRequest {
-    pub fn sign<S: SignerSync>(
-        &self,
-        domain: &Eip712Domain,
-        signer: S,
-    ) -> anyhow::Result<SignedCollectionRequest> {
-        let voucher = SignedCollectionRequest {
-            request: self.clone(),
-            signature: signer.sign_typed_data_sync(self, domain)?.as_bytes().into(),
-        };
+/// Convert bytes32 subgraph deployment ID to IPFS CIDv0 string.
+///
+/// IPFS CIDv0 format: Qm... (base58-encoded multihash)
+/// Multihash format: 0x12 (sha256) + 0x20 (32 bytes) + hash
+fn bytes32_to_ipfs_hash(bytes: &[u8; 32]) -> String {
+    // Prepend multihash prefix: 0x12 (sha256) + 0x20 (32 bytes length)
+    let mut multihash = vec![0x12, 0x20];
+    multihash.extend_from_slice(bytes);
 
-        Ok(voucher)
-    }
+    // Base58 encode
+    bs58::encode(&multihash).into_string()
 }
 
-pub async fn validate_and_create_agreement(
+/// Validate and create a RecurringCollectionAgreement.
+///
+/// Performs validation:
+/// - EIP-712 signature verification
+/// - IPFS manifest fetching and network validation
+/// - Price minimum enforcement
+///
+/// Returns the agreement ID if successful, stores in database.
+pub async fn validate_and_create_rca(
     ctx: Arc<DipsServerContext>,
     domain: &Eip712Domain,
-    expected_payee: &Address,
-    allowed_payers: impl AsRef<[Address]>,
-    voucher: Vec<u8>,
+    expected_service_provider: &Address,
+    rca_bytes: Vec<u8>,
 ) -> Result<Uuid, DipsError> {
     let DipsServerContext {
-        store,
+        rca_store,
         ipfs_fetcher,
         price_calculator,
         signer_validator,
         registry,
         additional_networks,
+        ..
     } = ctx.as_ref();
-    let decoded_voucher = SignedIndexingAgreementVoucher::abi_decode(voucher.as_ref())
+
+    // Decode SignedRCA
+    let signed_rca = SignedRecurringCollectionAgreement::abi_decode(rca_bytes.as_ref())
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
-    let metadata =
-        SubgraphIndexingVoucherMetadata::abi_decode(decoded_voucher.voucher.metadata.as_ref())
-            .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
-    decoded_voucher.validate(signer_validator, domain, expected_payee, allowed_payers)?;
+    // Validate signature and basic fields
+    signed_rca.validate(signer_validator, domain, expected_service_provider)?;
 
-    // Extract and parse the agreement ID from the voucher
-    let agreement_id = Uuid::from_bytes(decoded_voucher.voucher.agreement_id.into());
+    // Validate deadline hasn't passed
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system time before unix epoch")
+        .as_secs();
 
-    let manifest = ipfs_fetcher.fetch(&metadata.subgraphDeploymentId).await?;
-
-    let network = match registry.get_network_by_id(&metadata.chainId) {
-        Some(network) => network.id.clone(),
-        None => match additional_networks.get(&metadata.chainId) {
-            Some(network) => network.clone(),
-            None => return Err(DipsError::UnsupportedChainId(metadata.chainId)),
-        },
-    };
-
-    match manifest.network() {
-        Some(manifest_network_name) => {
-            tracing::debug!(
-                agreement_id = %agreement_id,
-                "Subgraph manifest network: {}", manifest_network_name);
-            if manifest_network_name != network {
-                return Err(DipsError::InvalidSubgraphManifest(
-                    metadata.subgraphDeploymentId,
-                ));
-            }
-        }
-        None => {
-            return Err(DipsError::InvalidSubgraphManifest(
-                metadata.subgraphDeploymentId,
-            ))
-        }
+    let deadline: u64 = signed_rca
+        .agreement
+        .deadline
+        .try_into()
+        .map_err(|_| DipsError::InvalidRca("deadline overflow".to_string()))?;
+    if deadline < now {
+        return Err(DipsError::DeadlineExpired { deadline, now });
     }
 
-    let offered_epoch_price = metadata.basePricePerEpoch;
-    match price_calculator.get_minimum_price(&metadata.chainId) {
-        Some(price) if offered_epoch_price.lt(&Uint::from(price)) => {
-            tracing::debug!(
+    // Validate agreement hasn't already expired
+    let ends_at: u64 = signed_rca
+        .agreement
+        .endsAt
+        .try_into()
+        .map_err(|_| DipsError::InvalidRca("endsAt overflow".to_string()))?;
+    if ends_at < now {
+        return Err(DipsError::AgreementExpired { ends_at, now });
+    }
+
+    // Extract agreement ID
+    let agreement_id = Uuid::from_bytes(signed_rca.agreement.agreementId.into());
+
+    // Decode metadata
+    let metadata =
+        AcceptIndexingAgreementMetadata::abi_decode(signed_rca.agreement.metadata.as_ref())
+            .map_err(|e| {
+                DipsError::AbiDecoding(format!(
+                    "Failed to decode AcceptIndexingAgreementMetadata: {e}"
+                ))
+            })?;
+
+    // Only support version 1 terms for now
+    if metadata.version != 1 {
+        return Err(DipsError::UnsupportedMetadataVersion(metadata.version));
+    }
+
+    // Decode terms
+    let terms = IndexingAgreementTermsV1::abi_decode(metadata.terms.as_ref()).map_err(|e| {
+        DipsError::AbiDecoding(format!("Failed to decode IndexingAgreementTermsV1: {e}"))
+    })?;
+
+    // Convert bytes32 deployment ID to IPFS hash
+    let deployment_id = bytes32_to_ipfs_hash(&metadata.subgraphDeploymentId.0);
+
+    // Fetch IPFS manifest
+    let manifest = ipfs_fetcher.fetch(&deployment_id).await?;
+
+    // Get network from manifest
+    let network_name = manifest
+        .network()
+        .ok_or_else(|| DipsError::InvalidSubgraphManifest(deployment_id.clone()))?;
+
+    // Validate network is supported
+    let network_supported = registry.get_network_by_id(network_name).is_some()
+        || additional_networks.contains_key(network_name);
+
+    if !network_supported {
+        return Err(DipsError::UnsupportedNetwork(network_name.to_string()));
+    }
+
+    // Validate price minimums
+    let offered_tokens_per_second = terms.tokensPerSecond;
+    match price_calculator.get_minimum_price(network_name) {
+        Some(price) if offered_tokens_per_second.lt(&Uint::from(price)) => {
+            tracing::info!(
                 agreement_id = %agreement_id,
-                chain_id = %metadata.chainId,
-                deployment_id = %metadata.subgraphDeploymentId,
-                "offered epoch price '{}' is lower than minimum price '{}'",
-                offered_epoch_price,
+                network = %network_name,
+                deployment_id = %deployment_id,
+                "offered tokens_per_second '{}' is lower than minimum price '{}'",
+                offered_tokens_per_second,
                 price
             );
-            return Err(DipsError::PricePerEpochTooLow(
-                network,
-                price,
-                offered_epoch_price.to_string(),
-            ));
+            return Err(DipsError::TokensPerSecondTooLow {
+                network: network_name.to_string(),
+                minimum: price,
+                offered: offered_tokens_per_second,
+            });
         }
         Some(_) => {}
         None => {
-            tracing::debug!(
+            tracing::info!(
                 agreement_id = %agreement_id,
-                chain_id = %metadata.chainId,
-                deployment_id = %metadata.subgraphDeploymentId,
-                "chain id '{}' is not supported",
-                metadata.chainId
+                network = %network_name,
+                deployment_id = %deployment_id,
+                "network '{}' is not configured in price calculator",
+                network_name
             );
-            return Err(DipsError::UnsupportedChainId(metadata.chainId));
+            return Err(DipsError::UnsupportedNetwork(network_name.to_string()));
         }
     }
 
-    let offered_entity_price = metadata.pricePerEntity;
+    // Validate entity price minimum
+    let offered_entity_price = terms.tokensPerEntityPerSecond;
     if offered_entity_price < price_calculator.entity_price() {
-        tracing::debug!(
+        tracing::info!(
             agreement_id = %agreement_id,
-            chain_id = %metadata.chainId,
-            deployment_id = %metadata.subgraphDeploymentId,
-            "offered entity price '{}' is lower than minimum price '{}'",
+            network = %network_name,
+            deployment_id = %deployment_id,
+            "offered tokens_per_entity_per_second '{}' is lower than minimum price '{}'",
             offered_entity_price,
             price_calculator.entity_price()
         );
-        return Err(DipsError::PricePerEntityTooLow(
-            network,
-            price_calculator.entity_price(),
-            offered_entity_price.to_string(),
-        ));
+        return Err(DipsError::TokensPerEntityPerSecondTooLow {
+            minimum: price_calculator.entity_price(),
+            offered: offered_entity_price,
+        });
     }
 
     tracing::debug!(
         agreement_id = %agreement_id,
-        chain_id = %metadata.chainId,
-        deployment_id = %metadata.subgraphDeploymentId,
-        "creating agreement"
+        network = %network_name,
+        deployment_id = %deployment_id,
+        "creating RCA agreement"
     );
 
-    store
-        .create_agreement(decoded_voucher.clone(), metadata)
+    // Store the raw signed RCA bytes
+    rca_store
+        .store_rca(agreement_id, rca_bytes, PROTOCOL_VERSION)
         .await
         .map_err(|error| {
-            tracing::error!(%agreement_id, %error, "failed to create agreement");
-            error
-        })?;
-
-    Ok(agreement_id)
-}
-
-pub async fn validate_and_cancel_agreement(
-    store: Arc<dyn AgreementStore>,
-    domain: &Eip712Domain,
-    cancellation_request: Vec<u8>,
-) -> Result<Uuid, DipsError> {
-    let decoded_request = SignedCancellationRequest::abi_decode(cancellation_request.as_ref())
-        .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
-
-    // Get the agreement ID from the cancellation request
-    let agreement_id = Uuid::from_bytes(decoded_request.request.agreement_id.into());
-
-    let stored_agreement = store.get_by_id(agreement_id).await?.ok_or_else(|| {
-        tracing::warn!(%agreement_id, "agreement not found");
-        DipsError::AgreementNotFound
-    })?;
-
-    // Get the deployment ID from the stored agreement
-    let deployment_id = stored_agreement.metadata.subgraphDeploymentId;
-
-    if stored_agreement.cancelled {
-        tracing::warn!(%agreement_id, %deployment_id, "agreement already cancelled");
-        return Err(DipsError::AgreementCancelled);
-    }
-
-    decoded_request.validate(domain, &stored_agreement.voucher.voucher.payer)?;
-
-    tracing::debug!(%agreement_id, %deployment_id, "cancelling agreement");
-
-    store
-        .cancel_agreement(decoded_request)
-        .await
-        .map_err(|error| {
-            tracing::error!(%agreement_id, %deployment_id, %error, "failed to cancel agreement");
+            tracing::error!(%agreement_id, %error, "failed to store RCA");
             error
         })?;
 
@@ -458,456 +481,600 @@ pub async fn validate_and_cancel_agreement(
 
 #[cfg(test)]
 mod test {
-    use std::{
-        collections::HashMap,
-        time::{Duration, SystemTime, UNIX_EPOCH},
-    };
+    use std::{collections::BTreeMap, sync::Arc};
 
-    use indexer_monitor::EscrowAccounts;
-    use rand::{distr::Alphanumeric, Rng};
     use thegraph_core::alloy::{
-        primitives::{Address, ChainId, FixedBytes, U256},
+        primitives::{Address, FixedBytes, U256},
         signers::local::PrivateKeySigner,
-        sol_types::{Eip712Domain, SolValue},
+        sol_types::SolValue,
     };
     use uuid::Uuid;
 
-    pub use crate::store::{AgreementStore, InMemoryAgreementStore};
     use crate::{
-        dips_agreement_eip712_domain, dips_cancellation_eip712_domain, server::DipsServerContext,
-        CancellationRequest, DipsError, IndexingAgreementVoucher, SignedIndexingAgreementVoucher,
-        SubgraphIndexingVoucherMetadata,
+        ipfs::{FailingIpfsFetcher, MockIpfsFetcher},
+        price::PriceCalculator,
+        rca_eip712_domain,
+        server::DipsServerContext,
+        signers::{NoopSignerValidator, RejectingSignerValidator},
+        store::{FailingRcaStore, InMemoryRcaStore},
+        AcceptIndexingAgreementMetadata, DipsError, IndexingAgreementTermsV1,
+        RecurringCollectionAgreement,
     };
 
-    /// The Arbitrum One (mainnet) chain ID (eip155).
-    const CHAIN_ID_ARBITRUM_ONE: ChainId = 0xa4b1; // 42161
+    const CHAIN_ID: u64 = 42161; // Arbitrum One
 
-    #[tokio::test]
-    async fn test_validate_and_create_agreement() -> anyhow::Result<()> {
-        let deployment_id = "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f".to_string();
-        let payee = PrivateKeySigner::random();
-        let payee_addr = payee.address();
-        let payer = PrivateKeySigner::random();
-        let payer_addr = payer.address();
-
-        let metadata = SubgraphIndexingVoucherMetadata {
-            basePricePerEpoch: U256::from(10000_u64),
-            pricePerEntity: U256::from(100_u64),
-            protocolNetwork: "eip155:42161".to_string(),
-            chainId: "mainnet".to_string(),
-            subgraphDeploymentId: deployment_id,
-        };
-
-        let voucher = IndexingAgreementVoucher {
-            agreement_id: Uuid::now_v7().as_bytes().into(),
-            payer: payer_addr,
-            recipient: payee_addr,
-            service: Address(FixedBytes::ZERO),
-            maxInitialAmount: U256::from(10000_u64),
-            maxOngoingAmountPerEpoch: U256::from(10000_u64),
-            maxEpochsPerCollection: 1000,
-            minEpochsPerCollection: 1000,
-            durationEpochs: 1000,
-            deadline: 10000000,
-            metadata: metadata.abi_encode().into(),
-        };
-        let domain = dips_agreement_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
-
-        let voucher = voucher.sign(&domain, payer)?;
-        let abi_voucher = voucher.abi_encode();
-        let id = Uuid::from_bytes(voucher.voucher.agreement_id.into());
-
-        let ctx = DipsServerContext::for_testing();
-        let actual_id = super::validate_and_create_agreement(
-            ctx.clone(),
-            &domain,
-            &payee_addr,
-            vec![payer_addr],
-            abi_voucher,
-        )
-        .await
-        .unwrap();
-        assert_eq!(actual_id, id);
-
-        let stored_agreement = ctx.store.get_by_id(actual_id).await.unwrap().unwrap();
-
-        assert_eq!(voucher, stored_agreement.voucher);
-        assert!(!stored_agreement.cancelled);
-        Ok(())
+    fn create_test_context() -> Arc<DipsServerContext> {
+        Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()), // Returns "mainnet"
+            price_calculator: Arc::new(PriceCalculator::new(
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            signer_validator: Arc::new(NoopSignerValidator),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+        })
     }
 
-    #[test]
-    fn voucher_signature_verification() {
-        let ctx = DipsServerContext::for_testing();
-        let deployment_id = "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f".to_string();
-        let payee = PrivateKeySigner::random();
-        let payee_addr = payee.address();
-        let payer = PrivateKeySigner::random();
-        let payer_addr = payer.address();
-
-        let metadata = SubgraphIndexingVoucherMetadata {
-            basePricePerEpoch: U256::from(10000_u64),
-            pricePerEntity: U256::from(100_u64),
-            protocolNetwork: "eip155:42161".to_string(),
-            chainId: "eip155:1".to_string(),
-            subgraphDeploymentId: deployment_id,
+    fn create_test_rca(
+        payer: Address,
+        service_provider: Address,
+        tokens_per_second: U256,
+        tokens_per_entity_per_second: U256,
+    ) -> RecurringCollectionAgreement {
+        let terms = IndexingAgreementTermsV1 {
+            tokensPerSecond: tokens_per_second,
+            tokensPerEntityPerSecond: tokens_per_entity_per_second,
         };
 
-        let voucher = IndexingAgreementVoucher {
-            agreement_id: Uuid::now_v7().as_bytes().into(),
-            payer: payer_addr,
-            recipient: payee.address(),
-            service: Address(FixedBytes::ZERO),
-            maxInitialAmount: U256::from(10000_u64),
-            maxOngoingAmountPerEpoch: U256::from(10000_u64),
-            maxEpochsPerCollection: 1000,
-            minEpochsPerCollection: 1000,
-            durationEpochs: 1000,
-            deadline: 10000000,
+        let metadata = AcceptIndexingAgreementMetadata {
+            // Any bytes32 works - MockIpfsFetcher ignores the deployment ID
+            subgraphDeploymentId: FixedBytes::ZERO,
+            version: 1,
+            terms: terms.abi_encode().into(),
+        };
+
+        RecurringCollectionAgreement {
+            agreementId: Uuid::now_v7().as_bytes().into(),
+            deadline: U256::from(u64::MAX),
+            endsAt: U256::from(u64::MAX),
+            payer,
+            dataService: Address::ZERO,
+            serviceProvider: service_provider,
+            maxInitialTokens: U256::from(1000),
+            maxOngoingTokensPerSecond: U256::from(100),
+            minSecondsPerCollection: 60,
+            maxSecondsPerCollection: 3600,
             metadata: metadata.abi_encode().into(),
-        };
+        }
+    }
 
-        let domain = dips_agreement_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
-        let signed = voucher.sign(&domain, payer).unwrap();
-        assert_eq!(
-            signed
-                .validate(&ctx.signer_validator, &domain, &payee_addr, vec![])
-                .unwrap_err()
-                .to_string(),
-            DipsError::PayerNotAuthorised(voucher.payer).to_string()
+    #[tokio::test]
+    async fn test_validate_and_create_rca_success() {
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let agreement_id = Uuid::from_bytes(rca.agreementId.into());
+
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        let ctx = create_test_context();
+        let result =
+            super::validate_and_create_rca(ctx.clone(), &domain, &service_provider, rca_bytes)
+                .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), agreement_id);
+
+        // Verify it was stored
+        let store = ctx.rca_store.as_ref();
+        let in_memory = store.as_any().downcast_ref::<InMemoryRcaStore>().unwrap();
+        let data = in_memory.data.read().await;
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0].0, agreement_id);
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_wrong_service_provider() {
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let wrong_service_provider = Address::repeat_byte(0x99);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(
+            payer,
+            wrong_service_provider,
+            U256::from(200),
+            U256::from(100),
         );
-        assert!(signed
-            .validate(
-                &ctx.signer_validator,
-                &domain,
-                &payee_addr,
-                vec![payer_addr]
-            )
-            .is_ok());
-    }
 
-    #[tokio::test]
-    async fn check_voucher_modified() {
-        let payee = PrivateKeySigner::random();
-        let payee_addr = payee.address();
-        let payer = PrivateKeySigner::random();
-        let payer_addr = payer.address();
-        let ctx = DipsServerContext::for_testing_mocked_accounts(EscrowAccounts::new(
-            HashMap::default(),
-            HashMap::from_iter(vec![(payer_addr, vec![payer_addr])]),
-        ))
-        .await;
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
 
-        let deployment_id = "Qmbg1qF4YgHjiVfsVt6a13ddrVcRtWyJQfD4LA3CwHM29f".to_string();
-
-        let metadata = SubgraphIndexingVoucherMetadata {
-            basePricePerEpoch: U256::from(10000_u64),
-            pricePerEntity: U256::from(100_u64),
-            protocolNetwork: "eip155:42161".to_string(),
-            chainId: "eip155:1".to_string(),
-            subgraphDeploymentId: deployment_id,
-        };
-
-        let voucher = IndexingAgreementVoucher {
-            agreement_id: Uuid::now_v7().as_bytes().into(),
-            payer: payer_addr,
-            recipient: payee_addr,
-            service: Address(FixedBytes::ZERO),
-            maxInitialAmount: U256::from(10000_u64),
-            maxOngoingAmountPerEpoch: U256::from(10000_u64),
-            maxEpochsPerCollection: 1000,
-            minEpochsPerCollection: 1000,
-            durationEpochs: 1000,
-            deadline: 10000000,
-            metadata: metadata.abi_encode().into(),
-        };
-        let domain = dips_agreement_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
-
-        let mut signed = voucher.sign(&domain, payer).unwrap();
-        signed.voucher.service = Address::repeat_byte(9);
+        let ctx = create_test_context();
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
 
         assert!(matches!(
-            signed
-                .validate(
-                    &ctx.signer_validator,
-                    &domain,
-                    &payee_addr,
-                    vec![payer_addr]
-                )
-                .unwrap_err(),
-            DipsError::SignerNotAuthorised(_)
+            result,
+            Err(DipsError::UnexpectedServiceProvider { .. })
         ));
     }
 
+    #[tokio::test]
+    async fn test_validate_and_create_rca_tokens_per_second_too_low() {
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        // Offer 50, minimum is 100
+        let rca = create_test_rca(payer, service_provider, U256::from(50), U256::from(100));
+
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        let ctx = create_test_context();
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        assert!(matches!(
+            result,
+            Err(DipsError::TokensPerSecondTooLow { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_entity_price_too_low() {
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        // Offer 200 tokens/sec (ok), but only 10 entity price (minimum is 50)
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(10));
+
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        let ctx = create_test_context();
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        assert!(matches!(
+            result,
+            Err(DipsError::TokensPerEntityPerSecondTooLow { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_unsupported_network() {
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        // Create context with IPFS fetcher returning unsupported network
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher {
+                network: "unsupported-network".to_string(),
+            }),
+            price_calculator: Arc::new(PriceCalculator::new(
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            signer_validator: Arc::new(NoopSignerValidator),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+        });
+
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        assert!(matches!(result, Err(DipsError::UnsupportedNetwork(_))));
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_invalid_metadata_version() {
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let terms = IndexingAgreementTermsV1 {
+            tokensPerSecond: U256::from(200),
+            tokensPerEntityPerSecond: U256::from(100),
+        };
+
+        // Use version 2 (unsupported)
+        let metadata = AcceptIndexingAgreementMetadata {
+            subgraphDeploymentId: FixedBytes::ZERO,
+            version: 2, // Unsupported version
+            terms: terms.abi_encode().into(),
+        };
+
+        let rca = RecurringCollectionAgreement {
+            agreementId: Uuid::now_v7().as_bytes().into(),
+            deadline: U256::from(u64::MAX),
+            endsAt: U256::from(u64::MAX),
+            payer,
+            dataService: Address::ZERO,
+            serviceProvider: service_provider,
+            maxInitialTokens: U256::from(1000),
+            maxOngoingTokensPerSecond: U256::from(100),
+            minSecondsPerCollection: 60,
+            maxSecondsPerCollection: 3600,
+            metadata: metadata.abi_encode().into(),
+        };
+
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        let ctx = create_test_context();
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        assert!(matches!(
+            result,
+            Err(DipsError::UnsupportedMetadataVersion(2))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_deadline_expired() {
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let terms = IndexingAgreementTermsV1 {
+            tokensPerSecond: U256::from(200),
+            tokensPerEntityPerSecond: U256::from(100),
+        };
+
+        let metadata = AcceptIndexingAgreementMetadata {
+            subgraphDeploymentId: FixedBytes::ZERO,
+            version: 1,
+            terms: terms.abi_encode().into(),
+        };
+
+        // Set deadline to the past
+        let rca = RecurringCollectionAgreement {
+            agreementId: Uuid::now_v7().as_bytes().into(),
+            deadline: U256::from(1), // 1 second after epoch - definitely in the past
+            endsAt: U256::from(u64::MAX),
+            payer,
+            dataService: Address::ZERO,
+            serviceProvider: service_provider,
+            maxInitialTokens: U256::from(1000),
+            maxOngoingTokensPerSecond: U256::from(100),
+            minSecondsPerCollection: 60,
+            maxSecondsPerCollection: 3600,
+            metadata: metadata.abi_encode().into(),
+        };
+
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        let ctx = create_test_context();
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        assert!(matches!(result, Err(DipsError::DeadlineExpired { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_agreement_expired() {
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let terms = IndexingAgreementTermsV1 {
+            tokensPerSecond: U256::from(200),
+            tokensPerEntityPerSecond: U256::from(100),
+        };
+
+        let metadata = AcceptIndexingAgreementMetadata {
+            subgraphDeploymentId: FixedBytes::ZERO,
+            version: 1,
+            terms: terms.abi_encode().into(),
+        };
+
+        // Set endsAt to the past
+        let rca = RecurringCollectionAgreement {
+            agreementId: Uuid::now_v7().as_bytes().into(),
+            deadline: U256::from(u64::MAX),
+            endsAt: U256::from(1), // 1 second after epoch - definitely in the past
+            payer,
+            dataService: Address::ZERO,
+            serviceProvider: service_provider,
+            maxInitialTokens: U256::from(1000),
+            maxOngoingTokensPerSecond: U256::from(100),
+            minSecondsPerCollection: 60,
+            maxSecondsPerCollection: 3600,
+            metadata: metadata.abi_encode().into(),
+        };
+
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        let ctx = create_test_context();
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        assert!(matches!(result, Err(DipsError::AgreementExpired { .. })));
+    }
+
+    // =========================================================================
+    // Additional tests for complete coverage (following test-arrange-act-assert)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_malformed_abi() {
+        // Arrange
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let ctx = create_test_context();
+
+        let malformed_bytes = vec![0xDE, 0xAD, 0xBE, 0xEF]; // Not valid ABI
+
+        // Act
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, malformed_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::AbiDecoding(_))),
+            "Expected AbiDecoding error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_unauthorized_signer() {
+        // Arrange
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        // Context with rejecting signer validator
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
+            price_calculator: Arc::new(PriceCalculator::new(
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            signer_validator: Arc::new(RejectingSignerValidator),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+        });
+
+        // Act
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::SignerNotAuthorised(_))),
+            "Expected SignerNotAuthorised error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_ipfs_failure() {
+        // Arrange
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        // Context with failing IPFS fetcher
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(FailingIpfsFetcher),
+            price_calculator: Arc::new(PriceCalculator::new(
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            signer_validator: Arc::new(NoopSignerValidator),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+        });
+
+        // Act
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::SubgraphManifestUnavailable(_))),
+            "Expected SubgraphManifestUnavailable error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_manifest_no_network() {
+        // Arrange
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        // Context with IPFS fetcher returning manifest without network
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher::no_network()),
+            price_calculator: Arc::new(PriceCalculator::new(
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            signer_validator: Arc::new(NoopSignerValidator),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+        });
+
+        // Act
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::InvalidSubgraphManifest(_))),
+            "Expected InvalidSubgraphManifest error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_store_failure() {
+        // Arrange
+        let payer_signer = PrivateKeySigner::random();
+        let payer = payer_signer.address();
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
+        let rca_bytes = signed_rca.abi_encode();
+
+        // Context with failing store
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(FailingRcaStore),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
+            price_calculator: Arc::new(PriceCalculator::new(
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            signer_validator: Arc::new(NoopSignerValidator),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+        });
+
+        // Act
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::UnknownError(_))),
+            "Expected UnknownError from store failure, got: {:?}",
+            result
+        );
+    }
+
+    // =========================================================================
+    // Unit tests for helper functions
+    // =========================================================================
+
     #[test]
-    fn cancel_voucher_validation() {
-        let payer = PrivateKeySigner::random();
-        let payer_addr = payer.address();
-        let other_signer = PrivateKeySigner::random();
+    fn test_bytes32_to_ipfs_hash_format() {
+        // Arrange
+        let bytes: [u8; 32] = [0xAB; 32];
 
-        struct Case<'a> {
-            name: &'a str,
-            signer: PrivateKeySigner,
-            error: Option<DipsError>,
-        }
+        // Act
+        let hash = super::bytes32_to_ipfs_hash(&bytes);
 
-        let cases: Vec<Case> = vec![
-            Case {
-                name: "happy path payer",
-                signer: payer.clone(),
-                error: None,
-            },
-            Case {
-                name: "invalid signer",
-                signer: other_signer.clone(),
-                error: Some(DipsError::SignerNotAuthorised(other_signer.address())),
-            },
-        ];
-
-        for Case {
-            name,
-            signer,
-            error,
-        } in cases.into_iter()
-        {
-            let voucher = CancellationRequest {
-                agreement_id: Uuid::now_v7().as_bytes().into(),
-            };
-            let domain = dips_cancellation_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
-
-            let signed = voucher.sign(&domain, signer).unwrap();
-
-            let res = signed.validate(&domain, &payer_addr);
-            match error {
-                Some(_err) => assert!(matches!(res.unwrap_err(), _err), "case: {name}"),
-                None => assert!(res.is_ok(), "case: {}, err: {}", name, res.unwrap_err()),
-            }
-        }
-    }
-    struct VoucherContext {
-        payee: PrivateKeySigner,
-        payer: PrivateKeySigner,
-        deployment_id: String,
+        // Assert - CIDv0 format starts with "Qm" and is 46 characters
+        assert!(
+            hash.starts_with("Qm"),
+            "IPFS CIDv0 should start with 'Qm', got: {}",
+            hash
+        );
+        assert_eq!(
+            hash.len(),
+            46,
+            "IPFS CIDv0 should be 46 characters, got: {}",
+            hash.len()
+        );
     }
 
-    impl VoucherContext {
-        pub fn random() -> Self {
-            Self {
-                payee: PrivateKeySigner::random(),
-                payer: PrivateKeySigner::random(),
-                deployment_id: rand::rng()
-                    .sample_iter(&Alphanumeric)
-                    .take(32)
-                    .map(char::from)
-                    .collect(),
-            }
-        }
-        pub fn domain(&self) -> Eip712Domain {
-            dips_agreement_eip712_domain(CHAIN_ID_ARBITRUM_ONE)
-        }
+    #[test]
+    fn test_bytes32_to_ipfs_hash_deterministic() {
+        // Arrange
+        let bytes: [u8; 32] = [0x12; 32];
 
-        pub fn test_voucher_with_signer(
-            &self,
-            metadata: SubgraphIndexingVoucherMetadata,
-            signer: PrivateKeySigner,
-        ) -> SignedIndexingAgreementVoucher {
-            let agreement_id = Uuid::now_v7();
+        // Act
+        let hash1 = super::bytes32_to_ipfs_hash(&bytes);
+        let hash2 = super::bytes32_to_ipfs_hash(&bytes);
 
-            let domain = dips_agreement_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
-
-            let voucher = IndexingAgreementVoucher {
-                agreement_id: agreement_id.as_bytes().into(),
-                payer: self.payer.address(),
-                recipient: self.payee.address(),
-                service: Address::ZERO,
-                durationEpochs: 100,
-                maxInitialAmount: U256::from(1000000_u64),
-                maxOngoingAmountPerEpoch: U256::from(10000_u64),
-                minEpochsPerCollection: 1,
-                maxEpochsPerCollection: 10,
-                deadline: (SystemTime::now() + Duration::from_secs(3600))
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-                metadata: metadata.abi_encode().into(),
-            };
-
-            voucher.sign(&domain, signer).unwrap()
-        }
-
-        pub fn test_voucher(
-            &self,
-            metadata: SubgraphIndexingVoucherMetadata,
-        ) -> SignedIndexingAgreementVoucher {
-            self.test_voucher_with_signer(metadata, self.payer.clone())
-        }
+        // Assert
+        assert_eq!(hash1, hash2, "Same input should produce same output");
     }
 
-    #[tokio::test]
-    async fn test_create_and_cancel_agreement() -> anyhow::Result<()> {
-        let ctx = DipsServerContext::for_testing();
-        let voucher_ctx = VoucherContext::random();
+    #[test]
+    fn test_bytes32_to_ipfs_hash_different_inputs() {
+        // Arrange
+        let bytes1: [u8; 32] = [0x00; 32];
+        let bytes2: [u8; 32] = [0xFF; 32];
 
-        // Create metadata and voucher
-        let metadata = SubgraphIndexingVoucherMetadata {
-            basePricePerEpoch: U256::from(10000_u64),
-            pricePerEntity: U256::from(100_u64),
-            protocolNetwork: "eip155:42161".to_string(),
-            chainId: "mainnet".to_string(),
-            subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
-        };
-        let signed_voucher = voucher_ctx.test_voucher(metadata);
+        // Act
+        let hash1 = super::bytes32_to_ipfs_hash(&bytes1);
+        let hash2 = super::bytes32_to_ipfs_hash(&bytes2);
 
-        // Create agreement
-        let agreement_id = super::validate_and_create_agreement(
-            ctx.clone(),
-            &voucher_ctx.domain(),
-            &voucher_ctx.payee.address(),
-            vec![voucher_ctx.payer.address()],
-            signed_voucher.encode_vec(),
-        )
-        .await?;
-
-        // Create and sign cancellation request
-        let cancel_domain = dips_cancellation_eip712_domain(CHAIN_ID_ARBITRUM_ONE);
-        let cancel_request = CancellationRequest {
-            agreement_id: agreement_id.as_bytes().into(),
-        };
-        let signed_cancel = cancel_request.sign(&cancel_domain, voucher_ctx.payer)?;
-
-        // Cancel agreement
-        let cancelled_id = super::validate_and_cancel_agreement(
-            ctx.store.clone(),
-            &cancel_domain,
-            signed_cancel.encode_vec(),
-        )
-        .await?;
-
-        assert_eq!(agreement_id, cancelled_id);
-
-        // Verify agreement is cancelled
-        let stored_agreement = ctx.store.get_by_id(agreement_id).await?.unwrap();
-        assert!(stored_agreement.cancelled);
-
-        Ok(())
+        // Assert
+        assert_ne!(
+            hash1, hash2,
+            "Different inputs should produce different outputs"
+        );
     }
 
-    #[tokio::test]
-    async fn test_create_validations_errors() -> anyhow::Result<()> {
-        let voucher_ctx = VoucherContext::random();
-        let ctx = DipsServerContext::for_testing_mocked_accounts(EscrowAccounts::new(
-            HashMap::default(),
-            HashMap::from_iter(vec![(
-                voucher_ctx.payer.address(),
-                vec![voucher_ctx.payer.address()],
-            )]),
-        ))
-        .await;
-        let no_network_ctx =
-            DipsServerContext::for_testing_mocked_accounts_no_network(EscrowAccounts::new(
-                HashMap::default(),
-                HashMap::from_iter(vec![(
-                    voucher_ctx.payer.address(),
-                    vec![voucher_ctx.payer.address()],
-                )]),
-            ))
-            .await;
+    #[test]
+    fn test_bytes32_to_ipfs_hash_known_vector() {
+        // Arrange - all zeros should produce a known hash
+        // Multihash: 0x12 (sha256) + 0x20 (32 bytes) + 32 zero bytes
+        // Base58 encoding of [0x12, 0x20, 0x00 * 32]
+        let bytes: [u8; 32] = [0x00; 32];
 
-        let metadata = SubgraphIndexingVoucherMetadata {
-            basePricePerEpoch: U256::from(10000_u64),
-            pricePerEntity: U256::from(100_u64),
-            protocolNetwork: "eip155:42161".to_string(),
-            chainId: "mainnet".to_string(),
-            subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
-        };
-        // The voucher says mainnet, but the manifest has no network
-        let no_network_voucher = voucher_ctx.test_voucher(metadata);
+        // Act
+        let hash = super::bytes32_to_ipfs_hash(&bytes);
 
-        let metadata = SubgraphIndexingVoucherMetadata {
-            basePricePerEpoch: U256::from(10000_u64),
-            pricePerEntity: U256::from(10_u64),
-            protocolNetwork: "eip155:42161".to_string(),
-            chainId: "mainnet".to_string(),
-            subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
-        };
-
-        let low_entity_price_voucher = voucher_ctx.test_voucher(metadata);
-
-        let metadata = SubgraphIndexingVoucherMetadata {
-            basePricePerEpoch: U256::from(10_u64),
-            pricePerEntity: U256::from(10000_u64),
-            protocolNetwork: "eip155:42161".to_string(),
-            chainId: "mainnet".to_string(),
-            subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
-        };
-
-        let low_epoch_price_voucher = voucher_ctx.test_voucher(metadata);
-
-        let metadata = SubgraphIndexingVoucherMetadata {
-            basePricePerEpoch: U256::from(10000_u64),
-            pricePerEntity: U256::from(100_u64),
-            protocolNetwork: "eip155:42161".to_string(),
-            chainId: "mainnet".to_string(),
-            subgraphDeploymentId: voucher_ctx.deployment_id.clone(),
-        };
-
-        let signer = PrivateKeySigner::random();
-        let valid_voucher_invalid_signer =
-            voucher_ctx.test_voucher_with_signer(metadata.clone(), signer.clone());
-        let valid_voucher = voucher_ctx.test_voucher(metadata);
-
-        let contexts = vec![no_network_ctx, ctx.clone(), ctx.clone(), ctx.clone()];
-
-        let expected_result: Vec<Result<[u8; 16], DipsError>> = vec![
-            Err(DipsError::InvalidSubgraphManifest(
-                voucher_ctx.deployment_id.clone(),
-            )),
-            Err(DipsError::PricePerEntityTooLow(
-                "mainnet".to_string(),
-                U256::from(100),
-                "10".to_string(),
-            )),
-            Err(DipsError::PricePerEpochTooLow(
-                "mainnet".to_string(),
-                U256::from(200),
-                "10".to_string(),
-            )),
-            Err(DipsError::SignerNotAuthorised(signer.address())),
-            Ok(valid_voucher
-                .voucher
-                .agreement_id
-                .as_slice()
-                .try_into()
-                .unwrap()),
-        ];
-        let cases = vec![
-            no_network_voucher,
-            low_entity_price_voucher,
-            low_epoch_price_voucher,
-            valid_voucher_invalid_signer,
-            valid_voucher,
-        ];
-        for ((voucher, result), dips_ctx) in cases
-            .into_iter()
-            .zip(expected_result.into_iter())
-            .zip(contexts.into_iter())
-        {
-            let out = super::validate_and_create_agreement(
-                dips_ctx.clone(),
-                &voucher_ctx.domain(),
-                &voucher_ctx.payee.address(),
-                vec![voucher_ctx.payer.address()],
-                voucher.encode_vec(),
-            )
-            .await;
-
-            match (out, result) {
-                (Ok(a), Ok(b)) => assert_eq!(a.into_bytes(), b),
-                (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string()),
-                (a, b) => panic!("{a:?} did not match {b:?}"),
-            }
-        }
-
-        Ok(())
+        // Assert - verified by manual calculation
+        // The multihash [0x12, 0x20, 0, 0, ...] encodes to this CIDv0
+        assert_eq!(
+            hash, "QmNLei78zWmzUdbeRB3CiUfAizWUrbeeZh5K1rhAQKCh51",
+            "Known test vector mismatch"
+        );
     }
 }

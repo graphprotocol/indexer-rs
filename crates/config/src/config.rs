@@ -631,16 +631,21 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
     Duration::from_secs(300)
 }
 
+/// DIPS V2 configuration.
+///
+/// V2 validates RCA proposals (signature, IPFS manifest, network, pricing)
+/// before storing. The indexer agent queries pending proposals from the
+/// database and decides on-chain acceptance.
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DipsConfig {
     pub host: String,
     pub port: String,
-    pub allowed_payers: Vec<Address>,
-
-    pub price_per_entity: U256,
-    pub price_per_epoch: BTreeMap<String, U256>,
-    pub additional_networks: HashMap<String, String>,
+    pub recurring_collector: Address,
+    pub tokens_per_second: BTreeMap<String, U256>,
+    pub tokens_per_entity_per_second: U256,
+    pub additional_networks: BTreeMap<String, String>,
 }
 
 impl Default for DipsConfig {
@@ -648,10 +653,10 @@ impl Default for DipsConfig {
         DipsConfig {
             host: "0.0.0.0".to_string(),
             port: "7601".to_string(),
-            allowed_payers: vec![],
-            price_per_entity: U256::from(100),
-            price_per_epoch: BTreeMap::new(),
-            additional_networks: HashMap::new(),
+            recurring_collector: Address::ZERO,
+            tokens_per_second: BTreeMap::new(),
+            tokens_per_entity_per_second: U256::ZERO,
+            additional_networks: BTreeMap::new(),
         }
     }
 }
@@ -739,7 +744,7 @@ pub struct HorizonConfig {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{BTreeMap, HashMap, HashSet},
+        collections::{BTreeMap, HashSet},
         env, fs,
         path::PathBuf,
         str::FromStr,
@@ -774,15 +779,15 @@ mod tests {
         max_config.tap.trusted_senders =
             HashSet::from([address!("deadbeefcafebabedeadbeefcafebabedeadbeef")]);
         max_config.dips = Some(crate::DipsConfig {
-            allowed_payers: vec![Address(
-                FixedBytes::<20>::from_str("0x3333333333333333333333333333333333333333").unwrap(),
-            )],
-            price_per_entity: U256::from(1000),
-            price_per_epoch: BTreeMap::from_iter(vec![
+            recurring_collector: Address(
+                FixedBytes::<20>::from_str("0x4444444444444444444444444444444444444444").unwrap(),
+            ),
+            tokens_per_entity_per_second: U256::from(1000),
+            tokens_per_second: BTreeMap::from_iter(vec![
                 ("mainnet".to_string(), U256::from(100)),
                 ("hardhat".to_string(), U256::from(100)),
             ]),
-            additional_networks: HashMap::from([(
+            additional_networks: BTreeMap::from([(
                 "eip155:1337".to_string(),
                 "hardhat".to_string(),
             )]),
