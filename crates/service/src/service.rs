@@ -22,7 +22,7 @@ use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
 use reqwest::Url;
 use tap_core::tap_eip712_domain;
-use thegraph_core::alloy::primitives::Address;
+use thegraph_core::alloy::primitives::{Address, U256};
 use tokio::{net::TcpListener, signal};
 use tokio_util::sync::CancellationToken;
 use tower_http::normalize_path::NormalizePath;
@@ -182,8 +182,9 @@ pub async fn run() -> anyhow::Result<()> {
             host,
             port,
             recurring_collector,
-            tokens_per_second,
-            tokens_per_entity_per_second,
+            supported_networks,
+            min_grt_per_30_days,
+            min_grt_per_million_entities_per_30_days,
             additional_networks,
         } = dips;
 
@@ -195,10 +196,10 @@ pub async fn run() -> anyhow::Result<()> {
             );
         }
 
-        if tokens_per_second.is_empty() {
+        if supported_networks.is_empty() {
             tracing::warn!(
-                "DIPS enabled but no networks configured in dips.tokens_per_second. \
-                 All proposals will be rejected. See issue #943 for pricing guidance."
+                "DIPS enabled but no networks in dips.supported_networks. \
+                 All proposals will be rejected."
             );
         }
 
@@ -214,6 +215,28 @@ pub async fn run() -> anyhow::Result<()> {
                 .context("Failed to fetch NetworksRegistry for DIPS")?,
         );
 
+        // Convert GRT/30days to wei/second for protocol compatibility.
+        // Use ceiling division to protect indexers: configured minimums round UP,
+        // ensuring indexers never accept less than their stated minimum.
+        // 30 days = 2,592,000 seconds
+        const SECONDS_PER_30_DAYS: u128 = 30 * 24 * 60 * 60;
+        let tokens_per_second = min_grt_per_30_days
+            .iter()
+            .map(|(network, grt)| {
+                let wei_per_second = grt.wei().div_ceil(SECONDS_PER_30_DAYS);
+                (network.clone(), U256::from(wei_per_second))
+            })
+            .collect();
+
+        // Entity pricing: config is per-million-entities, convert to per-entity.
+        // Ceiling division protects indexer from precision loss.
+        let entity_divisor = SECONDS_PER_30_DAYS * 1_000_000;
+        let tokens_per_entity_per_second = U256::from(
+            min_grt_per_million_entities_per_30_days
+                .wei()
+                .div_ceil(entity_divisor),
+        );
+
         // Build server context
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(PsqlRcaStore {
@@ -221,8 +244,9 @@ pub async fn run() -> anyhow::Result<()> {
             }),
             ipfs_fetcher,
             price_calculator: Arc::new(PriceCalculator::new(
-                tokens_per_second.clone(),
-                *tokens_per_entity_per_second,
+                supported_networks.clone(),
+                tokens_per_second,
+                tokens_per_entity_per_second,
             )),
             signer_validator: Arc::new(EscrowSignerValidator::new(v2_watcher.clone())),
             registry,

@@ -19,13 +19,10 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_repr::Deserialize_repr;
 use serde_with::{serde_as, DurationSecondsWithFrac};
-use thegraph_core::{
-    alloy::primitives::{Address, U256},
-    DeploymentId,
-};
+use thegraph_core::{alloy::primitives::Address, DeploymentId};
 use url::Url;
 
-use crate::NonZeroGRT;
+use crate::{NonZeroGRT, GRT};
 
 const SHARED_PREFIX: &str = "INDEXER_";
 
@@ -643,8 +640,12 @@ pub struct DipsConfig {
     pub host: String,
     pub port: String,
     pub recurring_collector: Address,
-    pub tokens_per_second: BTreeMap<String, U256>,
-    pub tokens_per_entity_per_second: U256,
+    /// Networks this indexer explicitly supports. Proposals for other networks are rejected.
+    pub supported_networks: HashSet<String>,
+    /// Minimum acceptable GRT per 30 days, per network. Converted to wei/second internally.
+    pub min_grt_per_30_days: BTreeMap<String, GRT>,
+    /// Minimum acceptable GRT per million entities per 30 days.
+    pub min_grt_per_million_entities_per_30_days: GRT,
     pub additional_networks: BTreeMap<String, String>,
 }
 
@@ -654,8 +655,9 @@ impl Default for DipsConfig {
             host: "0.0.0.0".to_string(),
             port: "7601".to_string(),
             recurring_collector: Address::ZERO,
-            tokens_per_second: BTreeMap::new(),
-            tokens_per_entity_per_second: U256::ZERO,
+            supported_networks: HashSet::new(),
+            min_grt_per_30_days: BTreeMap::new(),
+            min_grt_per_million_entities_per_30_days: GRT::ZERO,
             additional_networks: BTreeMap::new(),
         }
     }
@@ -743,17 +745,12 @@ pub struct HorizonConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{BTreeMap, HashSet},
-        env, fs,
-        path::PathBuf,
-        str::FromStr,
-    };
+    use std::{collections::HashSet, env, fs, path::PathBuf, str::FromStr};
 
     use bip39::Mnemonic;
     use figment::value::Uncased;
     use sealed_test::prelude::*;
-    use thegraph_core::alloy::primitives::{address, Address, FixedBytes, U256};
+    use thegraph_core::alloy::primitives::{address, Address, FixedBytes};
     use tracing_test::traced_test;
 
     use super::{DatabaseConfig, IndexerConfig, SHARED_PREFIX};
@@ -782,15 +779,7 @@ mod tests {
             recurring_collector: Address(
                 FixedBytes::<20>::from_str("0x4444444444444444444444444444444444444444").unwrap(),
             ),
-            tokens_per_entity_per_second: U256::from(1000),
-            tokens_per_second: BTreeMap::from_iter(vec![
-                ("mainnet".to_string(), U256::from(100)),
-                ("hardhat".to_string(), U256::from(100)),
-            ]),
-            additional_networks: BTreeMap::from([(
-                "eip155:1337".to_string(),
-                "hardhat".to_string(),
-            )]),
+            min_grt_per_million_entities_per_30_days: crate::GRT::from_grt("0.2"),
             ..Default::default()
         });
 
@@ -1290,5 +1279,108 @@ mod tests {
         assert!(result
             .unwrap_err()
             .contains("No operator mnemonic configured"));
+    }
+
+    // === DIPS Startup Validation Tests ===
+
+    /// Test that minimal config has no DIPS section (safe default for existing indexers).
+    #[test]
+    fn test_dips_absent_in_minimal_config() {
+        // Arrange & Act
+        let config = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
+        )
+        .unwrap();
+
+        // Assert
+        assert!(
+            config.dips.is_none(),
+            "Minimal config should not have DIPS enabled"
+        );
+    }
+
+    /// Test that DipsConfig defaults have recurring_collector as Address::ZERO.
+    /// This is important because the service startup validation checks for this
+    /// and fails with a clear error message if DIPS is enabled but recurring_collector
+    /// is not configured.
+    #[test]
+    fn test_dips_config_defaults_recurring_collector_zero() {
+        // Arrange & Act
+        let dips_config = crate::DipsConfig::default();
+
+        // Assert
+        assert_eq!(
+            dips_config.recurring_collector,
+            Address::ZERO,
+            "Default recurring_collector should be Address::ZERO to trigger startup validation"
+        );
+    }
+
+    /// Test that DipsConfig defaults have empty supported_networks.
+    /// This triggers a warning at startup that all proposals will be rejected.
+    #[test]
+    fn test_dips_config_defaults_empty_supported_networks() {
+        // Arrange & Act
+        let dips_config = crate::DipsConfig::default();
+
+        // Assert
+        assert!(
+            dips_config.supported_networks.is_empty(),
+            "Default supported_networks should be empty"
+        );
+        assert!(
+            dips_config.min_grt_per_30_days.is_empty(),
+            "Default min_grt_per_30_days should be empty"
+        );
+    }
+
+    /// Test that a DIPS config with only recurring_collector set uses defaults for other fields.
+    #[test]
+    fn test_dips_partial_config_uses_defaults() {
+        // Arrange - create a DipsConfig with just recurring_collector set
+        let dips_config = crate::DipsConfig {
+            recurring_collector: Address(
+                FixedBytes::<20>::from_str("0x1234567890123456789012345678901234567890").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        // Assert - recurring_collector is set, others use defaults
+        assert_ne!(
+            dips_config.recurring_collector,
+            Address::ZERO,
+            "recurring_collector should be set"
+        );
+        assert_eq!(dips_config.host, "0.0.0.0", "host should use default");
+        assert_eq!(dips_config.port, "7601", "port should use default");
+        assert!(
+            dips_config.supported_networks.is_empty(),
+            "supported_networks should default to empty"
+        );
+        assert!(
+            dips_config.min_grt_per_30_days.is_empty(),
+            "min_grt_per_30_days should default to empty"
+        );
+    }
+
+    /// Test that maximal config with DIPS section parses correctly.
+    #[test]
+    fn test_dips_maximal_config_parses() {
+        // Arrange & Act
+        let config: Config = toml::from_str(
+            fs::read_to_string("maximal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+
+        // Assert
+        let dips = config.dips.expect("maximal config should have DIPS");
+        assert_ne!(
+            dips.recurring_collector,
+            Address::ZERO,
+            "recurring_collector should be set in maximal config"
+        );
     }
 }
