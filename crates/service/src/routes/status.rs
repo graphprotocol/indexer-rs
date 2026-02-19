@@ -17,7 +17,7 @@ use graphql::graphql_parser::query as q;
 use serde::Deserialize;
 
 use crate::{
-    constants::{STATUS_QUERY_MAX_SELECTION_DEPTH, STATUS_QUERY_MAX_SIZE_BYTES},
+    constants::STATUS_QUERY_MAX_SELECTION_DEPTH,
     error::SubgraphServiceError,
     service::GraphNodeState,
 };
@@ -112,14 +112,14 @@ fn extract_root_fields<'a>(
 /// This handler uses direct HTTP forwarding for optimal performance, avoiding
 /// the overhead of multiple serialization/deserialization layers.
 pub async fn status(
-    State(state): State<GraphNodeState>,
+    State((state, max_request_body_size)): State<(GraphNodeState, usize)>,
     body: Bytes,
 ) -> Result<impl IntoResponse, SubgraphServiceError> {
     // Check query size before any parsing to prevent memory exhaustion
-    if body.len() > STATUS_QUERY_MAX_SIZE_BYTES {
+    if body.len() > max_request_body_size {
         return Err(SubgraphServiceError::InvalidStatusQuery(anyhow::anyhow!(
             "Query exceeds maximum size of {} bytes",
-            STATUS_QUERY_MAX_SIZE_BYTES
+            max_request_body_size
         )));
     }
 
@@ -269,7 +269,7 @@ mod tests {
             graph_node_query_base_url: mock_server.uri().parse().unwrap(),
         };
 
-        Router::new().route("/status", post(status).with_state(state))
+        Router::new().route("/status", post(status).with_state((state, 32 * 1024)))
     }
 
     #[tokio::test]
@@ -479,8 +479,8 @@ mod tests {
         let mock_server = MockServer::start().await;
         let app = setup_test_router(&mock_server).await;
 
-        // Create a query larger than MAX_STATUS_QUERY_SIZE (4KB)
-        let padding = "x".repeat(5000);
+        // Create a query larger than max_status_request_body_size (32KB)
+        let padding = "x".repeat(35000);
         let oversized_query = format!(
             r##"{{"query": "{{indexingStatuses {{subgraph}}}} # {}"}}"##,
             padding
