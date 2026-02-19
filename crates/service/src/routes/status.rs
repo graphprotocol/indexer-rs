@@ -17,8 +17,7 @@ use graphql::graphql_parser::query as q;
 use serde::Deserialize;
 
 use crate::{
-    constants::STATUS_QUERY_MAX_SELECTION_DEPTH,
-    error::SubgraphServiceError,
+    constants::STATUS_QUERY_MAX_SELECTION_DEPTH, error::SubgraphServiceError,
     service::GraphNodeState,
 };
 

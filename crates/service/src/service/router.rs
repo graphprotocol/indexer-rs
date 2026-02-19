@@ -431,12 +431,10 @@ impl ServiceRouter {
             )
             .layer(misc_rate_limiter);
 
-        let extra_routes = Router::new()
-            .route("/cost", post_cost)
-            .route(
-                "/status",
-                post_status.with_state((graphnode_state.clone(), max_status_request_body_size)),
-            );
+        let extra_routes = Router::new().route("/cost", post_cost).route(
+            "/status",
+            post_status.with_state((graphnode_state.clone(), max_status_request_body_size)),
+        );
 
         let router = Router::new()
             .merge(misc_routes)
