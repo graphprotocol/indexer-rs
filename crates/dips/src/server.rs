@@ -47,11 +47,12 @@ use crate::{
     price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::{
         indexer_dips_service_server::IndexerDipsService, CancelAgreementRequest,
-        CancelAgreementResponse, ProposalResponse, SubmitAgreementProposalRequest,
+        CancelAgreementResponse, ProposalResponse, RejectReason, SubmitAgreementProposalRequest,
         SubmitAgreementProposalResponse,
     },
     signers::SignerValidator,
     store::RcaStore,
+    DipsError,
 };
 
 /// Context for DIPS server with all validation dependencies.
@@ -92,6 +93,15 @@ pub struct DipsServer {
     pub chain_id: u64,
     /// RecurringCollector contract address for EIP-712 domain
     pub recurring_collector: Address,
+}
+
+/// Map a DipsError to the appropriate RejectReason for the gRPC response.
+fn reject_reason_from_error(err: &DipsError) -> RejectReason {
+    match err {
+        DipsError::TokensPerSecondTooLow { .. }
+        | DipsError::TokensPerEntityPerSecondTooLow { .. } => RejectReason::PriceTooLow,
+        _ => RejectReason::Other,
+    }
 }
 
 #[async_trait]
@@ -147,12 +157,15 @@ impl IndexerDipsService for DipsServer {
                 tracing::info!(%agreement_id, "RCA accepted");
                 Ok(Response::new(SubmitAgreementProposalResponse {
                     response: ProposalResponse::Accept.into(),
+                    reject_reason: RejectReason::Unspecified.into(),
                 }))
             }
             Err(e) => {
-                tracing::warn!(error = %e, "RCA rejected");
+                let reject_reason = reject_reason_from_error(&e);
+                tracing::warn!(error = %e, reason = ?reject_reason, "RCA rejected");
                 Ok(Response::new(SubmitAgreementProposalResponse {
                     response: ProposalResponse::Reject.into(),
+                    reject_reason: reject_reason.into(),
                 }))
             }
         }

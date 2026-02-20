@@ -33,6 +33,7 @@ message SubmitAgreementProposalRequest {
  */
 message SubmitAgreementProposalResponse {
   ProposalResponse response = 1; /// The response to the agreement proposal.
+  RejectReason reject_reason = 2; /// Only set when response = REJECT.
 }
 
 /**
@@ -41,6 +42,16 @@ message SubmitAgreementProposalResponse {
 enum ProposalResponse {
   ACCEPT = 0; /// The agreement proposal was accepted.
   REJECT = 1; /// The agreement proposal was rejected.
+}
+
+/**
+ * The reason for rejecting an _indexing agreement_ proposal.
+ * Only meaningful when ProposalResponse = REJECT.
+ */
+enum RejectReason {
+  REJECT_REASON_UNSPECIFIED = 0; /// Default / not set (used for ACCEPT responses).
+  PRICE_TOO_LOW = 1;             /// The offered price is below the indexer's minimum.
+  OTHER = 2;                     /// Any other reason (unsupported network, bad signature, etc.).
 }
 
 /**

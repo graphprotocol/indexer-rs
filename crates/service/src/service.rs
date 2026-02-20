@@ -28,7 +28,10 @@ use tokio_util::sync::CancellationToken;
 use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
-use crate::{cli::Cli, constants::HTTP_CLIENT_TIMEOUT, database, metrics::serve_metrics};
+use crate::{
+    cli::Cli, constants::HTTP_CLIENT_TIMEOUT, database, metrics::serve_metrics,
+    routes::DipsInfoState,
+};
 
 mod release;
 mod router;
@@ -152,6 +155,42 @@ pub async fn run() -> anyhow::Result<()> {
     )
     .await;
 
+    // Build DipsInfoState if DIPS is configured
+    let dips_info_state = config.dips.as_ref().map(|dips| {
+        DipsInfoState {
+            min_grt_per_30_days: dips
+                .min_grt_per_30_days
+                .iter()
+                .map(|(network, grt)| {
+                    // Convert wei back to human-readable GRT string
+                    let wei = grt.wei();
+                    let whole = wei / 10u128.pow(18);
+                    let frac = wei % 10u128.pow(18);
+                    if frac == 0 {
+                        (network.clone(), whole.to_string())
+                    } else {
+                        // Format with up to 18 decimal places, trimming trailing zeros
+                        let frac_str = format!("{:018}", frac);
+                        let trimmed = frac_str.trim_end_matches('0');
+                        (network.clone(), format!("{}.{}", whole, trimmed))
+                    }
+                })
+                .collect(),
+            min_grt_per_million_entities_per_30_days: {
+                let wei = dips.min_grt_per_million_entities_per_30_days.wei();
+                let whole = wei / 10u128.pow(18);
+                let frac = wei % 10u128.pow(18);
+                if frac == 0 {
+                    whole.to_string()
+                } else {
+                    let frac_str = format!("{:018}", frac);
+                    let trimmed = frac_str.trim_end_matches('0');
+                    format!("{}.{}", whole, trimmed)
+                }
+            },
+        }
+    });
+
     let router = ServiceRouter::builder()
         .database(database.clone())
         .domain_separator_v2(domain_separator_v2.clone())
@@ -165,6 +204,7 @@ pub async fn run() -> anyhow::Result<()> {
         .network_subgraph(network_subgraph, config.subgraphs.network)
         .escrow_subgraph(escrow_subgraph, config.subgraphs.escrow)
         .escrow_accounts_v2(v2_watcher.clone())
+        .dips_info(dips_info_state)
         .build();
 
     serve_metrics(config.metrics.get_socket_addr());
