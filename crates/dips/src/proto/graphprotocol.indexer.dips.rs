@@ -101,16 +101,16 @@ impl RejectReason {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::Unspecified => "REJECT_REASON_UNSPECIFIED",
-            Self::PriceTooLow => "PRICE_TOO_LOW",
-            Self::Other => "OTHER",
+            Self::PriceTooLow => "REJECT_REASON_PRICE_TOO_LOW",
+            Self::Other => "REJECT_REASON_OTHER",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "REJECT_REASON_UNSPECIFIED" => Some(Self::Unspecified),
-            "PRICE_TOO_LOW" => Some(Self::PriceTooLow),
-            "OTHER" => Some(Self::Other),
+            "REJECT_REASON_PRICE_TOO_LOW" => Some(Self::PriceTooLow),
+            "REJECT_REASON_OTHER" => Some(Self::Other),
             _ => None,
         }
     }
