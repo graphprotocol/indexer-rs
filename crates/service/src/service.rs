@@ -40,6 +40,26 @@ mod tap_receipt_header;
 pub use router::ServiceRouter;
 pub use tap_receipt_header::TapHeader;
 
+/// Format a wei value as a human-readable GRT string.
+///
+/// Converts wei (10^-18 GRT) to GRT with up to 18 decimal places,
+/// trimming trailing zeros. For example:
+/// - 1_000_000_000_000_000_000 wei -> "1"
+/// - 1_500_000_000_000_000_000 wei -> "1.5"
+/// - 500_000_000_000_000_000 wei -> "0.5"
+fn format_grt(wei: u128) -> String {
+    let whole = wei / 10u128.pow(18);
+    let frac = wei % 10u128.pow(18);
+    if frac == 0 {
+        whole.to_string()
+    } else {
+        // Format with up to 18 decimal places, trimming trailing zeros
+        let frac_str = format!("{:018}", frac);
+        let trimmed = frac_str.trim_end_matches('0');
+        format!("{}.{}", whole, trimmed)
+    }
+}
+
 #[derive(Clone)]
 pub struct GraphNodeState {
     pub graph_node_client: reqwest::Client,
@@ -156,39 +176,15 @@ pub async fn run() -> anyhow::Result<()> {
     .await;
 
     // Build DipsInfoState if DIPS is configured
-    let dips_info_state = config.dips.as_ref().map(|dips| {
-        DipsInfoState {
-            min_grt_per_30_days: dips
-                .min_grt_per_30_days
-                .iter()
-                .map(|(network, grt)| {
-                    // Convert wei back to human-readable GRT string
-                    let wei = grt.wei();
-                    let whole = wei / 10u128.pow(18);
-                    let frac = wei % 10u128.pow(18);
-                    if frac == 0 {
-                        (network.clone(), whole.to_string())
-                    } else {
-                        // Format with up to 18 decimal places, trimming trailing zeros
-                        let frac_str = format!("{:018}", frac);
-                        let trimmed = frac_str.trim_end_matches('0');
-                        (network.clone(), format!("{}.{}", whole, trimmed))
-                    }
-                })
-                .collect(),
-            min_grt_per_million_entities_per_30_days: {
-                let wei = dips.min_grt_per_million_entities_per_30_days.wei();
-                let whole = wei / 10u128.pow(18);
-                let frac = wei % 10u128.pow(18);
-                if frac == 0 {
-                    whole.to_string()
-                } else {
-                    let frac_str = format!("{:018}", frac);
-                    let trimmed = frac_str.trim_end_matches('0');
-                    format!("{}.{}", whole, trimmed)
-                }
-            },
-        }
+    let dips_info_state = config.dips.as_ref().map(|dips| DipsInfoState {
+        min_grt_per_30_days: dips
+            .min_grt_per_30_days
+            .iter()
+            .map(|(network, grt)| (network.clone(), format_grt(grt.wei())))
+            .collect(),
+        min_grt_per_million_entities_per_30_days: format_grt(
+            dips.min_grt_per_million_entities_per_30_days.wei(),
+        ),
     });
 
     let router = ServiceRouter::builder()
