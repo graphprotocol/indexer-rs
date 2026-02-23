@@ -13,16 +13,16 @@ pub struct DipsInfoState {
 }
 
 #[derive(Serialize)]
-struct DipsInfoPricing {
-    min_grt_per_30_days: BTreeMap<String, String>,
-    min_grt_per_million_entities_per_30_days: String,
+pub struct DipsInfoPricing {
+    pub min_grt_per_30_days: BTreeMap<String, String>,
+    pub min_grt_per_million_entities_per_30_days: String,
 }
 
 #[derive(Serialize)]
-struct DipsInfoResponse {
-    pricing: DipsInfoPricing,
-    supported_networks: Vec<String>,
-    dips_version: &'static str,
+pub struct DipsInfoResponse {
+    pub pricing: DipsInfoPricing,
+    pub supported_networks: Vec<String>,
+    pub dips_version: &'static str,
 }
 
 pub async fn dips_info(State(state): State<DipsInfoState>) -> Json<DipsInfoResponse> {
