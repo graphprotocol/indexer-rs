@@ -398,3 +398,116 @@ async fn shutdown_handler(shutdown_token: CancellationToken) {
     tracing::info!("Signal received, starting graceful shutdown");
     shutdown_token.cancel();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_grt_zero() {
+        // Arrange
+        let wei = 0u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "0");
+    }
+
+    #[test]
+    fn test_format_grt_whole_number() {
+        // Arrange - 1 GRT = 10^18 wei
+        let wei = 1_000_000_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "1");
+    }
+
+    #[test]
+    fn test_format_grt_large_whole_number() {
+        // Arrange - 1000 GRT
+        let wei = 1_000_000_000_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "1000");
+    }
+
+    #[test]
+    fn test_format_grt_small_value_less_than_one() {
+        // Arrange - 0.5 GRT = 5 * 10^17 wei
+        let wei = 500_000_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "0.5");
+    }
+
+    #[test]
+    fn test_format_grt_very_small_value() {
+        // Arrange - 0.000000000000000001 GRT = 1 wei
+        let wei = 1u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "0.000000000000000001");
+    }
+
+    #[test]
+    fn test_format_grt_mixed_value() {
+        // Arrange - 1.5 GRT
+        let wei = 1_500_000_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "1.5");
+    }
+
+    #[test]
+    fn test_format_grt_trims_trailing_zeros() {
+        // Arrange - 1.100 GRT should become "1.1"
+        let wei = 1_100_000_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "1.1");
+    }
+
+    #[test]
+    fn test_format_grt_many_decimal_places() {
+        // Arrange - 0.123456789012345678 GRT
+        let wei = 123_456_789_012_345_678u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "0.123456789012345678");
+    }
+
+    #[test]
+    fn test_format_grt_large_value_with_decimals() {
+        // Arrange - 12345.6789 GRT
+        let wei = 12_345_678_900_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "12345.6789");
+    }
+}
