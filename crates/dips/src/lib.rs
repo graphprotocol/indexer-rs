@@ -58,7 +58,7 @@ use std::{str::FromStr, sync::Arc};
 use server::DipsServerContext;
 use thegraph_core::alloy::{
     core::primitives::Address,
-    primitives::{b256, ruint::aliases::U256, B256, ChainId, Signature, Uint},
+    primitives::{b256, ruint::aliases::U256, ChainId, Signature, Uint, B256},
     signers::SignerSync,
     sol,
     sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
@@ -97,9 +97,8 @@ pub fn rca_eip712_domain(chain_id: ChainId, recurring_collector: Address) -> Eip
 }
 
 /// EIP-712 domain salt for DIPs-specific messages.
-const EIP712_DOMAIN_SALT: B256 = b256!(
-    "a070ffb1cd7af433c73e0d016c7c4ce31dc1ec7366a3f5d20cfa22a80391e549"
-);
+const EIP712_DOMAIN_SALT: B256 =
+    b256!("a070ffb1cd7af433c73e0d016c7c4ce31dc1ec7366a3f5d20cfa22a80391e549");
 
 /// Create an EIP-712 domain for cancellation requests.
 ///
