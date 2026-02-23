@@ -200,7 +200,7 @@ pub async fn run() -> anyhow::Result<()> {
         .network_subgraph(network_subgraph, config.subgraphs.network)
         .escrow_subgraph(escrow_subgraph, config.subgraphs.escrow)
         .escrow_accounts_v2(v2_watcher.clone())
-        .dips_info(dips_info_state)
+        .maybe_dips_info(dips_info_state)
         .build();
 
     serve_metrics(config.metrics.get_socket_addr());
