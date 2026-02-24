@@ -22,7 +22,6 @@ pub struct DipsInfoPricing {
 pub struct DipsInfoResponse {
     pub pricing: DipsInfoPricing,
     pub supported_networks: Vec<String>,
-    pub dips_version: &'static str,
 }
 
 pub async fn dips_info(State(state): State<DipsInfoState>) -> Json<DipsInfoResponse> {
@@ -35,6 +34,5 @@ pub async fn dips_info(State(state): State<DipsInfoState>) -> Json<DipsInfoRespo
                 .min_grt_per_million_entities_per_30_days,
         },
         supported_networks,
-        dips_version: "2",
     })
 }
