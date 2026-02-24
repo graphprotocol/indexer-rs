@@ -28,7 +28,10 @@ use tokio_util::sync::CancellationToken;
 use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
-use crate::{cli::Cli, constants::HTTP_CLIENT_TIMEOUT, database, metrics::serve_metrics};
+use crate::{
+    cli::Cli, constants::HTTP_CLIENT_TIMEOUT, database, metrics::serve_metrics,
+    routes::DipsInfoState,
+};
 
 mod release;
 mod router;
@@ -36,6 +39,26 @@ mod tap_receipt_header;
 
 pub use router::ServiceRouter;
 pub use tap_receipt_header::TapHeader;
+
+/// Format a wei value as a human-readable GRT string.
+///
+/// Converts wei (10^-18 GRT) to GRT with up to 18 decimal places,
+/// trimming trailing zeros. For example:
+/// - 1_000_000_000_000_000_000 wei -> "1"
+/// - 1_500_000_000_000_000_000 wei -> "1.5"
+/// - 500_000_000_000_000_000 wei -> "0.5"
+fn format_grt(wei: u128) -> String {
+    let whole = wei / 10u128.pow(18);
+    let frac = wei % 10u128.pow(18);
+    if frac == 0 {
+        whole.to_string()
+    } else {
+        // Format with up to 18 decimal places, trimming trailing zeros
+        let frac_str = format!("{:018}", frac);
+        let trimmed = frac_str.trim_end_matches('0');
+        format!("{}.{}", whole, trimmed)
+    }
+}
 
 #[derive(Clone)]
 pub struct GraphNodeState {
@@ -152,6 +175,18 @@ pub async fn run() -> anyhow::Result<()> {
     )
     .await;
 
+    // Build DipsInfoState if DIPS is configured
+    let dips_info_state = config.dips.as_ref().map(|dips| DipsInfoState {
+        min_grt_per_30_days: dips
+            .min_grt_per_30_days
+            .iter()
+            .map(|(network, grt)| (network.clone(), format_grt(grt.wei())))
+            .collect(),
+        min_grt_per_million_entities_per_30_days: format_grt(
+            dips.min_grt_per_million_entities_per_30_days.wei(),
+        ),
+    });
+
     let router = ServiceRouter::builder()
         .database(database.clone())
         .domain_separator_v2(domain_separator_v2.clone())
@@ -165,6 +200,7 @@ pub async fn run() -> anyhow::Result<()> {
         .network_subgraph(network_subgraph, config.subgraphs.network)
         .escrow_subgraph(escrow_subgraph, config.subgraphs.escrow)
         .escrow_accounts_v2(v2_watcher.clone())
+        .maybe_dips_info(dips_info_state)
         .build();
 
     serve_metrics(config.metrics.get_socket_addr());
@@ -361,4 +397,117 @@ async fn shutdown_handler(shutdown_token: CancellationToken) {
 
     tracing::info!("Signal received, starting graceful shutdown");
     shutdown_token.cancel();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_grt_zero() {
+        // Arrange
+        let wei = 0u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "0");
+    }
+
+    #[test]
+    fn test_format_grt_whole_number() {
+        // Arrange - 1 GRT = 10^18 wei
+        let wei = 1_000_000_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "1");
+    }
+
+    #[test]
+    fn test_format_grt_large_whole_number() {
+        // Arrange - 1000 GRT
+        let wei = 1_000_000_000_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "1000");
+    }
+
+    #[test]
+    fn test_format_grt_small_value_less_than_one() {
+        // Arrange - 0.5 GRT = 5 * 10^17 wei
+        let wei = 500_000_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "0.5");
+    }
+
+    #[test]
+    fn test_format_grt_very_small_value() {
+        // Arrange - 0.000000000000000001 GRT = 1 wei
+        let wei = 1u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "0.000000000000000001");
+    }
+
+    #[test]
+    fn test_format_grt_mixed_value() {
+        // Arrange - 1.5 GRT
+        let wei = 1_500_000_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "1.5");
+    }
+
+    #[test]
+    fn test_format_grt_trims_trailing_zeros() {
+        // Arrange - 1.100 GRT should become "1.1"
+        let wei = 1_100_000_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "1.1");
+    }
+
+    #[test]
+    fn test_format_grt_many_decimal_places() {
+        // Arrange - 0.123456789012345678 GRT
+        let wei = 123_456_789_012_345_678u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "0.123456789012345678");
+    }
+
+    #[test]
+    fn test_format_grt_large_value_with_decimals() {
+        // Arrange - 12345.6789 GRT
+        let wei = 12_345_678_900_000_000_000_000u128;
+
+        // Act
+        let result = format_grt(wei);
+
+        // Assert
+        assert_eq!(result, "12345.6789");
+    }
 }

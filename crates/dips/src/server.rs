@@ -47,11 +47,12 @@ use crate::{
     price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::{
         indexer_dips_service_server::IndexerDipsService, CancelAgreementRequest,
-        CancelAgreementResponse, ProposalResponse, SubmitAgreementProposalRequest,
+        CancelAgreementResponse, ProposalResponse, RejectReason, SubmitAgreementProposalRequest,
         SubmitAgreementProposalResponse,
     },
     signers::SignerValidator,
     store::RcaStore,
+    DipsError,
 };
 
 /// Context for DIPS server with all validation dependencies.
@@ -92,6 +93,15 @@ pub struct DipsServer {
     pub chain_id: u64,
     /// RecurringCollector contract address for EIP-712 domain
     pub recurring_collector: Address,
+}
+
+/// Map a DipsError to the appropriate RejectReason for the gRPC response.
+fn reject_reason_from_error(err: &DipsError) -> RejectReason {
+    match err {
+        DipsError::TokensPerSecondTooLow { .. }
+        | DipsError::TokensPerEntityPerSecondTooLow { .. } => RejectReason::PriceTooLow,
+        _ => RejectReason::Other,
+    }
 }
 
 #[async_trait]
@@ -147,12 +157,15 @@ impl IndexerDipsService for DipsServer {
                 tracing::info!(%agreement_id, "RCA accepted");
                 Ok(Response::new(SubmitAgreementProposalResponse {
                     response: ProposalResponse::Accept.into(),
+                    reject_reason: RejectReason::Unspecified.into(),
                 }))
             }
             Err(e) => {
-                tracing::warn!(error = %e, "RCA rejected");
+                let reject_reason = reject_reason_from_error(&e);
+                tracing::warn!(error = %e, reason = ?reject_reason, "RCA rejected");
                 Ok(Response::new(SubmitAgreementProposalResponse {
                     response: ProposalResponse::Reject.into(),
+                    reject_reason: reject_reason.into(),
                 }))
             }
         }
@@ -291,5 +304,105 @@ mod tests {
         // Assert
         assert_eq!(err.code(), tonic::Code::Unimplemented);
         assert!(err.message().contains("RecurringCollector"));
+    }
+
+    // =========================================================================
+    // Tests for reject_reason_from_error
+    // =========================================================================
+
+    #[test]
+    fn test_reject_reason_tokens_per_second_too_low() {
+        // Arrange
+        use thegraph_core::alloy::primitives::U256;
+        let err = DipsError::TokensPerSecondTooLow {
+            network: "mainnet".to_string(),
+            minimum: U256::from(100),
+            offered: U256::from(50),
+        };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::PriceTooLow);
+    }
+
+    #[test]
+    fn test_reject_reason_tokens_per_entity_per_second_too_low() {
+        // Arrange
+        use thegraph_core::alloy::primitives::U256;
+        let err = DipsError::TokensPerEntityPerSecondTooLow {
+            minimum: U256::from(100),
+            offered: U256::from(10),
+        };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::PriceTooLow);
+    }
+
+    #[test]
+    fn test_reject_reason_unsupported_network() {
+        // Arrange
+        let err = DipsError::UnsupportedNetwork("unknown-network".to_string());
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert - UnsupportedNetwork maps to Other, not PriceTooLow
+        assert_eq!(reason, RejectReason::Other);
+    }
+
+    #[test]
+    fn test_reject_reason_invalid_signature() {
+        // Arrange
+        let err = DipsError::InvalidSignature("bad signature".to_string());
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::Other);
+    }
+
+    #[test]
+    fn test_reject_reason_signer_not_authorised() {
+        // Arrange
+        let err = DipsError::SignerNotAuthorised(Address::ZERO);
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::Other);
+    }
+
+    #[test]
+    fn test_reject_reason_deadline_expired() {
+        // Arrange
+        let err = DipsError::DeadlineExpired {
+            deadline: 1000,
+            now: 2000,
+        };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::Other);
+    }
+
+    #[test]
+    fn test_reject_reason_abi_decoding() {
+        // Arrange
+        let err = DipsError::AbiDecoding("invalid bytes".to_string());
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::Other);
     }
 }

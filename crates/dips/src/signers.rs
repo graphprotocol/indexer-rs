@@ -28,43 +28,51 @@
 //! time to collect owed fees before funds disappear.
 
 use anyhow::anyhow;
-#[cfg(test)]
-use indexer_monitor::EscrowAccounts;
-use indexer_monitor::EscrowAccountsWatcher;
 use thegraph_core::alloy::primitives::Address;
 
 pub trait SignerValidator: Sync + Send + std::fmt::Debug {
     fn validate(&self, payer: &Address, signer: &Address) -> Result<(), anyhow::Error>;
 }
 
-#[derive(Debug)]
-pub struct EscrowSignerValidator {
-    watcher: EscrowAccountsWatcher,
-}
-
-impl EscrowSignerValidator {
-    pub fn new(watcher: EscrowAccountsWatcher) -> Self {
-        Self { watcher }
-    }
-
+#[cfg(feature = "db")]
+mod escrow_validator {
+    use super::*;
     #[cfg(test)]
-    pub fn mock(accounts: EscrowAccounts) -> Self {
-        let (_tx, rx) = tokio::sync::watch::channel(accounts);
-        Self::new(rx)
+    use indexer_monitor::EscrowAccounts;
+    use indexer_monitor::EscrowAccountsWatcher;
+
+    #[derive(Debug)]
+    pub struct EscrowSignerValidator {
+        watcher: EscrowAccountsWatcher,
     }
-}
 
-impl SignerValidator for EscrowSignerValidator {
-    fn validate(&self, payer: &Address, signer: &Address) -> Result<(), anyhow::Error> {
-        let signers = self.watcher.borrow().get_signers_for_sender(payer);
-
-        if !signers.contains(signer) {
-            return Err(anyhow!("Signer is not a valid signer for the sender"));
+    impl EscrowSignerValidator {
+        pub fn new(watcher: EscrowAccountsWatcher) -> Self {
+            Self { watcher }
         }
 
-        Ok(())
+        #[cfg(test)]
+        pub fn mock(accounts: EscrowAccounts) -> Self {
+            let (_tx, rx) = tokio::sync::watch::channel(accounts);
+            Self::new(rx)
+        }
+    }
+
+    impl SignerValidator for EscrowSignerValidator {
+        fn validate(&self, payer: &Address, signer: &Address) -> Result<(), anyhow::Error> {
+            let signers = self.watcher.borrow().get_signers_for_sender(payer);
+
+            if !signers.contains(signer) {
+                return Err(anyhow!("Signer is not a valid signer for the sender"));
+            }
+
+            Ok(())
+        }
     }
 }
+
+#[cfg(feature = "db")]
+pub use escrow_validator::EscrowSignerValidator;
 
 #[derive(Debug)]
 pub struct NoopSignerValidator;
@@ -87,12 +95,50 @@ impl SignerValidator for RejectingSignerValidator {
 
 #[cfg(test)]
 mod test {
+    use thegraph_core::alloy::primitives::Address;
+
+    use crate::signers::{NoopSignerValidator, RejectingSignerValidator, SignerValidator};
+
+    #[test]
+    fn test_noop_validator_always_accepts() {
+        // Arrange
+        let validator = NoopSignerValidator;
+        let payer = Address::ZERO;
+        let signer = Address::from_slice(&[0xAB; 20]);
+
+        // Act
+        let result = validator.validate(&payer, &signer);
+
+        // Assert
+        assert!(result.is_ok(), "NoopSignerValidator should always accept");
+    }
+
+    #[test]
+    fn test_rejecting_validator_always_rejects() {
+        // Arrange
+        let validator = RejectingSignerValidator;
+        let payer = Address::ZERO;
+        let signer = Address::from_slice(&[0xAB; 20]);
+
+        // Act
+        let result = validator.validate(&payer, &signer);
+
+        // Assert
+        assert!(
+            result.is_err(),
+            "RejectingSignerValidator should always reject"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "db"))]
+mod escrow_tests {
     use std::collections::HashMap;
 
     use indexer_monitor::EscrowAccounts;
     use thegraph_core::alloy::primitives::Address;
 
-    use crate::signers::{NoopSignerValidator, RejectingSignerValidator, SignerValidator};
+    use crate::signers::SignerValidator;
 
     #[tokio::test]
     async fn test_escrow_validator_authorized_signer() {
@@ -149,37 +195,6 @@ mod test {
         assert!(
             result.is_err(),
             "Payer signing for themselves without authorization should be rejected"
-        );
-    }
-
-    #[test]
-    fn test_noop_validator_always_accepts() {
-        // Arrange
-        let validator = NoopSignerValidator;
-        let payer = Address::ZERO;
-        let signer = Address::from_slice(&[0xAB; 20]);
-
-        // Act
-        let result = validator.validate(&payer, &signer);
-
-        // Assert
-        assert!(result.is_ok(), "NoopSignerValidator should always accept");
-    }
-
-    #[test]
-    fn test_rejecting_validator_always_rejects() {
-        // Arrange
-        let validator = RejectingSignerValidator;
-        let payer = Address::ZERO;
-        let signer = Address::from_slice(&[0xAB; 20]);
-
-        // Act
-        let result = validator.validate(&payer, &signer);
-
-        // Assert
-        assert!(
-            result.is_err(),
-            "RejectingSignerValidator should always reject"
         );
     }
 }

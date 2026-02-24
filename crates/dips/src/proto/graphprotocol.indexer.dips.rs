@@ -22,6 +22,9 @@ pub struct SubmitAgreementProposalResponse {
     /// / The response to the agreement proposal.
     #[prost(enumeration = "ProposalResponse", tag = "1")]
     pub response: i32,
+    /// / Only set when response = REJECT.
+    #[prost(enumeration = "RejectReason", tag = "2")]
+    pub reject_reason: i32,
 }
 /// *
 ///
@@ -72,6 +75,42 @@ impl ProposalResponse {
         match value {
             "ACCEPT" => Some(Self::Accept),
             "REJECT" => Some(Self::Reject),
+            _ => None,
+        }
+    }
+}
+/// *
+///
+/// The reason for rejecting an *indexing agreement* proposal.
+/// Only meaningful when ProposalResponse = REJECT.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum RejectReason {
+    /// / Default / not set (used for ACCEPT responses).
+    Unspecified = 0,
+    /// / The offered price is below the indexer's minimum.
+    PriceTooLow = 1,
+    /// / Any other reason (unsupported network, bad signature, etc.).
+    Other = 2,
+}
+impl RejectReason {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "REJECT_REASON_UNSPECIFIED",
+            Self::PriceTooLow => "REJECT_REASON_PRICE_TOO_LOW",
+            Self::Other => "REJECT_REASON_OTHER",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "REJECT_REASON_UNSPECIFIED" => Some(Self::Unspecified),
+            "REJECT_REASON_PRICE_TOO_LOW" => Some(Self::PriceTooLow),
+            "REJECT_REASON_OTHER" => Some(Self::Other),
             _ => None,
         }
     }
