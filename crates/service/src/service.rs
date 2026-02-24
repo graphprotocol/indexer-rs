@@ -182,8 +182,8 @@ pub async fn run() -> anyhow::Result<()> {
             .iter()
             .map(|(network, grt)| (network.clone(), format_grt(grt.wei())))
             .collect(),
-        min_grt_per_million_entities_per_30_days: format_grt(
-            dips.min_grt_per_million_entities_per_30_days.wei(),
+        min_grt_per_billion_entities_per_30_days: format_grt(
+            dips.min_grt_per_billion_entities_per_30_days.wei(),
         ),
     });
 
@@ -220,7 +220,7 @@ pub async fn run() -> anyhow::Result<()> {
             recurring_collector,
             supported_networks,
             min_grt_per_30_days,
-            min_grt_per_million_entities_per_30_days,
+            min_grt_per_billion_entities_per_30_days,
             additional_networks,
         } = dips;
 
@@ -264,11 +264,11 @@ pub async fn run() -> anyhow::Result<()> {
             })
             .collect();
 
-        // Entity pricing: config is per-million-entities, convert to per-entity.
+        // Entity pricing: config is per-billion-entities, convert to per-entity.
         // Ceiling division protects indexer from precision loss.
-        let entity_divisor = SECONDS_PER_30_DAYS * 1_000_000;
+        let entity_divisor = SECONDS_PER_30_DAYS * 1_000_000_000;
         let tokens_per_entity_per_second = U256::from(
-            min_grt_per_million_entities_per_30_days
+            min_grt_per_billion_entities_per_30_days
                 .wei()
                 .div_ceil(entity_divisor),
         );
