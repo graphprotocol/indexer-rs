@@ -203,7 +203,11 @@ supported_networks = []
 
 # Minimum payment you are willing to accept in order to accept indexing agreements
 # (base price + entity-based price). Total payment = base price + (entities on sg * entity_rate)
-min_grt_per_million_entities_per_30_days = "0.2"  # entity-based component (global)
+#
+# For reference: analysis of subgraphs indexed by the upgrade indexer in Q1 2025 found
+# the average entity size to be ~0.759 KiB. At this size, 1 billion entities ≈ 0.707 TiB.
+# Your own observations may differ - adjust pricing accordingly.
+min_grt_per_billion_entities_per_30_days = "200"  # entity-based component (global)
 
 [dips.min_grt_per_30_days]  # base rate component (per-network)
 # arbitrum-one = "450"

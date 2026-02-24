@@ -644,8 +644,8 @@ pub struct DipsConfig {
     pub supported_networks: HashSet<String>,
     /// Minimum acceptable GRT per 30 days, per network. Converted to wei/second internally.
     pub min_grt_per_30_days: BTreeMap<String, GRT>,
-    /// Minimum acceptable GRT per million entities per 30 days.
-    pub min_grt_per_million_entities_per_30_days: GRT,
+    /// Minimum acceptable GRT per billion entities per 30 days.
+    pub min_grt_per_billion_entities_per_30_days: GRT,
     pub additional_networks: BTreeMap<String, String>,
 }
 
@@ -657,7 +657,7 @@ impl Default for DipsConfig {
             recurring_collector: Address::ZERO,
             supported_networks: HashSet::new(),
             min_grt_per_30_days: BTreeMap::new(),
-            min_grt_per_million_entities_per_30_days: GRT::ZERO,
+            min_grt_per_billion_entities_per_30_days: GRT::ZERO,
             additional_networks: BTreeMap::new(),
         }
     }
@@ -779,7 +779,7 @@ mod tests {
             recurring_collector: Address(
                 FixedBytes::<20>::from_str("0x4444444444444444444444444444444444444444").unwrap(),
             ),
-            min_grt_per_million_entities_per_30_days: crate::GRT::from_grt("0.2"),
+            min_grt_per_billion_entities_per_30_days: crate::GRT::from_grt("200"),
             ..Default::default()
         });
 
