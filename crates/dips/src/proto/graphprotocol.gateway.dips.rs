@@ -44,8 +44,51 @@ pub struct CollectPaymentResponse {
     pub version: u64,
     #[prost(enumeration = "CollectPaymentStatus", tag = "2")]
     pub status: i32,
-    #[prost(bytes = "vec", tag = "3")]
-    pub tap_receipt: ::prost::alloc::vec::Vec<u8>,
+    /// Receipt ID for polling
+    #[prost(string, tag = "3")]
+    pub receipt_id: ::prost::alloc::string::String,
+    /// Payment amount in GRT
+    #[prost(string, tag = "4")]
+    pub amount: ::prost::alloc::string::String,
+    /// Initial status: "PENDING"
+    #[prost(string, tag = "5")]
+    pub payment_status: ::prost::alloc::string::String,
+}
+/// *
+/// A request to get receipt status by ID.
+///
+/// See the `GatewayDipsService.GetReceiptById` method.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetReceiptByIdRequest {
+    #[prost(uint64, tag = "1")]
+    pub version: u64,
+    #[prost(string, tag = "2")]
+    pub receipt_id: ::prost::alloc::string::String,
+}
+/// *
+/// A response containing the receipt status.
+///
+/// See the `GatewayDipsService.GetReceiptById` method.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetReceiptByIdResponse {
+    #[prost(uint64, tag = "1")]
+    pub version: u64,
+    #[prost(string, tag = "2")]
+    pub receipt_id: ::prost::alloc::string::String,
+    /// "PENDING" | "SUBMITTED" | "FAILED"
+    #[prost(string, tag = "3")]
+    pub status: ::prost::alloc::string::String,
+    /// Present when SUBMITTED
+    #[prost(string, tag = "4")]
+    pub transaction_hash: ::prost::alloc::string::String,
+    /// Present when FAILED
+    #[prost(string, tag = "5")]
+    pub error_message: ::prost::alloc::string::String,
+    #[prost(string, tag = "6")]
+    pub amount: ::prost::alloc::string::String,
+    /// ISO timestamp when SUBMITTED
+    #[prost(string, tag = "7")]
+    pub payment_submitted_at: ::prost::alloc::string::String,
 }
 /// *
 ///
@@ -251,6 +294,40 @@ pub mod gateway_dips_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// *
+        /// Get the status of a payment receipt by ID.
+        ///
+        /// This method allows the indexer to poll for the status of a previously
+        /// initiated payment collection.
+        pub async fn get_receipt_by_id(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetReceiptByIdRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetReceiptByIdResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/graphprotocol.gateway.dips.GatewayDipsService/GetReceiptById",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "graphprotocol.gateway.dips.GatewayDipsService",
+                        "GetReceiptById",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -290,6 +367,18 @@ pub mod gateway_dips_service_server {
             request: tonic::Request<super::CollectPaymentRequest>,
         ) -> std::result::Result<
             tonic::Response<super::CollectPaymentResponse>,
+            tonic::Status,
+        >;
+        /// *
+        /// Get the status of a payment receipt by ID.
+        ///
+        /// This method allows the indexer to poll for the status of a previously
+        /// initiated payment collection.
+        async fn get_receipt_by_id(
+            &self,
+            request: tonic::Request<super::GetReceiptByIdRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetReceiptByIdResponse>,
             tonic::Status,
         >;
     }
@@ -447,6 +536,55 @@ pub mod gateway_dips_service_server {
                     let fut = async move {
                         let method = CollectPaymentSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/graphprotocol.gateway.dips.GatewayDipsService/GetReceiptById" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetReceiptByIdSvc<T: GatewayDipsService>(pub Arc<T>);
+                    impl<
+                        T: GatewayDipsService,
+                    > tonic::server::UnaryService<super::GetReceiptByIdRequest>
+                    for GetReceiptByIdSvc<T> {
+                        type Response = super::GetReceiptByIdResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetReceiptByIdRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as GatewayDipsService>::get_receipt_by_id(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetReceiptByIdSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
