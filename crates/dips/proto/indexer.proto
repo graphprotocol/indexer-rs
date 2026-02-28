@@ -49,9 +49,10 @@ enum ProposalResponse {
  * Only meaningful when ProposalResponse = REJECT.
  */
 enum RejectReason {
-  REJECT_REASON_UNSPECIFIED = 0;    /// Default / not set (used for ACCEPT responses).
-  REJECT_REASON_PRICE_TOO_LOW = 1;  /// The offered price is below the indexer's minimum.
-  REJECT_REASON_OTHER = 2;          /// Any other reason (unsupported network, bad signature, etc.).
+  REJECT_REASON_UNSPECIFIED = 0;              /// Default / not set (used for ACCEPT responses).
+  REJECT_REASON_PRICE_TOO_LOW = 1;            /// The offered price is below the indexer's minimum.
+  REJECT_REASON_OTHER = 2;                    /// Any other reason (unsupported network, bad signature, etc.).
+  REJECT_REASON_SIGNER_NOT_AUTHORISED = 3;    /// The proposal signer is not authorised on the escrow contract.
 }
 
 /**
