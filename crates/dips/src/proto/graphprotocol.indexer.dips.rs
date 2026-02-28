@@ -92,6 +92,8 @@ pub enum RejectReason {
     PriceTooLow = 1,
     /// / Any other reason (unsupported network, bad signature, etc.).
     Other = 2,
+    /// / The proposal signer is not authorised on the escrow contract.
+    SignerNotAuthorised = 3,
 }
 impl RejectReason {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -103,6 +105,7 @@ impl RejectReason {
             Self::Unspecified => "REJECT_REASON_UNSPECIFIED",
             Self::PriceTooLow => "REJECT_REASON_PRICE_TOO_LOW",
             Self::Other => "REJECT_REASON_OTHER",
+            Self::SignerNotAuthorised => "REJECT_REASON_SIGNER_NOT_AUTHORISED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -111,6 +114,7 @@ impl RejectReason {
             "REJECT_REASON_UNSPECIFIED" => Some(Self::Unspecified),
             "REJECT_REASON_PRICE_TOO_LOW" => Some(Self::PriceTooLow),
             "REJECT_REASON_OTHER" => Some(Self::Other),
+            "REJECT_REASON_SIGNER_NOT_AUTHORISED" => Some(Self::SignerNotAuthorised),
             _ => None,
         }
     }
