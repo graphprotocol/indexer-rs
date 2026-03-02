@@ -100,6 +100,7 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
     match err {
         DipsError::TokensPerSecondTooLow { .. }
         | DipsError::TokensPerEntityPerSecondTooLow { .. } => RejectReason::PriceTooLow,
+        DipsError::SignerNotAuthorised(_) => RejectReason::SignerNotAuthorised,
         _ => RejectReason::Other,
     }
 }
@@ -376,7 +377,7 @@ mod tests {
         let reason = super::reject_reason_from_error(&err);
 
         // Assert
-        assert_eq!(reason, RejectReason::Other);
+        assert_eq!(reason, RejectReason::SignerNotAuthorised);
     }
 
     #[test]
