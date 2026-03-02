@@ -58,7 +58,7 @@ use std::{str::FromStr, sync::Arc};
 use server::DipsServerContext;
 use thegraph_core::alloy::{
     core::primitives::Address,
-    primitives::{b256, ruint::aliases::U256, ChainId, Signature, Uint, B256},
+    primitives::{b256, keccak256, ruint::aliases::U256, ChainId, Signature, Uint, B256},
     signers::SignerSync,
     sol,
     sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
@@ -118,13 +118,12 @@ sol! {
     /// The on-chain RecurringCollectionAgreement type.
     ///
     /// Matches `IRecurringCollector.RecurringCollectionAgreement` exactly.
+    /// The agreement ID is derived on-chain via
+    /// `bytes16(keccak256(abi.encode(payer, dataService, serviceProvider, deadline, nonce)))`.
     #[derive(Debug, PartialEq)]
     struct RecurringCollectionAgreement {
-        bytes16 agreementId;
-        // NB: The on-chain struct declares these as uint64 for storage efficiency,
-        // but the EIP-712 typehash uses uint256. We must match the typehash.
-        uint256 deadline;
-        uint256 endsAt;
+        uint64 deadline;
+        uint64 endsAt;
         address payer;
         address dataService;
         address serviceProvider;
@@ -132,6 +131,7 @@ sol! {
         uint256 maxOngoingTokensPerSecond;
         uint32 minSecondsPerCollection;
         uint32 maxSecondsPerCollection;
+        uint256 nonce;
         bytes metadata;
     }
 
@@ -170,6 +170,25 @@ sol! {
     struct CancellationRequest {
         bytes16 agreement_id;
     }
+}
+
+/// Derive the agreement ID deterministically from the RCA fields.
+///
+/// Matches the on-chain derivation:
+///   `bytes16(keccak256(abi.encode(payer, dataService, serviceProvider, deadline, nonce)))`
+fn derive_agreement_id(rca: &RecurringCollectionAgreement) -> Uuid {
+    let encoded = (
+        rca.payer,
+        rca.dataService,
+        rca.serviceProvider,
+        rca.deadline,
+        rca.nonce,
+    )
+        .abi_encode();
+    let hash = keccak256(&encoded);
+    let mut id_bytes = [0u8; 16];
+    id_bytes.copy_from_slice(&hash[..16]);
+    Uuid::from_bytes(id_bytes)
 }
 
 #[derive(Error, Debug)]
@@ -368,27 +387,19 @@ pub async fn validate_and_create_rca(
         .expect("system time before unix epoch")
         .as_secs();
 
-    let deadline: u64 = signed_rca
-        .agreement
-        .deadline
-        .try_into()
-        .map_err(|_| DipsError::InvalidRca("deadline overflow".to_string()))?;
+    let deadline: u64 = signed_rca.agreement.deadline;
     if deadline < now {
         return Err(DipsError::DeadlineExpired { deadline, now });
     }
 
     // Validate agreement hasn't already expired
-    let ends_at: u64 = signed_rca
-        .agreement
-        .endsAt
-        .try_into()
-        .map_err(|_| DipsError::InvalidRca("endsAt overflow".to_string()))?;
+    let ends_at: u64 = signed_rca.agreement.endsAt;
     if ends_at < now {
         return Err(DipsError::AgreementExpired { ends_at, now });
     }
 
-    // Extract agreement ID
-    let agreement_id = Uuid::from_bytes(signed_rca.agreement.agreementId.into());
+    // Derive agreement ID deterministically from the RCA fields
+    let agreement_id = derive_agreement_id(&signed_rca.agreement);
 
     // Decode metadata
     let metadata =
@@ -500,14 +511,8 @@ mod test {
     use std::collections::{BTreeMap, HashSet};
     use std::sync::Arc;
 
-    use thegraph_core::alloy::{
-        primitives::{Address, FixedBytes, U256},
-        signers::local::PrivateKeySigner,
-        sol_types::SolValue,
-    };
-    use uuid::Uuid;
-
     use crate::{
+        derive_agreement_id,
         ipfs::{FailingIpfsFetcher, MockIpfsFetcher},
         price::PriceCalculator,
         rca_eip712_domain,
@@ -516,6 +521,11 @@ mod test {
         store::{FailingRcaStore, InMemoryRcaStore},
         AcceptIndexingAgreementMetadata, DipsError, IndexingAgreementTermsV1,
         RecurringCollectionAgreement,
+    };
+    use thegraph_core::alloy::{
+        primitives::{keccak256, Address, FixedBytes, U256},
+        signers::local::PrivateKeySigner,
+        sol_types::SolValue,
     };
 
     const CHAIN_ID: u64 = 42161; // Arbitrum One
@@ -554,9 +564,8 @@ mod test {
         };
 
         RecurringCollectionAgreement {
-            agreementId: Uuid::now_v7().as_bytes().into(),
-            deadline: U256::from(u64::MAX),
-            endsAt: U256::from(u64::MAX),
+            deadline: u64::MAX,
+            endsAt: u64::MAX,
             payer,
             dataService: Address::ZERO,
             serviceProvider: service_provider,
@@ -564,8 +573,42 @@ mod test {
             maxOngoingTokensPerSecond: U256::from(100),
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
+            nonce: U256::from(1),
             metadata: metadata.abi_encode().into(),
         }
+    }
+
+    #[test]
+    fn test_derive_agreement_id() {
+        let rca = RecurringCollectionAgreement {
+            deadline: 1000,
+            endsAt: 2000,
+            payer: Address::repeat_byte(0x01),
+            dataService: Address::repeat_byte(0x02),
+            serviceProvider: Address::repeat_byte(0x03),
+            maxInitialTokens: U256::from(100),
+            maxOngoingTokensPerSecond: U256::from(10),
+            minSecondsPerCollection: 60,
+            maxSecondsPerCollection: 3600,
+            nonce: U256::from(42),
+            metadata: Default::default(),
+        };
+
+        let id = derive_agreement_id(&rca);
+
+        // Verify against the on-chain formula:
+        // bytes16(keccak256(abi.encode(payer, dataService, serviceProvider, deadline, nonce)))
+        let expected_hash = keccak256(
+            (
+                rca.payer,
+                rca.dataService,
+                rca.serviceProvider,
+                rca.deadline,
+                rca.nonce,
+            )
+                .abi_encode(),
+        );
+        assert_eq!(id.as_bytes(), &expected_hash[..16]);
     }
 
     #[tokio::test]
@@ -576,7 +619,7 @@ mod test {
         let recurring_collector = Address::repeat_byte(0x22);
 
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
-        let agreement_id = Uuid::from_bytes(rca.agreementId.into());
+        let agreement_id = derive_agreement_id(&rca);
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
         let signed_rca = rca.sign(&domain, payer_signer).unwrap();
@@ -730,9 +773,8 @@ mod test {
         };
 
         let rca = RecurringCollectionAgreement {
-            agreementId: Uuid::now_v7().as_bytes().into(),
-            deadline: U256::from(u64::MAX),
-            endsAt: U256::from(u64::MAX),
+            deadline: u64::MAX,
+            endsAt: u64::MAX,
             payer,
             dataService: Address::ZERO,
             serviceProvider: service_provider,
@@ -740,6 +782,7 @@ mod test {
             maxOngoingTokensPerSecond: U256::from(100),
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
+            nonce: U256::from(1),
             metadata: metadata.abi_encode().into(),
         };
 
@@ -777,9 +820,8 @@ mod test {
 
         // Set deadline to the past
         let rca = RecurringCollectionAgreement {
-            agreementId: Uuid::now_v7().as_bytes().into(),
-            deadline: U256::from(1), // 1 second after epoch - definitely in the past
-            endsAt: U256::from(u64::MAX),
+            deadline: 1, // 1 second after epoch - definitely in the past
+            endsAt: u64::MAX,
             payer,
             dataService: Address::ZERO,
             serviceProvider: service_provider,
@@ -787,6 +829,7 @@ mod test {
             maxOngoingTokensPerSecond: U256::from(100),
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
+            nonce: U256::from(1),
             metadata: metadata.abi_encode().into(),
         };
 
@@ -821,9 +864,8 @@ mod test {
 
         // Set endsAt to the past
         let rca = RecurringCollectionAgreement {
-            agreementId: Uuid::now_v7().as_bytes().into(),
-            deadline: U256::from(u64::MAX),
-            endsAt: U256::from(1), // 1 second after epoch - definitely in the past
+            deadline: u64::MAX,
+            endsAt: 1, // 1 second after epoch - definitely in the past
             payer,
             dataService: Address::ZERO,
             serviceProvider: service_provider,
@@ -831,6 +873,7 @@ mod test {
             maxOngoingTokensPerSecond: U256::from(100),
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
+            nonce: U256::from(1),
             metadata: metadata.abi_encode().into(),
         };
 
