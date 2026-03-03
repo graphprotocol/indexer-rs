@@ -628,9 +628,9 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
     Duration::from_secs(300)
 }
 
-/// DIPS V2 configuration.
+/// DIPs configuration.
 ///
-/// V2 validates RCA proposals (signature, IPFS manifest, network, pricing)
+/// Validates RCA proposals (signature, IPFS manifest, network, pricing)
 /// before storing. The indexer agent queries pending proposals from the
 /// database and decides on-chain acceptance.
 #[derive(Debug, Deserialize)]
