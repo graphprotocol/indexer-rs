@@ -18,6 +18,8 @@ url_prefix = "/"
 max_cost_model_batch_size = 200
 # Maximum request body size in bytes (2MB default)
 max_request_body_size = 2097152
+# Maximum status request body size in bytes (32KB default)
+max_status_request_body_size = 32768
 
 [service.tap]
 max_receipt_value_grt = "0.001" # We use strings to prevent rounding errors
