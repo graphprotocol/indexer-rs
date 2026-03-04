@@ -9,13 +9,13 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug)]
 pub struct DipsInfoState {
     pub min_grt_per_30_days: BTreeMap<String, String>,
-    pub min_grt_per_million_entities_per_30_days: String,
+    pub min_grt_per_billion_entities_per_30_days: String,
 }
 
 #[derive(Serialize)]
 pub struct DipsInfoPricing {
     pub min_grt_per_30_days: BTreeMap<String, String>,
-    pub min_grt_per_million_entities_per_30_days: String,
+    pub min_grt_per_billion_entities_per_30_days: String,
 }
 
 #[derive(Serialize)]
@@ -30,8 +30,8 @@ pub async fn dips_info(State(state): State<DipsInfoState>) -> Json<DipsInfoRespo
     Json(DipsInfoResponse {
         pricing: DipsInfoPricing {
             min_grt_per_30_days: state.min_grt_per_30_days,
-            min_grt_per_million_entities_per_30_days: state
-                .min_grt_per_million_entities_per_30_days,
+            min_grt_per_billion_entities_per_30_days: state
+                .min_grt_per_billion_entities_per_30_days,
         },
         supported_networks,
     })

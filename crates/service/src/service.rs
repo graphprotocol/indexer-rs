@@ -100,12 +100,16 @@ pub async fn run() -> anyhow::Result<()> {
     // V2 escrow accounts are in the network subgraph, not a separate escrow_v2 subgraph
 
     // Establish Database connection necessary for serving indexer management
-    // requests with defined schema
-    // Note: Typically, you'd call `sqlx::migrate!();` here to sync the models
-    // which defaults to files in  "./migrations" to sync the database;
-    // however, this can cause conflicts with the migrations run by indexer
-    // agent. Hence we leave syncing and migrating entirely to the agent and
-    // assume the models are up to date in the service.
+    // requests with defined schema.
+    //
+    // This binary does not run migrations. By convention, the indexer-agent
+    // (graphprotocol/indexer, TypeScript) owns schema migrations to avoid
+    // conflicting DDL from two processes sharing one database. The SQL files
+    // in indexer-rs/migrations/ exist for local development (`sqlx migrate
+    // run`) and tests only -- they are not executed by any production binary.
+    //
+    // For new tables (e.g. pending_rca_proposals), a corresponding migration
+    // must be added to the agent before the feature ships to production.
     let database =
         database::connect(config.database.clone().get_formated_postgres_url().as_ref()).await;
 
@@ -182,8 +186,8 @@ pub async fn run() -> anyhow::Result<()> {
             .iter()
             .map(|(network, grt)| (network.clone(), format_grt(grt.wei())))
             .collect(),
-        min_grt_per_million_entities_per_30_days: format_grt(
-            dips.min_grt_per_million_entities_per_30_days.wei(),
+        min_grt_per_billion_entities_per_30_days: format_grt(
+            dips.min_grt_per_billion_entities_per_30_days.wei(),
         ),
     });
 
@@ -220,7 +224,7 @@ pub async fn run() -> anyhow::Result<()> {
             recurring_collector,
             supported_networks,
             min_grt_per_30_days,
-            min_grt_per_million_entities_per_30_days,
+            min_grt_per_billion_entities_per_30_days,
             additional_networks,
         } = dips;
 
@@ -264,11 +268,11 @@ pub async fn run() -> anyhow::Result<()> {
             })
             .collect();
 
-        // Entity pricing: config is per-million-entities, convert to per-entity.
+        // Entity pricing: config is per-billion-entities, convert to per-entity.
         // Ceiling division protects indexer from precision loss.
-        let entity_divisor = SECONDS_PER_30_DAYS * 1_000_000;
+        let entity_divisor = SECONDS_PER_30_DAYS * 1_000_000_000;
         let tokens_per_entity_per_second = U256::from(
-            min_grt_per_million_entities_per_30_days
+            min_grt_per_billion_entities_per_30_days
                 .wei()
                 .div_ceil(entity_divisor),
         );

@@ -90,8 +90,22 @@ pub enum RejectReason {
     Unspecified = 0,
     /// / The offered price is below the indexer's minimum.
     PriceTooLow = 1,
-    /// / Any other reason (unsupported network, bad signature, etc.).
+    /// / Any other reason (bad signature, etc.).
     Other = 2,
+    /// / The proposal signer is not authorised on the escrow contract.
+    SignerNotAuthorised = 3,
+    /// / The proposal deadline has already passed.
+    DeadlineExpired = 4,
+    /// / The subgraph's network is not supported by this indexer.
+    UnsupportedNetwork = 5,
+    /// / The subgraph manifest could not be fetched from IPFS.
+    SubgraphManifestUnavailable = 6,
+    /// / The RCA service provider does not match this indexer.
+    UnexpectedServiceProvider = 7,
+    /// / The agreement end time has already passed.
+    AgreementExpired = 8,
+    /// / The metadata version is not supported.
+    UnsupportedMetadataVersion = 9,
 }
 impl RejectReason {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -103,6 +117,19 @@ impl RejectReason {
             Self::Unspecified => "REJECT_REASON_UNSPECIFIED",
             Self::PriceTooLow => "REJECT_REASON_PRICE_TOO_LOW",
             Self::Other => "REJECT_REASON_OTHER",
+            Self::SignerNotAuthorised => "REJECT_REASON_SIGNER_NOT_AUTHORISED",
+            Self::DeadlineExpired => "REJECT_REASON_DEADLINE_EXPIRED",
+            Self::UnsupportedNetwork => "REJECT_REASON_UNSUPPORTED_NETWORK",
+            Self::SubgraphManifestUnavailable => {
+                "REJECT_REASON_SUBGRAPH_MANIFEST_UNAVAILABLE"
+            }
+            Self::UnexpectedServiceProvider => {
+                "REJECT_REASON_UNEXPECTED_SERVICE_PROVIDER"
+            }
+            Self::AgreementExpired => "REJECT_REASON_AGREEMENT_EXPIRED",
+            Self::UnsupportedMetadataVersion => {
+                "REJECT_REASON_UNSUPPORTED_METADATA_VERSION"
+            }
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -111,6 +138,19 @@ impl RejectReason {
             "REJECT_REASON_UNSPECIFIED" => Some(Self::Unspecified),
             "REJECT_REASON_PRICE_TOO_LOW" => Some(Self::PriceTooLow),
             "REJECT_REASON_OTHER" => Some(Self::Other),
+            "REJECT_REASON_SIGNER_NOT_AUTHORISED" => Some(Self::SignerNotAuthorised),
+            "REJECT_REASON_DEADLINE_EXPIRED" => Some(Self::DeadlineExpired),
+            "REJECT_REASON_UNSUPPORTED_NETWORK" => Some(Self::UnsupportedNetwork),
+            "REJECT_REASON_SUBGRAPH_MANIFEST_UNAVAILABLE" => {
+                Some(Self::SubgraphManifestUnavailable)
+            }
+            "REJECT_REASON_UNEXPECTED_SERVICE_PROVIDER" => {
+                Some(Self::UnexpectedServiceProvider)
+            }
+            "REJECT_REASON_AGREEMENT_EXPIRED" => Some(Self::AgreementExpired),
+            "REJECT_REASON_UNSUPPORTED_METADATA_VERSION" => {
+                Some(Self::UnsupportedMetadataVersion)
+            }
             _ => None,
         }
     }

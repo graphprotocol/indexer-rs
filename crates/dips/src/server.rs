@@ -100,6 +100,13 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
     match err {
         DipsError::TokensPerSecondTooLow { .. }
         | DipsError::TokensPerEntityPerSecondTooLow { .. } => RejectReason::PriceTooLow,
+        DipsError::SignerNotAuthorised(_) => RejectReason::SignerNotAuthorised,
+        DipsError::DeadlineExpired { .. } => RejectReason::DeadlineExpired,
+        DipsError::AgreementExpired { .. } => RejectReason::AgreementExpired,
+        DipsError::UnsupportedNetwork(_) => RejectReason::UnsupportedNetwork,
+        DipsError::SubgraphManifestUnavailable(_) => RejectReason::SubgraphManifestUnavailable,
+        DipsError::UnexpectedServiceProvider { .. } => RejectReason::UnexpectedServiceProvider,
+        DipsError::UnsupportedMetadataVersion(_) => RejectReason::UnsupportedMetadataVersion,
         _ => RejectReason::Other,
     }
 }
@@ -351,8 +358,8 @@ mod tests {
         // Act
         let reason = super::reject_reason_from_error(&err);
 
-        // Assert - UnsupportedNetwork maps to Other, not PriceTooLow
-        assert_eq!(reason, RejectReason::Other);
+        // Assert
+        assert_eq!(reason, RejectReason::UnsupportedNetwork);
     }
 
     #[test]
@@ -376,7 +383,7 @@ mod tests {
         let reason = super::reject_reason_from_error(&err);
 
         // Assert
-        assert_eq!(reason, RejectReason::Other);
+        assert_eq!(reason, RejectReason::SignerNotAuthorised);
     }
 
     #[test]
@@ -391,7 +398,7 @@ mod tests {
         let reason = super::reject_reason_from_error(&err);
 
         // Assert
-        assert_eq!(reason, RejectReason::Other);
+        assert_eq!(reason, RejectReason::DeadlineExpired);
     }
 
     #[test]
@@ -404,5 +411,59 @@ mod tests {
 
         // Assert
         assert_eq!(reason, RejectReason::Other);
+    }
+
+    #[test]
+    fn test_reject_reason_agreement_expired() {
+        // Arrange
+        let err = DipsError::AgreementExpired {
+            ends_at: 1000,
+            now: 2000,
+        };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::AgreementExpired);
+    }
+
+    #[test]
+    fn test_reject_reason_subgraph_manifest_unavailable() {
+        // Arrange
+        let err = DipsError::SubgraphManifestUnavailable("QmTest".to_string());
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::SubgraphManifestUnavailable);
+    }
+
+    #[test]
+    fn test_reject_reason_unexpected_service_provider() {
+        // Arrange
+        let err = DipsError::UnexpectedServiceProvider {
+            expected: Address::repeat_byte(0x01),
+            actual: Address::repeat_byte(0x02),
+        };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::UnexpectedServiceProvider);
+    }
+
+    #[test]
+    fn test_reject_reason_unsupported_metadata_version() {
+        // Arrange
+        let err = DipsError::UnsupportedMetadataVersion(99);
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::UnsupportedMetadataVersion);
     }
 }
