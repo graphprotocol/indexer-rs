@@ -152,6 +152,7 @@ impl IndexerDipsService for DipsServer {
 
         // Validate and store RCA
         let domain = crate::rca_eip712_domain(self.chain_id, self.recurring_collector);
+        let deployment_id = crate::try_extract_deployment_id(&signed_voucher);
         match crate::validate_and_create_rca(
             self.ctx.clone(),
             &domain,
@@ -169,7 +170,12 @@ impl IndexerDipsService for DipsServer {
             }
             Err(e) => {
                 let reject_reason = reject_reason_from_error(&e);
-                tracing::warn!(error = %e, reason = ?reject_reason, "RCA rejected");
+                tracing::info!(
+                    error = %e,
+                    reason = ?reject_reason,
+                    deployment_id = deployment_id.as_deref().unwrap_or("unknown"),
+                    "RCA proposal rejected"
+                );
                 Ok(Response::new(SubmitAgreementProposalResponse {
                     response: ProposalResponse::Reject.into(),
                     reject_reason: reject_reason.into(),

@@ -350,6 +350,17 @@ fn bytes32_to_ipfs_hash(bytes: &[u8; 32]) -> String {
     bs58::encode(&multihash).into_string()
 }
 
+/// Try to extract the deployment ID from raw signed RCA bytes.
+///
+/// Best-effort: returns `None` if any decoding step fails.
+pub(crate) fn try_extract_deployment_id(rca_bytes: &[u8]) -> Option<String> {
+    let signed_rca = SignedRecurringCollectionAgreement::abi_decode(rca_bytes).ok()?;
+    let metadata =
+        AcceptIndexingAgreementMetadata::abi_decode(signed_rca.agreement.metadata.as_ref())
+            .ok()?;
+    Some(bytes32_to_ipfs_hash(&metadata.subgraphDeploymentId.0))
+}
+
 /// Validate and create a RecurringCollectionAgreement.
 ///
 /// Performs validation:
