@@ -51,7 +51,8 @@ use crate::{
         PrometheusMetricsMiddlewareLayer, SenderState, TapContextState,
     },
     routes::{
-        self, health, healthz, request_handler, static_subgraph_request_handler, HealthzState,
+        self, dips_info, health, healthz, request_handler, static_subgraph_request_handler,
+        DipsInfoState, HealthzState,
     },
     tap::{IndexerTapContext, TapChecksConfig},
     wallet::public_key,
@@ -91,6 +92,9 @@ pub struct ServiceRouter {
     network_subgraph: Option<(&'static SubgraphClient, NetworkSubgraphConfig)>,
     allocations: Option<AllocationWatcher>,
     dispute_manager: Option<DisputeManagerWatcher>,
+
+    // optional DIPS info for /dips/info endpoint
+    dips_info: Option<DipsInfoState>,
 }
 
 impl ServiceRouter {
@@ -417,7 +421,7 @@ impl ServiceRouter {
             graph_node_status_url: self.graph_node.status_url.clone(),
         };
 
-        let misc_routes = Router::new()
+        let mut misc_routes = Router::new()
             .route("/", get("Service is up and running"))
             .route("/info", get(operator_address))
             .route("/healthz", get(healthz).with_state(healthz_state))
@@ -427,8 +431,14 @@ impl ServiceRouter {
             .route(
                 "/subgraph/health/{deployment_id}",
                 get(health).with_state(graphnode_state.clone()),
-            )
-            .layer(misc_rate_limiter);
+            );
+
+        if let Some(dips_info_state) = self.dips_info {
+            misc_routes =
+                misc_routes.route("/dips/info", get(dips_info).with_state(dips_info_state));
+        }
+
+        let misc_routes = misc_routes.layer(misc_rate_limiter);
 
         let extra_routes = Router::new()
             .route("/cost", post_cost)
