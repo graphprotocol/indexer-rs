@@ -95,6 +95,10 @@ pub struct TapChecksConfig {
     pub receipt_max_value: u128,
     pub allowed_data_services: Option<Vec<Address>>,
     pub service_provider: Address,
+    /// Grace period for allocation eligibility checks.
+    /// Receipts for allocations that were recently active will be accepted
+    /// within this period, bridging network subgraph polling gaps.
+    pub allocation_grace_period: Duration,
 }
 
 #[derive(Clone)]
@@ -125,7 +129,10 @@ pub enum AdapterError {
 impl IndexerTapContext {
     pub async fn get_checks(config: TapChecksConfig) -> Vec<ReceiptCheck<TapReceipt>> {
         let mut checks: Vec<ReceiptCheck<TapReceipt>> = vec![
-            Arc::new(AllocationEligible::new(config.indexer_allocations)),
+            Arc::new(AllocationEligible::with_grace_period(
+                config.indexer_allocations,
+                config.allocation_grace_period,
+            )),
             Arc::new(AllocationRedeemedCheck::new(
                 config.indexer_address,
                 config.network_subgraph,
