@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v2.0.0...indexer-config-v2.0.1) (2026-03-13)
+
+
+### Bug Fixes
+
+* status endpoint hardcoded size limit ([#953](https://github.com/graphprotocol/indexer-rs/issues/953)) ([518b681](https://github.com/graphprotocol/indexer-rs/commit/518b68131cdfeb91426c8b2fe6410671f25309d5))
+
 ## [2.0.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.8.1...indexer-config-v2.0.0) (2026-02-05)
 
 

@@ -4,6 +4,8 @@
 
 
 
+## [2.0.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v2.0.0...indexer-tap-agent-v2.0.1) (2026-03-13)
+
 ## [2.0.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.4...indexer-tap-agent-v2.0.0) (2026-02-05)
 
 
