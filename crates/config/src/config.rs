@@ -575,6 +575,11 @@ pub struct ServiceConfig {
     /// Default: 2MB (2_097_152 bytes)
     #[serde(default = "default_max_request_body_size")]
     pub max_request_body_size: usize,
+    /// Maximum request body size in bytes for status queries.
+    /// Prevents DoS attacks via query complexity.
+    /// Default: 32KB (32_768 bytes)
+    #[serde(default = "default_max_status_request_body_size")]
+    pub max_status_request_body_size: usize,
 }
 
 fn default_max_cost_model_batch_size() -> usize {
@@ -585,6 +590,11 @@ fn default_max_cost_model_batch_size() -> usize {
 /// GraphQL queries are typically small, but can include large variable payloads.
 fn default_max_request_body_size() -> usize {
     2 * 1024 * 1024
+}
+
+/// Default max status request body size: 32KB
+fn default_max_status_request_body_size() -> usize {
+    32 * 1024
 }
 
 #[serde_as]

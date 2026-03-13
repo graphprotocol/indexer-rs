@@ -67,6 +67,7 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
             ipfs_url: "http://localhost:5001".parse().unwrap(),
             max_cost_model_batch_size: 200,
             max_request_body_size: 2 * 1024 * 1024,
+            max_status_request_body_size: 32 * 1024,
         })
         .blockchain({
             #[allow(deprecated)]
