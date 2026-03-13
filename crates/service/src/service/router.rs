@@ -112,6 +112,7 @@ impl ServiceRouter {
             free_query_auth_token,
             max_cost_model_batch_size,
             max_request_body_size,
+            max_status_request_body_size,
             ..
         } = self.service;
 
@@ -439,9 +440,10 @@ impl ServiceRouter {
             )
             .layer(misc_rate_limiter);
 
-        let extra_routes = Router::new()
-            .route("/cost", post_cost)
-            .route("/status", post_status.with_state(graphnode_state));
+        let extra_routes = Router::new().route("/cost", post_cost).route(
+            "/status",
+            post_status.with_state((graphnode_state.clone(), max_status_request_body_size)),
+        );
 
         let router = Router::new()
             .merge(misc_routes)
