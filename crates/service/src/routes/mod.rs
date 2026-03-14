@@ -30,12 +30,14 @@
 //! - [`healthz`]: Checks connectivity to database and graph-node dependencies
 
 pub mod cost;
+pub mod dips_info;
 mod health;
 mod healthz;
 mod request_handler;
 mod static_subgraph;
 mod status;
 
+pub use dips_info::{dips_info, DipsInfoState};
 pub use health::health;
 pub use healthz::{healthz, HealthzState};
 pub use request_handler::request_handler;

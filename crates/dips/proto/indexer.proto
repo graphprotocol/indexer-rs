@@ -33,6 +33,7 @@ message SubmitAgreementProposalRequest {
  */
 message SubmitAgreementProposalResponse {
   ProposalResponse response = 1; /// The response to the agreement proposal.
+  RejectReason reject_reason = 2; /// Only set when response = REJECT.
 }
 
 /**
@@ -41,6 +42,23 @@ message SubmitAgreementProposalResponse {
 enum ProposalResponse {
   ACCEPT = 0; /// The agreement proposal was accepted.
   REJECT = 1; /// The agreement proposal was rejected.
+}
+
+/**
+ * The reason for rejecting an _indexing agreement_ proposal.
+ * Only meaningful when ProposalResponse = REJECT.
+ */
+enum RejectReason {
+  REJECT_REASON_UNSPECIFIED = 0;              /// Default / not set (used for ACCEPT responses).
+  REJECT_REASON_PRICE_TOO_LOW = 1;            /// The offered price is below the indexer's minimum.
+  REJECT_REASON_OTHER = 2;                    /// Any other reason (bad signature, etc.).
+  REJECT_REASON_SIGNER_NOT_AUTHORISED = 3;    /// The proposal signer is not authorised on the escrow contract.
+  REJECT_REASON_DEADLINE_EXPIRED = 4;         /// The proposal deadline has already passed.
+  REJECT_REASON_UNSUPPORTED_NETWORK = 5;      /// The subgraph's network is not supported by this indexer.
+  REJECT_REASON_SUBGRAPH_MANIFEST_UNAVAILABLE = 6; /// The subgraph manifest could not be fetched from IPFS.
+  REJECT_REASON_UNEXPECTED_SERVICE_PROVIDER = 7;   /// The RCA service provider does not match this indexer.
+  REJECT_REASON_AGREEMENT_EXPIRED = 8;        /// The agreement end time has already passed.
+  REJECT_REASON_UNSUPPORTED_METADATA_VERSION = 9;  /// The metadata version is not supported.
 }
 
 /**
