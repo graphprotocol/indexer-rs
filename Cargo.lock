@@ -6602,9 +6602,9 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
 name = "ractor"
-version = "0.15.11"
+version = "0.15.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a73286ad2e0ac0e0d0d895785c697f79fbd945acf90b9e2e9c85d5987c690563"
+checksum = "4a64ac8ba2e8d71b25c55ab7acafc481ae4c9175f3ee8f7c36b66c4cad369bb5"
 dependencies = [
  "async-trait",
  "bon 2.3.0",
