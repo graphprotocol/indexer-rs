@@ -70,7 +70,7 @@ impl AllocationRedeemedCheck {
 impl Check<TapReceipt> for AllocationRedeemedCheck {
     async fn check(
         &self,
-        ctx: &tap_core::receipt::Context,
+        _ctx: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
         let collection_id =
