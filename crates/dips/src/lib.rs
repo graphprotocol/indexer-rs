@@ -356,7 +356,7 @@ fn bytes32_to_ipfs_hash(bytes: &[u8; 32]) -> String {
 pub(crate) fn try_extract_deployment_id(rca_bytes: &[u8]) -> Option<String> {
     let signed_rca = SignedRecurringCollectionAgreement::abi_decode(rca_bytes).ok()?;
     let metadata =
-        AcceptIndexingAgreementMetadata::abi_decode(signed_rca.agreement.metadata.as_ref()).ok()?;
+        AcceptIndexingAgreementMetadata::abi_decode_params(signed_rca.agreement.metadata.as_ref()).ok()?;
     Some(bytes32_to_ipfs_hash(&metadata.subgraphDeploymentId.0))
 }
 
@@ -413,7 +413,7 @@ pub async fn validate_and_create_rca(
 
     // Decode metadata
     let metadata =
-        AcceptIndexingAgreementMetadata::abi_decode(signed_rca.agreement.metadata.as_ref())
+        AcceptIndexingAgreementMetadata::abi_decode_params(signed_rca.agreement.metadata.as_ref())
             .map_err(|e| {
                 DipsError::AbiDecoding(format!(
                     "Failed to decode AcceptIndexingAgreementMetadata: {e}"
@@ -584,7 +584,7 @@ mod test {
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
             nonce: U256::from(1),
-            metadata: metadata.abi_encode().into(),
+            metadata: metadata.abi_encode_params().into(),
         }
     }
 
@@ -793,7 +793,7 @@ mod test {
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
             nonce: U256::from(1),
-            metadata: metadata.abi_encode().into(),
+            metadata: metadata.abi_encode_params().into(),
         };
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
@@ -840,7 +840,7 @@ mod test {
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
             nonce: U256::from(1),
-            metadata: metadata.abi_encode().into(),
+            metadata: metadata.abi_encode_params().into(),
         };
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
@@ -884,7 +884,7 @@ mod test {
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
             nonce: U256::from(1),
-            metadata: metadata.abi_encode().into(),
+            metadata: metadata.abi_encode_params().into(),
         };
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
