@@ -356,7 +356,8 @@ fn bytes32_to_ipfs_hash(bytes: &[u8; 32]) -> String {
 pub(crate) fn try_extract_deployment_id(rca_bytes: &[u8]) -> Option<String> {
     let signed_rca = SignedRecurringCollectionAgreement::abi_decode(rca_bytes).ok()?;
     let metadata =
-        AcceptIndexingAgreementMetadata::abi_decode_params(signed_rca.agreement.metadata.as_ref()).ok()?;
+        AcceptIndexingAgreementMetadata::abi_decode_params(signed_rca.agreement.metadata.as_ref())
+            .ok()?;
     Some(bytes32_to_ipfs_hash(&metadata.subgraphDeploymentId.0))
 }
 
