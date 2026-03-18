@@ -420,8 +420,8 @@ pub async fn validate_and_create_rca(
                 ))
             })?;
 
-    // Only support version 1 terms for now
-    if metadata.version != 1 {
+    // Only support V1 terms (IndexingAgreementVersion.V1 = 0 in Solidity enum)
+    if metadata.version != 0 {
         return Err(DipsError::UnsupportedMetadataVersion(metadata.version));
     }
 
@@ -569,7 +569,7 @@ mod test {
         let metadata = AcceptIndexingAgreementMetadata {
             // Any bytes32 works - MockIpfsFetcher ignores the deployment ID
             subgraphDeploymentId: FixedBytes::ZERO,
-            version: 1,
+            version: 0, // IndexingAgreementVersion.V1 = 0
             terms: terms.abi_encode().into(),
         };
 
@@ -824,7 +824,7 @@ mod test {
 
         let metadata = AcceptIndexingAgreementMetadata {
             subgraphDeploymentId: FixedBytes::ZERO,
-            version: 1,
+            version: 0, // IndexingAgreementVersion.V1 = 0
             terms: terms.abi_encode().into(),
         };
 
@@ -868,7 +868,7 @@ mod test {
 
         let metadata = AcceptIndexingAgreementMetadata {
             subgraphDeploymentId: FixedBytes::ZERO,
-            version: 1,
+            version: 0, // IndexingAgreementVersion.V1 = 0
             terms: terms.abi_encode().into(),
         };
 
