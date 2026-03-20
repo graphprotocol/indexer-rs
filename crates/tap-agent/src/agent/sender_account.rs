@@ -948,7 +948,8 @@ impl Actor for SenderAccount {
             .set(config.trigger_value as f64);
 
         let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
-            .context("Failed to create an endpoint for the sender aggregator")?;
+            .context("Failed to create an endpoint for the sender aggregator")?
+            .timeout(config.rav_request_timeout);
 
         let aggregator_v2 = AggregatorV2::connect(endpoint.clone())
             .await
