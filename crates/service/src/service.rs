@@ -249,19 +249,17 @@ pub async fn run() -> anyhow::Result<()> {
             ipfs_url = %ipfs_url,
             "DIPs configuration loaded"
         );
-        for (network, grt) in &min_grt_per_30_days {
+        for (network, grt) in min_grt_per_30_days.iter() {
             tracing::info!(
                 network = %network,
                 min_grt_per_30_days_wei = %grt.wei(),
                 "DIPs network pricing"
             );
         }
-        if let Some(entity_price) = &min_grt_per_billion_entities_per_30_days {
-            tracing::info!(
-                min_grt_per_billion_entities_per_30_days_wei = %entity_price.wei(),
-                "DIPs entity pricing"
-            );
-        }
+        tracing::info!(
+            min_grt_per_billion_entities_per_30_days_wei = %min_grt_per_billion_entities_per_30_days.wei(),
+            "DIPs entity pricing"
+        );
 
         let addr: SocketAddr = format!("{host}:{port}")
             .parse()
