@@ -449,6 +449,13 @@ pub async fn validate_and_create_rca(
         return Err(DipsError::UnsupportedNetwork(network_name.to_string()));
     }
 
+    // Resolve chain ID for logging context
+    let chain_id = registry
+        .get_network_by_id(network_name)
+        .map(|n| n.caip2_id.to_string())
+        .or_else(|| additional_networks.get(network_name).cloned())
+        .unwrap_or_else(|| "unknown".to_string());
+
     // Validate price minimums
     let offered_tokens_per_second = terms.tokensPerSecond;
     match price_calculator.get_minimum_price(network_name) {
@@ -456,10 +463,11 @@ pub async fn validate_and_create_rca(
             tracing::info!(
                 agreement_id = %agreement_id,
                 network = %network_name,
+                chain_id = %chain_id,
                 deployment_id = %deployment_id,
-                "offered tokens_per_second '{}' is lower than minimum price '{}'",
-                offered_tokens_per_second,
-                price
+                offered = %offered_tokens_per_second,
+                minimum = %price,
+                "tokens_per_second below minimum, rejecting proposal"
             );
             return Err(DipsError::TokensPerSecondTooLow {
                 network: network_name.to_string(),
@@ -472,9 +480,9 @@ pub async fn validate_and_create_rca(
             tracing::info!(
                 agreement_id = %agreement_id,
                 network = %network_name,
+                chain_id = %chain_id,
                 deployment_id = %deployment_id,
-                "network '{}' is not configured in price calculator",
-                network_name
+                "network not configured in price calculator, rejecting proposal"
             );
             return Err(DipsError::UnsupportedNetwork(network_name.to_string()));
         }
@@ -486,10 +494,11 @@ pub async fn validate_and_create_rca(
         tracing::info!(
             agreement_id = %agreement_id,
             network = %network_name,
+            chain_id = %chain_id,
             deployment_id = %deployment_id,
-            "offered tokens_per_entity_per_second '{}' is lower than minimum price '{}'",
-            offered_entity_price,
-            price_calculator.entity_price()
+            offered = %offered_entity_price,
+            minimum = %price_calculator.entity_price(),
+            "tokens_per_entity_per_second below minimum, rejecting proposal"
         );
         return Err(DipsError::TokensPerEntityPerSecondTooLow {
             minimum: price_calculator.entity_price(),
