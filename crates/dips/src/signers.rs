@@ -62,10 +62,30 @@ mod escrow_validator {
         fn validate(&self, payer: &Address, signer: &Address) -> Result<(), anyhow::Error> {
             let signers = self.watcher.borrow().get_signers_for_sender(payer);
 
-            if !signers.contains(signer) {
+            if signers.is_empty() {
+                tracing::warn!(
+                    payer = %payer,
+                    signer = %signer,
+                    "no escrow accounts found for payer — signer authorization may not be indexed yet"
+                );
                 return Err(anyhow!("Signer is not a valid signer for the sender"));
             }
 
+            if !signers.contains(signer) {
+                tracing::warn!(
+                    payer = %payer,
+                    signer = %signer,
+                    authorized_count = signers.len(),
+                    "signer not in authorized list for payer"
+                );
+                return Err(anyhow!("Signer is not a valid signer for the sender"));
+            }
+
+            tracing::debug!(
+                payer = %payer,
+                signer = %signer,
+                "signer authorization validated"
+            );
             Ok(())
         }
     }
