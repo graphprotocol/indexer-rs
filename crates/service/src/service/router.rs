@@ -170,11 +170,19 @@ impl ServiceRouter {
         // Maintain an up-to-date set of attestation signers, one for each
         // allocation. Multiple mnemonics are tried to support allocations
         // created with different operator keys.
+        // The grace period prevents premature signer eviction during network
+        // subgraph polling gaps.
+        let attestation_signer_grace_period = self
+            .network_subgraph
+            .as_ref()
+            .map(|(_, config)| config.recently_closed_allocation_buffer_secs)
+            .unwrap_or(std::time::Duration::from_secs(3600));
         let attestation_signers = attestation_signers(
             allocations.clone(),
             operator_mnemonics.clone(),
             self.blockchain.chain_id as u64,
             dispute_manager,
+            attestation_signer_grace_period,
         );
 
         // Rate limits by allowing bursts of 10 requests and requiring 100ms of
@@ -274,6 +282,7 @@ impl ServiceRouter {
                     receipt_max_value,
                     allowed_data_services,
                     service_provider: self.indexer.indexer_address,
+                    allocation_grace_period: attestation_signer_grace_period,
                 })
                 .await;
 
