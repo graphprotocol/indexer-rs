@@ -630,6 +630,55 @@ mod test {
         assert_eq!(id.as_bytes(), &expected_hash[..16]);
     }
 
+    /// Shared test vector with dipper (dipper-rpc/src/indexer.rs).
+    /// Both repos must produce the same bytes16 for this input.
+    /// If this test fails, the derivation has drifted from the on-chain
+    /// contract and/or from dipper -- cancellations and agreement
+    /// matching will break silently.
+    #[test]
+    fn test_derive_agreement_id_shared_vector() {
+        let rca = RecurringCollectionAgreement {
+            deadline: 1700000300,
+            endsAt: 1700086400,
+            payer: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+                .parse()
+                .unwrap(),
+            dataService: "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
+                .parse()
+                .unwrap(),
+            serviceProvider: "0xf4EF6650E48d099a4972ea5B414daB86e1998Bd3"
+                .parse()
+                .unwrap(),
+            maxInitialTokens: U256::from(1_000_000_000_000_000_000u64),
+            maxOngoingTokensPerSecond: U256::from(1_000_000_000_000_000u64),
+            minSecondsPerCollection: 3600,
+            maxSecondsPerCollection: 86400,
+            nonce: U256::from(0x019d44a86ac97e938672e2501fe630f2u128),
+            metadata: Default::default(),
+        };
+
+        let id = derive_agreement_id(&rca);
+
+        // Pinned expected value. If this fails, check:
+        // 1. dipper: dipper-rpc/src/indexer.rs test_derive_agreement_id_shared_vector
+        // 2. Solidity: RecurringCollector._generateAgreementId()
+        let expected: [u8; 16] = [
+            0x55, 0x79, 0x42, 0xae, 0xfa, 0xb6, 0x16, 0x09, 0xcf, 0xb9, 0xee, 0x14, 0xd3, 0x09,
+            0xa1, 0x7e,
+        ];
+        assert_eq!(
+            id.as_bytes(),
+            &expected,
+            "derive_agreement_id output does not match pinned shared vector. \
+             Actual: 0x{} -- update this test AND the matching test in \
+             dipper (dipper-rpc/src/indexer.rs)",
+            id.as_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+    }
+
     #[tokio::test]
     async fn test_validate_and_create_rca_success() {
         let payer_signer = PrivateKeySigner::random();
