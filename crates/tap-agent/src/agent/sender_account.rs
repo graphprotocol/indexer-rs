@@ -273,6 +273,8 @@ pub struct SenderAccountArgs {
     pub sender_id: Address,
     /// Watcher that returns a list of escrow accounts for current indexer
     pub escrow_accounts: Receiver<EscrowAccounts>,
+    /// Strict escrow accounts watcher (excludes thawing signers, for RAV verification)
+    pub escrow_accounts_strict: Receiver<EscrowAccounts>,
     /// Watcher of normalized allocation IDs for this sender
     pub indexer_allocations: Receiver<HashSet<AllocationId>>,
     /// SubgraphClient of the network subgraph
@@ -345,6 +347,8 @@ pub struct State {
 
     /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
+    /// Strict escrow accounts watcher (excludes thawing signers, for RAV verification)
+    escrow_accounts_strict: Receiver<EscrowAccounts>,
 
     /// SubgraphClient of the network subgraph
     network_subgraph: &'static SubgraphClient,
@@ -468,6 +472,7 @@ impl State {
             .allocation_id(collection_id)
             .sender(self.sender)
             .escrow_accounts(self.escrow_accounts.clone())
+            .escrow_accounts_strict(self.escrow_accounts_strict.clone())
             .network_subgraph(self.network_subgraph)
             .domain_separator(self.domain_separator_v2.clone())
             .sender_account_ref(sender_account_ref.clone())
@@ -748,6 +753,7 @@ impl Actor for SenderAccount {
             pgpool,
             sender_id,
             escrow_accounts,
+            escrow_accounts_strict,
             indexer_allocations,
             network_subgraph,
             domain_separator_v2,
@@ -1000,6 +1006,7 @@ impl Actor for SenderAccount {
             retry_interval,
             adaptive_limiter: AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50),
             escrow_accounts,
+            escrow_accounts_strict,
             network_subgraph,
             domain_separator_v2,
             pgpool,

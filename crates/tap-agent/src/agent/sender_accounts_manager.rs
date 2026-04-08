@@ -179,6 +179,8 @@ pub struct SenderAccountsManagerArgs {
     pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     /// Watcher containing the escrow accounts for v2
     pub escrow_accounts_v2: Receiver<EscrowAccounts>,
+    /// Strict escrow accounts watcher (excludes thawing signers, for RAV verification)
+    pub escrow_accounts_v2_strict: Receiver<EscrowAccounts>,
     /// SubgraphClient of the network subgraph
     pub network_subgraph: &'static SubgraphClient,
     /// Map containing all endpoints for senders provided in the config
@@ -203,6 +205,8 @@ pub struct State {
     indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     /// Watcher containing the escrow accounts for v2
     escrow_accounts_v2: Receiver<EscrowAccounts>,
+    /// Strict escrow accounts watcher (excludes thawing signers, for RAV verification)
+    escrow_accounts_v2_strict: Receiver<EscrowAccounts>,
     network_subgraph: &'static SubgraphClient,
     sender_aggregator_endpoints: HashMap<Address, Url>,
     prefix: Option<String>,
@@ -226,6 +230,7 @@ impl Actor for SenderAccountsManager {
             indexer_allocations,
             pgpool,
             escrow_accounts_v2,
+            escrow_accounts_v2_strict,
             network_subgraph,
             sender_aggregator_endpoints,
             prefix,
@@ -262,6 +267,7 @@ impl Actor for SenderAccountsManager {
             pgpool: pgpool.clone(),
             indexer_allocations,
             escrow_accounts_v2: escrow_accounts_v2.clone(),
+            escrow_accounts_v2_strict,
             network_subgraph,
             sender_aggregator_endpoints,
             prefix: prefix.clone(),
@@ -718,6 +724,7 @@ impl State {
             pgpool: self.pgpool.clone(),
             sender_id: *sender_id,
             escrow_accounts,
+            escrow_accounts_strict: self.escrow_accounts_v2_strict.clone(),
             indexer_allocations,
             network_subgraph: self.network_subgraph,
             domain_separator_v2: self.domain_separator_v2.clone(),
@@ -1051,7 +1058,8 @@ mod tests {
                 new_receipts_watcher_handle_v2: None,
                 pgpool,
                 indexer_allocations: watch::channel(HashMap::new()).1,
-                escrow_accounts_v2: watch::channel(escrow_accounts).1,
+                escrow_accounts_v2: watch::channel(escrow_accounts.clone()).1,
+                escrow_accounts_v2_strict: watch::channel(escrow_accounts).1,
                 network_subgraph: get_subgraph_client().await,
                 sender_aggregator_endpoints: HashMap::from([
                     (SENDER.1, Url::parse(&get_grpc_url().await).unwrap()),

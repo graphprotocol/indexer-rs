@@ -120,6 +120,7 @@ pub async fn start_agent(
         pgpool,
         indexer_allocations: indexer_allocations1,
         escrow_accounts_v2: escrow_accounts.clone(),
+        escrow_accounts_v2_strict: escrow_accounts.clone(),
         network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
         prefix: None,
