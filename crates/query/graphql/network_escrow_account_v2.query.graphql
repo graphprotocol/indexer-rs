@@ -16,8 +16,8 @@
 #   - `thawEndTimestamp_lte`: Only includes signers whose thaw end timestamp is less than or equal to the provided $thawEndTimestamp.
 #   - `isAuthorized: true`: Only includes signers that are authorized.
 
-query NetworkEscrowAccountQueryV2($receiver: Bytes!, $thawEndTimestamp: BigInt!) {
-    paymentsEscrowAccounts(where: { receiver_: { id: $receiver } }) {
+query NetworkEscrowAccountQueryV2($receiver: Bytes!, $thawEndTimestamp: BigInt!, $collector: Bytes!) {
+    paymentsEscrowAccounts(where: { receiver_: { id: $receiver }, collector_: { id: $collector } }) {
         balance
         totalAmountThawing
         payer {

@@ -131,11 +131,14 @@ pub async fn run() -> anyhow::Result<()> {
 
     tracing::info!("Horizon contracts detected - using Horizon (V2) mode");
 
+    let graph_tally_collector_address = config.blockchain.graph_tally_collector_address;
+
     let v2_watcher = match indexer_monitor::escrow_accounts_v2(
         network_subgraph,
         indexer_address,
         config.subgraphs.network.config.syncing_interval_secs,
         true, // Reject thawing signers eagerly
+        graph_tally_collector_address,
     )
     .await
     {
@@ -225,6 +228,7 @@ pub async fn run() -> anyhow::Result<()> {
             indexer_address,
             Duration::from_secs(500),
             true,
+            graph_tally_collector_address,
         )
         .await
         .with_context(|| "Failed to create escrow accounts V2 watcher for DIPS")?;

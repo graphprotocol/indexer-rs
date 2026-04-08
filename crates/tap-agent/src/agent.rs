@@ -179,6 +179,7 @@ pub async fn start_agent(
         *indexer_address,
         *network_sync_interval,
         false,
+        CONFIG.blockchain.graph_tally_collector_address,
     )
     .await
     .with_context(|| "Error creating escrow_accounts_v2 channel")?;

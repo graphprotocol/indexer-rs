@@ -546,6 +546,8 @@ pub struct BlockchainConfig {
     pub receipts_verifier_address_v2: Address,
     /// Address of the SubgraphService contract used for Horizon operations
     pub subgraph_service_address: Option<Address>,
+    /// Address of the GraphTallyCollector contract used to filter V2 escrow account queries.
+    pub graph_tally_collector_address: Address,
 }
 
 impl BlockchainConfig {

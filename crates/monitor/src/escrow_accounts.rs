@@ -135,9 +135,15 @@ pub async fn escrow_accounts_v2(
     indexer_address: Address,
     interval: Duration,
     reject_thawing_signers: bool,
+    graph_tally_collector_address: Address,
 ) -> Result<EscrowAccountsWatcher, anyhow::Error> {
     indexer_watcher::new_watcher(interval, move || {
-        get_escrow_accounts_v2(escrow_subgraph, indexer_address, reject_thawing_signers)
+        get_escrow_accounts_v2(
+            escrow_subgraph,
+            indexer_address,
+            reject_thawing_signers,
+            graph_tally_collector_address,
+        )
     })
     .await
 }
@@ -146,6 +152,7 @@ async fn get_escrow_accounts_v2(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     reject_thawing_signers: bool,
+    graph_tally_collector_address: Address,
 ) -> anyhow::Result<EscrowAccounts> {
     tracing::trace!(
         indexer_address = ?indexer_address,
@@ -162,6 +169,7 @@ async fn get_escrow_accounts_v2(
     let response = escrow_subgraph
         .query::<NetworkEscrowAccountQueryV2, _>(network_escrow_account_v2::Variables {
             receiver: format!("{indexer_address:x?}"),
+            collector: format!("{graph_tally_collector_address:x?}"),
             thaw_end_timestamp: if reject_thawing_signers {
                 U256::ZERO.to_string()
             } else {
@@ -405,6 +413,7 @@ mod tests {
             test_assets::INDEXER_ADDRESS,
             Duration::from_secs(60),
             true,
+            Address::ZERO, // collector address; mock ignores query variables
         )
         .await
         .unwrap();

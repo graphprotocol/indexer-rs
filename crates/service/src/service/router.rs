@@ -149,6 +149,7 @@ impl ServiceRouter {
                 indexer_address,
                 escrow.config.syncing_interval_secs,
                 true, // Reject thawing signers eagerly
+                self.blockchain.graph_tally_collector_address,
             )
             .await
             .expect("Error creating escrow_accounts_v2 channel"),
