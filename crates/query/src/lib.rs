@@ -138,7 +138,7 @@ pub mod network_escrow_account_v2 {
     )]
     pub struct NetworkEscrowAccountQueryV2;
 
-    pub use network_escrow_account_query_v2::Variables;
+    pub use network_escrow_account_query_v2::*;
 }
 
 pub mod horizon_detection {

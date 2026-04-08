@@ -1,31 +1,63 @@
 # Network Subgraph EscrowAccount Query V2
-# 
+#
 # This query retrieves V2 escrow account information from the network subgraph,
 # which tracks PaymentsEscrow and GraphTallyCollector contract events.
 #
 # Input Variables:
 # - $receiver (Bytes!): The address of the Indexer whose escrow accounts are being queried.
 # - $thawEndTimestamp (BigInt!): A timestamp used to filter signers whose thaw period has ended or is about to end.
+# - $first (Int!): Page size for pagination.
+# - $skip (Int!): Number of results to skip for pagination.
+# - $block (Block_height): Optional block pinning for consistent reads across pages.
 #
 # Query Logic:
 # - Fetches escrow accounts where the `receiver` is the provided indexer address.
+# - Filters out accounts below 0.1 GRT (balance_gt: "100000000000000000") to raise the cost of
+#   dust-deposit crowding attacks. This threshold is deliberately conservative and can be increased
+#   if page-count monitoring indicates sustained crowding.
+# - Results are ordered by id for deterministic pagination.
 # - Returns the following information for each escrow account:
+#   - `id`: The entity ID (used for pagination tracking).
 #   - `balance`: The current balance of the escrow account.
 #   - `totalAmountThawing`: The total amount currently thawing in the escrow.
 # - Retrieves the payer and filters the payer's `signers` based on:
 #   - `thawEndTimestamp_lte`: Only includes signers whose thaw end timestamp is less than or equal to the provided $thawEndTimestamp.
 #   - `isAuthorized: true`: Only includes signers that are authorized.
+#   - Nested signers are capped at 1000 per payer to prevent truncation at the default limit.
 
-query NetworkEscrowAccountQueryV2($receiver: Bytes!, $thawEndTimestamp: BigInt!, $collector: Bytes!) {
-    paymentsEscrowAccounts(where: { receiver_: { id: $receiver }, collector_: { id: $collector } }) {
+query NetworkEscrowAccountQueryV2(
+    $receiver: Bytes!
+    $thawEndTimestamp: BigInt!
+    $collector: Bytes!
+    $first: Int!
+    $skip: Int!
+    $block: Block_height
+) {
+    meta: _meta(block: $block) { block { number hash timestamp } }
+    paymentsEscrowAccounts(
+        block: $block
+        orderBy: id
+        orderDirection: asc
+        first: $first
+        skip: $skip
+        where: {
+            receiver_: { id: $receiver }
+            collector_: { id: $collector }
+            balance_gt: "100000000000000000"
+        }
+    ) {
+        id
         balance
         totalAmountThawing
         payer {
             id
-            signers(where: {
-                thawEndTimestamp_lte: $thawEndTimestamp
-                isAuthorized: true
-            }) {
+            signers(
+                first: 1000
+                where: {
+                    thawEndTimestamp_lte: $thawEndTimestamp
+                    isAuthorized: true
+                }
+            ) {
                 id
             }
         }

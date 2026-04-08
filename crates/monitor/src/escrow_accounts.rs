@@ -159,40 +159,82 @@ async fn get_escrow_accounts_v2(
         reject_thawing_signers,
         "Loading V2 escrow accounts for indexer"
     );
-    // Query V2 escrow accounts from the network subgraph which tracks PaymentsEscrow
-    // and GraphTallyCollector contract events.
 
     use indexer_query::network_escrow_account_v2::{
-        self as network_escrow_account_v2, NetworkEscrowAccountQueryV2,
+        self as network_escrow_account_v2, Block_height, NetworkEscrowAccountQueryV2,
     };
 
-    let response = escrow_subgraph
-        .query::<NetworkEscrowAccountQueryV2, _>(network_escrow_account_v2::Variables {
-            receiver: format!("{indexer_address:x?}"),
-            collector: format!("{graph_tally_collector_address:x?}"),
-            thaw_end_timestamp: if reject_thawing_signers {
-                U256::ZERO.to_string()
-            } else {
-                U256::MAX.to_string()
-            },
-        })
-        .await?;
+    let page_size: i64 = 200;
+    let mut skip: i64 = 0;
+    let mut block_hash: Option<String> = None;
+    let mut all_accounts = vec![];
 
-    // V2 TAP receipts use different field names (payer/service_provider) but the underlying
-    // escrow account model is identical to V1. Both V1 and V2 receipts reference the same
-    // sender addresses and the same escrow relationships.
-    //
-    // V1 queries the TAP subgraph while V2 queries the network subgraph, but both return
-    // the same escrow account structure for processing.
-    //
-    // V2 receipt flow:
-    // 1. V2 receipt contains payer address (equivalent to V1 sender)
-    // 2. Receipt is signed by a signer authorized by the payer
-    // 3. Escrow accounts map: signer -> payer (sender) -> balance
-    // 4. Service provider (indexer) receives payments from payer's escrow
+    let thaw_end_timestamp = if reject_thawing_signers {
+        U256::ZERO.to_string()
+    } else {
+        U256::MAX.to_string()
+    };
 
-    let senders_balances: HashMap<Address, U256> = response
-        .payments_escrow_accounts
+    let mut pages_fetched: u64 = 0;
+
+    loop {
+        let response = escrow_subgraph
+            .query::<NetworkEscrowAccountQueryV2, _>(network_escrow_account_v2::Variables {
+                receiver: format!("{indexer_address:x?}"),
+                collector: format!("{graph_tally_collector_address:x?}"),
+                thaw_end_timestamp: thaw_end_timestamp.clone(),
+                first: page_size,
+                skip,
+                block: block_hash.as_ref().map(|h| Block_height {
+                    hash: Some(h.clone()),
+                    number: None,
+                    number_gte: None,
+                }),
+            })
+            .await?;
+
+        let page_len = response.payments_escrow_accounts.len();
+        pages_fetched += 1;
+
+        // Pin to the block hash from the first page for consistent reads across pages
+        if block_hash.is_none() {
+            block_hash = response.meta.and_then(|m| m.block.hash);
+        }
+
+        // Detect possible signer truncation within any payer on this page
+        for account in &response.payments_escrow_accounts {
+            if account.payer.signers.len() >= 1000 {
+                tracing::warn!(
+                    payer = %account.payer.id,
+                    signers = account.payer.signers.len(),
+                    "Payer signers hit the 1000-per-payer query cap; additional signers may be truncated"
+                );
+            }
+        }
+
+        all_accounts.extend(response.payments_escrow_accounts);
+
+        if (page_len as i64) < page_size {
+            break;
+        }
+        skip += page_size;
+    }
+
+    tracing::info!(
+        pages = pages_fetched,
+        accounts = all_accounts.len(),
+        "V2 escrow account pagination complete"
+    );
+
+    if pages_fetched > 5 {
+        tracing::warn!(
+            pages = pages_fetched,
+            accounts = all_accounts.len(),
+            "Unusually high number of V2 escrow accounts; this may indicate a dust-deposit crowding attack"
+        );
+    }
+
+    let senders_balances: HashMap<Address, U256> = all_accounts
         .iter()
         .map(|account| {
             let balance = U256::checked_sub(
@@ -211,8 +253,7 @@ async fn get_escrow_accounts_v2(
         })
         .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 
-    let senders_to_signers = response
-        .payments_escrow_accounts
+    let senders_to_signers = all_accounts
         .into_iter()
         .map(|account| {
             let payer = Address::from_str(&account.payer.id)?;
@@ -226,7 +267,13 @@ async fn get_escrow_accounts_v2(
         })
         .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 
-    let escrow_accounts = EscrowAccounts::new(senders_balances.clone(), senders_to_signers.clone());
+    let escrow_accounts = EscrowAccounts::new(senders_balances, senders_to_signers);
+
+    tracing::info!(
+        senders = escrow_accounts.get_senders().len(),
+        signers = escrow_accounts.signer_count(),
+        "V2 escrow accounts loaded"
+    );
 
     Ok(escrow_accounts)
 }

@@ -115,8 +115,16 @@ pub const ESCROW_QUERY_RESPONSE: &str = r#"
 pub const ESCROW_QUERY_RESPONSE_V2: &str = r#"
     {
         "data": {
+            "meta": {
+                "block": {
+                    "number": 12345,
+                    "hash": "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    "timestamp": 1700000000
+                }
+            },
             "paymentsEscrowAccounts": [
                 {
+                    "id": "0x01",
                     "balance": "34",
                     "totalAmountThawing": "10",
                     "payer": {
@@ -132,6 +140,7 @@ pub const ESCROW_QUERY_RESPONSE_V2: &str = r#"
                     }
                 },
                 {
+                    "id": "0x02",
                     "balance": "42",
                     "totalAmountThawing": "0",
                     "payer": {
@@ -144,6 +153,7 @@ pub const ESCROW_QUERY_RESPONSE_V2: &str = r#"
                     }
                 },
                 {
+                    "id": "0x03",
                     "balance": "2987",
                     "totalAmountThawing": "12",
                     "payer": {
