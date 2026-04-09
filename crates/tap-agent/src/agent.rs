@@ -302,5 +302,11 @@ mod tests {
             !sender_accounts_manager::RECEIPTS_CREATED.desc().is_empty(),
             "tap_receipts_received_total should be registered"
         );
+        assert!(
+            !sender_accounts_manager::SIGNER_LOOKUP_FAILURES
+                .desc()
+                .is_empty(),
+            "tap_signer_lookup_failures_total should be registered"
+        );
     }
 }
