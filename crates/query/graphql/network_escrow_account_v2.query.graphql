@@ -28,7 +28,7 @@
 query NetworkEscrowAccountQueryV2(
     $receiver: Bytes!
     $thawEndTimestamp: BigInt!
-    $collector: Bytes!
+    $collector: String!
     $first: Int!
     $skip: Int!
     $block: Block_height
@@ -42,7 +42,7 @@ query NetworkEscrowAccountQueryV2(
         skip: $skip
         where: {
             receiver_: { id: $receiver }
-            collector_: { id: $collector }
+            collector: $collector
             balance_gt: "100000000000000000"
         }
     ) {
