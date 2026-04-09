@@ -7,7 +7,7 @@
 # - $receiver (Bytes!): The address of the Indexer whose escrow accounts are being queried.
 # - $thawEndTimestamp (BigInt!): A timestamp used to filter signers whose thaw period has ended or is about to end.
 # - $first (Int!): Page size for pagination.
-# - $skip (Int!): Number of results to skip for pagination.
+# - $last (ID!): The ID of the last entity from the previous page (cursor-based pagination).
 # - $block (Block_height): Optional block pinning for consistent reads across pages.
 #
 # Query Logic:
@@ -15,7 +15,7 @@
 # - Filters out accounts below 0.1 GRT (balance_gt: "100000000000000000") to raise the cost of
 #   dust-deposit crowding attacks. This threshold is deliberately conservative and can be increased
 #   if page-count monitoring indicates sustained crowding.
-# - Results are ordered by id for deterministic pagination.
+# - Results are ordered by id for deterministic cursor-based pagination (id_gt).
 # - Returns the following information for each escrow account:
 #   - `id`: The entity ID (used for pagination tracking).
 #   - `balance`: The current balance of the escrow account.
@@ -30,7 +30,7 @@ query NetworkEscrowAccountQueryV2(
     $thawEndTimestamp: BigInt!
     $collector: String!
     $first: Int!
-    $skip: Int!
+    $last: ID!
     $block: Block_height
 ) {
     meta: _meta(block: $block) { block { number hash timestamp } }
@@ -39,11 +39,13 @@ query NetworkEscrowAccountQueryV2(
         orderBy: id
         orderDirection: asc
         first: $first
-        skip: $skip
         where: {
-            receiver_: { id: $receiver }
-            collector: $collector
-            balance_gt: "100000000000000000"
+            and: [
+                { id_gt: $last }
+                { receiver_: { id: $receiver } }
+                { collector: $collector }
+                { balance_gt: "100000000000000000" }
+            ]
         }
     ) {
         id

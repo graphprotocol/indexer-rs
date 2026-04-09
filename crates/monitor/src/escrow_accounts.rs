@@ -165,7 +165,7 @@ async fn get_escrow_accounts_v2(
     };
 
     let page_size: i64 = 200;
-    let mut skip: i64 = 0;
+    let mut last: Option<String> = None;
     let mut block_hash: Option<String> = None;
     let mut all_accounts = vec![];
 
@@ -184,7 +184,7 @@ async fn get_escrow_accounts_v2(
                 collector: format!("{graph_tally_collector_address:x?}"),
                 thaw_end_timestamp: thaw_end_timestamp.clone(),
                 first: page_size,
-                skip,
+                last: last.unwrap_or_default(),
                 block: block_hash.as_ref().map(|h| Block_height {
                     hash: Some(h.clone()),
                     number: None,
@@ -212,12 +212,15 @@ async fn get_escrow_accounts_v2(
             }
         }
 
+        last = response
+            .payments_escrow_accounts
+            .last()
+            .map(|a| a.id.to_string());
         all_accounts.extend(response.payments_escrow_accounts);
 
         if (page_len as i64) < page_size {
             break;
         }
-        skip += page_size;
     }
 
     tracing::info!(
