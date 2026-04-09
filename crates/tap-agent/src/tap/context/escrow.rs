@@ -13,7 +13,7 @@ impl<T: NetworkVersion + Send + Sync> SignatureChecker for TapAgentContext<T> {
     type AdapterError = AdapterError;
 
     async fn verify_signer(&self, signer: Address) -> Result<bool, Self::AdapterError> {
-        let escrow_accounts = self.escrow_accounts.borrow();
+        let escrow_accounts = self.escrow_accounts_strict.borrow();
         let sender = escrow_accounts
             .get_sender_for_signer(&signer)
             .map_err(|_| AdapterError::ValidationError {
@@ -61,7 +61,8 @@ mod tests {
         TapAgentContext::builder()
             .pgpool(test_db.pool)
             .sender(sender)
-            .escrow_accounts(rx)
+            .escrow_accounts(rx.clone())
+            .escrow_accounts_strict(rx)
             .build()
     }
 
@@ -99,7 +100,8 @@ mod tests {
         let ctx = TapAgentContext::<Horizon>::builder()
             .pgpool(test_db.pool)
             .sender(SENDER)
-            .escrow_accounts(rx)
+            .escrow_accounts(rx.clone())
+            .escrow_accounts_strict(rx)
             .build();
         let result = ctx.verify_signer(ACTIVE_SIGNER).await;
         assert!(

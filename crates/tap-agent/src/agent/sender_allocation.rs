@@ -493,7 +493,8 @@ where
             .allocation_id(T::allocation_id_to_address(&allocation_id))
             .indexer_address(config.indexer_address)
             .sender(sender)
-            .escrow_accounts(escrow_accounts_strict.clone())
+            .escrow_accounts(escrow_accounts.clone())
+            .escrow_accounts_strict(escrow_accounts_strict.clone())
             .subgraph_service_address(subgraph_service_address)
             .build();
 
