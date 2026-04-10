@@ -100,6 +100,8 @@ pub async fn start_agent(
                             },
                         recently_closed_allocation_buffer_secs: recently_closed_allocation_buffer,
                         max_data_staleness_mins,
+                        ref escrow_min_balance_grt_wei,
+                        max_signers_per_payer,
                     },
                 escrow: EscrowSubgraphConfig { .. },
             },
@@ -180,6 +182,8 @@ pub async fn start_agent(
         *network_sync_interval,
         false,
         CONFIG.blockchain.graph_tally_collector_address,
+        escrow_min_balance_grt_wei.clone(),
+        *max_signers_per_payer,
     )
     .await
     .with_context(|| "Error creating escrow_accounts_v2 channel")?;
@@ -192,6 +196,8 @@ pub async fn start_agent(
         *network_sync_interval,
         true,
         CONFIG.blockchain.graph_tally_collector_address,
+        escrow_min_balance_grt_wei.clone(),
+        *max_signers_per_payer,
     )
     .await
     .with_context(|| "Error creating escrow_accounts_v2_strict channel")?;
@@ -301,12 +307,6 @@ mod tests {
         assert!(
             !sender_accounts_manager::RECEIPTS_CREATED.desc().is_empty(),
             "tap_receipts_received_total should be registered"
-        );
-        assert!(
-            !sender_accounts_manager::SIGNER_LOOKUP_FAILURES
-                .desc()
-                .is_empty(),
-            "tap_signer_lookup_failures_total should be registered"
         );
     }
 }

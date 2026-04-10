@@ -101,13 +101,6 @@ impl EscrowAccounts {
     pub fn contains_signer(&self, signer: &Address) -> bool {
         self.signers_to_senders.contains_key(signer)
     }
-
-    pub fn get_all_mappings(&self) -> Vec<(Address, Address)> {
-        self.signers_to_senders
-            .iter()
-            .map(|(signer, sender)| (*signer, *sender))
-            .collect()
-    }
 }
 
 pub type EscrowAccountsWatcher = Receiver<EscrowAccounts>;
@@ -136,6 +129,8 @@ pub async fn escrow_accounts_v2(
     interval: Duration,
     reject_thawing_signers: bool,
     graph_tally_collector_address: Address,
+    min_balance_grt_wei: String,
+    max_signers_per_payer: usize,
 ) -> Result<EscrowAccountsWatcher, anyhow::Error> {
     indexer_watcher::new_watcher(interval, move || {
         get_escrow_accounts_v2(
@@ -143,6 +138,8 @@ pub async fn escrow_accounts_v2(
             indexer_address,
             reject_thawing_signers,
             graph_tally_collector_address,
+            min_balance_grt_wei.clone(),
+            max_signers_per_payer,
         )
     })
     .await
@@ -153,6 +150,8 @@ async fn get_escrow_accounts_v2(
     indexer_address: Address,
     reject_thawing_signers: bool,
     graph_tally_collector_address: Address,
+    min_balance_grt_wei: String,
+    max_signers_per_payer: usize,
 ) -> anyhow::Result<EscrowAccounts> {
     tracing::trace!(
         indexer_address = ?indexer_address,
@@ -163,6 +162,7 @@ async fn get_escrow_accounts_v2(
     use indexer_query::network_escrow_account_v2::{
         self as network_escrow_account_v2, Block_height, NetworkEscrowAccountQueryV2,
     };
+    use indexer_query::signers_by_payer::{self as signers_by_payer, SignersByPayerQuery};
 
     let page_size: i64 = 200;
     let mut last: Option<String> = None;
@@ -185,6 +185,7 @@ async fn get_escrow_accounts_v2(
                 thaw_end_timestamp: thaw_end_timestamp.clone(),
                 first: page_size,
                 last: last.unwrap_or_default(),
+                min_balance: min_balance_grt_wei.clone(),
                 block: block_hash.as_ref().map(|h| Block_height {
                     hash: Some(h.clone()),
                     number: None,
@@ -198,18 +199,91 @@ async fn get_escrow_accounts_v2(
 
         // Pin to the block hash from the first page for consistent reads across pages
         if block_hash.is_none() {
-            block_hash = response.meta.and_then(|m| m.block.hash);
+            block_hash = response.meta.as_ref().and_then(|m| m.block.hash.clone());
         }
 
-        // Detect possible signer truncation within any payer on this page
-        for account in &response.payments_escrow_accounts {
-            if account.payer.signers.len() >= 1000 {
+        // Paginate additional signers for any payer that hit the 1000-per-payer nested cap
+        let mut response = response;
+        for account in &mut response.payments_escrow_accounts {
+            if account.payer.signers.len() < 1000 {
+                continue;
+            }
+
+            if account.payer.signers.len() >= max_signers_per_payer {
                 tracing::warn!(
                     payer = %account.payer.id,
                     signers = account.payer.signers.len(),
-                    "Payer signers hit the 1000-per-payer query cap; additional signers may be truncated"
+                    max = max_signers_per_payer,
+                    "Payer signers already at or above max_signers_per_payer cap; skipping follow-up pagination"
                 );
+                account.payer.signers.truncate(max_signers_per_payer);
+                continue;
             }
+
+            let mut signer_cursor = account
+                .payer
+                .signers
+                .last()
+                .map(|s| s.id.clone())
+                .unwrap_or_default();
+
+            tracing::info!(
+                payer = %account.payer.id,
+                initial_signers = account.payer.signers.len(),
+                "Payer hit nested signer cap; starting follow-up pagination"
+            );
+
+            loop {
+                let signer_response = escrow_subgraph
+                    .query::<SignersByPayerQuery, _>(signers_by_payer::Variables {
+                        payer: account.payer.id.clone(),
+                        first: 1000,
+                        last: signer_cursor.clone(),
+                        thaw_end_timestamp: thaw_end_timestamp.clone(),
+                        block: block_hash.as_ref().map(|h| signers_by_payer::Block_height {
+                            hash: Some(h.clone()),
+                            number: None,
+                            number_gte: None,
+                        }),
+                    })
+                    .await?;
+
+                let page_len = signer_response.signers.len();
+
+                for signer in &signer_response.signers {
+                    account.payer.signers.push(
+                        network_escrow_account_v2::NetworkEscrowAccountQueryV2PaymentsEscrowAccountsPayerSigners {
+                            id: signer.id.clone(),
+                        },
+                    );
+                }
+
+                if page_len < 1000 || account.payer.signers.len() >= max_signers_per_payer {
+                    break;
+                }
+
+                signer_cursor = signer_response
+                    .signers
+                    .last()
+                    .map(|s| s.id.clone())
+                    .unwrap_or_default();
+            }
+
+            if account.payer.signers.len() >= max_signers_per_payer {
+                tracing::warn!(
+                    payer = %account.payer.id,
+                    signers = account.payer.signers.len(),
+                    max = max_signers_per_payer,
+                    "Payer signers capped at max_signers_per_payer"
+                );
+                account.payer.signers.truncate(max_signers_per_payer);
+            }
+
+            tracing::info!(
+                payer = %account.payer.id,
+                total_signers = account.payer.signers.len(),
+                "Signer follow-up pagination complete"
+            );
         }
 
         last = response
@@ -464,6 +538,8 @@ mod tests {
             Duration::from_secs(60),
             true,
             Address::ZERO, // collector address; mock ignores query variables
+            "100000000000000000".to_string(),
+            1000,
         )
         .await
         .unwrap();

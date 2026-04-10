@@ -14,7 +14,7 @@ use futures::{stream, StreamExt};
 use indexer_allocation::Allocation;
 use indexer_monitor::{EscrowAccounts, SubgraphClient};
 use indexer_watcher::{map_watcher, watch_pipe};
-use prometheus::{register_counter_vec, register_int_counter, CounterVec, IntCounter};
+use prometheus::{register_counter_vec, CounterVec};
 use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use reqwest::Url;
 use serde::Deserialize;
@@ -35,14 +35,6 @@ pub(crate) static RECEIPTS_CREATED: LazyLock<CounterVec> = LazyLock::new(|| {
         "tap_receipts_received_total",
         "Receipts received since start of the program.",
         &["sender", "allocation"]
-    )
-    .unwrap()
-});
-
-pub(crate) static SIGNER_LOOKUP_FAILURES: LazyLock<IntCounter> = LazyLock::new(|| {
-    register_int_counter!(
-        "tap_signer_lookup_failures_total",
-        "Signer found in database but could not be resolved to a sender via escrow accounts or local cache"
     )
     .unwrap()
 });
@@ -255,11 +247,8 @@ impl Actor for SenderAccountsManager {
 
         let myself_clone = myself.clone();
         let _escrow_accounts_v2 = escrow_accounts_v2.clone();
-        let pgpool_for_pipe = pgpool.clone();
         watch_pipe(_escrow_accounts_v2, move |escrow_accounts| {
             let senders = escrow_accounts.get_senders();
-            let escrow_for_persist = escrow_accounts.clone();
-            let pgpool = pgpool_for_pipe.clone();
             myself_clone
                 .cast(SenderAccountsManagerMessage::UpdateSenderAccountsV2(
                     senders,
@@ -267,27 +256,8 @@ impl Actor for SenderAccountsManager {
                 .unwrap_or_else(|e| {
                     tracing::error!(error = ?e, "Error while updating sender_accounts v2");
                 });
-            async move {
-                if let Err(e) = upsert_escrow_signers(&pgpool, &escrow_for_persist).await {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to persist escrow signer mappings to cache"
-                    );
-                }
-            }
+            async {}
         });
-
-        // Persist the initial signer-to-sender mappings before
-        // get_pending_sender_allocation_id_v2() so the cache fallback is available.
-        {
-            let initial_escrow = escrow_accounts_v2.borrow().clone();
-            if let Err(e) = upsert_escrow_signers(&pgpool, &initial_escrow).await {
-                tracing::warn!(
-                    error = %e,
-                    "Failed to persist initial escrow signer mappings"
-                );
-            }
-        }
 
         let mut state = State {
             config,
@@ -325,7 +295,6 @@ impl Actor for SenderAccountsManager {
                 .actor_cell(myself.get_cell())
                 .pglistener(pglistener_v2)
                 .escrow_accounts_rx(escrow_accounts_v2)
-                .pgpool(pgpool)
                 .maybe_prefix(prefix)
                 .call(),
         ));
@@ -606,35 +575,11 @@ impl State {
             let sender_id = match live_lookup {
                 Some(sender) => sender,
                 None => {
-                    // Signer not in live escrow data -- try local cache
-                    match lookup_cached_sender(&self.pgpool, &signer_id).await {
-                        Ok(Some(sender)) => {
-                            tracing::info!(
-                                signer = %signer_id,
-                                sender = %sender,
-                                "Signer resolved via local cache \
-                                 (truncated from subgraph query)"
-                            );
-                            sender
-                        }
-                        Ok(None) => {
-                            tracing::warn!(
-                                signer = %signer_id,
-                                "Signer not found in escrow accounts or local cache"
-                            );
-                            SIGNER_LOOKUP_FAILURES.inc();
-                            continue;
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                signer = %signer_id,
-                                error = %e,
-                                "Failed to query signer cache; skipping signer"
-                            );
-                            SIGNER_LOOKUP_FAILURES.inc();
-                            continue;
-                        }
-                    }
+                    tracing::warn!(
+                        signer = %signer_id,
+                        "Signer not found in escrow accounts; skipping"
+                    );
+                    continue;
                 }
             };
 
@@ -809,58 +754,6 @@ impl State {
     }
 }
 
-/// Persist all signer-to-sender mappings from the given `EscrowAccounts` into the local
-/// `tap_escrow_signers` cache table. Uses UPSERT so that existing entries get their
-/// `last_seen_at` timestamp refreshed.
-async fn upsert_escrow_signers(
-    pgpool: &PgPool,
-    escrow_accounts: &EscrowAccounts,
-) -> anyhow::Result<()> {
-    let mappings = escrow_accounts.get_all_mappings();
-    if mappings.is_empty() {
-        return Ok(());
-    }
-    let now = sqlx::types::chrono::Utc::now();
-    for (signer, sender) in &mappings {
-        sqlx::query(
-            r#"
-                INSERT INTO tap_escrow_signers (signer_address, sender_address, last_seen_at)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (signer_address)
-                DO UPDATE SET sender_address = $2, last_seen_at = $3
-            "#,
-        )
-        .bind(signer.encode_hex())
-        .bind(sender.encode_hex())
-        .bind(now)
-        .execute(pgpool)
-        .await?;
-    }
-    tracing::debug!(
-        count = mappings.len(),
-        "Upserted signer-to-sender mappings into tap_escrow_signers cache"
-    );
-    Ok(())
-}
-
-/// Look up a single signer-to-sender mapping from the local `tap_escrow_signers` cache.
-/// Returns `Ok(Some(sender))` if found, `Ok(None)` if not cached.
-async fn lookup_cached_sender(
-    pgpool: &PgPool,
-    signer: &Address,
-) -> anyhow::Result<Option<Address>> {
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT sender_address FROM tap_escrow_signers WHERE signer_address = $1")
-            .bind(signer.encode_hex())
-            .fetch_optional(pgpool)
-            .await?;
-
-    match row {
-        Some((sender_str,)) => Ok(Some(Address::from_str(sender_str.trim())?)),
-        None => Ok(None),
-    }
-}
-
 /// Continuously listens for new receipt notifications from Postgres and forwards them to the
 /// corresponding SenderAccount.
 #[bon::builder]
@@ -868,7 +761,6 @@ async fn new_receipts_watcher(
     actor_cell: ActorCell,
     mut pglistener: PgListener,
     escrow_accounts_rx: Receiver<EscrowAccounts>,
-    pgpool: PgPool,
     prefix: Option<String>,
 ) {
     pglistener
@@ -915,7 +807,6 @@ async fn new_receipts_watcher(
         match handle_notification(
             new_receipt_notification,
             escrow_accounts_rx.clone(),
-            &pgpool,
             prefix.as_deref(),
         )
         .await
@@ -958,7 +849,6 @@ async fn new_receipts_watcher(
 async fn handle_notification(
     new_receipt_notification: NewReceiptNotification,
     escrow_accounts_rx: Receiver<EscrowAccounts>,
-    pgpool: &PgPool,
     prefix: Option<&str>,
 ) -> anyhow::Result<()> {
     tracing::trace!(
@@ -980,37 +870,11 @@ async fn handle_notification(
     let sender_address = match live_lookup {
         Some(sender) => sender,
         None => {
-            // Signer not in live escrow data -- try local cache
-            match lookup_cached_sender(pgpool, &signer).await {
-                Ok(Some(sender)) => {
-                    tracing::info!(
-                        signer = %signer,
-                        sender = %sender,
-                        "Signer resolved via local cache (truncated from subgraph query)"
-                    );
-                    sender
-                }
-                Ok(None) => {
-                    tracing::error!(
-                        signer = ?signer,
-                        "No sender found for signer in escrow accounts or local cache",
-                    );
-                    SIGNER_LOOKUP_FAILURES.inc();
-                    bail!(
-                        "No sender found for signer {} in escrow accounts or local cache",
-                        signer,
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(
-                        signer = ?signer,
-                        error = %e,
-                        "Failed to query signer cache",
-                    );
-                    SIGNER_LOOKUP_FAILURES.inc();
-                    bail!("Failed to query signer cache for {}: {}", signer, e,);
-                }
-            }
+            tracing::error!(
+                signer = ?signer,
+                "No sender found for signer in escrow accounts",
+            );
+            bail!("No sender found for signer {} in escrow accounts", signer);
         }
     };
 
@@ -1112,7 +976,6 @@ async fn handle_notification(
 pub fn init_metrics() {
     // Dereference each LazyLock to force initialization
     let _ = &*RECEIPTS_CREATED;
-    let _ = &*SIGNER_LOOKUP_FAILURES;
 }
 
 #[cfg(test)]
@@ -1391,7 +1254,6 @@ mod tests {
                 .actor_cell(dummy_actor.get_cell())
                 .pglistener(pglistener)
                 .escrow_accounts_rx(escrow_accounts_rx)
-                .pgpool(pgpool.clone())
                 .prefix(prefix.clone())
                 .call(),
         );
@@ -1438,7 +1300,6 @@ mod tests {
                 .actor_cell(dummy_actor.get_cell())
                 .pglistener(pglistener)
                 .escrow_accounts_rx(escrow_accounts_rx)
-                .pgpool(pgpool.clone())
                 .call(),
         );
         pgpool.close().await;
@@ -1450,7 +1311,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_allocation_id() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let pgpool = test_db.pool;
+        let _pgpool = test_db.pool;
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
         let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
         let escrow_accounts = watch::channel(escrow_accounts).1;
@@ -1478,14 +1339,9 @@ mod tests {
             value: 1,
         };
 
-        handle_notification(
-            new_receipt_notification,
-            escrow_accounts,
-            &pgpool,
-            Some(&prefix),
-        )
-        .await
-        .unwrap();
+        handle_notification(new_receipt_notification, escrow_accounts, Some(&prefix))
+            .await
+            .unwrap();
 
         let new_alloc_msg = rx.recv().await.unwrap();
         insta::assert_debug_snapshot!(new_alloc_msg);
@@ -1532,60 +1388,7 @@ mod tests {
         let result = state.get_pending_sender_allocation_id_v2().await;
         assert!(
             result.is_empty(),
-            "Expected empty result when signer is not in escrow accounts or cache"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_pending_allocations_fallback_to_cache() {
-        let test_db = test_assets::setup_shared_test_db().await;
-        let pgpool = test_db.pool;
-
-        // Pre-populate the signer cache with SIGNER -> SENDER mapping
-        let full_escrow = EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(1000))]),
-            HashMap::from([(SENDER.1, vec![SIGNER.1])]),
-        );
-        super::upsert_escrow_signers(&pgpool, &full_escrow)
-            .await
-            .unwrap();
-
-        // Create state with EMPTY signers (simulating truncation)
-        let truncated_escrow = EscrowAccounts::new(
-            HashMap::from([(SENDER.1, U256::from(1000))]),
-            HashMap::from([(SENDER.1, vec![])]),
-        );
-
-        let prefix = generate_random_prefix();
-        let state = State {
-            config: get_sender_account_config(),
-            domain_separator_v2: TAP_EIP712_DOMAIN_SEPARATOR_V2.clone(),
-            sender_ids_v2: HashSet::new(),
-            new_receipts_watcher_handle_v2: None,
-            pgpool: pgpool.clone(),
-            indexer_allocations: watch::channel(HashMap::new()).1,
-            escrow_accounts_v2: watch::channel(truncated_escrow.clone()).1,
-            escrow_accounts_v2_strict: watch::channel(truncated_escrow).1,
-            network_subgraph: get_subgraph_client().await,
-            sender_aggregator_endpoints: HashMap::from([
-                (SENDER.1, Url::parse(&get_grpc_url().await).unwrap()),
-                (SENDER_2.1, Url::parse(&get_grpc_url().await).unwrap()),
-            ]),
-            prefix: Some(prefix),
-        };
-
-        // Store a receipt signed by SIGNER.1 (not in live escrow, but IS in cache)
-        let receipt =
-            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1u64, 1u64, 1u64.into());
-        store_receipt(&pgpool, &receipt.signed_receipt().0.clone())
-            .await
-            .unwrap();
-
-        // Should resolve via cache fallback
-        let result = state.get_pending_sender_allocation_id_v2().await;
-        assert!(
-            result.contains_key(&SENDER.1),
-            "Expected sender to be resolved via cache fallback"
+            "Expected empty result when signer is not in escrow accounts"
         );
     }
 }

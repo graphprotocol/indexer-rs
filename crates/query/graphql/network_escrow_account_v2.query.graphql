@@ -8,13 +8,14 @@
 # - $thawEndTimestamp (BigInt!): A timestamp used to filter signers whose thaw period has ended or is about to end.
 # - $first (Int!): Page size for pagination.
 # - $last (ID!): The ID of the last entity from the previous page (cursor-based pagination).
+# - $minBalance (BigInt!): Minimum escrow balance in GRT wei. Filters dust deposits to raise the
+#   cost of crowding attacks. Configurable via escrow_min_balance_grt_wei (default: 0.1 GRT).
 # - $block (Block_height): Optional block pinning for consistent reads across pages.
 #
 # Query Logic:
 # - Fetches escrow accounts where the `receiver` is the provided indexer address.
-# - Filters out accounts below 0.1 GRT (balance_gt: "100000000000000000") to raise the cost of
-#   dust-deposit crowding attacks. This threshold is deliberately conservative and can be increased
-#   if page-count monitoring indicates sustained crowding.
+# - Filters out accounts below the configured minimum balance ($minBalance) to raise the cost of
+#   dust-deposit crowding attacks. Default is 0.1 GRT; operators can adjust via config.
 # - Results are ordered by id for deterministic cursor-based pagination (id_gt).
 # - Returns the following information for each escrow account:
 #   - `id`: The entity ID (used for pagination tracking).
@@ -31,6 +32,7 @@ query NetworkEscrowAccountQueryV2(
     $collector: String!
     $first: Int!
     $last: ID!
+    $minBalance: BigInt!
     $block: Block_height
 ) {
     meta: _meta(block: $block) { block { number hash timestamp } }
@@ -44,7 +46,7 @@ query NetworkEscrowAccountQueryV2(
                 { id_gt: $last }
                 { receiver_: { id: $receiver } }
                 { collector: $collector }
-                { balance_gt: "100000000000000000" }
+                { balance_gt: $minBalance }
             ]
         }
     ) {

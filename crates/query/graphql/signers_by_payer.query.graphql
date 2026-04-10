@@ -1,0 +1,41 @@
+# Signer Follow-Up Pagination Query
+#
+# Fetches additional signers for a specific payer when the nested signer list in
+# the main escrow account query hits the 1000-per-payer cap.
+#
+# Uses cursor-based pagination with id_gt. Although Signer_filter doesn't
+# explicitly declare id_gt in the introspected schema (id is Bytes!, not ID!),
+# Graph Node provides it as an implicit filter on all entities -- proven by the
+# existing escrow query which uses id_gt on PaymentsEscrowAccount (also Bytes!).
+#
+# Input Variables:
+# - $payer (String!): The payer address to fetch signers for.
+# - $first (Int!): Page size.
+# - $last (ID!): The ID of the last signer from the previous page (cursor).
+# - $thawEndTimestamp (BigInt!): Timestamp filter for thawing signers.
+# - $block (Block_height): Block pinning for consistent reads (must match main query).
+
+query SignersByPayerQuery(
+    $payer: String!
+    $first: Int!
+    $last: ID!
+    $thawEndTimestamp: BigInt!
+    $block: Block_height
+) {
+    signers(
+        block: $block
+        first: $first
+        orderBy: id
+        orderDirection: asc
+        where: {
+            and: [
+                { id_gt: $last }
+                { payer: $payer }
+                { thawEndTimestamp_lte: $thawEndTimestamp }
+                { isAuthorized: true }
+            ]
+        }
+    ) {
+        id
+    }
+}

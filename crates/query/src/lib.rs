@@ -141,6 +141,23 @@ pub mod network_escrow_account_v2 {
     pub use network_escrow_account_query_v2::*;
 }
 
+pub mod signers_by_payer {
+    use graphql_client::GraphQLQuery;
+    type BigInt = String;
+    type Bytes = String;
+
+    #[derive(GraphQLQuery)]
+    #[graphql(
+        schema_path = "graphql/network.schema.graphql",
+        query_path = "graphql/signers_by_payer.query.graphql",
+        response_derives = "Debug",
+        variables_derives = "Clone"
+    )]
+    pub struct SignersByPayerQuery;
+
+    pub use signers_by_payer_query::*;
+}
+
 pub mod horizon_detection {
     use graphql_client::GraphQLQuery;
     type Bytes = String;

@@ -144,15 +144,26 @@ impl ServiceRouter {
         // if not provided, create monitor from subgraph
         let escrow_accounts_v2 = match (self.escrow_accounts_v2, self.escrow_subgraph.as_ref()) {
             (Some(escrow_account), _) => escrow_account,
-            (_, Some((escrow_subgraph, escrow))) => escrow_accounts_v2(
-                escrow_subgraph,
-                indexer_address,
-                escrow.config.syncing_interval_secs,
-                true, // Reject thawing signers eagerly
-                self.blockchain.graph_tally_collector_address,
-            )
-            .await
-            .expect("Error creating escrow_accounts_v2 channel"),
+            (_, Some((escrow_subgraph, escrow))) => {
+                let (min_balance, max_signers) = match self.network_subgraph.as_ref() {
+                    Some((_, network)) => (
+                        network.escrow_min_balance_grt_wei.clone(),
+                        network.max_signers_per_payer,
+                    ),
+                    None => ("100000000000000000".to_string(), 1000),
+                };
+                escrow_accounts_v2(
+                    escrow_subgraph,
+                    indexer_address,
+                    escrow.config.syncing_interval_secs,
+                    true, // Reject thawing signers eagerly
+                    self.blockchain.graph_tally_collector_address,
+                    min_balance,
+                    max_signers,
+                )
+                .await
+                .expect("Error creating escrow_accounts_v2 channel")
+            }
             (None, None) => panic!("Escrow accounts v2 watcher must be provided"),
         };
 
