@@ -209,7 +209,7 @@ async fn get_escrow_accounts_v2(
                 continue;
             }
 
-            if account.payer.signers.len() >= max_signers_per_payer {
+            if max_signers_per_payer > 0 && account.payer.signers.len() >= max_signers_per_payer {
                 tracing::warn!(
                     payer = %account.payer.id,
                     signers = account.payer.signers.len(),
@@ -258,7 +258,10 @@ async fn get_escrow_accounts_v2(
                     );
                 }
 
-                if page_len < 1000 || account.payer.signers.len() >= max_signers_per_payer {
+                if page_len < 1000
+                    || (max_signers_per_payer > 0
+                        && account.payer.signers.len() >= max_signers_per_payer)
+                {
                     break;
                 }
 
@@ -269,7 +272,7 @@ async fn get_escrow_accounts_v2(
                     .unwrap_or_default();
             }
 
-            if account.payer.signers.len() >= max_signers_per_payer {
+            if max_signers_per_payer > 0 && account.payer.signers.len() >= max_signers_per_payer {
                 tracing::warn!(
                     payer = %account.payer.id,
                     signers = account.payer.signers.len(),
@@ -277,6 +280,14 @@ async fn get_escrow_accounts_v2(
                     "Payer signers capped at max_signers_per_payer"
                 );
                 account.payer.signers.truncate(max_signers_per_payer);
+            }
+
+            if account.payer.signers.len() > 1000 {
+                tracing::warn!(
+                    payer = %account.payer.id,
+                    signers = account.payer.signers.len(),
+                    "Payer has an unusual number of signers which may indicate a signer-flooding attack; consider adding to deny list"
+                );
             }
 
             tracing::info!(
@@ -539,7 +550,7 @@ mod tests {
             true,
             Address::ZERO, // collector address; mock ignores query variables
             "100000000000000000".to_string(),
-            1000,
+            0,
         )
         .await
         .unwrap();

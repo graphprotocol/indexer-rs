@@ -86,8 +86,10 @@ max_data_staleness_mins = 30
 # Minimum escrow balance (GRT wei) for V2 escrow queries. Filters dust deposits
 # to raise the cost of crowding attacks. Default: 0.1 GRT.
 escrow_min_balance_grt_wei = "100000000000000000"
-# Maximum signers to fetch per payer via follow-up pagination. Default: 1000.
-max_signers_per_payer = 1000
+# Maximum signers to fetch per payer. 0 = no limit (recommended).
+# A positive value caps pagination but allows attackers to crowd out legitimate
+# signers, orphaning receipts and enabling free queries.
+max_signers_per_payer = 0
 
 [subgraphs.escrow]
 # NOTE: It is heavily recomended to use both `query_url` and `deployment_id`,

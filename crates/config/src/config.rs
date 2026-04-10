@@ -504,8 +504,10 @@ pub struct NetworkSubgraphConfig {
     #[serde(default = "default_escrow_min_balance_grt_wei")]
     pub escrow_min_balance_grt_wei: String,
 
-    /// Maximum signers to fetch per payer via follow-up pagination. Safety valve
-    /// against pathological signer counts. Default: 1000.
+    /// Maximum signers to fetch per payer. 0 = no limit (recommended).
+    /// Setting a positive value caps pagination but allows attackers to crowd out
+    /// legitimate signers, orphaning receipts and enabling free queries.
+    /// Default: 0.
     #[serde(default = "default_max_signers_per_payer")]
     pub max_signers_per_payer: usize,
 }
@@ -519,7 +521,7 @@ fn default_escrow_min_balance_grt_wei() -> String {
 }
 
 fn default_max_signers_per_payer() -> usize {
-    1000
+    0
 }
 
 #[derive(Debug, Deserialize)]
