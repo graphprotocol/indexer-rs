@@ -57,6 +57,8 @@ query NetworkEscrowAccountQueryV2(
             id
             signers(
                 first: 1000
+                orderBy: id
+                orderDirection: asc
                 where: {
                     thawEndTimestamp_lte: $thawEndTimestamp
                     isAuthorized: true

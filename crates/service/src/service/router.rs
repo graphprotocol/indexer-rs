@@ -150,7 +150,7 @@ impl ServiceRouter {
                         network.escrow_min_balance_grt_wei.clone(),
                         network.max_signers_per_payer,
                     ),
-                    None => ("100000000000000000".to_string(), 1000),
+                    None => ("100000000000000000".to_string(), 0),
                 };
                 escrow_accounts_v2(
                     escrow_subgraph,

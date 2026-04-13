@@ -205,10 +205,6 @@ async fn get_escrow_accounts_v2(
         // Paginate additional signers for any payer that hit the 1000-per-payer nested cap
         let mut response = response;
         for account in &mut response.payments_escrow_accounts {
-            if account.payer.signers.len() < 1000 {
-                continue;
-            }
-
             if max_signers_per_payer > 0 && account.payer.signers.len() >= max_signers_per_payer {
                 tracing::warn!(
                     payer = %account.payer.id,
@@ -217,6 +213,10 @@ async fn get_escrow_accounts_v2(
                     "Payer signers already at or above max_signers_per_payer cap; skipping follow-up pagination"
                 );
                 account.payer.signers.truncate(max_signers_per_payer);
+                continue;
+            }
+
+            if account.payer.signers.len() < 1000 {
                 continue;
             }
 
