@@ -647,6 +647,12 @@ pub struct DipsConfig {
     /// Minimum acceptable GRT per billion entities per 30 days.
     pub min_grt_per_billion_entities_per_30_days: GRT,
     pub additional_networks: BTreeMap<String, String>,
+    /// GraphQL query URL for the graphprotocol/indexing-payments-subgraph.
+    ///
+    /// The DIPs validator queries this subgraph for on-chain RCA offers
+    /// (keyed by bytes16 agreement ID) to authorize proposals under the
+    /// offer-based authorization path. Required when DIPs is enabled.
+    pub indexing_payments_subgraph_url: Url,
 }
 
 impl Default for DipsConfig {
@@ -659,6 +665,7 @@ impl Default for DipsConfig {
             min_grt_per_30_days: BTreeMap::new(),
             min_grt_per_billion_entities_per_30_days: GRT::ZERO,
             additional_networks: BTreeMap::new(),
+            indexing_payments_subgraph_url: Url::parse("http://localhost/").unwrap(),
         }
     }
 }
@@ -780,6 +787,10 @@ mod tests {
                 FixedBytes::<20>::from_str("0x4444444444444444444444444444444444444444").unwrap(),
             ),
             min_grt_per_billion_entities_per_30_days: crate::GRT::from_grt("200"),
+            indexing_payments_subgraph_url: url::Url::parse(
+                "http://graph-node:8000/subgraphs/name/graphprotocol/indexing-payments",
+            )
+            .unwrap(),
             ..Default::default()
         });
 

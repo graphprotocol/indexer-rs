@@ -195,6 +195,12 @@ host = "0.0.0.0"
 port = "7601"
 recurring_collector = "0x4444444444444444444444444444444444444444"
 
+# GraphQL query URL for the graphprotocol/indexing-payments-subgraph.
+# This indexer-service queries the subgraph for on-chain RCA offers before
+# accepting a DIPs proposal (offer-based authorization, replaces the old
+# signature path).
+indexing_payments_subgraph_url = "http://graph-node:8000/subgraphs/name/graphprotocol/indexing-payments"
+
 # Networks you explicitly support indexing. 
 # Proposals from the dipper for you to index networks that are not in the list below are rejected.
 # See https://github.com/graphprotocol/networks-registry/blob/main/docs/networks-table.md

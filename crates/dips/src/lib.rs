@@ -67,6 +67,7 @@ use thegraph_core::alloy::{
 #[cfg(feature = "db")]
 pub mod database;
 pub mod ipfs;
+pub mod offers;
 pub mod price;
 #[cfg(feature = "rpc")]
 pub mod proto;
@@ -74,7 +75,6 @@ pub mod proto;
 mod registry;
 #[cfg(feature = "rpc")]
 pub mod server;
-pub mod signers;
 pub mod store;
 
 use thiserror::Error;
@@ -216,8 +216,18 @@ pub enum DipsError {
     },
     #[error("tokens per entity per second {offered} is below configured minimum {minimum}")]
     TokensPerEntityPerSecondTooLow { minimum: U256, offered: U256 },
-    #[error("signer {0} not authorised")]
-    SignerNotAuthorised(Address),
+    #[error("no on-chain offer found for agreement {0}")]
+    OfferNotFound(Uuid),
+    #[error(
+        "on-chain offer hash mismatch for agreement {agreement_id}: stored={stored}, computed={computed}"
+    )]
+    OfferMismatch {
+        agreement_id: Uuid,
+        stored: B256,
+        computed: B256,
+    },
+    #[error("offer lookup error: {0}")]
+    OfferLookupFailed(#[source] anyhow::Error),
     #[error("cancelled_by is expected to match the signer")]
     UnexpectedSigner,
     // misc
@@ -300,30 +310,29 @@ impl RecurringCollectionAgreement {
 }
 
 impl SignedRecurringCollectionAgreement {
-    /// Validate the RCA signature and basic fields.
+    /// Validate the RCA against an on-chain offer and basic fields.
     ///
     /// Checks:
-    /// - EIP-712 signature is valid and recovers to an authorized signer for the payer
-    /// - Signer is authorized for the payer (via escrow accounts)
-    /// - Service provider matches expected indexer address
-    pub fn validate(
+    /// - An on-chain offer exists for this agreement ID (via
+    ///   [`offers::OfferLookup`] — typically a subgraph query).
+    /// - The stored offer hash matches the locally-computed
+    ///   `eip712_signing_hash(rca, domain)`.
+    /// - Service provider matches the expected indexer address.
+    ///
+    /// The `signature` field on the wire is ignored by this implementation
+    /// (the offer-based authorization path transmits an empty signature).
+    /// Authorization is established by the presence of the on-chain offer,
+    /// which the contract's `offer()` function only stores when
+    /// `msg.sender == rca.payer`.
+    pub async fn validate(
         &self,
-        signer_validator: &Arc<dyn signers::SignerValidator>,
+        offer_lookup: &Arc<dyn offers::OfferLookup>,
         domain: &Eip712Domain,
         expected_service_provider: &Address,
     ) -> Result<(), DipsError> {
-        let sig = Signature::try_from(self.signature.as_ref())
-            .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
-
-        let payer = self.agreement.payer;
-        let signer = sig
-            .recover_address_from_prehash(&self.agreement.eip712_signing_hash(domain))
-            .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
-
-        signer_validator
-            .validate(&payer, &signer)
-            .map_err(|_| DipsError::SignerNotAuthorised(signer))?;
-
+        // Service provider match is cheap and independent of the offer
+        // lookup; do it first so a mis-addressed proposal never hits the
+        // subgraph.
         if !self.agreement.serviceProvider.eq(expected_service_provider) {
             return Err(DipsError::UnexpectedServiceProvider {
                 expected: *expected_service_provider,
@@ -331,7 +340,23 @@ impl SignedRecurringCollectionAgreement {
             });
         }
 
-        Ok(())
+        let agreement_id = derive_agreement_id(&self.agreement);
+        let computed_hash = self.agreement.eip712_signing_hash(domain);
+
+        let stored_hash = offer_lookup
+            .get_offer_hash(agreement_id)
+            .await
+            .map_err(DipsError::OfferLookupFailed)?;
+
+        match stored_hash {
+            None => Err(DipsError::OfferNotFound(agreement_id)),
+            Some(stored) if stored == computed_hash => Ok(()),
+            Some(stored) => Err(DipsError::OfferMismatch {
+                agreement_id,
+                stored,
+                computed: computed_hash,
+            }),
+        }
     }
 
     pub fn encode_vec(&self) -> Vec<u8> {
@@ -380,7 +405,7 @@ pub async fn validate_and_create_rca(
         rca_store,
         ipfs_fetcher,
         price_calculator,
-        signer_validator,
+        offer_lookup,
         registry,
         additional_networks,
         ..
@@ -390,8 +415,10 @@ pub async fn validate_and_create_rca(
     let signed_rca = SignedRecurringCollectionAgreement::abi_decode(rca_bytes.as_ref())
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
-    // Validate signature and basic fields
-    signed_rca.validate(signer_validator, domain, expected_service_provider)?;
+    // Validate on-chain offer and basic fields
+    signed_rca
+        .validate(offer_lookup, domain, expected_service_provider)
+        .await?;
 
     // Validate deadline hasn't passed
     let now = std::time::SystemTime::now()
@@ -535,23 +562,37 @@ mod test {
     use crate::{
         derive_agreement_id,
         ipfs::{FailingIpfsFetcher, MockIpfsFetcher},
+        offers::MockOfferLookup,
         price::PriceCalculator,
         rca_eip712_domain,
         server::DipsServerContext,
-        signers::{NoopSignerValidator, RejectingSignerValidator},
         store::{FailingRcaStore, InMemoryRcaStore},
         AcceptIndexingAgreementMetadata, DipsError, IndexingAgreementTermsV1,
-        RecurringCollectionAgreement,
+        RecurringCollectionAgreement, SignedRecurringCollectionAgreement,
     };
     use thegraph_core::alloy::{
         primitives::{keccak256, Address, FixedBytes, U256},
-        signers::local::PrivateKeySigner,
-        sol_types::SolValue,
+        sol_types::{SolStruct, SolValue},
     };
 
     const CHAIN_ID: u64 = 42161; // Arbitrum One
 
-    fn create_test_context() -> Arc<DipsServerContext> {
+    /// Build a context with a pre-populated mock offer lookup.
+    ///
+    /// If `rca` is provided, the mock is seeded with the RCA's derived
+    /// agreement ID mapped to its local EIP-712 hash so the validator
+    /// succeeds. Pass `None` to simulate "no offer on-chain" for
+    /// OfferNotFound tests.
+    fn create_test_context_with_offer(
+        rca: Option<(&RecurringCollectionAgreement, Address)>,
+    ) -> Arc<DipsServerContext> {
+        let offer_lookup = Arc::new(MockOfferLookup::new());
+        if let Some((rca, recurring_collector)) = rca {
+            let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+            let agreement_id = derive_agreement_id(rca);
+            let hash = rca.eip712_signing_hash(&domain);
+            offer_lookup.insert(agreement_id, hash);
+        }
         Arc::new(DipsServerContext {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(MockIpfsFetcher::default()), // Returns "mainnet"
@@ -560,10 +601,20 @@ mod test {
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
-            signer_validator: Arc::new(NoopSignerValidator),
+            offer_lookup,
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
         })
+    }
+
+    /// Helper: encode an RCA as a `SignedRecurringCollectionAgreement`
+    /// wire payload with an empty signature (the offer path).
+    fn encode_empty_sig(rca: RecurringCollectionAgreement) -> Vec<u8> {
+        SignedRecurringCollectionAgreement {
+            agreement: rca,
+            signature: Default::default(),
+        }
+        .abi_encode()
     }
 
     fn create_test_rca(
@@ -686,8 +737,7 @@ mod test {
 
     #[tokio::test]
     async fn test_validate_and_create_rca_success() {
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
 
@@ -695,15 +745,14 @@ mod test {
         let agreement_id = derive_agreement_id(&rca);
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let rca_bytes = encode_empty_sig(rca);
 
-        let ctx = create_test_context();
         let result =
             super::validate_and_create_rca(ctx.clone(), &domain, &service_provider, rca_bytes)
                 .await;
 
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "got: {:?}", result);
         assert_eq!(result.unwrap(), agreement_id);
 
         // Verify it was stored
@@ -716,8 +765,7 @@ mod test {
 
     #[tokio::test]
     async fn test_validate_and_create_rca_wrong_service_provider() {
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let wrong_service_provider = Address::repeat_byte(0x99);
         let recurring_collector = Address::repeat_byte(0x22);
@@ -730,10 +778,9 @@ mod test {
         );
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let rca_bytes = encode_empty_sig(rca);
 
-        let ctx = create_test_context();
         let result =
             super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
 
@@ -745,8 +792,7 @@ mod test {
 
     #[tokio::test]
     async fn test_validate_and_create_rca_tokens_per_second_too_low() {
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
 
@@ -754,10 +800,9 @@ mod test {
         let rca = create_test_rca(payer, service_provider, U256::from(50), U256::from(100));
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let rca_bytes = encode_empty_sig(rca);
 
-        let ctx = create_test_context();
         let result =
             super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
 
@@ -769,8 +814,7 @@ mod test {
 
     #[tokio::test]
     async fn test_validate_and_create_rca_entity_price_too_low() {
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
 
@@ -778,10 +822,9 @@ mod test {
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(10));
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let rca_bytes = encode_empty_sig(rca);
 
-        let ctx = create_test_context();
         let result =
             super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
 
@@ -793,18 +836,19 @@ mod test {
 
     #[tokio::test]
     async fn test_validate_and_create_rca_unsupported_network() {
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
 
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let agreement_id = derive_agreement_id(&rca);
+        let hash = rca.eip712_signing_hash(&domain);
 
         // Create context with IPFS fetcher returning unsupported network
+        let offer_lookup = Arc::new(MockOfferLookup::new());
+        offer_lookup.insert(agreement_id, hash);
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(MockIpfsFetcher {
@@ -815,11 +859,12 @@ mod test {
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
-            signer_validator: Arc::new(NoopSignerValidator),
+            offer_lookup,
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
         });
 
+        let rca_bytes = encode_empty_sig(rca);
         let result =
             super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
 
@@ -828,8 +873,7 @@ mod test {
 
     #[tokio::test]
     async fn test_validate_and_create_rca_invalid_metadata_version() {
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
 
@@ -861,10 +905,9 @@ mod test {
         };
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let rca_bytes = encode_empty_sig(rca);
 
-        let ctx = create_test_context();
         let result =
             super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
 
@@ -876,8 +919,7 @@ mod test {
 
     #[tokio::test]
     async fn test_validate_and_create_rca_deadline_expired() {
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
 
@@ -909,10 +951,9 @@ mod test {
         };
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let rca_bytes = encode_empty_sig(rca);
 
-        let ctx = create_test_context();
         let result =
             super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
 
@@ -921,8 +962,7 @@ mod test {
 
     #[tokio::test]
     async fn test_validate_and_create_rca_agreement_expired() {
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
 
@@ -954,10 +994,9 @@ mod test {
         };
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let rca_bytes = encode_empty_sig(rca);
 
-        let ctx = create_test_context();
         let result =
             super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
 
@@ -974,7 +1013,7 @@ mod test {
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let ctx = create_test_context();
+        let ctx = create_test_context_with_offer(None);
 
         let malformed_bytes = vec![0xDE, 0xAD, 0xBE, 0xEF]; // Not valid ABI
 
@@ -991,19 +1030,47 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_validate_and_create_rca_unauthorized_signer() {
-        // Arrange
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+    async fn test_validate_and_create_rca_offer_not_found() {
+        // Arrange: build a valid RCA but do NOT pre-populate the offer lookup
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
 
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let rca_bytes = encode_empty_sig(rca);
 
-        // Context with rejecting signer validator
+        // Empty offer lookup -- simulates "payer has not submitted offer yet"
+        let ctx = create_test_context_with_offer(None);
+
+        // Act
+        let result =
+            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::OfferNotFound(_))),
+            "Expected OfferNotFound error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_offer_mismatch() {
+        // Arrange: pre-populate offer with a different hash than the RCA computes
+        let payer = Address::repeat_byte(0x42);
+        let service_provider = Address::repeat_byte(0x11);
+        let recurring_collector = Address::repeat_byte(0x22);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
+        let agreement_id = derive_agreement_id(&rca);
+
+        // Seed with a different hash to simulate an offer stored for different terms
+        let offer_lookup = Arc::new(MockOfferLookup::new());
+        let wrong_hash = FixedBytes::from([0xFFu8; 32]);
+        offer_lookup.insert(agreement_id, wrong_hash);
+
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
@@ -1012,10 +1079,12 @@ mod test {
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
-            signer_validator: Arc::new(RejectingSignerValidator),
+            offer_lookup,
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
         });
+
+        let rca_bytes = encode_empty_sig(rca);
 
         // Act
         let result =
@@ -1023,8 +1092,8 @@ mod test {
 
         // Assert
         assert!(
-            matches!(result, Err(DipsError::SignerNotAuthorised(_))),
-            "Expected SignerNotAuthorised error, got: {:?}",
+            matches!(result, Err(DipsError::OfferMismatch { .. })),
+            "Expected OfferMismatch error, got: {:?}",
             result
         );
     }
@@ -1032,17 +1101,18 @@ mod test {
     #[tokio::test]
     async fn test_validate_and_create_rca_ipfs_failure() {
         // Arrange
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
 
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let agreement_id = derive_agreement_id(&rca);
+        let hash = rca.eip712_signing_hash(&domain);
 
         // Context with failing IPFS fetcher
+        let offer_lookup = Arc::new(MockOfferLookup::new());
+        offer_lookup.insert(agreement_id, hash);
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(FailingIpfsFetcher),
@@ -1051,10 +1121,12 @@ mod test {
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
-            signer_validator: Arc::new(NoopSignerValidator),
+            offer_lookup,
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
         });
+
+        let rca_bytes = encode_empty_sig(rca);
 
         // Act
         let result =
@@ -1071,17 +1143,18 @@ mod test {
     #[tokio::test]
     async fn test_validate_and_create_rca_manifest_no_network() {
         // Arrange
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
 
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let agreement_id = derive_agreement_id(&rca);
+        let hash = rca.eip712_signing_hash(&domain);
 
         // Context with IPFS fetcher returning manifest without network
+        let offer_lookup = Arc::new(MockOfferLookup::new());
+        offer_lookup.insert(agreement_id, hash);
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(MockIpfsFetcher::no_network()),
@@ -1090,10 +1163,12 @@ mod test {
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
-            signer_validator: Arc::new(NoopSignerValidator),
+            offer_lookup,
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
         });
+
+        let rca_bytes = encode_empty_sig(rca);
 
         // Act
         let result =
@@ -1110,17 +1185,18 @@ mod test {
     #[tokio::test]
     async fn test_validate_and_create_rca_store_failure() {
         // Arrange
-        let payer_signer = PrivateKeySigner::random();
-        let payer = payer_signer.address();
+        let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
 
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let signed_rca = rca.sign(&domain, payer_signer).unwrap();
-        let rca_bytes = signed_rca.abi_encode();
+        let agreement_id = derive_agreement_id(&rca);
+        let hash = rca.eip712_signing_hash(&domain);
 
         // Context with failing store
+        let offer_lookup = Arc::new(MockOfferLookup::new());
+        offer_lookup.insert(agreement_id, hash);
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(FailingRcaStore),
             ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
@@ -1129,10 +1205,12 @@ mod test {
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
-            signer_validator: Arc::new(NoopSignerValidator),
+            offer_lookup,
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
         });
+
+        let rca_bytes = encode_empty_sig(rca);
 
         // Act
         let result =
