@@ -3589,7 +3589,7 @@ dependencies = [
 [[package]]
 name = "graphql"
 version = "0.3.0"
-source = "git+https://github.com/edgeandnode/toolshed?tag=graphql-v0.3.0#19ec30dc044137b805528181873f4413b45ab8d4"
+source = "git+https://github.com/edgeandnode/toolshed?tag=v0.4.0#aa885d38818101d4c30d4869ab060f8c2c29f13b"
 dependencies = [
  "firestorm",
  "graphql-parser",
