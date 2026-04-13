@@ -120,6 +120,7 @@ sol! {
     /// Matches `IRecurringCollector.RecurringCollectionAgreement` exactly.
     /// The agreement ID is derived on-chain via
     /// `bytes16(keccak256(abi.encode(payer, dataService, serviceProvider, deadline, nonce)))`.
+    /// Note: `conditions` is NOT included in the agreement ID preimage.
     #[derive(Debug, PartialEq)]
     struct RecurringCollectionAgreement {
         uint64 deadline;
@@ -131,6 +132,7 @@ sol! {
         uint256 maxOngoingTokensPerSecond;
         uint32 minSecondsPerCollection;
         uint32 maxSecondsPerCollection;
+        uint16 conditions;
         uint256 nonce;
         bytes metadata;
     }
@@ -592,6 +594,7 @@ mod test {
             maxOngoingTokensPerSecond: U256::from(100),
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
+            conditions: 0,
             nonce: U256::from(1),
             metadata: metadata.abi_encode().into(),
         }
@@ -609,6 +612,7 @@ mod test {
             maxOngoingTokensPerSecond: U256::from(10),
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
+            conditions: 0,
             nonce: U256::from(42),
             metadata: Default::default(),
         };
@@ -653,6 +657,7 @@ mod test {
             maxOngoingTokensPerSecond: U256::from(1_000_000_000_000_000u64),
             minSecondsPerCollection: 3600,
             maxSecondsPerCollection: 86400,
+            conditions: 0,
             nonce: U256::from(0x019d44a86ac97e938672e2501fe630f2u128),
             metadata: Default::default(),
         };
@@ -850,6 +855,7 @@ mod test {
             maxOngoingTokensPerSecond: U256::from(100),
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
+            conditions: 0,
             nonce: U256::from(1),
             metadata: metadata.abi_encode().into(),
         };
@@ -897,6 +903,7 @@ mod test {
             maxOngoingTokensPerSecond: U256::from(100),
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
+            conditions: 0,
             nonce: U256::from(1),
             metadata: metadata.abi_encode().into(),
         };
@@ -941,6 +948,7 @@ mod test {
             maxOngoingTokensPerSecond: U256::from(100),
             minSecondsPerCollection: 60,
             maxSecondsPerCollection: 3600,
+            conditions: 0,
             nonce: U256::from(1),
             metadata: metadata.abi_encode().into(),
         };
