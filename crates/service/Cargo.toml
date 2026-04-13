@@ -37,7 +37,7 @@ async-trait.workspace = true
 async-graphql = { version = "7.0.11", default-features = false }
 async-graphql-axum = "7.0.11"
 base64.workspace = true
-graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "graphql-v0.3.0" }
+graphql = { git = "https://github.com/edgeandnode/toolshed", tag = "v0.4.0" }
 tap_core.workspace = true
 tap_graph.workspace = true
 tap_aggregator.workspace = true
