@@ -358,7 +358,7 @@ dependencies = [
  "keccak-asm",
  "paste",
  "proptest",
- "rand 0.9.3",
+ "rand 0.9.4",
  "ruint",
  "rustc-hash",
  "serde",
@@ -3556,7 +3556,7 @@ dependencies = [
  "parking_lot",
  "portable-atomic",
  "quanta 0.12.6",
- "rand 0.9.3",
+ "rand 0.9.4",
  "smallvec",
  "spinning_top",
  "web-time",
@@ -4342,7 +4342,7 @@ dependencies = [
  "indexer-watcher",
  "ipfs-api-backend-hyper",
  "prost 0.14.3",
- "rand 0.9.3",
+ "rand 0.9.4",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -4500,7 +4500,7 @@ dependencies = [
  "profiler",
  "prometheus 0.13.4",
  "ractor",
- "rand 0.9.3",
+ "rand 0.9.4",
  "reqwest 0.12.24",
  "rstest",
  "ruint",
@@ -4605,7 +4605,7 @@ dependencies = [
  "indexer-receipt",
  "num_cpus",
  "prost 0.14.3",
- "rand 0.9.3",
+ "rand 0.9.4",
  "rdkafka 0.38.0",
  "regex",
  "reqwest 0.12.24",
@@ -4862,7 +4862,7 @@ dependencies = [
  "jsonrpsee-types 0.25.1",
  "parking_lot",
  "pin-project 1.1.11",
- "rand 0.9.3",
+ "rand 0.9.4",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -6363,7 +6363,7 @@ dependencies = [
  "bit-vec",
  "bitflags 2.10.0",
  "num-traits",
- "rand 0.9.3",
+ "rand 0.9.4",
  "rand_chacha 0.9.0",
  "rand_xorshift",
  "regex-syntax",
@@ -6650,7 +6650,7 @@ dependencies = [
  "bytes",
  "getrandom 0.3.4",
  "lru-slab",
- "rand 0.9.3",
+ "rand 0.9.4",
  "ring",
  "rustc-hash",
  "rustls 0.23.34",
@@ -6732,9 +6732,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ec095654a25171c2124e9e3393a930bddbffdc939556c914957a4c3e0a87166"
+checksum = "44c5af06bb1b7d3216d91932aed5265164bf384dc89cd6ba05cf59a35f5f76ea"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
@@ -7229,7 +7229,7 @@ dependencies = [
  "primitive-types",
  "proptest",
  "rand 0.8.5",
- "rand 0.9.3",
+ "rand 0.9.4",
  "rlp",
  "ruint-macro",
  "serde_core",
@@ -8657,7 +8657,7 @@ checksum = "ee580051c083d026d65249338e04641d52926943f4534ec15f153db6d88fb012"
 dependencies = [
  "anyhow",
  "async-trait",
- "rand 0.9.3",
+ "rand 0.9.4",
  "tap_eip712_message",
  "tap_graph",
  "tap_receipt",
@@ -8683,7 +8683,7 @@ version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8e7675a0dbc2fb3304bf0571c29e4a27dc0fd4cdaaad6d40f9bd5d43d6b919a"
 dependencies = [
- "rand 0.9.3",
+ "rand 0.9.4",
  "serde",
  "tap_eip712_message",
  "tap_receipt",
@@ -9526,7 +9526,7 @@ dependencies = [
  "http 1.3.1",
  "httparse",
  "log",
- "rand 0.9.3",
+ "rand 0.9.4",
  "sha1",
  "thiserror 2.0.18",
  "utf-8",
