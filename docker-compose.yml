@@ -1,0 +1,12 @@
+services:
+  indexer-service-rs:
+    image: ghcr.io/graphprotocol/indexer-service-rs:${TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile.indexer-service-rs
+
+  indexer-tap-agent:
+    image: ghcr.io/graphprotocol/indexer-tap-agent:${TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile.indexer-tap-agent
