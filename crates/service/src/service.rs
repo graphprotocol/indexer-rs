@@ -11,7 +11,6 @@ use indexer_config::{Config, DipsConfig, GraphNodeConfig, SubgraphConfig};
 use indexer_dips::{
     database::PsqlRcaStore,
     ipfs::IpfsClient,
-    offers::HttpOfferLookup,
     price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::indexer_dips_service_server::{
         IndexerDipsService, IndexerDipsServiceServer,
@@ -226,7 +225,7 @@ pub async fn run() -> anyhow::Result<()> {
             min_grt_per_30_days,
             min_grt_per_billion_entities_per_30_days,
             additional_networks,
-            indexing_payments_subgraph_url,
+            ..
         } = dips;
 
         // Validate required configuration
@@ -278,24 +277,6 @@ pub async fn run() -> anyhow::Result<()> {
                 .div_ceil(entity_divisor),
         );
 
-        // Build the offer lookup client (queries the
-        // indexing-payments-subgraph for on-chain RCA offer hashes).
-        if indexing_payments_subgraph_url.as_str().is_empty() {
-            anyhow::bail!(
-                "DIPS is enabled but dips.indexing_payments_subgraph_url is not configured. \
-                 Set it to the graph-node query URL for the indexing-payments-subgraph \
-                 (e.g. http://graph-node:8000/subgraphs/name/graphprotocol/indexing-payments)."
-            );
-        }
-        let http_client = reqwest::Client::builder()
-            .timeout(HTTP_CLIENT_TIMEOUT)
-            .build()
-            .context("Failed to build HTTP client for offer lookup")?;
-        let offer_lookup = Arc::new(HttpOfferLookup::new(
-            http_client,
-            indexing_payments_subgraph_url.clone(),
-        ));
-
         // Build server context
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(PsqlRcaStore {
@@ -307,7 +288,6 @@ pub async fn run() -> anyhow::Result<()> {
                 tokens_per_second,
                 tokens_per_entity_per_second,
             )),
-            offer_lookup,
             registry,
             additional_networks: Arc::new(additional_networks.clone()),
         });

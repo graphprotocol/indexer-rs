@@ -44,7 +44,6 @@ use tonic::{Request, Response, Status};
 
 use crate::{
     ipfs::IpfsFetcher,
-    offers::OfferLookup,
     price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::{
         indexer_dips_service_server::IndexerDipsService, CancelAgreementRequest,
@@ -58,7 +57,6 @@ use crate::{
 /// Context for DIPS server with all validation dependencies.
 ///
 /// Used for RCA validation:
-/// - On-chain offer lookup via subgraph (offer-based authorization)
 /// - IPFS manifest fetching
 /// - Price minimum enforcement
 /// - Network registry lookups
@@ -70,9 +68,6 @@ pub struct DipsServerContext {
     pub ipfs_fetcher: Arc<dyn IpfsFetcher>,
     /// Price calculator for validating minimum prices
     pub price_calculator: Arc<PriceCalculator>,
-    /// On-chain offer lookup (via indexing-payments-subgraph) for
-    /// offer-based RCA authorization.
-    pub offer_lookup: Arc<dyn OfferLookup>,
     /// Network registry for supported networks
     pub registry: Arc<graph_networks_registry::NetworksRegistry>,
     /// Additional networks beyond the registry
@@ -101,12 +96,6 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
     match err {
         DipsError::TokensPerSecondTooLow { .. }
         | DipsError::TokensPerEntityPerSecondTooLow { .. } => RejectReason::PriceTooLow,
-        // Offer-based authorization: these map to the existing SignerNotAuthorised
-        // gRPC variant for wire-protocol compatibility. The error messages carry
-        // the specific cause (no offer / hash mismatch / lookup failure).
-        DipsError::OfferNotFound(_)
-        | DipsError::OfferMismatch { .. }
-        | DipsError::OfferLookupFailed(_) => RejectReason::SignerNotAuthorised,
         DipsError::DeadlineExpired { .. } => RejectReason::DeadlineExpired,
         DipsError::AgreementExpired { .. } => RejectReason::AgreementExpired,
         DipsError::UnsupportedNetwork(_) => RejectReason::UnsupportedNetwork,
@@ -123,9 +112,12 @@ impl IndexerDipsService for DipsServer {
     ///
     /// Validates:
     /// - Version 2 only
-    /// - EIP-712 signature
+    /// - Service provider match
     /// - IPFS manifest and network compatibility
     /// - Price minimums
+    ///
+    /// On-chain offer existence is NOT checked — the offer doesn't exist yet
+    /// at proposal time. The contract enforces it at `acceptIndexingAgreement`.
     ///
     /// Returns Accept/Reject based on validation results.
     async fn submit_agreement_proposal(
@@ -157,15 +149,9 @@ impl IndexerDipsService for DipsServer {
         }
 
         // Validate and store RCA
-        let domain = crate::rca_eip712_domain(self.chain_id, self.recurring_collector);
         let deployment_id = crate::try_extract_deployment_id(&signed_voucher);
-        match crate::validate_and_create_rca(
-            self.ctx.clone(),
-            &domain,
-            &self.expected_payee,
-            signed_voucher,
-        )
-        .await
+        match crate::validate_and_create_rca(self.ctx.clone(), &self.expected_payee, signed_voucher)
+            .await
         {
             Ok(agreement_id) => {
                 tracing::info!(%agreement_id, "RCA accepted");
@@ -206,10 +192,7 @@ impl IndexerDipsService for DipsServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        ipfs::MockIpfsFetcher, offers::MockOfferLookup, price::PriceCalculator,
-        store::InMemoryRcaStore,
-    };
+    use crate::{ipfs::MockIpfsFetcher, price::PriceCalculator, store::InMemoryRcaStore};
 
     impl DipsServerContext {
         pub fn for_testing() -> Arc<Self> {
@@ -224,7 +207,6 @@ mod tests {
                     BTreeMap::from([("mainnet".to_string(), U256::from(200))]),
                     U256::from(100),
                 )),
-                offer_lookup: Arc::new(MockOfferLookup::new()),
                 registry: Arc::new(crate::registry::test_registry()),
                 additional_networks: Arc::new(BTreeMap::new()),
             })
@@ -384,18 +366,6 @@ mod tests {
 
         // Assert
         assert_eq!(reason, RejectReason::Other);
-    }
-
-    #[test]
-    fn test_reject_reason_offer_not_found() {
-        // Arrange
-        let err = DipsError::OfferNotFound(uuid::Uuid::from_u128(0x1234));
-
-        // Act
-        let reason = super::reject_reason_from_error(&err);
-
-        // Assert
-        assert_eq!(reason, RejectReason::SignerNotAuthorised);
     }
 
     #[test]

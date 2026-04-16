@@ -67,7 +67,6 @@ use thegraph_core::alloy::{
 #[cfg(feature = "db")]
 pub mod database;
 pub mod ipfs;
-pub mod offers;
 pub mod price;
 #[cfg(feature = "rpc")]
 pub mod proto;
@@ -216,18 +215,6 @@ pub enum DipsError {
     },
     #[error("tokens per entity per second {offered} is below configured minimum {minimum}")]
     TokensPerEntityPerSecondTooLow { minimum: U256, offered: U256 },
-    #[error("no on-chain offer found for agreement {0}")]
-    OfferNotFound(Uuid),
-    #[error(
-        "on-chain offer hash mismatch for agreement {agreement_id}: stored={stored}, computed={computed}"
-    )]
-    OfferMismatch {
-        agreement_id: Uuid,
-        stored: B256,
-        computed: B256,
-    },
-    #[error("offer lookup error: {0}")]
-    OfferLookupFailed(#[source] anyhow::Error),
     #[error("cancelled_by is expected to match the signer")]
     UnexpectedSigner,
     // misc
@@ -315,48 +302,19 @@ impl SignedRecurringCollectionAgreement {
     /// Checks:
     /// - An on-chain offer exists for this agreement ID (via
     ///   [`offers::OfferLookup`] — typically a subgraph query).
-    /// - The stored offer hash matches the locally-computed
-    ///   `eip712_signing_hash(rca, domain)`.
-    /// - Service provider matches the expected indexer address.
-    ///
-    /// The `signature` field on the wire is ignored by this implementation
-    /// (the offer-based authorization path transmits an empty signature).
-    /// Authorization is established by the presence of the on-chain offer,
-    /// which the contract's `offer()` function only stores when
-    /// `msg.sender == rca.payer`.
-    pub async fn validate(
-        &self,
-        offer_lookup: &Arc<dyn offers::OfferLookup>,
-        domain: &Eip712Domain,
-        expected_service_provider: &Address,
-    ) -> Result<(), DipsError> {
-        // Service provider match is cheap and independent of the offer
-        // lookup; do it first so a mis-addressed proposal never hits the
-        // subgraph.
+    /// Validates proposal-time checks: service provider must match the
+    /// expected indexer address. On-chain offer existence is NOT checked
+    /// here — the offer doesn't exist yet at proposal time. The contract
+    /// enforces offer existence when the indexer-agent calls
+    /// `acceptIndexingAgreement`.
+    pub fn validate(&self, expected_service_provider: &Address) -> Result<(), DipsError> {
         if !self.agreement.serviceProvider.eq(expected_service_provider) {
             return Err(DipsError::UnexpectedServiceProvider {
                 expected: *expected_service_provider,
                 actual: self.agreement.serviceProvider,
             });
         }
-
-        let agreement_id = derive_agreement_id(&self.agreement);
-        let computed_hash = self.agreement.eip712_signing_hash(domain);
-
-        let stored_hash = offer_lookup
-            .get_offer_hash(agreement_id)
-            .await
-            .map_err(DipsError::OfferLookupFailed)?;
-
-        match stored_hash {
-            None => Err(DipsError::OfferNotFound(agreement_id)),
-            Some(stored) if stored == computed_hash => Ok(()),
-            Some(stored) => Err(DipsError::OfferMismatch {
-                agreement_id,
-                stored,
-                computed: computed_hash,
-            }),
-        }
+        Ok(())
     }
 
     pub fn encode_vec(&self) -> Vec<u8> {
@@ -390,14 +348,17 @@ pub(crate) fn try_extract_deployment_id(rca_bytes: &[u8]) -> Option<String> {
 /// Validate and create a RecurringCollectionAgreement.
 ///
 /// Performs validation:
-/// - EIP-712 signature verification
+/// - Service provider match
+/// - Deadline and expiry checks
 /// - IPFS manifest fetching and network validation
 /// - Price minimum enforcement
+///
+/// On-chain offer existence is NOT checked here — the offer doesn't exist
+/// yet at proposal time. The contract enforces it at `acceptIndexingAgreement`.
 ///
 /// Returns the agreement ID if successful, stores in database.
 pub async fn validate_and_create_rca(
     ctx: Arc<DipsServerContext>,
-    domain: &Eip712Domain,
     expected_service_provider: &Address,
     rca_bytes: Vec<u8>,
 ) -> Result<Uuid, DipsError> {
@@ -405,7 +366,6 @@ pub async fn validate_and_create_rca(
         rca_store,
         ipfs_fetcher,
         price_calculator,
-        offer_lookup,
         registry,
         additional_networks,
         ..
@@ -415,10 +375,8 @@ pub async fn validate_and_create_rca(
     let signed_rca = SignedRecurringCollectionAgreement::abi_decode(rca_bytes.as_ref())
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
-    // Validate on-chain offer and basic fields
-    signed_rca
-        .validate(offer_lookup, domain, expected_service_provider)
-        .await?;
+    // Validate service provider
+    signed_rca.validate(expected_service_provider)?;
 
     // Validate deadline hasn't passed
     let now = std::time::SystemTime::now()
@@ -562,7 +520,6 @@ mod test {
     use crate::{
         derive_agreement_id,
         ipfs::{FailingIpfsFetcher, MockIpfsFetcher},
-        offers::MockOfferLookup,
         price::PriceCalculator,
         rca_eip712_domain,
         server::DipsServerContext,
@@ -577,31 +534,15 @@ mod test {
 
     const CHAIN_ID: u64 = 42161; // Arbitrum One
 
-    /// Build a context with a pre-populated mock offer lookup.
-    ///
-    /// If `rca` is provided, the mock is seeded with the RCA's derived
-    /// agreement ID mapped to its local EIP-712 hash so the validator
-    /// succeeds. Pass `None` to simulate "no offer on-chain" for
-    /// OfferNotFound tests.
-    fn create_test_context_with_offer(
-        rca: Option<(&RecurringCollectionAgreement, Address)>,
-    ) -> Arc<DipsServerContext> {
-        let offer_lookup = Arc::new(MockOfferLookup::new());
-        if let Some((rca, recurring_collector)) = rca {
-            let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-            let agreement_id = derive_agreement_id(rca);
-            let hash = rca.eip712_signing_hash(&domain);
-            offer_lookup.insert(agreement_id, hash);
-        }
+    fn create_test_context() -> Arc<DipsServerContext> {
         Arc::new(DipsServerContext {
             rca_store: Arc::new(InMemoryRcaStore::default()),
-            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()), // Returns "mainnet"
+            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
             price_calculator: Arc::new(PriceCalculator::new(
                 HashSet::from(["mainnet".to_string()]),
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
-            offer_lookup,
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
         })
@@ -745,12 +686,11 @@ mod test {
         let agreement_id = derive_agreement_id(&rca);
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let ctx = create_test_context();
         let rca_bytes = encode_empty_sig(rca);
 
         let result =
-            super::validate_and_create_rca(ctx.clone(), &domain, &service_provider, rca_bytes)
-                .await;
+            super::validate_and_create_rca(ctx.clone(), &service_provider, rca_bytes).await;
 
         assert!(result.is_ok(), "got: {:?}", result);
         assert_eq!(result.unwrap(), agreement_id);
@@ -778,11 +718,10 @@ mod test {
         );
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let ctx = create_test_context();
         let rca_bytes = encode_empty_sig(rca);
 
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
 
         assert!(matches!(
             result,
@@ -800,11 +739,10 @@ mod test {
         let rca = create_test_rca(payer, service_provider, U256::from(50), U256::from(100));
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let ctx = create_test_context();
         let rca_bytes = encode_empty_sig(rca);
 
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
 
         assert!(matches!(
             result,
@@ -822,11 +760,10 @@ mod test {
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(10));
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let ctx = create_test_context();
         let rca_bytes = encode_empty_sig(rca);
 
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
 
         assert!(matches!(
             result,
@@ -847,8 +784,6 @@ mod test {
         let hash = rca.eip712_signing_hash(&domain);
 
         // Create context with IPFS fetcher returning unsupported network
-        let offer_lookup = Arc::new(MockOfferLookup::new());
-        offer_lookup.insert(agreement_id, hash);
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(MockIpfsFetcher {
@@ -859,14 +794,12 @@ mod test {
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
-            offer_lookup,
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
         });
 
         let rca_bytes = encode_empty_sig(rca);
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
 
         assert!(matches!(result, Err(DipsError::UnsupportedNetwork(_))));
     }
@@ -905,11 +838,10 @@ mod test {
         };
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let ctx = create_test_context();
         let rca_bytes = encode_empty_sig(rca);
 
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
 
         assert!(matches!(
             result,
@@ -951,11 +883,10 @@ mod test {
         };
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let ctx = create_test_context();
         let rca_bytes = encode_empty_sig(rca);
 
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
 
         assert!(matches!(result, Err(DipsError::DeadlineExpired { .. })));
     }
@@ -994,11 +925,10 @@ mod test {
         };
 
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let ctx = create_test_context_with_offer(Some((&rca, recurring_collector)));
+        let ctx = create_test_context();
         let rca_bytes = encode_empty_sig(rca);
 
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
 
         assert!(matches!(result, Err(DipsError::AgreementExpired { .. })));
     }
@@ -1013,87 +943,17 @@ mod test {
         let service_provider = Address::repeat_byte(0x11);
         let recurring_collector = Address::repeat_byte(0x22);
         let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let ctx = create_test_context_with_offer(None);
+        let ctx = create_test_context();
 
         let malformed_bytes = vec![0xDE, 0xAD, 0xBE, 0xEF]; // Not valid ABI
 
         // Act
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, malformed_bytes).await;
+        let result = super::validate_and_create_rca(ctx, &service_provider, malformed_bytes).await;
 
         // Assert
         assert!(
             matches!(result, Err(DipsError::AbiDecoding(_))),
             "Expected AbiDecoding error, got: {:?}",
-            result
-        );
-    }
-
-    #[tokio::test]
-    async fn test_validate_and_create_rca_offer_not_found() {
-        // Arrange: build a valid RCA but do NOT pre-populate the offer lookup
-        let payer = Address::repeat_byte(0x42);
-        let service_provider = Address::repeat_byte(0x11);
-        let recurring_collector = Address::repeat_byte(0x22);
-
-        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
-        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let rca_bytes = encode_empty_sig(rca);
-
-        // Empty offer lookup -- simulates "payer has not submitted offer yet"
-        let ctx = create_test_context_with_offer(None);
-
-        // Act
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
-
-        // Assert
-        assert!(
-            matches!(result, Err(DipsError::OfferNotFound(_))),
-            "Expected OfferNotFound error, got: {:?}",
-            result
-        );
-    }
-
-    #[tokio::test]
-    async fn test_validate_and_create_rca_offer_mismatch() {
-        // Arrange: pre-populate offer with a different hash than the RCA computes
-        let payer = Address::repeat_byte(0x42);
-        let service_provider = Address::repeat_byte(0x11);
-        let recurring_collector = Address::repeat_byte(0x22);
-
-        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
-        let domain = rca_eip712_domain(CHAIN_ID, recurring_collector);
-        let agreement_id = derive_agreement_id(&rca);
-
-        // Seed with a different hash to simulate an offer stored for different terms
-        let offer_lookup = Arc::new(MockOfferLookup::new());
-        let wrong_hash = FixedBytes::from([0xFFu8; 32]);
-        offer_lookup.insert(agreement_id, wrong_hash);
-
-        let ctx = Arc::new(DipsServerContext {
-            rca_store: Arc::new(InMemoryRcaStore::default()),
-            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
-            price_calculator: Arc::new(PriceCalculator::new(
-                HashSet::from(["mainnet".to_string()]),
-                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
-                U256::from(50),
-            )),
-            offer_lookup,
-            registry: Arc::new(crate::registry::test_registry()),
-            additional_networks: Arc::new(BTreeMap::new()),
-        });
-
-        let rca_bytes = encode_empty_sig(rca);
-
-        // Act
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
-
-        // Assert
-        assert!(
-            matches!(result, Err(DipsError::OfferMismatch { .. })),
-            "Expected OfferMismatch error, got: {:?}",
             result
         );
     }
@@ -1111,8 +971,6 @@ mod test {
         let hash = rca.eip712_signing_hash(&domain);
 
         // Context with failing IPFS fetcher
-        let offer_lookup = Arc::new(MockOfferLookup::new());
-        offer_lookup.insert(agreement_id, hash);
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(FailingIpfsFetcher),
@@ -1121,7 +979,6 @@ mod test {
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
-            offer_lookup,
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
         });
@@ -1129,8 +986,7 @@ mod test {
         let rca_bytes = encode_empty_sig(rca);
 
         // Act
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
 
         // Assert
         assert!(
@@ -1153,8 +1009,6 @@ mod test {
         let hash = rca.eip712_signing_hash(&domain);
 
         // Context with IPFS fetcher returning manifest without network
-        let offer_lookup = Arc::new(MockOfferLookup::new());
-        offer_lookup.insert(agreement_id, hash);
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(MockIpfsFetcher::no_network()),
@@ -1163,7 +1017,6 @@ mod test {
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
-            offer_lookup,
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
         });
@@ -1171,8 +1024,7 @@ mod test {
         let rca_bytes = encode_empty_sig(rca);
 
         // Act
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
 
         // Assert
         assert!(
@@ -1195,8 +1047,6 @@ mod test {
         let hash = rca.eip712_signing_hash(&domain);
 
         // Context with failing store
-        let offer_lookup = Arc::new(MockOfferLookup::new());
-        offer_lookup.insert(agreement_id, hash);
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(FailingRcaStore),
             ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
@@ -1205,7 +1055,6 @@ mod test {
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
                 U256::from(50),
             )),
-            offer_lookup,
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
         });
@@ -1213,8 +1062,7 @@ mod test {
         let rca_bytes = encode_empty_sig(rca);
 
         // Act
-        let result =
-            super::validate_and_create_rca(ctx, &domain, &service_provider, rca_bytes).await;
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
 
         // Assert
         assert!(
