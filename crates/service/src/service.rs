@@ -16,7 +16,6 @@ use indexer_dips::{
         IndexerDipsService, IndexerDipsServiceServer,
     },
     server::{DipsServer, DipsServerContext},
-    signers::EscrowSignerValidator,
 };
 use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
@@ -226,6 +225,7 @@ pub async fn run() -> anyhow::Result<()> {
             min_grt_per_30_days,
             min_grt_per_billion_entities_per_30_days,
             additional_networks,
+            ..
         } = dips;
 
         // Validate required configuration
@@ -288,7 +288,6 @@ pub async fn run() -> anyhow::Result<()> {
                 tokens_per_second,
                 tokens_per_entity_per_second,
             )),
-            signer_validator: Arc::new(EscrowSignerValidator::new(v2_watcher.clone())),
             registry,
             additional_networks: Arc::new(additional_networks.clone()),
         });

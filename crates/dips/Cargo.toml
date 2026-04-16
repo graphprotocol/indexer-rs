@@ -35,6 +35,8 @@ tracing.workspace = true
 bs58 = "0.5"
 build-info = { workspace = true, optional = true }
 indexer-monitor = { path = "../monitor", optional = true }
+reqwest.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 graph-networks-registry = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
