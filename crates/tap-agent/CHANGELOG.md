@@ -4,6 +4,13 @@
 
 
 
+## [2.0.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v2.0.1...indexer-tap-agent-v2.0.2) (2026-04-17)
+
+
+### Bug Fixes
+
+* empty commit to trigger release pipeline for audit fixes ([#1011](https://github.com/graphprotocol/indexer-rs/issues/1011)) ([bc5f93f](https://github.com/graphprotocol/indexer-rs/commit/bc5f93f23deafea273d0097c008daa3a50a04271))
+
 ## [2.0.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v2.0.0...indexer-tap-agent-v2.0.1) (2026-03-13)
 
 ## [2.0.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v1.12.4...indexer-tap-agent-v2.0.0) (2026-02-05)
