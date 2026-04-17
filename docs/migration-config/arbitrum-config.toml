@@ -19,12 +19,6 @@ status_url = "${INDEXER_SERVICE_GRAPH_NODE_STATUS_ENDPOINT}"
 query_url = "${INDEXER_SERVICE_NETWORK_SUBGRAPH_ENDPOINT}"
 deployment_id = "${INDEXER_SERVICE_NETWORK_SUBGRAPH_DEPLOYMENT}"
 
-# [subgraphs.escrow]
-# INDEXER_SUBGRAPHS__ESCROW__QUERY_URL
-# query_url = ""
-# INDEXER_SUBGRAPHS__ESCROW__DEPLOYMENT_ID
-# deployment_id = ""
-
 [blockchain]
 chain_id = 42161
 # Contract address of TAP's receipt aggregate voucher (RAV) verifier.
@@ -40,9 +34,6 @@ host_and_port = "0.0.0.0:${INDEXER_SERVICE_PORT}"
 # Serve the network subgraph on `common.server.host_and_port`/network
 # INDEXER_SERVICE__SERVE_NETWORK_SUBGRAPH
 # serve_network_subgraph = false
-# Serve the escrow subgraph on `common.server.host_and_port`/escrow
-# INDEXER_SERVICE__SERVE_ESCROW_SUBGRAPH
-# serve_escrow_subgraph = false
 
 free_query_auth_token = "${INDEXER_SERVICE_FREE_QUERY_AUTH_TOKEN}"
 

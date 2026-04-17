@@ -41,7 +41,6 @@ pub struct Config {
     pub service: ServiceConfig,
     pub tap: TapConfig,
     pub dips: Option<DipsConfig>,
-    /// Deprecated: Horizon is always enabled. This section is ignored.
     #[serde(default)]
     pub horizon: HorizonConfig,
 }
@@ -223,20 +222,13 @@ impl Config {
         }
 
         // Validate syncing_interval_secs is not zero
-        if self.subgraphs.escrow.config.syncing_interval_secs == Duration::ZERO {
-            return Err(
-                "subgraphs.escrow.syncing_interval_secs must be greater than 0".to_string(),
-            );
-        }
         if self.subgraphs.network.config.syncing_interval_secs == Duration::ZERO {
             return Err(
                 "subgraphs.network.syncing_interval_secs must be greater than 0".to_string(),
             );
         }
 
-        if self.subgraphs.escrow.config.syncing_interval_secs < Duration::from_secs(10)
-            || self.subgraphs.network.config.syncing_interval_secs < Duration::from_secs(10)
-        {
+        if self.subgraphs.network.config.syncing_interval_secs < Duration::from_secs(10) {
             tracing::warn!(
                 "Your `syncing_interval_secs` value it too low. \
                 This may overload your graph-node instance, \
@@ -244,9 +236,7 @@ impl Config {
             );
         }
 
-        if self.subgraphs.escrow.config.syncing_interval_secs > Duration::from_secs(600)
-            || self.subgraphs.network.config.syncing_interval_secs > Duration::from_secs(600)
-        {
+        if self.subgraphs.network.config.syncing_interval_secs > Duration::from_secs(600) {
             tracing::warn!(
                 "Your `syncing_interval_secs` value it too high. \
                 This may cause issues while reacting to updates in the blockchain. \
@@ -306,11 +296,46 @@ impl Config {
             self.subgraphs.network.config.query_auth_token.as_ref(),
             "subgraphs.network",
         );
-        Self::warn_if_token_over_http(
-            &self.subgraphs.escrow.config.query_url,
-            self.subgraphs.escrow.config.query_auth_token.as_ref(),
-            "subgraphs.escrow",
-        );
+
+        // Warn about deprecated escrow config
+        #[allow(deprecated)]
+        if self.subgraphs.escrow.is_some() {
+            tracing::warn!(
+                "The `subgraphs.escrow` configuration is deprecated and will be ignored. \
+                V2 escrow accounts are now sourced from the network subgraph. \
+                You can safely remove the `[subgraphs.escrow]` section from your config."
+            );
+        }
+
+        // Warn about deprecated serve_escrow_subgraph
+        #[allow(deprecated)]
+        if self.service.serve_escrow_subgraph {
+            tracing::warn!(
+                "The `service.serve_escrow_subgraph` configuration is deprecated and will be ignored. \
+                The escrow subgraph endpoint is no longer served. \
+                You can safely remove this setting from your config."
+            );
+        }
+
+        // Warn about deprecated receipts_verifier_address (V1)
+        #[allow(deprecated)]
+        if self.blockchain.receipts_verifier_address.is_some() {
+            tracing::warn!(
+                "The `blockchain.receipts_verifier_address` configuration is deprecated and will be ignored. \
+                Horizon (V2) is now always enabled and uses `receipts_verifier_address_v2`. \
+                You can safely remove `receipts_verifier_address` from your config."
+            );
+        }
+
+        // Warn about deprecated horizon.enabled
+        #[allow(deprecated)]
+        if self.horizon.enabled.is_some() {
+            tracing::warn!(
+                "The `horizon.enabled` configuration is deprecated and will be ignored. \
+                Horizon is now always enabled. \
+                You can safely remove the `[horizon]` section from your config."
+            );
+        }
 
         Ok(())
     }
@@ -448,10 +473,12 @@ impl MetricsConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(deprecated)] // Allow using deprecated EscrowSubgraphConfig type
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
-    pub escrow: EscrowSubgraphConfig,
-    // Note: V2 escrow accounts are in the network subgraph, not a separate escrow_v2 subgraph
+    #[deprecated(note = "V2 escrow accounts are in the network subgraph; this field is ignored.")]
+    #[serde(default)]
+    pub escrow: Option<EscrowSubgraphConfig>,
 }
 
 #[serde_as]
@@ -497,11 +524,12 @@ fn default_max_signers_per_payer() -> usize {
     0
 }
 
-#[derive(Debug, Deserialize)]
+#[deprecated(note = "V2 escrow accounts are in the network subgraph; escrow config is ignored.")]
+#[derive(Debug, Deserialize, Default)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct EscrowSubgraphConfig {
-    #[serde(flatten)]
-    pub config: SubgraphConfig,
+    #[serde(flatten, default)]
+    pub config: Option<SubgraphConfig>,
 }
 
 #[serde_as]
@@ -532,7 +560,7 @@ pub enum TheGraphChainId {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
-    /// Legacy verifier address (deprecated; optional, not used).
+    /// Legacy verifier address
     #[deprecated(note = "Use `receipts_verifier_address_v2` for Horizon receipts.")]
     pub receipts_verifier_address: Option<Address>,
     /// Verifier address for Horizon receipts.
@@ -552,6 +580,8 @@ impl BlockchainConfig {
 pub struct ServiceConfig {
     pub ipfs_url: Url,
     pub serve_network_subgraph: bool,
+    #[deprecated(note = "Escrow subgraph is no longer used; this field is ignored.")]
+    #[serde(default)]
     pub serve_escrow_subgraph: bool,
     pub serve_auth_token: Option<String>,
     pub host_and_port: SocketAddr,
@@ -688,14 +718,13 @@ pub struct RavRequestConfig {
 
 /// Configuration for Horizon support.
 ///
-/// Note: Horizon is always enabled. The `enabled` field is deprecated and ignored.
+/// Note: This struct is kept for backwards compatibility.
 #[derive(Debug, Default, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct HorizonConfig {
-    /// Deprecated: Horizon is now always enabled. This field is ignored.
     #[deprecated(note = "Horizon is always enabled; this field is ignored.")]
     #[serde(default)]
-    pub enabled: bool,
+    pub enabled: Option<bool>,
 }
 
 #[cfg(test)]
@@ -772,7 +801,7 @@ mod tests {
             Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
-        assert!(config_with_horizon_true.horizon.enabled);
+        assert_eq!(config_with_horizon_true.horizon.enabled, Some(true));
         env::remove_var("INDEXER_SERVICE_HORIZON__ENABLED");
 
         // Test with horizon.enabled = false via environment variable
@@ -782,7 +811,7 @@ mod tests {
             Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
-        assert!(!config_with_horizon_false.horizon.enabled);
+        assert_eq!(config_with_horizon_false.horizon.enabled, Some(false));
         env::remove_var("INDEXER_SERVICE_HORIZON__ENABLED");
 
         // Test without horizon section (uses default)
@@ -791,8 +820,8 @@ mod tests {
             Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
-        // Default is false since #[serde(default)] on bool defaults to false
-        assert!(!config_without_horizon.horizon.enabled);
+        // Default is None since #[serde(default)] on Option<bool> defaults to None
+        assert_eq!(config_without_horizon.horizon.enabled, None);
     }
 
     // Test that we can load config with unknown fields, in particular coming from environment variables

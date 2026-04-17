@@ -36,8 +36,8 @@
 //! [std::sync::Mutex]s aren't needed.
 
 use indexer_config::{
-    Config, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
-    SubgraphConfig, SubgraphsConfig, TapConfig,
+    Config, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig, SubgraphConfig, SubgraphsConfig,
+    TapConfig,
 };
 use indexer_monitor::{escrow_accounts_v2, indexer_allocations, DeploymentDetails, SubgraphClient};
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
@@ -87,7 +87,8 @@ pub async fn start_agent(
                 query_url: graph_node_query_endpoint,
             },
         database,
-        subgraphs:
+        #[allow(deprecated)]
+            subgraphs:
             SubgraphsConfig {
                 network:
                     NetworkSubgraphConfig {
@@ -103,7 +104,7 @@ pub async fn start_agent(
                         ref escrow_min_balance_grt_wei,
                         max_signers_per_payer,
                     },
-                escrow: EscrowSubgraphConfig { .. },
+                escrow: _, // Deprecated and ignored
             },
         tap: TapConfig {
             sender_aggregator_endpoints,

@@ -69,11 +69,6 @@ deployment_id = \"$network_deployment\""; fi)
 recently_closed_allocation_buffer_secs = 60
 syncing_interval_secs = 30
 
-[subgraphs.escrow]
-query_url = "http://graph-node:8000/subgraphs/name/semiotic/tap"$(if [ -n "$escrow_deployment" ] && [ "$escrow_deployment" != "null" ]; then echo "
-deployment_id = \"$escrow_deployment\""; fi)
-syncing_interval_secs = 30
-
 [blockchain]
 chain_id = 1337
 receipts_verifier_address = "${tap_verifier}"
@@ -85,7 +80,6 @@ free_query_auth_token = "freestuff"
 host_and_port = "0.0.0.0:7601"
 url_prefix = "/"
 serve_network_subgraph = false
-serve_escrow_subgraph = false
 
 
 [service.tap]

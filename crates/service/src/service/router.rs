@@ -13,13 +13,12 @@ use axum::{
 };
 use governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
 use indexer_config::{
-    BlockchainConfig, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
-    ServiceConfig, ServiceTapConfig,
+    BlockchainConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig, ServiceConfig,
+    ServiceTapConfig,
 };
 use indexer_monitor::{
-    attestation_signers, deployment_to_allocation, dispute_manager, escrow_accounts_v2,
-    indexer_allocations, AllocationWatcher, DisputeManagerWatcher, EscrowAccountsWatcher,
-    SubgraphClient,
+    attestation_signers, deployment_to_allocation, dispute_manager, indexer_allocations,
+    AllocationWatcher, DisputeManagerWatcher, EscrowAccountsWatcher, SubgraphClient,
 };
 use reqwest::Method;
 use tap_core::{manager::Manager, receipt::checks::CheckList};
@@ -75,14 +74,8 @@ pub struct ServiceRouter {
     service: ServiceConfig,
     blockchain: BlockchainConfig,
     timestamp_buffer_secs: Duration,
-
-    // either provide subgraph or watcher
-    #[builder(with =
-        |subgraph: &'static SubgraphClient,
-        config: EscrowSubgraphConfig|
-        (subgraph, config))]
-    escrow_subgraph: Option<(&'static SubgraphClient, EscrowSubgraphConfig)>,
-    escrow_accounts_v2: Option<EscrowAccountsWatcher>,
+    // V2 escrow accounts watcher (required, sourced from network subgraph)
+    escrow_accounts_v2: EscrowAccountsWatcher,
 
     // provide network subgraph or allocations + dispute manager
     #[builder(with = |subgraph: &'static SubgraphClient,
@@ -101,9 +94,10 @@ impl ServiceRouter {
             mnemonic_count = operator_mnemonics.len(),
             "Loaded operator mnemonics for attestation signing"
         );
+        #[allow(deprecated)]
         let ServiceConfig {
             serve_network_subgraph,
-            serve_escrow_subgraph,
+            serve_escrow_subgraph: _, // Deprecated and ignored
             serve_auth_token,
             url_prefix,
             tap: ServiceTapConfig {
@@ -138,33 +132,6 @@ impl ServiceRouter {
             .await
             .expect("Failed to initialize indexer_allocations watcher"),
             (None, None) => panic!("No allocations or network subgraph was provided"),
-        };
-
-        // Monitor escrow accounts v2
-        // if not provided, create monitor from subgraph
-        let escrow_accounts_v2 = match (self.escrow_accounts_v2, self.escrow_subgraph.as_ref()) {
-            (Some(escrow_account), _) => escrow_account,
-            (_, Some((escrow_subgraph, escrow))) => {
-                let (min_balance, max_signers) = match self.network_subgraph.as_ref() {
-                    Some((_, network)) => (
-                        network.escrow_min_balance_grt_wei.clone(),
-                        network.max_signers_per_payer,
-                    ),
-                    None => ("100000000000000000".to_string(), 0),
-                };
-                escrow_accounts_v2(
-                    escrow_subgraph,
-                    indexer_address,
-                    escrow.config.syncing_interval_secs,
-                    true, // Reject thawing signers eagerly
-                    self.blockchain.receipts_verifier_address_v2,
-                    min_balance,
-                    max_signers,
-                )
-                .await
-                .expect("Error creating escrow_accounts_v2 channel")
-            }
-            (None, None) => panic!("Escrow accounts v2 watcher must be provided"),
         };
 
         // Monitor dispute manager address
@@ -220,38 +187,12 @@ impl ServiceRouter {
                     DEFAULT_ROUTE_PATH,
                     post(static_subgraph_request_handler)
                         .route_layer(auth_layer)
-                        .route_layer(static_subgraph_rate_limiter.clone())
+                        .route_layer(static_subgraph_rate_limiter)
                         .with_state(network_subgraph),
                 )
             }
             (_, true, _) => {
                 tracing::warn!("`serve_network_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
-                Router::new()
-            }
-            _ => Router::new(),
-        };
-
-        // load serve_escrow_subgraph route
-        let serve_escrow_subgraph = match (
-            serve_auth_token.as_ref(),
-            serve_escrow_subgraph,
-            self.escrow_subgraph.as_ref(),
-        ) {
-            (Some(free_auth_token), true, Some((escrow_subgraph, _))) => {
-                tracing::info!("Serving escrow subgraph at /escrow");
-
-                let auth_layer = ValidateRequestHeaderLayer::bearer(free_auth_token);
-
-                Router::new().route(
-                    DEFAULT_ROUTE_PATH,
-                    post(static_subgraph_request_handler)
-                        .route_layer(auth_layer)
-                        .route_layer(static_subgraph_rate_limiter)
-                        .with_state(*escrow_subgraph),
-                )
-            }
-            (_, true, _) => {
-                tracing::warn!("`serve_escrow_subgraph` is enabled but no `serve_auth_token` provided. Disabling it.");
                 Router::new()
             }
             _ => Router::new(),
@@ -276,7 +217,7 @@ impl ServiceRouter {
                 let checks = IndexerTapContext::get_checks(TapChecksConfig {
                     pgpool: self.database.clone(),
                     indexer_allocations: allocations.clone(),
-                    escrow_accounts_v2: escrow_accounts_v2.clone(),
+                    escrow_accounts_v2: self.escrow_accounts_v2.clone(),
                     network_subgraph: network_subgraph_client,
                     indexer_address: self.indexer.indexer_address,
                     timestamp_error_tolerance,
@@ -326,7 +267,7 @@ impl ServiceRouter {
                 deployment_to_allocation,
             };
             let sender_state = SenderState {
-                escrow_accounts_v2,
+                escrow_accounts_v2: self.escrow_accounts_v2,
                 domain_separator_v2: self.domain_separator_v2,
             };
 
@@ -432,7 +373,6 @@ impl ServiceRouter {
             .route("/info", get(operator_address))
             .route("/healthz", get(healthz).with_state(healthz_state))
             .nest("/version", version)
-            .nest("/escrow", serve_escrow_subgraph)
             .nest("/network", serve_network_subgraph)
             .route(
                 "/subgraph/health/{deployment_id}",

@@ -120,11 +120,6 @@ deployment_id = \"$NETWORK_DEPLOYMENT\""; fi)
 recently_closed_allocation_buffer_secs = 60
 syncing_interval_secs = 30
 
-[subgraphs.escrow]
-query_url = "http://graph-node:${GRAPH_NODE_GRAPHQL}/subgraphs/name/semiotic/tap"$(if [ -n "$ESCROW_DEPLOYMENT" ] && [ "$ESCROW_DEPLOYMENT" != "null" ]; then echo "
-deployment_id = \"$ESCROW_DEPLOYMENT\""; fi)
-syncing_interval_secs = 30
-
 [blockchain]
 chain_id = 1337
 receipts_verifier_address = "${tap_verifier}"
@@ -135,7 +130,6 @@ subgraph_service_address = "${subgraph_service}"
 host_and_port = "0.0.0.0:${INDEXER_SERVICE}"
 url_prefix = "/"
 serve_network_subgraph = false
-serve_escrow_subgraph = false
 
 
 [service.tap]
