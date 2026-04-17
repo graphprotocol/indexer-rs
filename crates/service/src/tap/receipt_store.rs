@@ -303,7 +303,7 @@ mod tests {
         #[case(ProcessedReceipt::None, async { vec![] })]
         #[case(ProcessedReceipt::V2, async { vec![create_v2().await] })]
         #[tokio::test]
-        async fn v1_and_v2_are_processed_successfully(
+        async fn receipts_are_processed_successfully(
             #[case] expected: ProcessedReceipt,
             #[future(awt)]
             #[case]

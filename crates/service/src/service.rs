@@ -104,29 +104,6 @@ pub async fn run() -> anyhow::Result<()> {
     // V2 escrow accounts (used by DIPS) are in the network subgraph
     let escrow_v2_query_url_for_dips = config.subgraphs.network.config.query_url.clone();
 
-    // Verify Horizon contracts are active in the network subgraph
-    tracing::info!("Checking network subgraph readiness for Horizon mode");
-    match indexer_monitor::is_horizon_active(network_subgraph).await {
-        Ok(true) => {
-            tracing::info!("Horizon contracts detected in network subgraph");
-        }
-        Ok(false) => {
-            anyhow::bail!(
-                "Horizon mode is required, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
-                Ensure Horizon contracts are deployed and the Network Subgraph is updated before starting the indexer service."
-            );
-        }
-        Err(e) => {
-            anyhow::bail!(
-                "Failed to detect Horizon contracts due to network/subgraph error: {}. \
-                Cannot start with Horizon mode enabled when network status is unknown.",
-                e
-            );
-        }
-    }
-
-    tracing::info!("Horizon contracts detected - using Horizon (V2) mode");
-
     let collector_address = config.blockchain.receipts_verifier_address_v2;
     let escrow_min_balance_grt_wei = config.subgraphs.network.escrow_min_balance_grt_wei.clone();
     let max_signers_per_payer = config.subgraphs.network.max_signers_per_payer;

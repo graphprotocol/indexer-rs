@@ -126,7 +126,7 @@ async fn full_integration_test() {
         ));
     mock_server.register(mock).await;
 
-    // Mock escrow subgraph (v1) and network subgraph (v2) redemption queries.
+    // Mock network subgraph redemption queries.
     mock_server
         .register(Mock::given(method("POST")).and(path("/")).respond_with(
             ResponseTemplate::new(200).set_body_raw(
