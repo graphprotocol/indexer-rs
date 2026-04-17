@@ -41,6 +41,8 @@ pub struct Config {
     pub service: ServiceConfig,
     pub tap: TapConfig,
     pub dips: Option<DipsConfig>,
+    /// Deprecated: Horizon is always enabled. This section is ignored.
+    #[serde(default)]
     pub horizon: HorizonConfig,
 }
 
@@ -310,10 +312,7 @@ impl Config {
             "subgraphs.escrow",
         );
 
-        // Horizon configuration validation (required).
-        if !self.horizon.enabled {
-            return Err("Horizon is required; set [horizon].enabled = true".to_string());
-        }
+        // Horizon configuration validation.
         if self.blockchain.subgraph_service_address.is_none() {
             return Err(
                 "Horizon is required; set `blockchain.subgraph_service_address`".to_string(),
@@ -726,11 +725,10 @@ pub enum TapMode {
 }
 
 impl TapMode {
-    /// Check if the indexer is operating in Horizon mode
-    ///
-    /// Returns `true` when Horizon is enabled, `false` otherwise.
+    /// Deprecated: Horizon is always enabled; this method always returns true.
+    #[deprecated(note = "Horizon is always enabled; this method always returns true.")]
     pub fn is_horizon(&self) -> bool {
-        matches!(self, TapMode::Horizon { .. })
+        true
     }
 
     /// Get the SubgraphService address for Horizon mode.
@@ -747,21 +745,21 @@ impl TapMode {
         }
     }
 
-    /// Check if Horizon receipts are supported.
-    ///
-    /// Alias for [`is_horizon()`](Self::is_horizon) with more explicit naming.
+    /// Deprecated: Horizon is always enabled; this method always returns true.
+    #[deprecated(note = "Horizon is always enabled; this method always returns true.")]
     pub fn supports_v2(&self) -> bool {
-        self.is_horizon()
+        true
     }
 }
 
 /// Configuration for Horizon support.
+///
+/// Note: Horizon is always enabled. The `enabled` field is deprecated and ignored.
 #[derive(Debug, Default, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct HorizonConfig {
-    /// Enable Horizon support and detection.
-    /// When enabled, set `blockchain.subgraph_service_address` and
-    /// `blockchain.receipts_verifier_address_v2`.
+    /// Deprecated: Horizon is now always enabled. This field is ignored.
+    #[deprecated(note = "Horizon is always enabled; this field is ignored.")]
     #[serde(default)]
     pub enabled: bool,
 }
@@ -827,6 +825,40 @@ mod tests {
         .unwrap();
 
         assert_eq!(max_config, max_config_file);
+    }
+
+    /// Test backwards compatibility: configs with deprecated [horizon] section should still work
+    #[sealed_test(files = ["minimal-config-example.toml", "default_values.toml"])]
+    #[allow(deprecated)]
+    fn test_horizon_enabled_backwards_compatibility() {
+        // Test with horizon.enabled = true via environment variable
+        env::set_var("INDEXER_SERVICE_HORIZON__ENABLED", "true");
+        let config_with_horizon_true = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
+        )
+        .unwrap();
+        assert!(config_with_horizon_true.horizon.enabled);
+        env::remove_var("INDEXER_SERVICE_HORIZON__ENABLED");
+
+        // Test with horizon.enabled = false via environment variable
+        env::set_var("INDEXER_SERVICE_HORIZON__ENABLED", "false");
+        let config_with_horizon_false = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
+        )
+        .unwrap();
+        assert!(!config_with_horizon_false.horizon.enabled);
+        env::remove_var("INDEXER_SERVICE_HORIZON__ENABLED");
+
+        // Test without horizon section (uses default)
+        let config_without_horizon = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
+        )
+        .unwrap();
+        // Default is false since #[serde(default)] on bool defaults to false
+        assert!(!config_without_horizon.horizon.enabled);
     }
 
     // Test that we can load config with unknown fields, in particular coming from environment variables

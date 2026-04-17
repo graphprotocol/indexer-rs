@@ -143,12 +143,8 @@ pub async fn start_agent(
     .await
     .with_context(|| "Failed to initialize indexer_allocations watcher")?;
 
-    // Verify Horizon mode is enabled and the network subgraph is ready
-    if !CONFIG.tap_mode().is_horizon() {
-        anyhow::bail!("Legacy TAP mode is no longer supported; enable Horizon mode");
-    }
-
-    tracing::info!("Horizon mode configured; checking network subgraph readiness");
+    // Verify the network subgraph is ready for Horizon mode
+    tracing::info!("Checking network subgraph readiness for Horizon mode");
     match indexer_monitor::is_horizon_active(network_subgraph).await {
         Ok(true) => {
             tracing::info!("Horizon schema available in network subgraph - enabling Horizon mode");
