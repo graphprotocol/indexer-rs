@@ -157,7 +157,7 @@ impl ServiceRouter {
                     indexer_address,
                     escrow.config.syncing_interval_secs,
                     true, // Reject thawing signers eagerly
-                    self.blockchain.graph_tally_collector_address,
+                    self.blockchain.receipts_verifier_address_v2,
                     min_balance,
                     max_signers,
                 )

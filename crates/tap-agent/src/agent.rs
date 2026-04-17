@@ -181,7 +181,7 @@ pub async fn start_agent(
         *indexer_address,
         *network_sync_interval,
         false,
-        CONFIG.blockchain.graph_tally_collector_address,
+        CONFIG.blockchain.receipts_verifier_address_v2,
         escrow_min_balance_grt_wei.clone(),
         *max_signers_per_payer,
     )
@@ -195,7 +195,7 @@ pub async fn start_agent(
         *indexer_address,
         *network_sync_interval,
         true,
-        CONFIG.blockchain.graph_tally_collector_address,
+        CONFIG.blockchain.receipts_verifier_address_v2,
         escrow_min_balance_grt_wei.clone(),
         *max_signers_per_payer,
     )

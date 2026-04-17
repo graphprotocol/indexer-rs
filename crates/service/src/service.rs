@@ -131,7 +131,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     tracing::info!("Horizon contracts detected - using Horizon (V2) mode");
 
-    let graph_tally_collector_address = config.blockchain.graph_tally_collector_address;
+    let collector_address = config.blockchain.receipts_verifier_address_v2;
     let escrow_min_balance_grt_wei = config.subgraphs.network.escrow_min_balance_grt_wei.clone();
     let max_signers_per_payer = config.subgraphs.network.max_signers_per_payer;
 
@@ -140,7 +140,7 @@ pub async fn run() -> anyhow::Result<()> {
         indexer_address,
         config.subgraphs.network.config.syncing_interval_secs,
         true, // Reject thawing signers eagerly
-        graph_tally_collector_address,
+        collector_address,
         escrow_min_balance_grt_wei.clone(),
         max_signers_per_payer,
     )
@@ -232,7 +232,7 @@ pub async fn run() -> anyhow::Result<()> {
             indexer_address,
             Duration::from_secs(500),
             true,
-            graph_tally_collector_address,
+            collector_address,
             escrow_min_balance_grt_wei.clone(),
             max_signers_per_payer,
         )

@@ -76,7 +76,6 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
                 receipts_verifier_address: None,
                 receipts_verifier_address_v2: test_assets::VERIFIER_ADDRESS,
                 subgraph_service_address: None,
-                graph_tally_collector_address: Address::ZERO,
             }
         })
         .timestamp_buffer_secs(Duration::from_secs(10))

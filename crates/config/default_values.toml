@@ -48,8 +48,6 @@ chain_id = 1337
 receipts_verifier_address_v2 = "0x3333333333333333333333333333333333333333"
 # SubgraphService contract (required).
 subgraph_service_address = "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9"
-# GraphTallyCollector contract (required for V2 escrow filtering).
-graph_tally_collector_address = "0x4444444444444444444444444444444444444444"
 
 [horizon]
 # Enable Horizon support and detection
