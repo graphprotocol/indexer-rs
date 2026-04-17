@@ -11,7 +11,6 @@ use std::{
 
 use actors::TestableActor;
 use bigdecimal::num_bigint::BigInt;
-use indexer_config;
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use rand::{distr::Alphanumeric, rng, Rng};
@@ -91,9 +90,7 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
         escrow_polling_interval: ESCROW_POLLING_INTERVAL,
         tap_sender_timeout: Duration::from_secs(63),
         trusted_senders: HashSet::new(),
-        tap_mode: indexer_config::TapMode::Horizon {
-            subgraph_service_address: SUBGRAPH_SERVICE_ADDRESS,
-        },
+        subgraph_service_address: SUBGRAPH_SERVICE_ADDRESS,
         allocation_reconciliation_interval: Duration::from_secs(300),
     }))
 }
@@ -136,9 +133,7 @@ pub async fn create_sender_account(
         escrow_polling_interval: ESCROW_POLLING_INTERVAL,
         tap_sender_timeout: TAP_SENDER_TIMEOUT,
         trusted_senders,
-        tap_mode: indexer_config::TapMode::Horizon {
-            subgraph_service_address: SUBGRAPH_SERVICE_ADDRESS,
-        },
+        subgraph_service_address: SUBGRAPH_SERVICE_ADDRESS,
         allocation_reconciliation_interval,
     }));
 

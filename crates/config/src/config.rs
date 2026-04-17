@@ -312,14 +312,6 @@ impl Config {
             "subgraphs.escrow",
         );
 
-        // Horizon configuration validation.
-        if self.blockchain.subgraph_service_address.is_none() {
-            return Err(
-                "Horizon is required; set `blockchain.subgraph_service_address`".to_string(),
-            );
-        }
-        // receipts_verifier_address_v2 is required by config schema.
-
         Ok(())
     }
 
@@ -346,24 +338,6 @@ impl Config {
                     );
                 }
             }
-        }
-    }
-
-    /// Derive TAP operation mode from horizon configuration.
-    ///
-    /// This method translates the `[horizon]` configuration section into a
-    /// [`TapMode`] enum for use throughout the indexer codebase.
-    ///
-    /// # Returns
-    ///
-    /// - [`TapMode::Horizon`] when `horizon.enabled = true` with the configured
-    ///   `blockchain.subgraph_service_address`
-    pub fn tap_mode(&self) -> TapMode {
-        TapMode::Horizon {
-            subgraph_service_address: self
-                .blockchain
-                .subgraph_service_address
-                .expect("subgraph_service_address should be validated during Config::validate()"),
         }
     }
 }
@@ -563,8 +537,8 @@ pub struct BlockchainConfig {
     pub receipts_verifier_address: Option<Address>,
     /// Verifier address for Horizon receipts.
     pub receipts_verifier_address_v2: Address,
-    /// Address of the SubgraphService contract used for Horizon operations
-    pub subgraph_service_address: Option<Address>,
+    /// Address of the SubgraphService contract used for Horizon operations.
+    pub subgraph_service_address: Address,
 }
 
 impl BlockchainConfig {
@@ -710,46 +684,6 @@ pub struct RavRequestConfig {
     pub request_timeout_secs: Duration,
     /// how many receipts are sent in a single rav requests
     pub max_receipts_per_request: u64,
-}
-
-/// TAP protocol operation mode.
-///
-#[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
-pub enum TapMode {
-    /// Horizon TAP mode.
-    Horizon {
-        /// Address of the SubgraphService contract used for Horizon operations.
-        subgraph_service_address: Address,
-    },
-}
-
-impl TapMode {
-    /// Deprecated: Horizon is always enabled; this method always returns true.
-    #[deprecated(note = "Horizon is always enabled; this method always returns true.")]
-    pub fn is_horizon(&self) -> bool {
-        true
-    }
-
-    /// Get the SubgraphService address for Horizon mode.
-    pub fn subgraph_service_address(&self) -> Address {
-        self.require_subgraph_service_address()
-    }
-
-    /// Get the SubgraphService address, panicking if not in Horizon mode.
-    pub fn require_subgraph_service_address(&self) -> Address {
-        match self {
-            TapMode::Horizon {
-                subgraph_service_address,
-            } => *subgraph_service_address,
-        }
-    }
-
-    /// Deprecated: Horizon is always enabled; this method always returns true.
-    #[deprecated(note = "Horizon is always enabled; this method always returns true.")]
-    pub fn supports_v2(&self) -> bool {
-        true
-    }
 }
 
 /// Configuration for Horizon support.

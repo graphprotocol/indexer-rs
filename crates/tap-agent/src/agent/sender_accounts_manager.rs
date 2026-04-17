@@ -526,12 +526,7 @@ impl State {
                 GROUP BY signer_address
             "#,
         )
-        .bind(
-            self.config
-                .tap_mode
-                .require_subgraph_service_address()
-                .encode_hex(),
-        )
+        .bind(self.config.subgraph_service_address.encode_hex())
         .bind(self.config.indexer_address.encode_hex())
         .fetch_all(&self.pgpool)
         .await
@@ -598,12 +593,7 @@ impl State {
             "#,
         )
         // Constrain to our Horizon bucket to avoid conflating RAVs across services/providers
-        .bind(
-            self.config
-                .tap_mode
-                .require_subgraph_service_address()
-                .encode_hex(),
-        )
+        .bind(self.config.subgraph_service_address.encode_hex())
         .bind(self.config.indexer_address.encode_hex())
         .fetch_all(&self.pgpool)
         .await
