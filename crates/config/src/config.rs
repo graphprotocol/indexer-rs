@@ -223,20 +223,13 @@ impl Config {
         }
 
         // Validate syncing_interval_secs is not zero
-        if self.subgraphs.escrow.config.syncing_interval_secs == Duration::ZERO {
-            return Err(
-                "subgraphs.escrow.syncing_interval_secs must be greater than 0".to_string(),
-            );
-        }
         if self.subgraphs.network.config.syncing_interval_secs == Duration::ZERO {
             return Err(
                 "subgraphs.network.syncing_interval_secs must be greater than 0".to_string(),
             );
         }
 
-        if self.subgraphs.escrow.config.syncing_interval_secs < Duration::from_secs(10)
-            || self.subgraphs.network.config.syncing_interval_secs < Duration::from_secs(10)
-        {
+        if self.subgraphs.network.config.syncing_interval_secs < Duration::from_secs(10) {
             tracing::warn!(
                 "Your `syncing_interval_secs` value it too low. \
                 This may overload your graph-node instance, \
@@ -244,9 +237,7 @@ impl Config {
             );
         }
 
-        if self.subgraphs.escrow.config.syncing_interval_secs > Duration::from_secs(600)
-            || self.subgraphs.network.config.syncing_interval_secs > Duration::from_secs(600)
-        {
+        if self.subgraphs.network.config.syncing_interval_secs > Duration::from_secs(600) {
             tracing::warn!(
                 "Your `syncing_interval_secs` value it too high. \
                 This may cause issues while reacting to updates in the blockchain. \
@@ -306,11 +297,26 @@ impl Config {
             self.subgraphs.network.config.query_auth_token.as_ref(),
             "subgraphs.network",
         );
-        Self::warn_if_token_over_http(
-            &self.subgraphs.escrow.config.query_url,
-            self.subgraphs.escrow.config.query_auth_token.as_ref(),
-            "subgraphs.escrow",
-        );
+
+        // Warn about deprecated escrow config
+        #[allow(deprecated)]
+        if self.subgraphs.escrow.is_some() {
+            tracing::warn!(
+                "The `subgraphs.escrow` configuration is deprecated and will be ignored. \
+                V2 escrow accounts are now sourced from the network subgraph. \
+                You can safely remove the `[subgraphs.escrow]` section from your config."
+            );
+        }
+
+        // Warn about deprecated serve_escrow_subgraph
+        #[allow(deprecated)]
+        if self.service.serve_escrow_subgraph {
+            tracing::warn!(
+                "The `service.serve_escrow_subgraph` configuration is deprecated and will be ignored. \
+                The escrow subgraph endpoint is no longer served. \
+                You can safely remove this setting from your config."
+            );
+        }
 
         Ok(())
     }
@@ -450,8 +456,11 @@ impl MetricsConfig {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
-    pub escrow: EscrowSubgraphConfig,
-    // Note: V2 escrow accounts are in the network subgraph, not a separate escrow_v2 subgraph
+    /// Deprecated: V2 escrow accounts are now in the network subgraph.
+    /// This field is ignored but kept for backwards compatibility.
+    #[deprecated(note = "V2 escrow accounts are in the network subgraph; this field is ignored.")]
+    #[serde(default)]
+    pub escrow: Option<EscrowSubgraphConfig>,
 }
 
 #[serde_as]
@@ -497,11 +506,14 @@ fn default_max_signers_per_payer() -> usize {
     0
 }
 
-#[derive(Debug, Deserialize)]
+/// Deprecated: V2 escrow accounts are now in the network subgraph.
+/// This struct is kept for backwards compatibility only.
+#[deprecated(note = "V2 escrow accounts are in the network subgraph; escrow config is ignored.")]
+#[derive(Debug, Deserialize, Default)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct EscrowSubgraphConfig {
-    #[serde(flatten)]
-    pub config: SubgraphConfig,
+    #[serde(flatten, default)]
+    pub config: Option<SubgraphConfig>,
 }
 
 #[serde_as]
@@ -552,6 +564,9 @@ impl BlockchainConfig {
 pub struct ServiceConfig {
     pub ipfs_url: Url,
     pub serve_network_subgraph: bool,
+    /// Deprecated: The escrow subgraph is no longer used. This field is ignored.
+    #[deprecated(note = "Escrow subgraph is no longer used; this field is ignored.")]
+    #[serde(default)]
     pub serve_escrow_subgraph: bool,
     pub serve_auth_token: Option<String>,
     pub host_and_port: SocketAddr,

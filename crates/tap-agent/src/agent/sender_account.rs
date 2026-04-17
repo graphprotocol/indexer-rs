@@ -398,7 +398,7 @@ pub struct SenderAccountConfig {
     pub rav_request_receipt_limit: u64,
     /// Current indexer address
     pub indexer_address: Address,
-    /// Polling interval for escrow subgraph
+    /// Polling interval for escrow accounts (from network subgraph)
     pub escrow_polling_interval: Duration,
     /// Timeout used while creating [SenderAccount]
     ///
@@ -423,7 +423,7 @@ impl SenderAccountConfig {
             rav_request_buffer: config.tap.rav_request.timestamp_buffer_secs,
             rav_request_receipt_limit: config.tap.rav_request.max_receipts_per_request,
             indexer_address: config.indexer.indexer_address,
-            escrow_polling_interval: config.subgraphs.escrow.config.syncing_interval_secs,
+            escrow_polling_interval: config.subgraphs.network.config.syncing_interval_secs,
             max_amount_willing_to_lose_grt: config.tap.max_amount_willing_to_lose_grt.get_value(),
             trigger_value: config.tap.get_trigger_value(),
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
