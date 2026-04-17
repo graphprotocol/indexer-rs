@@ -1,31 +1,69 @@
 # Network Subgraph EscrowAccount Query V2
-# 
+#
 # This query retrieves V2 escrow account information from the network subgraph,
 # which tracks PaymentsEscrow and GraphTallyCollector contract events.
 #
 # Input Variables:
 # - $receiver (Bytes!): The address of the Indexer whose escrow accounts are being queried.
 # - $thawEndTimestamp (BigInt!): A timestamp used to filter signers whose thaw period has ended or is about to end.
+# - $first (Int!): Page size for pagination.
+# - $last (ID!): The ID of the last entity from the previous page (cursor-based pagination).
+# - $minBalance (BigInt!): Minimum escrow balance in GRT wei. Filters dust deposits to raise the
+#   cost of crowding attacks. Configurable via escrow_min_balance_grt_wei (default: 0.1 GRT).
+# - $block (Block_height): Optional block pinning for consistent reads across pages.
 #
 # Query Logic:
 # - Fetches escrow accounts where the `receiver` is the provided indexer address.
+# - Filters out accounts below the configured minimum balance ($minBalance) to raise the cost of
+#   dust-deposit crowding attacks. Default is 0.1 GRT; operators can adjust via config.
+# - Results are ordered by id for deterministic cursor-based pagination (id_gt).
 # - Returns the following information for each escrow account:
+#   - `id`: The entity ID (used for pagination tracking).
 #   - `balance`: The current balance of the escrow account.
 #   - `totalAmountThawing`: The total amount currently thawing in the escrow.
 # - Retrieves the payer and filters the payer's `signers` based on:
 #   - `thawEndTimestamp_lte`: Only includes signers whose thaw end timestamp is less than or equal to the provided $thawEndTimestamp.
 #   - `isAuthorized: true`: Only includes signers that are authorized.
+#   - Nested signers are capped at 1000 per payer to prevent truncation at the default limit.
 
-query NetworkEscrowAccountQueryV2($receiver: Bytes!, $thawEndTimestamp: BigInt!) {
-    paymentsEscrowAccounts(where: { receiver_: { id: $receiver } }) {
+query NetworkEscrowAccountQueryV2(
+    $receiver: Bytes!
+    $thawEndTimestamp: BigInt!
+    $collector: String!
+    $first: Int!
+    $last: ID!
+    $minBalance: BigInt!
+    $block: Block_height
+) {
+    meta: _meta(block: $block) { block { number hash timestamp } }
+    paymentsEscrowAccounts(
+        block: $block
+        orderBy: id
+        orderDirection: asc
+        first: $first
+        where: {
+            and: [
+                { id_gt: $last }
+                { receiver_: { id: $receiver } }
+                { collector: $collector }
+                { balance_gt: $minBalance }
+            ]
+        }
+    ) {
+        id
         balance
         totalAmountThawing
         payer {
             id
-            signers(where: {
-                thawEndTimestamp_lte: $thawEndTimestamp
-                isAuthorized: true
-            }) {
+            signers(
+                first: 1000
+                orderBy: id
+                orderDirection: asc
+                where: {
+                    thawEndTimestamp_lte: $thawEndTimestamp
+                    isAuthorized: true
+                }
+            ) {
                 id
             }
         }

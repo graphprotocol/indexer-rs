@@ -377,7 +377,8 @@ mod test {
     ) -> TapAgentContext<Horizon> {
         TapAgentContext::builder()
             .pgpool(pgpool)
-            .escrow_accounts(escrow_accounts)
+            .escrow_accounts(escrow_accounts.clone())
+            .escrow_accounts_strict(escrow_accounts)
             .subgraph_service_address(SUBGRAPH_SERVICE_ADDRESS)
             .build()
     }
@@ -655,7 +656,8 @@ mod test {
         let context_wrapper: TestContextWithContainer<Horizon> = TestContextWithContainer {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
-                .escrow_accounts(escrow_accounts)
+                .escrow_accounts(escrow_accounts.clone())
+                .escrow_accounts_strict(escrow_accounts)
                 .subgraph_service_address(SUBGRAPH_SERVICE_ADDRESS)
                 .build(),
             _test_db: test_db,
@@ -725,6 +727,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts.clone())
+                .escrow_accounts_strict(escrow_accounts.clone())
                 .subgraph_service_address(SUBGRAPH_SERVICE_ADDRESS)
                 .build(),
             _test_db: test_db,
@@ -851,6 +854,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts.clone())
+                .escrow_accounts_strict(escrow_accounts.clone())
                 .subgraph_service_address(SUBGRAPH_SERVICE_ADDRESS)
                 .build(),
             _test_db: test_db,

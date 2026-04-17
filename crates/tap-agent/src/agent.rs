@@ -100,6 +100,8 @@ pub async fn start_agent(
                             },
                         recently_closed_allocation_buffer_secs: recently_closed_allocation_buffer,
                         max_data_staleness_mins,
+                        ref escrow_min_balance_grt_wei,
+                        max_signers_per_payer,
                     },
                 escrow: EscrowSubgraphConfig { .. },
             },
@@ -179,9 +181,26 @@ pub async fn start_agent(
         *indexer_address,
         *network_sync_interval,
         false,
+        CONFIG.blockchain.graph_tally_collector_address,
+        escrow_min_balance_grt_wei.clone(),
+        *max_signers_per_payer,
     )
     .await
     .with_context(|| "Error creating escrow_accounts_v2 channel")?;
+
+    // Strict watcher excludes thawing signers -- used only for RAV signature
+    // verification so that RAVs signed by thawing signers are rejected.
+    let escrow_accounts_v2_strict = indexer_monitor::escrow_accounts_v2(
+        network_subgraph,
+        *indexer_address,
+        *network_sync_interval,
+        true,
+        CONFIG.blockchain.graph_tally_collector_address,
+        escrow_min_balance_grt_wei.clone(),
+        *max_signers_per_payer,
+    )
+    .await
+    .with_context(|| "Error creating escrow_accounts_v2_strict channel")?;
 
     let config = Box::leak(Box::new(SenderAccountConfig::from_config(&CONFIG)));
 
@@ -191,6 +210,7 @@ pub async fn start_agent(
         pgpool,
         indexer_allocations,
         escrow_accounts_v2,
+        escrow_accounts_v2_strict,
         network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
         prefix: None,

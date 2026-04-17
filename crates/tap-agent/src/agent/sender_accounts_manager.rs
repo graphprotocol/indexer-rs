@@ -179,6 +179,8 @@ pub struct SenderAccountsManagerArgs {
     pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     /// Watcher containing the escrow accounts for v2
     pub escrow_accounts_v2: Receiver<EscrowAccounts>,
+    /// Strict escrow accounts watcher (excludes thawing signers, for RAV verification)
+    pub escrow_accounts_v2_strict: Receiver<EscrowAccounts>,
     /// SubgraphClient of the network subgraph
     pub network_subgraph: &'static SubgraphClient,
     /// Map containing all endpoints for senders provided in the config
@@ -203,6 +205,8 @@ pub struct State {
     indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     /// Watcher containing the escrow accounts for v2
     escrow_accounts_v2: Receiver<EscrowAccounts>,
+    /// Strict escrow accounts watcher (excludes thawing signers, for RAV verification)
+    escrow_accounts_v2_strict: Receiver<EscrowAccounts>,
     network_subgraph: &'static SubgraphClient,
     sender_aggregator_endpoints: HashMap<Address, Url>,
     prefix: Option<String>,
@@ -226,6 +230,7 @@ impl Actor for SenderAccountsManager {
             indexer_allocations,
             pgpool,
             escrow_accounts_v2,
+            escrow_accounts_v2_strict,
             network_subgraph,
             sender_aggregator_endpoints,
             prefix,
@@ -262,6 +267,7 @@ impl Actor for SenderAccountsManager {
             pgpool: pgpool.clone(),
             indexer_allocations,
             escrow_accounts_v2: escrow_accounts_v2.clone(),
+            escrow_accounts_v2_strict,
             network_subgraph,
             sender_aggregator_endpoints,
             prefix: prefix.clone(),
@@ -560,11 +566,22 @@ impl State {
                 .expect("signer_address should be present");
             let signer_id = Address::from_str(&signer_address)
                 .expect("signer_address should be a valid address");
-            let sender_id = self
+            // Copy the result and drop the Ref before any .await
+            let live_lookup = self
                 .escrow_accounts_v2
                 .borrow()
                 .get_sender_for_signer(&signer_id)
-                .expect("should be able to get sender from signer");
+                .ok();
+            let sender_id = match live_lookup {
+                Some(sender) => sender,
+                None => {
+                    tracing::warn!(
+                        signer = %signer_id,
+                        "Signer not found in escrow accounts; skipping"
+                    );
+                    continue;
+                }
+            };
 
             // Accumulate allocations for the sender
             unfinalized_sender_allocations_map
@@ -718,6 +735,7 @@ impl State {
             pgpool: self.pgpool.clone(),
             sender_id: *sender_id,
             escrow_accounts,
+            escrow_accounts_strict: self.escrow_accounts_v2_strict.clone(),
             indexer_allocations,
             network_subgraph: self.network_subgraph,
             domain_separator_v2: self.domain_separator_v2.clone(),
@@ -837,7 +855,6 @@ async fn handle_notification(
         notification = ?new_receipt_notification,
         "New receipt notification detected!"
     );
-    let escrow_accounts = escrow_accounts_rx.borrow();
     let signer = new_receipt_notification.signer_address();
     tracing::debug!(
         sender_type_str = "V2",
@@ -845,20 +862,20 @@ async fn handle_notification(
         "Looking up sender for signer in escrow accounts",
     );
 
-    let Ok(sender_address) = escrow_accounts.get_sender_for_signer(&signer) else {
-        tracing::error!(
-            signer=?signer,
-            sender_type_str = "V2",
-            "ESCROW LOOKUP FAILURE: No sender found for signer in escrow accounts",
-        );
-
-        // TODO: save the receipt in the failed receipts table?
-        bail!(
-            "No sender address found for receipt signer address {} in {} escrow accounts. \
-                    This suggests either: (1) escrow accounts not yet loaded or (2) signer not authorized.",
-            signer,
-            "V2",
-        );
+    // Copy the result and drop the Ref before any .await
+    let live_lookup = escrow_accounts_rx
+        .borrow()
+        .get_sender_for_signer(&signer)
+        .ok();
+    let sender_address = match live_lookup {
+        Some(sender) => sender,
+        None => {
+            tracing::error!(
+                signer = ?signer,
+                "No sender found for signer in escrow accounts",
+            );
+            bail!("No sender found for signer {} in escrow accounts", signer);
+        }
     };
 
     let allocation_id = new_receipt_notification.allocation_id().with_context(|| {
@@ -973,7 +990,10 @@ mod tests {
     use test_assets::{
         assert_while_retry, flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER,
     };
-    use thegraph_core::{alloy::hex::ToHexExt, CollectionId};
+    use thegraph_core::{
+        alloy::{hex::ToHexExt, primitives::Address},
+        CollectionId,
+    };
     use tokio::sync::{
         mpsc::{self, error::TryRecvError},
         watch,
@@ -1051,7 +1071,8 @@ mod tests {
                 new_receipts_watcher_handle_v2: None,
                 pgpool,
                 indexer_allocations: watch::channel(HashMap::new()).1,
-                escrow_accounts_v2: watch::channel(escrow_accounts).1,
+                escrow_accounts_v2: watch::channel(escrow_accounts.clone()).1,
+                escrow_accounts_v2_strict: watch::channel(escrow_accounts).1,
                 network_subgraph: get_subgraph_client().await,
                 sender_aggregator_endpoints: HashMap::from([
                     (SENDER.1, Url::parse(&get_grpc_url().await).unwrap()),
@@ -1289,6 +1310,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_allocation_id() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let _pgpool = test_db.pool;
         let senders_to_signers = vec![(SENDER.1, vec![SIGNER.1])].into_iter().collect();
         let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
         let escrow_accounts = watch::channel(escrow_accounts).1;
@@ -1324,5 +1347,48 @@ mod tests {
         insta::assert_debug_snapshot!(new_alloc_msg);
         sender_account.stop_and_wait(None, None).await.unwrap();
         join_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_pending_allocations_missing_signer_does_not_panic() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let pgpool = test_db.pool;
+
+        // Create state where SIGNER.1 is NOT in escrow accounts
+        let other_signer = Address::new([0xAA; 20]);
+        let senders_to_signers = vec![(SENDER.1, vec![other_signer])].into_iter().collect();
+        let escrow_accounts = EscrowAccounts::new(HashMap::new(), senders_to_signers);
+
+        let prefix = generate_random_prefix();
+        let state = State {
+            config: get_sender_account_config(),
+            domain_separator_v2: TAP_EIP712_DOMAIN_SEPARATOR_V2.clone(),
+            sender_ids_v2: HashSet::new(),
+            new_receipts_watcher_handle_v2: None,
+            pgpool: pgpool.clone(),
+            indexer_allocations: watch::channel(HashMap::new()).1,
+            escrow_accounts_v2: watch::channel(escrow_accounts.clone()).1,
+            escrow_accounts_v2_strict: watch::channel(escrow_accounts).1,
+            network_subgraph: get_subgraph_client().await,
+            sender_aggregator_endpoints: HashMap::from([
+                (SENDER.1, Url::parse(&get_grpc_url().await).unwrap()),
+                (SENDER_2.1, Url::parse(&get_grpc_url().await).unwrap()),
+            ]),
+            prefix: Some(prefix),
+        };
+
+        // Store a receipt signed by SIGNER.1 (which is NOT in escrow accounts)
+        let receipt =
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1u64, 1u64, 1u64.into());
+        store_receipt(&pgpool, &receipt.signed_receipt().0.clone())
+            .await
+            .unwrap();
+
+        // Should NOT panic -- signer can't be resolved, so result should be empty
+        let result = state.get_pending_sender_allocation_id_v2().await;
+        assert!(
+            result.is_empty(),
+            "Expected empty result when signer is not in escrow accounts"
+        );
     }
 }

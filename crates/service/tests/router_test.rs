@@ -76,6 +76,7 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
                 receipts_verifier_address: None,
                 receipts_verifier_address_v2: test_assets::VERIFIER_ADDRESS,
                 subgraph_service_address: None,
+                graph_tally_collector_address: Address::ZERO,
             }
         })
         .timestamp_buffer_secs(Duration::from_secs(10))
@@ -91,6 +92,8 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
                 config: inputs.network_subgraph_config,
                 recently_closed_allocation_buffer_secs: Duration::from_secs(0),
                 max_data_staleness_mins: 0,
+                escrow_min_balance_grt_wei: "100000000000000000".to_string(),
+                max_signers_per_payer: 0,
             },
         )
         .escrow_accounts_v2(inputs.escrow_accounts_v2)

@@ -141,6 +141,9 @@ pub struct TapAgentContext<T> {
     /// Only present when operating in Horizon mode for V2 operations.
     subgraph_service_address: Option<Address>,
     escrow_accounts: Receiver<EscrowAccounts>,
+    /// Strict escrow accounts watcher that excludes thawing signers.
+    /// Used only for RAV signature verification in verify_signer().
+    escrow_accounts_strict: Receiver<EscrowAccounts>,
     /// We use phantom data as a marker since it's
     /// only used to define what methods are available
     /// for each type of network

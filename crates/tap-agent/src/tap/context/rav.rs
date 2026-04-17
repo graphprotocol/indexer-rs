@@ -301,9 +301,11 @@ mod test {
 
     async fn horizon_adapter_with_testcontainers() -> TestContextWithContainer<Horizon> {
         let test_db = test_assets::setup_shared_test_db().await;
+        let escrow_accounts = watch::channel(EscrowAccounts::default()).1;
         let context = TapAgentContext::builder()
             .pgpool(test_db.pool.clone())
-            .escrow_accounts(watch::channel(EscrowAccounts::default()).1)
+            .escrow_accounts(escrow_accounts.clone())
+            .escrow_accounts_strict(escrow_accounts)
             .subgraph_service_address(SUBGRAPH_SERVICE_ADDRESS)
             .build();
         TestContextWithContainer {

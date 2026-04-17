@@ -203,8 +203,11 @@ pub struct SenderAllocationArgs<T: NetworkVersion> {
     pub allocation_id: T::AllocationId,
     /// Address of the sender responsible for this [SenderAllocation]
     pub sender: Address,
-    /// Watcher containing the escrow accounts
+    /// Watcher containing the escrow accounts (includes thawing signers)
     pub escrow_accounts: Receiver<EscrowAccounts>,
+    /// Watcher containing escrow accounts with strict signer filtering
+    /// (excludes thawing signers, used for RAV signature verification)
+    pub escrow_accounts_strict: Receiver<EscrowAccounts>,
     /// SubgraphClient of the network subgraph
     pub network_subgraph: &'static SubgraphClient,
     /// Domain separator used for tap
@@ -458,6 +461,7 @@ where
             allocation_id,
             sender,
             escrow_accounts,
+            escrow_accounts_strict,
             network_subgraph,
             domain_separator,
             sender_account_ref,
@@ -490,6 +494,7 @@ where
             .indexer_address(config.indexer_address)
             .sender(sender)
             .escrow_accounts(escrow_accounts.clone())
+            .escrow_accounts_strict(escrow_accounts_strict.clone())
             .subgraph_service_address(subgraph_service_address)
             .build();
 
@@ -1204,7 +1209,8 @@ mod tests {
             .pgpool(pgpool)
             .allocation_id(CollectionId::from(ALLOCATION_ID_0))
             .sender(SENDER.1)
-            .escrow_accounts(escrow_accounts_rx)
+            .escrow_accounts(escrow_accounts_rx.clone())
+            .escrow_accounts_strict(escrow_accounts_rx)
             .network_subgraph(network_subgraph)
             .domain_separator(TAP_EIP712_DOMAIN_SEPARATOR_V2.clone())
             .sender_account_ref(sender_account_ref)

@@ -498,10 +498,30 @@ pub struct NetworkSubgraphConfig {
     /// Default: 30 (minutes)
     #[serde(default = "default_max_data_staleness_mins")]
     pub max_data_staleness_mins: u64,
+
+    /// Minimum escrow balance (GRT wei) for the V2 escrow query. Filters dust
+    /// deposits to raise the cost of crowding attacks. Default: 0.1 GRT.
+    #[serde(default = "default_escrow_min_balance_grt_wei")]
+    pub escrow_min_balance_grt_wei: String,
+
+    /// Maximum signers to fetch per payer. 0 = no limit (recommended).
+    /// Setting a positive value caps pagination but allows attackers to crowd out
+    /// legitimate signers, orphaning receipts and enabling free queries.
+    /// Default: 0.
+    #[serde(default = "default_max_signers_per_payer")]
+    pub max_signers_per_payer: usize,
 }
 
 fn default_max_data_staleness_mins() -> u64 {
     30
+}
+
+fn default_escrow_min_balance_grt_wei() -> String {
+    "100000000000000000".to_string() // 0.1 GRT
+}
+
+fn default_max_signers_per_payer() -> usize {
+    0
 }
 
 #[derive(Debug, Deserialize)]
@@ -546,6 +566,8 @@ pub struct BlockchainConfig {
     pub receipts_verifier_address_v2: Address,
     /// Address of the SubgraphService contract used for Horizon operations
     pub subgraph_service_address: Option<Address>,
+    /// Address of the GraphTallyCollector contract used to filter V2 escrow account queries.
+    pub graph_tally_collector_address: Address,
 }
 
 impl BlockchainConfig {
