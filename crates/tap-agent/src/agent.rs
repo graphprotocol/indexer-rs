@@ -144,29 +144,6 @@ pub async fn start_agent(
     .await
     .with_context(|| "Failed to initialize indexer_allocations watcher")?;
 
-    // Verify the network subgraph is ready for Horizon mode
-    tracing::info!("Checking network subgraph readiness for Horizon mode");
-    match indexer_monitor::is_horizon_active(network_subgraph).await {
-        Ok(true) => {
-            tracing::info!("Horizon schema available in network subgraph - enabling Horizon mode");
-            tracing::info!(
-                "V2 watcher will automatically detect new PaymentsEscrow accounts as they appear"
-            );
-        }
-        Ok(false) => {
-            anyhow::bail!(
-                "Horizon mode is required, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
-                Ensure Horizon contracts are deployed and the Network Subgraph is updated before starting the TAP agent."
-            );
-        }
-        Err(e) => {
-            anyhow::bail!(
-                "Failed to detect Horizon contracts due to network/subgraph error: {}. Cannot start with Horizon enabled when network status is unknown.",
-                e
-            );
-        }
-    }
-
     // Create V2 escrow accounts watcher
     // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
     tracing::info!(

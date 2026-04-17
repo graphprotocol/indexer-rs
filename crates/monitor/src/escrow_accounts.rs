@@ -7,8 +7,6 @@ use std::{
     time::Duration,
 };
 
-use anyhow::anyhow;
-use indexer_query::escrow_account::{self, EscrowAccountQuery};
 use thegraph_core::alloy::primitives::{Address, U256};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
@@ -109,18 +107,6 @@ pub fn empty_escrow_accounts_watcher() -> EscrowAccountsWatcher {
     let (_, receiver) =
         tokio::sync::watch::channel(EscrowAccounts::new(HashMap::new(), HashMap::new()));
     receiver
-}
-
-pub async fn escrow_accounts_v1(
-    escrow_subgraph: &'static SubgraphClient,
-    indexer_address: Address,
-    interval: Duration,
-    reject_thawing_signers: bool,
-) -> Result<EscrowAccountsWatcher, anyhow::Error> {
-    indexer_watcher::new_watcher(interval, move || {
-        get_escrow_accounts_v1(escrow_subgraph, indexer_address, reject_thawing_signers)
-    })
-    .await
 }
 
 pub async fn escrow_accounts_v2(
@@ -366,76 +352,6 @@ async fn get_escrow_accounts_v2(
     Ok(escrow_accounts)
 }
 
-async fn get_escrow_accounts_v1(
-    escrow_subgraph: &'static SubgraphClient,
-    indexer_address: Address,
-    reject_thawing_signers: bool,
-) -> anyhow::Result<EscrowAccounts> {
-    tracing::debug!(?indexer_address, "Loading V1 escrow accounts for indexer");
-
-    // thawEndTimestamp == 0 means that the signer is not thawing. This also means
-    // that we don't wait for the thawing period to end before stopping serving
-    // queries for this signer.
-    // isAuthorized == true means that the signer is still authorized to sign
-    // payments in the name of the sender.
-    let response = escrow_subgraph
-        .query::<EscrowAccountQuery, _>(escrow_account::Variables {
-            indexer: format!("{indexer_address:x?}"),
-            thaw_end_timestamp: if reject_thawing_signers {
-                U256::ZERO.to_string()
-            } else {
-                U256::MAX.to_string()
-            },
-        })
-        .await?;
-
-    let senders_balances: HashMap<Address, U256> = response
-        .escrow_accounts
-        .iter()
-        .map(|account| {
-            let balance = U256::checked_sub(
-                U256::from_str(&account.balance)?,
-                U256::from_str(&account.total_amount_thawing)?,
-            )
-            .unwrap_or_else(|| {
-                tracing::warn!(
-                    sender = ?account.sender.id,
-                    "Balance minus total amount thawing underflowed for account; setting balance to 0, no queries will be served for this sender."
-                );
-                U256::from(0)
-            });
-
-            Ok((Address::from_str(&account.sender.id)?, balance))
-        })
-        .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
-
-    let senders_to_signers = response
-        .escrow_accounts
-        .into_iter()
-        .map(|account| {
-            let sender = Address::from_str(&account.sender.id)?;
-            let signers = account
-                .sender
-                .signers
-                .ok_or(anyhow!("Could not find any signers for sender {sender}"))?
-                .iter()
-                .map(|signer| Address::from_str(&signer.id))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok((sender, signers))
-        })
-        .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
-
-    let escrow_accounts = EscrowAccounts::new(senders_balances.clone(), senders_to_signers.clone());
-
-    tracing::debug!(
-        senders = senders_balances.len(),
-        mappings = escrow_accounts.signers_to_senders.len(),
-        "V1 escrow accounts loaded"
-    );
-
-    Ok(escrow_accounts)
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -464,53 +380,6 @@ mod tests {
             escrow_accounts.signers_to_senders,
             ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS.to_owned()
         )
-    }
-
-    #[test(tokio::test)]
-    async fn test_current_accounts() {
-        // Set up a mock escrow subgraph
-        let mock_server = MockServer::start().await;
-        let escrow_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&format!(
-                    "{}/subgraphs/id/{}",
-                    &mock_server.uri(),
-                    test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
-                ))
-                .unwrap(),
-            )
-            .await,
-        ));
-
-        let mock = Mock::given(method("POST"))
-            .and(path(format!(
-                "/subgraphs/id/{}",
-                test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
-            )))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_raw(test_assets::ESCROW_QUERY_RESPONSE, "application/json"),
-            );
-        mock_server.register(mock).await;
-
-        let mut accounts = escrow_accounts_v1(
-            escrow_subgraph,
-            test_assets::INDEXER_ADDRESS,
-            Duration::from_secs(60),
-            true,
-        )
-        .await
-        .unwrap();
-        accounts.changed().await.unwrap();
-        assert_eq!(
-            accounts.borrow().clone(),
-            EscrowAccounts::new(
-                ESCROW_ACCOUNTS_BALANCES.to_owned(),
-                ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
-            )
-        );
     }
 
     #[test(tokio::test)]
@@ -556,7 +425,7 @@ mod tests {
         .unwrap();
         accounts.changed().await.unwrap();
 
-        // V2 should produce identical results to V1 since they query the same data
+        // Verify V2 escrow accounts are loaded correctly
         assert_eq!(
             accounts.borrow().clone(),
             EscrowAccounts::new(
