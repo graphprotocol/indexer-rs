@@ -91,14 +91,6 @@ escrow_min_balance_grt_wei = "100000000000000000"
 # signers, orphaning receipts and enabling free queries.
 max_signers_per_payer = 0
 
-# DEPRECATED: [subgraphs.escrow] is no longer used.
-# V2 escrow accounts are now sourced from the network subgraph.
-# This section can be safely removed from your config.
-# [subgraphs.escrow]
-# query_url = "http://example.com/escrow-subgraph"
-# deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-# syncing_interval_secs = 60
-
 [blockchain]
 # The chain ID of the network that the graph network is running on
 chain_id = 1337
@@ -117,8 +109,6 @@ host_and_port = "0.0.0.0:7600"
 url_prefix = "/"
 # Serve the network subgraph on `common.server.host_and_port`/network
 serve_network_subgraph = false
-# DEPRECATED: serve_escrow_subgraph is no longer used and will be ignored.
-# serve_escrow_subgraph = false
 #### OPTIONAL VALUES ####
 ## use this to add a layer while serving network/escrow subgraph
 # serve_auth_token = "token"

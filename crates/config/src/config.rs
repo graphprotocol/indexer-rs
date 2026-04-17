@@ -41,7 +41,6 @@ pub struct Config {
     pub service: ServiceConfig,
     pub tap: TapConfig,
     pub dips: Option<DipsConfig>,
-    /// Deprecated: Horizon is always enabled. This section is ignored.
     #[serde(default)]
     pub horizon: HorizonConfig,
 }
@@ -318,6 +317,26 @@ impl Config {
             );
         }
 
+        // Warn about deprecated receipts_verifier_address (V1)
+        #[allow(deprecated)]
+        if self.blockchain.receipts_verifier_address.is_some() {
+            tracing::warn!(
+                "The `blockchain.receipts_verifier_address` configuration is deprecated and will be ignored. \
+                Horizon (V2) is now always enabled and uses `receipts_verifier_address_v2`. \
+                You can safely remove `receipts_verifier_address` from your config."
+            );
+        }
+
+        // Warn about deprecated horizon.enabled
+        #[allow(deprecated)]
+        if self.horizon.enabled.is_some() {
+            tracing::warn!(
+                "The `horizon.enabled` configuration is deprecated and will be ignored. \
+                Horizon is now always enabled. \
+                You can safely remove the `[horizon]` section from your config."
+            );
+        }
+
         Ok(())
     }
 
@@ -454,10 +473,9 @@ impl MetricsConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(deprecated)] // Allow using deprecated EscrowSubgraphConfig type
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
-    /// Deprecated: V2 escrow accounts are now in the network subgraph.
-    /// This field is ignored but kept for backwards compatibility.
     #[deprecated(note = "V2 escrow accounts are in the network subgraph; this field is ignored.")]
     #[serde(default)]
     pub escrow: Option<EscrowSubgraphConfig>,
@@ -506,8 +524,6 @@ fn default_max_signers_per_payer() -> usize {
     0
 }
 
-/// Deprecated: V2 escrow accounts are now in the network subgraph.
-/// This struct is kept for backwards compatibility only.
 #[deprecated(note = "V2 escrow accounts are in the network subgraph; escrow config is ignored.")]
 #[derive(Debug, Deserialize, Default)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -544,7 +560,7 @@ pub enum TheGraphChainId {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
-    /// Legacy verifier address (deprecated; optional, not used).
+    /// Legacy verifier address
     #[deprecated(note = "Use `receipts_verifier_address_v2` for Horizon receipts.")]
     pub receipts_verifier_address: Option<Address>,
     /// Verifier address for Horizon receipts.
@@ -564,7 +580,6 @@ impl BlockchainConfig {
 pub struct ServiceConfig {
     pub ipfs_url: Url,
     pub serve_network_subgraph: bool,
-    /// Deprecated: The escrow subgraph is no longer used. This field is ignored.
     #[deprecated(note = "Escrow subgraph is no longer used; this field is ignored.")]
     #[serde(default)]
     pub serve_escrow_subgraph: bool,
@@ -703,14 +718,13 @@ pub struct RavRequestConfig {
 
 /// Configuration for Horizon support.
 ///
-/// Note: Horizon is always enabled. The `enabled` field is deprecated and ignored.
+/// Note: This struct is kept for backwards compatibility.
 #[derive(Debug, Default, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct HorizonConfig {
-    /// Deprecated: Horizon is now always enabled. This field is ignored.
     #[deprecated(note = "Horizon is always enabled; this field is ignored.")]
     #[serde(default)]
-    pub enabled: bool,
+    pub enabled: Option<bool>,
 }
 
 #[cfg(test)]
@@ -787,7 +801,7 @@ mod tests {
             Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
-        assert!(config_with_horizon_true.horizon.enabled);
+        assert_eq!(config_with_horizon_true.horizon.enabled, Some(true));
         env::remove_var("INDEXER_SERVICE_HORIZON__ENABLED");
 
         // Test with horizon.enabled = false via environment variable
@@ -797,7 +811,7 @@ mod tests {
             Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
-        assert!(!config_with_horizon_false.horizon.enabled);
+        assert_eq!(config_with_horizon_false.horizon.enabled, Some(false));
         env::remove_var("INDEXER_SERVICE_HORIZON__ENABLED");
 
         // Test without horizon section (uses default)
@@ -806,8 +820,8 @@ mod tests {
             Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
         )
         .unwrap();
-        // Default is false since #[serde(default)] on bool defaults to false
-        assert!(!config_without_horizon.horizon.enabled);
+        // Default is None since #[serde(default)] on Option<bool> defaults to None
+        assert_eq!(config_without_horizon.horizon.enabled, None);
     }
 
     // Test that we can load config with unknown fields, in particular coming from environment variables

@@ -74,9 +74,8 @@ pub struct ServiceRouter {
     service: ServiceConfig,
     blockchain: BlockchainConfig,
     timestamp_buffer_secs: Duration,
-
-    // V2 escrow accounts watcher (required)
-    escrow_accounts_v2: Option<EscrowAccountsWatcher>,
+    // V2 escrow accounts watcher (required, sourced from network subgraph)
+    escrow_accounts_v2: EscrowAccountsWatcher,
 
     // provide network subgraph or allocations + dispute manager
     #[builder(with = |subgraph: &'static SubgraphClient,
@@ -134,11 +133,6 @@ impl ServiceRouter {
             .expect("Failed to initialize indexer_allocations watcher"),
             (None, None) => panic!("No allocations or network subgraph was provided"),
         };
-
-        // V2 escrow accounts watcher (must be provided, sourced from network subgraph)
-        let escrow_accounts_v2 = self
-            .escrow_accounts_v2
-            .expect("Escrow accounts v2 watcher must be provided");
 
         // Monitor dispute manager address
         // if not provided, create monitor from subgraph
@@ -223,7 +217,7 @@ impl ServiceRouter {
                 let checks = IndexerTapContext::get_checks(TapChecksConfig {
                     pgpool: self.database.clone(),
                     indexer_allocations: allocations.clone(),
-                    escrow_accounts_v2: escrow_accounts_v2.clone(),
+                    escrow_accounts_v2: self.escrow_accounts_v2.clone(),
                     network_subgraph: network_subgraph_client,
                     indexer_address: self.indexer.indexer_address,
                     timestamp_error_tolerance,
@@ -273,7 +267,7 @@ impl ServiceRouter {
                 deployment_to_allocation,
             };
             let sender_state = SenderState {
-                escrow_accounts_v2,
+                escrow_accounts_v2: self.escrow_accounts_v2,
                 domain_separator_v2: self.domain_separator_v2,
             };
 

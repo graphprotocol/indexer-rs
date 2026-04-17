@@ -398,7 +398,7 @@ pub struct SenderAccountConfig {
     pub rav_request_receipt_limit: u64,
     /// Current indexer address
     pub indexer_address: Address,
-    /// Polling interval for escrow accounts (from network subgraph)
+    /// Polling interval for escrow accounts
     pub escrow_polling_interval: Duration,
     /// Timeout used while creating [SenderAccount]
     ///
