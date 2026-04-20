@@ -21,8 +21,8 @@ deployment_id = "${INDEXER_SERVICE_NETWORK_SUBGRAPH_DEPLOYMENT}"
 
 [blockchain]
 chain_id = 421614
-# Contract address of TAP's receipt aggregate voucher (RAV) verifier.
-receipts_verifier_address = "0xfC24cE7a4428A6B89B52645243662A02BA734ECF"
+receipts_verifier_address_v2="0x382863e7B662027117449bd2c49285582bbBd21B"
+subgraph_service_address="0xc24A3dAC5d06d771f657A48B20cE1a671B78f26b"
 
 ##############################################
 # Specific configurations to indexer-service #
