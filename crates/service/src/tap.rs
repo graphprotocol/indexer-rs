@@ -14,9 +14,8 @@
 //!
 //! ## Receipt Types
 //!
-//! The system supports two receipt versions:
-//! - **V1 (Legacy)**: Allocation-based receipts tied to specific allocations
-//! - **V2 (Horizon)**: Collection-based receipts using the Horizon payment contracts
+//! The system uses Horizon (V2) receipts, which are collection-based receipts
+//! using the Horizon payment contracts.
 //!
 //! ## Validation Checks
 //!
