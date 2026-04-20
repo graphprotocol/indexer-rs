@@ -91,22 +91,6 @@ escrow_min_balance_grt_wei = "100000000000000000"
 # signers, orphaning receipts and enabling free queries.
 max_signers_per_payer = 0
 
-[subgraphs.escrow]
-# NOTE: It is heavily recomended to use both `query_url` and `deployment_id`,
-# Query URL for the Escrow subgraph (v1). This is the old escrow subgraph.
-# NOTE: This is not used in v2, as the escrow subgraph is now in the network subgraph.
-query_url = "http://example.com/escrow-subgraph"
-# Optional, Auth token will used a "bearer auth"
-# query_auth_token = "super-secret"
-
-# Optional, deployment to look for in the local `graph-node`, if locally indexed.
-# Locally indexing the subgraph is recommended.
-deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-# Refreshing interval for the Escrow contracts information from the Escrow subgraph.
-syncing_interval_secs = 60
-
-# NOTE: V2 escrow accounts are now in the network subgraph, not a separate escrow_v2 subgraph
-
 [blockchain]
 # The chain ID of the network that the graph network is running on
 chain_id = 1337
@@ -125,8 +109,6 @@ host_and_port = "0.0.0.0:7600"
 url_prefix = "/"
 # Serve the network subgraph on `common.server.host_and_port`/network
 serve_network_subgraph = false
-# Serve the escrow subgraph on `common.server.host_and_port`/escrow
-serve_escrow_subgraph = false
 #### OPTIONAL VALUES ####
 ## use this to add a layer while serving network/escrow subgraph
 # serve_auth_token = "token"

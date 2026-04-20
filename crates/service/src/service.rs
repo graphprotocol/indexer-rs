@@ -155,13 +155,6 @@ pub async fn run() -> anyhow::Result<()> {
         }
     };
 
-    let escrow_subgraph = create_subgraph_client(
-        http_client.clone(),
-        &config.graph_node,
-        &config.subgraphs.escrow.config,
-    )
-    .await;
-
     let router = ServiceRouter::builder()
         .database(database.clone())
         .domain_separator_v2(domain_separator_v2.clone())
@@ -173,7 +166,6 @@ pub async fn run() -> anyhow::Result<()> {
         .blockchain(config.blockchain)
         .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
         .network_subgraph(network_subgraph, config.subgraphs.network)
-        .escrow_subgraph(escrow_subgraph, config.subgraphs.escrow)
         .escrow_accounts_v2(v2_watcher)
         .build();
 
