@@ -175,7 +175,6 @@ pub async fn run() -> anyhow::Result<()> {
         );
 
         // TODO: Try to re-use the same watcher for both DIPS and TAP
-        // DIPS requires Horizon/V2, so always use V2 escrow from network subgraph
         let dips_http_client = create_http_client(DIPS_HTTP_CLIENT_TIMEOUT, false)
             .context("Failed to create DIPS HTTP client")?;
 

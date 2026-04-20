@@ -57,7 +57,7 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
             #[allow(deprecated)]
             indexer_config::ServiceConfig {
                 serve_network_subgraph: false,
-                serve_escrow_subgraph: false, // Deprecated and ignored
+                serve_escrow_subgraph: None, // Deprecated and ignored
                 serve_auth_token: None,
                 host_and_port: "0.0.0.0:0".parse().unwrap(),
                 url_prefix: "/".into(),

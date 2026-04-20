@@ -309,7 +309,7 @@ impl Config {
 
         // Warn about deprecated serve_escrow_subgraph
         #[allow(deprecated)]
-        if self.service.serve_escrow_subgraph {
+        if self.service.serve_escrow_subgraph.is_some() {
             tracing::warn!(
                 "The `service.serve_escrow_subgraph` configuration is deprecated and will be ignored. \
                 The escrow subgraph endpoint is no longer served. \
@@ -582,7 +582,7 @@ pub struct ServiceConfig {
     pub serve_network_subgraph: bool,
     #[deprecated(note = "Escrow subgraph is no longer used; this field is ignored.")]
     #[serde(default)]
-    pub serve_escrow_subgraph: bool,
+    pub serve_escrow_subgraph: Option<bool>,
     pub serve_auth_token: Option<String>,
     pub host_and_port: SocketAddr,
     pub url_prefix: String,
