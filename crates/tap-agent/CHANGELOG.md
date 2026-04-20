@@ -4,6 +4,18 @@
 
 
 
+## [2.1.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v2.0.2...indexer-tap-agent-v2.1.0) (2026-04-20)
+
+
+### Features
+
+* remove v1 escrow ([#1015](https://github.com/graphprotocol/indexer-rs/issues/1015)) ([07069a4](https://github.com/graphprotocol/indexer-rs/commit/07069a4ad12d2d0b3f830965e8f53643f80c5754))
+
+
+### Bug Fixes
+
+* **config:** several configuration optimizations ([#1014](https://github.com/graphprotocol/indexer-rs/issues/1014)) ([0584738](https://github.com/graphprotocol/indexer-rs/commit/058473875a3e02b1b5c73b4af119afd82e69b14e))
+
 ## [2.0.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v2.0.1...indexer-tap-agent-v2.0.2) (2026-04-17)
 
 
