@@ -55,15 +55,7 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
         )
         .bind(CollectionId::from(self.allocation_id).encode_hex())
         .bind(self.sender.encode_hex())
-        // For Horizon (V2): data_service is the SubgraphService address, service_provider is the indexer
-        .bind(
-            self.subgraph_service_address()
-                .ok_or_else(|| AdapterError::RavRead {
-                    error: "SubgraphService address not available - check TapMode configuration"
-                        .to_string(),
-                })?
-                .encode_hex(),
-        )
+        .bind(self.subgraph_service_address.encode_hex())
         .bind(self.indexer_address.encode_hex())
         .fetch_optional(&self.pgpool)
         .await

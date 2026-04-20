@@ -408,8 +408,8 @@ pub struct SenderAccountConfig {
     /// over the escrow balance
     pub trusted_senders: HashSet<Address>,
 
-    /// TAP protocol operation mode (Horizon mode required)
-    pub tap_mode: indexer_config::TapMode,
+    /// SubgraphService contract address
+    pub subgraph_service_address: Address,
 
     /// Interval for periodic allocation reconciliation.
     /// This ensures stale allocations are detected after subgraph connectivity issues.
@@ -430,8 +430,7 @@ impl SenderAccountConfig {
             tap_sender_timeout: config.tap.sender_timeout_secs,
             trusted_senders: config.tap.trusted_senders.clone(),
 
-            // Derive TapMode from horizon configuration
-            tap_mode: config.tap_mode(),
+            subgraph_service_address: config.blockchain.subgraph_service_address,
 
             allocation_reconciliation_interval: config.tap.allocation_reconciliation_interval_secs,
         }
@@ -809,14 +808,8 @@ impl Actor for SenderAccount {
                 "#,
                 )
                 .bind(sender_id.encode_hex())
-                // service_provider is the indexer address; data_service comes from TapMode config
                 .bind(config.indexer_address.encode_hex())
-                .bind(
-                    config
-                        .tap_mode
-                        .require_subgraph_service_address()
-                        .encode_hex(),
-                )
+                .bind(config.subgraph_service_address.encode_hex())
                 .fetch_all(&pgpool)
                 .await
                 .expect("Should not fail to fetch from tap_horizon_ravs")

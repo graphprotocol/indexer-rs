@@ -177,8 +177,8 @@ pub struct AllocationConfig {
     pub indexer_address: Address,
     /// Polling interval for escrow subgraph
     pub escrow_polling_interval: Duration,
-    /// TAP protocol operation mode (Horizon mode required)
-    pub tap_mode: indexer_config::TapMode,
+    /// SubgraphService contract address
+    pub subgraph_service_address: Address,
 }
 
 impl AllocationConfig {
@@ -189,7 +189,7 @@ impl AllocationConfig {
             rav_request_receipt_limit: config.rav_request_receipt_limit,
             indexer_address: config.indexer_address,
             escrow_polling_interval: config.escrow_polling_interval,
-            tap_mode: config.tap_mode.clone(),
+            subgraph_service_address: config.subgraph_service_address,
         }
     }
 }
@@ -487,7 +487,6 @@ where
                 escrow_accounts.clone(),
             )),
         ];
-        let subgraph_service_address = config.tap_mode.subgraph_service_address();
         let context = TapAgentContext::builder()
             .pgpool(pgpool.clone())
             .allocation_id(T::allocation_id_to_address(&allocation_id))
@@ -495,7 +494,7 @@ where
             .sender(sender)
             .escrow_accounts(escrow_accounts.clone())
             .escrow_accounts_strict(escrow_accounts_strict.clone())
-            .subgraph_service_address(subgraph_service_address)
+            .subgraph_service_address(config.subgraph_service_address)
             .build();
 
         let latest_rav = context.last_rav().await.unwrap_or_default();
@@ -505,7 +504,7 @@ where
             CheckList::new(required_checks),
         );
 
-        let data_service = Some(subgraph_service_address);
+        let data_service = Some(config.subgraph_service_address);
 
         Ok(Self {
             pgpool,

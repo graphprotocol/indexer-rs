@@ -238,10 +238,7 @@ impl Actor for SenderAccountsManager {
     ) -> Result<Self::State, ActorProcessingErr> {
         // Do not pre-map allocations globally. We keep the raw watcher and
         // normalize per SenderAccount.
-        tracing::info!(
-            horizon_active = %config.tap_mode.is_horizon(),
-            "Using raw indexer_allocations watcher; normalization happens per sender"
-        );
+        tracing::info!("Using raw indexer_allocations watcher; normalization happens per sender");
         // We only listen to Horizon notifications.
         let pglistener_v2 = PgListener::connect_with(&pgpool.clone()).await.unwrap();
 
@@ -529,12 +526,7 @@ impl State {
                 GROUP BY signer_address
             "#,
         )
-        .bind(
-            self.config
-                .tap_mode
-                .require_subgraph_service_address()
-                .encode_hex(),
-        )
+        .bind(self.config.subgraph_service_address.encode_hex())
         .bind(self.config.indexer_address.encode_hex())
         .fetch_all(&self.pgpool)
         .await
@@ -601,12 +593,7 @@ impl State {
             "#,
         )
         // Constrain to our Horizon bucket to avoid conflating RAVs across services/providers
-        .bind(
-            self.config
-                .tap_mode
-                .require_subgraph_service_address()
-                .encode_hex(),
-        )
+        .bind(self.config.subgraph_service_address.encode_hex())
         .bind(self.config.indexer_address.encode_hex())
         .fetch_all(&self.pgpool)
         .await
