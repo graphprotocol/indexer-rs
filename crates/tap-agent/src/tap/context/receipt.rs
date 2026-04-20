@@ -131,14 +131,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
         )
         .bind(CollectionId::from(self.allocation_id).encode_hex())
         .bind(self.sender.encode_hex())
-        .bind(
-            self.subgraph_service_address()
-                .ok_or_else(|| AdapterError::ReceiptRead {
-                    error: "SubgraphService address not available - check TapMode configuration"
-                        .to_string(),
-                })?
-                .encode_hex(),
-        )
+        .bind(self.subgraph_service_address.encode_hex())
         .bind(self.indexer_address.encode_hex())
         .bind(&signers)
         .bind(rangebounds_to_pgrange(timestamp_range_ns))
@@ -310,14 +303,7 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
         .bind(&signers)
         .bind(rangebounds_to_pgrange(timestamp_ns))
         .bind(self.sender.encode_hex())
-        .bind(
-            self.subgraph_service_address()
-                .ok_or_else(|| AdapterError::ReceiptDelete {
-                    error: "SubgraphService address not available - check TapMode configuration"
-                        .to_string(),
-                })?
-                .encode_hex(),
-        )
+        .bind(self.subgraph_service_address.encode_hex())
         .bind(self.indexer_address.encode_hex())
         .execute(&self.pgpool)
         .await?;

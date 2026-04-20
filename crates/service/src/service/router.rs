@@ -157,7 +157,7 @@ impl ServiceRouter {
                     indexer_address,
                     escrow.config.syncing_interval_secs,
                     true, // Reject thawing signers eagerly
-                    self.blockchain.graph_tally_collector_address,
+                    self.blockchain.receipts_verifier_address_v2,
                     min_balance,
                     max_signers,
                 )
@@ -271,10 +271,7 @@ impl ServiceRouter {
                 let receipt_max_value = max_receipt_value_grt.get_value();
 
                 // Create checks
-                let allowed_data_services = self
-                    .blockchain
-                    .subgraph_service_address
-                    .map(|addr| vec![addr]);
+                let allowed_data_services = Some(vec![self.blockchain.subgraph_service_address]);
 
                 let checks = IndexerTapContext::get_checks(TapChecksConfig {
                     pgpool: self.database.clone(),

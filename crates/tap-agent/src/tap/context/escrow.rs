@@ -63,6 +63,7 @@ mod tests {
             .sender(sender)
             .escrow_accounts(rx.clone())
             .escrow_accounts_strict(rx)
+            .subgraph_service_address(test_assets::VERIFIER_ADDRESS)
             .build()
     }
 
@@ -102,6 +103,7 @@ mod tests {
             .sender(SENDER)
             .escrow_accounts(rx.clone())
             .escrow_accounts_strict(rx)
+            .subgraph_service_address(test_assets::VERIFIER_ADDRESS)
             .build();
         let result = ctx.verify_signer(ACTIVE_SIGNER).await;
         assert!(

@@ -101,15 +101,11 @@ pub async fn run() -> anyhow::Result<()> {
     let indexer_address = config.indexer.indexer_address;
     let ipfs_url = config.service.ipfs_url.clone();
 
-    // Horizon is required; verify contracts are active.
-    if !config.tap_mode().is_horizon() {
-        anyhow::bail!("Horizon mode is required; legacy mode is no longer supported.");
-    }
-
     // V2 escrow accounts (used by DIPS) are in the network subgraph
     let escrow_v2_query_url_for_dips = config.subgraphs.network.config.query_url.clone();
 
-    tracing::info!("Horizon mode configured; checking network subgraph readiness");
+    // Verify Horizon contracts are active in the network subgraph
+    tracing::info!("Checking network subgraph readiness for Horizon mode");
     match indexer_monitor::is_horizon_active(network_subgraph).await {
         Ok(true) => {
             tracing::info!("Horizon contracts detected in network subgraph");
@@ -131,7 +127,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     tracing::info!("Horizon contracts detected - using Horizon (V2) mode");
 
-    let graph_tally_collector_address = config.blockchain.graph_tally_collector_address;
+    let collector_address = config.blockchain.receipts_verifier_address_v2;
     let escrow_min_balance_grt_wei = config.subgraphs.network.escrow_min_balance_grt_wei.clone();
     let max_signers_per_payer = config.subgraphs.network.max_signers_per_payer;
 
@@ -140,7 +136,7 @@ pub async fn run() -> anyhow::Result<()> {
         indexer_address,
         config.subgraphs.network.config.syncing_interval_secs,
         true, // Reject thawing signers eagerly
-        graph_tally_collector_address,
+        collector_address,
         escrow_min_balance_grt_wei.clone(),
         max_signers_per_payer,
     )
@@ -232,7 +228,7 @@ pub async fn run() -> anyhow::Result<()> {
             indexer_address,
             Duration::from_secs(500),
             true,
-            graph_tally_collector_address,
+            collector_address,
             escrow_min_balance_grt_wei.clone(),
             max_signers_per_payer,
         )

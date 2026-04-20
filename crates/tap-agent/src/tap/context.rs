@@ -138,8 +138,7 @@ pub struct TapAgentContext<T> {
     #[cfg_attr(test, builder(default = crate::test::INDEXER.1))]
     indexer_address: Address,
     /// SubgraphService address (used by Horizon V2 queries)
-    /// Only present when operating in Horizon mode for V2 operations.
-    subgraph_service_address: Option<Address>,
+    subgraph_service_address: Address,
     escrow_accounts: Receiver<EscrowAccounts>,
     /// Strict escrow accounts watcher that excludes thawing signers.
     /// Used only for RAV signature verification in verify_signer().
@@ -149,27 +148,4 @@ pub struct TapAgentContext<T> {
     /// for each type of network
     #[builder(default = PhantomData)]
     _phantom: PhantomData<T>,
-}
-
-impl<T> TapAgentContext<T> {
-    /// Get the SubgraphService address if available
-    ///
-    /// Returns `Some(Address)` in Horizon mode.
-    pub fn subgraph_service_address(&self) -> Option<Address> {
-        self.subgraph_service_address
-    }
-
-    /// Get the SubgraphService address, panicking if not available
-    ///
-    /// Use this when you know you're in a V2/Horizon context and the address
-    /// should always be available. Panics with a descriptive message if called
-    /// when the address is not set.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `subgraph_service_address` is `None`.
-    pub fn require_subgraph_service_address(&self) -> Address {
-        self.subgraph_service_address
-            .expect("subgraph_service_address not available - check TapMode configuration")
-    }
 }

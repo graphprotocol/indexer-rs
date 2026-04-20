@@ -405,7 +405,7 @@ pub async fn create_signed_receipt_v2(
         tap_graph::v2::Receipt {
             payer: TAP_SENDER.1,
             service_provider: INDEXER_ADDRESS,
-            data_service: Address::ZERO,
+            data_service: VERIFIER_ADDRESS,
             collection_id: collection_id.into_inner(),
             nonce,
             timestamp_ns,

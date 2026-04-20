@@ -128,7 +128,7 @@ pub async fn escrow_accounts_v2(
     indexer_address: Address,
     interval: Duration,
     reject_thawing_signers: bool,
-    graph_tally_collector_address: Address,
+    collector_address: Address,
     min_balance_grt_wei: String,
     max_signers_per_payer: usize,
 ) -> Result<EscrowAccountsWatcher, anyhow::Error> {
@@ -137,7 +137,7 @@ pub async fn escrow_accounts_v2(
             escrow_subgraph,
             indexer_address,
             reject_thawing_signers,
-            graph_tally_collector_address,
+            collector_address,
             min_balance_grt_wei.clone(),
             max_signers_per_payer,
         )
@@ -149,7 +149,7 @@ async fn get_escrow_accounts_v2(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     reject_thawing_signers: bool,
-    graph_tally_collector_address: Address,
+    collector_address: Address,
     min_balance_grt_wei: String,
     max_signers_per_payer: usize,
 ) -> anyhow::Result<EscrowAccounts> {
@@ -181,7 +181,7 @@ async fn get_escrow_accounts_v2(
         let response = escrow_subgraph
             .query::<NetworkEscrowAccountQueryV2, _>(network_escrow_account_v2::Variables {
                 receiver: format!("{indexer_address:x?}"),
-                collector: format!("{graph_tally_collector_address:x?}"),
+                collector: format!("{collector_address:x?}"),
                 thaw_end_timestamp: thaw_end_timestamp.clone(),
                 first: page_size,
                 last: last.unwrap_or_default(),
