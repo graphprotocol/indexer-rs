@@ -967,11 +967,11 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             FROM
                 tap_horizon_receipts_invalid
             WHERE
-                collection_id = $1
-                AND service_provider = $2
-                AND payer = $3
-                AND data_service = $4
-                AND signer_address IN (SELECT unnest($5::text[]))
+                collection_id = $1::char(64)
+                AND service_provider = $2::char(40)
+                AND payer = $3::char(40)
+                AND data_service = $4::char(40)
+                AND signer_address = ANY($5::char(40)[])
             "#,
         )
         // self.allocation_id is already a CollectionId in Horizon state
@@ -1026,12 +1026,12 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             FROM
                 tap_horizon_receipts
             WHERE
-                collection_id = $1
-                AND service_provider = $2
-                AND payer = $3
-                AND data_service = $4
+                collection_id = $1::char(64)
+                AND service_provider = $2::char(40)
+                AND payer = $3::char(40)
+                AND data_service = $4::char(40)
                 AND id <= $5
-                AND signer_address IN (SELECT unnest($6::text[]))
+                AND signer_address = ANY($6::char(40)[])
                 AND timestamp_ns > $7
             "#,
         )

@@ -107,7 +107,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
 
         let records = sqlx::query(
             r#"
-                SELECT 
+                SELECT
                     id,
                     signature,
                     collection_id,
@@ -119,11 +119,11 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                     value
                 FROM tap_horizon_receipts
                 WHERE
-                    collection_id = $1
-                    AND payer = $2
-                    AND data_service = $3
-                    AND service_provider = $4
-                    AND signer_address IN (SELECT unnest($5::text[]))
+                    collection_id = $1::char(64)
+                    AND payer = $2::char(40)
+                    AND data_service = $3::char(40)
+                    AND service_provider = $4::char(40)
+                    AND signer_address = ANY($5::char(40)[])
                 AND $6::numrange @> timestamp_ns
                 ORDER BY timestamp_ns ASC
                 LIMIT $7
@@ -291,12 +291,12 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
             r#"
                 DELETE FROM tap_horizon_receipts
                 WHERE
-                    collection_id = $1
-                    AND signer_address IN (SELECT unnest($2::text[]))
+                    collection_id = $1::char(64)
+                    AND signer_address = ANY($2::char(40)[])
                     AND $3::numrange @> timestamp_ns
-                    AND payer = $4
-                    AND data_service = $5
-                    AND service_provider = $6
+                    AND payer = $4::char(40)
+                    AND data_service = $5::char(40)
+                    AND service_provider = $6::char(40)
             "#,
         )
         .bind(CollectionId::from(self.allocation_id).encode_hex())
