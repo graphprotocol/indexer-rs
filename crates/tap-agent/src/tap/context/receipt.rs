@@ -123,7 +123,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                     AND payer = $2::char(40)
                     AND data_service = $3::char(40)
                     AND service_provider = $4::char(40)
-                    AND signer_address IN (SELECT unnest($5::char(40)[]))
+                    AND signer_address = ANY($5::char(40)[])
                 AND $6::numrange @> timestamp_ns
                 ORDER BY timestamp_ns ASC
                 LIMIT $7
@@ -292,7 +292,7 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
                 DELETE FROM tap_horizon_receipts
                 WHERE
                     collection_id = $1::char(64)
-                    AND signer_address IN (SELECT unnest($2::char(40)[]))
+                    AND signer_address = ANY($2::char(40)[])
                     AND $3::numrange @> timestamp_ns
                     AND payer = $4::char(40)
                     AND data_service = $5::char(40)
