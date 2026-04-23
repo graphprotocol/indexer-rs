@@ -36,7 +36,7 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
     async fn last_rav(&self) -> Result<Option<tap_graph::v2::SignedRav>, Self::AdapterError> {
         let row = sqlx::query(
             r#"
-                SELECT 
+                SELECT
                     signature,
                     collection_id,
                     payer,
@@ -46,11 +46,11 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                     value_aggregate,
                     metadata
                 FROM tap_horizon_ravs
-                WHERE 
-                    collection_id = $1 
-                    AND payer = $2
-                    AND data_service = $3
-                    AND service_provider = $4
+                WHERE
+                    collection_id = $1::char(64)
+                    AND payer = $2::char(40)
+                    AND data_service = $3::char(40)
+                    AND service_provider = $4::char(40)
             "#,
         )
         .bind(CollectionId::from(self.allocation_id).encode_hex())
