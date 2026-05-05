@@ -21,7 +21,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      actions: write
     runs-on: ubuntu-latest
     outputs:
       indexer-service-rs: ${{ steps.release-please.outputs['crates/service--tag_name'] }}
@@ -29,7 +28,7 @@ jobs:
     steps:
       - name: Release please
         id: release-please
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -40,18 +39,16 @@ jobs:
     strategy:
       matrix:
         target: [indexer-service-rs, indexer-tap-agent]
-
     permissions:
       packages: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
       - name: Extract version from tag
         id: extract_version
         run: |
           TAG_NAME="${{ needs.release-please.outputs[matrix.target] }}"
-          # Extract the version part from tags with prefix "${{ matrix.target }}-" using a regex pattern
           if [[ "$TAG_NAME" =~ ^${{ matrix.target }}-(.*)$ ]]; then
             VERSION="${BASH_REMATCH[1]}"
           else
@@ -59,14 +56,13 @@ jobs:
           fi
           echo $VERSION
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
-          # list of Docker images to use as base name for tags
           images: |
             ${{ env.REGISTRY }}/${{matrix.target}}
-          # generate Docker tags based on the following events/attributes
           tags: |
             type=schedule
             type=ref,event=branch
@@ -82,14 +78,14 @@ jobs:
             type=sha
 
       - name: Log in to the Container registry
-        uses: docker/login-action@3227f5311cb93ffd14d13e65d8cc400d30f4dd8a
+        uses: docker/login-action@3227f5311cb93ffd14d13e65d8cc400d30f4dd8a # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ./
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
