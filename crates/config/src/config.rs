@@ -672,7 +672,6 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
 pub struct DipsConfig {
     pub host: String,
     pub port: String,
-    pub recurring_collector: Address,
     /// Networks this indexer explicitly supports. Proposals for other networks are rejected.
     pub supported_networks: HashSet<String>,
     /// Minimum acceptable GRT per 30 days, per network. Converted to wei/second internally.
@@ -687,7 +686,6 @@ impl Default for DipsConfig {
         DipsConfig {
             host: "0.0.0.0".to_string(),
             port: "7601".to_string(),
-            recurring_collector: Address::ZERO,
             supported_networks: HashSet::new(),
             min_grt_per_30_days: BTreeMap::new(),
             min_grt_per_billion_entities_per_30_days: GRT::ZERO,
@@ -741,7 +739,7 @@ mod tests {
     use bip39::Mnemonic;
     use figment::value::Uncased;
     use sealed_test::prelude::*;
-    use thegraph_core::alloy::primitives::{address, Address, FixedBytes};
+    use thegraph_core::alloy::primitives::{address, Address};
     use tracing_test::traced_test;
 
     use super::{DatabaseConfig, IndexerConfig, SHARED_PREFIX};
@@ -767,9 +765,6 @@ mod tests {
         max_config.tap.trusted_senders =
             HashSet::from([address!("deadbeefcafebabedeadbeefcafebabedeadbeef")]);
         max_config.dips = Some(crate::DipsConfig {
-            recurring_collector: Address(
-                FixedBytes::<20>::from_str("0x4444444444444444444444444444444444444444").unwrap(),
-            ),
             min_grt_per_billion_entities_per_30_days: crate::GRT::from_grt("200"),
             ..Default::default()
         });
@@ -1325,23 +1320,6 @@ mod tests {
         );
     }
 
-    /// Test that DipsConfig defaults have recurring_collector as Address::ZERO.
-    /// This is important because the service startup validation checks for this
-    /// and fails with a clear error message if DIPS is enabled but recurring_collector
-    /// is not configured.
-    #[test]
-    fn test_dips_config_defaults_recurring_collector_zero() {
-        // Arrange & Act
-        let dips_config = crate::DipsConfig::default();
-
-        // Assert
-        assert_eq!(
-            dips_config.recurring_collector,
-            Address::ZERO,
-            "Default recurring_collector should be Address::ZERO to trigger startup validation"
-        );
-    }
-
     /// Test that DipsConfig defaults have empty supported_networks.
     /// This triggers a warning at startup that all proposals will be rejected.
     #[test]
@@ -1360,35 +1338,6 @@ mod tests {
         );
     }
 
-    /// Test that a DIPS config with only recurring_collector set uses defaults for other fields.
-    #[test]
-    fn test_dips_partial_config_uses_defaults() {
-        // Arrange - create a DipsConfig with just recurring_collector set
-        let dips_config = crate::DipsConfig {
-            recurring_collector: Address(
-                FixedBytes::<20>::from_str("0x1234567890123456789012345678901234567890").unwrap(),
-            ),
-            ..Default::default()
-        };
-
-        // Assert - recurring_collector is set, others use defaults
-        assert_ne!(
-            dips_config.recurring_collector,
-            Address::ZERO,
-            "recurring_collector should be set"
-        );
-        assert_eq!(dips_config.host, "0.0.0.0", "host should use default");
-        assert_eq!(dips_config.port, "7601", "port should use default");
-        assert!(
-            dips_config.supported_networks.is_empty(),
-            "supported_networks should default to empty"
-        );
-        assert!(
-            dips_config.min_grt_per_30_days.is_empty(),
-            "min_grt_per_30_days should default to empty"
-        );
-    }
-
     /// Test that maximal config with DIPS section parses correctly.
     #[test]
     fn test_dips_maximal_config_parses() {
@@ -1402,10 +1351,10 @@ mod tests {
 
         // Assert
         let dips = config.dips.expect("maximal config should have DIPS");
-        assert_ne!(
-            dips.recurring_collector,
-            Address::ZERO,
-            "recurring_collector should be set in maximal config"
+        assert_eq!(
+            dips.min_grt_per_billion_entities_per_30_days,
+            crate::GRT::from_grt("200"),
+            "min_grt_per_billion_entities_per_30_days should be set in maximal config"
         );
     }
 }

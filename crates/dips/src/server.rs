@@ -13,8 +13,7 @@
 //!                        │
 //!                        ├─ Version check (must be 2)
 //!                        ├─ Size validation (non-empty, max 10KB)
-//!                        ├─ Signature verification
-//!                        ├─ Signer authorization check
+//!                        ├─ Service-provider match
 //!                        ├─ Timestamp validation (deadline, endsAt)
 //!                        ├─ IPFS manifest fetch
 //!                        ├─ Network validation
@@ -24,6 +23,11 @@
 //!                                    │
 //!                                    └─> Return Accept/Reject
 //! ```
+//!
+//! Signature and signer-authorization checks are not performed here. The
+//! on-chain `acceptIndexingAgreement` call verifies the signer (via either
+//! an ECDSA signature or a pre-stored payer offer) when the indexer-agent
+//! submits the acceptance transaction.
 //!
 //! # Response Behavior
 //!
@@ -50,7 +54,6 @@ use crate::{
         CancelAgreementResponse, ProposalResponse, RejectReason, SubmitAgreementProposalRequest,
         SubmitAgreementProposalResponse,
     },
-    signers::SignerValidator,
     store::RcaStore,
     DipsError,
 };
@@ -58,7 +61,6 @@ use crate::{
 /// Context for DIPS server with all validation dependencies.
 ///
 /// Used for RCA validation:
-/// - Signature verification
 /// - IPFS manifest fetching
 /// - Price minimum enforcement
 /// - Network registry lookups
@@ -70,8 +72,6 @@ pub struct DipsServerContext {
     pub ipfs_fetcher: Arc<dyn IpfsFetcher>,
     /// Price calculator for validating minimum prices
     pub price_calculator: Arc<PriceCalculator>,
-    /// Signature validator for EIP-712 verification
-    pub signer_validator: Arc<dyn SignerValidator>,
     /// Network registry for supported networks
     pub registry: Arc<graph_networks_registry::NetworksRegistry>,
     /// Additional networks beyond the registry
@@ -81,7 +81,7 @@ pub struct DipsServerContext {
 /// DIPS server implementing RCA protocol.
 ///
 /// Validates RecurringCollectionAgreement proposals before storage:
-/// - EIP-712 signature verification
+/// - Service-provider match
 /// - IPFS manifest fetching and network validation
 /// - Price minimum enforcement
 ///
@@ -90,9 +90,6 @@ pub struct DipsServerContext {
 pub struct DipsServer {
     pub ctx: Arc<DipsServerContext>,
     pub expected_payee: Address,
-    pub chain_id: u64,
-    /// RecurringCollector contract address for EIP-712 domain
-    pub recurring_collector: Address,
 }
 
 /// Map a DipsError to the appropriate RejectReason for the gRPC response.
@@ -100,7 +97,6 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
     match err {
         DipsError::TokensPerSecondTooLow { .. }
         | DipsError::TokensPerEntityPerSecondTooLow { .. } => RejectReason::PriceTooLow,
-        DipsError::SignerNotAuthorised(_) => RejectReason::SignerNotAuthorised,
         DipsError::DeadlineExpired { .. } => RejectReason::DeadlineExpired,
         DipsError::AgreementExpired { .. } => RejectReason::AgreementExpired,
         DipsError::UnsupportedNetwork(_) => RejectReason::UnsupportedNetwork,
@@ -117,9 +113,12 @@ impl IndexerDipsService for DipsServer {
     ///
     /// Validates:
     /// - Version 2 only
-    /// - EIP-712 signature
+    /// - Service provider match
     /// - IPFS manifest and network compatibility
     /// - Price minimums
+    ///
+    /// On-chain offer existence is NOT checked — the offer doesn't exist yet
+    /// at proposal time. The contract enforces it at `acceptIndexingAgreement`.
     ///
     /// Returns Accept/Reject based on validation results.
     async fn submit_agreement_proposal(
@@ -151,15 +150,9 @@ impl IndexerDipsService for DipsServer {
         }
 
         // Validate and store RCA
-        let domain = crate::rca_eip712_domain(self.chain_id, self.recurring_collector);
         let deployment_id = crate::try_extract_deployment_id(&signed_voucher);
-        match crate::validate_and_create_rca(
-            self.ctx.clone(),
-            &domain,
-            &self.expected_payee,
-            signed_voucher,
-        )
-        .await
+        match crate::validate_and_create_rca(self.ctx.clone(), &self.expected_payee, signed_voucher)
+            .await
         {
             Ok(agreement_id) => {
                 tracing::info!(%agreement_id, "RCA accepted");
@@ -200,10 +193,7 @@ impl IndexerDipsService for DipsServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        ipfs::MockIpfsFetcher, price::PriceCalculator, signers::NoopSignerValidator,
-        store::InMemoryRcaStore,
-    };
+    use crate::{ipfs::MockIpfsFetcher, price::PriceCalculator, store::InMemoryRcaStore};
 
     impl DipsServerContext {
         pub fn for_testing() -> Arc<Self> {
@@ -218,7 +208,6 @@ mod tests {
                     BTreeMap::from([("mainnet".to_string(), U256::from(200))]),
                     U256::from(100),
                 )),
-                signer_validator: Arc::new(NoopSignerValidator),
                 registry: Arc::new(crate::registry::test_registry()),
                 additional_networks: Arc::new(BTreeMap::new()),
             })
@@ -232,8 +221,6 @@ mod tests {
         let server = DipsServer {
             ctx,
             expected_payee: Address::ZERO,
-            chain_id: 1,
-            recurring_collector: Address::ZERO,
         };
         let request = Request::new(SubmitAgreementProposalRequest {
             version: 2,
@@ -255,8 +242,6 @@ mod tests {
         let server = DipsServer {
             ctx,
             expected_payee: Address::ZERO,
-            chain_id: 1,
-            recurring_collector: Address::ZERO,
         };
         let large_payload = vec![0u8; 10_001];
         let request = Request::new(SubmitAgreementProposalRequest {
@@ -279,8 +264,6 @@ mod tests {
         let server = DipsServer {
             ctx,
             expected_payee: Address::ZERO,
-            chain_id: 1,
-            recurring_collector: Address::ZERO,
         };
         let request = Request::new(SubmitAgreementProposalRequest {
             version: 1,
@@ -303,8 +286,6 @@ mod tests {
         let server = DipsServer {
             ctx,
             expected_payee: Address::ZERO,
-            chain_id: 1,
-            recurring_collector: Address::ZERO,
         };
         let request = Request::new(CancelAgreementRequest {
             version: 2,
@@ -366,30 +347,6 @@ mod tests {
 
         // Assert
         assert_eq!(reason, RejectReason::UnsupportedNetwork);
-    }
-
-    #[test]
-    fn test_reject_reason_invalid_signature() {
-        // Arrange
-        let err = DipsError::InvalidSignature("bad signature".to_string());
-
-        // Act
-        let reason = super::reject_reason_from_error(&err);
-
-        // Assert
-        assert_eq!(reason, RejectReason::Other);
-    }
-
-    #[test]
-    fn test_reject_reason_signer_not_authorised() {
-        // Arrange
-        let err = DipsError::SignerNotAuthorised(Address::ZERO);
-
-        // Act
-        let reason = super::reject_reason_from_error(&err);
-
-        // Assert
-        assert_eq!(reason, RejectReason::SignerNotAuthorised);
     }
 
     #[test]

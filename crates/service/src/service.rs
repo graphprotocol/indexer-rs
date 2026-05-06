@@ -16,13 +16,12 @@ use indexer_dips::{
         IndexerDipsService, IndexerDipsServiceServer,
     },
     server::{DipsServer, DipsServerContext},
-    signers::EscrowSignerValidator,
 };
 use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
 use reqwest::Url;
 use tap_core::tap_eip712_domain;
-use thegraph_core::alloy::primitives::{Address, U256};
+use thegraph_core::alloy::primitives::U256;
 use tokio::{net::TcpListener, signal};
 use tokio_util::sync::CancellationToken;
 use tower_http::normalize_path::NormalizePath;
@@ -118,8 +117,6 @@ pub async fn run() -> anyhow::Result<()> {
         config.blockchain.horizon_receipts_verifier_address(),
         tap_core::TapVersion::V2,
     );
-    let chain_id = config.blockchain.chain_id as u64;
-
     let host_and_port = config.service.host_and_port;
     let indexer_address = config.indexer.indexer_address;
     let ipfs_url = config.service.ipfs_url.clone();
@@ -195,20 +192,12 @@ pub async fn run() -> anyhow::Result<()> {
         let DipsConfig {
             host,
             port,
-            recurring_collector,
             supported_networks,
             min_grt_per_30_days,
             min_grt_per_billion_entities_per_30_days,
             additional_networks,
+            ..
         } = dips;
-
-        // Validate required configuration
-        if *recurring_collector == Address::ZERO {
-            anyhow::bail!(
-                "DIPS is enabled but dips.recurring_collector is not configured. \
-                 Set it to the deployed RecurringCollector contract address."
-            );
-        }
 
         if supported_networks.is_empty() {
             tracing::warn!(
@@ -219,7 +208,6 @@ pub async fn run() -> anyhow::Result<()> {
 
         tracing::info!(
             supported_networks = ?supported_networks,
-            recurring_collector = %recurring_collector,
             ipfs_url = %ipfs_url,
             "DIPs configuration loaded"
         );
@@ -280,7 +268,6 @@ pub async fn run() -> anyhow::Result<()> {
                 tokens_per_second,
                 tokens_per_entity_per_second,
             )),
-            signer_validator: Arc::new(EscrowSignerValidator::new(v2_watcher.clone())),
             registry,
             additional_networks: Arc::new(additional_networks.clone()),
         });
@@ -289,13 +276,10 @@ pub async fn run() -> anyhow::Result<()> {
         let server = DipsServer {
             ctx,
             expected_payee: indexer_address,
-            chain_id,
-            recurring_collector: *recurring_collector,
         };
 
         info!(
             address = %addr,
-            recurring_collector = ?recurring_collector,
             "Starting DIPS gRPC server (RecurringCollectionAgreement validation)"
         );
 
