@@ -243,6 +243,24 @@ pub async fn run() -> anyhow::Result<()> {
             );
         }
 
+        tracing::info!(
+            supported_networks = ?supported_networks,
+            recurring_collector = %recurring_collector,
+            ipfs_url = %ipfs_url,
+            "DIPs configuration loaded"
+        );
+        for (network, grt) in min_grt_per_30_days.iter() {
+            tracing::info!(
+                network = %network,
+                min_grt_per_30_days_wei = %grt.wei(),
+                "DIPs network pricing"
+            );
+        }
+        tracing::info!(
+            min_grt_per_billion_entities_per_30_days_wei = %min_grt_per_billion_entities_per_30_days.wei(),
+            "DIPs entity pricing"
+        );
+
         let addr: SocketAddr = format!("{host}:{port}")
             .parse()
             .with_context(|| format!("Invalid DIPS host:port '{host}:{port}'"))?;
