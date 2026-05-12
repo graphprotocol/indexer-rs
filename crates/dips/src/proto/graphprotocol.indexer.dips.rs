@@ -8,9 +8,9 @@
 pub struct SubmitAgreementProposalRequest {
     #[prost(uint64, tag = "1")]
     pub version: u64,
-    /// / An ERC-712 signed indexing agreement voucher
+    /// / ABI-encoded SignedRCA (RecurringCollectionAgreement plus signature).
     #[prost(bytes = "vec", tag = "2")]
-    pub signed_voucher: ::prost::alloc::vec::Vec<u8>,
+    pub signed_rca: ::prost::alloc::vec::Vec<u8>,
 }
 /// *
 ///
@@ -26,28 +26,6 @@ pub struct SubmitAgreementProposalResponse {
     #[prost(enumeration = "RejectReason", tag = "2")]
     pub reject_reason: i32,
 }
-/// *
-///
-/// A request to cancel an *indexing agreement*.
-///
-/// See the `DipsService.CancelAgreement` method.
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct CancelAgreementRequest {
-    #[prost(uint64, tag = "1")]
-    pub version: u64,
-    /// / a signed ERC-712 message cancelling an agreement
-    #[prost(bytes = "vec", tag = "2")]
-    pub signed_cancellation: ::prost::alloc::vec::Vec<u8>,
-}
-/// *
-///
-/// A response to a request to cancel an existing *indexing agreement*.
-///
-/// See the `DipsService.CancelAgreement` method.
-///
-/// Empty message, eventually we may add custom status codes
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct CancelAgreementResponse {}
 /// *
 ///
 /// The response to an *indexing agreement* proposal.
@@ -280,38 +258,6 @@ pub mod indexer_dips_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// *
-        ///
-        /// Request to cancel an existing *indexing agreement*.
-        pub async fn cancel_agreement(
-            &mut self,
-            request: impl tonic::IntoRequest<super::CancelAgreementRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CancelAgreementResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/graphprotocol.indexer.dips.IndexerDipsService/CancelAgreement",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "graphprotocol.indexer.dips.IndexerDipsService",
-                        "CancelAgreement",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
     }
 }
 /// Generated server implementations.
@@ -337,16 +283,6 @@ pub mod indexer_dips_service_server {
             request: tonic::Request<super::SubmitAgreementProposalRequest>,
         ) -> std::result::Result<
             tonic::Response<super::SubmitAgreementProposalResponse>,
-            tonic::Status,
-        >;
-        /// *
-        ///
-        /// Request to cancel an existing *indexing agreement*.
-        async fn cancel_agreement(
-            &self,
-            request: tonic::Request<super::CancelAgreementRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CancelAgreementResponse>,
             tonic::Status,
         >;
     }
@@ -462,52 +398,6 @@ pub mod indexer_dips_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = SubmitAgreementProposalSvc(inner);
-                        let codec = tonic_prost::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/graphprotocol.indexer.dips.IndexerDipsService/CancelAgreement" => {
-                    #[allow(non_camel_case_types)]
-                    struct CancelAgreementSvc<T: IndexerDipsService>(pub Arc<T>);
-                    impl<
-                        T: IndexerDipsService,
-                    > tonic::server::UnaryService<super::CancelAgreementRequest>
-                    for CancelAgreementSvc<T> {
-                        type Response = super::CancelAgreementResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::CancelAgreementRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as IndexerDipsService>::cancel_agreement(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = CancelAgreementSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

@@ -4,40 +4,12 @@ package graphprotocol.gateway.dips;
 
 service GatewayDipsService {
   /**
-   * Cancel an _indexing agreement_.
-   *
-   * This method allows the indexer to notify the DIPs gateway that the agreement
-   * should be canceled.
-   */
-  rpc CancelAgreement(CancelAgreementRequest) returns (CancelAgreementResponse);
-
-  /**
    * Collect payment for an _indexing agreement_.
    *
    * This method allows the indexer to report the work completed to the DIPs gateway
    * and receive payment for the indexing work done.
    */
   rpc CollectPayment(CollectPaymentRequest) returns (CollectPaymentResponse);
-}
-
-
-/**
- * A request to cancel an _indexing agreement_.
- *
- * See the `DipsService.CancelAgreement` method.
- */
-message CancelAgreementRequest {
-  uint64 version = 1;
-  bytes signed_cancellation = 2;  /// a signed ERC-712 message cancelling an agreement
-}
-
-/**
- * A response to a request to cancel an _indexing agreement_.
- *
- * See the `DipsService.CancelAgreement` method.
- */
-message CancelAgreementResponse {
-  /// Empty response, eventually we may add custom status codes
 }
 
 /**
@@ -47,7 +19,7 @@ message CancelAgreementResponse {
  */
 message CollectPaymentRequest {
   uint64 version = 1;
-  bytes signed_collection = 2; 
+  bytes signed_collection = 2;
 }
 
 /**
