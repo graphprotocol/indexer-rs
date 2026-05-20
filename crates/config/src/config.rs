@@ -25,7 +25,7 @@ use thegraph_core::{
 };
 use url::Url;
 
-use crate::NonZeroGRT;
+use crate::{NonZeroGRT, GRT};
 
 const SHARED_PREFIX: &str = "INDEXER_";
 
@@ -669,11 +669,33 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
 pub struct DipsConfig {
     pub host: String,
     pub port: String,
-    pub allowed_payers: Vec<Address>,
 
+    // Legacy gRPC handler fields, kept here so configs predating the signalling
+    // surface continue to parse. The example config no longer demonstrates them
+    // since the new fields below are what indexers should populate.
+    #[serde(default)]
+    pub allowed_payers: Vec<Address>,
+    #[serde(default = "default_price_per_entity")]
     pub price_per_entity: U256,
+    #[serde(default)]
     pub price_per_epoch: BTreeMap<String, U256>,
+    #[serde(default)]
     pub additional_networks: HashMap<String, String>,
+
+    // Signalling-only fields consumed by the public `/dips/info` HTTP endpoint.
+    // The existing gRPC handler does not read these — they exist so external
+    // systems can discover which networks an indexer is willing to support
+    // and at what price ahead of any agreements actually being offered.
+    #[serde(default)]
+    pub supported_networks: HashSet<String>,
+    #[serde(default)]
+    pub min_grt_per_30_days: BTreeMap<String, GRT>,
+    #[serde(default)]
+    pub min_grt_per_billion_entities_per_30_days: GRT,
+}
+
+fn default_price_per_entity() -> U256 {
+    U256::from(100)
 }
 
 impl Default for DipsConfig {
@@ -685,6 +707,9 @@ impl Default for DipsConfig {
             price_per_entity: U256::from(100),
             price_per_epoch: BTreeMap::new(),
             additional_networks: HashMap::new(),
+            supported_networks: HashSet::new(),
+            min_grt_per_30_days: BTreeMap::new(),
+            min_grt_per_billion_entities_per_30_days: GRT::ZERO,
         }
     }
 }
@@ -729,17 +754,12 @@ pub struct HorizonConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{BTreeMap, HashMap, HashSet},
-        env, fs,
-        path::PathBuf,
-        str::FromStr,
-    };
+    use std::{collections::HashSet, env, fs, path::PathBuf, str::FromStr};
 
     use bip39::Mnemonic;
     use figment::value::Uncased;
     use sealed_test::prelude::*;
-    use thegraph_core::alloy::primitives::{address, Address, FixedBytes, U256};
+    use thegraph_core::alloy::primitives::{address, Address};
     use tracing_test::traced_test;
 
     use super::{DatabaseConfig, IndexerConfig, SHARED_PREFIX};
@@ -765,18 +785,6 @@ mod tests {
         max_config.tap.trusted_senders =
             HashSet::from([address!("deadbeefcafebabedeadbeefcafebabedeadbeef")]);
         max_config.dips = Some(crate::DipsConfig {
-            allowed_payers: vec![Address(
-                FixedBytes::<20>::from_str("0x3333333333333333333333333333333333333333").unwrap(),
-            )],
-            price_per_entity: U256::from(1000),
-            price_per_epoch: BTreeMap::from_iter(vec![
-                ("mainnet".to_string(), U256::from(100)),
-                ("hardhat".to_string(), U256::from(100)),
-            ]),
-            additional_networks: HashMap::from([(
-                "eip155:1337".to_string(),
-                "hardhat".to_string(),
-            )]),
             ..Default::default()
         });
 
