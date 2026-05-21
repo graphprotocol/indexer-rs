@@ -667,29 +667,40 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DipsConfig {
+    /// Network interface the DIPs gRPC server binds to (e.g. `"0.0.0.0"` for all interfaces).
     pub host: String,
+
+    /// Port the DIPs gRPC server listens on.
     pub port: String,
 
-    // Legacy gRPC handler fields, kept here so configs predating the signalling
-    // surface continue to parse. The example config no longer demonstrates them
-    // since the new fields below are what indexers should populate.
+    /// Fallback mapping for chains the on-chain networks registry does not
+    /// know about. Keys are chain identifiers in the form `eip155:<chain-id>`;
+    /// values must match the network name declared in subgraph manifests
+    /// (e.g. `"eip155:1337" = "hardhat"`).
+    #[serde(default)]
+    pub additional_networks: HashMap<String, String>,
+
+    // Legacy gRPC handler fields. Scheduled for removal when the on-chain
+    // agreement validation path lands. Kept here with serde defaults so
+    // configs predating the signalling surface continue to parse.
     #[serde(default)]
     pub allowed_payers: Vec<Address>,
     #[serde(default = "default_price_per_entity")]
     pub price_per_entity: U256,
     #[serde(default)]
     pub price_per_epoch: BTreeMap<String, U256>,
-    #[serde(default)]
-    pub additional_networks: HashMap<String, String>,
 
-    // Signalling-only fields consumed by the public `/dips/info` HTTP endpoint.
-    // The existing gRPC handler does not read these — they exist so external
-    // systems can discover which networks an indexer is willing to support
-    // and at what price ahead of any agreements actually being offered.
+    /// Chains this indexer publicly commits to supporting. Surfaced via `/dips/info`.
     #[serde(default)]
     pub supported_networks: HashSet<String>,
+
+    /// Per-network base price floor in GRT per 30 days. Map key is the chain
+    /// identifier (e.g. `"mainnet"`). Surfaced via `/dips/info`.
     #[serde(default)]
     pub min_grt_per_30_days: BTreeMap<String, GRT>,
+
+    /// Global per-entity price floor in GRT per billion entities per 30 days.
+    /// Surfaced via `/dips/info`.
     #[serde(default)]
     pub min_grt_per_billion_entities_per_30_days: GRT,
 }
