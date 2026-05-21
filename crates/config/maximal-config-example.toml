@@ -180,14 +180,12 @@ max_receipts_per_request = 10000
 # what minimum price, ahead of any indexing agreement actually being offered.
 #
 # Pricing uses human-readable GRT values (not wei), e.g. "100" = 100 GRT per 30 days.
+# Pricing a chain in [dips.min_grt_per_30_days] is also your public declaration
+# of support for that chain — there is no separate supported_networks list.
+# See https://github.com/graphprotocol/networks-registry/blob/main/docs/networks-table.md
 [dips]
 host = "0.0.0.0"
 port = "7601"
-
-# Networks you explicitly support indexing.
-# See https://github.com/graphprotocol/networks-registry/blob/main/docs/networks-table.md
-# e.g. supported_networks = ["mainnet", "arbitrum-one"]
-supported_networks = []
 
 # Minimum payment you are willing to accept in order to accept indexing agreements
 # (base price + entity-based price). Total payment = base price + (entities on sg * entity_rate)
@@ -197,7 +195,7 @@ supported_networks = []
 # Your own observations may differ - adjust pricing accordingly.
 # min_grt_per_billion_entities_per_30_days = "200"  # entity-based component (global)
 
-[dips.min_grt_per_30_days]  # base rate component (per-network)
+[dips.min_grt_per_30_days]  # base rate component (per-network); keys = supported chains
 # arbitrum-one = "450"
 # matic = "300"
 # avalanche = "225"

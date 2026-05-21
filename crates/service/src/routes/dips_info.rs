@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 /// State for the /dips/info endpoint, derived from DipsConfig at startup.
 #[derive(Clone, Debug)]
 pub struct DipsInfoState {
-    pub supported_networks: Vec<String>,
     pub min_grt_per_30_days: BTreeMap<String, String>,
     pub min_grt_per_billion_entities_per_30_days: String,
 }
@@ -26,13 +25,17 @@ pub struct DipsInfoResponse {
 }
 
 pub async fn dips_info(State(state): State<DipsInfoState>) -> Json<DipsInfoResponse> {
+    // Keys of the price map are the indexer's declared supported chains.
+    // Pricing a chain in config is the same act as declaring support for it.
+    let supported_networks: Vec<String> = state.min_grt_per_30_days.keys().cloned().collect();
+
     Json(DipsInfoResponse {
         pricing: DipsInfoPricing {
             min_grt_per_30_days: state.min_grt_per_30_days,
             min_grt_per_billion_entities_per_30_days: state
                 .min_grt_per_billion_entities_per_30_days,
         },
-        supported_networks: state.supported_networks,
+        supported_networks,
     })
 }
 
@@ -43,21 +46,23 @@ mod tests {
 
     fn sample_state() -> DipsInfoState {
         DipsInfoState {
-            supported_networks: vec!["arbitrum-one".to_string(), "mainnet".to_string()],
-            min_grt_per_30_days: BTreeMap::from_iter([("mainnet".to_string(), "45".to_string())]),
+            min_grt_per_30_days: BTreeMap::from_iter([
+                ("arbitrum-one".to_string(), "450".to_string()),
+                ("mainnet".to_string(), "45".to_string()),
+            ]),
             min_grt_per_billion_entities_per_30_days: "200".to_string(),
         }
     }
 
     #[tokio::test]
-    async fn returns_supported_networks_from_config_not_map_keys() {
-        // Arrange: arbitrum-one is declared as supported but has no price entry.
+    async fn supported_networks_derived_from_price_map_keys() {
+        // Arrange
         let state = sample_state();
 
         // Act
         let response = dips_info(State(state)).await;
 
-        // Assert: both networks appear, even though only mainnet is priced.
+        // Assert: BTreeMap iteration is sorted, so output is deterministic.
         assert_eq!(
             response.supported_networks,
             vec!["arbitrum-one".to_string(), "mainnet".to_string()]
@@ -85,9 +90,8 @@ mod tests {
 
     #[tokio::test]
     async fn empty_state_renders_empty_lists_and_zero() {
-        // Arrange: indexer has [dips] configured but populated nothing.
+        // Arrange: indexer has [dips] configured but priced nothing.
         let state = DipsInfoState {
-            supported_networks: vec![],
             min_grt_per_30_days: BTreeMap::new(),
             min_grt_per_billion_entities_per_30_days: "0".to_string(),
         };

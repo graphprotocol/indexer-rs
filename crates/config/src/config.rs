@@ -690,12 +690,10 @@ pub struct DipsConfig {
     #[serde(default)]
     pub price_per_epoch: BTreeMap<String, U256>,
 
-    /// Chains this indexer publicly commits to supporting. Surfaced via `/dips/info`.
-    #[serde(default)]
-    pub supported_networks: HashSet<String>,
-
-    /// Per-network base price floor in GRT per 30 days. Map key is the chain
-    /// identifier (e.g. `"mainnet"`). Surfaced via `/dips/info`.
+    /// Per-network base price floor in GRT per 30 days. The set of map keys
+    /// is also this indexer's public declaration of supported chains —
+    /// pricing a chain here means committing to support it. Surfaced via
+    /// `/dips/info`.
     #[serde(default)]
     pub min_grt_per_30_days: BTreeMap<String, GRT>,
 
@@ -718,7 +716,6 @@ impl Default for DipsConfig {
             price_per_entity: U256::from(100),
             price_per_epoch: BTreeMap::new(),
             additional_networks: HashMap::new(),
-            supported_networks: HashSet::new(),
             min_grt_per_30_days: BTreeMap::new(),
             min_grt_per_billion_entities_per_30_days: GRT::ZERO,
         }

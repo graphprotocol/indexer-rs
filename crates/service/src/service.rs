@@ -152,23 +152,15 @@ pub async fn run() -> anyhow::Result<()> {
         }
     };
 
-    let dips_info_state = config.dips.as_ref().map(|dips| {
-        // Sort for deterministic JSON output. `supported_networks` is the indexer's
-        // intent — render it verbatim rather than deriving from priced chains, so
-        // declaring a chain without pricing still surfaces in the published signal.
-        let mut supported_networks: Vec<String> = dips.supported_networks.iter().cloned().collect();
-        supported_networks.sort();
-        DipsInfoState {
-            supported_networks,
-            min_grt_per_30_days: dips
-                .min_grt_per_30_days
-                .iter()
-                .map(|(network, grt)| (network.clone(), format_grt(grt.wei())))
-                .collect(),
-            min_grt_per_billion_entities_per_30_days: format_grt(
-                dips.min_grt_per_billion_entities_per_30_days.wei(),
-            ),
-        }
+    let dips_info_state = config.dips.as_ref().map(|dips| DipsInfoState {
+        min_grt_per_30_days: dips
+            .min_grt_per_30_days
+            .iter()
+            .map(|(network, grt)| (network.clone(), format_grt(grt.wei())))
+            .collect(),
+        min_grt_per_billion_entities_per_30_days: format_grt(
+            dips.min_grt_per_billion_entities_per_30_days.wei(),
+        ),
     });
 
     let router = ServiceRouter::builder()
@@ -205,7 +197,6 @@ pub async fn run() -> anyhow::Result<()> {
             additional_networks,
             // Signalling fields are consumed by the `/dips/info` route built
             // earlier from `config.dips`; the gRPC handler does not read them.
-            supported_networks: _,
             min_grt_per_30_days: _,
             min_grt_per_billion_entities_per_30_days: _,
         } = dips;
