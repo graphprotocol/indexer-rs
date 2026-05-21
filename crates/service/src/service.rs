@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context};
 use axum::{extract::Request, serve, ServiceExt};
@@ -32,7 +32,7 @@ use crate::{
     constants::{DIPS_HTTP_CLIENT_TIMEOUT, HTTP_CLIENT_TIMEOUT},
     database,
     metrics::serve_metrics,
-    routes::DipsInfoState,
+    routes::DipsInfo,
 };
 
 mod release;
@@ -152,15 +152,22 @@ pub async fn run() -> anyhow::Result<()> {
         }
     };
 
-    let dips_info_state = config.dips.as_ref().map(|dips| DipsInfoState {
-        min_grt_per_30_days: dips
+    let dips_info_state = config.dips.as_ref().map(|dips| {
+        let min_grt_per_30_days: BTreeMap<String, String> = dips
             .min_grt_per_30_days
             .iter()
             .map(|(network, grt)| (network.clone(), format_grt(grt.wei())))
-            .collect(),
-        min_grt_per_billion_entities_per_30_days: format_grt(
-            dips.min_grt_per_billion_entities_per_30_days.wei(),
-        ),
+            .collect();
+        // Pricing a chain in config is the act of declaring support for it,
+        // so derive the published list directly from the price-map keys.
+        let supported_networks = min_grt_per_30_days.keys().cloned().collect();
+        DipsInfo {
+            min_grt_per_30_days,
+            min_grt_per_billion_entities_per_30_days: format_grt(
+                dips.min_grt_per_billion_entities_per_30_days.wei(),
+            ),
+            supported_networks,
+        }
     });
 
     let router = ServiceRouter::builder()

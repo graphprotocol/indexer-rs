@@ -37,7 +37,7 @@ mod request_handler;
 mod static_subgraph;
 mod status;
 
-pub use dips_info::{dips_info, DipsInfoState};
+pub use dips_info::{dips_info, DipsInfo};
 pub use health::health;
 pub use healthz::{healthz, HealthzState};
 pub use request_handler::request_handler;

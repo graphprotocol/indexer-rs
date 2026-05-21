@@ -51,7 +51,7 @@ use crate::{
     },
     routes::{
         self, dips_info, health, healthz, request_handler, static_subgraph_request_handler,
-        DipsInfoState, HealthzState,
+        DipsInfo, HealthzState,
     },
     tap::{IndexerTapContext, TapChecksConfig},
     wallet::public_key,
@@ -88,7 +88,7 @@ pub struct ServiceRouter {
     // Optional state for the public `/dips/info` endpoint. Populated only when
     // `[dips]` is set in config; consumed purely for signalling indexer pricing
     // and supported networks, never feeds the gRPC proposal handler.
-    dips_info: Option<DipsInfoState>,
+    dips_info: Option<DipsInfo>,
 }
 
 impl ServiceRouter {
