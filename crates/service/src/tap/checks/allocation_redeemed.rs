@@ -4,10 +4,7 @@
 use indexer_monitor::{SubgraphClient, SubgraphQueryError};
 use indexer_query::closed_allocations::{self, ClosedAllocations};
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
-use thegraph_core::{
-    alloy::{hex::ToHexExt, primitives::Address},
-    CollectionId,
-};
+use thegraph_core::{alloy::hex::ToHexExt, CollectionId};
 
 use crate::tap::{CheckingReceipt, TapReceipt};
 
@@ -22,19 +19,12 @@ pub enum AllocationCheckError {
 }
 
 pub struct AllocationRedeemedCheck {
-    indexer_address: Address,
     network_subgraph: Option<&'static SubgraphClient>,
 }
 
 impl AllocationRedeemedCheck {
-    pub fn new(
-        indexer_address: Address,
-        network_subgraph: Option<&'static SubgraphClient>,
-    ) -> Self {
-        Self {
-            indexer_address,
-            network_subgraph,
-        }
+    pub fn new(network_subgraph: Option<&'static SubgraphClient>) -> Self {
+        Self { network_subgraph }
     }
 
     async fn v2_allocation_closed(
@@ -159,8 +149,7 @@ mod tests {
             .await,
         ));
 
-        let check =
-            AllocationRedeemedCheck::new(Address::from([0x22u8; 20]), Some(network_subgraph));
+        let check = AllocationRedeemedCheck::new(Some(network_subgraph));
 
         let ctx = Context::default();
         let receipt = create_v2_receipt(TAP_SIGNER.1);
@@ -195,8 +184,7 @@ mod tests {
             .await,
         ));
 
-        let check =
-            AllocationRedeemedCheck::new(Address::from([0x22u8; 20]), Some(network_subgraph));
+        let check = AllocationRedeemedCheck::new(Some(network_subgraph));
 
         let ctx = Context::default();
         let receipt = create_v2_receipt(TAP_SIGNER.1);
