@@ -228,8 +228,13 @@ pub async fn run() -> anyhow::Result<()> {
             .parse()
             .with_context(|| format!("Invalid DIPS host:port '{host}:{port}'"))?;
 
+        // Shared counter of in-flight gRPC requests. The IPFS client reads
+        // it to decide whether to use the full retry budget or fall back to
+        // a single attempt when the service is under load.
+        let inflight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
         // Initialize validation dependencies
-        let ipfs_fetcher = Arc::new(IpfsClient::new(ipfs_url.as_str())?);
+        let ipfs_fetcher = Arc::new(IpfsClient::new(ipfs_url.as_str(), inflight.clone())?);
         let registry = Arc::new(
             NetworksRegistry::from_latest_version()
                 .await
@@ -277,6 +282,7 @@ pub async fn run() -> anyhow::Result<()> {
         let server = DipsServer {
             ctx,
             expected_payee: indexer_address,
+            inflight,
         };
 
         info!(

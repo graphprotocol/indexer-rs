@@ -47,6 +47,7 @@ use thegraph_core::alloy::primitives::Address;
 use tonic::{Request, Response, Status};
 
 use crate::{
+    inflight::{InflightCounter, InflightGuard},
     ipfs::IpfsFetcher,
     price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::{
@@ -90,6 +91,10 @@ pub struct DipsServerContext {
 pub struct DipsServer {
     pub ctx: Arc<DipsServerContext>,
     pub expected_payee: Address,
+    /// Shared counter incremented for every request that enters the handler.
+    /// The IPFS client reads it to decide whether to use the full retry
+    /// budget or fall back to a single attempt under load.
+    pub inflight: InflightCounter,
 }
 
 /// Map a DipsError to the appropriate RejectReason for the gRPC response.
@@ -125,6 +130,8 @@ impl IndexerDipsService for DipsServer {
         &self,
         request: Request<SubmitAgreementProposalRequest>,
     ) -> Result<Response<SubmitAgreementProposalResponse>, Status> {
+        let _guard = InflightGuard::new(self.inflight.clone());
+
         let SubmitAgreementProposalRequest {
             version,
             signed_voucher,
@@ -192,8 +199,14 @@ impl IndexerDipsService for DipsServer {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+
     use super::*;
     use crate::{ipfs::MockIpfsFetcher, price::PriceCalculator, store::InMemoryRcaStore};
+
+    fn empty_counter() -> InflightCounter {
+        Arc::new(AtomicUsize::new(0))
+    }
 
     impl DipsServerContext {
         pub fn for_testing() -> Arc<Self> {
@@ -221,6 +234,7 @@ mod tests {
         let server = DipsServer {
             ctx,
             expected_payee: Address::ZERO,
+            inflight: empty_counter(),
         };
         let request = Request::new(SubmitAgreementProposalRequest {
             version: 2,
@@ -242,6 +256,7 @@ mod tests {
         let server = DipsServer {
             ctx,
             expected_payee: Address::ZERO,
+            inflight: empty_counter(),
         };
         let large_payload = vec![0u8; 10_001];
         let request = Request::new(SubmitAgreementProposalRequest {
@@ -264,6 +279,7 @@ mod tests {
         let server = DipsServer {
             ctx,
             expected_payee: Address::ZERO,
+            inflight: empty_counter(),
         };
         let request = Request::new(SubmitAgreementProposalRequest {
             version: 1,
@@ -286,6 +302,7 @@ mod tests {
         let server = DipsServer {
             ctx,
             expected_payee: Address::ZERO,
+            inflight: empty_counter(),
         };
         let request = Request::new(CancelAgreementRequest {
             version: 2,
