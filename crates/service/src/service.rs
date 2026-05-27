@@ -42,9 +42,12 @@ use crate::{
     routes::DipsInfoState,
 };
 
+mod grpc_error_to_response;
 mod release;
 mod router;
 mod tap_receipt_header;
+
+use grpc_error_to_response::GrpcErrorToResponseLayer;
 
 pub use router::ServiceRouter;
 pub use tap_receipt_header::TapHeader;
@@ -385,10 +388,16 @@ async fn start_dips_server(
     };
 
     let layer = ServiceBuilder::new()
+        .layer(GrpcErrorToResponseLayer)
         .buffer(DIPS_BUFFER_DEPTH)
         .timeout(DIPS_REQUEST_TIMEOUT)
         .layer(per_ip_layer)
         .rate_limit(DIPS_RATE_LIMIT_PER_SEC, Duration::from_secs(1))
+        // tonic's Routes returns Response<tonic::body::Body>, but tower_governor
+        // hardcodes Response<axum::body::Body>. Convert the inner body before
+        // the rate-limit layers see it. tonic's Server is happy to serve any
+        // http_body::Body for the response, so axum's body works end-to-end.
+        .map_response(|res: axum::http::Response<tonic::body::Body>| res.map(axum::body::Body::new))
         .into_inner();
 
     if let Err(e) = tonic::transport::Server::builder()
