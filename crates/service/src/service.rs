@@ -187,7 +187,7 @@ pub async fn run() -> anyhow::Result<()> {
         .blockchain(config.blockchain)
         .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
         .network_subgraph(network_subgraph, config.subgraphs.network)
-        .escrow_accounts_v2(v2_watcher)
+        .escrow_accounts_v2(v2_watcher.clone())
         .maybe_dips_info(dips_info_state)
         .build();
 
