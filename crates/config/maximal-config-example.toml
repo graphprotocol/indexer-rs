@@ -174,14 +174,16 @@ max_receipts_per_request = 10000
 0xDDE4cfFd3D9052A9cb618fC05a1Cd02be1f2F467 = "https://tap-aggregator.network.thegraph.com"
 0xDD6a6f76eb36B873C1C184e8b9b9e762FE216490 = "https://tap-aggregator-arbitrum-one.graphops.xyz"
 
-# DIPS (Decentralized Indexing Payment System)
-# NOTE: DIPS requires Horizon mode ([horizon].enabled = true)
-# Payer authorization is handled via escrow accounts (same trust model as TAP)
-#
-# Pricing uses human-readable GRT values (not wei), e.g. "100" = 100 GRT per 30 days.
+# DIPS (Decentralized Indexing Payment System). Requires Horizon mode.
+# Payer auth is verified on-chain at acceptance; the `allowed_payers`
+# list below gates which payers may even propose. GRT prices, not wei.
 [dips]
 host = "0.0.0.0"
 port = "7601"
+
+# Trusted payers. Omit field = accept any caller (legacy); `[]` = deny
+# all. Production addresses TBD — list real dipper addresses to use it.
+# allowed_payers = ["0x0000000000000000000000000000000000000000"]
 
 # Networks you explicitly support indexing.
 # Proposals from the dipper for you to index networks that are not in the list below are rejected.

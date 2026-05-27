@@ -206,6 +206,7 @@ pub async fn run() -> anyhow::Result<()> {
             min_grt_per_30_days,
             min_grt_per_billion_entities_per_30_days,
             additional_networks,
+            allowed_payers,
             ..
         } = dips;
 
@@ -285,6 +286,7 @@ pub async fn run() -> anyhow::Result<()> {
             )),
             registry,
             additional_networks: Arc::new(additional_networks.clone()),
+            allowed_payers: allowed_payers.clone(),
         });
 
         // Create DIPS server

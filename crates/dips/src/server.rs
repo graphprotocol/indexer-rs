@@ -40,7 +40,10 @@
 //! The `cancel_agreement` endpoint is unimplemented. Cancellation is handled
 //! on-chain via the RecurringCollector contract, not through this gRPC interface.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use thegraph_core::alloy::primitives::Address;
@@ -77,6 +80,10 @@ pub struct DipsServerContext {
     pub registry: Arc<graph_networks_registry::NetworksRegistry>,
     /// Additional networks beyond the registry
     pub additional_networks: Arc<BTreeMap<String, String>>,
+    /// Optional allowlist of payer addresses. When `Some`, proposals whose
+    /// `payer` field is not in this set are rejected before any I/O. When
+    /// `None`, every payer is accepted (legacy default).
+    pub allowed_payers: Option<HashSet<Address>>,
 }
 
 /// DIPS server implementing RCA protocol.
@@ -108,6 +115,10 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
         DipsError::SubgraphManifestUnavailable(_) => RejectReason::SubgraphManifestUnavailable,
         DipsError::UnexpectedServiceProvider { .. } => RejectReason::UnexpectedServiceProvider,
         DipsError::UnsupportedMetadataVersion(_) => RejectReason::UnsupportedMetadataVersion,
+        // Deliberately maps to Other so the wire response doesn't disclose
+        // why the rejection happened — a caller probing for who is on the
+        // allowlist would otherwise learn that by trial and error.
+        DipsError::PayerNotAllowed(_) => RejectReason::Other,
         _ => RejectReason::Other,
     }
 }
@@ -223,6 +234,7 @@ mod tests {
                 )),
                 registry: Arc::new(crate::registry::test_registry()),
                 additional_networks: Arc::new(BTreeMap::new()),
+                allowed_payers: None,
             })
         }
     }
