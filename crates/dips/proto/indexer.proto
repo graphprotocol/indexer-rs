@@ -9,11 +9,6 @@ service IndexerDipsService {
    * The _indexer_ can `ACCEPT` or `REJECT` the agreement.
    */
   rpc SubmitAgreementProposal(SubmitAgreementProposalRequest) returns (SubmitAgreementProposalResponse);
-
-  /**
-   * Request to cancel an existing _indexing agreement_.
-   */
-  rpc CancelAgreement(CancelAgreementRequest) returns (CancelAgreementResponse);
 }
 
 /**
@@ -23,7 +18,7 @@ service IndexerDipsService {
  */
 message SubmitAgreementProposalRequest {
   uint64 version = 1;
-  bytes signed_voucher = 2; /// An ERC-712 signed indexing agreement voucher
+  bytes signed_rca = 2; /// ABI-encoded SignedRCA (RecurringCollectionAgreement plus signature).
 }
 
 /**
@@ -59,23 +54,4 @@ enum RejectReason {
   REJECT_REASON_UNEXPECTED_SERVICE_PROVIDER = 7;   /// The RCA service provider does not match this indexer.
   REJECT_REASON_AGREEMENT_EXPIRED = 8;        /// The agreement end time has already passed.
   REJECT_REASON_UNSUPPORTED_METADATA_VERSION = 9;  /// The metadata version is not supported.
-}
-
-/**
- * A request to cancel an _indexing agreement_.
- *
- * See the `DipsService.CancelAgreement` method.
- */
-message CancelAgreementRequest {
-  uint64 version = 1;
-  bytes signed_cancellation = 2;  /// a signed ERC-712 message cancelling an agreement
-}
-
-/**
- * A response to a request to cancel an existing _indexing agreement_.
- *
- * See the `DipsService.CancelAgreement` method.
- */
-message CancelAgreementResponse {
-  // Empty message, eventually we may add custom status codes
 }

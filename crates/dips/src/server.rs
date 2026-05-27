@@ -37,8 +37,10 @@
 //!
 //! # Cancellation
 //!
-//! The `cancel_agreement` endpoint is unimplemented. Cancellation is handled
-//! on-chain via the RecurringCollector contract, not through this gRPC interface.
+//! Cancellation is handled entirely on-chain via the RecurringCollector contract;
+//! there is no gRPC method for it. Dipper calls `cancelIndexingAgreementByPayer`
+//! directly and indexer-agents observe `IndexingAgreementCanceled` events through
+//! the indexing-payments subgraph.
 
 use std::{
     collections::{BTreeMap, HashSet},
@@ -54,9 +56,8 @@ use crate::{
     ipfs::IpfsFetcher,
     price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::{
-        indexer_dips_service_server::IndexerDipsService, CancelAgreementRequest,
-        CancelAgreementResponse, ProposalResponse, RejectReason, SubmitAgreementProposalRequest,
-        SubmitAgreementProposalResponse,
+        indexer_dips_service_server::IndexerDipsService, ProposalResponse, RejectReason,
+        SubmitAgreementProposalRequest, SubmitAgreementProposalResponse,
     },
     store::RcaStore,
     DipsError,
@@ -145,7 +146,7 @@ impl IndexerDipsService for DipsServer {
 
         let SubmitAgreementProposalRequest {
             version,
-            signed_voucher,
+            signed_rca,
         } = request.into_inner();
 
         // Only accept version 2
@@ -157,19 +158,19 @@ impl IndexerDipsService for DipsServer {
         }
 
         // Basic sanity checks
-        if signed_voucher.is_empty() {
-            return Err(Status::invalid_argument("signed_voucher cannot be empty"));
+        if signed_rca.is_empty() {
+            return Err(Status::invalid_argument("signed_rca cannot be empty"));
         }
 
-        if signed_voucher.len() > 10_000 {
+        if signed_rca.len() > 10_000 {
             return Err(Status::invalid_argument(
-                "signed_voucher exceeds maximum size of 10KB",
+                "signed_rca exceeds maximum size of 10KB",
             ));
         }
 
         // Validate and store RCA
-        let deployment_id = crate::try_extract_deployment_id(&signed_voucher);
-        match crate::validate_and_create_rca(self.ctx.clone(), &self.expected_payee, signed_voucher)
+        let deployment_id = crate::try_extract_deployment_id(&signed_rca);
+        match crate::validate_and_create_rca(self.ctx.clone(), &self.expected_payee, signed_rca)
             .await
         {
             Ok(agreement_id) => {
@@ -193,18 +194,6 @@ impl IndexerDipsService for DipsServer {
                 }))
             }
         }
-    }
-
-    /// Cancel agreement - unimplemented.
-    ///
-    /// Cancellation is handled on-chain via the RecurringCollector contract.
-    async fn cancel_agreement(
-        &self,
-        _request: Request<CancelAgreementRequest>,
-    ) -> Result<Response<CancelAgreementResponse>, Status> {
-        Err(Status::unimplemented(
-            "Cancellation is handled on-chain via RecurringCollector contract",
-        ))
     }
 }
 
@@ -250,7 +239,7 @@ mod tests {
         };
         let request = Request::new(SubmitAgreementProposalRequest {
             version: 2,
-            signed_voucher: vec![],
+            signed_rca: vec![],
         });
 
         // Act
@@ -273,7 +262,7 @@ mod tests {
         let large_payload = vec![0u8; 10_001];
         let request = Request::new(SubmitAgreementProposalRequest {
             version: 2,
-            signed_voucher: large_payload,
+            signed_rca: large_payload,
         });
 
         // Act
@@ -295,7 +284,7 @@ mod tests {
         };
         let request = Request::new(SubmitAgreementProposalRequest {
             version: 1,
-            signed_voucher: vec![1, 2, 3],
+            signed_rca: vec![1, 2, 3],
         });
 
         // Act
@@ -305,28 +294,6 @@ mod tests {
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(err.message().contains("Unsupported version"));
         assert!(err.message().contains("version 2"));
-    }
-
-    #[tokio::test]
-    async fn test_cancel_unimplemented() {
-        // Arrange
-        let ctx = DipsServerContext::for_testing();
-        let server = DipsServer {
-            ctx,
-            expected_payee: Address::ZERO,
-            inflight: empty_counter(),
-        };
-        let request = Request::new(CancelAgreementRequest {
-            version: 2,
-            signed_cancellation: vec![],
-        });
-
-        // Act
-        let err = server.cancel_agreement(request).await.unwrap_err();
-
-        // Assert
-        assert_eq!(err.code(), tonic::Code::Unimplemented);
-        assert!(err.message().contains("RecurringCollector"));
     }
 
     // =========================================================================
