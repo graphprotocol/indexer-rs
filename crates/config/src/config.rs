@@ -679,12 +679,6 @@ pub struct DipsConfig {
     /// Minimum acceptable GRT per billion entities per 30 days.
     pub min_grt_per_billion_entities_per_30_days: GRT,
     pub additional_networks: BTreeMap<String, String>,
-    /// Optional allowlist of payer addresses. When `Some`, only proposals
-    /// whose `payer` field is in this set are accepted; everything else is
-    /// rejected before the IPFS fetch. When `None` (the default), proposals
-    /// from any payer are accepted — the operator should normally list the
-    /// addresses of the dippers they do business with.
-    pub allowed_payers: Option<HashSet<Address>>,
 }
 
 impl Default for DipsConfig {
@@ -696,7 +690,6 @@ impl Default for DipsConfig {
             min_grt_per_30_days: BTreeMap::new(),
             min_grt_per_billion_entities_per_30_days: GRT::ZERO,
             additional_networks: BTreeMap::new(),
-            allowed_payers: None,
         }
     }
 }
