@@ -124,32 +124,11 @@ pub async fn run() -> anyhow::Result<()> {
     let indexer_address = config.indexer.indexer_address;
     let ipfs_url = config.service.ipfs_url.clone();
 
-    // Horizon is required; verify contracts are active.
-    if !config.tap_mode().is_horizon() {
-        anyhow::bail!("Horizon mode is required; legacy mode is no longer supported.");
-    }
-
-    tracing::info!("Horizon mode configured; checking network subgraph readiness");
-    match indexer_monitor::is_horizon_active(network_subgraph).await {
-        Ok(true) => {
-            tracing::info!("Horizon contracts detected in network subgraph");
-        }
-        Ok(false) => {
-            anyhow::bail!(
-                "Horizon mode is required, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
-                Ensure Horizon contracts are deployed and the Network Subgraph is updated before starting the indexer service."
-            );
-        }
-        Err(e) => {
-            anyhow::bail!(
-                "Failed to detect Horizon contracts due to network/subgraph error: {}. \
-                Cannot start with Horizon mode enabled when network status is unknown.",
-                e
-            );
-        }
-    }
-
-    tracing::info!("Horizon contracts detected - using Horizon (V2) mode");
+    // V2 escrow accounts (used by DIPs) live in the network subgraph; no
+    // separate escrow subgraph is queried.
+    let collector_address = config.blockchain.receipts_verifier_address_v2;
+    let escrow_min_balance_grt_wei = config.subgraphs.network.escrow_min_balance_grt_wei.clone();
+    let max_signers_per_payer = config.subgraphs.network.max_signers_per_payer;
 
     let v2_watcher = match indexer_monitor::escrow_accounts_v2(
         network_subgraph,
@@ -175,13 +154,6 @@ pub async fn run() -> anyhow::Result<()> {
         }
     };
 
-    let escrow_subgraph = create_subgraph_client(
-        http_client.clone(),
-        &config.graph_node,
-        &config.subgraphs.escrow.config,
-    )
-    .await;
-
     // Build DipsInfoState if DIPS is configured
     let dips_info_state = config.dips.as_ref().map(|dips| DipsInfoState {
         min_grt_per_30_days: dips
@@ -205,8 +177,7 @@ pub async fn run() -> anyhow::Result<()> {
         .blockchain(config.blockchain)
         .timestamp_buffer_secs(config.tap.rav_request.timestamp_buffer_secs)
         .network_subgraph(network_subgraph, config.subgraphs.network)
-        .escrow_subgraph(escrow_subgraph, config.subgraphs.escrow)
-        .escrow_accounts_v2(v2_watcher.clone())
+        .escrow_accounts_v2(v2_watcher)
         .maybe_dips_info(dips_info_state)
         .build();
 
