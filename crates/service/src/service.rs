@@ -340,6 +340,14 @@ const DIPS_PER_IP_REPLENISH_MS: u64 = 200;
 /// spike without immediately tripping the limit.
 const DIPS_PER_IP_BURST: u32 = 10;
 
+/// Channel depth of the outer Buffer wrapper. The wrapper makes the layer
+/// chain Clone-able so tonic's `Server::layer` accepts it; the actual
+/// timeout/rate-limit/per-IP layers run inside the buffered task. Requests
+/// beyond this depth are rejected with `BufferError` until earlier ones
+/// drain. Sized comfortably above the global rate-limit-per-second so a
+/// healthy burst never bumps the channel.
+const DIPS_BUFFER_DEPTH: usize = 1024;
+
 /// Key extractor for tonic that reads the peer IP from `TcpConnectInfo`,
 /// which the tonic server adds to request extensions for non-TLS TCP
 /// connections. The `tower_governor` defaults look for axum's
@@ -377,6 +385,7 @@ async fn start_dips_server(
     };
 
     let layer = ServiceBuilder::new()
+        .buffer(DIPS_BUFFER_DEPTH)
         .timeout(DIPS_REQUEST_TIMEOUT)
         .layer(per_ip_layer)
         .rate_limit(DIPS_RATE_LIMIT_PER_SEC, Duration::from_secs(1))
