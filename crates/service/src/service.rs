@@ -1,7 +1,11 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{anyhow, Context};
 use axum::{extract::Request, serve, ServiceExt};
@@ -24,7 +28,12 @@ use tap_core::tap_eip712_domain;
 use thegraph_core::alloy::primitives::U256;
 use tokio::{net::TcpListener, signal};
 use tokio_util::sync::CancellationToken;
+use tonic::transport::server::TcpConnectInfo;
 use tower::ServiceBuilder;
+use tower_governor::{
+    errors::GovernorError, governor::GovernorConfigBuilder, key_extractor::KeyExtractor,
+    GovernorLayer,
+};
 use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
@@ -319,13 +328,55 @@ const DIPS_REQUEST_TIMEOUT: Duration = Duration::from_secs(220);
 /// accommodate burst traffic from a single trusted dipper.
 const DIPS_RATE_LIMIT_PER_SEC: u64 = 50;
 
+/// Per-IP rate limit replenishment interval. 200ms per token gives a
+/// sustained 5 requests per second per source IP, which is comfortable
+/// headroom for a real dipper but quickly cuts off any single misbehaving
+/// caller.
+const DIPS_PER_IP_REPLENISH_MS: u64 = 200;
+
+/// Burst allowance for the per-IP limiter. Lets a caller send a brief
+/// spike without immediately tripping the limit.
+const DIPS_PER_IP_BURST: u32 = 10;
+
+/// Key extractor for tonic that reads the peer IP from `TcpConnectInfo`,
+/// which the tonic server adds to request extensions for non-TLS TCP
+/// connections. The `tower_governor` defaults look for axum's
+/// `ConnectInfo<SocketAddr>` extension instead, which tonic does not add.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TonicPeerIpKeyExtractor;
+
+impl KeyExtractor for TonicPeerIpKeyExtractor {
+    type Key = IpAddr;
+
+    fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
+        req.extensions()
+            .get::<TcpConnectInfo>()
+            .and_then(|ci| ci.remote_addr())
+            .map(|addr| addr.ip())
+            .ok_or(GovernorError::UnableToExtractKey)
+    }
+}
+
 async fn start_dips_server(
     addr: SocketAddr,
     service: impl IndexerDipsService,
     shutdown: impl std::future::Future<Output = ()>,
 ) {
+    let per_ip_config = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_millisecond(DIPS_PER_IP_REPLENISH_MS)
+            .burst_size(DIPS_PER_IP_BURST)
+            .key_extractor(TonicPeerIpKeyExtractor)
+            .finish()
+            .expect("per-IP governor config invariants"),
+    );
+    let per_ip_layer = GovernorLayer {
+        config: per_ip_config,
+    };
+
     let layer = ServiceBuilder::new()
         .timeout(DIPS_REQUEST_TIMEOUT)
+        .layer(per_ip_layer)
         .rate_limit(DIPS_RATE_LIMIT_PER_SEC, Duration::from_secs(1))
         .into_inner();
 
