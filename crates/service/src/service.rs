@@ -24,6 +24,7 @@ use tap_core::tap_eip712_domain;
 use thegraph_core::alloy::primitives::U256;
 use tokio::{net::TcpListener, signal};
 use tokio_util::sync::CancellationToken;
+use tower::ServiceBuilder;
 use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
@@ -302,12 +303,28 @@ pub async fn run() -> anyhow::Result<()> {
         .await?)
 }
 
+/// Per-request timeout across the whole gRPC handler. Long enough to cover
+/// the worst-case IPFS retry budget (190s) with headroom; short enough that
+/// a hung handler doesn't pin a worker indefinitely.
+const DIPS_REQUEST_TIMEOUT: Duration = Duration::from_secs(220);
+
+/// Global token-bucket rate limit shared across all callers. Bounds the
+/// total proposal throughput regardless of per-IP behaviour. Sized to
+/// accommodate burst traffic from a single trusted dipper.
+const DIPS_RATE_LIMIT_PER_SEC: u64 = 50;
+
 async fn start_dips_server(
     addr: SocketAddr,
     service: impl IndexerDipsService,
     shutdown: impl std::future::Future<Output = ()>,
 ) {
+    let layer = ServiceBuilder::new()
+        .timeout(DIPS_REQUEST_TIMEOUT)
+        .rate_limit(DIPS_RATE_LIMIT_PER_SEC, Duration::from_secs(1))
+        .into_inner();
+
     if let Err(e) = tonic::transport::Server::builder()
+        .layer(layer)
         .add_service(IndexerDipsServiceServer::new(service))
         .serve_with_shutdown(addr, shutdown)
         .await
