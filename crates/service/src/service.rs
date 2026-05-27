@@ -156,6 +156,9 @@ pub async fn run() -> anyhow::Result<()> {
         indexer_address,
         config.subgraphs.network.config.syncing_interval_secs,
         true, // Reject thawing signers eagerly
+        collector_address,
+        escrow_min_balance_grt_wei.clone(),
+        max_signers_per_payer,
     )
     .await
     {

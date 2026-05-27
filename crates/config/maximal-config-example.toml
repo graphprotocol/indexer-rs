@@ -83,27 +83,18 @@ recently_closed_allocation_buffer_secs = 3600
 # This protects against Gateway routing queries to indexers that are significantly behind.
 # Set to 0 to disable staleness checking.
 max_data_staleness_mins = 30
-
-[subgraphs.escrow]
-# NOTE: It is heavily recomended to use both `query_url` and `deployment_id`,
-# Query URL for the Escrow subgraph (v1). This is the old escrow subgraph.
-# NOTE: This is not used in v2, as the escrow subgraph is now in the network subgraph.
-query_url = "http://example.com/escrow-subgraph"
-# Optional, Auth token will used a "bearer auth"
-# query_auth_token = "super-secret"
-
-# Optional, deployment to look for in the local `graph-node`, if locally indexed.
-# Locally indexing the subgraph is recommended.
-deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-# Refreshing interval for the Escrow contracts information from the Escrow subgraph.
-syncing_interval_secs = 60
-
-# NOTE: V2 escrow accounts are now in the network subgraph, not a separate escrow_v2 subgraph
+# Minimum escrow balance (GRT wei) for V2 escrow queries. Filters dust deposits
+# to raise the cost of crowding attacks. Default: 0.1 GRT.
+escrow_min_balance_grt_wei = "100000000000000000"
+# Maximum signers to fetch per payer. 0 = no limit (recommended).
+# A positive value caps pagination but allows attackers to crowd out legitimate
+# signers, orphaning receipts and enabling free queries.
+max_signers_per_payer = 0
 
 [blockchain]
 # The chain ID of the network that the graph network is running on
 chain_id = 1337
-# Horizon addresses; required when [horizon].enabled = true
+# Horizon addresses (required)
 receipts_verifier_address_v2 = "0x3333333333333333333333333333333333333333"
 subgraph_service_address = "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9"
 
@@ -118,8 +109,6 @@ host_and_port = "0.0.0.0:7600"
 url_prefix = "/"
 # Serve the network subgraph on `common.server.host_and_port`/network
 serve_network_subgraph = false
-# Serve the escrow subgraph on `common.server.host_and_port`/escrow
-serve_escrow_subgraph = false
 #### OPTIONAL VALUES ####
 ## use this to add a layer while serving network/escrow subgraph
 # serve_auth_token = "token"

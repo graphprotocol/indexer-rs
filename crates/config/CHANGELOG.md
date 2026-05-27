@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.1.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v2.0.2...indexer-config-v2.1.0) (2026-04-20)
+
+
+### Features
+
+* remove v1 escrow ([#1015](https://github.com/graphprotocol/indexer-rs/issues/1015)) ([07069a4](https://github.com/graphprotocol/indexer-rs/commit/07069a4ad12d2d0b3f830965e8f53643f80c5754))
+
+
+### Bug Fixes
+
+* **config:** several configuration optimizations ([#1014](https://github.com/graphprotocol/indexer-rs/issues/1014)) ([0584738](https://github.com/graphprotocol/indexer-rs/commit/058473875a3e02b1b5c73b4af119afd82e69b14e))
+
+## [2.0.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v2.0.1...indexer-config-v2.0.2) (2026-04-17)
+
+
+### Bug Fixes
+
+* empty commit to trigger release pipeline for audit fixes ([#1011](https://github.com/graphprotocol/indexer-rs/issues/1011)) ([bc5f93f](https://github.com/graphprotocol/indexer-rs/commit/bc5f93f23deafea273d0097c008daa3a50a04271))
+
+## [2.0.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v2.0.0...indexer-config-v2.0.1) (2026-03-13)
+
+
+### Bug Fixes
+
+* status endpoint hardcoded size limit ([#953](https://github.com/graphprotocol/indexer-rs/issues/953)) ([518b681](https://github.com/graphprotocol/indexer-rs/commit/518b68131cdfeb91426c8b2fe6410671f25309d5))
+
 ## [2.0.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v1.8.1...indexer-config-v2.0.0) (2026-02-05)
 
 

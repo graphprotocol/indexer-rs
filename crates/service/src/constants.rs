@@ -148,16 +148,6 @@ pub const TAP_RECEIPT_STORAGE_BATCH_SIZE: usize = 100;
 // STATUS QUERY VALIDATION
 // =============================================================================
 
-/// Maximum allowed size for status query payloads.
-///
-/// Rejects GraphQL status queries larger than this to prevent:
-/// - Memory exhaustion from parsing huge queries
-/// - DoS attacks via query complexity
-///
-/// 4KB is generous for legitimate status queries, which are typically
-/// under 500 bytes. Complex queries with many fields rarely exceed 2KB.
-pub const STATUS_QUERY_MAX_SIZE_BYTES: usize = 4096;
-
 /// Maximum nesting depth for status query selection sets.
 ///
 /// Limits recursion depth when validating GraphQL queries to prevent:

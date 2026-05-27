@@ -36,8 +36,8 @@
 //! [std::sync::Mutex]s aren't needed.
 
 use indexer_config::{
-    Config, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
-    SubgraphConfig, SubgraphsConfig, TapConfig,
+    Config, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig, SubgraphConfig, SubgraphsConfig,
+    TapConfig,
 };
 use indexer_monitor::{escrow_accounts_v2, indexer_allocations, DeploymentDetails, SubgraphClient};
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
@@ -87,7 +87,8 @@ pub async fn start_agent(
                 query_url: graph_node_query_endpoint,
             },
         database,
-        subgraphs:
+        #[allow(deprecated)]
+            subgraphs:
             SubgraphsConfig {
                 network:
                     NetworkSubgraphConfig {
@@ -100,8 +101,10 @@ pub async fn start_agent(
                             },
                         recently_closed_allocation_buffer_secs: recently_closed_allocation_buffer,
                         max_data_staleness_mins,
+                        ref escrow_min_balance_grt_wei,
+                        max_signers_per_payer,
                     },
-                escrow: EscrowSubgraphConfig { .. },
+                escrow: _, // Deprecated and ignored
             },
         tap: TapConfig {
             sender_aggregator_endpoints,
@@ -141,33 +144,6 @@ pub async fn start_agent(
     .await
     .with_context(|| "Failed to initialize indexer_allocations watcher")?;
 
-    // Verify Horizon mode is enabled and the network subgraph is ready
-    if !CONFIG.tap_mode().is_horizon() {
-        anyhow::bail!("Legacy TAP mode is no longer supported; enable Horizon mode");
-    }
-
-    tracing::info!("Horizon mode configured; checking network subgraph readiness");
-    match indexer_monitor::is_horizon_active(network_subgraph).await {
-        Ok(true) => {
-            tracing::info!("Horizon schema available in network subgraph - enabling Horizon mode");
-            tracing::info!(
-                "V2 watcher will automatically detect new PaymentsEscrow accounts as they appear"
-            );
-        }
-        Ok(false) => {
-            anyhow::bail!(
-                "Horizon mode is required, but the Network Subgraph indicates Horizon is not active (no PaymentsEscrow accounts found). \
-                Ensure Horizon contracts are deployed and the Network Subgraph is updated before starting the TAP agent."
-            );
-        }
-        Err(e) => {
-            anyhow::bail!(
-                "Failed to detect Horizon contracts due to network/subgraph error: {}. Cannot start with Horizon enabled when network status is unknown.",
-                e
-            );
-        }
-    }
-
     // Create V2 escrow accounts watcher
     // V2 escrow accounts are in the network subgraph, not a separate TAP v2 subgraph
     tracing::info!(
@@ -179,9 +155,26 @@ pub async fn start_agent(
         *indexer_address,
         *network_sync_interval,
         false,
+        CONFIG.blockchain.receipts_verifier_address_v2,
+        escrow_min_balance_grt_wei.clone(),
+        *max_signers_per_payer,
     )
     .await
     .with_context(|| "Error creating escrow_accounts_v2 channel")?;
+
+    // Strict watcher excludes thawing signers -- used only for RAV signature
+    // verification so that RAVs signed by thawing signers are rejected.
+    let escrow_accounts_v2_strict = indexer_monitor::escrow_accounts_v2(
+        network_subgraph,
+        *indexer_address,
+        *network_sync_interval,
+        true,
+        CONFIG.blockchain.receipts_verifier_address_v2,
+        escrow_min_balance_grt_wei.clone(),
+        *max_signers_per_payer,
+    )
+    .await
+    .with_context(|| "Error creating escrow_accounts_v2_strict channel")?;
 
     let config = Box::leak(Box::new(SenderAccountConfig::from_config(&CONFIG)));
 
@@ -191,6 +184,7 @@ pub async fn start_agent(
         pgpool,
         indexer_allocations,
         escrow_accounts_v2,
+        escrow_accounts_v2_strict,
         network_subgraph,
         sender_aggregator_endpoints: sender_aggregator_endpoints.clone(),
         prefix: None,

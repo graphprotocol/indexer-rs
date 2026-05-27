@@ -38,6 +38,7 @@ pub struct Config {
     pub service: ServiceConfig,
     pub tap: TapConfig,
     pub dips: Option<DipsConfig>,
+    #[serde(default)]
     pub horizon: HorizonConfig,
 }
 
@@ -218,20 +219,13 @@ impl Config {
         }
 
         // Validate syncing_interval_secs is not zero
-        if self.subgraphs.escrow.config.syncing_interval_secs == Duration::ZERO {
-            return Err(
-                "subgraphs.escrow.syncing_interval_secs must be greater than 0".to_string(),
-            );
-        }
         if self.subgraphs.network.config.syncing_interval_secs == Duration::ZERO {
             return Err(
                 "subgraphs.network.syncing_interval_secs must be greater than 0".to_string(),
             );
         }
 
-        if self.subgraphs.escrow.config.syncing_interval_secs < Duration::from_secs(10)
-            || self.subgraphs.network.config.syncing_interval_secs < Duration::from_secs(10)
-        {
+        if self.subgraphs.network.config.syncing_interval_secs < Duration::from_secs(10) {
             tracing::warn!(
                 "Your `syncing_interval_secs` value it too low. \
                 This may overload your graph-node instance, \
@@ -239,9 +233,7 @@ impl Config {
             );
         }
 
-        if self.subgraphs.escrow.config.syncing_interval_secs > Duration::from_secs(600)
-            || self.subgraphs.network.config.syncing_interval_secs > Duration::from_secs(600)
-        {
+        if self.subgraphs.network.config.syncing_interval_secs > Duration::from_secs(600) {
             tracing::warn!(
                 "Your `syncing_interval_secs` value it too high. \
                 This may cause issues while reacting to updates in the blockchain. \
@@ -301,22 +293,46 @@ impl Config {
             self.subgraphs.network.config.query_auth_token.as_ref(),
             "subgraphs.network",
         );
-        Self::warn_if_token_over_http(
-            &self.subgraphs.escrow.config.query_url,
-            self.subgraphs.escrow.config.query_auth_token.as_ref(),
-            "subgraphs.escrow",
-        );
 
-        // Horizon configuration validation (required).
-        if !self.horizon.enabled {
-            return Err("Horizon is required; set [horizon].enabled = true".to_string());
-        }
-        if self.blockchain.subgraph_service_address.is_none() {
-            return Err(
-                "Horizon is required; set `blockchain.subgraph_service_address`".to_string(),
+        // Warn about deprecated escrow config
+        #[allow(deprecated)]
+        if self.subgraphs.escrow.is_some() {
+            tracing::warn!(
+                "The `subgraphs.escrow` configuration is deprecated and will be ignored. \
+                V2 escrow accounts are now sourced from the network subgraph. \
+                You can safely remove the `[subgraphs.escrow]` section from your config."
             );
         }
-        // receipts_verifier_address_v2 is required by config schema.
+
+        // Warn about deprecated serve_escrow_subgraph
+        #[allow(deprecated)]
+        if self.service.serve_escrow_subgraph.is_some() {
+            tracing::warn!(
+                "The `service.serve_escrow_subgraph` configuration is deprecated and will be ignored. \
+                The escrow subgraph endpoint is no longer served. \
+                You can safely remove this setting from your config."
+            );
+        }
+
+        // Warn about deprecated receipts_verifier_address (V1)
+        #[allow(deprecated)]
+        if self.blockchain.receipts_verifier_address.is_some() {
+            tracing::warn!(
+                "The `blockchain.receipts_verifier_address` configuration is deprecated and will be ignored. \
+                Horizon (V2) is now always enabled and uses `receipts_verifier_address_v2`. \
+                You can safely remove `receipts_verifier_address` from your config."
+            );
+        }
+
+        // Warn about deprecated horizon.enabled
+        #[allow(deprecated)]
+        if self.horizon.enabled.is_some() {
+            tracing::warn!(
+                "The `horizon.enabled` configuration is deprecated and will be ignored. \
+                Horizon is now always enabled. \
+                You can safely remove the `[horizon]` section from your config."
+            );
+        }
 
         Ok(())
     }
@@ -344,24 +360,6 @@ impl Config {
                     );
                 }
             }
-        }
-    }
-
-    /// Derive TAP operation mode from horizon configuration.
-    ///
-    /// This method translates the `[horizon]` configuration section into a
-    /// [`TapMode`] enum for use throughout the indexer codebase.
-    ///
-    /// # Returns
-    ///
-    /// - [`TapMode::Horizon`] when `horizon.enabled = true` with the configured
-    ///   `blockchain.subgraph_service_address`
-    pub fn tap_mode(&self) -> TapMode {
-        TapMode::Horizon {
-            subgraph_service_address: self
-                .blockchain
-                .subgraph_service_address
-                .expect("subgraph_service_address should be validated during Config::validate()"),
         }
     }
 }
@@ -472,10 +470,12 @@ impl MetricsConfig {
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(deprecated)] // Allow using deprecated EscrowSubgraphConfig type
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
-    pub escrow: EscrowSubgraphConfig,
-    // Note: V2 escrow accounts are in the network subgraph, not a separate escrow_v2 subgraph
+    #[deprecated(note = "V2 escrow accounts are in the network subgraph; this field is ignored.")]
+    #[serde(default)]
+    pub escrow: Option<EscrowSubgraphConfig>,
 }
 
 #[serde_as]
@@ -495,17 +495,38 @@ pub struct NetworkSubgraphConfig {
     /// Default: 30 (minutes)
     #[serde(default = "default_max_data_staleness_mins")]
     pub max_data_staleness_mins: u64,
+
+    /// Minimum escrow balance (GRT wei) for the V2 escrow query. Filters dust
+    /// deposits to raise the cost of crowding attacks. Default: 0.1 GRT.
+    #[serde(default = "default_escrow_min_balance_grt_wei")]
+    pub escrow_min_balance_grt_wei: String,
+
+    /// Maximum signers to fetch per payer. 0 = no limit (recommended).
+    /// Setting a positive value caps pagination but allows attackers to crowd out
+    /// legitimate signers, orphaning receipts and enabling free queries.
+    /// Default: 0.
+    #[serde(default = "default_max_signers_per_payer")]
+    pub max_signers_per_payer: usize,
 }
 
 fn default_max_data_staleness_mins() -> u64 {
     30
 }
 
-#[derive(Debug, Deserialize)]
+fn default_escrow_min_balance_grt_wei() -> String {
+    "100000000000000000".to_string() // 0.1 GRT
+}
+
+fn default_max_signers_per_payer() -> usize {
+    0
+}
+
+#[deprecated(note = "V2 escrow accounts are in the network subgraph; escrow config is ignored.")]
+#[derive(Debug, Deserialize, Default)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct EscrowSubgraphConfig {
-    #[serde(flatten)]
-    pub config: SubgraphConfig,
+    #[serde(flatten, default)]
+    pub config: Option<SubgraphConfig>,
 }
 
 #[serde_as]
@@ -536,13 +557,13 @@ pub enum TheGraphChainId {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct BlockchainConfig {
     pub chain_id: TheGraphChainId,
-    /// Legacy verifier address (deprecated; optional, not used).
+    /// Legacy verifier address
     #[deprecated(note = "Use `receipts_verifier_address_v2` for Horizon receipts.")]
     pub receipts_verifier_address: Option<Address>,
     /// Verifier address for Horizon receipts.
     pub receipts_verifier_address_v2: Address,
-    /// Address of the SubgraphService contract used for Horizon operations
-    pub subgraph_service_address: Option<Address>,
+    /// Address of the SubgraphService contract used for Horizon operations.
+    pub subgraph_service_address: Address,
 }
 
 impl BlockchainConfig {
@@ -556,7 +577,9 @@ impl BlockchainConfig {
 pub struct ServiceConfig {
     pub ipfs_url: Url,
     pub serve_network_subgraph: bool,
-    pub serve_escrow_subgraph: bool,
+    #[deprecated(note = "Escrow subgraph is no longer used; this field is ignored.")]
+    #[serde(default)]
+    pub serve_escrow_subgraph: Option<bool>,
     pub serve_auth_token: Option<String>,
     pub host_and_port: SocketAddr,
     pub url_prefix: String,
@@ -572,6 +595,11 @@ pub struct ServiceConfig {
     /// Default: 2MB (2_097_152 bytes)
     #[serde(default = "default_max_request_body_size")]
     pub max_request_body_size: usize,
+    /// Maximum request body size in bytes for status queries.
+    /// Prevents DoS attacks via query complexity.
+    /// Default: 32KB (32_768 bytes)
+    #[serde(default = "default_max_status_request_body_size")]
+    pub max_status_request_body_size: usize,
 }
 
 fn default_max_cost_model_batch_size() -> usize {
@@ -582,6 +610,11 @@ fn default_max_cost_model_batch_size() -> usize {
 /// GraphQL queries are typically small, but can include large variable payloads.
 fn default_max_request_body_size() -> usize {
     2 * 1024 * 1024
+}
+
+/// Default max status request body size: 32KB
+fn default_max_status_request_body_size() -> usize {
+    32 * 1024
 }
 
 #[serde_as]
@@ -690,57 +723,15 @@ pub struct RavRequestConfig {
     pub max_receipts_per_request: u64,
 }
 
-/// TAP protocol operation mode.
-///
-#[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
-pub enum TapMode {
-    /// Horizon TAP mode.
-    Horizon {
-        /// Address of the SubgraphService contract used for Horizon operations.
-        subgraph_service_address: Address,
-    },
-}
-
-impl TapMode {
-    /// Check if the indexer is operating in Horizon mode
-    ///
-    /// Returns `true` when Horizon is enabled, `false` otherwise.
-    pub fn is_horizon(&self) -> bool {
-        matches!(self, TapMode::Horizon { .. })
-    }
-
-    /// Get the SubgraphService address for Horizon mode.
-    pub fn subgraph_service_address(&self) -> Address {
-        self.require_subgraph_service_address()
-    }
-
-    /// Get the SubgraphService address, panicking if not in Horizon mode.
-    pub fn require_subgraph_service_address(&self) -> Address {
-        match self {
-            TapMode::Horizon {
-                subgraph_service_address,
-            } => *subgraph_service_address,
-        }
-    }
-
-    /// Check if Horizon receipts are supported.
-    ///
-    /// Alias for [`is_horizon()`](Self::is_horizon) with more explicit naming.
-    pub fn supports_v2(&self) -> bool {
-        self.is_horizon()
-    }
-}
-
 /// Configuration for Horizon support.
+///
+/// Note: This struct is kept for backwards compatibility.
 #[derive(Debug, Default, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct HorizonConfig {
-    /// Enable Horizon support and detection.
-    /// When enabled, set `blockchain.subgraph_service_address` and
-    /// `blockchain.receipts_verifier_address_v2`.
+    #[deprecated(note = "Horizon is always enabled; this field is ignored.")]
     #[serde(default)]
-    pub enabled: bool,
+    pub enabled: Option<bool>,
 }
 
 #[cfg(test)]
@@ -791,6 +782,40 @@ mod tests {
         .unwrap();
 
         assert_eq!(max_config, max_config_file);
+    }
+
+    /// Test backwards compatibility: configs with deprecated [horizon] section should still work
+    #[sealed_test(files = ["minimal-config-example.toml", "default_values.toml"])]
+    #[allow(deprecated)]
+    fn test_horizon_enabled_backwards_compatibility() {
+        // Test with horizon.enabled = true via environment variable
+        env::set_var("INDEXER_SERVICE_HORIZON__ENABLED", "true");
+        let config_with_horizon_true = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
+        )
+        .unwrap();
+        assert_eq!(config_with_horizon_true.horizon.enabled, Some(true));
+        env::remove_var("INDEXER_SERVICE_HORIZON__ENABLED");
+
+        // Test with horizon.enabled = false via environment variable
+        env::set_var("INDEXER_SERVICE_HORIZON__ENABLED", "false");
+        let config_with_horizon_false = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
+        )
+        .unwrap();
+        assert_eq!(config_with_horizon_false.horizon.enabled, Some(false));
+        env::remove_var("INDEXER_SERVICE_HORIZON__ENABLED");
+
+        // Test without horizon section (uses default)
+        let config_without_horizon = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
+        )
+        .unwrap();
+        // Default is None since #[serde(default)] on Option<bool> defaults to None
+        assert_eq!(config_without_horizon.horizon.enabled, None);
     }
 
     // Test that we can load config with unknown fields, in particular coming from environment variables

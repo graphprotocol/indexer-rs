@@ -36,7 +36,7 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
     async fn last_rav(&self) -> Result<Option<tap_graph::v2::SignedRav>, Self::AdapterError> {
         let row = sqlx::query(
             r#"
-                SELECT 
+                SELECT
                     signature,
                     collection_id,
                     payer,
@@ -46,24 +46,16 @@ impl RavRead<tap_graph::v2::ReceiptAggregateVoucher> for TapAgentContext<Horizon
                     value_aggregate,
                     metadata
                 FROM tap_horizon_ravs
-                WHERE 
-                    collection_id = $1 
-                    AND payer = $2
-                    AND data_service = $3
-                    AND service_provider = $4
+                WHERE
+                    collection_id = $1::char(64)
+                    AND payer = $2::char(40)
+                    AND data_service = $3::char(40)
+                    AND service_provider = $4::char(40)
             "#,
         )
         .bind(CollectionId::from(self.allocation_id).encode_hex())
         .bind(self.sender.encode_hex())
-        // For Horizon (V2): data_service is the SubgraphService address, service_provider is the indexer
-        .bind(
-            self.subgraph_service_address()
-                .ok_or_else(|| AdapterError::RavRead {
-                    error: "SubgraphService address not available - check TapMode configuration"
-                        .to_string(),
-                })?
-                .encode_hex(),
-        )
+        .bind(self.subgraph_service_address.encode_hex())
         .bind(self.indexer_address.encode_hex())
         .fetch_optional(&self.pgpool)
         .await
@@ -301,9 +293,11 @@ mod test {
 
     async fn horizon_adapter_with_testcontainers() -> TestContextWithContainer<Horizon> {
         let test_db = test_assets::setup_shared_test_db().await;
+        let escrow_accounts = watch::channel(EscrowAccounts::default()).1;
         let context = TapAgentContext::builder()
             .pgpool(test_db.pool.clone())
-            .escrow_accounts(watch::channel(EscrowAccounts::default()).1)
+            .escrow_accounts(escrow_accounts.clone())
+            .escrow_accounts_strict(escrow_accounts)
             .subgraph_service_address(SUBGRAPH_SERVICE_ADDRESS)
             .build();
         TestContextWithContainer {

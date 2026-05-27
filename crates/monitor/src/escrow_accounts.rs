@@ -7,8 +7,6 @@ use std::{
     time::Duration,
 };
 
-use anyhow::anyhow;
-use indexer_query::escrow_account::{self, EscrowAccountQuery};
 use thegraph_core::alloy::primitives::{Address, U256};
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
@@ -101,13 +99,6 @@ impl EscrowAccounts {
     pub fn contains_signer(&self, signer: &Address) -> bool {
         self.signers_to_senders.contains_key(signer)
     }
-
-    pub fn get_all_mappings(&self) -> Vec<(Address, Address)> {
-        self.signers_to_senders
-            .iter()
-            .map(|(signer, sender)| (*signer, *sender))
-            .collect()
-    }
 }
 
 pub type EscrowAccountsWatcher = Receiver<EscrowAccounts>;
@@ -118,26 +109,24 @@ pub fn empty_escrow_accounts_watcher() -> EscrowAccountsWatcher {
     receiver
 }
 
-pub async fn escrow_accounts_v1(
-    escrow_subgraph: &'static SubgraphClient,
-    indexer_address: Address,
-    interval: Duration,
-    reject_thawing_signers: bool,
-) -> Result<EscrowAccountsWatcher, anyhow::Error> {
-    indexer_watcher::new_watcher(interval, move || {
-        get_escrow_accounts_v1(escrow_subgraph, indexer_address, reject_thawing_signers)
-    })
-    .await
-}
-
 pub async fn escrow_accounts_v2(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     interval: Duration,
     reject_thawing_signers: bool,
+    collector_address: Address,
+    min_balance_grt_wei: String,
+    max_signers_per_payer: usize,
 ) -> Result<EscrowAccountsWatcher, anyhow::Error> {
     indexer_watcher::new_watcher(interval, move || {
-        get_escrow_accounts_v2(escrow_subgraph, indexer_address, reject_thawing_signers)
+        get_escrow_accounts_v2(
+            escrow_subgraph,
+            indexer_address,
+            reject_thawing_signers,
+            collector_address,
+            min_balance_grt_wei.clone(),
+            max_signers_per_payer,
+        )
     })
     .await
 }
@@ -146,45 +135,180 @@ async fn get_escrow_accounts_v2(
     escrow_subgraph: &'static SubgraphClient,
     indexer_address: Address,
     reject_thawing_signers: bool,
+    collector_address: Address,
+    min_balance_grt_wei: String,
+    max_signers_per_payer: usize,
 ) -> anyhow::Result<EscrowAccounts> {
     tracing::trace!(
         indexer_address = ?indexer_address,
         reject_thawing_signers,
         "Loading V2 escrow accounts for indexer"
     );
-    // Query V2 escrow accounts from the network subgraph which tracks PaymentsEscrow
-    // and GraphTallyCollector contract events.
 
     use indexer_query::network_escrow_account_v2::{
-        self as network_escrow_account_v2, NetworkEscrowAccountQueryV2,
+        self as network_escrow_account_v2, Block_height, NetworkEscrowAccountQueryV2,
+    };
+    use indexer_query::signers_by_payer::{self as signers_by_payer, SignersByPayerQuery};
+
+    let page_size: i64 = 200;
+    let mut last: Option<String> = None;
+    let mut block_hash: Option<String> = None;
+    let mut all_accounts = vec![];
+
+    let thaw_end_timestamp = if reject_thawing_signers {
+        U256::ZERO.to_string()
+    } else {
+        U256::MAX.to_string()
     };
 
-    let response = escrow_subgraph
-        .query::<NetworkEscrowAccountQueryV2, _>(network_escrow_account_v2::Variables {
-            receiver: format!("{indexer_address:x?}"),
-            thaw_end_timestamp: if reject_thawing_signers {
-                U256::ZERO.to_string()
-            } else {
-                U256::MAX.to_string()
-            },
-        })
-        .await?;
+    let mut pages_fetched: u64 = 0;
 
-    // V2 TAP receipts use different field names (payer/service_provider) but the underlying
-    // escrow account model is identical to V1. Both V1 and V2 receipts reference the same
-    // sender addresses and the same escrow relationships.
-    //
-    // V1 queries the TAP subgraph while V2 queries the network subgraph, but both return
-    // the same escrow account structure for processing.
-    //
-    // V2 receipt flow:
-    // 1. V2 receipt contains payer address (equivalent to V1 sender)
-    // 2. Receipt is signed by a signer authorized by the payer
-    // 3. Escrow accounts map: signer -> payer (sender) -> balance
-    // 4. Service provider (indexer) receives payments from payer's escrow
+    loop {
+        let response = escrow_subgraph
+            .query::<NetworkEscrowAccountQueryV2, _>(network_escrow_account_v2::Variables {
+                receiver: format!("{indexer_address:x?}"),
+                collector: format!("{collector_address:x?}"),
+                thaw_end_timestamp: thaw_end_timestamp.clone(),
+                first: page_size,
+                last: last.unwrap_or_default(),
+                min_balance: min_balance_grt_wei.clone(),
+                block: block_hash.as_ref().map(|h| Block_height {
+                    hash: Some(h.clone()),
+                    number: None,
+                    number_gte: None,
+                }),
+            })
+            .await?;
 
-    let senders_balances: HashMap<Address, U256> = response
-        .payments_escrow_accounts
+        let page_len = response.payments_escrow_accounts.len();
+        pages_fetched += 1;
+
+        // Pin to the block hash from the first page for consistent reads across pages
+        if block_hash.is_none() {
+            block_hash = response.meta.as_ref().and_then(|m| m.block.hash.clone());
+        }
+
+        // Paginate additional signers for any payer that hit the 1000-per-payer nested cap
+        let mut response = response;
+        for account in &mut response.payments_escrow_accounts {
+            if max_signers_per_payer > 0 && account.payer.signers.len() >= max_signers_per_payer {
+                tracing::warn!(
+                    payer = %account.payer.id,
+                    signers = account.payer.signers.len(),
+                    max = max_signers_per_payer,
+                    "Payer signers already at or above max_signers_per_payer cap; skipping follow-up pagination"
+                );
+                account.payer.signers.truncate(max_signers_per_payer);
+                continue;
+            }
+
+            if account.payer.signers.len() < 1000 {
+                continue;
+            }
+
+            let mut signer_cursor = account
+                .payer
+                .signers
+                .last()
+                .map(|s| s.id.clone())
+                .unwrap_or_default();
+
+            tracing::info!(
+                payer = %account.payer.id,
+                initial_signers = account.payer.signers.len(),
+                "Payer hit nested signer cap; starting follow-up pagination"
+            );
+
+            loop {
+                let signer_response = escrow_subgraph
+                    .query::<SignersByPayerQuery, _>(signers_by_payer::Variables {
+                        payer: account.payer.id.clone(),
+                        first: 1000,
+                        last: signer_cursor.clone(),
+                        thaw_end_timestamp: thaw_end_timestamp.clone(),
+                        block: block_hash.as_ref().map(|h| signers_by_payer::Block_height {
+                            hash: Some(h.clone()),
+                            number: None,
+                            number_gte: None,
+                        }),
+                    })
+                    .await?;
+
+                let page_len = signer_response.signers.len();
+
+                for signer in &signer_response.signers {
+                    account.payer.signers.push(
+                        network_escrow_account_v2::NetworkEscrowAccountQueryV2PaymentsEscrowAccountsPayerSigners {
+                            id: signer.id.clone(),
+                        },
+                    );
+                }
+
+                if page_len < 1000
+                    || (max_signers_per_payer > 0
+                        && account.payer.signers.len() >= max_signers_per_payer)
+                {
+                    break;
+                }
+
+                signer_cursor = signer_response
+                    .signers
+                    .last()
+                    .map(|s| s.id.clone())
+                    .unwrap_or_default();
+            }
+
+            if max_signers_per_payer > 0 && account.payer.signers.len() >= max_signers_per_payer {
+                tracing::warn!(
+                    payer = %account.payer.id,
+                    signers = account.payer.signers.len(),
+                    max = max_signers_per_payer,
+                    "Payer signers capped at max_signers_per_payer"
+                );
+                account.payer.signers.truncate(max_signers_per_payer);
+            }
+
+            if account.payer.signers.len() > 1000 {
+                tracing::warn!(
+                    payer = %account.payer.id,
+                    signers = account.payer.signers.len(),
+                    "Payer has an unusual number of signers which may indicate a signer-flooding attack; consider adding to deny list"
+                );
+            }
+
+            tracing::info!(
+                payer = %account.payer.id,
+                total_signers = account.payer.signers.len(),
+                "Signer follow-up pagination complete"
+            );
+        }
+
+        last = response
+            .payments_escrow_accounts
+            .last()
+            .map(|a| a.id.to_string());
+        all_accounts.extend(response.payments_escrow_accounts);
+
+        if (page_len as i64) < page_size {
+            break;
+        }
+    }
+
+    tracing::info!(
+        pages = pages_fetched,
+        accounts = all_accounts.len(),
+        "V2 escrow account pagination complete"
+    );
+
+    if pages_fetched > 5 {
+        tracing::warn!(
+            pages = pages_fetched,
+            accounts = all_accounts.len(),
+            "Unusually high number of V2 escrow accounts; this may indicate a dust-deposit crowding attack"
+        );
+    }
+
+    let senders_balances: HashMap<Address, U256> = all_accounts
         .iter()
         .map(|account| {
             let balance = U256::checked_sub(
@@ -203,8 +327,7 @@ async fn get_escrow_accounts_v2(
         })
         .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 
-    let senders_to_signers = response
-        .payments_escrow_accounts
+    let senders_to_signers = all_accounts
         .into_iter()
         .map(|account| {
             let payer = Address::from_str(&account.payer.id)?;
@@ -218,76 +341,12 @@ async fn get_escrow_accounts_v2(
         })
         .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
 
-    let escrow_accounts = EscrowAccounts::new(senders_balances.clone(), senders_to_signers.clone());
+    let escrow_accounts = EscrowAccounts::new(senders_balances, senders_to_signers);
 
-    Ok(escrow_accounts)
-}
-
-async fn get_escrow_accounts_v1(
-    escrow_subgraph: &'static SubgraphClient,
-    indexer_address: Address,
-    reject_thawing_signers: bool,
-) -> anyhow::Result<EscrowAccounts> {
-    tracing::debug!(?indexer_address, "Loading V1 escrow accounts for indexer");
-
-    // thawEndTimestamp == 0 means that the signer is not thawing. This also means
-    // that we don't wait for the thawing period to end before stopping serving
-    // queries for this signer.
-    // isAuthorized == true means that the signer is still authorized to sign
-    // payments in the name of the sender.
-    let response = escrow_subgraph
-        .query::<EscrowAccountQuery, _>(escrow_account::Variables {
-            indexer: format!("{indexer_address:x?}"),
-            thaw_end_timestamp: if reject_thawing_signers {
-                U256::ZERO.to_string()
-            } else {
-                U256::MAX.to_string()
-            },
-        })
-        .await?;
-
-    let senders_balances: HashMap<Address, U256> = response
-        .escrow_accounts
-        .iter()
-        .map(|account| {
-            let balance = U256::checked_sub(
-                U256::from_str(&account.balance)?,
-                U256::from_str(&account.total_amount_thawing)?,
-            )
-            .unwrap_or_else(|| {
-                tracing::warn!(
-                    sender = ?account.sender.id,
-                    "Balance minus total amount thawing underflowed for account; setting balance to 0, no queries will be served for this sender."
-                );
-                U256::from(0)
-            });
-
-            Ok((Address::from_str(&account.sender.id)?, balance))
-        })
-        .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
-
-    let senders_to_signers = response
-        .escrow_accounts
-        .into_iter()
-        .map(|account| {
-            let sender = Address::from_str(&account.sender.id)?;
-            let signers = account
-                .sender
-                .signers
-                .ok_or(anyhow!("Could not find any signers for sender {sender}"))?
-                .iter()
-                .map(|signer| Address::from_str(&signer.id))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok((sender, signers))
-        })
-        .collect::<Result<HashMap<_, _>, anyhow::Error>>()?;
-
-    let escrow_accounts = EscrowAccounts::new(senders_balances.clone(), senders_to_signers.clone());
-
-    tracing::debug!(
-        senders = senders_balances.len(),
-        mappings = escrow_accounts.signers_to_senders.len(),
-        "V1 escrow accounts loaded"
+    tracing::info!(
+        senders = escrow_accounts.get_senders().len(),
+        signers = escrow_accounts.signer_count(),
+        "V2 escrow accounts loaded"
     );
 
     Ok(escrow_accounts)
@@ -321,53 +380,6 @@ mod tests {
             escrow_accounts.signers_to_senders,
             ESCROW_ACCOUNTS_SIGNERS_TO_SENDERS.to_owned()
         )
-    }
-
-    #[test(tokio::test)]
-    async fn test_current_accounts() {
-        // Set up a mock escrow subgraph
-        let mock_server = MockServer::start().await;
-        let escrow_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&format!(
-                    "{}/subgraphs/id/{}",
-                    &mock_server.uri(),
-                    test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
-                ))
-                .unwrap(),
-            )
-            .await,
-        ));
-
-        let mock = Mock::given(method("POST"))
-            .and(path(format!(
-                "/subgraphs/id/{}",
-                test_assets::ESCROW_SUBGRAPH_DEPLOYMENT
-            )))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_raw(test_assets::ESCROW_QUERY_RESPONSE, "application/json"),
-            );
-        mock_server.register(mock).await;
-
-        let mut accounts = escrow_accounts_v1(
-            escrow_subgraph,
-            test_assets::INDEXER_ADDRESS,
-            Duration::from_secs(60),
-            true,
-        )
-        .await
-        .unwrap();
-        accounts.changed().await.unwrap();
-        assert_eq!(
-            accounts.borrow().clone(),
-            EscrowAccounts::new(
-                ESCROW_ACCOUNTS_BALANCES.to_owned(),
-                ESCROW_ACCOUNTS_SENDERS_TO_SIGNERS.to_owned(),
-            )
-        );
     }
 
     #[test(tokio::test)]
@@ -405,12 +417,15 @@ mod tests {
             test_assets::INDEXER_ADDRESS,
             Duration::from_secs(60),
             true,
+            Address::ZERO, // collector address; mock ignores query variables
+            "100000000000000000".to_string(),
+            0,
         )
         .await
         .unwrap();
         accounts.changed().await.unwrap();
 
-        // V2 should produce identical results to V1 since they query the same data
+        // Verify V2 escrow accounts are loaded correctly
         assert_eq!(
             accounts.borrow().clone(),
             EscrowAccounts::new(

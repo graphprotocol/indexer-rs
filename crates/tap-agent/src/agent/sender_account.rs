@@ -273,6 +273,8 @@ pub struct SenderAccountArgs {
     pub sender_id: Address,
     /// Watcher that returns a list of escrow accounts for current indexer
     pub escrow_accounts: Receiver<EscrowAccounts>,
+    /// Strict escrow accounts watcher (excludes thawing signers, for RAV verification)
+    pub escrow_accounts_strict: Receiver<EscrowAccounts>,
     /// Watcher of normalized allocation IDs for this sender
     pub indexer_allocations: Receiver<HashSet<AllocationId>>,
     /// SubgraphClient of the network subgraph
@@ -345,6 +347,8 @@ pub struct State {
 
     /// Watcher containing the escrow accounts
     escrow_accounts: Receiver<EscrowAccounts>,
+    /// Strict escrow accounts watcher (excludes thawing signers, for RAV verification)
+    escrow_accounts_strict: Receiver<EscrowAccounts>,
 
     /// SubgraphClient of the network subgraph
     network_subgraph: &'static SubgraphClient,
@@ -394,7 +398,7 @@ pub struct SenderAccountConfig {
     pub rav_request_receipt_limit: u64,
     /// Current indexer address
     pub indexer_address: Address,
-    /// Polling interval for escrow subgraph
+    /// Polling interval for escrow accounts
     pub escrow_polling_interval: Duration,
     /// Timeout used while creating [SenderAccount]
     ///
@@ -404,8 +408,8 @@ pub struct SenderAccountConfig {
     /// over the escrow balance
     pub trusted_senders: HashSet<Address>,
 
-    /// TAP protocol operation mode (Horizon mode required)
-    pub tap_mode: indexer_config::TapMode,
+    /// SubgraphService contract address
+    pub subgraph_service_address: Address,
 
     /// Interval for periodic allocation reconciliation.
     /// This ensures stale allocations are detected after subgraph connectivity issues.
@@ -419,15 +423,14 @@ impl SenderAccountConfig {
             rav_request_buffer: config.tap.rav_request.timestamp_buffer_secs,
             rav_request_receipt_limit: config.tap.rav_request.max_receipts_per_request,
             indexer_address: config.indexer.indexer_address,
-            escrow_polling_interval: config.subgraphs.escrow.config.syncing_interval_secs,
+            escrow_polling_interval: config.subgraphs.network.config.syncing_interval_secs,
             max_amount_willing_to_lose_grt: config.tap.max_amount_willing_to_lose_grt.get_value(),
             trigger_value: config.tap.get_trigger_value(),
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
             tap_sender_timeout: config.tap.sender_timeout_secs,
             trusted_senders: config.tap.trusted_senders.clone(),
 
-            // Derive TapMode from horizon configuration
-            tap_mode: config.tap_mode(),
+            subgraph_service_address: config.blockchain.subgraph_service_address,
 
             allocation_reconciliation_interval: config.tap.allocation_reconciliation_interval_secs,
         }
@@ -468,6 +471,7 @@ impl State {
             .allocation_id(collection_id)
             .sender(self.sender)
             .escrow_accounts(self.escrow_accounts.clone())
+            .escrow_accounts_strict(self.escrow_accounts_strict.clone())
             .network_subgraph(self.network_subgraph)
             .domain_separator(self.domain_separator_v2.clone())
             .sender_account_ref(sender_account_ref.clone())
@@ -748,6 +752,7 @@ impl Actor for SenderAccount {
             pgpool,
             sender_id,
             escrow_accounts,
+            escrow_accounts_strict,
             indexer_allocations,
             network_subgraph,
             domain_separator_v2,
@@ -803,14 +808,8 @@ impl Actor for SenderAccount {
                 "#,
                 )
                 .bind(sender_id.encode_hex())
-                // service_provider is the indexer address; data_service comes from TapMode config
                 .bind(config.indexer_address.encode_hex())
-                .bind(
-                    config
-                        .tap_mode
-                        .require_subgraph_service_address()
-                        .encode_hex(),
-                )
+                .bind(config.subgraph_service_address.encode_hex())
                 .fetch_all(&pgpool)
                 .await
                 .expect("Should not fail to fetch from tap_horizon_ravs")
@@ -948,7 +947,8 @@ impl Actor for SenderAccount {
             .set(config.trigger_value as f64);
 
         let endpoint = Endpoint::new(sender_aggregator_endpoint.to_string())
-            .context("Failed to create an endpoint for the sender aggregator")?;
+            .context("Failed to create an endpoint for the sender aggregator")?
+            .timeout(config.rav_request_timeout);
 
         let aggregator_v2 = AggregatorV2::connect(endpoint.clone())
             .await
@@ -999,6 +999,7 @@ impl Actor for SenderAccount {
             retry_interval,
             adaptive_limiter: AdaptiveLimiter::new(INITIAL_RAV_REQUEST_CONCURRENT, 1..50),
             escrow_accounts,
+            escrow_accounts_strict,
             network_subgraph,
             domain_separator_v2,
             pgpool,

@@ -107,7 +107,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
 
         let records = sqlx::query(
             r#"
-                SELECT 
+                SELECT
                     id,
                     signature,
                     collection_id,
@@ -119,11 +119,11 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
                     value
                 FROM tap_horizon_receipts
                 WHERE
-                    collection_id = $1
-                    AND payer = $2
-                    AND data_service = $3
-                    AND service_provider = $4
-                    AND signer_address IN (SELECT unnest($5::text[]))
+                    collection_id = $1::char(64)
+                    AND payer = $2::char(40)
+                    AND data_service = $3::char(40)
+                    AND service_provider = $4::char(40)
+                    AND signer_address = ANY($5::char(40)[])
                 AND $6::numrange @> timestamp_ns
                 ORDER BY timestamp_ns ASC
                 LIMIT $7
@@ -131,14 +131,7 @@ impl ReceiptRead<TapReceipt> for TapAgentContext<Horizon> {
         )
         .bind(CollectionId::from(self.allocation_id).encode_hex())
         .bind(self.sender.encode_hex())
-        .bind(
-            self.subgraph_service_address()
-                .ok_or_else(|| AdapterError::ReceiptRead {
-                    error: "SubgraphService address not available - check TapMode configuration"
-                        .to_string(),
-                })?
-                .encode_hex(),
-        )
+        .bind(self.subgraph_service_address.encode_hex())
         .bind(self.indexer_address.encode_hex())
         .bind(&signers)
         .bind(rangebounds_to_pgrange(timestamp_range_ns))
@@ -298,26 +291,19 @@ impl ReceiptDelete for TapAgentContext<Horizon> {
             r#"
                 DELETE FROM tap_horizon_receipts
                 WHERE
-                    collection_id = $1
-                    AND signer_address IN (SELECT unnest($2::text[]))
+                    collection_id = $1::char(64)
+                    AND signer_address = ANY($2::char(40)[])
                     AND $3::numrange @> timestamp_ns
-                    AND payer = $4
-                    AND data_service = $5
-                    AND service_provider = $6
+                    AND payer = $4::char(40)
+                    AND data_service = $5::char(40)
+                    AND service_provider = $6::char(40)
             "#,
         )
         .bind(CollectionId::from(self.allocation_id).encode_hex())
         .bind(&signers)
         .bind(rangebounds_to_pgrange(timestamp_ns))
         .bind(self.sender.encode_hex())
-        .bind(
-            self.subgraph_service_address()
-                .ok_or_else(|| AdapterError::ReceiptDelete {
-                    error: "SubgraphService address not available - check TapMode configuration"
-                        .to_string(),
-                })?
-                .encode_hex(),
-        )
+        .bind(self.subgraph_service_address.encode_hex())
         .bind(self.indexer_address.encode_hex())
         .execute(&self.pgpool)
         .await?;
@@ -377,7 +363,8 @@ mod test {
     ) -> TapAgentContext<Horizon> {
         TapAgentContext::builder()
             .pgpool(pgpool)
-            .escrow_accounts(escrow_accounts)
+            .escrow_accounts(escrow_accounts.clone())
+            .escrow_accounts_strict(escrow_accounts)
             .subgraph_service_address(SUBGRAPH_SERVICE_ADDRESS)
             .build()
     }
@@ -655,7 +642,8 @@ mod test {
         let context_wrapper: TestContextWithContainer<Horizon> = TestContextWithContainer {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
-                .escrow_accounts(escrow_accounts)
+                .escrow_accounts(escrow_accounts.clone())
+                .escrow_accounts_strict(escrow_accounts)
                 .subgraph_service_address(SUBGRAPH_SERVICE_ADDRESS)
                 .build(),
             _test_db: test_db,
@@ -725,6 +713,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts.clone())
+                .escrow_accounts_strict(escrow_accounts.clone())
                 .subgraph_service_address(SUBGRAPH_SERVICE_ADDRESS)
                 .build(),
             _test_db: test_db,
@@ -851,6 +840,7 @@ mod test {
             context: TapAgentContext::builder()
                 .pgpool(test_db.pool.clone())
                 .escrow_accounts(escrow_accounts.clone())
+                .escrow_accounts_strict(escrow_accounts.clone())
                 .subgraph_service_address(SUBGRAPH_SERVICE_ADDRESS)
                 .build(),
             _test_db: test_db,

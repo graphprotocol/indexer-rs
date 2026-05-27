@@ -7,8 +7,8 @@ use axum::{body::to_bytes, extract::ConnectInfo, http::Request, Extension};
 use axum_extra::headers::Header;
 use base64::prelude::*;
 use indexer_config::{
-    BlockchainConfig, EscrowSubgraphConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig,
-    NonZeroGRT, SubgraphConfig,
+    BlockchainConfig, GraphNodeConfig, IndexerConfig, NetworkSubgraphConfig, NonZeroGRT,
+    SubgraphConfig,
 };
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use indexer_service_rs::{
@@ -32,7 +32,6 @@ struct RouterInputs {
     http_client: reqwest::Client,
     graph_node_url: Url,
     subgraph_client: &'static SubgraphClient,
-    escrow_subgraph_config: SubgraphConfig,
     network_subgraph_config: SubgraphConfig,
     escrow_accounts_v2: watch::Receiver<EscrowAccounts>,
     allocations:
@@ -54,19 +53,23 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
             operator_mnemonic: Some(test_assets::INDEXER_MNEMONIC.clone()),
             operator_mnemonics: None,
         })
-        .service(indexer_config::ServiceConfig {
-            serve_network_subgraph: false,
-            serve_escrow_subgraph: false,
-            serve_auth_token: None,
-            host_and_port: "0.0.0.0:0".parse().unwrap(),
-            url_prefix: "/".into(),
-            tap: indexer_config::ServiceTapConfig {
-                max_receipt_value_grt: NonZeroGRT::new(1000000000000).unwrap(),
-            },
-            free_query_auth_token: None,
-            ipfs_url: "http://localhost:5001".parse().unwrap(),
-            max_cost_model_batch_size: 200,
-            max_request_body_size: 2 * 1024 * 1024,
+        .service({
+            #[allow(deprecated)]
+            indexer_config::ServiceConfig {
+                serve_network_subgraph: false,
+                serve_escrow_subgraph: None, // Deprecated and ignored
+                serve_auth_token: None,
+                host_and_port: "0.0.0.0:0".parse().unwrap(),
+                url_prefix: "/".into(),
+                tap: indexer_config::ServiceTapConfig {
+                    max_receipt_value_grt: NonZeroGRT::new(1000000000000).unwrap(),
+                },
+                free_query_auth_token: None,
+                ipfs_url: "http://localhost:5001".parse().unwrap(),
+                max_cost_model_batch_size: 200,
+                max_request_body_size: 2 * 1024 * 1024,
+                max_status_request_body_size: 32 * 1024,
+            }
         })
         .blockchain({
             #[allow(deprecated)]
@@ -74,22 +77,18 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
                 chain_id: indexer_config::TheGraphChainId::Test,
                 receipts_verifier_address: None,
                 receipts_verifier_address_v2: test_assets::VERIFIER_ADDRESS,
-                subgraph_service_address: None,
+                subgraph_service_address: test_assets::VERIFIER_ADDRESS,
             }
         })
         .timestamp_buffer_secs(Duration::from_secs(10))
-        .escrow_subgraph(
-            inputs.subgraph_client,
-            EscrowSubgraphConfig {
-                config: inputs.escrow_subgraph_config,
-            },
-        )
         .network_subgraph(
             inputs.subgraph_client,
             NetworkSubgraphConfig {
                 config: inputs.network_subgraph_config,
                 recently_closed_allocation_buffer_secs: Duration::from_secs(0),
                 max_data_staleness_mins: 0,
+                escrow_min_balance_grt_wei: "100000000000000000".to_string(),
+                max_signers_per_payer: 0,
             },
         )
         .escrow_accounts_v2(inputs.escrow_accounts_v2)
@@ -127,7 +126,7 @@ async fn full_integration_test() {
         ));
     mock_server.register(mock).await;
 
-    // Mock escrow subgraph (v1) and network subgraph (v2) redemption queries.
+    // Mock network subgraph redemption queries.
     mock_server
         .register(Mock::given(method("POST")).and(path("/")).respond_with(
             ResponseTemplate::new(200).set_body_raw(
@@ -165,7 +164,7 @@ async fn full_integration_test() {
 
     let subgraph_query_url = Url::parse(&mock_server.uri()).unwrap();
 
-    let escrow_subgraph_config = || SubgraphConfig {
+    let network_subgraph_config = || SubgraphConfig {
         query_url: subgraph_query_url.clone(),
         query_auth_token: None,
         deployment_id: None,
@@ -177,8 +176,7 @@ async fn full_integration_test() {
         http_client,
         graph_node_url: graph_node_url.clone(),
         subgraph_client,
-        escrow_subgraph_config: escrow_subgraph_config(),
-        network_subgraph_config: escrow_subgraph_config(),
+        network_subgraph_config: network_subgraph_config(),
         escrow_accounts_v2: escrow_accounts,
         allocations: allocations.clone(),
         dispute_manager: dispute_manager.clone(),
@@ -225,8 +223,7 @@ async fn full_integration_test() {
             .unwrap(),
         graph_node_url: failing_graph_node,
         subgraph_client,
-        escrow_subgraph_config: escrow_subgraph_config(),
-        network_subgraph_config: escrow_subgraph_config(),
+        network_subgraph_config: network_subgraph_config(),
         escrow_accounts_v2: escrow_accounts_fail,
         allocations,
         dispute_manager,

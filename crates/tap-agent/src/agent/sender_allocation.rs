@@ -177,8 +177,8 @@ pub struct AllocationConfig {
     pub indexer_address: Address,
     /// Polling interval for escrow subgraph
     pub escrow_polling_interval: Duration,
-    /// TAP protocol operation mode (Horizon mode required)
-    pub tap_mode: indexer_config::TapMode,
+    /// SubgraphService contract address
+    pub subgraph_service_address: Address,
 }
 
 impl AllocationConfig {
@@ -189,7 +189,7 @@ impl AllocationConfig {
             rav_request_receipt_limit: config.rav_request_receipt_limit,
             indexer_address: config.indexer_address,
             escrow_polling_interval: config.escrow_polling_interval,
-            tap_mode: config.tap_mode.clone(),
+            subgraph_service_address: config.subgraph_service_address,
         }
     }
 }
@@ -203,8 +203,11 @@ pub struct SenderAllocationArgs<T: NetworkVersion> {
     pub allocation_id: T::AllocationId,
     /// Address of the sender responsible for this [SenderAllocation]
     pub sender: Address,
-    /// Watcher containing the escrow accounts
+    /// Watcher containing the escrow accounts (includes thawing signers)
     pub escrow_accounts: Receiver<EscrowAccounts>,
+    /// Watcher containing escrow accounts with strict signer filtering
+    /// (excludes thawing signers, used for RAV signature verification)
+    pub escrow_accounts_strict: Receiver<EscrowAccounts>,
     /// SubgraphClient of the network subgraph
     pub network_subgraph: &'static SubgraphClient,
     /// Domain separator used for tap
@@ -458,6 +461,7 @@ where
             allocation_id,
             sender,
             escrow_accounts,
+            escrow_accounts_strict,
             network_subgraph,
             domain_separator,
             sender_account_ref,
@@ -483,14 +487,14 @@ where
                 escrow_accounts.clone(),
             )),
         ];
-        let subgraph_service_address = config.tap_mode.subgraph_service_address();
         let context = TapAgentContext::builder()
             .pgpool(pgpool.clone())
             .allocation_id(T::allocation_id_to_address(&allocation_id))
             .indexer_address(config.indexer_address)
             .sender(sender)
             .escrow_accounts(escrow_accounts.clone())
-            .subgraph_service_address(subgraph_service_address)
+            .escrow_accounts_strict(escrow_accounts_strict.clone())
+            .subgraph_service_address(config.subgraph_service_address)
             .build();
 
         let latest_rav = context.last_rav().await.unwrap_or_default();
@@ -500,7 +504,7 @@ where
             CheckList::new(required_checks),
         );
 
-        let data_service = Some(subgraph_service_address);
+        let data_service = Some(config.subgraph_service_address);
 
         Ok(Self {
             pgpool,
@@ -963,11 +967,11 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             FROM
                 tap_horizon_receipts_invalid
             WHERE
-                collection_id = $1
-                AND service_provider = $2
-                AND payer = $3
-                AND data_service = $4
-                AND signer_address IN (SELECT unnest($5::text[]))
+                collection_id = $1::char(64)
+                AND service_provider = $2::char(40)
+                AND payer = $3::char(40)
+                AND data_service = $4::char(40)
+                AND signer_address = ANY($5::char(40)[])
             "#,
         )
         // self.allocation_id is already a CollectionId in Horizon state
@@ -1022,12 +1026,12 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
             FROM
                 tap_horizon_receipts
             WHERE
-                collection_id = $1
-                AND service_provider = $2
-                AND payer = $3
-                AND data_service = $4
+                collection_id = $1::char(64)
+                AND service_provider = $2::char(40)
+                AND payer = $3::char(40)
+                AND data_service = $4::char(40)
                 AND id <= $5
-                AND signer_address IN (SELECT unnest($6::text[]))
+                AND signer_address = ANY($6::char(40)[])
                 AND timestamp_ns > $7
             "#,
         )
@@ -1204,7 +1208,8 @@ mod tests {
             .pgpool(pgpool)
             .allocation_id(CollectionId::from(ALLOCATION_ID_0))
             .sender(SENDER.1)
-            .escrow_accounts(escrow_accounts_rx)
+            .escrow_accounts(escrow_accounts_rx.clone())
+            .escrow_accounts_strict(escrow_accounts_rx)
             .network_subgraph(network_subgraph)
             .domain_separator(TAP_EIP712_DOMAIN_SEPARATOR_V2.clone())
             .sender_account_ref(sender_account_ref)

@@ -11,7 +11,6 @@ use std::{
 
 use actors::TestableActor;
 use bigdecimal::num_bigint::BigInt;
-use indexer_config;
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use rand::{distr::Alphanumeric, rng, Rng};
@@ -91,9 +90,7 @@ pub fn get_sender_account_config() -> &'static SenderAccountConfig {
         escrow_polling_interval: ESCROW_POLLING_INTERVAL,
         tap_sender_timeout: Duration::from_secs(63),
         trusted_senders: HashSet::new(),
-        tap_mode: indexer_config::TapMode::Horizon {
-            subgraph_service_address: SUBGRAPH_SERVICE_ADDRESS,
-        },
+        subgraph_service_address: SUBGRAPH_SERVICE_ADDRESS,
         allocation_reconciliation_interval: Duration::from_secs(300),
     }))
 }
@@ -136,9 +133,7 @@ pub async fn create_sender_account(
         escrow_polling_interval: ESCROW_POLLING_INTERVAL,
         tap_sender_timeout: TAP_SENDER_TIMEOUT,
         trusted_senders,
-        tap_mode: indexer_config::TapMode::Horizon {
-            subgraph_service_address: SUBGRAPH_SERVICE_ADDRESS,
-        },
+        subgraph_service_address: SUBGRAPH_SERVICE_ADDRESS,
         allocation_reconciliation_interval,
     }));
 
@@ -172,7 +167,8 @@ pub async fn create_sender_account(
         config,
         pgpool,
         sender_id,
-        escrow_accounts: escrow_accounts_rx,
+        escrow_accounts: escrow_accounts_rx.clone(),
+        escrow_accounts_strict: escrow_accounts_rx,
         indexer_allocations: indexer_allocations_rx,
         network_subgraph,
         domain_separator_v2: TAP_EIP712_DOMAIN_SEPARATOR_V2.clone(),
@@ -235,7 +231,8 @@ pub async fn create_sender_accounts_manager(
         domain_separator_v2: TAP_EIP712_DOMAIN_SEPARATOR_V2.clone(),
         pgpool,
         indexer_allocations: allocations_rx,
-        escrow_accounts_v2: escrow_accounts_rx_v2,
+        escrow_accounts_v2: escrow_accounts_rx_v2.clone(),
+        escrow_accounts_v2_strict: escrow_accounts_rx_v2,
         network_subgraph,
         sender_aggregator_endpoints: HashMap::from([
             (SENDER.1, Url::parse(&get_grpc_url().await).unwrap()),
