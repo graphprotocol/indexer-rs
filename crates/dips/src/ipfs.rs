@@ -21,7 +21,7 @@
 //!     ...
 //! ```
 //!
-//! # Timeout and Retry Behavior
+//! # Timeout, Retry, and Size Limits
 //!
 //! IPFS fetches have a 30-second timeout per attempt. On failure, the client
 //! retries up to 3 times with exponential backoff (10s, 20s, 40s delays). This
@@ -31,6 +31,10 @@
 //!
 //! Dipper's gRPC timeout should be at least 220 seconds (190s + 30s buffer)
 //! to avoid timing out while indexer-rs is still retrying IPFS.
+//!
+//! Each fetch is also capped at `IPFS_MAX_MANIFEST_BYTES`. Real manifests
+//! are tens of KB; the cap exists so a caller-supplied CID cannot force
+//! an unbounded download from attacker-controlled content.
 //!
 //! # What This Proves
 //!
@@ -52,7 +56,10 @@ use futures::TryStreamExt;
 use ipfs_api_backend_hyper::{IpfsApi, TryFromUri};
 use serde::Deserialize;
 
-use crate::DipsError;
+use crate::{
+    inflight::{self, InflightCounter},
+    DipsError,
+};
 
 /// Timeout for a single IPFS fetch attempt.
 const IPFS_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
@@ -62,6 +69,17 @@ const IPFS_MAX_ATTEMPTS: u32 = 4;
 
 /// Base delay for exponential backoff between retries (10s, 20s, 40s).
 const IPFS_RETRY_BASE_DELAY: Duration = Duration::from_secs(10);
+
+/// Upper bound on bytes read from a single manifest fetch. Real subgraph
+/// manifests are tens of KB; this cap bounds the per-request bandwidth
+/// cost when the caller-chosen CID resolves to attacker-controlled content.
+pub(crate) const IPFS_MAX_MANIFEST_BYTES: usize = 5 * 1024 * 1024;
+
+/// When the in-flight request count exceeds this threshold, IPFS fetches
+/// stop retrying — a single attempt only. The fewer-retries mode frees
+/// handler slots faster when the service is under load, at the cost of
+/// failing proposals whose first IPFS attempt has a transient error.
+pub(crate) const IPFS_DURESS_THRESHOLD: usize = 200;
 
 #[async_trait]
 pub trait IpfsFetcher: Send + Sync + std::fmt::Debug {
@@ -80,12 +98,21 @@ impl<T: IpfsFetcher> IpfsFetcher for Arc<T> {
 pub struct IpfsClient {
     #[derivative(Debug = "ignore")]
     client: ipfs_api_backend_hyper::IpfsClient,
+    inflight: InflightCounter,
 }
 
 impl IpfsClient {
-    pub fn new(url: &str) -> anyhow::Result<Self> {
+    pub fn new(url: &str, inflight: InflightCounter) -> anyhow::Result<Self> {
         let client = ipfs_api_backend_hyper::IpfsClient::from_str(url)?;
-        Ok(Self { client })
+        Ok(Self { client, inflight })
+    }
+
+    pub(crate) fn max_attempts(&self) -> u32 {
+        if inflight::snapshot(&self.inflight) > IPFS_DURESS_THRESHOLD {
+            1
+        } else {
+            IPFS_MAX_ATTEMPTS
+        }
     }
 }
 
@@ -93,8 +120,9 @@ impl IpfsClient {
 impl IpfsFetcher for IpfsClient {
     async fn fetch(&self, file: &str) -> Result<GraphManifest, DipsError> {
         let mut last_error = None;
+        let max_attempts = self.max_attempts();
 
-        for attempt in 0..IPFS_MAX_ATTEMPTS {
+        for attempt in 0..max_attempts {
             if attempt > 0 {
                 // Exponential backoff: 10s, 20s, 40s
                 let delay = IPFS_RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
@@ -113,7 +141,7 @@ impl IpfsFetcher for IpfsClient {
                     tracing::warn!(
                         file = %file,
                         attempt = attempt + 1,
-                        max_attempts = IPFS_MAX_ATTEMPTS,
+                        max_attempts,
                         error = %e,
                         "IPFS fetch attempt failed"
                     );
@@ -133,13 +161,20 @@ impl IpfsClient {
     /// Fetch with timeout wrapper.
     async fn fetch_with_timeout(&self, file: &str) -> Result<GraphManifest, DipsError> {
         let fetch_future = async {
-            let content = self
-                .client
-                .cat(file.as_ref())
-                .map_ok(|chunk| chunk.to_vec())
-                .try_concat()
+            let mut stream = self.client.cat(file.as_ref());
+            let mut content: Vec<u8> = Vec::new();
+            while let Some(chunk) = stream
+                .try_next()
                 .await
-                .map_err(|e| DipsError::SubgraphManifestUnavailable(format!("{file}: {e}")))?;
+                .map_err(|e| DipsError::SubgraphManifestUnavailable(format!("{file}: {e}")))?
+            {
+                content.extend_from_slice(&chunk);
+                if content.len() > IPFS_MAX_MANIFEST_BYTES {
+                    return Err(DipsError::SubgraphManifestUnavailable(format!(
+                        "{file}: manifest exceeds {IPFS_MAX_MANIFEST_BYTES} byte cap"
+                    )));
+                }
+            }
 
             let manifest: GraphManifest = serde_yaml::from_slice(&content)
                 .map_err(|e| DipsError::InvalidSubgraphManifest(format!("{file}: {e}")))?;
@@ -231,8 +266,14 @@ impl IpfsFetcher for MockIpfsFetcher {
 
 #[cfg(test)]
 mod test {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
     use crate::ipfs::{
-        DataSource, FailingIpfsFetcher, GraphManifest, IpfsFetcher, MockIpfsFetcher,
+        DataSource, FailingIpfsFetcher, GraphManifest, IpfsClient, IpfsFetcher, MockIpfsFetcher,
+        IPFS_DURESS_THRESHOLD, IPFS_MAX_ATTEMPTS,
     };
 
     #[test]
@@ -450,4 +491,32 @@ templates:
       abi: Pool
 
     ";
+
+    #[test]
+    fn max_attempts_uses_full_budget_below_threshold() {
+        // Arrange
+        let inflight = Arc::new(AtomicUsize::new(0));
+        let client = IpfsClient::new("http://localhost:5001", inflight.clone()).unwrap();
+
+        // Act + Assert
+        assert_eq!(client.max_attempts(), IPFS_MAX_ATTEMPTS);
+
+        // Right at the threshold still counts as below — the check is `>`.
+        inflight.store(IPFS_DURESS_THRESHOLD, Ordering::Relaxed);
+        assert_eq!(client.max_attempts(), IPFS_MAX_ATTEMPTS);
+    }
+
+    #[test]
+    fn max_attempts_drops_to_one_above_threshold() {
+        // Arrange
+        let inflight = Arc::new(AtomicUsize::new(IPFS_DURESS_THRESHOLD + 1));
+        let client = IpfsClient::new("http://localhost:5001", inflight.clone()).unwrap();
+
+        // Act + Assert
+        assert_eq!(client.max_attempts(), 1);
+
+        // And recovers when the counter falls back.
+        inflight.store(0, Ordering::Relaxed);
+        assert_eq!(client.max_attempts(), IPFS_MAX_ATTEMPTS);
+    }
 }

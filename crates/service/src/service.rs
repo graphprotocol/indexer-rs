@@ -1,7 +1,11 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{anyhow, Context};
 use axum::{extract::Request, serve, ServiceExt};
@@ -16,15 +20,20 @@ use indexer_dips::{
         IndexerDipsService, IndexerDipsServiceServer,
     },
     server::{DipsServer, DipsServerContext},
-    signers::EscrowSignerValidator,
 };
 use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
 use reqwest::Url;
 use tap_core::tap_eip712_domain;
-use thegraph_core::alloy::primitives::{Address, U256};
+use thegraph_core::alloy::primitives::U256;
 use tokio::{net::TcpListener, signal};
 use tokio_util::sync::CancellationToken;
+use tonic::transport::server::TcpConnectInfo;
+use tower::ServiceBuilder;
+use tower_governor::{
+    errors::GovernorError, governor::GovernorConfigBuilder, key_extractor::KeyExtractor,
+    GovernorLayer,
+};
 use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
@@ -33,9 +42,12 @@ use crate::{
     routes::DipsInfoState,
 };
 
+mod grpc_error_to_response;
 mod release;
 mod router;
 mod tap_receipt_header;
+
+use grpc_error_to_response::GrpcErrorToResponseLayer;
 
 pub use router::ServiceRouter;
 pub use tap_receipt_header::TapHeader;
@@ -118,8 +130,6 @@ pub async fn run() -> anyhow::Result<()> {
         config.blockchain.horizon_receipts_verifier_address(),
         tap_core::TapVersion::V2,
     );
-    let chain_id = config.blockchain.chain_id as u64;
-
     let host_and_port = config.service.host_and_port;
     let indexer_address = config.indexer.indexer_address;
     let ipfs_url = config.service.ipfs_url.clone();
@@ -195,20 +205,13 @@ pub async fn run() -> anyhow::Result<()> {
         let DipsConfig {
             host,
             port,
-            recurring_collector,
             supported_networks,
             min_grt_per_30_days,
             min_grt_per_billion_entities_per_30_days,
             additional_networks,
+            allowed_payers,
+            ..
         } = dips;
-
-        // Validate required configuration
-        if *recurring_collector == Address::ZERO {
-            anyhow::bail!(
-                "DIPS is enabled but dips.recurring_collector is not configured. \
-                 Set it to the deployed RecurringCollector contract address."
-            );
-        }
 
         if supported_networks.is_empty() {
             tracing::warn!(
@@ -219,7 +222,6 @@ pub async fn run() -> anyhow::Result<()> {
 
         tracing::info!(
             supported_networks = ?supported_networks,
-            recurring_collector = %recurring_collector,
             ipfs_url = %ipfs_url,
             "DIPs configuration loaded"
         );
@@ -239,8 +241,13 @@ pub async fn run() -> anyhow::Result<()> {
             .parse()
             .with_context(|| format!("Invalid DIPS host:port '{host}:{port}'"))?;
 
+        // Shared counter of in-flight gRPC requests. The IPFS client reads
+        // it to decide whether to use the full retry budget or fall back to
+        // a single attempt when the service is under load.
+        let inflight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
         // Initialize validation dependencies
-        let ipfs_fetcher = Arc::new(IpfsClient::new(ipfs_url.as_str())?);
+        let ipfs_fetcher = Arc::new(IpfsClient::new(ipfs_url.as_str(), inflight.clone())?);
         let registry = Arc::new(
             NetworksRegistry::from_latest_version()
                 .await
@@ -280,22 +287,20 @@ pub async fn run() -> anyhow::Result<()> {
                 tokens_per_second,
                 tokens_per_entity_per_second,
             )),
-            signer_validator: Arc::new(EscrowSignerValidator::new(v2_watcher.clone())),
             registry,
             additional_networks: Arc::new(additional_networks.clone()),
+            allowed_payers: allowed_payers.clone(),
         });
 
         // Create DIPS server
         let server = DipsServer {
             ctx,
             expected_payee: indexer_address,
-            chain_id,
-            recurring_collector: *recurring_collector,
+            inflight,
         };
 
         info!(
             address = %addr,
-            recurring_collector = ?recurring_collector,
             "Starting DIPS gRPC server (RecurringCollectionAgreement validation)"
         );
 
@@ -318,12 +323,85 @@ pub async fn run() -> anyhow::Result<()> {
         .await?)
 }
 
+/// Per-request timeout across the whole gRPC handler. Long enough to cover
+/// the worst-case IPFS retry budget (190s) with headroom; short enough that
+/// a hung handler doesn't pin a worker indefinitely.
+const DIPS_REQUEST_TIMEOUT: Duration = Duration::from_secs(220);
+
+/// Global token-bucket rate limit shared across all callers. Bounds the
+/// total proposal throughput regardless of per-IP behaviour. Sized to
+/// accommodate burst traffic from a single trusted dipper.
+const DIPS_RATE_LIMIT_PER_SEC: u64 = 50;
+
+/// Per-IP rate limit replenishment interval. 200ms per token gives a
+/// sustained 5 requests per second per source IP, which is comfortable
+/// headroom for a real dipper but quickly cuts off any single misbehaving
+/// caller.
+const DIPS_PER_IP_REPLENISH_MS: u64 = 200;
+
+/// Burst allowance for the per-IP limiter. Lets a caller send a brief
+/// spike without immediately tripping the limit.
+const DIPS_PER_IP_BURST: u32 = 10;
+
+/// Channel depth of the outer Buffer wrapper. The wrapper makes the layer
+/// chain Clone-able so tonic's `Server::layer` accepts it; the actual
+/// timeout/rate-limit/per-IP layers run inside the buffered task. Requests
+/// beyond this depth are rejected with `BufferError` until earlier ones
+/// drain. Sized comfortably above the global rate-limit-per-second so a
+/// healthy burst never bumps the channel.
+const DIPS_BUFFER_DEPTH: usize = 1024;
+
+/// Key extractor for tonic that reads the peer IP from `TcpConnectInfo`,
+/// which the tonic server adds to request extensions for non-TLS TCP
+/// connections. The `tower_governor` defaults look for axum's
+/// `ConnectInfo<SocketAddr>` extension instead, which tonic does not add.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TonicPeerIpKeyExtractor;
+
+impl KeyExtractor for TonicPeerIpKeyExtractor {
+    type Key = IpAddr;
+
+    fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
+        req.extensions()
+            .get::<TcpConnectInfo>()
+            .and_then(|ci| ci.remote_addr())
+            .map(|addr| addr.ip())
+            .ok_or(GovernorError::UnableToExtractKey)
+    }
+}
+
 async fn start_dips_server(
     addr: SocketAddr,
     service: impl IndexerDipsService,
     shutdown: impl std::future::Future<Output = ()>,
 ) {
+    let per_ip_config = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_millisecond(DIPS_PER_IP_REPLENISH_MS)
+            .burst_size(DIPS_PER_IP_BURST)
+            .key_extractor(TonicPeerIpKeyExtractor)
+            .finish()
+            .expect("per-IP governor config invariants"),
+    );
+    let per_ip_layer = GovernorLayer {
+        config: per_ip_config,
+    };
+
+    let layer = ServiceBuilder::new()
+        .layer(GrpcErrorToResponseLayer)
+        .buffer(DIPS_BUFFER_DEPTH)
+        .timeout(DIPS_REQUEST_TIMEOUT)
+        .layer(per_ip_layer)
+        .rate_limit(DIPS_RATE_LIMIT_PER_SEC, Duration::from_secs(1))
+        // tonic's Routes returns Response<tonic::body::Body>, but tower_governor
+        // hardcodes Response<axum::body::Body>. Convert the inner body before
+        // the rate-limit layers see it. tonic's Server is happy to serve any
+        // http_body::Body for the response, so axum's body works end-to-end.
+        .map_response(|res: axum::http::Response<tonic::body::Body>| res.map(axum::body::Body::new))
+        .into_inner();
+
     if let Err(e) = tonic::transport::Server::builder()
+        .layer(layer)
         .add_service(IndexerDipsServiceServer::new(service))
         .serve_with_shutdown(addr, shutdown)
         .await
