@@ -37,7 +37,7 @@ impl AllocationRedeemedCheck {
 
         // Horizon network subgraph stores allocationId as the 20-byte address derived
         // from the 32-byte collection_id (rightmost 20 bytes).
-        let allocation_id = collection_id.as_address().encode_hex();
+        let allocation_id = collection_id.as_address().encode_hex_with_prefix();
 
         // Only reject receipts if the allocation is actually closed on-chain.
         // In the continuous collection model, active allocations get collected
