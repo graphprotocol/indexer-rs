@@ -126,7 +126,9 @@ async fn full_integration_test() {
         ));
     mock_server.register(mock).await;
 
-    // Mock network subgraph redemption queries.
+    // Mock escrow subgraph (v1) and network subgraph (v2) queries.
+    // The v2 allocation check queries for closed allocations; returning an
+    // empty list means the allocation is still open (receipts accepted).
     mock_server
         .register(Mock::given(method("POST")).and(path("/")).respond_with(
             ResponseTemplate::new(200).set_body_raw(
@@ -134,7 +136,8 @@ async fn full_integration_test() {
                         {
                             "data": {
                                 "transactions": [],
-                                "paymentsEscrowTransactions": []
+                                "meta": { "block": { "number": 1, "hash": "0x00", "timestamp": 1 } },
+                                "allocations": []
                             }
                         }
                         "#,

@@ -1,187 +1,416 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc};
+//! gRPC server for DIPS RCA proposals.
+//!
+//! This module implements the `IndexerDipsService` gRPC interface that receives
+//! RecurringCollectionAgreement (RCA) proposals from the Dipper service.
+//!
+//! # Request Flow
+//!
+//! ```text
+//! Dipper ──gRPC──> DipsServer::submit_agreement_proposal()
+//!                        │
+//!                        ├─ Version check (must be 2)
+//!                        ├─ Size validation (non-empty, max 10KB)
+//!                        ├─ Service-provider match
+//!                        ├─ Timestamp validation (deadline, endsAt)
+//!                        ├─ IPFS manifest fetch
+//!                        ├─ Network validation
+//!                        ├─ Price validation
+//!                        │
+//!                        └─> Store in pending_rca_proposals table
+//!                                    │
+//!                                    └─> Return Accept/Reject
+//! ```
+//!
+//! Signature and signer-authorization checks are not performed here. The
+//! on-chain `acceptIndexingAgreement` call verifies the signer (via either
+//! an ECDSA signature or a pre-stored payer offer) when the indexer-agent
+//! submits the acceptance transaction.
+//!
+//! # Response Behavior
+//!
+//! Returns `Accept` if the RCA passes all validation and is stored successfully.
+//! Returns `Reject` if any validation fails. This enables the Dipper to reassign
+//! the indexing request to another indexer on rejection.
+//!
+//! # Cancellation
+//!
+//! Cancellation is handled entirely on-chain via the RecurringCollector contract;
+//! there is no gRPC method for it. Dipper calls `cancelIndexingAgreementByPayer`
+//! directly and indexer-agents observe `IndexingAgreementCanceled` events through
+//! the indexing-payments subgraph.
+
+use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
-use graph_networks_registry::NetworksRegistry;
-#[cfg(test)]
-use indexer_monitor::EscrowAccounts;
-use thegraph_core::alloy::primitives::{Address, ChainId};
+use thegraph_core::alloy::primitives::Address;
 use tonic::{Request, Response, Status};
 
 use crate::{
-    dips_agreement_eip712_domain, dips_cancellation_eip712_domain,
+    inflight::{InflightCounter, InflightGuard},
     ipfs::IpfsFetcher,
     price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::{
-        indexer_dips_service_server::IndexerDipsService, CancelAgreementRequest,
-        CancelAgreementResponse, ProposalResponse, SubmitAgreementProposalRequest,
-        SubmitAgreementProposalResponse,
+        indexer_dips_service_server::IndexerDipsService, ProposalResponse, RejectReason,
+        SubmitAgreementProposalRequest, SubmitAgreementProposalResponse,
     },
-    signers::SignerValidator,
-    store::AgreementStore,
-    validate_and_cancel_agreement, validate_and_create_agreement, DipsError, PROTOCOL_VERSION,
+    store::RcaStore,
+    DipsError,
 };
 
-#[derive(Debug)]
+/// Context for DIPS server with all validation dependencies.
+///
+/// Used for RCA validation:
+/// - IPFS manifest fetching
+/// - Price minimum enforcement
+/// - Network registry lookups
+#[derive(Debug, Clone)]
 pub struct DipsServerContext {
-    pub store: Arc<dyn AgreementStore>,
+    /// RCA store (seconds-based RCA)
+    pub rca_store: Arc<dyn RcaStore>,
+    /// IPFS client for fetching subgraph manifests
     pub ipfs_fetcher: Arc<dyn IpfsFetcher>,
-    pub price_calculator: PriceCalculator,
-    pub signer_validator: Arc<dyn SignerValidator>,
-    pub registry: Arc<NetworksRegistry>,
-    pub additional_networks: Arc<HashMap<String, String>>,
+    /// Price calculator for validating minimum prices
+    pub price_calculator: Arc<PriceCalculator>,
+    /// Network registry for supported networks
+    pub registry: Arc<graph_networks_registry::NetworksRegistry>,
+    /// Additional networks beyond the registry
+    pub additional_networks: Arc<BTreeMap<String, String>>,
 }
 
-impl DipsServerContext {
-    #[cfg(test)]
-    pub fn for_testing() -> Arc<Self> {
-        use std::sync::Arc;
-
-        use crate::{
-            ipfs::TestIpfsClient, registry::test_registry, signers, test::InMemoryAgreementStore,
-        };
-
-        Arc::new(DipsServerContext {
-            store: Arc::new(InMemoryAgreementStore::default()),
-            ipfs_fetcher: Arc::new(TestIpfsClient::mainnet()),
-            price_calculator: PriceCalculator::for_testing(),
-            signer_validator: Arc::new(signers::NoopSignerValidator),
-            registry: Arc::new(test_registry()),
-            additional_networks: Arc::new(HashMap::new()),
-        })
-    }
-
-    #[cfg(test)]
-    pub async fn for_testing_mocked_accounts(accounts: EscrowAccounts) -> Arc<Self> {
-        use crate::{ipfs::TestIpfsClient, signers, test::InMemoryAgreementStore};
-
-        Arc::new(DipsServerContext {
-            store: Arc::new(InMemoryAgreementStore::default()),
-            ipfs_fetcher: Arc::new(TestIpfsClient::mainnet()),
-            price_calculator: PriceCalculator::for_testing(),
-            signer_validator: Arc::new(signers::EscrowSignerValidator::mock(accounts).await),
-            registry: Arc::new(crate::registry::test_registry()),
-            additional_networks: Arc::new(HashMap::new()),
-        })
-    }
-
-    #[cfg(test)]
-    pub async fn for_testing_mocked_accounts_no_network(accounts: EscrowAccounts) -> Arc<Self> {
-        use crate::{
-            ipfs::TestIpfsClient, registry::test_registry, signers, test::InMemoryAgreementStore,
-        };
-
-        Arc::new(DipsServerContext {
-            store: Arc::new(InMemoryAgreementStore::default()),
-            ipfs_fetcher: Arc::new(TestIpfsClient::no_network()),
-            price_calculator: PriceCalculator::for_testing(),
-            signer_validator: Arc::new(signers::EscrowSignerValidator::mock(accounts).await),
-            registry: Arc::new(test_registry()),
-            additional_networks: Arc::new(HashMap::new()),
-        })
-    }
-}
-
+/// DIPS server implementing RCA protocol.
+///
+/// Validates RecurringCollectionAgreement proposals before storage:
+/// - Service-provider match
+/// - IPFS manifest fetching and network validation
+/// - Price minimum enforcement
+///
+/// Returns Accept/Reject to enable Dipper reassignment on rejection.
 #[derive(Debug)]
 pub struct DipsServer {
     pub ctx: Arc<DipsServerContext>,
     pub expected_payee: Address,
-    pub allowed_payers: Vec<Address>,
-    pub chain_id: ChainId,
+    /// Shared counter incremented for every request that enters the handler.
+    /// The IPFS client reads it to decide whether to use the full retry
+    /// budget or fall back to a single attempt under load.
+    pub inflight: InflightCounter,
+}
+
+/// Map a DipsError to the appropriate RejectReason for the gRPC response.
+fn reject_reason_from_error(err: &DipsError) -> RejectReason {
+    match err {
+        DipsError::TokensPerSecondTooLow { .. }
+        | DipsError::TokensPerEntityPerSecondTooLow { .. } => RejectReason::PriceTooLow,
+        DipsError::DeadlineExpired { .. } => RejectReason::DeadlineExpired,
+        DipsError::AgreementExpired { .. } => RejectReason::AgreementExpired,
+        DipsError::UnsupportedNetwork(_) => RejectReason::UnsupportedNetwork,
+        DipsError::SubgraphManifestUnavailable(_) => RejectReason::SubgraphManifestUnavailable,
+        DipsError::UnexpectedServiceProvider { .. } => RejectReason::UnexpectedServiceProvider,
+        DipsError::UnsupportedMetadataVersion(_) => RejectReason::UnsupportedMetadataVersion,
+        _ => RejectReason::Other,
+    }
 }
 
 #[async_trait]
 impl IndexerDipsService for DipsServer {
+    /// Submit an RCA proposal.
+    ///
+    /// Validates:
+    /// - Version 2 only
+    /// - Service provider match
+    /// - IPFS manifest and network compatibility
+    /// - Price minimums
+    ///
+    /// On-chain offer existence is NOT checked — the offer doesn't exist yet
+    /// at proposal time. The contract enforces it at `acceptIndexingAgreement`.
+    ///
+    /// Returns Accept/Reject based on validation results.
     async fn submit_agreement_proposal(
         &self,
         request: Request<SubmitAgreementProposalRequest>,
     ) -> Result<Response<SubmitAgreementProposalResponse>, Status> {
+        let _guard = InflightGuard::new(self.inflight.clone());
+
         let SubmitAgreementProposalRequest {
             version,
-            signed_voucher,
+            signed_rca,
         } = request.into_inner();
 
-        // Ensure the version is 1
-        if version != PROTOCOL_VERSION {
-            return Err(Status::invalid_argument("invalid version"));
+        // Only accept version 2
+        if version != 2 {
+            return Err(Status::invalid_argument(format!(
+                "Unsupported version {}. Only version 2 (RecurringCollectionAgreement) is supported.",
+                version
+            )));
         }
 
-        // TODO: Validate that:
-        // - The price is over the configured minimum price
-        // - The subgraph deployment is for a chain we support
-        // - The subgraph deployment is available on IPFS
-        let response = validate_and_create_agreement(
-            self.ctx.clone(),
-            &dips_agreement_eip712_domain(self.chain_id),
-            &self.expected_payee,
-            &self.allowed_payers,
-            signed_voucher,
-        )
-        .await;
+        // Basic sanity checks
+        if signed_rca.is_empty() {
+            return Err(Status::invalid_argument("signed_rca cannot be empty"));
+        }
 
-        match response {
-            Ok(_) => Ok(Response::new(SubmitAgreementProposalResponse {
-                response: ProposalResponse::Accept.into(),
-            })),
-            Err(e) => match e {
-                // Invalid signature/authorization errors
-                DipsError::InvalidSignature(msg) => Err(Status::invalid_argument(format!(
-                    "invalid signature: {msg}"
-                ))),
-                DipsError::PayerNotAuthorised(addr) => Err(Status::invalid_argument(format!(
-                    "payer {addr} not authorized"
-                ))),
-                DipsError::UnexpectedPayee { expected, actual } => Err(Status::invalid_argument(
-                    format!("voucher payee {actual} does not match expected address {expected}"),
-                )),
-                DipsError::SignerNotAuthorised(addr) => Err(Status::invalid_argument(format!(
-                    "signer {addr} not authorized"
-                ))),
+        if signed_rca.len() > 10_000 {
+            return Err(Status::invalid_argument(
+                "signed_rca exceeds maximum size of 10KB",
+            ));
+        }
 
-                // Deployment/manifest related errors - these should return Reject
-                DipsError::SubgraphManifestUnavailable(_)
-                | DipsError::InvalidSubgraphManifest(_)
-                | DipsError::UnsupportedChainId(_)
-                | DipsError::PricePerEpochTooLow(_, _, _)
-                | DipsError::PricePerEntityTooLow(_, _, _) => {
-                    Ok(Response::new(SubmitAgreementProposalResponse {
-                        response: ProposalResponse::Reject.into(),
-                    }))
-                }
-
-                // Other errors
-                DipsError::AbiDecoding(msg) => Err(Status::invalid_argument(format!(
-                    "invalid request voucher: {msg}"
-                ))),
-                _ => Err(Status::internal(e.to_string())),
-            },
+        // Validate and store RCA
+        let deployment_id = crate::try_extract_deployment_id(&signed_rca);
+        match crate::validate_and_create_rca(self.ctx.clone(), &self.expected_payee, signed_rca)
+            .await
+        {
+            Ok(agreement_id) => {
+                tracing::info!(%agreement_id, "RCA accepted");
+                Ok(Response::new(SubmitAgreementProposalResponse {
+                    response: ProposalResponse::Accept.into(),
+                    reject_reason: RejectReason::Unspecified.into(),
+                }))
+            }
+            Err(e) => {
+                let reject_reason = reject_reason_from_error(&e);
+                tracing::info!(
+                    error = %e,
+                    reason = ?reject_reason,
+                    deployment_id = deployment_id.as_deref().unwrap_or("unknown"),
+                    "RCA proposal rejected"
+                );
+                Ok(Response::new(SubmitAgreementProposalResponse {
+                    response: ProposalResponse::Reject.into(),
+                    reject_reason: reject_reason.into(),
+                }))
+            }
         }
     }
-    /// *
-    /// Request to cancel an existing _indexing agreement_.
-    async fn cancel_agreement(
-        &self,
-        request: Request<CancelAgreementRequest>,
-    ) -> Result<Response<CancelAgreementResponse>, Status> {
-        let CancelAgreementRequest {
-            version,
-            signed_cancellation,
-        } = request.into_inner();
+}
 
-        if version != 1 {
-            return Err(Status::invalid_argument("invalid version"));
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+
+    use super::*;
+    use crate::{ipfs::MockIpfsFetcher, price::PriceCalculator, store::InMemoryRcaStore};
+
+    fn empty_counter() -> InflightCounter {
+        Arc::new(AtomicUsize::new(0))
+    }
+
+    impl DipsServerContext {
+        pub fn for_testing() -> Arc<Self> {
+            use std::collections::{BTreeMap, HashSet};
+            use thegraph_core::alloy::primitives::U256;
+
+            Arc::new(Self {
+                rca_store: Arc::new(InMemoryRcaStore::default()),
+                ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
+                price_calculator: Arc::new(PriceCalculator::new(
+                    HashSet::from(["mainnet".to_string()]),
+                    BTreeMap::from([("mainnet".to_string(), U256::from(200))]),
+                    U256::from(100),
+                )),
+                registry: Arc::new(crate::registry::test_registry()),
+                additional_networks: Arc::new(BTreeMap::new()),
+            })
         }
+    }
 
-        validate_and_cancel_agreement(
-            self.ctx.store.clone(),
-            &dips_cancellation_eip712_domain(self.chain_id),
-            signed_cancellation,
-        )
-        .await
-        .map_err(Into::<tonic::Status>::into)?;
+    #[tokio::test]
+    async fn test_empty_rejected() {
+        // Arrange
+        let ctx = DipsServerContext::for_testing();
+        let server = DipsServer {
+            ctx,
+            expected_payee: Address::ZERO,
+            inflight: empty_counter(),
+        };
+        let request = Request::new(SubmitAgreementProposalRequest {
+            version: 2,
+            signed_rca: vec![],
+        });
 
-        Ok(tonic::Response::new(CancelAgreementResponse {}))
+        // Act
+        let err = server.submit_agreement_proposal(request).await.unwrap_err();
+
+        // Assert
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(err.message().contains("cannot be empty"));
+    }
+
+    #[tokio::test]
+    async fn test_oversized_rejected() {
+        // Arrange
+        let ctx = DipsServerContext::for_testing();
+        let server = DipsServer {
+            ctx,
+            expected_payee: Address::ZERO,
+            inflight: empty_counter(),
+        };
+        let large_payload = vec![0u8; 10_001];
+        let request = Request::new(SubmitAgreementProposalRequest {
+            version: 2,
+            signed_rca: large_payload,
+        });
+
+        // Act
+        let err = server.submit_agreement_proposal(request).await.unwrap_err();
+
+        // Assert
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(err.message().contains("exceeds maximum size"));
+    }
+
+    #[tokio::test]
+    async fn test_unsupported_version_rejected() {
+        // Arrange
+        let ctx = DipsServerContext::for_testing();
+        let server = DipsServer {
+            ctx,
+            expected_payee: Address::ZERO,
+            inflight: empty_counter(),
+        };
+        let request = Request::new(SubmitAgreementProposalRequest {
+            version: 1,
+            signed_rca: vec![1, 2, 3],
+        });
+
+        // Act
+        let err = server.submit_agreement_proposal(request).await.unwrap_err();
+
+        // Assert
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(err.message().contains("Unsupported version"));
+        assert!(err.message().contains("version 2"));
+    }
+
+    // =========================================================================
+    // Tests for reject_reason_from_error
+    // =========================================================================
+
+    #[test]
+    fn test_reject_reason_tokens_per_second_too_low() {
+        // Arrange
+        use thegraph_core::alloy::primitives::U256;
+        let err = DipsError::TokensPerSecondTooLow {
+            network: "mainnet".to_string(),
+            minimum: U256::from(100),
+            offered: U256::from(50),
+        };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::PriceTooLow);
+    }
+
+    #[test]
+    fn test_reject_reason_tokens_per_entity_per_second_too_low() {
+        // Arrange
+        use thegraph_core::alloy::primitives::U256;
+        let err = DipsError::TokensPerEntityPerSecondTooLow {
+            minimum: U256::from(100),
+            offered: U256::from(10),
+        };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::PriceTooLow);
+    }
+
+    #[test]
+    fn test_reject_reason_unsupported_network() {
+        // Arrange
+        let err = DipsError::UnsupportedNetwork("unknown-network".to_string());
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::UnsupportedNetwork);
+    }
+
+    #[test]
+    fn test_reject_reason_deadline_expired() {
+        // Arrange
+        let err = DipsError::DeadlineExpired {
+            deadline: 1000,
+            now: 2000,
+        };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::DeadlineExpired);
+    }
+
+    #[test]
+    fn test_reject_reason_abi_decoding() {
+        // Arrange
+        let err = DipsError::AbiDecoding("invalid bytes".to_string());
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::Other);
+    }
+
+    #[test]
+    fn test_reject_reason_agreement_expired() {
+        // Arrange
+        let err = DipsError::AgreementExpired {
+            ends_at: 1000,
+            now: 2000,
+        };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::AgreementExpired);
+    }
+
+    #[test]
+    fn test_reject_reason_subgraph_manifest_unavailable() {
+        // Arrange
+        let err = DipsError::SubgraphManifestUnavailable("QmTest".to_string());
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::SubgraphManifestUnavailable);
+    }
+
+    #[test]
+    fn test_reject_reason_unexpected_service_provider() {
+        // Arrange
+        let err = DipsError::UnexpectedServiceProvider {
+            expected: Address::repeat_byte(0x01),
+            actual: Address::repeat_byte(0x02),
+        };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::UnexpectedServiceProvider);
+    }
+
+    #[test]
+    fn test_reject_reason_unsupported_metadata_version() {
+        // Arrange
+        let err = DipsError::UnsupportedMetadataVersion(99);
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::UnsupportedMetadataVersion);
     }
 }

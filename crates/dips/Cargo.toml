@@ -12,43 +12,52 @@ rpc = [
     "dep:tonic-prost",
     "dep:tonic-prost-build",
     "dep:bytes",
+    "dep:graph-networks-registry",
+    "dep:serde",
+    "dep:serde_yaml",
 ]
-db = ["dep:sqlx"]
+db = [
+    "dep:sqlx",
+    "dep:build-info",
+    "dep:indexer-monitor",
+    "dep:graph-networks-registry",
+    "dep:serde",
+    "dep:serde_yaml",
+]
 
 [dependencies]
-build-info.workspace = true
-thiserror.workspace = true
 anyhow.workspace = true
 thegraph-core.workspace = true
 async-trait.workspace = true
 uuid.workspace = true
 tokio.workspace = true
-indexer-monitor = { path = "../monitor" }
 tracing.workspace = true
-graph-networks-registry.workspace = true
+bs58 = "0.5"
+build-info = { workspace = true, optional = true }
+indexer-monitor = { path = "../monitor", optional = true }
+thiserror.workspace = true
+graph-networks-registry = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_yaml = { version = "0.9", optional = true }
+
+# IPFS client dependencies
+derivative = "2.2.0"
+futures.workspace = true
+ipfs-api-backend-hyper = { version = "0.6.0", features = ["with-send-sync", "with-hyper-tls"] }
 
 bytes = { version = "1.10.0", optional = true }
-derivative = "2.2.0"
-
-futures.workspace = true
-http = "0.2"
 prost = { workspace = true, optional = true }
-ipfs-api-backend-hyper = { version = "0.6.0", features = [
-    "with-send-sync",
-    "with-hyper-tls",
-] }
-serde_yaml.workspace = true
-serde.workspace = true
 sqlx = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
 tonic-prost = { workspace = true, optional = true }
-serde_json.workspace = true
 
 [dev-dependencies]
-rand.workspace = true
-indexer-watcher = { path = "../watcher" }
 testcontainers-modules = { workspace = true, features = ["postgres"] }
 test-assets = { path = "../test-assets" }
+indexer-monitor = { path = "../monitor" }
+graph-networks-registry.workspace = true
+build-info.workspace = true
+rand = "0.8"
 
 [build-dependencies]
 tonic-build = { workspace = true, optional = true }

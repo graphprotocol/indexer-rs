@@ -24,6 +24,11 @@ fmt:
     cargo fmt
 sqlx-prepare:
     cargo sqlx prepare --workspace  -- --all-targets --all-features
+
+# Build images ghcr.io/graphprotocol/indexer-service-rs and ghcr.io/graphprotocol/indexer-tap-agent (defaults to :local; set TAG=... to override)
+build-image:
+    docker compose build
+
 psql-up: 
     @docker run -d --name indexer-rs-psql -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres
     @sleep 5
