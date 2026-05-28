@@ -2,17 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use indexer_monitor::{SubgraphClient, SubgraphQueryError};
-use indexer_query::payments_escrow_transactions_redeem;
+use indexer_query::closed_allocations::{self, ClosedAllocations};
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
-use thegraph_core::{
-    alloy::{hex::ToHexExt, primitives::Address},
-    CollectionId,
-};
+use thegraph_core::{alloy::hex::ToHexExt, CollectionId};
 
-use crate::{
-    middleware::Sender,
-    tap::{CheckingReceipt, TapReceipt},
-};
+use crate::tap::{CheckingReceipt, TapReceipt};
 
 /// Errors that can occur during allocation redemption checks.
 #[derive(Debug, thiserror::Error)]
@@ -25,24 +19,16 @@ pub enum AllocationCheckError {
 }
 
 pub struct AllocationRedeemedCheck {
-    indexer_address: Address,
     network_subgraph: Option<&'static SubgraphClient>,
 }
 
 impl AllocationRedeemedCheck {
-    pub fn new(
-        indexer_address: Address,
-        network_subgraph: Option<&'static SubgraphClient>,
-    ) -> Self {
-        Self {
-            indexer_address,
-            network_subgraph,
-        }
+    pub fn new(network_subgraph: Option<&'static SubgraphClient>) -> Self {
+        Self { network_subgraph }
     }
 
-    async fn v2_allocation_redeemed(
+    async fn v2_allocation_closed(
         &self,
-        sender: Address,
         collection_id: CollectionId,
     ) -> Result<bool, AllocationCheckError> {
         let network_subgraph = self
@@ -51,19 +37,22 @@ impl AllocationRedeemedCheck {
 
         // Horizon network subgraph stores allocationId as the 20-byte address derived
         // from the 32-byte collection_id (rightmost 20 bytes).
-        let allocation_ids = vec![collection_id.as_address().encode_hex()];
+        let allocation_id = collection_id.as_address().encode_hex_with_prefix();
 
-        let response = network_subgraph
-            .query::<payments_escrow_transactions_redeem::PaymentsEscrowTransactionsRedeemQuery, _>(
-                payments_escrow_transactions_redeem::Variables {
-                    payer: sender.encode_hex(),
-                    receiver: self.indexer_address.encode_hex(),
-                    allocation_ids: Some(allocation_ids),
-                },
-            )
+        // Only reject receipts if the allocation is actually closed on-chain.
+        // In the continuous collection model, active allocations get collected
+        // from periodically — redeem transactions existing doesn't mean the
+        // allocation is done.
+        let closed_response = network_subgraph
+            .query::<ClosedAllocations, _>(closed_allocations::Variables {
+                allocation_ids: vec![allocation_id],
+                block: None,
+                first: 1,
+                last: String::new(),
+            })
             .await?;
 
-        Ok(!response.payments_escrow_transactions.is_empty())
+        Ok(!closed_response.allocations.is_empty())
     }
 }
 
@@ -71,22 +60,18 @@ impl AllocationRedeemedCheck {
 impl Check<TapReceipt> for AllocationRedeemedCheck {
     async fn check(
         &self,
-        ctx: &tap_core::receipt::Context,
+        _ctx: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let Sender(sender) = ctx
-            .get::<Sender>()
-            .ok_or_else(|| CheckError::Failed(anyhow::anyhow!("Missing sender in context")))?;
-
         let collection_id =
             CollectionId::from(receipt.signed_receipt().as_ref().message.collection_id);
-        let redeemed = self
-            .v2_allocation_redeemed(*sender, collection_id)
+        let closed = self
+            .v2_allocation_closed(collection_id)
             .await
             .map_err(|e| CheckError::Failed(anyhow::anyhow!(e)))?;
-        if redeemed {
+        if closed {
             return Err(CheckError::Failed(anyhow::anyhow!(
-                "Allocation already redeemed (v2): {}",
+                "Allocation is closed (v2): {}",
                 collection_id.as_address()
             )));
         }
@@ -112,7 +97,7 @@ mod tests {
     use wiremock::{matchers::body_string_contains, Mock, MockServer, ResponseTemplate};
 
     use super::AllocationRedeemedCheck;
-    use crate::{middleware::Sender, tap::TapReceipt};
+    use crate::tap::TapReceipt;
 
     fn create_wallet() -> PrivateKeySigner {
         MnemonicBuilder::<English>::default()
@@ -140,13 +125,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn v2_redeemed_rejects() {
+    async fn v2_closed_allocation_rejects() {
         let mock_server: MockServer = MockServer::start().await;
         mock_server
             .register(
-                Mock::given(body_string_contains("paymentsEscrowTransactions")).respond_with(
+                Mock::given(body_string_contains("allocations")).respond_with(
                     ResponseTemplate::new(200).set_body_json(json!({
-                        "data": { "paymentsEscrowTransactions": [ { "id": "0x01", "allocationId": TAP_SIGNER.1.to_string(), "timestamp": "1" } ] }
+                        "data": {
+                            "meta": { "block": { "number": 1, "hash": "0x00", "timestamp": 1 } },
+                            "allocations": [ { "id": "0x01" } ]
+                        }
                     })),
                 ),
             )
@@ -161,15 +149,48 @@ mod tests {
             .await,
         ));
 
-        let check =
-            AllocationRedeemedCheck::new(Address::from([0x22u8; 20]), Some(network_subgraph));
+        let check = AllocationRedeemedCheck::new(Some(network_subgraph));
 
-        let mut ctx = Context::default();
-        ctx.insert(Sender(TAP_SIGNER.1));
+        let ctx = Context::default();
         let receipt = create_v2_receipt(TAP_SIGNER.1);
         let checking = crate::tap::CheckingReceipt::new(receipt);
 
         let result = check.check(&ctx, &checking).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn v2_open_allocation_passes() {
+        let mock_server: MockServer = MockServer::start().await;
+        mock_server
+            .register(
+                Mock::given(body_string_contains("allocations")).respond_with(
+                    ResponseTemplate::new(200).set_body_json(json!({
+                        "data": {
+                            "meta": { "block": { "number": 1, "hash": "0x00", "timestamp": 1 } },
+                            "allocations": []
+                        }
+                    })),
+                ),
+            )
+            .await;
+
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
+            )
+            .await,
+        ));
+
+        let check = AllocationRedeemedCheck::new(Some(network_subgraph));
+
+        let ctx = Context::default();
+        let receipt = create_v2_receipt(TAP_SIGNER.1);
+        let checking = crate::tap::CheckingReceipt::new(receipt);
+
+        let result = check.check(&ctx, &checking).await;
+        assert!(result.is_ok());
     }
 }

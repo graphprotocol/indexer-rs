@@ -223,7 +223,6 @@ impl ServiceRouter {
                     indexer_allocations: allocations.clone(),
                     escrow_accounts_v2: self.escrow_accounts_v2.clone(),
                     network_subgraph: network_subgraph_client,
-                    indexer_address: self.indexer.indexer_address,
                     timestamp_error_tolerance,
                     receipt_max_value,
                     allowed_data_services,
