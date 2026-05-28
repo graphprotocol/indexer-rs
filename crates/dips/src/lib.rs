@@ -168,8 +168,6 @@ pub enum DipsError {
     },
     #[error("tokens per entity per second {offered} is below configured minimum {minimum}")]
     TokensPerEntityPerSecondTooLow { minimum: U256, offered: U256 },
-    #[error("payer {0} is not in the configured allowlist")]
-    PayerNotAllowed(Address),
     // misc
     #[error("unknown error: {0}")]
     UnknownError(#[from] anyhow::Error),
@@ -277,22 +275,12 @@ pub async fn validate_and_create_rca(
         price_calculator,
         registry,
         additional_networks,
-        allowed_payers,
         ..
     } = ctx.as_ref();
 
     // Decode SignedRCA
     let signed_rca = SignedRecurringCollectionAgreement::abi_decode(rca_bytes.as_ref())
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
-
-    // Reject proposals whose claimed payer is not in the configured allowlist
-    // before doing any I/O. When the allowlist is `None` every payer is
-    // accepted (legacy default).
-    if let Some(allowed) = allowed_payers {
-        if !allowed.contains(&signed_rca.agreement.payer) {
-            return Err(DipsError::PayerNotAllowed(signed_rca.agreement.payer));
-        }
-    }
 
     // Validate service provider
     signed_rca.validate(expected_service_provider)?;
@@ -461,7 +449,6 @@ mod test {
             )),
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
-            allowed_payers: None,
         })
     }
 
@@ -674,66 +661,6 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_validate_and_create_rca_rejects_payer_not_in_allowlist() {
-        let payer = Address::repeat_byte(0x42);
-        let allowed_payer = Address::repeat_byte(0x99);
-        let service_provider = Address::repeat_byte(0x11);
-
-        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
-
-        let ctx = Arc::new(DipsServerContext {
-            rca_store: Arc::new(InMemoryRcaStore::default()),
-            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
-            price_calculator: Arc::new(PriceCalculator::new(
-                HashSet::from(["mainnet".to_string()]),
-                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
-                U256::from(50),
-            )),
-            registry: Arc::new(crate::registry::test_registry()),
-            additional_networks: Arc::new(BTreeMap::new()),
-            allowed_payers: Some(HashSet::from([allowed_payer])),
-        });
-        let rca_bytes = rca_to_wire_bytes(rca);
-
-        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
-
-        assert!(
-            matches!(result, Err(DipsError::PayerNotAllowed(addr)) if addr == payer),
-            "Expected PayerNotAllowed({:?}), got {:?}",
-            payer,
-            result
-        );
-    }
-
-    #[tokio::test]
-    async fn test_validate_and_create_rca_accepts_payer_in_allowlist() {
-        let payer = Address::repeat_byte(0x42);
-        let service_provider = Address::repeat_byte(0x11);
-
-        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
-        let agreement_id = derive_agreement_id(&rca);
-
-        let ctx = Arc::new(DipsServerContext {
-            rca_store: Arc::new(InMemoryRcaStore::default()),
-            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
-            price_calculator: Arc::new(PriceCalculator::new(
-                HashSet::from(["mainnet".to_string()]),
-                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
-                U256::from(50),
-            )),
-            registry: Arc::new(crate::registry::test_registry()),
-            additional_networks: Arc::new(BTreeMap::new()),
-            allowed_payers: Some(HashSet::from([payer])),
-        });
-        let rca_bytes = rca_to_wire_bytes(rca);
-
-        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
-
-        assert!(result.is_ok(), "expected Ok, got {:?}", result);
-        assert_eq!(result.unwrap(), agreement_id);
-    }
-
-    #[tokio::test]
     async fn test_validate_and_create_rca_tokens_per_second_too_low() {
         let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
@@ -791,7 +718,6 @@ mod test {
             )),
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
-            allowed_payers: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -965,7 +891,6 @@ mod test {
             )),
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
-            allowed_payers: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1000,7 +925,6 @@ mod test {
             )),
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
-            allowed_payers: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1035,7 +959,6 @@ mod test {
             )),
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
-            allowed_payers: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
