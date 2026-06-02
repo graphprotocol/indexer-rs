@@ -214,7 +214,7 @@ impl ServiceRouter {
                         .await;
 
                 let timestamp_error_tolerance = self.timestamp_buffer_secs;
-                let receipt_max_value = max_receipt_value_grt.get_value();
+                let receipt_max_value = max_receipt_value_grt.wei();
 
                 // Create checks
                 let allowed_data_services = Some(vec![self.blockchain.subgraph_service_address]);

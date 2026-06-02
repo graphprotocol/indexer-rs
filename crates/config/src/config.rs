@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use bigdecimal::{BigDecimal, FromPrimitive, ToPrimitive};
+use bigdecimal::{BigDecimal, ToPrimitive};
 use bip39::Mnemonic;
 use figment::{
     providers::{Env, Format, Toml},
@@ -191,15 +191,9 @@ impl Config {
             ),
             _ => {}
         }
-        let grt_wei = self.tap.max_amount_willing_to_lose_grt.get_value();
-        let decimal = BigDecimal::from_u128(grt_wei).unwrap();
-        let divisor = &self.tap.rav_request.trigger_value_divisor;
-        let trigger_value = (decimal / divisor)
-            .to_u128()
-            .expect("Could not represent the trigger value in u128");
         // 0.1 GRT in wei = 0.1 * 10^18 = 100_000_000_000_000_000
         const MINIMUM_TRIGGER_VALUE_WEI: u128 = 100_000_000_000_000_000;
-        if trigger_value < MINIMUM_TRIGGER_VALUE_WEI {
+        if self.tap.get_trigger_value() < MINIMUM_TRIGGER_VALUE_WEI {
             tracing::warn!(
                 "Trigger value is too low, currently below 0.1 GRT. \
                 Please modify `max_amount_willing_to_lose_grt` or `trigger_value_divisor`. \
@@ -213,7 +207,7 @@ impl Config {
         // 0.001 GRT in wei = 0.001 * 10^18 = 1_000_000_000_000_000
         // This represents approximately 100x a typical query price (0.00001 GRT)
         const MINIMUM_MAX_WILLING_TO_LOSE_WEI: u128 = 1_000_000_000_000_000;
-        if self.tap.max_amount_willing_to_lose_grt.get_value() < MINIMUM_MAX_WILLING_TO_LOSE_WEI {
+        if self.tap.max_amount_willing_to_lose_grt.wei() < MINIMUM_MAX_WILLING_TO_LOSE_WEI {
             tracing::warn!(
                 "Your `max_amount_willing_to_lose_grt` value is too close to zero. \
                 This may deny the sender too often or even break the whole system. \
@@ -724,10 +718,8 @@ impl Default for DipsConfig {
 
 impl TapConfig {
     pub fn get_trigger_value(&self) -> u128 {
-        let grt_wei = self.max_amount_willing_to_lose_grt.get_value();
-        let decimal = BigDecimal::from_u128(grt_wei).unwrap();
-        let divisor = &self.rav_request.trigger_value_divisor;
-        (decimal / divisor)
+        let wei = BigDecimal::from(self.max_amount_willing_to_lose_grt.wei());
+        (wei / &self.rav_request.trigger_value_divisor)
             .to_u128()
             .expect("Could not represent the trigger value in u128")
     }
