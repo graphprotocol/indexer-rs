@@ -50,7 +50,8 @@ use crate::{
         PrometheusMetricsMiddlewareLayer, SenderState, TapContextState,
     },
     routes::{
-        self, health, healthz, request_handler, static_subgraph_request_handler, HealthzState,
+        self, dips_info, health, healthz, request_handler, static_subgraph_request_handler,
+        DipsInfo, HealthzState,
     },
     tap::{IndexerTapContext, TapChecksConfig},
     wallet::public_key,
@@ -84,6 +85,10 @@ pub struct ServiceRouter {
     network_subgraph: Option<(&'static SubgraphClient, NetworkSubgraphConfig)>,
     allocations: Option<AllocationWatcher>,
     dispute_manager: Option<DisputeManagerWatcher>,
+    // Optional state for the public `/dips/info` endpoint. Populated only when
+    // `[dips]` is set in config; consumed purely for signalling indexer pricing
+    // and supported networks, never feeds the gRPC proposal handler.
+    dips_info: Option<DipsInfo>,
 }
 
 impl ServiceRouter {
@@ -209,7 +214,7 @@ impl ServiceRouter {
                         .await;
 
                 let timestamp_error_tolerance = self.timestamp_buffer_secs;
-                let receipt_max_value = max_receipt_value_grt.get_value();
+                let receipt_max_value = max_receipt_value_grt.wei();
 
                 // Create checks
                 let allowed_data_services = Some(vec![self.blockchain.subgraph_service_address]);
@@ -368,7 +373,7 @@ impl ServiceRouter {
             graph_node_status_url: self.graph_node.status_url.clone(),
         };
 
-        let misc_routes = Router::new()
+        let mut misc_routes = Router::new()
             .route("/", get("Service is up and running"))
             .route("/info", get(operator_address))
             .route("/healthz", get(healthz).with_state(healthz_state))
@@ -377,8 +382,14 @@ impl ServiceRouter {
             .route(
                 "/subgraph/health/{deployment_id}",
                 get(health).with_state(graphnode_state.clone()),
-            )
-            .layer(misc_rate_limiter);
+            );
+
+        if let Some(dips_info_state) = self.dips_info {
+            misc_routes =
+                misc_routes.route("/dips/info", get(dips_info).with_state(dips_info_state));
+        }
+
+        let misc_routes = misc_routes.layer(misc_rate_limiter);
 
         let extra_routes = Router::new().route("/cost", post_cost).route(
             "/status",

@@ -175,16 +175,40 @@ max_receipts_per_request = 10000
 0xDD6a6f76eb36B873C1C184e8b9b9e762FE216490 = "https://tap-aggregator-arbitrum-one.graphops.xyz"
 
 # DIPS (Decentralized Indexing Payment System)
+# These fields are consumed by the public `/dips/info` HTTP endpoint. External
+# tooling reads them to discover which networks you are willing to index and at
+# what minimum price, ahead of any indexing agreement actually being offered.
+#
+# Pricing uses human-readable GRT values (not wei), e.g. "100" = 100 GRT per 30 days.
+# Pricing a chain in [dips.min_grt_per_30_days] is also your public declaration
+# of support for that chain.
+# See https://github.com/graphprotocol/networks-registry/blob/main/docs/networks-table.md
 [dips]
 host = "0.0.0.0"
 port = "7601"
-allowed_payers = ["0x3333333333333333333333333333333333333333"]
 
-price_per_entity = "1000"
+# Minimum payment you are willing to accept, expressed as GRT per 30 days. Two parts add up:
+#   - min_grt_per_30_days[network]:             flat base rate, per chain
+#   - min_grt_per_billion_entities_per_30_days: scaled by the subgraph's entity count
+#
+# For a subgraph with N entities, your 30-day minimum is:
+#   min_grt_per_30_days[network] + min_grt_per_billion_entities_per_30_days * (N / 1_000_000_000)
+#
+# Payment is metered per second (not per block), so a shorter agreement earns the
+# matching fraction of this 30-day figure.
+#
+# For reference: analysis of subgraphs indexed by the upgrade indexer in Q1 2025 found
+# the average entity size to be ~0.759 KiB. At this size, 1 billion entities ≈ 0.707 TiB.
+# Your own observations may differ - adjust pricing accordingly.
+# min_grt_per_billion_entities_per_30_days = "200"  # entity-based component (global)
 
-[dips.price_per_epoch]
-mainnet = "100"
-hardhat = "100"
-
-[dips.additional_networks]
-"eip155:1337" = "hardhat"
+[dips.min_grt_per_30_days]  # base rate component (per-network); keys = supported chains
+# arbitrum-one = "450"
+# matic = "300"
+# avalanche = "225"
+# bsc = "200"
+# base = "80"
+# mainnet = "45"
+# optimism = "30"
+# base-sepolia = "15"
+# sepolia = "5"

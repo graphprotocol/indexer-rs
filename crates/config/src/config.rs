@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use bigdecimal::{BigDecimal, FromPrimitive, ToPrimitive};
+use bigdecimal::{BigDecimal, ToPrimitive};
 use bip39::Mnemonic;
 use figment::{
     providers::{Env, Format, Toml},
@@ -25,7 +25,7 @@ use thegraph_core::{
 };
 use url::Url;
 
-use crate::NonZeroGRT;
+use crate::{NonZeroGRT, GRT};
 
 const SHARED_PREFIX: &str = "INDEXER_";
 
@@ -191,15 +191,9 @@ impl Config {
             ),
             _ => {}
         }
-        let grt_wei = self.tap.max_amount_willing_to_lose_grt.get_value();
-        let decimal = BigDecimal::from_u128(grt_wei).unwrap();
-        let divisor = &self.tap.rav_request.trigger_value_divisor;
-        let trigger_value = (decimal / divisor)
-            .to_u128()
-            .expect("Could not represent the trigger value in u128");
         // 0.1 GRT in wei = 0.1 * 10^18 = 100_000_000_000_000_000
         const MINIMUM_TRIGGER_VALUE_WEI: u128 = 100_000_000_000_000_000;
-        if trigger_value < MINIMUM_TRIGGER_VALUE_WEI {
+        if self.tap.get_trigger_value() < MINIMUM_TRIGGER_VALUE_WEI {
             tracing::warn!(
                 "Trigger value is too low, currently below 0.1 GRT. \
                 Please modify `max_amount_willing_to_lose_grt` or `trigger_value_divisor`. \
@@ -213,7 +207,7 @@ impl Config {
         // 0.001 GRT in wei = 0.001 * 10^18 = 1_000_000_000_000_000
         // This represents approximately 100x a typical query price (0.00001 GRT)
         const MINIMUM_MAX_WILLING_TO_LOSE_WEI: u128 = 1_000_000_000_000_000;
-        if self.tap.max_amount_willing_to_lose_grt.get_value() < MINIMUM_MAX_WILLING_TO_LOSE_WEI {
+        if self.tap.max_amount_willing_to_lose_grt.wei() < MINIMUM_MAX_WILLING_TO_LOSE_WEI {
             tracing::warn!(
                 "Your `max_amount_willing_to_lose_grt` value is too close to zero. \
                 This may deny the sender too often or even break the whole system. \
@@ -667,13 +661,44 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DipsConfig {
+    /// Network interface the DIPs gRPC server binds to (e.g. `"0.0.0.0"` for all interfaces).
     pub host: String,
-    pub port: String,
-    pub allowed_payers: Vec<Address>,
 
-    pub price_per_entity: U256,
-    pub price_per_epoch: BTreeMap<String, U256>,
+    /// Port the DIPs gRPC server listens on.
+    pub port: String,
+
+    /// Fallback mapping for chains the on-chain networks registry does not
+    /// know about. Keys are chain identifiers in the form `eip155:<chain-id>`;
+    /// values must match the network name declared in subgraph manifests
+    /// (e.g. `"eip155:1337" = "hardhat"`).
+    #[serde(default)]
     pub additional_networks: HashMap<String, String>,
+
+    // Legacy gRPC handler fields. Scheduled for removal when the on-chain
+    // agreement validation path lands. Kept here with serde defaults so
+    // configs predating the signalling surface continue to parse.
+    #[serde(default)]
+    pub allowed_payers: Vec<Address>,
+    #[serde(default = "default_price_per_entity")]
+    pub price_per_entity: U256,
+    #[serde(default)]
+    pub price_per_epoch: BTreeMap<String, U256>,
+
+    /// Per-network base price floor in GRT per 30 days. The set of map keys
+    /// is also this indexer's public declaration of supported chains —
+    /// pricing a chain here means committing to support it. Surfaced via
+    /// `/dips/info`.
+    #[serde(default)]
+    pub min_grt_per_30_days: BTreeMap<String, GRT>,
+
+    /// Global per-entity price floor in GRT per billion entities per 30 days.
+    /// Surfaced via `/dips/info`.
+    #[serde(default)]
+    pub min_grt_per_billion_entities_per_30_days: GRT,
+}
+
+fn default_price_per_entity() -> U256 {
+    U256::from(100)
 }
 
 impl Default for DipsConfig {
@@ -685,16 +710,16 @@ impl Default for DipsConfig {
             price_per_entity: U256::from(100),
             price_per_epoch: BTreeMap::new(),
             additional_networks: HashMap::new(),
+            min_grt_per_30_days: BTreeMap::new(),
+            min_grt_per_billion_entities_per_30_days: GRT::ZERO,
         }
     }
 }
 
 impl TapConfig {
     pub fn get_trigger_value(&self) -> u128 {
-        let grt_wei = self.max_amount_willing_to_lose_grt.get_value();
-        let decimal = BigDecimal::from_u128(grt_wei).unwrap();
-        let divisor = &self.rav_request.trigger_value_divisor;
-        (decimal / divisor)
+        let wei = BigDecimal::from(self.max_amount_willing_to_lose_grt.wei());
+        (wei / &self.rav_request.trigger_value_divisor)
             .to_u128()
             .expect("Could not represent the trigger value in u128")
     }
@@ -729,17 +754,12 @@ pub struct HorizonConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{BTreeMap, HashMap, HashSet},
-        env, fs,
-        path::PathBuf,
-        str::FromStr,
-    };
+    use std::{collections::HashSet, env, fs, path::PathBuf, str::FromStr};
 
     use bip39::Mnemonic;
     use figment::value::Uncased;
     use sealed_test::prelude::*;
-    use thegraph_core::alloy::primitives::{address, Address, FixedBytes, U256};
+    use thegraph_core::alloy::primitives::{address, Address};
     use tracing_test::traced_test;
 
     use super::{DatabaseConfig, IndexerConfig, SHARED_PREFIX};
@@ -765,18 +785,6 @@ mod tests {
         max_config.tap.trusted_senders =
             HashSet::from([address!("deadbeefcafebabedeadbeefcafebabedeadbeef")]);
         max_config.dips = Some(crate::DipsConfig {
-            allowed_payers: vec![Address(
-                FixedBytes::<20>::from_str("0x3333333333333333333333333333333333333333").unwrap(),
-            )],
-            price_per_entity: U256::from(1000),
-            price_per_epoch: BTreeMap::from_iter(vec![
-                ("mainnet".to_string(), U256::from(100)),
-                ("hardhat".to_string(), U256::from(100)),
-            ]),
-            additional_networks: HashMap::from([(
-                "eip155:1337".to_string(),
-                "hardhat".to_string(),
-            )]),
             ..Default::default()
         });
 

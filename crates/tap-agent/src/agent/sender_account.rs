@@ -424,7 +424,7 @@ impl SenderAccountConfig {
             rav_request_receipt_limit: config.tap.rav_request.max_receipts_per_request,
             indexer_address: config.indexer.indexer_address,
             escrow_polling_interval: config.subgraphs.network.config.syncing_interval_secs,
-            max_amount_willing_to_lose_grt: config.tap.max_amount_willing_to_lose_grt.get_value(),
+            max_amount_willing_to_lose_grt: config.tap.max_amount_willing_to_lose_grt.wei(),
             trigger_value: config.tap.get_trigger_value(),
             rav_request_timeout: config.tap.rav_request.request_timeout_secs,
             tap_sender_timeout: config.tap.sender_timeout_secs,
