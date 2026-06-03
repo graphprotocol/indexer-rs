@@ -5,8 +5,7 @@ use axum::{extract::State, Json};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-/// Indexer DIPs pricing signal. Serves both as the `/dips/info` JSON response
-/// and as the axum State held by the handler — derived once from `DipsConfig`
+/// Indexer DIPs pricing signal. Derived from `DipsConfig`
 /// at startup and served as-is on every request.
 #[derive(Clone, Debug, Serialize)]
 pub struct DipsInfo {
