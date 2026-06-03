@@ -4,6 +4,18 @@
 
 
 
+## [2.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v2.1.0...indexer-tap-agent-v2.2.0) (2026-06-03)
+
+
+### Features
+
+* advertise DIPs prices via /dips/info endpoint ([#1037](https://github.com/graphprotocol/indexer-rs/issues/1037)) ([6abdf97](https://github.com/graphprotocol/indexer-rs/commit/6abdf97f949a23d91fa890c082417f7d17cc9b3d))
+
+
+### Performance Improvements
+
+* explicitly cast char(n) types in tap receipts table queries ([#1022](https://github.com/graphprotocol/indexer-rs/issues/1022)) ([e5c6b62](https://github.com/graphprotocol/indexer-rs/commit/e5c6b62bde468602f6b077c931aec9e9b26494d4))
+
 ## [2.1.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v2.0.2...indexer-tap-agent-v2.1.0) (2026-04-20)
 
 
