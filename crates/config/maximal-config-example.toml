@@ -187,8 +187,15 @@ max_receipts_per_request = 10000
 host = "0.0.0.0"
 port = "7601"
 
-# Minimum payment you are willing to accept in order to accept indexing agreements
-# (base price + entity-based price). Total payment = base price + (entities on sg * entity_rate)
+# Minimum payment you are willing to accept, expressed as GRT per 30 days. Two parts add up:
+#   - min_grt_per_30_days[network]:             flat base rate, per chain
+#   - min_grt_per_billion_entities_per_30_days: scaled by the subgraph's entity count
+#
+# For a subgraph with N entities, your 30-day minimum is:
+#   min_grt_per_30_days[network] + min_grt_per_billion_entities_per_30_days * (N / 1_000_000_000)
+#
+# Payment is metered per second (not per block), so a shorter agreement earns the
+# matching fraction of this 30-day figure.
 #
 # For reference: analysis of subgraphs indexed by the upgrade indexer in Q1 2025 found
 # the average entity size to be ~0.759 KiB. At this size, 1 billion entities ≈ 0.707 TiB.
