@@ -181,7 +181,7 @@ max_receipts_per_request = 10000
 #
 # Pricing uses human-readable GRT values (not wei), e.g. "100" = 100 GRT per 30 days.
 # Pricing a chain in [dips.min_grt_per_30_days] is also your public declaration
-# of support for that chain — there is no separate supported_networks list.
+# of support for that chain.
 # See https://github.com/graphprotocol/networks-registry/blob/main/docs/networks-table.md
 [dips]
 host = "0.0.0.0"
