@@ -121,7 +121,7 @@ pub async fn run() -> anyhow::Result<()> {
     let indexer_address = config.indexer.indexer_address;
     let ipfs_url = config.service.ipfs_url.clone();
 
-    // V2 escrow accounts (used by DIPS) are in the network subgraph
+    // V2 escrow accounts (used by DIPs) are in the network subgraph
     let escrow_v2_query_url_for_dips = config.subgraphs.network.config.query_url.clone();
 
     let collector_address = config.blockchain.receipts_verifier_address_v2;
@@ -210,18 +210,18 @@ pub async fn run() -> anyhow::Result<()> {
 
         let addr: SocketAddr = format!("{host}:{port}")
             .parse()
-            .with_context(|| format!("Invalid DIPS host:port '{host}:{port}'"))?;
+            .with_context(|| format!("Invalid DIPs host:port '{host}:{port}'"))?;
 
         let ipfs_fetcher: Arc<dyn IpfsFetcher> = Arc::new(
             IpfsClient::new(ipfs_url.as_str())
                 .with_context(|| format!("Failed to create IPFS client for URL '{ipfs_url}'"))?,
         );
 
-        // TODO: Try to re-use the same watcher for both DIPS and TAP
+        // TODO: Try to re-use the same watcher for both DIPs and TAP
         let dips_http_client = create_http_client(DIPS_HTTP_CLIENT_TIMEOUT, false)
-            .context("Failed to create DIPS HTTP client")?;
+            .context("Failed to create DIPs HTTP client")?;
 
-        tracing::info!("DIPS using V2 escrow from network subgraph");
+        tracing::info!("DIPs using V2 escrow from network subgraph");
         let escrow_subgraph_for_dips = Box::leak(Box::new(
             SubgraphClient::new(
                 dips_http_client,
@@ -244,7 +244,7 @@ pub async fn run() -> anyhow::Result<()> {
             max_signers_per_payer,
         )
         .await
-        .with_context(|| "Failed to create escrow accounts V2 watcher for DIPS")?;
+        .with_context(|| "Failed to create escrow accounts V2 watcher for DIPs")?;
 
         let registry = NetworksRegistry::from_latest_version()
             .await
@@ -268,7 +268,7 @@ pub async fn run() -> anyhow::Result<()> {
             chain_id,
         };
 
-        info!(address = %addr, "Starting DIPS gRPC server");
+        info!(address = %addr, "Starting DIPs gRPC server");
 
         let dips_shutdown_token = shutdown_token.clone();
         tokio::spawn(async move {
@@ -299,7 +299,7 @@ async fn start_dips_server(
         .serve_with_shutdown(addr, shutdown)
         .await
     {
-        tracing::error!(error = %e, "DIPS gRPC server error");
+        tracing::error!(error = %e, "DIPs gRPC server error");
     }
 }
 

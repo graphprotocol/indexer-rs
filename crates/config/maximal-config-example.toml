@@ -174,7 +174,7 @@ max_receipts_per_request = 10000
 0xDDE4cfFd3D9052A9cb618fC05a1Cd02be1f2F467 = "https://tap-aggregator.network.thegraph.com"
 0xDD6a6f76eb36B873C1C184e8b9b9e762FE216490 = "https://tap-aggregator-arbitrum-one.graphops.xyz"
 
-# DIPS (Decentralized Indexing Payment System)
+# DIPs (Direct Indexing Payments)
 # These fields are consumed by the public `/dips/info` HTTP endpoint. External
 # tooling reads them to discover which networks you are willing to index and at
 # what minimum price, ahead of any indexing agreement actually being offered.
