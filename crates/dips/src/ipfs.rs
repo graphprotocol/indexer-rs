@@ -239,6 +239,22 @@ impl IpfsFetcher for FailingIpfsFetcher {
     }
 }
 
+/// Test IPFS fetcher returning a manifest whose single data source has an
+/// empty network field, to exercise the malformed-manifest path.
+#[derive(Debug, Clone, Default)]
+pub struct EmptyNetworkIpfsFetcher;
+
+#[async_trait]
+impl IpfsFetcher for EmptyNetworkIpfsFetcher {
+    async fn fetch(&self, _file: &str) -> Result<GraphManifest, DipsError> {
+        Ok(GraphManifest {
+            data_sources: vec![DataSource {
+                network: String::new(),
+            }],
+        })
+    }
+}
+
 impl Default for MockIpfsFetcher {
     fn default() -> Self {
         Self {

@@ -330,16 +330,21 @@ pub async fn validate_and_create_rca(
     // Fetch IPFS manifest
     let manifest = ipfs_fetcher.fetch(&deployment_id).await?;
 
-    // Get network from manifest
+    // Get network from manifest; an empty network field is a malformed manifest.
     let network_name = manifest
         .network()
+        .filter(|n| !n.is_empty())
         .ok_or_else(|| DipsError::InvalidSubgraphManifest(deployment_id.clone()))?;
 
-    // Validate network is supported
-    let network_supported = registry.get_network_by_id(network_name).is_some()
-        || additional_networks.contains_key(network_name);
-
-    if !network_supported {
+    // Reject networks this indexer hasn't configured for DIPs at the manifest step,
+    // instead of relying on the price lookup to miss the network later.
+    if !price_calculator.is_supported(network_name) {
+        tracing::info!(
+            agreement_id = %agreement_id,
+            network = %network_name,
+            deployment_id = %deployment_id,
+            "network not in configured supported_networks, rejecting proposal"
+        );
         return Err(DipsError::UnsupportedNetwork(network_name.to_string()));
     }
 
@@ -426,7 +431,7 @@ mod test {
 
     use crate::{
         derive_agreement_id,
-        ipfs::{FailingIpfsFetcher, MockIpfsFetcher},
+        ipfs::{EmptyNetworkIpfsFetcher, FailingIpfsFetcher, MockIpfsFetcher},
         price::PriceCalculator,
         server::DipsServerContext,
         store::{FailingRcaStore, InMemoryRcaStore},
@@ -936,6 +941,40 @@ mod test {
         assert!(
             matches!(result, Err(DipsError::InvalidSubgraphManifest(_))),
             "Expected InvalidSubgraphManifest error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_empty_network() {
+        // Arrange
+        let payer = Address::repeat_byte(0x42);
+        let service_provider = Address::repeat_byte(0x11);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+
+        // Context with a manifest whose data source has an empty network field
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(EmptyNetworkIpfsFetcher),
+            price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+        });
+
+        let rca_bytes = rca_to_wire_bytes(rca);
+
+        // Act
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::InvalidSubgraphManifest(_))),
+            "Expected InvalidSubgraphManifest for empty network, got: {:?}",
             result
         );
     }
