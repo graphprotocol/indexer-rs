@@ -16,74 +16,83 @@ pub struct SubmitAgreementProposalRequest {
 ///
 /// A response to a request to propose a new *indexing agreement* to an *indexer*.
 ///
+/// The outcome is either `accepted` or `rejected` -- exactly one is set. A
+/// rejection carries a `RejectReason` plus an optional free-text detail.
+///
 /// See the `DipsService.SubmitAgreementProposal` method.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SubmitAgreementProposalResponse {
-    /// / The response to the agreement proposal.
-    #[prost(enumeration = "ProposalResponse", tag = "1")]
-    pub response: i32,
-    /// / Only set when response = REJECT.
-    #[prost(enumeration = "RejectReason", tag = "2")]
-    pub reject_reason: i32,
+    #[prost(oneof = "submit_agreement_proposal_response::Outcome", tags = "1, 2")]
+    pub outcome: ::core::option::Option<submit_agreement_proposal_response::Outcome>,
 }
-/// *
-///
-/// The response to an *indexing agreement* proposal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum ProposalResponse {
-    /// / The agreement proposal was accepted.
-    Accept = 0,
-    /// / The agreement proposal was rejected.
-    Reject = 1,
-}
-impl ProposalResponse {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            Self::Accept => "ACCEPT",
-            Self::Reject => "REJECT",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "ACCEPT" => Some(Self::Accept),
-            "REJECT" => Some(Self::Reject),
-            _ => None,
-        }
+/// Nested message and enum types in `SubmitAgreementProposalResponse`.
+pub mod submit_agreement_proposal_response {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Outcome {
+        /// / Set when the proposal was accepted.
+        #[prost(message, tag = "1")]
+        Accepted(super::Accepted),
+        /// / Set when the proposal was rejected.
+        #[prost(message, tag = "2")]
+        Rejected(super::Rejected),
     }
 }
 /// *
 ///
-/// The reason for rejecting an *indexing agreement* proposal.
-/// Only meaningful when ProposalResponse = REJECT.
+/// An accepted *indexing agreement* proposal. Empty for now; accept-only fields
+/// can be added later without disturbing the reject path.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Accepted {}
+/// *
+///
+/// A rejected *indexing agreement* proposal.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Rejected {
+    /// / Why the proposal was rejected.
+    #[prost(enumeration = "RejectReason", tag = "1")]
+    pub reason: i32,
+    /// / Optional human-readable detail; may be empty.
+    #[prost(string, tag = "2")]
+    pub detail: ::prost::alloc::string::String,
+}
+/// *
+///
+/// The reason an *indexer* rejected an *indexing agreement* proposal. Values may
+/// be added over time; an older reader should treat an unrecognised reason as
+/// UNSPECIFIED (the catch-all).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum RejectReason {
-    /// / Default / not set (used for ACCEPT responses).
+    /// / Rejected for a reason not covered below (the catch-all).
     Unspecified = 0,
     /// / The offered price is below the indexer's minimum.
     PriceTooLow = 1,
-    /// / Any other reason (bad signature, etc.).
-    Other = 2,
-    /// / The proposal signer is not authorised on the escrow contract.
-    SignerNotAuthorised = 3,
     /// / The proposal deadline has already passed.
-    DeadlineExpired = 4,
+    DeadlineExpired = 2,
     /// / The subgraph's network is not supported by this indexer.
-    UnsupportedNetwork = 5,
+    UnsupportedNetwork = 3,
     /// / The subgraph manifest could not be fetched from IPFS.
-    SubgraphManifestUnavailable = 6,
-    /// / The RCA service provider does not match this indexer.
-    UnexpectedServiceProvider = 7,
+    SubgraphManifestUnavailable = 4,
+    /// / The RCA names a different indexer as service provider.
+    UnexpectedServiceProvider = 5,
     /// / The agreement end time has already passed.
-    AgreementExpired = 8,
-    /// / The metadata version is not supported.
-    UnsupportedMetadataVersion = 9,
+    AgreementExpired = 6,
+    /// / The agreement metadata version is not supported.
+    UnsupportedMetadataVersion = 7,
+    /// / The proposal's signature failed to verify.
+    InvalidSignature = 8,
+    /// / The signer is not an authorised agreement manager.
+    SenderNotTrusted = 9,
+    /// / The indexer is at its DIPs capacity; may resolve later.
+    CapacityExceeded = 10,
+    /// / The subgraph manifest exceeds the indexer's size cap.
+    ManifestTooLarge = 11,
+    /// / A different proposal reuses an already-seen agreement id.
+    ReplayDetected = 12,
+    /// / The payer has insufficient escrow to back the agreement.
+    InsufficientEscrow = 13,
+    /// / A transient internal error; the proposal may be resent.
+    IndexerUnavailable = 14,
 }
 impl RejectReason {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -94,8 +103,6 @@ impl RejectReason {
         match self {
             Self::Unspecified => "REJECT_REASON_UNSPECIFIED",
             Self::PriceTooLow => "REJECT_REASON_PRICE_TOO_LOW",
-            Self::Other => "REJECT_REASON_OTHER",
-            Self::SignerNotAuthorised => "REJECT_REASON_SIGNER_NOT_AUTHORISED",
             Self::DeadlineExpired => "REJECT_REASON_DEADLINE_EXPIRED",
             Self::UnsupportedNetwork => "REJECT_REASON_UNSUPPORTED_NETWORK",
             Self::SubgraphManifestUnavailable => {
@@ -108,6 +115,13 @@ impl RejectReason {
             Self::UnsupportedMetadataVersion => {
                 "REJECT_REASON_UNSUPPORTED_METADATA_VERSION"
             }
+            Self::InvalidSignature => "REJECT_REASON_INVALID_SIGNATURE",
+            Self::SenderNotTrusted => "REJECT_REASON_SENDER_NOT_TRUSTED",
+            Self::CapacityExceeded => "REJECT_REASON_CAPACITY_EXCEEDED",
+            Self::ManifestTooLarge => "REJECT_REASON_MANIFEST_TOO_LARGE",
+            Self::ReplayDetected => "REJECT_REASON_REPLAY_DETECTED",
+            Self::InsufficientEscrow => "REJECT_REASON_INSUFFICIENT_ESCROW",
+            Self::IndexerUnavailable => "REJECT_REASON_INDEXER_UNAVAILABLE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -115,8 +129,6 @@ impl RejectReason {
         match value {
             "REJECT_REASON_UNSPECIFIED" => Some(Self::Unspecified),
             "REJECT_REASON_PRICE_TOO_LOW" => Some(Self::PriceTooLow),
-            "REJECT_REASON_OTHER" => Some(Self::Other),
-            "REJECT_REASON_SIGNER_NOT_AUTHORISED" => Some(Self::SignerNotAuthorised),
             "REJECT_REASON_DEADLINE_EXPIRED" => Some(Self::DeadlineExpired),
             "REJECT_REASON_UNSUPPORTED_NETWORK" => Some(Self::UnsupportedNetwork),
             "REJECT_REASON_SUBGRAPH_MANIFEST_UNAVAILABLE" => {
@@ -129,6 +141,13 @@ impl RejectReason {
             "REJECT_REASON_UNSUPPORTED_METADATA_VERSION" => {
                 Some(Self::UnsupportedMetadataVersion)
             }
+            "REJECT_REASON_INVALID_SIGNATURE" => Some(Self::InvalidSignature),
+            "REJECT_REASON_SENDER_NOT_TRUSTED" => Some(Self::SenderNotTrusted),
+            "REJECT_REASON_CAPACITY_EXCEEDED" => Some(Self::CapacityExceeded),
+            "REJECT_REASON_MANIFEST_TOO_LARGE" => Some(Self::ManifestTooLarge),
+            "REJECT_REASON_REPLAY_DETECTED" => Some(Self::ReplayDetected),
+            "REJECT_REASON_INSUFFICIENT_ESCROW" => Some(Self::InsufficientEscrow),
+            "REJECT_REASON_INDEXER_UNAVAILABLE" => Some(Self::IndexerUnavailable),
             _ => None,
         }
     }

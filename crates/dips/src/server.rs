@@ -53,7 +53,8 @@ use crate::{
     ipfs::IpfsFetcher,
     price::PriceCalculator,
     proto::indexer::graphprotocol::indexer::dips::{
-        indexer_dips_service_server::IndexerDipsService, ProposalResponse, RejectReason,
+        indexer_dips_service_server::IndexerDipsService,
+        submit_agreement_proposal_response::Outcome, Accepted, RejectReason, Rejected,
         SubmitAgreementProposalRequest, SubmitAgreementProposalResponse,
     },
     store::RcaStore,
@@ -98,7 +99,8 @@ pub struct DipsServer {
     pub inflight: InflightCounter,
 }
 
-/// Map a DipsError to the appropriate RejectReason for the gRPC response.
+/// Classify a DipsError as the reason for the rejection. The match is exhaustive
+/// so any future error variant must be classified here.
 fn reject_reason_from_error(err: &DipsError) -> RejectReason {
     match err {
         DipsError::TokensPerSecondTooLow { .. }
@@ -109,7 +111,23 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
         DipsError::SubgraphManifestUnavailable(_) => RejectReason::SubgraphManifestUnavailable,
         DipsError::UnexpectedServiceProvider { .. } => RejectReason::UnexpectedServiceProvider,
         DipsError::UnsupportedMetadataVersion(_) => RejectReason::UnsupportedMetadataVersion,
-        _ => RejectReason::Other,
+        // Malformed proposals with no dedicated reason map to the catch-all; the
+        // detail carries the specifics.
+        DipsError::AbiDecoding(_)
+        | DipsError::InvalidSubgraphManifest(_)
+        | DipsError::InvalidRca(_) => RejectReason::Unspecified,
+        // A store failure means the proposal was valid but the indexer couldn't persist
+        // it -- tell dipper this is transient so it retries rather than giving up.
+        DipsError::UnknownError(_) => RejectReason::IndexerUnavailable,
+    }
+}
+
+/// Human-readable detail sent to the caller. A store failure wraps a raw database
+/// error that could leak schema internals, so it gets a generic message instead.
+fn reject_detail_from_error(err: &DipsError) -> String {
+    match err {
+        DipsError::UnknownError(_) => "internal error while storing the proposal".to_string(),
+        other => other.to_string(),
     }
 }
 
@@ -165,8 +183,7 @@ impl IndexerDipsService for DipsServer {
             Ok(agreement_id) => {
                 tracing::info!(%agreement_id, "RCA accepted");
                 Ok(Response::new(SubmitAgreementProposalResponse {
-                    response: ProposalResponse::Accept.into(),
-                    reject_reason: RejectReason::Unspecified.into(),
+                    outcome: Some(Outcome::Accepted(Accepted {})),
                 }))
             }
             Err(e) => {
@@ -178,8 +195,10 @@ impl IndexerDipsService for DipsServer {
                     "RCA proposal rejected"
                 );
                 Ok(Response::new(SubmitAgreementProposalResponse {
-                    response: ProposalResponse::Reject.into(),
-                    reject_reason: reject_reason.into(),
+                    outcome: Some(Outcome::Rejected(Rejected {
+                        reason: reject_reason.into(),
+                        detail: reject_detail_from_error(&e),
+                    })),
                 }))
             }
         }
@@ -349,18 +368,6 @@ mod tests {
     }
 
     #[test]
-    fn test_reject_reason_abi_decoding() {
-        // Arrange
-        let err = DipsError::AbiDecoding("invalid bytes".to_string());
-
-        // Act
-        let reason = super::reject_reason_from_error(&err);
-
-        // Assert
-        assert_eq!(reason, RejectReason::Other);
-    }
-
-    #[test]
     fn test_reject_reason_agreement_expired() {
         // Arrange
         let err = DipsError::AgreementExpired {
@@ -412,5 +419,151 @@ mod tests {
 
         // Assert
         assert_eq!(reason, RejectReason::UnsupportedMetadataVersion);
+    }
+
+    #[test]
+    fn test_reject_reason_malformed_proposals_map_to_unspecified() {
+        // Arrange: malformed inputs share the UNSPECIFIED catch-all; detail carries the specifics.
+        let abi = DipsError::AbiDecoding("invalid bytes".to_string());
+        let manifest = DipsError::InvalidSubgraphManifest("QmTest".to_string());
+        let rca = DipsError::InvalidRca("bad rca".to_string());
+
+        // Act + Assert
+        assert_eq!(
+            super::reject_reason_from_error(&abi),
+            RejectReason::Unspecified
+        );
+        assert_eq!(
+            super::reject_reason_from_error(&manifest),
+            RejectReason::Unspecified
+        );
+        assert_eq!(
+            super::reject_reason_from_error(&rca),
+            RejectReason::Unspecified
+        );
+    }
+
+    #[test]
+    fn test_reject_reason_unknown_error_is_transient() {
+        // Arrange: a store/database failure surfaces as UnknownError.
+        let err = DipsError::UnknownError(anyhow::anyhow!("connection pool timed out"));
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert: a valid proposal the indexer can't persist is transient, so the
+        // sender should retry rather than treat it as a permanent failure.
+        assert_eq!(reason, RejectReason::IndexerUnavailable);
+    }
+
+    #[test]
+    fn test_reject_detail_sanitizes_store_errors() {
+        // Arrange: the raw database error mentions schema internals.
+        let store_err =
+            DipsError::UnknownError(anyhow::anyhow!("relation \"users\" column secret"));
+        let decode_err = DipsError::AbiDecoding("offset 7".to_string());
+
+        // Act
+        let store_detail = super::reject_detail_from_error(&store_err);
+        let decode_detail = super::reject_detail_from_error(&decode_err);
+
+        // Assert: the store error becomes generic while a well-formed validation
+        // error keeps its descriptive detail.
+        assert_eq!(store_detail, "internal error while storing the proposal");
+        assert!(!store_detail.contains("users"));
+        assert!(decode_detail.contains("offset 7"));
+    }
+
+    #[tokio::test]
+    async fn test_reject_response_carries_reason_and_detail() {
+        // Arrange: a non-decodable payload reaches validation and fails ABI decode.
+        let ctx = DipsServerContext::for_testing();
+        let server = DipsServer {
+            ctx,
+            expected_payee: Address::ZERO,
+            inflight: empty_counter(),
+        };
+        let request = Request::new(SubmitAgreementProposalRequest {
+            version: 2,
+            signed_rca: vec![1, 2, 3],
+        });
+
+        // Act
+        let response = server
+            .submit_agreement_proposal(request)
+            .await
+            .unwrap()
+            .into_inner();
+
+        // Assert
+        let Some(Outcome::Rejected(rejected)) = response.outcome else {
+            panic!("expected a rejected outcome");
+        };
+        assert_eq!(rejected.reason, RejectReason::Unspecified as i32);
+        assert!(rejected.detail.contains("ABI decoding"));
+    }
+
+    #[test]
+    fn test_reject_reason_wire_names_round_trip() {
+        let cases = [
+            (RejectReason::Unspecified, "REJECT_REASON_UNSPECIFIED"),
+            (RejectReason::PriceTooLow, "REJECT_REASON_PRICE_TOO_LOW"),
+            (
+                RejectReason::DeadlineExpired,
+                "REJECT_REASON_DEADLINE_EXPIRED",
+            ),
+            (
+                RejectReason::UnsupportedNetwork,
+                "REJECT_REASON_UNSUPPORTED_NETWORK",
+            ),
+            (
+                RejectReason::SubgraphManifestUnavailable,
+                "REJECT_REASON_SUBGRAPH_MANIFEST_UNAVAILABLE",
+            ),
+            (
+                RejectReason::UnexpectedServiceProvider,
+                "REJECT_REASON_UNEXPECTED_SERVICE_PROVIDER",
+            ),
+            (
+                RejectReason::AgreementExpired,
+                "REJECT_REASON_AGREEMENT_EXPIRED",
+            ),
+            (
+                RejectReason::UnsupportedMetadataVersion,
+                "REJECT_REASON_UNSUPPORTED_METADATA_VERSION",
+            ),
+            (
+                RejectReason::InvalidSignature,
+                "REJECT_REASON_INVALID_SIGNATURE",
+            ),
+            (
+                RejectReason::SenderNotTrusted,
+                "REJECT_REASON_SENDER_NOT_TRUSTED",
+            ),
+            (
+                RejectReason::CapacityExceeded,
+                "REJECT_REASON_CAPACITY_EXCEEDED",
+            ),
+            (
+                RejectReason::ManifestTooLarge,
+                "REJECT_REASON_MANIFEST_TOO_LARGE",
+            ),
+            (
+                RejectReason::ReplayDetected,
+                "REJECT_REASON_REPLAY_DETECTED",
+            ),
+            (
+                RejectReason::InsufficientEscrow,
+                "REJECT_REASON_INSUFFICIENT_ESCROW",
+            ),
+            (
+                RejectReason::IndexerUnavailable,
+                "REJECT_REASON_INDEXER_UNAVAILABLE",
+            ),
+        ];
+        for (variant, name) in cases {
+            assert_eq!(variant.as_str_name(), name);
+            assert_eq!(RejectReason::from_str_name(name), Some(variant));
+        }
     }
 }
