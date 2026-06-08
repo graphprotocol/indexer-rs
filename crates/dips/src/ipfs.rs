@@ -70,10 +70,10 @@ const IPFS_MAX_ATTEMPTS: u32 = 4;
 /// Base delay for exponential backoff between retries (10s, 20s, 40s).
 const IPFS_RETRY_BASE_DELAY: Duration = Duration::from_secs(10);
 
-/// Upper bound on bytes read from a single manifest fetch. Real subgraph
-/// manifests are tens of KB; this cap bounds the per-request bandwidth
-/// cost when the caller-chosen CID resolves to attacker-controlled content.
-pub(crate) const IPFS_MAX_MANIFEST_BYTES: usize = 5 * 1024 * 1024;
+/// Upper bound on bytes read from a single manifest fetch. Real manifests are
+/// tens of KB; this 25 MiB cap (aligned with Graph Node's default) bounds the
+/// per-request bandwidth cost of a caller-chosen CID resolving to hostile content.
+pub(crate) const IPFS_MAX_MANIFEST_BYTES: usize = 25 * 1024 * 1024;
 
 /// When the in-flight request count exceeds this threshold, IPFS fetches
 /// stop retrying — a single attempt only. The fewer-retries mode frees
@@ -170,9 +170,10 @@ impl IpfsClient {
             {
                 content.extend_from_slice(&chunk);
                 if content.len() > IPFS_MAX_MANIFEST_BYTES {
-                    return Err(DipsError::SubgraphManifestUnavailable(format!(
-                        "{file}: manifest exceeds {IPFS_MAX_MANIFEST_BYTES} byte cap"
-                    )));
+                    return Err(DipsError::ManifestTooLarge {
+                        file: file.to_string(),
+                        limit_bytes: IPFS_MAX_MANIFEST_BYTES,
+                    });
                 }
             }
 
