@@ -45,7 +45,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
-use thegraph_core::alloy::primitives::Address;
+use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
 use tonic::{Request, Response, Status};
 
 use crate::{
@@ -79,6 +79,8 @@ pub struct DipsServerContext {
     pub registry: Arc<graph_networks_registry::NetworksRegistry>,
     /// Additional networks beyond the registry
     pub additional_networks: Arc<BTreeMap<String, String>>,
+    /// EIP-712 domain for recovering the RCA signer (RecurringCollector).
+    pub rca_domain: Eip712Domain,
 }
 
 /// DIPS server implementing RCA protocol.
@@ -109,6 +111,7 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
         DipsError::AgreementExpired { .. } => RejectReason::AgreementExpired,
         DipsError::UnsupportedNetwork(_) => RejectReason::UnsupportedNetwork,
         DipsError::SubgraphManifestUnavailable(_) => RejectReason::SubgraphManifestUnavailable,
+        DipsError::InvalidSignature(_) => RejectReason::InvalidSignature,
         DipsError::UnexpectedServiceProvider { .. } => RejectReason::UnexpectedServiceProvider,
         DipsError::UnsupportedMetadataVersion(_) => RejectReason::UnsupportedMetadataVersion,
         // Malformed proposals with no dedicated reason map to the catch-all; the
@@ -231,6 +234,7 @@ mod tests {
                 )),
                 registry: Arc::new(crate::registry::test_registry()),
                 additional_networks: Arc::new(BTreeMap::new()),
+                rca_domain: crate::rca_eip712_domain(1337, Address::repeat_byte(0xCC)),
             })
         }
     }
@@ -392,6 +396,18 @@ mod tests {
 
         // Assert
         assert_eq!(reason, RejectReason::SubgraphManifestUnavailable);
+    }
+
+    #[test]
+    fn test_reject_reason_invalid_signature() {
+        // Arrange
+        let err = DipsError::InvalidSignature("bad signature".to_string());
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::InvalidSignature);
     }
 
     #[test]

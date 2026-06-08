@@ -132,6 +132,9 @@ pub async fn run() -> anyhow::Result<()> {
     );
     let host_and_port = config.service.host_and_port;
     let indexer_address = config.indexer.indexer_address;
+    // Captured before `config.blockchain` is moved into the router state below;
+    // used to build the RCA EIP-712 domain for DIPs signer recovery.
+    let blockchain_chain_id = config.blockchain.chain_id as u64;
     let ipfs_url = config.service.ipfs_url.clone();
 
     // V2 escrow accounts (used by DIPs) live in the network subgraph; no
@@ -209,8 +212,15 @@ pub async fn run() -> anyhow::Result<()> {
             min_grt_per_30_days,
             min_grt_per_billion_entities_per_30_days,
             additional_networks,
-            ..
+            recurring_collector,
         } = dips;
+
+        // The RecurringCollector address is the EIP-712 verifying contract used to
+        // recover RCA signers; without it DIPs cannot authenticate proposals.
+        let recurring_collector = (*recurring_collector).ok_or_else(|| {
+            anyhow::anyhow!("dips.recurring_collector must be set when DIPs is enabled")
+        })?;
+        let rca_domain = indexer_dips::rca_eip712_domain(blockchain_chain_id, recurring_collector);
 
         if supported_networks.is_empty() {
             tracing::warn!(
@@ -288,6 +298,7 @@ pub async fn run() -> anyhow::Result<()> {
             )),
             registry,
             additional_networks: Arc::new(additional_networks.clone()),
+            rca_domain,
         });
 
         // Create DIPS server

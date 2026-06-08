@@ -53,10 +53,10 @@ use std::sync::Arc;
 use server::DipsServerContext;
 use thegraph_core::alloy::{
     core::primitives::Address,
-    primitives::{keccak256, ruint::aliases::U256, Uint},
+    primitives::{keccak256, ruint::aliases::U256, Signature, Uint},
     signers::SignerSync,
     sol,
-    sol_types::{Eip712Domain, SolValue},
+    sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
 };
 
 #[cfg(feature = "db")]
@@ -147,9 +147,23 @@ fn derive_agreement_id(rca: &RecurringCollectionAgreement) -> Uuid {
     Uuid::from_bytes(id_bytes)
 }
 
+/// EIP-712 domain for RecurringCollectionAgreement signatures. Must match the
+/// domain dipper signs with and the on-chain RecurringCollector contract; any
+/// drift in name, version, chain id, or address makes every recovered signer wrong.
+pub fn rca_eip712_domain(chain_id: u64, recurring_collector: Address) -> Eip712Domain {
+    eip712_domain! {
+        name: "RecurringCollector",
+        version: "1",
+        chain_id: chain_id,
+        verifying_contract: recurring_collector,
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum DipsError {
     // RCA validation
+    #[error("invalid signature: {0}")]
+    InvalidSignature(String),
     #[error("RCA service provider {actual} does not match the expected address {expected}")]
     UnexpectedServiceProvider { expected: Address, actual: Address },
     #[error("cannot get subgraph manifest for {0}")]
@@ -208,6 +222,20 @@ impl RecurringCollectionAgreement {
 }
 
 impl SignedRecurringCollectionAgreement {
+    /// Recover the EIP-712 signer of the RCA over the RecurringCollector domain.
+    /// An empty, malformed, or non-recovering signature is rejected as
+    /// InvalidSignature. The recovered address is what PR B gates on.
+    pub fn recover_signer(&self, domain: &Eip712Domain) -> Result<Address, DipsError> {
+        if self.signature.is_empty() {
+            return Err(DipsError::InvalidSignature("missing signature".to_string()));
+        }
+        let signature = Signature::try_from(self.signature.as_ref())
+            .map_err(|err| DipsError::InvalidSignature(err.to_string()))?;
+        signature
+            .recover_address_from_prehash(&self.agreement.eip712_signing_hash(domain))
+            .map_err(|err| DipsError::InvalidSignature(err.to_string()))
+    }
+
     /// Validate proposal-time fields.
     ///
     /// Checks that the service provider matches the expected indexer
@@ -275,12 +303,18 @@ pub async fn validate_and_create_rca(
         price_calculator,
         registry,
         additional_networks,
-        ..
+        rca_domain,
     } = ctx.as_ref();
 
     // Decode SignedRCA
     let signed_rca = SignedRecurringCollectionAgreement::abi_decode(rca_bytes.as_ref())
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
+
+    // Authenticate the sender before acting on the proposal: recover the EIP-712
+    // signer. PR B gates this address against the on-chain agreement-manager role
+    // set; for now any cryptographically valid signature passes.
+    let signer = signed_rca.recover_signer(rca_domain)?;
+    tracing::debug!(%signer, "recovered RCA signer");
 
     // Validate service provider
     signed_rca.validate(expected_service_provider)?;
@@ -428,6 +462,7 @@ mod test {
         derive_agreement_id,
         ipfs::{FailingIpfsFetcher, MockIpfsFetcher},
         price::PriceCalculator,
+        rca_eip712_domain,
         server::DipsServerContext,
         store::{FailingRcaStore, InMemoryRcaStore},
         AcceptIndexingAgreementMetadata, DipsError, IndexingAgreementTermsV1,
@@ -435,8 +470,22 @@ mod test {
     };
     use thegraph_core::alloy::{
         primitives::{keccak256, Address, FixedBytes, U256},
-        sol_types::SolValue,
+        signers::local::PrivateKeySigner,
+        sol_types::{Eip712Domain, SolValue},
     };
+
+    // Fixed signer and domain for round-tripping RCA signatures in tests. The
+    // recovered address equals `test_signer().address()`; the domain must match
+    // the one stored in the test context so recovery succeeds.
+    fn test_signer() -> PrivateKeySigner {
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+            .parse()
+            .unwrap()
+    }
+
+    fn test_rca_domain() -> Eip712Domain {
+        rca_eip712_domain(1337, Address::repeat_byte(0xCC))
+    }
 
     fn create_test_context() -> Arc<DipsServerContext> {
         Arc::new(DipsServerContext {
@@ -449,19 +498,17 @@ mod test {
             )),
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
         })
     }
 
-    /// Helper: encode an RCA as a `SignedRecurringCollectionAgreement`
-    /// ABI payload. The signature field is no longer consumed by the
-    /// validator; this just produces the wire bytes that
-    /// `validate_and_create_rca` expects to decode.
+    /// Sign an RCA with the fixed test key over the test domain and ABI-encode
+    /// the wrapper, producing the wire bytes `validate_and_create_rca` decodes
+    /// and recovers the signer from.
     fn rca_to_wire_bytes(rca: RecurringCollectionAgreement) -> Vec<u8> {
-        SignedRecurringCollectionAgreement {
-            agreement: rca,
-            signature: Default::default(),
-        }
-        .abi_encode()
+        rca.sign(&test_rca_domain(), test_signer())
+            .expect("signing test RCA")
+            .abi_encode()
     }
 
     fn create_test_rca(
@@ -636,6 +683,85 @@ mod test {
         assert_eq!(data[0].0, agreement_id);
     }
 
+    #[test]
+    fn test_recover_signer_recovers_the_signing_key() {
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            Address::repeat_byte(0x11),
+            U256::from(200),
+            U256::from(100),
+        );
+
+        let signed = rca
+            .sign(&test_rca_domain(), test_signer())
+            .expect("signing test RCA");
+        let recovered = signed
+            .recover_signer(&test_rca_domain())
+            .expect("recovering signer");
+
+        assert_eq!(recovered, test_signer().address());
+    }
+
+    #[test]
+    fn test_recover_signer_rejects_empty_signature() {
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            Address::repeat_byte(0x11),
+            U256::from(200),
+            U256::from(100),
+        );
+        let signed = SignedRecurringCollectionAgreement {
+            agreement: rca,
+            signature: Default::default(),
+        };
+
+        assert!(matches!(
+            signed.recover_signer(&test_rca_domain()),
+            Err(DipsError::InvalidSignature(_))
+        ));
+    }
+
+    #[test]
+    fn test_recover_signer_rejects_malformed_signature() {
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            Address::repeat_byte(0x11),
+            U256::from(200),
+            U256::from(100),
+        );
+        let signed = SignedRecurringCollectionAgreement {
+            agreement: rca,
+            signature: vec![0xAA; 10].into(),
+        };
+
+        assert!(matches!(
+            signed.recover_signer(&test_rca_domain()),
+            Err(DipsError::InvalidSignature(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_missing_signature_rejected() {
+        let service_provider = Address::repeat_byte(0x11);
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            service_provider,
+            U256::from(200),
+            U256::from(100),
+        );
+        // An unsigned proposal must be rejected before any other validation.
+        let rca_bytes = SignedRecurringCollectionAgreement {
+            agreement: rca,
+            signature: Default::default(),
+        }
+        .abi_encode();
+
+        let ctx = create_test_context();
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
+
+        assert!(matches!(result, Err(DipsError::InvalidSignature(_))));
+    }
+
     #[tokio::test]
     async fn test_validate_and_create_rca_wrong_service_provider() {
         let payer = Address::repeat_byte(0x42);
@@ -718,6 +844,7 @@ mod test {
             )),
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -891,6 +1018,7 @@ mod test {
             )),
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -925,6 +1053,7 @@ mod test {
             )),
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -959,6 +1088,7 @@ mod test {
             )),
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);

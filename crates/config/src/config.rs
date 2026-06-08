@@ -679,6 +679,9 @@ pub struct DipsConfig {
     /// Minimum acceptable GRT per billion entities per 30 days.
     pub min_grt_per_billion_entities_per_30_days: GRT,
     pub additional_networks: BTreeMap<String, String>,
+    /// RecurringCollector address: the EIP-712 verifying contract used to recover
+    /// the signer of incoming RCA proposals. Required when DIPs is enabled.
+    pub recurring_collector: Option<Address>,
 }
 
 impl Default for DipsConfig {
@@ -690,6 +693,7 @@ impl Default for DipsConfig {
             min_grt_per_30_days: BTreeMap::new(),
             min_grt_per_billion_entities_per_30_days: GRT::ZERO,
             additional_networks: BTreeMap::new(),
+            recurring_collector: None,
         }
     }
 }
@@ -766,6 +770,7 @@ mod tests {
             HashSet::from([address!("deadbeefcafebabedeadbeefcafebabedeadbeef")]);
         max_config.dips = Some(crate::DipsConfig {
             min_grt_per_billion_entities_per_30_days: crate::GRT::from_grt("200"),
+            recurring_collector: Some(address!("cccccccccccccccccccccccccccccccccccccccc")),
             ..Default::default()
         });
 
