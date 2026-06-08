@@ -24,34 +24,51 @@ message SubmitAgreementProposalRequest {
 /**
  * A response to a request to propose a new _indexing agreement_ to an _indexer_.
  *
+ * The outcome is either `accepted` or `rejected` -- exactly one is set. A
+ * rejection carries a `RejectReason` plus an optional free-text detail.
+ *
  * See the `DipsService.SubmitAgreementProposal` method.
  */
 message SubmitAgreementProposalResponse {
-  ProposalResponse response = 1; /// The response to the agreement proposal.
-  RejectReason reject_reason = 2; /// Only set when response = REJECT.
+  oneof outcome {
+    Accepted accepted = 1; /// Set when the proposal was accepted.
+    Rejected rejected = 2; /// Set when the proposal was rejected.
+  }
 }
 
 /**
- * The response to an _indexing agreement_ proposal.
+ * An accepted _indexing agreement_ proposal. Empty for now; accept-only fields
+ * can be added later without disturbing the reject path.
  */
-enum ProposalResponse {
-  ACCEPT = 0; /// The agreement proposal was accepted.
-  REJECT = 1; /// The agreement proposal was rejected.
+message Accepted {}
+
+/**
+ * A rejected _indexing agreement_ proposal.
+ */
+message Rejected {
+  RejectReason reason = 1; /// Why the proposal was rejected.
+  string detail = 2;       /// Optional human-readable detail; may be empty.
 }
 
 /**
- * The reason for rejecting an _indexing agreement_ proposal.
- * Only meaningful when ProposalResponse = REJECT.
+ * The reason an _indexer_ rejected an _indexing agreement_ proposal. Values may
+ * be added over time; an older reader should treat an unrecognised reason as
+ * UNSPECIFIED (the catch-all).
  */
 enum RejectReason {
-  REJECT_REASON_UNSPECIFIED = 0;              /// Default / not set (used for ACCEPT responses).
-  REJECT_REASON_PRICE_TOO_LOW = 1;            /// The offered price is below the indexer's minimum.
-  REJECT_REASON_OTHER = 2;                    /// Any other reason (bad signature, etc.).
-  REJECT_REASON_SIGNER_NOT_AUTHORISED = 3;    /// The proposal signer is not authorised on the escrow contract.
-  REJECT_REASON_DEADLINE_EXPIRED = 4;         /// The proposal deadline has already passed.
-  REJECT_REASON_UNSUPPORTED_NETWORK = 5;      /// The subgraph's network is not supported by this indexer.
-  REJECT_REASON_SUBGRAPH_MANIFEST_UNAVAILABLE = 6; /// The subgraph manifest could not be fetched from IPFS.
-  REJECT_REASON_UNEXPECTED_SERVICE_PROVIDER = 7;   /// The RCA service provider does not match this indexer.
-  REJECT_REASON_AGREEMENT_EXPIRED = 8;        /// The agreement end time has already passed.
-  REJECT_REASON_UNSUPPORTED_METADATA_VERSION = 9;  /// The metadata version is not supported.
+  REJECT_REASON_UNSPECIFIED = 0;                   /// Rejected for a reason not covered below (the catch-all).
+  REJECT_REASON_PRICE_TOO_LOW = 1;                 /// The offered price is below the indexer's minimum.
+  REJECT_REASON_DEADLINE_EXPIRED = 2;              /// The proposal deadline has already passed.
+  REJECT_REASON_UNSUPPORTED_NETWORK = 3;           /// The subgraph's network is not supported by this indexer.
+  REJECT_REASON_SUBGRAPH_MANIFEST_UNAVAILABLE = 4; /// The subgraph manifest could not be fetched from IPFS.
+  REJECT_REASON_UNEXPECTED_SERVICE_PROVIDER = 5;   /// The RCA names a different indexer as service provider.
+  REJECT_REASON_AGREEMENT_EXPIRED = 6;             /// The agreement end time has already passed.
+  REJECT_REASON_UNSUPPORTED_METADATA_VERSION = 7;  /// The agreement metadata version is not supported.
+  REJECT_REASON_INVALID_SIGNATURE = 8;             /// The proposal's signature failed to verify.
+  REJECT_REASON_SENDER_NOT_TRUSTED = 9;            /// The signer is not an authorised agreement manager.
+  REJECT_REASON_CAPACITY_EXCEEDED = 10;            /// The indexer is at its DIPs capacity; may resolve later.
+  REJECT_REASON_MANIFEST_TOO_LARGE = 11;           /// The subgraph manifest exceeds the indexer's size cap.
+  REJECT_REASON_REPLAY_DETECTED = 12;              /// A different proposal reuses an already-seen agreement id.
+  REJECT_REASON_INSUFFICIENT_ESCROW = 13;          /// The payer has insufficient escrow to back the agreement.
+  REJECT_REASON_INDEXER_UNAVAILABLE = 14;          /// A transient internal error; the proposal may be resent.
 }
