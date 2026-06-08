@@ -156,6 +156,8 @@ pub enum DipsError {
     SubgraphManifestUnavailable(String),
     #[error("invalid subgraph id {0}")]
     InvalidSubgraphManifest(String),
+    #[error("subgraph manifest for {file} exceeds the {limit_bytes} byte cap")]
+    ManifestTooLarge { file: String, limit_bytes: usize },
     #[error("network {0} is not supported")]
     UnsupportedNetwork(String),
     #[error(

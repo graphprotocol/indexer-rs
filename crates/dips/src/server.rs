@@ -111,6 +111,7 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
         DipsError::SubgraphManifestUnavailable(_) => RejectReason::SubgraphManifestUnavailable,
         DipsError::UnexpectedServiceProvider { .. } => RejectReason::UnexpectedServiceProvider,
         DipsError::UnsupportedMetadataVersion(_) => RejectReason::UnsupportedMetadataVersion,
+        DipsError::ManifestTooLarge { .. } => RejectReason::ManifestTooLarge,
         // Malformed proposals with no dedicated reason map to the catch-all; the
         // detail carries the specifics.
         DipsError::AbiDecoding(_)
@@ -441,6 +442,21 @@ mod tests {
             super::reject_reason_from_error(&rca),
             RejectReason::Unspecified
         );
+    }
+
+    #[test]
+    fn test_reject_reason_manifest_too_large() {
+        // Arrange
+        let err = DipsError::ManifestTooLarge {
+            file: "QmTest".to_string(),
+            limit_bytes: 25 * 1024 * 1024,
+        };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::ManifestTooLarge);
     }
 
     #[test]
