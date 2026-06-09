@@ -69,6 +69,16 @@ pub(crate) static RAVS_FAILED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|
     )
     .unwrap()
 });
+pub(crate) static INVALID_RECEIPTS_STORE_FAILED_BY_VERSION: LazyLock<CounterVec> =
+    LazyLock::new(|| {
+        register_counter_vec!(
+            "tap_invalid_receipts_store_failed_total_by_version",
+            "Best-effort writes of invalid receipts that failed while the RAV for the valid \
+             receipts was still stored, per sender allocation and TAP version",
+            &["sender", "allocation", "version"]
+        )
+        .unwrap()
+    });
 pub(crate) static RAV_RESPONSE_TIME_BY_VERSION: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         "tap_rav_response_time_seconds_by_version",
@@ -658,22 +668,39 @@ where
                 //
                 // store them before we call remove_obsolete_receipts()
                 if !invalid_receipts.is_empty() {
+                    let invalid_count = invalid_receipts.len();
                     tracing::warn!(
-                        invalid_count = invalid_receipts.len(),
+                        invalid_count,
                         allocation_id = %self.allocation_id,
                         sender = %self.sender,
                         "Found invalid receipts",
                     );
 
-                    // Save invalid receipts to the database for logs.
-                    // TODO: consider doing that in a spawned task?
-                    let pool = self.pgpool.clone();
-                    let mut tx = pool.begin().await?;
-                    let fees = self
-                        .store_invalid_receipts(invalid_receipts, &mut tx)
-                        .await?;
-                    tx.commit().await?;
-                    self.account_invalid_receipts_fees(fees)?;
+                    // Recording invalid receipts is best-effort logging; a failed write must
+                    // not drop the RAV the valid receipts earned, so we log and meter it and
+                    // only advance the in-memory total when the write actually committed.
+                    match self
+                        .store_and_commit_invalid_receipts(invalid_receipts)
+                        .await
+                    {
+                        Ok(fees) => self.account_invalid_receipts_fees(fees)?,
+                        Err(err) => {
+                            tracing::error!(
+                                %err,
+                                invalid_count,
+                                allocation_id = %self.allocation_id,
+                                sender = %self.sender,
+                                "Failed to record invalid receipts; storing the RAV anyway",
+                            );
+                            INVALID_RECEIPTS_STORE_FAILED_BY_VERSION
+                                .with_label_values(&[
+                                    &self.sender.to_string(),
+                                    &self.allocation_id.to_string(),
+                                    TAP_VERSION,
+                                ])
+                                .inc();
+                        }
+                    }
                 }
 
                 match self
@@ -736,6 +763,20 @@ where
             }
             (Err(e), ..) => Err(e.into()),
         }
+    }
+
+    /// Store invalid receipts in their own committed transaction and return their total
+    /// value. Used by the mixed valid+invalid path, where recording is best-effort and must
+    /// not share a transaction with the RAV being stored for the valid receipts.
+    async fn store_and_commit_invalid_receipts(
+        &mut self,
+        receipts: Vec<ReceiptWithState<Failed, TapReceipt>>,
+    ) -> anyhow::Result<u128> {
+        let pool = self.pgpool.clone();
+        let mut tx = pool.begin().await?;
+        let fees = self.store_invalid_receipts(receipts, &mut tx).await?;
+        tx.commit().await?;
+        Ok(fees)
     }
 
     /// Store invalid receipts on the caller's transaction and return their total value.
@@ -1164,6 +1205,7 @@ pub fn init_metrics() {
     let _ = &*CLOSED_SENDER_ALLOCATIONS;
     let _ = &*RAVS_CREATED_BY_VERSION;
     let _ = &*RAVS_FAILED_BY_VERSION;
+    let _ = &*INVALID_RECEIPTS_STORE_FAILED_BY_VERSION;
     let _ = &*RAV_RESPONSE_TIME_BY_VERSION;
 }
 
