@@ -122,12 +122,9 @@ type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
 
 const TAP_VERSION: &str = "v2";
 
-/// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
+/// Manages unaggregated fees and the TAP lifecycle for a specific (allocation, sender) pair.
 ///
-/// We use PhantomData to be able to add bounds to T while implementing the Actor trait
-///
-/// T is used in SenderAllocationState<T> and SenderAllocationArgs<T> to store the
-/// correct Rav type and the correct aggregator client
+/// `PhantomData<T>` carries the network version so the `Actor` impl can pin the Rav type.
 pub struct SenderAllocation<T>(PhantomData<T>);
 impl<T: NetworkVersion> Default for SenderAllocation<T> {
     fn default() -> Self {
@@ -141,10 +138,7 @@ pub struct SenderAllocationState<T: NetworkVersion> {
     unaggregated_fees: UnaggregatedReceipts,
     /// Sum of all invalid receipts for the current allocation
     invalid_receipts_fees: UnaggregatedReceipts,
-    /// Last sent RAV
-    ///
-    /// This is used to together with a list of receipts to aggregate
-    /// into a new RAV
+    /// Last sent RAV, aggregated together with new receipts into the next RAV
     latest_rav: Option<Eip712SignedMessage<T::Rav>>,
     /// Database connection
     pgpool: PgPool,
@@ -253,10 +247,8 @@ pub enum SenderAllocationMessage {
     ),
 }
 
-/// Actor implementation for [SenderAllocation]
-///
-/// We use some bounds so [TapAgentContext] implements all parts needed for the given
-/// [crate::tap::context::NetworkVersion]
+/// Actor implementation for [SenderAllocation]. The bounds make [TapAgentContext] satisfy
+/// every part needed for the given [crate::tap::context::NetworkVersion].
 #[async_trait::async_trait]
 impl<T> Actor for SenderAllocation<T>
 where
@@ -313,11 +305,8 @@ where
         Ok(state)
     }
 
-    /// This method only runs on graceful stop (real close allocation)
-    /// if the actor crashes, this is not ran
-    ///
-    /// It's used to flush all remaining receipts while creating Ravs
-    /// and marking it as last to be redeemed by indexer-agent
+    /// Runs only on graceful stop (real close allocation), not on crash. Flushes the remaining
+    /// receipts into RAVs and marks the last one for indexer-agent to redeem.
     async fn post_stop(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -574,10 +563,8 @@ where
         }
     }
 
-    /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
-    /// time because actors run one message at a time.
-    ///
-    /// Yet, multiple different [SenderAllocation] can run a request in parallel.
+    /// Request a RAV from the sender's TAP aggregator. One actor handles one message at a time, so
+    /// an allocation runs a single request at once, though different allocations run in parallel.
     async fn rav_requester_single(&mut self) -> Result<Eip712SignedMessage<T::Rav>, RavError> {
         tracing::trace!("rav_requester_single()");
         let RavRequest {
@@ -1196,10 +1183,8 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
     }
 }
 
-/// Force initialization of all LazyLock metrics in this module.
-///
-/// This ensures metrics are registered with Prometheus at startup,
-/// even if no SenderAllocation actors have been created yet.
+/// Force initialization of all LazyLock metrics in this module, so they register with
+/// Prometheus at startup even before any SenderAllocation actor exists.
 pub fn init_metrics() {
     // Dereference each LazyLock to force initialization
     let _ = &*CLOSED_SENDER_ALLOCATIONS;
