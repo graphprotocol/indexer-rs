@@ -827,7 +827,7 @@ where
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> anyhow::Result<()> {
         let receipts_len = receipts.len();
-        let mut reciepts_signers = Vec::with_capacity(receipts_len);
+        let mut receipts_signers = Vec::with_capacity(receipts_len);
         let mut encoded_signatures = Vec::with_capacity(receipts_len);
         let mut collection_ids = Vec::with_capacity(receipts_len);
         let mut payers = Vec::with_capacity(receipts_len);
@@ -856,7 +856,7 @@ where
                 reason = %receipt_error,
                 "Invalid receipt stored",
             );
-            reciepts_signers.push(receipt_signer.encode_hex());
+            receipts_signers.push(receipt_signer.encode_hex());
             encoded_signatures.push(encoded_signature);
             collection_ids.push(collection_id.encode_hex());
             payers.push(payer.encode_hex());
@@ -892,7 +892,7 @@ where
                 $10::TEXT[]
             )"#,
         )
-        .bind(&reciepts_signers)
+        .bind(&receipts_signers)
         .bind(&encoded_signatures)
         .bind(&collection_ids)
         .bind(&payers)
