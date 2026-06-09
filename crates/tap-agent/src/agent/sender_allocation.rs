@@ -1312,6 +1312,38 @@ mod tests {
         (sender_allocation, receiver)
     }
 
+    /// Two receipts forced into the `Failed` state by a check that always fails, for
+    /// exercising invalid-receipt storage. Their values (1 and 2) sum to 3.
+    async fn make_failing_receipts() -> Vec<ReceiptWithState<Failed, TapReceipt>> {
+        struct FailingCheck;
+        #[async_trait::async_trait]
+        impl Check<TapReceipt> for FailingCheck {
+            async fn check(
+                &self,
+                _: &tap_core::receipt::Context,
+                _receipt: &CheckingReceipt,
+            ) -> tap_core::receipt::checks::CheckResult {
+                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
+                    "Failing check"
+                )))
+            }
+        }
+
+        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
+        let checking_receipts = vec![
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
+        ];
+        join_all(checking_receipts.into_iter().map(|receipt| async {
+            receipt
+                .finalize_receipt_checks(&Context::new(), &checks)
+                .await
+                .unwrap()
+                .unwrap_err()
+        }))
+        .await
+    }
+
     #[tokio::test]
     async fn test_several_receipts_rav_request() {
         let test_db = test_assets::setup_shared_test_db().await;
@@ -1485,36 +1517,7 @@ mod tests {
         ));
         let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
 
-        struct FailingCheck;
-        #[async_trait::async_trait]
-        impl Check<TapReceipt> for FailingCheck {
-            async fn check(
-                &self,
-                _: &tap_core::receipt::Context,
-                _receipt: &CheckingReceipt,
-            ) -> tap_core::receipt::checks::CheckResult {
-                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
-                    "Failing check"
-                )))
-            }
-        }
-
-        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
-        let checking_receipts = vec![
-            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
-            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
-        ];
-        let failing_receipts = checking_receipts
-            .into_iter()
-            .map(|receipt| async {
-                receipt
-                    .finalize_receipt_checks(&Context::new(), &checks)
-                    .await
-                    .unwrap()
-                    .unwrap_err()
-            })
-            .collect::<Vec<_>>();
-        let failing_receipts = join_all(failing_receipts).await;
+        let failing_receipts = make_failing_receipts().await;
 
         let pool = test_db.pool.clone();
         let mut tx = pool.begin().await.unwrap();
@@ -1602,36 +1605,7 @@ mod tests {
         ));
         let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
 
-        struct FailingCheck;
-        #[async_trait::async_trait]
-        impl Check<TapReceipt> for FailingCheck {
-            async fn check(
-                &self,
-                _: &tap_core::receipt::Context,
-                _receipt: &CheckingReceipt,
-            ) -> tap_core::receipt::checks::CheckResult {
-                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
-                    "Failing check"
-                )))
-            }
-        }
-
-        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
-        let checking_receipts = vec![
-            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
-            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
-        ];
-        let failing_receipts = checking_receipts
-            .into_iter()
-            .map(|receipt| async {
-                receipt
-                    .finalize_receipt_checks(&Context::new(), &checks)
-                    .await
-                    .unwrap()
-                    .unwrap_err()
-            })
-            .collect::<Vec<_>>();
-        let failing_receipts = join_all(failing_receipts).await;
+        let failing_receipts = make_failing_receipts().await;
 
         let pool = test_db.pool.clone();
         let mut tx = pool.begin().await.unwrap();
@@ -1656,36 +1630,7 @@ mod tests {
         ));
         let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
 
-        struct FailingCheck;
-        #[async_trait::async_trait]
-        impl Check<TapReceipt> for FailingCheck {
-            async fn check(
-                &self,
-                _: &tap_core::receipt::Context,
-                _receipt: &CheckingReceipt,
-            ) -> tap_core::receipt::checks::CheckResult {
-                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
-                    "Failing check"
-                )))
-            }
-        }
-
-        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
-        let checking_receipts = vec![
-            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
-            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
-        ];
-        let failing_receipts = checking_receipts
-            .into_iter()
-            .map(|receipt| async {
-                receipt
-                    .finalize_receipt_checks(&Context::new(), &checks)
-                    .await
-                    .unwrap()
-                    .unwrap_err()
-            })
-            .collect::<Vec<_>>();
-        let failing_receipts = join_all(failing_receipts).await;
+        let failing_receipts = make_failing_receipts().await;
 
         // Store the invalid receipts inside a transaction, then roll it back. Because the
         // store now runs on the caller's transaction instead of autocommitting, the rows
