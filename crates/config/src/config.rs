@@ -712,6 +712,10 @@ pub struct DipsConfig {
     /// Ethereum JSON-RPC endpoint used to fetch the EIP-712 domain from the
     /// RecurringCollector at startup (EIP-5267). Unset: built-in domain constants.
     pub rpc_url: Option<Url>,
+    /// Minimum escrow balance an untrusted sender's recovered signer must hold to
+    /// pass the escrow fallback. TODO: derive from the configured price minimum
+    /// plus a buffer for unknown entity counts instead of using a flat floor.
+    pub min_escrow_grt: GRT,
 }
 
 impl Default for DipsConfig {
@@ -728,6 +732,7 @@ impl Default for DipsConfig {
             role_failopen_grace_secs: 3_600,
             role_subgraph_max_lag_secs: 1_800,
             rpc_url: None,
+            min_escrow_grt: GRT::ONE,
         }
     }
 }

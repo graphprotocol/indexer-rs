@@ -22,7 +22,7 @@ use indexer_dips::{
     server::{DipsServer, DipsServerContext},
     trusted_signers::{SubgraphTrustedSigners, TrustedSignerSource},
 };
-use indexer_monitor::{DeploymentDetails, SubgraphClient};
+use indexer_monitor::{DeploymentDetails, EscrowAccountsWatcher, SubgraphClient};
 use release::IndexerServiceRelease;
 use reqwest::Url;
 use tap_core::tap_eip712_domain;
@@ -194,6 +194,7 @@ pub async fn run() -> anyhow::Result<()> {
             blockchain_chain_id,
             indexing_payments_subgraph
                 .expect("indexing_payments client is built whenever DIPs is enabled"),
+            v2_watcher.clone(),
             &ipfs_url,
             database.clone(),
             indexer_address,
@@ -265,10 +266,12 @@ pub async fn run() -> anyhow::Result<()> {
 /// Initialize and start the DIPS gRPC server. Errors return to the caller,
 /// which runs the service without DIPs rather than letting an optional
 /// subsystem take down query serving.
+#[allow(clippy::too_many_arguments)]
 async fn start_dips(
     dips: &DipsConfig,
     blockchain_chain_id: u64,
     indexing_payments_subgraph: &'static SubgraphClient,
+    v2_watcher: EscrowAccountsWatcher,
     ipfs_url: &Url,
     database: sqlx::PgPool,
     indexer_address: Address,
@@ -286,6 +289,7 @@ async fn start_dips(
         role_refresh_interval_secs,
         role_failopen_grace_secs,
         role_subgraph_max_lag_secs,
+        min_escrow_grt,
     } = dips;
 
     // The RecurringCollector address is the EIP-712 verifying contract used to
@@ -396,6 +400,10 @@ async fn start_dips(
         additional_networks: Arc::new(additional_networks.clone()),
         rca_domain,
         trusted_signers,
+        // Untrusted senders fall back to the same V2 escrow snapshot the
+        // query-fee path already watches; no extra subgraph query.
+        escrow_source: Arc::new(v2_watcher),
+        min_escrow_wei: U256::from(min_escrow_grt.wei()),
     });
 
     // Create DIPS server
