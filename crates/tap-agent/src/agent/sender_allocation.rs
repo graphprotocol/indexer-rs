@@ -605,6 +605,10 @@ where
                     .max()
                     .expect("invalid receipts should not be empty");
 
+                // Resolve the sender's signers before opening the transaction, so it isn't
+                // held open across that await.
+                let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
+
                 // Record the invalid receipts and delete them from the live table in one
                 // transaction, so a crash or delete failure can't leave them in both tables
                 // or delete them without a record.
@@ -613,7 +617,6 @@ where
                 let fees = self
                     .store_invalid_receipts(invalid_receipts, &mut tx)
                     .await?;
-                let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
                 self.delete_receipts_between(&signers, min_timestamp, max_timestamp, &mut tx)
                     .await?;
                 tx.commit().await?;
