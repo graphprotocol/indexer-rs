@@ -1670,6 +1670,15 @@ mod tests {
 
         let _ = receiver.recv().await;
 
+        // The actor handles one message at a time, so this round-trip can't return
+        // until TriggerRavRequest finished moving the receipts (insert-invalid then
+        // delete-from-main). Without it, recv() can wake mid-move and the counts race.
+        let _ = call!(
+            sender_allocation,
+            SenderAllocationMessage::GetUnaggregatedReceipts
+        )
+        .unwrap();
+
         let invalid_receipts =
             sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_receipts_invalid")
                 .fetch_one(&test_db.pool)
