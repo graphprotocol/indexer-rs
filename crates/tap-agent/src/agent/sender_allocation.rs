@@ -608,10 +608,19 @@ where
                     .max()
                     .expect("invalid receipts should not be empty");
 
-                self.store_invalid_receipts(invalid_receipts).await?;
-                let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
-                self.delete_receipts_between(&signers, min_timestamp, max_timestamp)
+                // Record the invalid receipts and delete them from the live table in one
+                // transaction, so a crash or delete failure can't leave them in both tables
+                // or delete them without a record.
+                let pool = self.pgpool.clone();
+                let mut tx = pool.begin().await?;
+                let fees = self
+                    .store_invalid_receipts(invalid_receipts, &mut tx)
                     .await?;
+                let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
+                self.delete_receipts_between(&signers, min_timestamp, max_timestamp, &mut tx)
+                    .await?;
+                tx.commit().await?;
+                self.account_invalid_receipts_fees(fees)?;
                 Err(RavError::AllReceiptsInvalid)
             }
             // When it receives both valid and invalid receipts or just valid
@@ -658,7 +667,13 @@ where
 
                     // Save invalid receipts to the database for logs.
                     // TODO: consider doing that in a spawned task?
-                    self.store_invalid_receipts(invalid_receipts).await?;
+                    let pool = self.pgpool.clone();
+                    let mut tx = pool.begin().await?;
+                    let fees = self
+                        .store_invalid_receipts(invalid_receipts, &mut tx)
+                        .await?;
+                    tx.commit().await?;
+                    self.account_invalid_receipts_fees(fees)?;
                 }
 
                 match self
@@ -723,10 +738,14 @@ where
         }
     }
 
+    /// Store invalid receipts on the caller's transaction and return their total value.
+    /// The caller commits, then records that value via [`Self::account_invalid_receipts_fees`],
+    /// so the in-memory accounting only advances once the database write is durable.
     async fn store_invalid_receipts(
         &mut self,
         receipts: Vec<ReceiptWithState<Failed, TapReceipt>>,
-    ) -> anyhow::Result<()> {
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> anyhow::Result<u128> {
         let fees = receipts
             .iter()
             .map(|receipt| receipt.signed_receipt().value())
@@ -739,10 +758,15 @@ where
             receipts_v2.push((receipt, error));
         }
 
-        if let Err(err) = self.store_v2_invalid_receipts(receipts_v2).await {
-            tracing::error!(%err, "There was an error while storing invalid v2 receipts.");
-        }
+        self.store_v2_invalid_receipts(receipts_v2, tx).await?;
 
+        Ok(fees)
+    }
+
+    /// Add `fees` (the rejected receipts' total value) to the running invalid-receipt
+    /// total and report it to the sender account. Call only after the store commits, so
+    /// the total never runs ahead of what was durably written.
+    fn account_invalid_receipts_fees(&mut self, fees: u128) -> anyhow::Result<()> {
         self.invalid_receipts_fees.value = self
             .invalid_receipts_fees
             .value
@@ -772,6 +796,7 @@ where
     async fn store_v2_invalid_receipts(
         &self,
         receipts: Vec<(tap_graph::v2::SignedReceipt, String)>,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> anyhow::Result<()> {
         let receipts_len = receipts.len();
         let mut reciepts_signers = Vec::with_capacity(receipts_len);
@@ -849,7 +874,7 @@ where
         .bind(&nonces)
         .bind(&values)
         .bind(&error_logs)
-        .execute(&self.pgpool)
+        .execute(&mut **tx)
         .await
         .map_err(|e: sqlx::Error| {
             tracing::error!(error = %e, "Failed to store invalid receipt");
@@ -901,6 +926,7 @@ pub trait DatabaseInteractions {
         signers: &[String],
         min_timestamp: u64,
         max_timestamp: u64,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
     /// Calculates fees for invalid receipts
     fn calculate_invalid_receipts_fee(
@@ -925,6 +951,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
         signers: &[String],
         min_timestamp: u64,
         max_timestamp: u64,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> anyhow::Result<()> {
         sqlx::query(
             r#"
@@ -949,7 +976,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 .encode_hex(),
         )
         .bind(signers)
-        .execute(&self.pgpool)
+        .execute(&mut **tx)
         .await?;
         Ok(())
     }
@@ -1450,10 +1477,13 @@ mod tests {
             .collect::<Vec<_>>();
         let failing_receipts = join_all(failing_receipts).await;
 
+        let pool = test_db.pool.clone();
+        let mut tx = pool.begin().await.unwrap();
         state
-            .store_invalid_receipts(failing_receipts)
+            .store_invalid_receipts(failing_receipts, &mut tx)
             .await
             .unwrap();
+        tx.commit().await.unwrap();
         let total_invalid_receipts = state.calculate_invalid_receipts_fee().await.unwrap();
         assert_eq!(total_invalid_receipts.value, 3u128);
     }
@@ -1564,8 +1594,78 @@ mod tests {
             .collect::<Vec<_>>();
         let failing_receipts = join_all(failing_receipts).await;
 
-        let result = state.store_invalid_receipts(failing_receipts).await;
+        let pool = test_db.pool.clone();
+        let mut tx = pool.begin().await.unwrap();
+        let result = state
+            .store_invalid_receipts(failing_receipts, &mut tx)
+            .await;
         assert!(result.is_ok());
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_store_invalid_receipts_rolls_back_with_transaction() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
+
+        struct FailingCheck;
+        #[async_trait::async_trait]
+        impl Check<TapReceipt> for FailingCheck {
+            async fn check(
+                &self,
+                _: &tap_core::receipt::Context,
+                _receipt: &CheckingReceipt,
+            ) -> tap_core::receipt::checks::CheckResult {
+                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
+                    "Failing check"
+                )))
+            }
+        }
+
+        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
+        let checking_receipts = vec![
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
+        ];
+        let failing_receipts = checking_receipts
+            .into_iter()
+            .map(|receipt| async {
+                receipt
+                    .finalize_receipt_checks(&Context::new(), &checks)
+                    .await
+                    .unwrap()
+                    .unwrap_err()
+            })
+            .collect::<Vec<_>>();
+        let failing_receipts = join_all(failing_receipts).await;
+
+        // Store the invalid receipts inside a transaction, then roll it back. Because the
+        // store now runs on the caller's transaction instead of autocommitting, the rows
+        // must not survive the rollback.
+        let pool = test_db.pool.clone();
+        let mut tx = pool.begin().await.unwrap();
+        state
+            .store_invalid_receipts(failing_receipts, &mut tx)
+            .await
+            .unwrap();
+        tx.rollback().await.unwrap();
+
+        let count: i64 = sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_receipts_invalid")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap()
+            .try_get("count")
+            .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[tokio::test]
