@@ -473,6 +473,10 @@ impl MetricsConfig {
 #[allow(deprecated)] // Allow using deprecated EscrowSubgraphConfig type
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
+    /// Indexing-payments subgraph, read for the DIPs agreement-manager role set.
+    /// Required when DIPs is enabled.
+    #[serde(default)]
+    pub indexing_payments: Option<SubgraphConfig>,
     #[deprecated(note = "V2 escrow accounts are in the network subgraph; this field is ignored.")]
     #[serde(default)]
     pub escrow: Option<EscrowSubgraphConfig>,
@@ -682,6 +686,14 @@ pub struct DipsConfig {
     /// RecurringCollector address: the EIP-712 verifying contract used to recover
     /// the signer of incoming RCA proposals. Required when DIPs is enabled.
     pub recurring_collector: Option<Address>,
+    /// How often to re-pull the agreement-manager role set from the subgraph.
+    pub role_refresh_interval_secs: u64,
+    /// Extra time past the refresh interval that a cached role set stays trusted
+    /// while refreshes fail, before the gate fails closed (the fail-open window).
+    pub role_failopen_grace_secs: u64,
+    /// Max seconds the role subgraph head may lag wall-clock before its data is
+    /// treated as unreliable. 0 disables the check.
+    pub role_subgraph_max_lag_secs: u64,
 }
 
 impl Default for DipsConfig {
@@ -694,6 +706,9 @@ impl Default for DipsConfig {
             min_grt_per_billion_entities_per_30_days: GRT::ZERO,
             additional_networks: BTreeMap::new(),
             recurring_collector: None,
+            role_refresh_interval_secs: 86_400,
+            role_failopen_grace_secs: 3_600,
+            role_subgraph_max_lag_secs: 1_800,
         }
     }
 }

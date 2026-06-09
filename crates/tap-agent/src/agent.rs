@@ -104,7 +104,8 @@ pub async fn start_agent(
                         ref escrow_min_balance_grt_wei,
                         max_signers_per_payer,
                     },
-                escrow: _, // Deprecated and ignored
+                indexing_payments: _, // DIPs only; not used by tap-agent
+                escrow: _,            // Deprecated and ignored
             },
         tap: TapConfig {
             sender_aggregator_endpoints,

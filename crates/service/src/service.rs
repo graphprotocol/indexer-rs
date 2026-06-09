@@ -20,6 +20,7 @@ use indexer_dips::{
         IndexerDipsService, IndexerDipsServiceServer,
     },
     server::{DipsServer, DipsServerContext},
+    trusted_signers::{SubgraphTrustedSigners, TrustedSignerSource},
 };
 use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
@@ -108,6 +109,17 @@ pub async fn run() -> anyhow::Result<()> {
         &config.subgraphs.network.config,
     )
     .await;
+
+    // DIPs reads the agreement-manager role set from the indexing-payments
+    // subgraph; build its client before the router consumes graph_node.
+    let indexing_payments_subgraph = if config.dips.is_some() {
+        let subgraph_config = config.subgraphs.indexing_payments.as_ref().ok_or_else(|| {
+            anyhow!("subgraphs.indexing_payments must be set when DIPs is enabled")
+        })?;
+        Some(create_subgraph_client(http_client.clone(), &config.graph_node, subgraph_config).await)
+    } else {
+        None
+    };
 
     // V2 escrow accounts are in the network subgraph, not a separate escrow_v2 subgraph
 
@@ -213,6 +225,9 @@ pub async fn run() -> anyhow::Result<()> {
             min_grt_per_billion_entities_per_30_days,
             additional_networks,
             recurring_collector,
+            role_refresh_interval_secs,
+            role_failopen_grace_secs,
+            role_subgraph_max_lag_secs,
         } = dips;
 
         // The RecurringCollector address is the EIP-712 verifying contract used to
@@ -285,6 +300,17 @@ pub async fn run() -> anyhow::Result<()> {
                 .div_ceil(entity_divisor),
         );
 
+        // Authorise proposal senders against the on-chain agreement-manager role
+        // set, read from the indexing-payments subgraph built above.
+        let trusted_signers: Arc<dyn TrustedSignerSource> = SubgraphTrustedSigners::spawn(
+            indexing_payments_subgraph
+                .expect("indexing_payments client is built whenever DIPs is enabled"),
+            Duration::from_secs(*role_refresh_interval_secs),
+            Duration::from_secs(*role_failopen_grace_secs),
+            Duration::from_secs(*role_subgraph_max_lag_secs),
+        )
+        .await;
+
         // Build server context
         let ctx = Arc::new(DipsServerContext {
             rca_store: Arc::new(PsqlRcaStore {
@@ -299,6 +325,7 @@ pub async fn run() -> anyhow::Result<()> {
             registry,
             additional_networks: Arc::new(additional_networks.clone()),
             rca_domain,
+            trusted_signers,
         });
 
         // Create DIPS server

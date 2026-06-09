@@ -23,6 +23,7 @@ db = [
     "dep:graph-networks-registry",
     "dep:serde",
     "dep:serde_yaml",
+    "dep:bytes",
 ]
 
 [dependencies]
@@ -37,7 +38,7 @@ build-info = { workspace = true, optional = true }
 indexer-monitor = { path = "../monitor", optional = true }
 thiserror.workspace = true
 graph-networks-registry = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
 serde_yaml = { version = "0.9", optional = true }
 
 # IPFS client dependencies
@@ -58,6 +59,9 @@ indexer-monitor = { path = "../monitor" }
 graph-networks-registry.workspace = true
 build-info.workspace = true
 rand = "0.8"
+reqwest = { workspace = true, features = ["json"] }
+serde_json.workspace = true
+wiremock.workspace = true
 
 [build-dependencies]
 tonic-build = { workspace = true, optional = true }
