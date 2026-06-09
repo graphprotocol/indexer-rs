@@ -617,7 +617,7 @@ where
                 self.delete_receipts_between(&signers, min_timestamp, max_timestamp, &mut tx)
                     .await?;
                 tx.commit().await?;
-                self.account_invalid_receipts_fees(fees)?;
+                self.account_invalid_receipts_fees(fees);
                 Err(RavError::AllReceiptsInvalid)
             }
             // When it receives both valid and invalid receipts or just valid
@@ -670,7 +670,7 @@ where
                         .store_and_commit_invalid_receipts(invalid_receipts)
                         .await
                     {
-                        Ok(fees) => self.account_invalid_receipts_fees(fees)?,
+                        Ok(fees) => self.account_invalid_receipts_fees(fees),
                         Err(err) => {
                             tracing::error!(
                                 %err,
@@ -791,10 +791,10 @@ where
         Ok(fees)
     }
 
-    /// Add `fees` (the rejected receipts' total value) to the running invalid-receipt
-    /// total and report it to the sender account. Call only after the store commits, so
-    /// the total never runs ahead of what was durably written.
-    fn account_invalid_receipts_fees(&mut self, fees: u128) -> anyhow::Result<()> {
+    /// Add `fees` (the rejected receipts' total value) to the running invalid-receipt total
+    /// and report it to the sender account. Call only after the store commits, so the total
+    /// never runs ahead of what was durably written.
+    fn account_invalid_receipts_fees(&mut self, fees: u128) {
         self.invalid_receipts_fees.value = self
             .invalid_receipts_fees
             .value
@@ -812,13 +812,22 @@ where
                 );
                 u128::MAX
             });
-        self.sender_account_ref
-            .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
-                T::to_allocation_id_enum(&self.allocation_id),
-                self.invalid_receipts_fees,
-            ))?;
-
-        Ok(())
+        // Notifying the sender account is best-effort: a failed cast means that actor is
+        // already gone, so log it rather than masking the caller's actual outcome.
+        if let Err(err) =
+            self.sender_account_ref
+                .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
+                    T::to_allocation_id_enum(&self.allocation_id),
+                    self.invalid_receipts_fees,
+                ))
+        {
+            tracing::error!(
+                %err,
+                sender = %self.sender,
+                allocation_id = %self.allocation_id,
+                "Failed to notify sender account of invalid receipt fees",
+            );
+        }
     }
 
     async fn store_v2_invalid_receipts(
