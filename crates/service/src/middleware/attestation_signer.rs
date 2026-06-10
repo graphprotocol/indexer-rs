@@ -41,6 +41,8 @@ pub async fn signer_middleware(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use axum::{body::Body, http::Request, middleware::from_fn_with_state, routing::get, Router};
     use indexer_attestation::AttestationSigner;
     use indexer_monitor::attestation_signers;
@@ -65,6 +67,7 @@ mod tests {
             vec![INDEXER_MNEMONIC.clone()],
             1,
             dispute_manager_rx,
+            Duration::from_secs(3600),
         );
 
         let expected_signer = attestation_signers
