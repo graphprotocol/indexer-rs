@@ -61,6 +61,7 @@ use thegraph_core::alloy::{
 
 #[cfg(feature = "db")]
 pub mod database;
+pub mod eip5267;
 pub mod inflight;
 pub mod ipfs;
 pub mod price;
@@ -74,6 +75,8 @@ pub mod store;
 
 use thiserror::Error;
 use uuid::Uuid;
+
+pub use crate::eip5267::fetch_rca_eip712_domain;
 
 /// Protocol version (seconds-based RCA)
 pub const PROTOCOL_VERSION: u64 = 2;

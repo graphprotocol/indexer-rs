@@ -682,6 +682,9 @@ pub struct DipsConfig {
     /// RecurringCollector address: the EIP-712 verifying contract used to recover
     /// the signer of incoming RCA proposals. Required when DIPs is enabled.
     pub recurring_collector: Option<Address>,
+    /// Ethereum JSON-RPC endpoint used to fetch the EIP-712 domain from the
+    /// RecurringCollector at startup (EIP-5267). Unset: built-in domain constants.
+    pub rpc_url: Option<Url>,
 }
 
 impl Default for DipsConfig {
@@ -694,6 +697,7 @@ impl Default for DipsConfig {
             min_grt_per_billion_entities_per_30_days: GRT::ZERO,
             additional_networks: BTreeMap::new(),
             recurring_collector: None,
+            rpc_url: None,
         }
     }
 }
@@ -771,6 +775,7 @@ mod tests {
         max_config.dips = Some(crate::DipsConfig {
             min_grt_per_billion_entities_per_30_days: crate::GRT::from_grt("200"),
             recurring_collector: Some(address!("cccccccccccccccccccccccccccccccccccccccc")),
+            rpc_url: Some(url::Url::parse("https://example.com/rpc").unwrap()),
             ..Default::default()
         });
 
