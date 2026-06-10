@@ -38,7 +38,10 @@ use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
 use crate::{
-    cli::Cli, constants::HTTP_CLIENT_TIMEOUT, database, metrics::serve_metrics,
+    cli::Cli,
+    constants::HTTP_CLIENT_TIMEOUT,
+    database,
+    metrics::{serve_metrics, DIPS_ENABLED},
     routes::DipsInfoState,
 };
 
@@ -167,17 +170,48 @@ pub async fn run() -> anyhow::Result<()> {
         }
     };
 
-    // Build DipsInfoState if DIPS is configured
-    let dips_info_state = config.dips.as_ref().map(|dips| DipsInfoState {
-        min_grt_per_30_days: dips
-            .min_grt_per_30_days
-            .iter()
-            .map(|(network, grt)| (network.clone(), format_grt(grt.wei())))
-            .collect(),
-        min_grt_per_billion_entities_per_30_days: format_grt(
-            dips.min_grt_per_billion_entities_per_30_days.wei(),
-        ),
-    });
+    // Create a cancellation token for coordinated graceful shutdown
+    let shutdown_token = CancellationToken::new();
+
+    // DIPS: RecurringCollectionAgreement validation and storage. An init
+    // failure here must not take down query serving: log it loudly and run
+    // without DIPs instead. /dips/info and the metric reflect the outcome.
+    let dips_info_state = match config.dips.as_ref() {
+        Some(dips) => match start_dips(
+            dips,
+            blockchain_chain_id,
+            &ipfs_url,
+            database.clone(),
+            indexer_address,
+            &shutdown_token,
+        )
+        .await
+        {
+            Ok(()) => {
+                DIPS_ENABLED.set(1);
+                Some(DipsInfoState::Available {
+                    min_grt_per_30_days: dips
+                        .min_grt_per_30_days
+                        .iter()
+                        .map(|(network, grt)| (network.clone(), format_grt(grt.wei())))
+                        .collect(),
+                    min_grt_per_billion_entities_per_30_days: format_grt(
+                        dips.min_grt_per_billion_entities_per_30_days.wei(),
+                    ),
+                })
+            }
+            Err(err) => {
+                DIPS_ENABLED.set(0);
+                tracing::error!(
+                    error = format!("{err:#}"),
+                    "DIPs initialization failed; the service is running WITHOUT DIPs \
+                     and will not receive indexing agreement proposals until restarted"
+                );
+                Some(DipsInfoState::Failed)
+            }
+        },
+        None => None,
+    };
 
     let router = ServiceRouter::builder()
         .database(database.clone())
@@ -196,34 +230,10 @@ pub async fn run() -> anyhow::Result<()> {
 
     serve_metrics(config.metrics.get_socket_addr());
 
-    // Create a cancellation token for coordinated graceful shutdown
-    let shutdown_token = CancellationToken::new();
-
     tracing::info!(
         address = %host_and_port,
         "Serving requests",
     );
-    // DIPS: RecurringCollectionAgreement validation and storage. An init
-    // failure here must not take down query serving: log it loudly and run
-    // without DIPs instead of exiting.
-    if let Some(dips) = config.dips.as_ref() {
-        if let Err(err) = start_dips(
-            dips,
-            blockchain_chain_id,
-            &ipfs_url,
-            database.clone(),
-            indexer_address,
-            &shutdown_token,
-        )
-        .await
-        {
-            tracing::error!(
-                error = format!("{err:#}"),
-                "DIPs initialization failed; the service is running WITHOUT DIPs \
-                 and will not receive indexing agreement proposals until restarted"
-            );
-        }
-    }
 
     let listener = TcpListener::bind(&host_and_port)
         .await

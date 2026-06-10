@@ -5,7 +5,8 @@ use std::{net::SocketAddr, sync::LazyLock};
 
 use axum::{routing::get, serve, Router};
 use prometheus::{
-    register_counter_vec, register_histogram_vec, CounterVec, HistogramVec, TextEncoder,
+    register_counter_vec, register_histogram_vec, register_int_gauge, CounterVec, HistogramVec,
+    IntGauge, TextEncoder,
 };
 use reqwest::StatusCode;
 use tokio::net::TcpListener;
@@ -32,6 +33,17 @@ pub static FAILED_RECEIPT: LazyLock<CounterVec> = LazyLock::new(|| {
         "indexer_receipt_failed_total",
         "Failed receipt checks",
         &["deployment", "allocation", "sender"]
+    )
+    .unwrap()
+});
+
+/// Set to 1 when the DIPs gRPC server started, 0 when DIPs was configured but
+/// failed to initialize (the service then runs without DIPs). Not exported
+/// when DIPs is not configured, so alerting on 0 is safe for DIPs operators.
+pub static DIPS_ENABLED: LazyLock<IntGauge> = LazyLock::new(|| {
+    register_int_gauge!(
+        "indexer_dips_enabled",
+        "1 if the DIPs gRPC server is running; 0 if DIPs is configured but failed to initialize"
     )
     .unwrap()
 });
