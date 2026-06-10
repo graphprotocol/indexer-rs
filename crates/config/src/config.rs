@@ -775,7 +775,6 @@ mod tests {
         max_config.dips = Some(crate::DipsConfig {
             min_grt_per_billion_entities_per_30_days: crate::GRT::from_grt("200"),
             recurring_collector: Some(address!("cccccccccccccccccccccccccccccccccccccccc")),
-            rpc_url: Some(url::Url::parse("https://example.com/rpc").unwrap()),
             ..Default::default()
         });
 

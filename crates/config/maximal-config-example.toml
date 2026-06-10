@@ -198,10 +198,9 @@ min_grt_per_billion_entities_per_30_days = "200"  # entity-based component (glob
 # recover the signer of incoming agreement proposals. Required when DIPs is enabled.
 recurring_collector = "0xcccccccccccccccccccccccccccccccccccccccc"
 
-# Ethereum JSON-RPC endpoint used to fetch the EIP-712 domain from the
-# RecurringCollector at startup (EIP-5267), so verification tracks the deployed
-# contract. When unset, built-in domain constants are used instead.
-rpc_url = "https://example.com/rpc"
+# Ethereum JSON-RPC endpoint for fetching the RecurringCollector's EIP-712
+# domain at startup (EIP-5267). When unset, built-in domain constants are used.
+# rpc_url = "https://arb1.arbitrum.io/rpc"
 
 [dips.min_grt_per_30_days]  # base rate component (per-network)
 # arbitrum-one = "450"
