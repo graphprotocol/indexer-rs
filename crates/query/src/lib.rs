@@ -190,3 +190,19 @@ pub mod payments_escrow_transactions_redeem {
 
     pub use payments_escrow_transactions_redeem_query::*;
 }
+
+pub mod agreement_manager_roles {
+    use graphql_client::GraphQLQuery;
+    type Bytes = String;
+
+    #[derive(GraphQLQuery)]
+    #[graphql(
+        schema_path = "graphql/indexing_payments.schema.graphql",
+        query_path = "graphql/agreement_manager_roles.query.graphql",
+        response_derives = "Debug",
+        variables_derives = "Clone"
+    )]
+    pub struct AgreementManagerRolesQuery;
+
+    pub use agreement_manager_roles_query::*;
+}

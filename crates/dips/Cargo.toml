@@ -20,10 +20,10 @@ db = [
     "dep:sqlx",
     "dep:build-info",
     "dep:indexer-monitor",
+    "dep:indexer-query",
     "dep:graph-networks-registry",
     "dep:serde",
     "dep:serde_yaml",
-    "dep:bytes",
 ]
 
 [dependencies]
@@ -36,6 +36,7 @@ tracing.workspace = true
 bs58 = "0.5"
 build-info = { workspace = true, optional = true }
 indexer-monitor = { path = "../monitor", optional = true }
+indexer-query = { path = "../query", optional = true }
 thiserror.workspace = true
 graph-networks-registry = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }

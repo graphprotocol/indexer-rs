@@ -48,20 +48,17 @@ mod subgraph {
 
     use async_trait::async_trait;
     use indexer_monitor::SubgraphClient;
-    use thegraph_core::alloy::primitives::Address;
+    use indexer_query::agreement_manager_roles::{self, AgreementManagerRolesQuery};
+    use thegraph_core::alloy::primitives::{keccak256, Address};
     use tokio::{sync::Mutex, time::Instant};
 
     use super::TrustedSignerSource;
     use crate::DipsError;
 
-    /// Fetches every active AGREEMENT_MANAGER_ROLE holder in one query, plus the
-    /// subgraph head time for the staleness guard. The role filter and `active:
-    /// true` are load-bearing: several roles are indexed, and revokes only flag.
-    const ROLE_HOLDERS_QUERY: &str = r#"{"query":"{ roleAssignments(where: {role: \"0xeb1b3455811b30c0dd237887f6349f22cc96ee5963709d7fe356d9b0cefa6d22\", active: true}, first: 1000) { account } _meta { block { timestamp } } }"}"#;
-
-    /// Page size for the holder query. The manager set is tiny in practice; if a
-    /// fetch ever returns a full page we log it rather than silently truncating.
-    const MAX_ROLE_HOLDERS: usize = 1000;
+    /// Page size for the holder query. The manager set is tiny in practice, so one
+    /// page almost always suffices; the fetch still pages so a larger set can't be
+    /// silently truncated.
+    const ROLE_PAGE_SIZE: i64 = 1000;
 
     /// After a failed on-demand fetch, don't re-hit the subgraph again for this
     /// long, so a burst of unknown signers can't turn into a fetch storm.
@@ -90,6 +87,9 @@ mod subgraph {
         /// Largest gap between the subgraph head and wall-clock that is still
         /// trusted; past it the data is treated as unreliable. 0 disables it.
         max_chain_lag: Duration,
+        /// Holder-query page size. Production uses [`ROLE_PAGE_SIZE`]; tests set a
+        /// small value to exercise pagination.
+        page_size: i64,
     }
 
     impl std::fmt::Debug for SubgraphTrustedSigners {
@@ -108,12 +108,22 @@ mod subgraph {
             max_stale: Duration,
             max_chain_lag: Duration,
         ) -> Arc<Self> {
+            Self::new_with_page_size(subgraph, max_stale, max_chain_lag, ROLE_PAGE_SIZE)
+        }
+
+        fn new_with_page_size(
+            subgraph: &'static SubgraphClient,
+            max_stale: Duration,
+            max_chain_lag: Duration,
+            page_size: i64,
+        ) -> Arc<Self> {
             Arc::new(Self {
                 subgraph,
                 cache: Arc::new(RwLock::new(RoleCache::default())),
                 refresh_lock: Arc::new(Mutex::new(())),
                 max_stale,
                 max_chain_lag,
+                page_size,
             })
         }
 
@@ -196,41 +206,72 @@ mod subgraph {
         }
 
         async fn fetch_holders(&self) -> anyhow::Result<HashSet<Address>> {
-            let body = bytes::Bytes::from_static(ROLE_HOLDERS_QUERY.as_bytes());
-            let response = self
-                .subgraph
-                .query_raw(body)
-                .await
-                .map_err(|e| anyhow::anyhow!("role-holder query failed: {e}"))?;
-            let parsed: GraphqlResponse = response
-                .json()
-                .await
-                .map_err(|e| anyhow::anyhow!("decoding role-holder response failed: {e}"))?;
+            // Derive the role id from its name so it can never drift from the
+            // on-chain AGREEMENT_MANAGER_ROLE constant.
+            let role = format!("0x{:x}", keccak256(b"AGREEMENT_MANAGER_ROLE"));
 
-            if let Some(errors) = parsed.errors.filter(|e| !e.is_empty()) {
-                let joined = errors
-                    .into_iter()
-                    .map(|e| e.message)
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                return Err(anyhow::anyhow!(
-                    "role-holder query returned errors: {joined}"
-                ));
+            let mut holders = HashSet::new();
+            let mut last = String::new();
+            let mut block_hash: Option<String> = None;
+            let mut head_timestamp: Option<i64> = None;
+            let mut first_page = true;
+
+            loop {
+                let data = self
+                    .subgraph
+                    .query::<AgreementManagerRolesQuery, _>(agreement_manager_roles::Variables {
+                        role: role.clone(),
+                        first: self.page_size,
+                        last: last.clone(),
+                        block: block_hash.clone().map(|hash| {
+                            agreement_manager_roles::Block_height {
+                                hash: Some(hash),
+                                number: None,
+                                number_gte: None,
+                            }
+                        }),
+                    })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("role-holder query failed: {e}"))?;
+
+                // The first page fixes the head timestamp (for the staleness guard)
+                // and the block that later pages pin to for a consistent read.
+                if first_page {
+                    first_page = false;
+                    if let Some(meta) = data.meta.as_ref() {
+                        head_timestamp = meta.block.timestamp;
+                        block_hash = meta.block.hash.clone();
+                    }
+                }
+
+                let page_len = data.role_assignments.len();
+                for row in data.role_assignments {
+                    last = row.id;
+                    let account = row.account.parse::<Address>().map_err(|e| {
+                        anyhow::anyhow!("invalid role-holder account {:?}: {e}", row.account)
+                    })?;
+                    holders.insert(account);
+                }
+                if (page_len as i64) < self.page_size {
+                    break;
+                }
             }
-
-            let data = parsed
-                .data
-                .ok_or_else(|| anyhow::anyhow!("role-holder response had no data"))?;
 
             // A badly-lagging subgraph may be missing recent grants or revokes,
             // so treat it as unreliable rather than trusting a stale role set.
             let max_lag = self.max_chain_lag.as_secs() as i64;
             if max_lag > 0 {
+                let timestamp = head_timestamp.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "indexing-payments subgraph returned no block timestamp; \
+                         cannot verify agreement-manager role freshness"
+                    )
+                })?;
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_err(|e| anyhow::anyhow!("system time before unix epoch: {e}"))?
                     .as_secs() as i64;
-                let lag = now - data.meta.block.timestamp;
+                let lag = now - timestamp;
                 if lag > max_lag {
                     return Err(anyhow::anyhow!(
                         "indexing-payments subgraph is {lag}s behind wall-clock (max {max_lag}s); \
@@ -239,18 +280,6 @@ mod subgraph {
                 }
             }
 
-            if data.role_assignments.len() >= MAX_ROLE_HOLDERS {
-                tracing::warn!(
-                    returned = data.role_assignments.len(),
-                    "agreement-manager role query hit the page cap; some holders may be missing"
-                );
-            }
-
-            let holders: HashSet<Address> = data
-                .role_assignments
-                .into_iter()
-                .map(|r| r.account)
-                .collect();
             if holders.is_empty() {
                 tracing::warn!(
                     "agreement-manager role set is empty; all DIPs proposals will be \
@@ -308,41 +337,6 @@ mod subgraph {
         }
     }
 
-    #[derive(serde::Deserialize)]
-    struct GraphqlResponse {
-        data: Option<RoleData>,
-        #[serde(default)]
-        errors: Option<Vec<GraphqlError>>,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct GraphqlError {
-        message: String,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct RoleData {
-        #[serde(rename = "roleAssignments")]
-        role_assignments: Vec<RoleRow>,
-        #[serde(rename = "_meta")]
-        meta: Meta,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct RoleRow {
-        account: Address,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct Meta {
-        block: MetaBlock,
-    }
-
-    #[derive(serde::Deserialize)]
-    struct MetaBlock {
-        timestamp: i64,
-    }
-
     #[cfg(test)]
     mod test {
         use std::time::Duration;
@@ -350,7 +344,10 @@ mod subgraph {
         use indexer_monitor::{DeploymentDetails, SubgraphClient};
         use serde_json::json;
         use thegraph_core::alloy::primitives::{address, Address};
-        use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+        use wiremock::{
+            matchers::{body_partial_json, method},
+            Mock, MockServer, ResponseTemplate,
+        };
 
         use super::*;
 
@@ -364,14 +361,26 @@ mod subgraph {
                 .as_secs() as i64
         }
 
+        /// A graphql_client response body for the role query: one `roleAssignments`
+        /// row per account (with a synthetic id cursor) plus the `_meta` head.
         fn holders_body(accounts: &[Address], timestamp: i64) -> serde_json::Value {
+            roles_page(accounts, 1, timestamp)
+        }
+
+        /// Like [`holders_body`] but with id cursors starting at `first_id`, so a
+        /// test can stitch several pages together (ids must strictly increase).
+        fn roles_page(accounts: &[Address], first_id: usize, timestamp: i64) -> serde_json::Value {
             json!({
                 "data": {
+                    "meta": { "block": { "number": 1, "hash": null, "timestamp": timestamp } },
                     "roleAssignments": accounts
                         .iter()
-                        .map(|a| json!({ "account": a }))
+                        .enumerate()
+                        .map(|(i, a)| json!({
+                            "id": format!("0x{:064x}", first_id + i),
+                            "account": a,
+                        }))
                         .collect::<Vec<_>>(),
-                    "_meta": { "block": { "timestamp": timestamp } }
                 }
             })
         }
@@ -506,14 +515,55 @@ mod subgraph {
             );
         }
 
-        #[test]
-        fn query_role_hash_matches_keccak() {
-            use thegraph_core::alloy::primitives::keccak256;
-            let expected = format!("0x{:x}", keccak256(b"AGREEMENT_MANAGER_ROLE"));
-            assert!(
-                ROLE_HOLDERS_QUERY.contains(&expected),
-                "query role hash drifted from keccak256(\"AGREEMENT_MANAGER_ROLE\")"
+        #[tokio::test]
+        async fn paginates_through_all_holders() {
+            // Page size 2 against three holders forces a second page: page 1 is
+            // full (ids 1-2), page 2 partial (id 3), selected by the id_gt cursor
+            // carried in the request body. All three must end up trusted.
+            const A: Address = address!("0000000000000000000000000000000000000001");
+            const B: Address = address!("0000000000000000000000000000000000000002");
+            const C: Address = address!("0000000000000000000000000000000000000003");
+
+            let server = MockServer::start().await;
+            // First page: empty cursor.
+            Mock::given(method("POST"))
+                .and(body_partial_json(json!({ "variables": { "last": "" } })))
+                .respond_with(ResponseTemplate::new(200).set_body_json(roles_page(
+                    &[A, B],
+                    1,
+                    now_secs(),
+                )))
+                .mount(&server)
+                .await;
+            // Second page: cursor is page 1's last id.
+            let page1_last = format!("0x{:064x}", 2);
+            Mock::given(method("POST"))
+                .and(body_partial_json(
+                    json!({ "variables": { "last": page1_last } }),
+                ))
+                .respond_with(ResponseTemplate::new(200).set_body_json(roles_page(
+                    &[C],
+                    3,
+                    now_secs(),
+                )))
+                .mount(&server)
+                .await;
+            let client = leak_client(&server).await;
+
+            let src = SubgraphTrustedSigners::new_with_page_size(
+                client,
+                Duration::from_secs(60),
+                Duration::ZERO,
+                2,
             );
+            src.refresh().await.unwrap();
+
+            for holder in [A, B, C] {
+                assert!(
+                    src.verify_trusted(holder).await.is_ok(),
+                    "holder {holder} from a later page should be trusted"
+                );
+            }
         }
     }
 }

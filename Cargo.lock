@@ -4339,6 +4339,7 @@ dependencies = [
  "futures",
  "graph-networks-registry",
  "indexer-monitor",
+ "indexer-query",
  "ipfs-api-backend-hyper",
  "prost 0.14.3",
  "rand 0.8.5",
