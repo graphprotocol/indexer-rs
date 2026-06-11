@@ -166,13 +166,48 @@ mod subgraph {
                 tick.tick().await; // the immediate first tick; already seeded above
                 loop {
                     tick.tick().await;
-                    if let Err(e) = bg.refresh().await {
-                        tracing::warn!(error = %e, "periodic agreement-manager role refresh failed");
-                    }
+                    bg.refresh_with_retry().await;
                 }
             });
 
             this
+        }
+
+        /// Refresh on the periodic schedule, retrying a failed fetch on a short
+        /// backoff rather than waiting a whole refresh interval. A brief subgraph
+        /// blip self-heals in seconds, so the fail-open window keeps its meaning.
+        async fn refresh_with_retry(&self) {
+            // Backoffs sit above REFRESH_DEBOUNCE so each retry actually re-fetches.
+            const BACKOFFS: [Duration; 4] = [
+                Duration::from_secs(10),
+                Duration::from_secs(30),
+                Duration::from_secs(60),
+                Duration::from_secs(120),
+            ];
+            let mut attempt = 0;
+            loop {
+                match self.refresh().await {
+                    Ok(()) => return,
+                    Err(e) if attempt < BACKOFFS.len() => {
+                        let backoff = BACKOFFS[attempt];
+                        tracing::warn!(
+                            error = %e,
+                            ?backoff,
+                            "periodic agreement-manager role refresh failed; retrying"
+                        );
+                        tokio::time::sleep(backoff).await;
+                        attempt += 1;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "agreement-manager role refresh still failing; \
+                             waiting for the next scheduled refresh"
+                        );
+                        return;
+                    }
+                }
+            }
         }
 
         fn is_fresh(&self, last_success: Option<Instant>) -> bool {
