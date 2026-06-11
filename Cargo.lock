@@ -4343,6 +4343,7 @@ dependencies = [
  "prost 0.14.3",
  "rand 0.8.5",
  "serde",
+ "serde_json",
  "serde_yaml",
  "sqlx",
  "test-assets",
@@ -4356,6 +4357,7 @@ dependencies = [
  "tonic-prost-build",
  "tracing",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]

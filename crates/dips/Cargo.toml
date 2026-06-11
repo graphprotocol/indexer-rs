@@ -58,6 +58,8 @@ indexer-monitor = { path = "../monitor" }
 graph-networks-registry.workspace = true
 build-info.workspace = true
 rand = "0.8"
+serde_json.workspace = true
+wiremock.workspace = true
 
 [build-dependencies]
 tonic-build = { workspace = true, optional = true }
