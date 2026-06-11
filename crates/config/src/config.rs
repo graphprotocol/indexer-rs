@@ -796,6 +796,14 @@ mod tests {
             recurring_collector: Some(address!("cccccccccccccccccccccccccccccccccccccccc")),
             ..Default::default()
         });
+        max_config.subgraphs.indexing_payments = Some(crate::SubgraphConfig {
+            query_url: "http://example.com/indexing-payments-subgraph"
+                .parse()
+                .unwrap(),
+            query_auth_token: None,
+            deployment_id: None,
+            syncing_interval_secs: std::time::Duration::from_secs(60),
+        });
 
         let max_config_file: Config = toml::from_str(
             fs::read_to_string("maximal-config-example.toml")

@@ -91,6 +91,19 @@ escrow_min_balance_grt_wei = "100000000000000000"
 # signers, orphaning receipts and enabling free queries.
 max_signers_per_payer = 0
 
+# Indexing-payments subgraph, read for the set of accounts allowed to send DIPs
+# agreement proposals (the agreement-manager role). Required when [dips] is set.
+[subgraphs.indexing_payments]
+# Query URL for the indexing-payments subgraph.
+query_url = "http://example.com/indexing-payments-subgraph"
+# How often to refresh contract information from this subgraph, in seconds.
+syncing_interval_secs = 60
+# Optional, auth token used as "bearer auth".
+# query_auth_token = "super-secret"
+# Optional deployment to look for in the local `graph-node`, if locally indexed.
+# NOTE: use `query_url` or `deployment_id` only.
+# deployment_id = "Qmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
 [blockchain]
 # The chain ID of the network that the graph network is running on
 chain_id = 1337
@@ -197,6 +210,16 @@ min_grt_per_billion_entities_per_30_days = "200"  # entity-based component (glob
 # RecurringCollector contract address. The EIP-712 verifying contract used to
 # recover the signer of incoming agreement proposals. Required when DIPs is enabled.
 recurring_collector = "0xcccccccccccccccccccccccccccccccccccccccc"
+
+# How often to re-pull the set of accounts allowed to send proposals (the
+# agreement-manager role) from the indexing-payments subgraph, in seconds.
+role_refresh_interval_secs = 86400
+# Extra seconds past the refresh interval that a cached role set stays trusted
+# while refreshes keep failing, before the gate starts rejecting (fail-open window).
+role_failopen_grace_secs = 3600
+# Largest the subgraph head may lag wall-clock (seconds) before its role data is
+# treated as unreliable. 0 disables the check.
+role_subgraph_max_lag_secs = 1800
 
 [dips.min_grt_per_30_days]  # base rate component (per-network)
 # arbitrum-one = "450"
