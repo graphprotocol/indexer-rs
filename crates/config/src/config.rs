@@ -286,6 +286,14 @@ impl Config {
             );
         }
 
+        // A zero DIPs role-refresh interval would panic the refresh task on startup
+        // (tokio's interval timer rejects a zero period), so reject it up front.
+        if let Some(dips) = &self.dips {
+            if dips.role_refresh_interval_secs == 0 {
+                return Err("dips.role_refresh_interval_secs must be greater than 0".to_string());
+            }
+        }
+
         // Warn about auth tokens over cleartext HTTP (TRST-L-3)
         // This is a security risk as tokens can be intercepted
         Self::warn_if_token_over_http(
