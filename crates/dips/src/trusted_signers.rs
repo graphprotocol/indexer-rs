@@ -358,6 +358,28 @@ mod subgraph {
         }
     }
 
+    /// What `verify_trusted` should do once it holds the freshest cache state.
+    /// Pulled out as a pure function so every branch -- including the fail-open
+    /// admit, which otherwise only fires on a rare race -- is unit-testable.
+    enum Decision {
+        Trusted,
+        Untrusted,
+        FailOpen,
+        Transient(DipsError),
+    }
+
+    /// Decide from a refresh result plus the post-refresh cache state: `present`
+    /// is whether the signer is in the holder set, `fresh` whether that set is
+    /// still inside the fail-open window.
+    fn decide(refreshed: Result<(), DipsError>, present: bool, fresh: bool) -> Decision {
+        match refreshed {
+            Ok(()) if present => Decision::Trusted,
+            Ok(()) => Decision::Untrusted,
+            Err(_) if present && fresh => Decision::FailOpen,
+            Err(transient) => Decision::Transient(transient),
+        }
+    }
+
     #[async_trait]
     impl TrustedSignerSource for SubgraphTrustedSigners {
         async fn verify_trusted(&self, signer: Address) -> Result<(), DipsError> {
@@ -391,32 +413,27 @@ mod subgraph {
                 )
             };
 
-            match refreshed {
-                // Authoritative answer from a fresh fetch: a newly-granted signer
-                // clears any stale negative entry.
-                Ok(()) if present => {
+            match decide(refreshed, present, fresh) {
+                // A newly-granted signer clears any stale negative entry.
+                Decision::Trusted => {
                     self.cache.write().unwrap().rejected.remove(&signer);
                     Ok(())
                 }
-                Ok(()) => {
+                Decision::Untrusted => {
                     self.note_rejected(signer);
                     Err(DipsError::SenderNotTrusted { signer })
                 }
-                // Couldn't refresh: fail open only for a known holder still inside
-                // the window; otherwise report transient -- and record no negative
-                // entry, since an inability to verify is not a definitive "no".
-                Err(transient) => {
-                    if present && fresh {
-                        tracing::warn!(
-                            %signer,
-                            "agreement-manager role refresh failed; admitting known \
-                             signer from cached set within fail-open window"
-                        );
-                        Ok(())
-                    } else {
-                        Err(transient)
-                    }
+                Decision::FailOpen => {
+                    tracing::warn!(
+                        %signer,
+                        "agreement-manager role refresh failed; admitting known \
+                         signer from cached set within fail-open window"
+                    );
+                    Ok(())
                 }
+                // Couldn't verify and can't fail open; report transient and record
+                // no negative entry, since this isn't a definitive "no".
+                Decision::Transient(e) => Err(e),
             }
         }
     }
@@ -704,6 +721,71 @@ mod subgraph {
                 posts, 1,
                 "concurrent unknown signers should share a single fetch"
             );
+        }
+
+        #[test]
+        fn decide_truth_table() {
+            let err = || DipsError::TrustVerificationUnavailable("down".to_string());
+
+            assert!(matches!(decide(Ok(()), true, true), Decision::Trusted));
+            // A successful fetch is authoritative, so presence alone admits.
+            assert!(matches!(decide(Ok(()), true, false), Decision::Trusted));
+            assert!(matches!(decide(Ok(()), false, true), Decision::Untrusted));
+            // The fail-open admit: refresh failed but a known holder is still fresh.
+            assert!(matches!(decide(Err(err()), true, true), Decision::FailOpen));
+            assert!(matches!(
+                decide(Err(err()), true, false),
+                Decision::Transient(_)
+            ));
+            assert!(matches!(
+                decide(Err(err()), false, true),
+                Decision::Transient(_)
+            ));
+            assert!(matches!(
+                decide(Err(err()), false, false),
+                Decision::Transient(_)
+            ));
+        }
+
+        #[tokio::test]
+        async fn known_holder_served_from_cache_during_outage() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(holders_body(&[HOLDER], now_secs())),
+                )
+                .mount(&server)
+                .await;
+            let client = leak_client(&server).await;
+            let src = SubgraphTrustedSigners::new(client, Duration::from_secs(60), Duration::ZERO);
+            src.refresh().await.unwrap();
+
+            // The subgraph goes down; within the window a known holder still passes.
+            server.reset().await;
+            Mock::given(method("POST"))
+                .respond_with(ResponseTemplate::new(500))
+                .mount(&server)
+                .await;
+            assert!(
+                src.verify_trusted(HOLDER).await.is_ok(),
+                "a known holder is admitted from cache while the subgraph is down"
+            );
+        }
+
+        #[tokio::test]
+        async fn fresh_head_within_lag_tolerance_passes() {
+            let (client, _server) = client_always(
+                ResponseTemplate::new(200).set_body_json(holders_body(&[HOLDER], now_secs())),
+            )
+            .await;
+            // Non-zero lag tolerance with a head at ~now: lag is inside tolerance,
+            // so the success side of the chain-lag guard trusts the fetch.
+            let src = SubgraphTrustedSigners::new(
+                client,
+                Duration::from_secs(60),
+                Duration::from_secs(1800),
+            );
+            assert!(src.verify_trusted(HOLDER).await.is_ok());
         }
     }
 }
