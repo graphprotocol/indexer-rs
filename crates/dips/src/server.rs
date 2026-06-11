@@ -140,6 +140,16 @@ fn reject_detail_from_error(err: &DipsError) -> String {
     }
 }
 
+/// Coarse `outcome` label for the proposal metric: an untrusted signer, a
+/// transient failure the sender should retry, or some other validation rejection.
+fn outcome_label(err: &DipsError) -> &'static str {
+    match err {
+        DipsError::SenderNotTrusted { .. } => "untrusted",
+        DipsError::TrustVerificationUnavailable(_) | DipsError::UnknownError(_) => "transient",
+        _ => "rejected",
+    }
+}
+
 #[async_trait]
 impl IndexerDipsService for DipsServer {
     /// Submit an RCA proposal.
@@ -190,6 +200,9 @@ impl IndexerDipsService for DipsServer {
             .await
         {
             Ok(agreement_id) => {
+                crate::metrics::PROPOSAL_OUTCOMES
+                    .with_label_values(&["accepted"])
+                    .inc();
                 tracing::info!(%agreement_id, "RCA accepted");
                 Ok(Response::new(SubmitAgreementProposalResponse {
                     outcome: Some(Outcome::Accepted(Accepted {})),
@@ -197,6 +210,9 @@ impl IndexerDipsService for DipsServer {
             }
             Err(e) => {
                 let reject_reason = reject_reason_from_error(&e);
+                crate::metrics::PROPOSAL_OUTCOMES
+                    .with_label_values(&[outcome_label(&e)])
+                    .inc();
                 tracing::info!(
                     error = %e,
                     reason = ?reject_reason,

@@ -63,6 +63,8 @@ use thegraph_core::alloy::{
 pub mod database;
 pub mod inflight;
 pub mod ipfs;
+#[cfg(any(feature = "rpc", feature = "db"))]
+pub mod metrics;
 pub mod price;
 #[cfg(feature = "rpc")]
 pub mod proto;
