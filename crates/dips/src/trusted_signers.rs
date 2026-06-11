@@ -41,7 +41,7 @@ pub use subgraph::SubgraphTrustedSigners;
 #[cfg(feature = "db")]
 mod subgraph {
     use std::{
-        collections::HashSet,
+        collections::{HashMap, HashSet},
         sync::{Arc, RwLock},
         time::Duration,
     };
@@ -64,6 +64,15 @@ mod subgraph {
     /// long, so a burst of unknown signers can't turn into a fetch storm.
     const REFRESH_DEBOUNCE: Duration = Duration::from_secs(5);
 
+    /// How long a "not a role holder" answer is reused from memory before that
+    /// signer is re-checked. Caps how often a repeated unknown signer drives a
+    /// fetch, and bounds how long a later-granted signer waits to be recognised.
+    const REJECTED_SIGNER_TTL: Duration = Duration::from_secs(3600);
+
+    /// Hard cap on the negative cache so a flood of distinct unknown signers
+    /// can't grow it without bound.
+    const MAX_REJECTED_SIGNERS: usize = 100_000;
+
     #[derive(Default)]
     struct RoleCache {
         holders: HashSet<Address>,
@@ -71,6 +80,10 @@ mod subgraph {
         last_success: Option<Instant>,
         /// When a fetch most recently failed (for debouncing retries).
         last_failed_attempt: Option<Instant>,
+        /// Signers recently confirmed *not* to hold the role, with the time of
+        /// that confirmation. A repeat of the same signer is rejected from here
+        /// until [`REJECTED_SIGNER_TTL`] passes; bounded by [`MAX_REJECTED_SIGNERS`].
+        rejected: HashMap<Address, Instant>,
     }
 
     /// Caches the AGREEMENT_MANAGER_ROLE holder set, refreshing on a timer and on
@@ -164,6 +177,26 @@ mod subgraph {
 
         fn is_fresh(&self, last_success: Option<Instant>) -> bool {
             last_success.is_some_and(|t| t.elapsed() < self.max_stale)
+        }
+
+        /// Record a definitive "not a role holder" so a repeat of the same signer
+        /// is answered from memory until it ages out. Prunes expired entries and
+        /// refuses to grow past a hard cap, bounding the map under a flood.
+        fn note_rejected(&self, signer: Address) {
+            let mut cache = self.cache.write().unwrap();
+            if cache.rejected.len() >= MAX_REJECTED_SIGNERS {
+                cache
+                    .rejected
+                    .retain(|_, t| t.elapsed() < REJECTED_SIGNER_TTL);
+                if cache.rejected.len() >= MAX_REJECTED_SIGNERS {
+                    tracing::warn!(
+                        cap = MAX_REJECTED_SIGNERS,
+                        "rejected-signer cache is full; not caching this rejection"
+                    );
+                    return;
+                }
+            }
+            cache.rejected.insert(signer, Instant::now());
         }
 
         /// Fetch the whole holder set and swap it into the cache. Single-flighted
@@ -293,17 +326,26 @@ mod subgraph {
     #[async_trait]
     impl TrustedSignerSource for SubgraphTrustedSigners {
         async fn verify_trusted(&self, signer: Address) -> Result<(), DipsError> {
-            // Fast path: a known holder whose cache is still inside the window is
-            // answered from memory, with no subgraph round-trip.
+            // Fast path, answered from memory: a known holder inside the window
+            // passes; a signer recently confirmed *not* a holder is rejected, so a
+            // repeated unknown signer can't drive a fetch until its entry ages out.
             {
                 let cache = self.cache.read().unwrap();
                 if cache.holders.contains(&signer) && self.is_fresh(cache.last_success) {
                     return Ok(());
                 }
+                if cache
+                    .rejected
+                    .get(&signer)
+                    .is_some_and(|t| t.elapsed() < REJECTED_SIGNER_TTL)
+                {
+                    return Err(DipsError::SenderNotTrusted { signer });
+                }
             }
 
-            // Unknown signer, or the cache has gone stale past the window: try a
-            // single-flighted refresh, then decide against the freshest data.
+            // A new (or newly-expired) signer, or a cache gone stale past the
+            // window: try a single-flighted refresh, then decide against the
+            // freshest data.
             let refreshed = self.refresh().await;
 
             let (present, fresh) = {
@@ -315,12 +357,19 @@ mod subgraph {
             };
 
             match refreshed {
-                // Authoritative answer from a fresh fetch.
-                Ok(()) if present => Ok(()),
-                Ok(()) => Err(DipsError::SenderNotTrusted { signer }),
+                // Authoritative answer from a fresh fetch: a newly-granted signer
+                // clears any stale negative entry.
+                Ok(()) if present => {
+                    self.cache.write().unwrap().rejected.remove(&signer);
+                    Ok(())
+                }
+                Ok(()) => {
+                    self.note_rejected(signer);
+                    Err(DipsError::SenderNotTrusted { signer })
+                }
                 // Couldn't refresh: fail open only for a known holder still inside
-                // the window (e.g. a concurrent refresh just succeeded); otherwise
-                // we can't vouch for the signer, so report transient.
+                // the window; otherwise report transient -- and record no negative
+                // entry, since an inability to verify is not a definitive "no".
                 Err(transient) => {
                     if present && fresh {
                         tracing::warn!(
@@ -564,6 +613,62 @@ mod subgraph {
                     "holder {holder} from a later page should be trusted"
                 );
             }
+        }
+
+        #[tokio::test]
+        async fn repeat_unknown_signer_is_not_refetched() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(holders_body(&[HOLDER], now_secs())),
+                )
+                .mount(&server)
+                .await;
+            let client = leak_client(&server).await;
+            let src = SubgraphTrustedSigners::new(client, Duration::from_secs(60), Duration::ZERO);
+
+            // First lookup: cold cache, one on-demand fetch, definitive reject.
+            assert!(matches!(
+                src.verify_trusted(STRANGER).await,
+                Err(DipsError::SenderNotTrusted { .. })
+            ));
+            // Second lookup of the same signer: served from the negative cache.
+            assert!(matches!(
+                src.verify_trusted(STRANGER).await,
+                Err(DipsError::SenderNotTrusted { .. })
+            ));
+
+            let posts = server.received_requests().await.unwrap().len();
+            assert_eq!(posts, 1, "a repeat of a known-bad signer must not re-query");
+        }
+
+        #[tokio::test]
+        async fn concurrent_unknown_signers_coalesce_one_fetch() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(holders_body(&[HOLDER], now_secs()))
+                        .set_delay(Duration::from_millis(200)),
+                )
+                .mount(&server)
+                .await;
+            let client = leak_client(&server).await;
+            let src = SubgraphTrustedSigners::new(client, Duration::from_secs(60), Duration::ZERO);
+
+            // Two distinct unknown signers arriving together coalesce onto one
+            // fetch via the single-flight refresh lock.
+            let a = address!("00000000000000000000000000000000000000aa");
+            let b = address!("00000000000000000000000000000000000000bb");
+            let (ra, rb) = tokio::join!(src.verify_trusted(a), src.verify_trusted(b));
+            assert!(matches!(ra, Err(DipsError::SenderNotTrusted { .. })));
+            assert!(matches!(rb, Err(DipsError::SenderNotTrusted { .. })));
+
+            let posts = server.received_requests().await.unwrap().len();
+            assert_eq!(
+                posts, 1,
+                "concurrent unknown signers should share a single fetch"
+            );
         }
     }
 }
