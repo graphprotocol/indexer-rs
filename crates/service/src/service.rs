@@ -406,6 +406,8 @@ async fn start_dips(
         // Untrusted senders fall back to the same V2 escrow snapshot the
         // query-fee path already watches; no extra subgraph query.
         escrow_source: Arc::new(v2_watcher),
+        // Config carries this as GRT (operator-friendly); compare in U256 wei
+        // because escrow balances from the snapshot are U256 wei.
         min_escrow_wei: U256::from(min_escrow_grt.wei()),
     });
 
