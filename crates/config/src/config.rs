@@ -711,6 +711,9 @@ pub struct DipsConfig {
     /// Max seconds the role subgraph head may lag wall-clock before its data is
     /// treated as unreliable. 0 disables the check.
     pub role_subgraph_max_lag_secs: u64,
+    /// Ethereum JSON-RPC endpoint used to fetch the EIP-712 domain from the
+    /// RecurringCollector at startup (EIP-5267). Unset: built-in domain constants.
+    pub rpc_url: Option<Url>,
 }
 
 impl Default for DipsConfig {
@@ -726,6 +729,7 @@ impl Default for DipsConfig {
             role_refresh_interval_secs: 86_400,
             role_failopen_grace_secs: 3_600,
             role_subgraph_max_lag_secs: 1_800,
+            rpc_url: None,
         }
     }
 }

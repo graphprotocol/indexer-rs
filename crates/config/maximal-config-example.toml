@@ -220,6 +220,9 @@ role_failopen_grace_secs = 3600
 # Largest the subgraph head may lag wall-clock (seconds) before its role data is
 # treated as unreliable. 0 disables the check.
 role_subgraph_max_lag_secs = 1800
+# Ethereum JSON-RPC endpoint for fetching the RecurringCollector's EIP-712
+# domain at startup (EIP-5267). When unset, built-in domain constants are used.
+# rpc_url = "https://arb1.arbitrum.io/rpc"
 
 [dips.min_grt_per_30_days]  # base rate component (per-network)
 # arbitrum-one = "450"

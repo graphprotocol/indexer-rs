@@ -26,7 +26,7 @@ use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
 use reqwest::Url;
 use tap_core::tap_eip712_domain;
-use thegraph_core::alloy::primitives::U256;
+use thegraph_core::alloy::primitives::{Address, U256};
 use tokio::{net::TcpListener, signal};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::server::TcpConnectInfo;
@@ -39,7 +39,10 @@ use tower_http::normalize_path::NormalizePath;
 use tracing::info;
 
 use crate::{
-    cli::Cli, constants::HTTP_CLIENT_TIMEOUT, database, metrics::serve_metrics,
+    cli::Cli,
+    constants::HTTP_CLIENT_TIMEOUT,
+    database,
+    metrics::{serve_metrics, DIPS_ENABLED},
     routes::DipsInfoState,
 };
 
@@ -179,17 +182,50 @@ pub async fn run() -> anyhow::Result<()> {
         }
     };
 
-    // Build DipsInfoState if DIPS is configured
-    let dips_info_state = config.dips.as_ref().map(|dips| DipsInfoState {
-        min_grt_per_30_days: dips
-            .min_grt_per_30_days
-            .iter()
-            .map(|(network, grt)| (network.clone(), format_grt(grt.wei())))
-            .collect(),
-        min_grt_per_billion_entities_per_30_days: format_grt(
-            dips.min_grt_per_billion_entities_per_30_days.wei(),
-        ),
-    });
+    // Create a cancellation token for coordinated graceful shutdown
+    let shutdown_token = CancellationToken::new();
+
+    // DIPS: RecurringCollectionAgreement validation and storage. An init
+    // failure here must not take down query serving: log it loudly and run
+    // without DIPs instead. /dips/info and the metric reflect the outcome.
+    let dips_info_state = match config.dips.as_ref() {
+        Some(dips) => match start_dips(
+            dips,
+            blockchain_chain_id,
+            indexing_payments_subgraph
+                .expect("indexing_payments client is built whenever DIPs is enabled"),
+            &ipfs_url,
+            database.clone(),
+            indexer_address,
+            &shutdown_token,
+        )
+        .await
+        {
+            Ok(()) => {
+                DIPS_ENABLED.set(1);
+                Some(DipsInfoState::Available {
+                    min_grt_per_30_days: dips
+                        .min_grt_per_30_days
+                        .iter()
+                        .map(|(network, grt)| (network.clone(), format_grt(grt.wei())))
+                        .collect(),
+                    min_grt_per_billion_entities_per_30_days: format_grt(
+                        dips.min_grt_per_billion_entities_per_30_days.wei(),
+                    ),
+                })
+            }
+            Err(err) => {
+                DIPS_ENABLED.set(0);
+                tracing::error!(
+                    error = format!("{err:#}"),
+                    "DIPs initialization failed; the service is running WITHOUT DIPs \
+                     and will not receive indexing agreement proposals until restarted"
+                );
+                Some(DipsInfoState::Failed)
+            }
+        },
+        None => None,
+    };
 
     let router = ServiceRouter::builder()
         .database(database.clone())
@@ -208,143 +244,10 @@ pub async fn run() -> anyhow::Result<()> {
 
     serve_metrics(config.metrics.get_socket_addr());
 
-    // Create a cancellation token for coordinated graceful shutdown
-    let shutdown_token = CancellationToken::new();
-
     tracing::info!(
         address = %host_and_port,
         "Serving requests",
     );
-    // DIPS: RecurringCollectionAgreement validation and storage
-    if let Some(dips) = config.dips.as_ref() {
-        let DipsConfig {
-            host,
-            port,
-            supported_networks,
-            min_grt_per_30_days,
-            min_grt_per_billion_entities_per_30_days,
-            additional_networks,
-            recurring_collector,
-            role_refresh_interval_secs,
-            role_failopen_grace_secs,
-            role_subgraph_max_lag_secs,
-        } = dips;
-
-        // The RecurringCollector address is the EIP-712 verifying contract used to
-        // recover RCA signers; without it DIPs cannot authenticate proposals.
-        let recurring_collector = (*recurring_collector).ok_or_else(|| {
-            anyhow::anyhow!("dips.recurring_collector must be set when DIPs is enabled")
-        })?;
-        let rca_domain = indexer_dips::rca_eip712_domain(blockchain_chain_id, recurring_collector);
-
-        if supported_networks.is_empty() {
-            tracing::warn!(
-                "DIPS enabled but no networks in dips.supported_networks. \
-                 All proposals will be rejected."
-            );
-        }
-
-        tracing::info!(
-            supported_networks = ?supported_networks,
-            ipfs_url = %ipfs_url,
-            "DIPs configuration loaded"
-        );
-        for (network, grt) in min_grt_per_30_days.iter() {
-            tracing::info!(
-                network = %network,
-                min_grt_per_30_days_wei = %grt.wei(),
-                "DIPs network pricing"
-            );
-        }
-        tracing::info!(
-            min_grt_per_billion_entities_per_30_days_wei = %min_grt_per_billion_entities_per_30_days.wei(),
-            "DIPs entity pricing"
-        );
-
-        let addr: SocketAddr = format!("{host}:{port}")
-            .parse()
-            .with_context(|| format!("Invalid DIPS host:port '{host}:{port}'"))?;
-
-        // Shared counter of in-flight gRPC requests. The IPFS client reads
-        // it to decide whether to use the full retry budget or fall back to
-        // a single attempt when the service is under load.
-        let inflight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-
-        // Initialize validation dependencies
-        let ipfs_fetcher = Arc::new(IpfsClient::new(ipfs_url.as_str(), inflight.clone())?);
-        let registry = Arc::new(
-            NetworksRegistry::from_latest_version()
-                .await
-                .context("Failed to fetch NetworksRegistry for DIPS")?,
-        );
-
-        // Convert GRT/30days to wei/second for protocol compatibility.
-        // Use ceiling division to protect indexers: configured minimums round UP,
-        // ensuring indexers never accept less than their stated minimum.
-        // 30 days = 2,592,000 seconds
-        const SECONDS_PER_30_DAYS: u128 = 30 * 24 * 60 * 60;
-        let tokens_per_second = min_grt_per_30_days
-            .iter()
-            .map(|(network, grt)| {
-                let wei_per_second = grt.wei().div_ceil(SECONDS_PER_30_DAYS);
-                (network.clone(), U256::from(wei_per_second))
-            })
-            .collect();
-
-        // Entity pricing: config is per-billion-entities, convert to per-entity.
-        // Ceiling division protects indexer from precision loss.
-        let entity_divisor = SECONDS_PER_30_DAYS * 1_000_000_000;
-        let tokens_per_entity_per_second = U256::from(
-            min_grt_per_billion_entities_per_30_days
-                .wei()
-                .div_ceil(entity_divisor),
-        );
-
-        // Authorise proposal senders against the on-chain agreement-manager role
-        // set, read from the indexing-payments subgraph built above.
-        let trusted_signers: Arc<dyn TrustedSignerSource> = SubgraphTrustedSigners::spawn(
-            indexing_payments_subgraph
-                .expect("indexing_payments client is built whenever DIPs is enabled"),
-            Duration::from_secs(*role_refresh_interval_secs),
-            Duration::from_secs(*role_failopen_grace_secs),
-            Duration::from_secs(*role_subgraph_max_lag_secs),
-        )
-        .await;
-
-        // Build server context
-        let ctx = Arc::new(DipsServerContext {
-            rca_store: Arc::new(PsqlRcaStore {
-                pool: database.clone(),
-            }),
-            ipfs_fetcher,
-            price_calculator: Arc::new(PriceCalculator::new(
-                supported_networks.clone(),
-                tokens_per_second,
-                tokens_per_entity_per_second,
-            )),
-            registry,
-            additional_networks: Arc::new(additional_networks.clone()),
-            rca_domain,
-            trusted_signers,
-        });
-
-        // Create DIPS server
-        let server = DipsServer {
-            ctx,
-            expected_payee: indexer_address,
-            inflight,
-        };
-
-        info!(
-            address = %addr,
-            "Starting DIPS gRPC server (RecurringCollectionAgreement validation)"
-        );
-
-        let dips_shutdown_token = shutdown_token.clone();
-        tokio::spawn(async move {
-            start_dips_server(addr, server, dips_shutdown_token.cancelled()).await;
-        });
-    }
 
     let listener = TcpListener::bind(&host_and_port)
         .await
@@ -357,6 +260,161 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(serve(listener, service)
         .with_graceful_shutdown(shutdown_handler(shutdown_token))
         .await?)
+}
+
+/// Initialize and start the DIPS gRPC server. Errors return to the caller,
+/// which runs the service without DIPs rather than letting an optional
+/// subsystem take down query serving.
+async fn start_dips(
+    dips: &DipsConfig,
+    blockchain_chain_id: u64,
+    indexing_payments_subgraph: &'static SubgraphClient,
+    ipfs_url: &Url,
+    database: sqlx::PgPool,
+    indexer_address: Address,
+    shutdown_token: &CancellationToken,
+) -> anyhow::Result<()> {
+    let DipsConfig {
+        host,
+        port,
+        supported_networks,
+        min_grt_per_30_days,
+        min_grt_per_billion_entities_per_30_days,
+        additional_networks,
+        recurring_collector,
+        rpc_url,
+        role_refresh_interval_secs,
+        role_failopen_grace_secs,
+        role_subgraph_max_lag_secs,
+    } = dips;
+
+    // The RecurringCollector address is the EIP-712 verifying contract used to
+    // recover RCA signers; without it DIPs cannot authenticate proposals.
+    let recurring_collector = (*recurring_collector).ok_or_else(|| {
+        anyhow::anyhow!("dips.recurring_collector must be set when DIPs is enabled")
+    })?;
+
+    // Prefer the domain the deployed contract reports (EIP-5267) so it tracks
+    // upgrades; without an RPC endpoint, fall back to built-in constants.
+    let rca_domain = match rpc_url {
+        Some(url) => {
+            indexer_dips::fetch_rca_eip712_domain(
+                url.as_str(),
+                recurring_collector,
+                blockchain_chain_id,
+            )
+            .await?
+        }
+        None => {
+            tracing::info!("dips.rpc_url not set; using built-in RCA EIP-712 domain constants");
+            indexer_dips::rca_eip712_domain(blockchain_chain_id, recurring_collector)
+        }
+    };
+
+    if supported_networks.is_empty() {
+        tracing::warn!(
+            "DIPS enabled but no networks in dips.supported_networks. \
+             All proposals will be rejected."
+        );
+    }
+
+    tracing::info!(
+        supported_networks = ?supported_networks,
+        ipfs_url = %ipfs_url,
+        "DIPs configuration loaded"
+    );
+    for (network, grt) in min_grt_per_30_days.iter() {
+        tracing::info!(
+            network = %network,
+            min_grt_per_30_days_wei = %grt.wei(),
+            "DIPs network pricing"
+        );
+    }
+    tracing::info!(
+        min_grt_per_billion_entities_per_30_days_wei = %min_grt_per_billion_entities_per_30_days.wei(),
+        "DIPs entity pricing"
+    );
+
+    let addr: SocketAddr = format!("{host}:{port}")
+        .parse()
+        .with_context(|| format!("Invalid DIPS host:port '{host}:{port}'"))?;
+
+    // Shared counter of in-flight gRPC requests. The IPFS client reads
+    // it to decide whether to use the full retry budget or fall back to
+    // a single attempt when the service is under load.
+    let inflight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    // Initialize validation dependencies
+    let ipfs_fetcher = Arc::new(IpfsClient::new(ipfs_url.as_str(), inflight.clone())?);
+    let registry = Arc::new(
+        NetworksRegistry::from_latest_version()
+            .await
+            .context("Failed to fetch NetworksRegistry for DIPS")?,
+    );
+
+    // Convert GRT/30days to wei/second for protocol compatibility.
+    // Use ceiling division to protect indexers: configured minimums round UP,
+    // ensuring indexers never accept less than their stated minimum.
+    const SECONDS_PER_30_DAYS: u128 = 30 * 24 * 60 * 60;
+    let tokens_per_second = min_grt_per_30_days
+        .iter()
+        .map(|(network, grt)| {
+            let wei_per_second = grt.wei().div_ceil(SECONDS_PER_30_DAYS);
+            (network.clone(), U256::from(wei_per_second))
+        })
+        .collect();
+
+    // Entity pricing: config is per-billion-entities, convert to per-entity.
+    // Ceiling division protects indexer from precision loss.
+    let entity_divisor = SECONDS_PER_30_DAYS * 1_000_000_000;
+    let tokens_per_entity_per_second = U256::from(
+        min_grt_per_billion_entities_per_30_days
+            .wei()
+            .div_ceil(entity_divisor),
+    );
+
+    // Authorise proposal senders against the on-chain agreement-manager role set,
+    // read from the indexing-payments subgraph.
+    let trusted_signers: Arc<dyn TrustedSignerSource> = SubgraphTrustedSigners::spawn(
+        indexing_payments_subgraph,
+        Duration::from_secs(*role_refresh_interval_secs),
+        Duration::from_secs(*role_failopen_grace_secs),
+        Duration::from_secs(*role_subgraph_max_lag_secs),
+    )
+    .await;
+
+    // Build server context
+    let ctx = Arc::new(DipsServerContext {
+        rca_store: Arc::new(PsqlRcaStore { pool: database }),
+        ipfs_fetcher,
+        price_calculator: Arc::new(PriceCalculator::new(
+            supported_networks.clone(),
+            tokens_per_second,
+            tokens_per_entity_per_second,
+        )),
+        registry,
+        additional_networks: Arc::new(additional_networks.clone()),
+        rca_domain,
+        trusted_signers,
+    });
+
+    // Create DIPS server
+    let server = DipsServer {
+        ctx,
+        expected_payee: indexer_address,
+        inflight,
+    };
+
+    info!(
+        address = %addr,
+        "Starting DIPS gRPC server (RecurringCollectionAgreement validation)"
+    );
+
+    let dips_shutdown_token = shutdown_token.clone();
+    tokio::spawn(async move {
+        start_dips_server(addr, server, dips_shutdown_token.cancelled()).await;
+    });
+    Ok(())
 }
 
 /// Per-request timeout across the whole gRPC handler. Long enough to cover
