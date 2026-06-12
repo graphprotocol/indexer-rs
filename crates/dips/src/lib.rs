@@ -50,6 +50,7 @@
 
 use std::sync::Arc;
 
+use escrow::{EscrowLookup, EscrowSource};
 use server::DipsServerContext;
 use thegraph_core::alloy::{
     core::primitives::Address,
@@ -62,6 +63,7 @@ use thegraph_core::alloy::{
 #[cfg(feature = "db")]
 pub mod database;
 pub mod eip5267;
+pub mod escrow;
 pub mod inflight;
 pub mod ipfs;
 #[cfg(any(feature = "rpc", feature = "db"))]
@@ -207,6 +209,10 @@ pub enum DipsError {
     SenderNotTrusted { signer: Address },
     #[error("could not verify sender authorisation: {0}")]
     TrustVerificationUnavailable(String),
+    #[error("sender {signer} has insufficient escrow to send agreement proposals")]
+    InsufficientEscrow { signer: Address },
+    #[error("could not verify sender escrow: {0}")]
+    EscrowVerificationUnavailable(String),
 }
 
 #[cfg(feature = "rpc")]
@@ -292,6 +298,25 @@ pub(crate) fn try_extract_deployment_id(rca_bytes: &[u8]) -> Option<String> {
     Some(bytes32_to_ipfs_hash(&metadata.subgraphDeploymentId.0))
 }
 
+/// Authorize an untrusted sender by escrow: a resolved balance at or above
+/// `min_wei` passes; below or absent is InsufficientEscrow; a wholesale-empty
+/// snapshot is transient, so a funded sender isn't branded unfunded during an outage.
+fn verify_escrow(
+    escrow: &dyn EscrowSource,
+    signer: Address,
+    min_wei: U256,
+) -> Result<(), DipsError> {
+    match escrow.lookup(signer) {
+        EscrowLookup::Balance(balance) if balance >= min_wei => Ok(()),
+        EscrowLookup::Balance(_) | EscrowLookup::NotFound => {
+            Err(DipsError::InsufficientEscrow { signer })
+        }
+        EscrowLookup::Unavailable => Err(DipsError::EscrowVerificationUnavailable(
+            "escrow snapshot is empty".to_string(),
+        )),
+    }
+}
+
 /// Validate and create a RecurringCollectionAgreement.
 ///
 /// Performs validation:
@@ -317,6 +342,8 @@ pub async fn validate_and_create_rca(
         additional_networks,
         rca_domain,
         trusted_signers,
+        escrow_source,
+        min_escrow_wei,
     } = ctx.as_ref();
 
     // Decode SignedRCA
@@ -324,10 +351,18 @@ pub async fn validate_and_create_rca(
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
     // Authenticate then authorize the sender: recover the EIP-712 signer, then
-    // require it to hold the on-chain agreement-manager role before doing any work.
+    // require it to be an on-chain agreement manager, or else a payer with escrow.
     let signer = signed_rca.recover_signer(rca_domain)?;
     tracing::debug!(%signer, "recovered RCA signer");
-    trusted_signers.verify_trusted(signer).await?;
+    match trusted_signers.verify_trusted(signer).await {
+        Ok(()) => {}
+        // Not a manager: fall back to an escrow check on the recovered signer
+        // rather than rejecting; a transient role error stays transient.
+        Err(DipsError::SenderNotTrusted { .. }) => {
+            verify_escrow(escrow_source.as_ref(), signer, *min_escrow_wei)?;
+        }
+        Err(transient) => return Err(transient),
+    }
 
     // Validate service provider
     signed_rca.validate(expected_service_provider)?;
@@ -478,6 +513,7 @@ mod test {
 
     use crate::{
         derive_agreement_id,
+        escrow::StaticEscrow,
         ipfs::{EmptyNetworkIpfsFetcher, FailingIpfsFetcher, MockIpfsFetcher},
         price::PriceCalculator,
         rca_eip712_domain,
@@ -525,21 +561,16 @@ mod test {
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
             trusted_signers: trusted_signers_for_test(),
+            escrow_source: Arc::new(StaticEscrow::default()),
+            min_escrow_wei: U256::ZERO,
         })
     }
 
-    #[tokio::test]
-    async fn test_validate_and_create_rca_untrusted_signer_rejected() {
-        let service_provider = Address::repeat_byte(0x11);
-        let rca = create_test_rca(
-            Address::repeat_byte(0x42),
-            service_provider,
-            U256::from(200),
-            U256::from(100),
-        );
-
-        // Trusted set excludes the test signer, so a valid signature is rejected.
-        let ctx = Arc::new(DipsServerContext {
+    /// A context whose trusted set is empty (so the recovered signer is never a
+    /// role holder), with a fixed escrow snapshot and minimum, to exercise C's
+    /// escrow fallback path.
+    fn untrusted_escrow_ctx(escrow: StaticEscrow, min_escrow_wei: U256) -> Arc<DipsServerContext> {
+        Arc::new(DipsServerContext {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
             price_calculator: Arc::new(PriceCalculator::new(
@@ -551,12 +582,97 @@ mod test {
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
             trusted_signers: Arc::new(StaticTrustedSigners::default()),
-        });
-        let rca_bytes = rca_to_wire_bytes(rca);
+            escrow_source: Arc::new(escrow),
+            min_escrow_wei,
+        })
+    }
 
-        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
+    #[tokio::test]
+    async fn untrusted_sender_with_sufficient_escrow_passes() {
+        let service_provider = Address::repeat_byte(0x11);
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            service_provider,
+            U256::from(200),
+            U256::from(100),
+        );
+        // The recovered signer (test_signer) holds 2 wei; the minimum is 1.
+        let escrow = StaticEscrow(
+            [(test_signer().address(), U256::from(2))]
+                .into_iter()
+                .collect(),
+        );
+        let ctx = untrusted_escrow_ctx(escrow, U256::from(1));
 
-        assert!(matches!(result, Err(DipsError::SenderNotTrusted { .. })));
+        let result =
+            super::validate_and_create_rca(ctx, &service_provider, rca_to_wire_bytes(rca)).await;
+
+        assert!(result.is_ok(), "got: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn untrusted_sender_below_minimum_is_insufficient() {
+        let service_provider = Address::repeat_byte(0x11);
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            service_provider,
+            U256::from(200),
+            U256::from(100),
+        );
+        let escrow = StaticEscrow(
+            [(test_signer().address(), U256::from(1))]
+                .into_iter()
+                .collect(),
+        );
+        let ctx = untrusted_escrow_ctx(escrow, U256::from(5));
+
+        let result =
+            super::validate_and_create_rca(ctx, &service_provider, rca_to_wire_bytes(rca)).await;
+
+        assert!(matches!(result, Err(DipsError::InsufficientEscrow { .. })));
+    }
+
+    #[tokio::test]
+    async fn untrusted_sender_absent_from_escrow_is_insufficient() {
+        let service_provider = Address::repeat_byte(0x11);
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            service_provider,
+            U256::from(200),
+            U256::from(100),
+        );
+        // Snapshot has a different address, so it is populated but not the signer.
+        let escrow = StaticEscrow(
+            [(Address::repeat_byte(0xEE), U256::from(99))]
+                .into_iter()
+                .collect(),
+        );
+        let ctx = untrusted_escrow_ctx(escrow, U256::from(1));
+
+        let result =
+            super::validate_and_create_rca(ctx, &service_provider, rca_to_wire_bytes(rca)).await;
+
+        assert!(matches!(result, Err(DipsError::InsufficientEscrow { .. })));
+    }
+
+    #[tokio::test]
+    async fn untrusted_sender_with_empty_snapshot_is_transient() {
+        let service_provider = Address::repeat_byte(0x11);
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            service_provider,
+            U256::from(200),
+            U256::from(100),
+        );
+        let ctx = untrusted_escrow_ctx(StaticEscrow::default(), U256::from(1));
+
+        let result =
+            super::validate_and_create_rca(ctx, &service_provider, rca_to_wire_bytes(rca)).await;
+
+        assert!(matches!(
+            result,
+            Err(DipsError::EscrowVerificationUnavailable(_))
+        ));
     }
 
     /// Sign an RCA with the fixed test key over the test domain and ABI-encode
@@ -903,6 +1019,8 @@ mod test {
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
             trusted_signers: trusted_signers_for_test(),
+            escrow_source: Arc::new(StaticEscrow::default()),
+            min_escrow_wei: U256::ZERO,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1078,6 +1196,8 @@ mod test {
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
             trusted_signers: trusted_signers_for_test(),
+            escrow_source: Arc::new(StaticEscrow::default()),
+            min_escrow_wei: U256::ZERO,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1114,6 +1234,8 @@ mod test {
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
             trusted_signers: trusted_signers_for_test(),
+            escrow_source: Arc::new(StaticEscrow::default()),
+            min_escrow_wei: U256::ZERO,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1150,6 +1272,8 @@ mod test {
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
             trusted_signers: trusted_signers_for_test(),
+            escrow_source: Arc::new(StaticEscrow::default()),
+            min_escrow_wei: U256::ZERO,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1186,6 +1310,8 @@ mod test {
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
             trusted_signers: trusted_signers_for_test(),
+            escrow_source: Arc::new(StaticEscrow::default()),
+            min_escrow_wei: U256::ZERO,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
