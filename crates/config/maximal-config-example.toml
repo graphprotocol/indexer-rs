@@ -202,6 +202,10 @@ recurring_collector = "0xcccccccccccccccccccccccccccccccccccccccc"
 # domain at startup (EIP-5267). When unset, built-in domain constants are used.
 # rpc_url = "https://arb1.arbitrum.io/rpc"
 
+# Optional safeguard: cap live DIPs agreements (awaiting acceptance or accepted) per
+# rolling 24h; rejected and expired proposals don't count. Unset = no cap; 0 rejects all.
+# max_agreements_per_day = 30
+
 [dips.min_grt_per_30_days]  # base rate component (per-network)
 # arbitrum-one = "450"
 # matic = "300"
