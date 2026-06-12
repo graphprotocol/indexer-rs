@@ -68,7 +68,7 @@ enum RejectReason {
   REJECT_REASON_SENDER_NOT_TRUSTED = 9;            /// The signer is not an authorised agreement manager.
   REJECT_REASON_CAPACITY_EXCEEDED = 10;            /// The indexer is at its DIPs capacity; may resolve later.
   REJECT_REASON_MANIFEST_TOO_LARGE = 11;           /// The subgraph manifest exceeds the indexer's size cap.
-  REJECT_REASON_REPLAY_DETECTED = 12;              /// A different proposal reuses an already-seen agreement id.
+  REJECT_REASON_REPLAY_DETECTED = 12;              /// A re-sent proposal: an exact replay of one already rejected, or a different payload reusing an already-seen agreement id.
   REJECT_REASON_INSUFFICIENT_ESCROW = 13;          /// The payer has insufficient escrow to back the agreement.
   REJECT_REASON_INDEXER_UNAVAILABLE = 14;          /// A transient internal error; the proposal may be resent.
 }

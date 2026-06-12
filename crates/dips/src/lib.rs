@@ -358,15 +358,17 @@ pub async fn validate_and_create_rca(
     match rca_store.lookup(agreement_id).await {
         Ok(None) => {}
         Ok(Some(prior)) => {
-            let same_bytes = prior.signed_payload == rca_bytes;
-            match (same_bytes, prior.status.as_str()) {
-                // Legitimate retry of a still-live proposal: replay the prior accept.
-                (true, "pending" | "accepted") => return Ok(agreement_id),
-                // Re-send of one we already rejected: re-reject without re-fetching.
-                (true, "rejected") => return Err(DipsError::ReplayRejected { agreement_id }),
-                // Same id, different payload (or any other status): treat as a conflict.
-                _ => return Err(DipsError::ReplayConflict { agreement_id }),
+            // A different payload reusing the same id is the only true conflict.
+            if prior.signed_payload != rca_bytes {
+                return Err(DipsError::ReplayConflict { agreement_id });
             }
+            // Byte-identical re-send: return the stored outcome, skipping the fetch.
+            // A rejected proposal stays rejected; any other status
+            // (pending/accepted/completed/future) resolves to an accept.
+            if prior.status == crate::store::STATUS_REJECTED {
+                return Err(DipsError::ReplayRejected { agreement_id });
+            }
+            return Ok(agreement_id);
         }
         Err(error) => {
             tracing::warn!(%agreement_id, %error, "replay lookup failed, continuing validation");
@@ -503,7 +505,7 @@ mod test {
         price::PriceCalculator,
         rca_eip712_domain,
         server::DipsServerContext,
-        store::{FailingRcaStore, InMemoryRcaStore},
+        store::{FailingRcaStore, InMemoryRcaStore, LookupFailsStore},
         AcceptIndexingAgreementMetadata, DipsError, IndexingAgreementTermsV1,
         RecurringCollectionAgreement, SignedRecurringCollectionAgreement,
     };
@@ -1285,6 +1287,7 @@ mod test {
             )),
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
         })
     }
 
@@ -1359,6 +1362,31 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_replay_identical_completed_accepts_without_fetch() {
+        // Arrange: seed identical bytes, then mark the row completed (the status
+        // the agent sets when an agreement goes live on-chain and is retired).
+        let payer = Address::repeat_byte(0x42);
+        let service_provider = Address::repeat_byte(0x11);
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let agreement_id = derive_agreement_id(&rca);
+        let rca_bytes = rca_to_wire_bytes(rca);
+
+        let store = Arc::new(InMemoryRcaStore::default());
+        store
+            .store_rca(agreement_id, rca_bytes.clone(), PROTOCOL_VERSION)
+            .await
+            .unwrap();
+        set_status(&store, "completed").await;
+        let ctx = context_with_store_and_panic_fetcher(store);
+
+        // Act
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
+
+        // Assert: a completed proposal replays Ok, not a ReplayConflict.
+        assert_eq!(result.unwrap(), agreement_id);
+    }
+
+    #[tokio::test]
     async fn test_replay_identical_rejected_rerejects_without_fetch() {
         // Arrange: seed identical bytes, then mark the row rejected.
         let payer = Address::repeat_byte(0x42);
@@ -1415,5 +1443,36 @@ mod test {
         assert!(matches!(result, Err(DipsError::ReplayConflict { .. })));
         let stored = store.lookup(agreement_id).await.unwrap().unwrap();
         assert_eq!(stored.signed_payload, seeded_bytes);
+    }
+
+    #[tokio::test]
+    async fn test_replay_lookup_error_fails_open_and_validates() {
+        // Arrange: a store whose lookup errors but whose write succeeds, paired
+        // with a real fetcher so validation can run to completion.
+        let payer = Address::repeat_byte(0x42);
+        let service_provider = Address::repeat_byte(0x11);
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let agreement_id = derive_agreement_id(&rca);
+        let rca_bytes = rca_to_wire_bytes(rca);
+
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(LookupFailsStore),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
+            price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
+        });
+
+        // Act
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
+
+        // Assert: the swallowed lookup error still lets validation run to an
+        // accept, rather than surfacing as a rejection.
+        assert_eq!(result.unwrap(), agreement_id);
     }
 }
