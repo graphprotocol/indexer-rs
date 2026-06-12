@@ -64,12 +64,13 @@ status_url = "http://graph-node:8000/graphql"
 [subgraphs.network]
 # Query URL for the Graph Network subgraph.
 query_url = "http://example.com/network-subgraph"
-# Optional, Auth token will used a "bearer auth"
+# Bearer token sent with queries to query_url. Set only if that endpoint needs auth (e.g. a
+# hosted/gateway URL); leave unset for an open or self-hosted graph-node. Default unset.
 # query_auth_token = "super-secret"
 
-# Optional, deployment to look for in the local `graph-node`, if locally indexed.
-# Locally indexing the subgraph is recommended.
-# NOTE: Use `query_url` or `deployment_id` only
+# Optional: index this subgraph on your own graph-node and put its deployment id here -- queries
+# then prefer your local node (free) and fall back to query_url only if it is unsynced or errors.
+# query_url stays required as that fallback. Indexing locally is recommended.
 deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Refreshing interval for the Graph contracts information from the Graph Network
 # subgraph.
@@ -99,10 +100,12 @@ query_url = "http://example.com/indexing-payments-subgraph"
 # Required when this section is present (no default). How often to refresh from this subgraph, in
 # seconds. Distinct from dips.role_refresh_interval_secs, which governs the role-set pull.
 syncing_interval_secs = 60
-# Optional, auth token used as "bearer auth".
+# Bearer token sent with queries to query_url. Set only if that endpoint needs auth; leave unset
+# for an open or self-hosted graph-node. Default unset.
 # query_auth_token = "super-secret"
-# Optional deployment to look for in the local `graph-node`, if locally indexed.
-# NOTE: use `query_url` or `deployment_id` only.
+
+# Optional: index this subgraph yourself and set its deployment id -- queries then prefer your
+# local node (free) and fall back to query_url if it is unsynced. query_url stays required.
 # deployment_id = "Qmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 [blockchain]
@@ -124,9 +127,11 @@ url_prefix = "/"
 # Serve the network subgraph on `common.server.host_and_port`/network
 serve_network_subgraph = false
 #### OPTIONAL VALUES ####
-## use this to add a layer while serving network/escrow subgraph
+
+# Bearer token that gates the served network/escrow subgraph endpoint (serve_network_subgraph).
 # serve_auth_token = "token"
-## allow queries using this token
+
+# Lets anyone presenting this token query for FREE -- no TAP receipt required. Share sparingly.
 # free_query_auth_token = "i-am-authorized-right?"
 ipfs_url = "https://api.thegraph.com/ipfs/"
 # Maximum number of deployments allowed in a single /cost GraphQL batch query.
@@ -158,8 +163,9 @@ max_receipt_value_grt = "0.001" # 0.001 GRT. We use strings to prevent rounding 
 # max_amount_willing_to_lose_grt = "0.1"
 max_amount_willing_to_lose_grt = 20
 
-# List of Senders that are allowed to spend up to `max_amount_willing_to_lose_grt`
-# over the escrow balance
+# Senders allowed to spend up to `max_amount_willing_to_lose_grt` beyond their escrow balance.
+# This is unsecured credit: if such a sender stops aggregating you may never recover those fees,
+# so only list senders you trust to settle. Default empty.
 trusted_senders = ["0xdeadbeefcafebabedeadbeefcafebabedeadbeef"]
 
 
@@ -223,19 +229,20 @@ min_grt_per_billion_entities_per_30_days = "200"  # illustrative, NOT the defaul
 # contract rpc_url reads the domain from. Required when DIPs is enabled.
 recurring_collector = "0xcccccccccccccccccccccccccccccccccccccccc"
 
-# How often to re-pull the agreement-manager role set from the indexing-payments subgraph, in
-# seconds. Must be > 0. Default 86400 (1 day); lower it to honour on-chain revocations sooner.
+# How often (seconds) to re-read the indexing-payments subgraph for which addresses may send you
+# agreements. New senders are picked up within seconds anyway; this mainly sets how fast a REVOKED
+# sender stops being accepted, so lower it to apply revocations sooner. Must be > 0. Default 86400.
 role_refresh_interval_secs = 86400
-# Fail-open window: extra seconds past the refresh interval that a KNOWN holder from the last
-# good role set keeps being admitted while refreshes fail (unknown signers are not); after it
-# the gate rejects everyone. Default 3600.
+# What happens during a subgraph outage. If re-reads keep failing, senders already on the last
+# good list stay accepted for this many extra seconds (brand-new senders never are); once it
+# elapses, every proposal is rejected until the subgraph recovers. Default 3600 (1 hour).
 role_failopen_grace_secs = 3600
-# Largest the subgraph head may lag wall-clock (seconds) before role data is treated as
-# unreliable: past this the fetch is a failure (role set not updated, proposals rejected as
-# transient) rather than trusting stale grants/revokes. 0 disables. Default 1800.
+# Safety check on subgraph freshness: if the subgraph has fallen more than this many seconds
+# behind the chain, its sender list is treated as untrustworthy and proposals are rejected as
+# "try again later" rather than risk stale data. 0 turns the check off. Default 1800 (30 min).
 role_subgraph_max_lag_secs = 1800
-# JSON-RPC to read the RecurringCollector's EIP-712 domain at startup (EIP-5267); unset = built-in
-# constants. Set on local/dev/upgraded chains, else signer recovery is wrong and all proposals rejected.
+# Startup chain RPC for the RecurringCollector's EIP-712 signing domain. Unset uses built-in
+# values (correct on standard networks); set on local/dev or upgraded chains, else every proposal fails.
 # rpc_url = "https://arb1.arbitrum.io/rpc"
 
 [dips.min_grt_per_30_days]  # base rate component (per-network)
