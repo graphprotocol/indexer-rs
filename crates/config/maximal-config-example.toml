@@ -245,6 +245,10 @@ role_subgraph_max_lag_secs = 1800
 # values (correct on standard networks); set on local/dev or upgraded chains, else every proposal fails.
 # rpc_url = "https://arb1.arbitrum.io/rpc"
 
+# Escrow floor (GRT) admitting a sender that lacks the agreement-manager role: if its recovered
+# signer holds at least this much escrow, the proposal proceeds to pricing/manifest checks. Default 1.
+# min_escrow_grt = "1"
+
 [dips.min_grt_per_30_days]  # base rate component (per-network)
 # arbitrum-one = "450"
 # matic = "300"
