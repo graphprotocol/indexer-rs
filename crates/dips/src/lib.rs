@@ -64,6 +64,8 @@ pub mod database;
 pub mod eip5267;
 pub mod inflight;
 pub mod ipfs;
+#[cfg(any(feature = "rpc", feature = "db"))]
+pub mod metrics;
 pub mod price;
 #[cfg(feature = "rpc")]
 pub mod proto;
@@ -72,6 +74,7 @@ mod registry;
 #[cfg(feature = "rpc")]
 pub mod server;
 pub mod store;
+pub mod trusted_signers;
 
 use thiserror::Error;
 use uuid::Uuid;
@@ -200,6 +203,10 @@ pub enum DipsError {
     DeadlineExpired { deadline: u64, now: u64 },
     #[error("agreement end time {ends_at} has already passed (current time: {now})")]
     AgreementExpired { ends_at: u64, now: u64 },
+    #[error("sender {signer} is not authorised to send agreement proposals")]
+    SenderNotTrusted { signer: Address },
+    #[error("could not verify sender authorisation: {0}")]
+    TrustVerificationUnavailable(String),
 }
 
 #[cfg(feature = "rpc")]
@@ -309,17 +316,18 @@ pub async fn validate_and_create_rca(
         registry,
         additional_networks,
         rca_domain,
+        trusted_signers,
     } = ctx.as_ref();
 
     // Decode SignedRCA
     let signed_rca = SignedRecurringCollectionAgreement::abi_decode(rca_bytes.as_ref())
         .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
 
-    // Authenticate the sender before acting on the proposal: recover the EIP-712
-    // signer. PR B gates this address against the on-chain agreement-manager role
-    // set; for now any cryptographically valid signature passes.
+    // Authenticate then authorize the sender: recover the EIP-712 signer, then
+    // require it to hold the on-chain agreement-manager role before doing any work.
     let signer = signed_rca.recover_signer(rca_domain)?;
     tracing::debug!(%signer, "recovered RCA signer");
+    trusted_signers.verify_trusted(signer).await?;
 
     // Validate service provider
     signed_rca.validate(expected_service_provider)?;
@@ -475,6 +483,7 @@ mod test {
         rca_eip712_domain,
         server::DipsServerContext,
         store::{FailingRcaStore, InMemoryRcaStore},
+        trusted_signers::{StaticTrustedSigners, TrustedSignerSource},
         AcceptIndexingAgreementMetadata, DipsError, IndexingAgreementTermsV1,
         RecurringCollectionAgreement, SignedRecurringCollectionAgreement,
     };
@@ -497,6 +506,12 @@ mod test {
         rca_eip712_domain(1337, Address::repeat_byte(0xCC))
     }
 
+    fn trusted_signers_for_test() -> Arc<dyn TrustedSignerSource> {
+        Arc::new(StaticTrustedSigners(HashSet::from([
+            test_signer().address()
+        ])))
+    }
+
     fn create_test_context() -> Arc<DipsServerContext> {
         Arc::new(DipsServerContext {
             rca_store: Arc::new(InMemoryRcaStore::default()),
@@ -509,7 +524,39 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            trusted_signers: trusted_signers_for_test(),
         })
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_untrusted_signer_rejected() {
+        let service_provider = Address::repeat_byte(0x11);
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            service_provider,
+            U256::from(200),
+            U256::from(100),
+        );
+
+        // Trusted set excludes the test signer, so a valid signature is rejected.
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
+            price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
+            trusted_signers: Arc::new(StaticTrustedSigners::default()),
+        });
+        let rca_bytes = rca_to_wire_bytes(rca);
+
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
+
+        assert!(matches!(result, Err(DipsError::SenderNotTrusted { .. })));
     }
 
     /// Sign an RCA with the fixed test key over the test domain and ABI-encode
@@ -855,6 +902,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            trusted_signers: trusted_signers_for_test(),
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1029,6 +1077,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            trusted_signers: trusted_signers_for_test(),
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1064,6 +1113,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            trusted_signers: trusted_signers_for_test(),
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1099,6 +1149,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            trusted_signers: trusted_signers_for_test(),
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1134,6 +1185,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            trusted_signers: trusted_signers_for_test(),
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);

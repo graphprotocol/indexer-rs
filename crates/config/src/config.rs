@@ -286,6 +286,23 @@ impl Config {
             );
         }
 
+        // Validate DIPs settings up front rather than partway through boot. A zero
+        // refresh interval panics the refresh task (tokio rejects a zero period); the
+        // collector address and indexing-payments subgraph are both needed to authorise.
+        if let Some(dips) = &self.dips {
+            if dips.role_refresh_interval_secs == 0 {
+                return Err("dips.role_refresh_interval_secs must be greater than 0".to_string());
+            }
+            if dips.recurring_collector.is_none() {
+                return Err("dips.recurring_collector must be set when DIPs is enabled".to_string());
+            }
+            if self.subgraphs.indexing_payments.is_none() {
+                return Err(
+                    "subgraphs.indexing_payments must be set when DIPs is enabled".to_string(),
+                );
+            }
+        }
+
         // Warn about auth tokens over cleartext HTTP (TRST-L-3)
         // This is a security risk as tokens can be intercepted
         Self::warn_if_token_over_http(
@@ -473,6 +490,10 @@ impl MetricsConfig {
 #[allow(deprecated)] // Allow using deprecated EscrowSubgraphConfig type
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
+    /// Indexing-payments subgraph, read for the DIPs agreement-manager role set.
+    /// Required when DIPs is enabled.
+    #[serde(default)]
+    pub indexing_payments: Option<SubgraphConfig>,
     #[deprecated(note = "V2 escrow accounts are in the network subgraph; this field is ignored.")]
     #[serde(default)]
     pub escrow: Option<EscrowSubgraphConfig>,
@@ -661,11 +682,9 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
     Duration::from_secs(300)
 }
 
-/// DIPs configuration.
-///
-/// Validates RCA proposals (signature, IPFS manifest, network, pricing)
-/// before storing. The indexer agent queries pending proposals from the
-/// database and decides on-chain acceptance.
+/// DIPs configuration. Authorises proposal senders -- recovers each agreement's EIP-712 signer
+/// and requires it to hold the on-chain agreement-manager role (from the indexing-payments
+/// subgraph) -- then validates accepted proposals before storing them for the indexer-agent.
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -682,6 +701,14 @@ pub struct DipsConfig {
     /// RecurringCollector address: the EIP-712 verifying contract used to recover
     /// the signer of incoming RCA proposals. Required when DIPs is enabled.
     pub recurring_collector: Option<Address>,
+    /// How often to re-pull the agreement-manager role set from the subgraph.
+    pub role_refresh_interval_secs: u64,
+    /// Extra time past the refresh interval that a cached role set stays trusted
+    /// while refreshes fail, before the gate fails closed (the fail-open window).
+    pub role_failopen_grace_secs: u64,
+    /// Max seconds the role subgraph head may lag wall-clock before its data is
+    /// treated as unreliable. 0 disables the check.
+    pub role_subgraph_max_lag_secs: u64,
     /// Ethereum JSON-RPC endpoint used to fetch the EIP-712 domain from the
     /// RecurringCollector at startup (EIP-5267). Unset: built-in domain constants.
     pub rpc_url: Option<Url>,
@@ -697,6 +724,9 @@ impl Default for DipsConfig {
             min_grt_per_billion_entities_per_30_days: GRT::ZERO,
             additional_networks: BTreeMap::new(),
             recurring_collector: None,
+            role_refresh_interval_secs: 86_400,
+            role_failopen_grace_secs: 3_600,
+            role_subgraph_max_lag_secs: 1_800,
             rpc_url: None,
         }
     }
@@ -776,6 +806,14 @@ mod tests {
             min_grt_per_billion_entities_per_30_days: crate::GRT::from_grt("200"),
             recurring_collector: Some(address!("cccccccccccccccccccccccccccccccccccccccc")),
             ..Default::default()
+        });
+        max_config.subgraphs.indexing_payments = Some(crate::SubgraphConfig {
+            query_url: "http://example.com/indexing-payments-subgraph"
+                .parse()
+                .unwrap(),
+            query_auth_token: None,
+            deployment_id: None,
+            syncing_interval_secs: std::time::Duration::from_secs(60),
         });
 
         let max_config_file: Config = toml::from_str(
