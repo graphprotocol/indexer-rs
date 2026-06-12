@@ -286,11 +286,20 @@ impl Config {
             );
         }
 
-        // A zero DIPs role-refresh interval would panic the refresh task on startup
-        // (tokio's interval timer rejects a zero period), so reject it up front.
+        // Validate DIPs settings up front rather than partway through boot. A zero
+        // refresh interval panics the refresh task (tokio rejects a zero period); the
+        // collector address and indexing-payments subgraph are both needed to authorise.
         if let Some(dips) = &self.dips {
             if dips.role_refresh_interval_secs == 0 {
                 return Err("dips.role_refresh_interval_secs must be greater than 0".to_string());
+            }
+            if dips.recurring_collector.is_none() {
+                return Err("dips.recurring_collector must be set when DIPs is enabled".to_string());
+            }
+            if self.subgraphs.indexing_payments.is_none() {
+                return Err(
+                    "subgraphs.indexing_payments must be set when DIPs is enabled".to_string(),
+                );
             }
         }
 
