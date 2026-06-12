@@ -200,7 +200,7 @@ pub enum DipsError {
     DeadlineExpired { deadline: u64, now: u64 },
     #[error("agreement end time {ends_at} has already passed (current time: {now})")]
     AgreementExpired { ends_at: u64, now: u64 },
-    #[error("indexer is at its DIPs proposal capacity ({limit} per 24h)")]
+    #[error("indexer is at its DIPs agreement capacity ({limit} per 24h)")]
     CapacityExceeded { limit: u64 },
 }
 
@@ -287,7 +287,7 @@ pub(crate) fn try_extract_deployment_id(rca_bytes: &[u8]) -> Option<String> {
     Some(bytes32_to_ipfs_hash(&metadata.subgraphDeploymentId.0))
 }
 
-/// Window over which the per-day agreement cap counts stored proposals.
+/// Window over which the per-day cap counts live agreements (pending or accepted).
 const CAPACITY_WINDOW: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
 /// Validate and create a RecurringCollectionAgreement.
@@ -347,9 +347,9 @@ pub async fn validate_and_create_rca(
         return Err(DipsError::AgreementExpired { ends_at, now });
     }
 
-    // Capacity safeguard: cap proposals stored per rolling 24h, checked before
-    // the IPFS fetch so an over-cap proposal costs no download. Count-then-store
-    // isn't atomic, so concurrent proposals may overshoot the cap slightly.
+    // Capacity safeguard: cap live agreements (pending or accepted) per rolling
+    // 24h, checked before the IPFS fetch so an over-cap proposal costs no download.
+    // Count-then-store isn't atomic, so concurrent proposals may overshoot slightly.
     if let Some(limit) = max_agreements_per_day {
         match rca_store.count_since(CAPACITY_WINDOW).await {
             Ok(count) if count >= *limit => {

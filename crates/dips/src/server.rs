@@ -81,7 +81,7 @@ pub struct DipsServerContext {
     pub additional_networks: Arc<BTreeMap<String, String>>,
     /// EIP-712 domain for recovering the RCA signer (RecurringCollector).
     pub rca_domain: Eip712Domain,
-    /// Max DIPs agreements to store per rolling 24h window. None disables the cap.
+    /// Max live DIPs agreements (pending or accepted) per rolling 24h window. None disables the cap.
     pub max_agreements_per_day: Option<u64>,
 }
 

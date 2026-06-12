@@ -54,9 +54,9 @@ pub trait RcaStore: Sync + Send + std::fmt::Debug {
         version: u64,
     ) -> Result<(), DipsError>;
 
-    /// Count proposals stored within the trailing `window`. Backs the per-day
-    /// capacity cap. The in-memory test store ignores the window and counts all
-    /// its entries.
+    /// Count live agreements (status `pending` or `accepted`) within the trailing
+    /// `window`; rejected and expired proposals are excluded. The in-memory test
+    /// store has no status, so it ignores the window and counts every entry.
     async fn count_since(&self, window: Duration) -> Result<u64, DipsError>;
 
     /// Downcast to concrete type for testing.
