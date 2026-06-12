@@ -64,6 +64,11 @@ mod subgraph {
     /// long, so a burst of unknown signers can't turn into a fetch storm.
     const REFRESH_DEBOUNCE: Duration = Duration::from_secs(5);
 
+    /// Don't refetch the holder set on demand more than once per this interval: a
+    /// recent successful fetch is authoritative, so a burst of distinct unknown
+    /// signers is answered from it instead of triggering one refetch each.
+    const ON_DEMAND_REFRESH_MIN_INTERVAL: Duration = Duration::from_secs(5);
+
     /// How long a "not a role holder" answer is reused from memory before that
     /// signer is re-checked. Caps how often a repeated unknown signer drives a
     /// fetch, and bounds how long a later-granted signer waits to be recognised.
@@ -406,10 +411,20 @@ mod subgraph {
                 }
             }
 
-            // A new (or newly-expired) signer, or a cache gone stale past the
-            // window: try a single-flighted refresh, then decide against the
-            // freshest data.
-            let refreshed = self.refresh().await;
+            // A new or stale-cache signer: refresh on demand to catch a just-granted
+            // manager, but skip the refetch when the last success is recent and still
+            // fresh -- bounds a distinct-unknown-signer flood to one fetch per window.
+            let recently_refreshed = {
+                let cache = self.cache.read().unwrap();
+                cache.last_success.is_some_and(|t| {
+                    t.elapsed() < ON_DEMAND_REFRESH_MIN_INTERVAL && self.is_fresh(Some(t))
+                })
+            };
+            let refreshed = if recently_refreshed {
+                Ok(())
+            } else {
+                self.refresh().await
+            };
 
             let (present, fresh) = {
                 let cache = self.cache.read().unwrap();
@@ -792,6 +807,55 @@ mod subgraph {
                 Duration::from_secs(1800),
             );
             assert!(src.verify_trusted(HOLDER).await.is_ok());
+        }
+
+        #[tokio::test]
+        async fn on_demand_refetch_is_rate_limited() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(holders_body(&[HOLDER], now_secs())),
+                )
+                .mount(&server)
+                .await;
+            let client = leak_client(&server).await;
+            // Window far larger than the 5s min-interval so the freshness gate never
+            // trips here; lag check off.
+            let src =
+                SubgraphTrustedSigners::new(client, Duration::from_secs(3600), Duration::ZERO);
+
+            // Freeze time so the on-demand min-interval is exercised deterministically.
+            tokio::time::pause();
+
+            // First unknown signer: cold cache, one real fetch, then rejected.
+            assert!(matches!(
+                src.verify_trusted(Address::repeat_byte(0xa0)).await,
+                Err(DipsError::SenderNotTrusted { .. })
+            ));
+            // More distinct unknowns inside the window: answered from the recent fetch.
+            for b in [0xa1u8, 0xa2, 0xa3] {
+                assert!(matches!(
+                    src.verify_trusted(Address::repeat_byte(b)).await,
+                    Err(DipsError::SenderNotTrusted { .. })
+                ));
+            }
+            assert_eq!(
+                server.received_requests().await.unwrap().len(),
+                1,
+                "distinct unknown signers within the window must share one fetch"
+            );
+
+            // Past the window, the next unknown signer triggers exactly one more fetch.
+            tokio::time::advance(Duration::from_secs(6)).await;
+            assert!(matches!(
+                src.verify_trusted(Address::repeat_byte(0xa4)).await,
+                Err(DipsError::SenderNotTrusted { .. })
+            ));
+            assert_eq!(
+                server.received_requests().await.unwrap().len(),
+                2,
+                "an unknown signer past the window triggers one more fetch"
+            );
         }
     }
 }
