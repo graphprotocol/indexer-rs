@@ -35,10 +35,13 @@
 use std::any::Any;
 
 use async_trait::async_trait;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use crate::{store::RcaStore, DipsError};
+use crate::{
+    store::{RcaStore, StoredProposal},
+    DipsError,
+};
 
 /// PostgreSQL implementation of RcaStore for RecurringCollectionAgreement.
 #[derive(Debug)]
@@ -71,7 +74,58 @@ impl RcaStore for PsqlRcaStore {
         Ok(())
     }
 
+    async fn lookup(&self, agreement_id: Uuid) -> Result<Option<StoredProposal>, DipsError> {
+        let row =
+            sqlx::query("SELECT status, signed_payload FROM pending_rca_proposals WHERE id = $1")
+                .bind(agreement_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| DipsError::UnknownError(e.into()))?;
+
+        Ok(row.map(|row| StoredProposal {
+            status: row.get("status"),
+            signed_payload: row.get("signed_payload"),
+        }))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::*;
+    use crate::PROTOCOL_VERSION;
+
+    // Needs Docker; skipped locally, runs on CI.
+    #[tokio::test]
+    async fn test_lookup_roundtrip() {
+        // Arrange
+        let test_db = test_assets::setup_shared_test_db().await;
+        let store = PsqlRcaStore {
+            pool: test_db.pool.clone(),
+        };
+        let id = Uuid::now_v7();
+        let payload = vec![1u8, 2, 3, 4, 5];
+
+        // Act + Assert: absent id resolves to None.
+        assert!(store.lookup(id).await.unwrap().is_none());
+
+        // Act + Assert: after store_rca the row is found with default status.
+        store
+            .store_rca(id, payload.clone(), PROTOCOL_VERSION)
+            .await
+            .unwrap();
+        let found = store.lookup(id).await.unwrap();
+        assert_eq!(
+            found,
+            Some(StoredProposal {
+                status: "pending".to_string(),
+                signed_payload: payload,
+            })
+        );
     }
 }

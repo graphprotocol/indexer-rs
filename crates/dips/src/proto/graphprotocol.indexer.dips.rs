@@ -87,7 +87,7 @@ pub enum RejectReason {
     CapacityExceeded = 10,
     /// / The subgraph manifest exceeds the indexer's size cap.
     ManifestTooLarge = 11,
-    /// / A different proposal reuses an already-seen agreement id.
+    /// / A re-sent proposal: an exact replay of one already rejected, or a different payload reusing an already-seen agreement id.
     ReplayDetected = 12,
     /// / The payer has insufficient escrow to back the agreement.
     InsufficientEscrow = 13,

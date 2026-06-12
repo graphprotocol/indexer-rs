@@ -1,29 +1,9 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Storage abstraction for RCA proposals.
-//!
-//! This module defines the [`RcaStore`] trait for persisting validated RCA proposals.
-//! The indexer-service validates incoming proposals and stores them; the indexer-agent
-//! (a separate TypeScript process) queries this table to decide on-chain acceptance.
-//!
-//! # Database Schema
-//!
-//! Proposals are stored in the `pending_rca_proposals` table:
-//!
-//! | Column         | Type        | Description                              |
-//! |----------------|-------------|------------------------------------------|
-//! | id             | UUID        | Agreement ID from the RCA                |
-//! | signed_payload | BYTEA       | Raw ABI-encoded SignedRCA bytes          |
-//! | version        | SMALLINT    | Protocol version (currently 2)           |
-//! | status         | VARCHAR(20) | "pending", "accepted", "rejected", etc.  |
-//! | created_at     | TIMESTAMPTZ | When the proposal was received           |
-//! | updated_at     | TIMESTAMPTZ | Last status change                       |
-//!
-//! # Implementations
-//!
-//! - [`InMemoryRcaStore`] - In-memory store for unit tests
-//! - [`PsqlRcaStore`](crate::database::PsqlRcaStore) - PostgreSQL implementation
+//! Storage abstraction for RCA proposals. [`RcaStore`] persists validated
+//! proposals to the shared `pending_rca_proposals` table; indexer-rs writes them
+//! and the indexer-agent reads them and advances `status`. See the migration.
 
 use std::any::Any;
 
@@ -32,21 +12,30 @@ use uuid::Uuid;
 
 use crate::DipsError;
 
-/// Store for RCA (RecurringCollectionAgreement) proposals.
-///
-/// Stores validated RCA proposals. The indexer agent queries this table,
-/// validates allocation availability, and submits on-chain acceptance.
+/// Lifecycle statuses for a `pending_rca_proposals` row, shared with the
+/// indexer-agent and enforced by a CHECK constraint. indexer-rs writes only
+/// `pending`; the agent advances a row to accepted, completed, or rejected.
+pub const STATUS_PENDING: &str = "pending";
+pub const STATUS_ACCEPTED: &str = "accepted";
+pub const STATUS_COMPLETED: &str = "completed";
+pub const STATUS_REJECTED: &str = "rejected";
+
+/// A proposal already on record, returned by [`RcaStore::lookup`]. Carries the
+/// lifecycle `status` and raw `signed_payload` so the early replay check can
+/// compare byte-for-byte against a re-sent proposal.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoredProposal {
+    pub status: String,
+    pub signed_payload: Vec<u8>,
+}
+
+/// Store for validated RCA proposals: indexer-rs writes them here and the
+/// indexer-agent reads them to decide on-chain acceptance.
 #[async_trait]
 pub trait RcaStore: Sync + Send + std::fmt::Debug {
-    /// Store a validated RCA proposal.
-    ///
-    /// Only called after successful validation (signature, IPFS, pricing).
-    ///
-    /// # Idempotency
-    ///
-    /// This operation MUST be idempotent: storing the same `agreement_id` twice
-    /// must succeed both times. This enables safe retries when Dipper re-sends
-    /// an RCA after timeout or network partition.
+    /// Store a validated RCA proposal. MUST be idempotent: storing the same
+    /// `agreement_id` twice must both succeed, so a Dipper re-send after a
+    /// timeout or network partition doesn't fail on a duplicate.
     async fn store_rca(
         &self,
         agreement_id: Uuid,
@@ -54,14 +43,24 @@ pub trait RcaStore: Sync + Send + std::fmt::Debug {
         version: u64,
     ) -> Result<(), DipsError>;
 
+    /// Look up a stored proposal by its deterministic agreement ID, `Ok(None)`
+    /// when absent. The early replay check calls this before the IPFS fetch so a
+    /// re-sent proposal skips the download.
+    async fn lookup(&self, agreement_id: Uuid) -> Result<Option<StoredProposal>, DipsError>;
+
     /// Downcast to concrete type for testing.
     fn as_any(&self) -> &dyn Any;
 }
 
-/// In-memory implementation of RcaStore for testing.
+/// One in-memory row: (id, signed payload, version, status).
+type InMemoryRow = (Uuid, Vec<u8>, u64, String);
+
+/// In-memory implementation of RcaStore for testing. Each row carries a status
+/// string (defaulting to "pending" on insert) so the replay check can be
+/// exercised against accepted and rejected rows in tests.
 #[derive(Default, Debug)]
 pub struct InMemoryRcaStore {
-    pub data: tokio::sync::RwLock<Vec<(Uuid, Vec<u8>, u64)>>,
+    pub data: tokio::sync::RwLock<Vec<InMemoryRow>>,
 }
 
 #[async_trait]
@@ -74,10 +73,26 @@ impl RcaStore for InMemoryRcaStore {
     ) -> Result<(), DipsError> {
         let mut data = self.data.write().await;
         // Idempotent: skip if already exists
-        if !data.iter().any(|(id, _, _)| *id == agreement_id) {
-            data.push((agreement_id, signed_rca, version));
+        if !data.iter().any(|(id, _, _, _)| *id == agreement_id) {
+            data.push((
+                agreement_id,
+                signed_rca,
+                version,
+                STATUS_PENDING.to_string(),
+            ));
         }
         Ok(())
+    }
+
+    async fn lookup(&self, agreement_id: Uuid) -> Result<Option<StoredProposal>, DipsError> {
+        let data = self.data.read().await;
+        Ok(data
+            .iter()
+            .find(|(id, _, _, _)| *id == agreement_id)
+            .map(|(_, payload, _, status)| StoredProposal {
+                status: status.clone(),
+                signed_payload: payload.clone(),
+            }))
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -99,6 +114,39 @@ impl RcaStore for FailingRcaStore {
     ) -> Result<(), DipsError> {
         Err(DipsError::UnknownError(anyhow::anyhow!(
             "database connection failed (test store)"
+        )))
+    }
+
+    async fn lookup(&self, _agreement_id: Uuid) -> Result<Option<StoredProposal>, DipsError> {
+        Err(DipsError::UnknownError(anyhow::anyhow!(
+            "database connection failed (test store)"
+        )))
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+/// Test double whose `lookup` errors but whose `store_rca` succeeds, to exercise
+/// the fail-open path: a lookup error must be swallowed so validation still runs.
+#[derive(Default, Debug)]
+pub struct LookupFailsStore;
+
+#[async_trait]
+impl RcaStore for LookupFailsStore {
+    async fn store_rca(
+        &self,
+        _agreement_id: Uuid,
+        _signed_rca: Vec<u8>,
+        _version: u64,
+    ) -> Result<(), DipsError> {
+        Ok(())
+    }
+
+    async fn lookup(&self, _agreement_id: Uuid) -> Result<Option<StoredProposal>, DipsError> {
+        Err(DipsError::UnknownError(anyhow::anyhow!(
+            "lookup failed (test store)"
         )))
     }
 
@@ -189,5 +237,50 @@ mod tests {
         let data = store.data.read().await;
         assert_eq!(data.len(), 1, "Duplicate should not create second entry");
         assert_eq!(data[0].0, id);
+    }
+
+    #[tokio::test]
+    async fn test_lookup_absent_returns_none() {
+        // Arrange
+        let store = InMemoryRcaStore::default();
+
+        // Act
+        let found = store.lookup(Uuid::now_v7()).await.unwrap();
+
+        // Assert
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_lookup_returns_pending_payload() {
+        // Arrange
+        let store = InMemoryRcaStore::default();
+        let id = Uuid::now_v7();
+        let blob = vec![9, 8, 7, 6];
+        store.store_rca(id, blob.clone(), 2).await.unwrap();
+
+        // Act
+        let found = store.lookup(id).await.unwrap();
+
+        // Assert
+        assert_eq!(
+            found,
+            Some(StoredProposal {
+                status: "pending".to_string(),
+                signed_payload: blob,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn test_failing_store_lookup_errors() {
+        // Arrange
+        let store = FailingRcaStore;
+
+        // Act
+        let result = store.lookup(Uuid::now_v7()).await;
+
+        // Assert
+        assert!(matches!(result, Err(DipsError::UnknownError(_))));
     }
 }

@@ -15,6 +15,7 @@
 //!                        ├─ Size validation (non-empty, max 10KB)
 //!                        ├─ Service-provider match
 //!                        ├─ Timestamp validation (deadline, endsAt)
+//!                        ├─ Replay/idempotency check (before any IPFS fetch)
 //!                        ├─ IPFS manifest fetch
 //!                        ├─ Network validation
 //!                        ├─ Price validation
@@ -115,6 +116,11 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
         DipsError::UnexpectedServiceProvider { .. } => RejectReason::UnexpectedServiceProvider,
         DipsError::UnsupportedMetadataVersion(_) => RejectReason::UnsupportedMetadataVersion,
         DipsError::ManifestTooLarge { .. } => RejectReason::ManifestTooLarge,
+        // A re-sent proposal that conflicts or was already rejected: re-reject
+        // without re-running the pipeline.
+        DipsError::ReplayRejected { .. } | DipsError::ReplayConflict { .. } => {
+            RejectReason::ReplayDetected
+        }
         // Malformed proposals with no dedicated reason map to the catch-all; the
         // detail carries the specifics.
         DipsError::AbiDecoding(_)
@@ -473,6 +479,28 @@ mod tests {
 
         // Assert
         assert_eq!(reason, RejectReason::ManifestTooLarge);
+    }
+
+    #[test]
+    fn test_reject_reason_replay_variants_map_to_replay_detected() {
+        // Arrange
+        use uuid::Uuid;
+        let rejected = DipsError::ReplayRejected {
+            agreement_id: Uuid::now_v7(),
+        };
+        let conflict = DipsError::ReplayConflict {
+            agreement_id: Uuid::now_v7(),
+        };
+
+        // Act + Assert
+        assert_eq!(
+            super::reject_reason_from_error(&rejected),
+            RejectReason::ReplayDetected
+        );
+        assert_eq!(
+            super::reject_reason_from_error(&conflict),
+            RejectReason::ReplayDetected
+        );
     }
 
     #[test]
