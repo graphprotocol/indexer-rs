@@ -682,11 +682,9 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
     Duration::from_secs(300)
 }
 
-/// DIPs configuration.
-///
-/// Validates RCA proposals (signature, IPFS manifest, network, pricing)
-/// before storing. The indexer agent queries pending proposals from the
-/// database and decides on-chain acceptance.
+/// DIPs configuration. Authorises proposal senders -- recovers each agreement's EIP-712 signer
+/// and requires it to hold the on-chain agreement-manager role (from the indexing-payments
+/// subgraph) -- then validates accepted proposals before storing them for the indexer-agent.
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 #[cfg_attr(test, derive(PartialEq))]

@@ -94,9 +94,10 @@ max_signers_per_payer = 0
 # Indexing-payments subgraph, read for the set of accounts allowed to send DIPs
 # agreement proposals (the agreement-manager role). Required when [dips] is set.
 [subgraphs.indexing_payments]
-# Query URL for the indexing-payments subgraph.
+# Query URL for the indexing-payments subgraph -- a SEPARATE deployment from [subgraphs.network].
 query_url = "http://example.com/indexing-payments-subgraph"
-# How often to refresh contract information from this subgraph, in seconds.
+# Required when this section is present (no default). How often to refresh from this subgraph, in
+# seconds. Distinct from dips.role_refresh_interval_secs, which governs the role-set pull.
 syncing_interval_secs = 60
 # Optional, auth token used as "bearer auth".
 # query_auth_token = "super-secret"
@@ -187,41 +188,54 @@ max_receipts_per_request = 10000
 0xDDE4cfFd3D9052A9cb618fC05a1Cd02be1f2F467 = "https://tap-aggregator.network.thegraph.com"
 0xDD6a6f76eb36B873C1C184e8b9b9e762FE216490 = "https://tap-aggregator-arbitrum-one.graphops.xyz"
 
-# DIPs (Direct Indexer Payments). Payer authorisation is verified
-# on-chain at acceptance. GRT prices, not wei.
+# DIPs (Direct Indexer Payments). Each proposal's recovered EIP-712 signer is checked against
+# the on-chain agreement-manager role set, read off the indexing-payments subgraph at proposal
+# time -- not the payer, not on-chain at acceptance. Prices below are GRT, not wei.
+
+# To enable DIPs you must set: recurring_collector, [subgraphs.indexing_payments] (query_url +
+# syncing_interval_secs), and at least one supported_networks entry with a matching price under
+# [dips.min_grt_per_30_days]. Everything else here has a default.
+
+# Failure modes: an empty role set, or a subgraph outage past role_failopen_grace_secs, rejects
+# all proposals; if DIPs init fails the service keeps serving queries but runs WITHOUT DIPs
+# (check the /dips/info endpoint and the dips_enabled metric). Per-field consequences below.
 [dips]
+# Address/port the DIPs gRPC server binds to, where the dipper sends proposals; needs ingress
+# reachable by the dipper. port is a quoted string. Defaults: "0.0.0.0" / "7601".
 host = "0.0.0.0"
 port = "7601"
 
-# Networks you explicitly support indexing.
-# Proposals from the dipper for you to index networks that are not in the list below are rejected.
-# See https://github.com/graphprotocol/networks-registry/blob/main/docs/networks-table.md
-# e.g. supported_networks = ["mainnet", "arbitrum-one"]
+# Networks you support indexing. REQUIRED to accept anything: list at least one here AND set its
+# price under [dips.min_grt_per_30_days]; empty = ALL proposals rejected (not "accept all").
+# Names: https://github.com/graphprotocol/networks-registry (e.g. ["mainnet", "arbitrum-one"]).
 supported_networks = []
 
-# Minimum payment you are willing to accept in order to accept indexing agreements
-# (base price + entity-based price). Total payment = base price + (entities on sg * entity_rate)
+# Minimum payment you require to accept indexing agreements (base + entity-based). Total =
+# min_grt_per_30_days[network] + (entities_in_billions * min_grt_per_billion_entities_per_30_days)
 #
 # For reference: analysis of subgraphs indexed by the upgrade indexer in Q1 2025 found
 # the average entity size to be ~0.759 KiB. At this size, 1 billion entities ≈ 0.707 TiB.
 # Your own observations may differ - adjust pricing accordingly.
-min_grt_per_billion_entities_per_30_days = "200"  # entity-based component (global)
+min_grt_per_billion_entities_per_30_days = "200"  # illustrative, NOT the default (default 0)
 
-# RecurringCollector contract address. The EIP-712 verifying contract used to
-# recover the signer of incoming agreement proposals. Required when DIPs is enabled.
+# RecurringCollector contract address: the EIP-712 verifying contract used to recover each
+# proposal's signer, which is then checked against the agreement-manager role set. Also the
+# contract rpc_url reads the domain from. Required when DIPs is enabled.
 recurring_collector = "0xcccccccccccccccccccccccccccccccccccccccc"
 
-# How often to re-pull the set of accounts allowed to send proposals (the
-# agreement-manager role) from the indexing-payments subgraph, in seconds.
+# How often to re-pull the agreement-manager role set from the indexing-payments subgraph, in
+# seconds. Must be > 0. Default 86400 (1 day); lower it to honour on-chain revocations sooner.
 role_refresh_interval_secs = 86400
-# Extra seconds past the refresh interval that a cached role set stays trusted
-# while refreshes keep failing, before the gate starts rejecting (fail-open window).
+# Fail-open window: extra seconds past the refresh interval that a KNOWN holder from the last
+# good role set keeps being admitted while refreshes fail (unknown signers are not); after it
+# the gate rejects everyone. Default 3600.
 role_failopen_grace_secs = 3600
-# Largest the subgraph head may lag wall-clock (seconds) before its role data is
-# treated as unreliable. 0 disables the check.
+# Largest the subgraph head may lag wall-clock (seconds) before role data is treated as
+# unreliable: past this the fetch is a failure (role set not updated, proposals rejected as
+# transient) rather than trusting stale grants/revokes. 0 disables. Default 1800.
 role_subgraph_max_lag_secs = 1800
-# Ethereum JSON-RPC endpoint for fetching the RecurringCollector's EIP-712
-# domain at startup (EIP-5267). When unset, built-in domain constants are used.
+# JSON-RPC to read the RecurringCollector's EIP-712 domain at startup (EIP-5267); unset = built-in
+# constants. Set on local/dev/upgraded chains, else signer recovery is wrong and all proposals rejected.
 # rpc_url = "https://arb1.arbitrum.io/rpc"
 
 [dips.min_grt_per_30_days]  # base rate component (per-network)
@@ -323,4 +337,6 @@ role_subgraph_max_lag_secs = 1800
 # boba = "5"
 # sepolia = "5"
 
+# Custom or test networks not in the global networks-registry: maps network name to CAIP-2
+# chain id so proposals for them pass the registry check. Default empty. e.g. hardhat = "eip155:1337"
 [dips.additional_networks]
