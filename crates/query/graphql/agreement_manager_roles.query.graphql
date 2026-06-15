@@ -1,0 +1,30 @@
+# Active AGREEMENT_MANAGER_ROLE holders from the indexing-payments subgraph: the
+# signers the indexer trusts to send agreement proposals. Cursor-paginated by id;
+# $block pins later pages to the first page's block for a consistent read.
+
+query AgreementManagerRolesQuery(
+    $role: Bytes!
+    $first: Int!
+    $last: ID!
+    $block: Block_height
+) {
+    meta: _meta(block: $block) {
+        block {
+            number
+            hash
+            timestamp
+        }
+    }
+    roleAssignments(
+        block: $block
+        orderBy: id
+        orderDirection: asc
+        first: $first
+        # active: true is load-bearing -- a revoke flags the row rather than
+        # deleting it, and several roles are indexed, so both filters are needed.
+        where: { id_gt: $last, role: $role, active: true }
+    ) {
+        id
+        account
+    }
+}

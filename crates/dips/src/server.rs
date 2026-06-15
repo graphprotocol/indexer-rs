@@ -58,6 +58,7 @@ use crate::{
         SubmitAgreementProposalRequest, SubmitAgreementProposalResponse,
     },
     store::RcaStore,
+    trusted_signers::TrustedSignerSource,
     DipsError,
 };
 
@@ -81,6 +82,8 @@ pub struct DipsServerContext {
     pub additional_networks: Arc<BTreeMap<String, String>>,
     /// EIP-712 domain for recovering the RCA signer (RecurringCollector).
     pub rca_domain: Eip712Domain,
+    /// Authorises the recovered signer against the on-chain agreement-manager role.
+    pub trusted_signers: Arc<dyn TrustedSignerSource>,
     /// Max live DIPs agreements (pending or accepted) per rolling 24h window. None disables the cap.
     pub max_new_agreements_per_24h: Option<u64>,
 }
@@ -123,9 +126,12 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
         DipsError::AbiDecoding(_)
         | DipsError::InvalidSubgraphManifest(_)
         | DipsError::InvalidRca(_) => RejectReason::Unspecified,
-        // A store failure means the proposal was valid but the indexer couldn't persist
-        // it -- tell dipper this is transient so it retries rather than giving up.
-        DipsError::UnknownError(_) => RejectReason::IndexerUnavailable,
+        DipsError::SenderNotTrusted { .. } => RejectReason::SenderNotTrusted,
+        // A store failure or an unverifiable role set means a valid proposal the
+        // indexer couldn't act on -- tell dipper it's transient so it retries.
+        DipsError::TrustVerificationUnavailable(_) | DipsError::UnknownError(_) => {
+            RejectReason::IndexerUnavailable
+        }
     }
 }
 
@@ -135,6 +141,16 @@ fn reject_detail_from_error(err: &DipsError) -> String {
     match err {
         DipsError::UnknownError(_) => "internal error while storing the proposal".to_string(),
         other => other.to_string(),
+    }
+}
+
+/// Coarse `outcome` label for the proposal metric: an untrusted signer, a
+/// transient failure the sender should retry, or some other validation rejection.
+fn outcome_label(err: &DipsError) -> &'static str {
+    match err {
+        DipsError::SenderNotTrusted { .. } => "untrusted",
+        DipsError::TrustVerificationUnavailable(_) | DipsError::UnknownError(_) => "transient",
+        _ => "rejected",
     }
 }
 
@@ -188,6 +204,9 @@ impl IndexerDipsService for DipsServer {
             .await
         {
             Ok(agreement_id) => {
+                crate::metrics::PROPOSAL_OUTCOMES
+                    .with_label_values(&["accepted"])
+                    .inc();
                 tracing::info!(%agreement_id, "RCA accepted");
                 Ok(Response::new(SubmitAgreementProposalResponse {
                     outcome: Some(Outcome::Accepted(Accepted {})),
@@ -195,6 +214,9 @@ impl IndexerDipsService for DipsServer {
             }
             Err(e) => {
                 let reject_reason = reject_reason_from_error(&e);
+                crate::metrics::PROPOSAL_OUTCOMES
+                    .with_label_values(&[outcome_label(&e)])
+                    .inc();
                 tracing::info!(
                     error = %e,
                     reason = ?reject_reason,
@@ -226,7 +248,10 @@ mod tests {
     impl DipsServerContext {
         pub fn for_testing() -> Arc<Self> {
             use std::collections::{BTreeMap, HashSet};
+
             use thegraph_core::alloy::primitives::U256;
+
+            use crate::trusted_signers::StaticTrustedSigners;
 
             Arc::new(Self {
                 rca_store: Arc::new(InMemoryRcaStore::default()),
@@ -239,6 +264,7 @@ mod tests {
                 registry: Arc::new(crate::registry::test_registry()),
                 additional_networks: Arc::new(BTreeMap::new()),
                 rca_domain: crate::rca_eip712_domain(1337, Address::repeat_byte(0xCC)),
+                trusted_signers: Arc::new(StaticTrustedSigners::default()),
                 max_new_agreements_per_24h: None,
             })
         }
@@ -502,6 +528,28 @@ mod tests {
         // Assert: a valid proposal the indexer can't persist is transient, so the
         // sender should retry rather than treat it as a permanent failure.
         assert_eq!(reason, RejectReason::IndexerUnavailable);
+    }
+
+    #[test]
+    fn test_reject_reason_sender_not_trusted() {
+        let err = DipsError::SenderNotTrusted {
+            signer: Address::repeat_byte(0x55),
+        };
+
+        assert_eq!(
+            super::reject_reason_from_error(&err),
+            RejectReason::SenderNotTrusted
+        );
+    }
+
+    #[test]
+    fn test_reject_reason_trust_unverifiable_is_transient() {
+        let err = DipsError::TrustVerificationUnavailable("role subgraph down".to_string());
+
+        assert_eq!(
+            super::reject_reason_from_error(&err),
+            RejectReason::IndexerUnavailable
+        );
     }
 
     #[test]

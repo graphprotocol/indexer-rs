@@ -20,6 +20,7 @@ use indexer_dips::{
         IndexerDipsService, IndexerDipsServiceServer,
     },
     server::{DipsServer, DipsServerContext},
+    trusted_signers::{SubgraphTrustedSigners, TrustedSignerSource},
 };
 use indexer_monitor::{DeploymentDetails, SubgraphClient};
 use release::IndexerServiceRelease;
@@ -112,6 +113,17 @@ pub async fn run() -> anyhow::Result<()> {
     )
     .await;
 
+    // DIPs reads the agreement-manager role set from the indexing-payments
+    // subgraph; build its client before the router consumes graph_node.
+    let indexing_payments_subgraph = if config.dips.is_some() {
+        let subgraph_config = config.subgraphs.indexing_payments.as_ref().ok_or_else(|| {
+            anyhow!("subgraphs.indexing_payments must be set when DIPs is enabled")
+        })?;
+        Some(create_subgraph_client(http_client.clone(), &config.graph_node, subgraph_config).await)
+    } else {
+        None
+    };
+
     // V2 escrow accounts are in the network subgraph, not a separate escrow_v2 subgraph
 
     // Establish Database connection necessary for serving indexer management
@@ -180,6 +192,8 @@ pub async fn run() -> anyhow::Result<()> {
         Some(dips) => match start_dips(
             dips,
             blockchain_chain_id,
+            indexing_payments_subgraph
+                .expect("indexing_payments client is built whenever DIPs is enabled"),
             &ipfs_url,
             database.clone(),
             indexer_address,
@@ -254,6 +268,7 @@ pub async fn run() -> anyhow::Result<()> {
 async fn start_dips(
     dips: &DipsConfig,
     blockchain_chain_id: u64,
+    indexing_payments_subgraph: &'static SubgraphClient,
     ipfs_url: &Url,
     database: sqlx::PgPool,
     indexer_address: Address,
@@ -268,6 +283,9 @@ async fn start_dips(
         additional_networks,
         recurring_collector,
         rpc_url,
+        role_refresh_interval_secs,
+        role_failopen_grace_secs,
+        role_subgraph_max_lag_secs,
         max_new_agreements_per_24h,
     } = dips;
 
@@ -357,6 +375,16 @@ async fn start_dips(
             .div_ceil(entity_divisor),
     );
 
+    // Authorise proposal senders against the on-chain agreement-manager role set,
+    // read from the indexing-payments subgraph.
+    let trusted_signers: Arc<dyn TrustedSignerSource> = SubgraphTrustedSigners::spawn(
+        indexing_payments_subgraph,
+        Duration::from_secs(*role_refresh_interval_secs),
+        Duration::from_secs(*role_failopen_grace_secs),
+        Duration::from_secs(*role_subgraph_max_lag_secs),
+    )
+    .await;
+
     // Build server context
     let ctx = Arc::new(DipsServerContext {
         rca_store: Arc::new(PsqlRcaStore { pool: database }),
@@ -369,6 +397,7 @@ async fn start_dips(
         registry,
         additional_networks: Arc::new(additional_networks.clone()),
         rca_domain,
+        trusted_signers,
         max_new_agreements_per_24h: *max_new_agreements_per_24h,
     });
 
