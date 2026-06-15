@@ -374,6 +374,10 @@ pub async fn validate_and_create_rca(
         Ok(Some(prior)) => {
             // A different payload reusing the same id is the only true conflict.
             if prior.signed_payload != rca_bytes {
+                tracing::warn!(
+                    %agreement_id,
+                    "replay conflict: agreement id re-sent with a different payload"
+                );
                 return Err(DipsError::ReplayConflict { agreement_id });
             }
             // Byte-identical re-send: return the stored outcome, skipping the fetch.
