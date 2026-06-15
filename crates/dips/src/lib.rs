@@ -287,7 +287,7 @@ pub(crate) fn try_extract_deployment_id(rca_bytes: &[u8]) -> Option<String> {
     Some(bytes32_to_ipfs_hash(&metadata.subgraphDeploymentId.0))
 }
 
-/// Window over which the per-day cap counts live agreements (pending or accepted).
+/// Window over which the cap counts live agreements (pending or accepted).
 const CAPACITY_WINDOW: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
 /// Validate and create a RecurringCollectionAgreement.
@@ -314,7 +314,7 @@ pub async fn validate_and_create_rca(
         registry,
         additional_networks,
         rca_domain,
-        max_agreements_per_day,
+        max_new_agreements_per_24h,
     } = ctx.as_ref();
 
     // Decode SignedRCA
@@ -350,7 +350,7 @@ pub async fn validate_and_create_rca(
     // Capacity safeguard: cap live agreements (pending or accepted) per rolling
     // 24h, checked before the IPFS fetch so an over-cap proposal costs no download.
     // Count-then-store isn't atomic, so concurrent proposals may overshoot slightly.
-    if let Some(limit) = max_agreements_per_day {
+    if let Some(limit) = max_new_agreements_per_24h {
         match rca_store.count_since(CAPACITY_WINDOW).await {
             Ok(count) if count >= *limit => {
                 return Err(DipsError::CapacityExceeded { limit: *limit });
@@ -530,7 +530,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
-            max_agreements_per_day: None,
+            max_new_agreements_per_24h: None,
         })
     }
 
@@ -877,7 +877,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
-            max_agreements_per_day: None,
+            max_new_agreements_per_24h: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1052,7 +1052,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
-            max_agreements_per_day: None,
+            max_new_agreements_per_24h: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1088,7 +1088,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
-            max_agreements_per_day: None,
+            max_new_agreements_per_24h: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1124,7 +1124,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
-            max_agreements_per_day: None,
+            max_new_agreements_per_24h: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1160,7 +1160,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
-            max_agreements_per_day: None,
+            max_new_agreements_per_24h: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1250,7 +1250,7 @@ mod test {
         );
     }
 
-    /// Build a context backed by `store` with the per-day cap set to `max`.
+    /// Build a context backed by `store` with the per-24h cap set to `max`.
     fn capacity_ctx(store: Arc<dyn RcaStore>, max: Option<u64>) -> Arc<DipsServerContext> {
         Arc::new(DipsServerContext {
             rca_store: store,
@@ -1263,7 +1263,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
-            max_agreements_per_day: max,
+            max_new_agreements_per_24h: max,
         })
     }
 

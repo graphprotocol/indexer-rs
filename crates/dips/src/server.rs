@@ -82,7 +82,7 @@ pub struct DipsServerContext {
     /// EIP-712 domain for recovering the RCA signer (RecurringCollector).
     pub rca_domain: Eip712Domain,
     /// Max live DIPs agreements (pending or accepted) per rolling 24h window. None disables the cap.
-    pub max_agreements_per_day: Option<u64>,
+    pub max_new_agreements_per_24h: Option<u64>,
 }
 
 /// DIPS server implementing RCA protocol.
@@ -239,7 +239,7 @@ mod tests {
                 registry: Arc::new(crate::registry::test_registry()),
                 additional_networks: Arc::new(BTreeMap::new()),
                 rca_domain: crate::rca_eip712_domain(1337, Address::repeat_byte(0xCC)),
-                max_agreements_per_day: None,
+                max_new_agreements_per_24h: None,
             })
         }
     }

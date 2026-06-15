@@ -688,7 +688,7 @@ pub struct DipsConfig {
     /// Max live DIPs agreements (awaiting acceptance or accepted) per rolling 24h
     /// window; rejected and expired proposals don't count. None (unset) disables the
     /// cap; a best-effort safeguard, not a security control.
-    pub max_agreements_per_day: Option<u64>,
+    pub max_new_agreements_per_24h: Option<u64>,
 }
 
 impl Default for DipsConfig {
@@ -702,7 +702,7 @@ impl Default for DipsConfig {
             additional_networks: BTreeMap::new(),
             recurring_collector: None,
             rpc_url: None,
-            max_agreements_per_day: None,
+            max_new_agreements_per_24h: None,
         }
     }
 }

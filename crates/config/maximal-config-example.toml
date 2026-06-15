@@ -204,7 +204,7 @@ recurring_collector = "0xcccccccccccccccccccccccccccccccccccccccc"
 
 # Optional safeguard: cap live DIPs agreements (awaiting acceptance or accepted) per
 # rolling 24h; rejected and expired proposals don't count. Unset = no cap; 0 rejects all.
-# max_agreements_per_day = 30
+# max_new_agreements_per_24h = 30
 
 [dips.min_grt_per_30_days]  # base rate component (per-network)
 # arbitrum-one = "450"
