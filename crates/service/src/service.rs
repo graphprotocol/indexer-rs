@@ -268,6 +268,7 @@ async fn start_dips(
         additional_networks,
         recurring_collector,
         rpc_url,
+        max_new_agreements_per_24h,
     } = dips;
 
     // The RecurringCollector address is the EIP-712 verifying contract used to
@@ -303,6 +304,7 @@ async fn start_dips(
     tracing::info!(
         supported_networks = ?supported_networks,
         ipfs_url = %ipfs_url,
+        max_new_agreements_per_24h = ?max_new_agreements_per_24h,
         "DIPs configuration loaded"
     );
     for (network, grt) in min_grt_per_30_days.iter() {
@@ -367,6 +369,7 @@ async fn start_dips(
         registry,
         additional_networks: Arc::new(additional_networks.clone()),
         rca_domain,
+        max_new_agreements_per_24h: *max_new_agreements_per_24h,
     });
 
     // Create DIPS server

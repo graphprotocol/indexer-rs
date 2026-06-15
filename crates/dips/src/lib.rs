@@ -200,6 +200,8 @@ pub enum DipsError {
     DeadlineExpired { deadline: u64, now: u64 },
     #[error("agreement end time {ends_at} has already passed (current time: {now})")]
     AgreementExpired { ends_at: u64, now: u64 },
+    #[error("indexer is at its DIPs agreement capacity ({limit} per 24h)")]
+    CapacityExceeded { limit: u64 },
 }
 
 #[cfg(feature = "rpc")]
@@ -285,6 +287,9 @@ pub(crate) fn try_extract_deployment_id(rca_bytes: &[u8]) -> Option<String> {
     Some(bytes32_to_ipfs_hash(&metadata.subgraphDeploymentId.0))
 }
 
+/// Window over which the cap counts live agreements (pending or accepted).
+const CAPACITY_WINDOW: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
 /// Validate and create a RecurringCollectionAgreement.
 ///
 /// Performs validation:
@@ -309,6 +314,7 @@ pub async fn validate_and_create_rca(
         registry,
         additional_networks,
         rca_domain,
+        max_new_agreements_per_24h,
     } = ctx.as_ref();
 
     // Decode SignedRCA
@@ -339,6 +345,21 @@ pub async fn validate_and_create_rca(
     let ends_at: u64 = signed_rca.agreement.endsAt;
     if ends_at < now {
         return Err(DipsError::AgreementExpired { ends_at, now });
+    }
+
+    // Capacity safeguard: cap live agreements (pending or accepted) per rolling
+    // 24h, checked before the IPFS fetch so an over-cap proposal costs no download.
+    // Count-then-store isn't atomic, so concurrent proposals may overshoot slightly.
+    if let Some(limit) = max_new_agreements_per_24h {
+        match rca_store.count_since(CAPACITY_WINDOW).await {
+            Ok(count) if count >= *limit => {
+                return Err(DipsError::CapacityExceeded { limit: *limit });
+            }
+            Ok(_) => {}
+            // Fail open: the cap is a best-effort safeguard, not a security control,
+            // so a transient count failure shouldn't reject a valid proposal.
+            Err(e) => tracing::warn!(error = %e, "DIPs capacity check failed; allowing proposal"),
+        }
     }
 
     // Derive agreement ID deterministically from the RCA fields
@@ -474,7 +495,7 @@ mod test {
         price::PriceCalculator,
         rca_eip712_domain,
         server::DipsServerContext,
-        store::{FailingRcaStore, InMemoryRcaStore},
+        store::{FailingRcaStore, InMemoryRcaStore, RcaStore},
         AcceptIndexingAgreementMetadata, DipsError, IndexingAgreementTermsV1,
         RecurringCollectionAgreement, SignedRecurringCollectionAgreement,
     };
@@ -509,6 +530,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            max_new_agreements_per_24h: None,
         })
     }
 
@@ -855,6 +877,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            max_new_agreements_per_24h: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1029,6 +1052,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            max_new_agreements_per_24h: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1064,6 +1088,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            max_new_agreements_per_24h: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1099,6 +1124,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            max_new_agreements_per_24h: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1134,6 +1160,7 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
+            max_new_agreements_per_24h: None,
         });
 
         let rca_bytes = rca_to_wire_bytes(rca);
@@ -1221,5 +1248,184 @@ mod test {
             hash, "QmNLei78zWmzUdbeRB3CiUfAizWUrbeeZh5K1rhAQKCh51",
             "Known test vector mismatch"
         );
+    }
+
+    /// Build a context backed by `store` with the per-24h cap set to `max`.
+    fn capacity_ctx(store: Arc<dyn RcaStore>, max: Option<u64>) -> Arc<DipsServerContext> {
+        Arc::new(DipsServerContext {
+            rca_store: store,
+            ipfs_fetcher: Arc::new(MockIpfsFetcher::default()),
+            price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
+            max_new_agreements_per_24h: max,
+        })
+    }
+
+    /// Fill an in-memory store with `n` distinct stored proposals.
+    async fn prefill(store: &InMemoryRcaStore, n: u64) {
+        for i in 0..n {
+            store
+                .store_rca(uuid::Uuid::from_u128(i as u128 + 1), vec![i as u8], 2)
+                .await
+                .unwrap();
+        }
+    }
+
+    /// A store whose count query fails but whose writes succeed, to exercise the
+    /// capacity check's fail-open path.
+    #[derive(Debug, Default)]
+    struct CountFailingStore(InMemoryRcaStore);
+
+    #[async_trait::async_trait]
+    impl RcaStore for CountFailingStore {
+        async fn store_rca(
+            &self,
+            agreement_id: uuid::Uuid,
+            signed_rca: Vec<u8>,
+            version: u64,
+        ) -> Result<(), DipsError> {
+            self.0.store_rca(agreement_id, signed_rca, version).await
+        }
+
+        async fn count_since(&self, _window: std::time::Duration) -> Result<u64, DipsError> {
+            Err(DipsError::UnknownError(anyhow::anyhow!(
+                "count failed (test)"
+            )))
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    #[tokio::test]
+    async fn capacity_at_limit_rejects() {
+        let service_provider = Address::repeat_byte(0x11);
+        let store = Arc::new(InMemoryRcaStore::default());
+        prefill(&store, 2).await;
+        let ctx = capacity_ctx(store, Some(2));
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            service_provider,
+            U256::from(200),
+            U256::from(100),
+        );
+
+        let result =
+            super::validate_and_create_rca(ctx.clone(), &service_provider, rca_to_wire_bytes(rca))
+                .await;
+
+        assert!(matches!(
+            result,
+            Err(DipsError::CapacityExceeded { limit: 2 })
+        ));
+        // The over-cap proposal must not have been stored.
+        let stored = ctx
+            .rca_store
+            .as_any()
+            .downcast_ref::<InMemoryRcaStore>()
+            .unwrap();
+        assert_eq!(stored.data.read().await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn capacity_under_limit_passes() {
+        let service_provider = Address::repeat_byte(0x11);
+        let store = Arc::new(InMemoryRcaStore::default());
+        prefill(&store, 1).await;
+        let ctx = capacity_ctx(store, Some(2));
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            service_provider,
+            U256::from(200),
+            U256::from(100),
+        );
+
+        let result =
+            super::validate_and_create_rca(ctx.clone(), &service_provider, rca_to_wire_bytes(rca))
+                .await;
+
+        assert!(result.is_ok(), "got: {:?}", result);
+        // The accepted proposal is stored, taking the count from 1 to 2.
+        let stored = ctx
+            .rca_store
+            .as_any()
+            .downcast_ref::<InMemoryRcaStore>()
+            .unwrap();
+        assert_eq!(stored.data.read().await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn capacity_unset_skips_check() {
+        let service_provider = Address::repeat_byte(0x11);
+        let store = Arc::new(InMemoryRcaStore::default());
+        // Five already stored, but no cap configured, so a new one still passes.
+        prefill(&store, 5).await;
+        let ctx = capacity_ctx(store, None);
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            service_provider,
+            U256::from(200),
+            U256::from(100),
+        );
+
+        let result =
+            super::validate_and_create_rca(ctx, &service_provider, rca_to_wire_bytes(rca)).await;
+
+        assert!(result.is_ok(), "got: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn capacity_count_failure_fails_open() {
+        let service_provider = Address::repeat_byte(0x11);
+        // The count query errors; the cap is best-effort, so the proposal is
+        // allowed through rather than rejected.
+        let ctx = capacity_ctx(Arc::new(CountFailingStore::default()), Some(1));
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            service_provider,
+            U256::from(200),
+            U256::from(100),
+        );
+
+        let result =
+            super::validate_and_create_rca(ctx.clone(), &service_provider, rca_to_wire_bytes(rca))
+                .await;
+
+        assert!(result.is_ok(), "got: {:?}", result);
+        // Fail-open still completes the path and stores the proposal.
+        let stored = ctx
+            .rca_store
+            .as_any()
+            .downcast_ref::<CountFailingStore>()
+            .unwrap();
+        assert_eq!(stored.0.data.read().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn capacity_zero_limit_rejects_all() {
+        let service_provider = Address::repeat_byte(0x11);
+        // An empty store with a cap of 0 still rejects every proposal (0 >= 0).
+        let ctx = capacity_ctx(Arc::new(InMemoryRcaStore::default()), Some(0));
+        let rca = create_test_rca(
+            Address::repeat_byte(0x42),
+            service_provider,
+            U256::from(200),
+            U256::from(100),
+        );
+
+        let result =
+            super::validate_and_create_rca(ctx, &service_provider, rca_to_wire_bytes(rca)).await;
+
+        assert!(matches!(
+            result,
+            Err(DipsError::CapacityExceeded { limit: 0 })
+        ));
     }
 }
