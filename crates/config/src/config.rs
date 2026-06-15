@@ -5,6 +5,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     env,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    num::NonZeroUsize,
     path::PathBuf,
     time::Duration,
 };
@@ -522,12 +523,11 @@ pub struct NetworkSubgraphConfig {
     #[serde(default = "default_escrow_min_balance_grt_wei")]
     pub escrow_min_balance_grt_wei: String,
 
-    /// Maximum signers to fetch per payer. 0 = no limit (recommended).
-    /// Setting a positive value caps pagination but allows attackers to crowd out
-    /// legitimate signers, orphaning receipts and enabling free queries.
-    /// Default: 0.
-    #[serde(default = "default_max_signers_per_payer")]
-    pub max_signers_per_payer: usize,
+    /// Maximum signers to fetch per payer. Leave unset for no limit (recommended);
+    /// a positive cap lets attackers crowd out legitimate signers, orphaning
+    /// receipts and enabling free queries.
+    #[serde(default)]
+    pub max_signers_per_payer: Option<NonZeroUsize>,
 }
 
 fn default_max_data_staleness_mins() -> u64 {
@@ -536,10 +536,6 @@ fn default_max_data_staleness_mins() -> u64 {
 
 fn default_escrow_min_balance_grt_wei() -> String {
     "100000000000000000".to_string() // 0.1 GRT
-}
-
-fn default_max_signers_per_payer() -> usize {
-    0
 }
 
 #[deprecated(note = "V2 escrow accounts are in the network subgraph; escrow config is ignored.")]

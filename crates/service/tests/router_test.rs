@@ -88,7 +88,7 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
                 recently_closed_allocation_buffer_secs: Duration::from_secs(0),
                 max_data_staleness_mins: 0,
                 escrow_min_balance_grt_wei: "100000000000000000".to_string(),
-                max_signers_per_payer: 0,
+                max_signers_per_payer: None,
             },
         )
         .escrow_accounts_v2(inputs.escrow_accounts_v2)
