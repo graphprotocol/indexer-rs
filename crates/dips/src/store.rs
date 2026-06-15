@@ -12,9 +12,9 @@ use uuid::Uuid;
 
 use crate::DipsError;
 
-/// Lifecycle statuses for a `pending_rca_proposals` row, shared with the
-/// indexer-agent and enforced by a CHECK constraint. indexer-rs writes only
-/// `pending`; the agent advances a row to accepted, completed, or rejected.
+/// Lifecycle statuses for a `pending_rca_proposals` row. Keep this set in sync
+/// with the CHECK constraint in the `dips_status_check` migration: indexer-rs
+/// writes `pending`; the agent advances a row to accepted, completed, rejected.
 pub const STATUS_PENDING: &str = "pending";
 pub const STATUS_ACCEPTED: &str = "accepted";
 pub const STATUS_COMPLETED: &str = "completed";
