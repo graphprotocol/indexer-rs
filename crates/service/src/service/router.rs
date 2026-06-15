@@ -131,7 +131,7 @@ impl ServiceRouter {
                 indexer_address,
                 network.config.syncing_interval_secs,
                 network.recently_closed_allocation_buffer_secs,
-                network.max_data_staleness_mins,
+                network.max_data_staleness_mins.get(),
             )
             .await
             .expect("Failed to initialize indexer_allocations watcher"),
