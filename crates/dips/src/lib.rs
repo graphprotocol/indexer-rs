@@ -363,27 +363,12 @@ pub async fn validate_and_create_rca(
         return Err(DipsError::AgreementExpired { ends_at, now });
     }
 
-    // Capacity safeguard: cap live agreements (pending or accepted) per rolling
-    // 24h, checked before the IPFS fetch so an over-cap proposal costs no download.
-    // Count-then-store isn't atomic, so concurrent proposals may overshoot slightly.
-    if let Some(limit) = max_new_agreements_per_24h {
-        match rca_store.count_since(CAPACITY_WINDOW).await {
-            Ok(count) if count >= *limit => {
-                return Err(DipsError::CapacityExceeded { limit: *limit });
-            }
-            Ok(_) => {}
-            // Fail open: the cap is a best-effort safeguard, not a security control,
-            // so a transient count failure shouldn't reject a valid proposal.
-            Err(e) => tracing::warn!(error = %e, "DIPs capacity check failed; allowing proposal"),
-        }
-    }
-
     // Derive agreement ID deterministically from the RCA fields
     let agreement_id = derive_agreement_id(&signed_rca.agreement);
 
-    // Early replay/idempotency check, before the expensive IPFS fetch: a re-sent
-    // proposal is resolved against the store so a duplicate never pays the
-    // manifest download. Failing open keeps this a best-effort DoS mitigation.
+    // Early replay/idempotency check, ahead of the capacity cap and the IPFS
+    // fetch: a recorded proposal's retry is resolved from the store, never
+    // capacity-rejected or charged for the download. Failing open is best-effort.
     match rca_store.lookup(agreement_id).await {
         Ok(None) => {}
         Ok(Some(prior)) => {
@@ -401,6 +386,21 @@ pub async fn validate_and_create_rca(
         }
         Err(error) => {
             tracing::warn!(%agreement_id, %error, "replay lookup failed, continuing validation");
+        }
+    }
+
+    // Capacity safeguard: cap live agreements (pending or accepted) per rolling
+    // 24h, checked before the IPFS fetch so an over-cap proposal costs no download.
+    // Count-then-store isn't atomic, so concurrent proposals may overshoot slightly.
+    if let Some(limit) = max_new_agreements_per_24h {
+        match rca_store.count_since(CAPACITY_WINDOW).await {
+            Ok(count) if count >= *limit => {
+                return Err(DipsError::CapacityExceeded { limit: *limit });
+            }
+            Ok(_) => {}
+            // Fail open: the cap is a best-effort safeguard, not a security control,
+            // so a transient count failure shouldn't reject a valid proposal.
+            Err(e) => tracing::warn!(error = %e, "DIPs capacity check failed; allowing proposal"),
         }
     }
 
@@ -1557,6 +1557,44 @@ mod test {
 
         // Assert: the swallowed lookup error still lets validation run to an
         // accept, rather than surfacing as a rejection.
+        assert_eq!(result.unwrap(), agreement_id);
+    }
+
+    #[tokio::test]
+    async fn test_replay_accepts_even_when_at_capacity() {
+        // Arrange: a recorded pending proposal with the per-24h cap already at
+        // one, so the capacity check alone would reject. The panicking fetcher
+        // proves the replay short-circuits before any manifest download.
+        let payer = Address::repeat_byte(0x42);
+        let service_provider = Address::repeat_byte(0x11);
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let agreement_id = derive_agreement_id(&rca);
+        let rca_bytes = rca_to_wire_bytes(rca);
+
+        let store = Arc::new(InMemoryRcaStore::default());
+        store
+            .store_rca(agreement_id, rca_bytes.clone(), PROTOCOL_VERSION)
+            .await
+            .unwrap();
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: store,
+            ipfs_fetcher: Arc::new(PanicIpfsFetcher),
+            price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
+            trusted_signers: trusted_signers_for_test(),
+            max_new_agreements_per_24h: Some(1),
+        });
+
+        // Act
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
+
+        // Assert: the prior accept comes back rather than CapacityExceeded.
         assert_eq!(result.unwrap(), agreement_id);
     }
 
