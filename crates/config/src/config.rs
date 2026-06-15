@@ -291,6 +291,21 @@ impl Config {
             );
         }
 
+        // Reject zero for limits where it is nonsensical: a metrics port of 0 binds a
+        // random OS port the scraper can't find, and a zero batch/body size rejects all work.
+        if self.metrics.port == 0 {
+            return Err("metrics.port must be greater than 0".to_string());
+        }
+        if self.service.max_cost_model_batch_size == 0 {
+            return Err("service.max_cost_model_batch_size must be greater than 0".to_string());
+        }
+        if self.service.max_request_body_size == 0 {
+            return Err("service.max_request_body_size must be greater than 0".to_string());
+        }
+        if self.service.max_status_request_body_size == 0 {
+            return Err("service.max_status_request_body_size must be greater than 0".to_string());
+        }
+
         if self.tap.allocation_reconciliation_interval_secs < Duration::from_secs(60) {
             tracing::warn!(
                 "Your `tap.allocation_reconciliation_interval_secs` value is too low. \
@@ -1394,6 +1409,39 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("escrow_min_balance_grt_wei"));
+    }
+
+    /// Test that config validation rejects a metrics port of 0.
+    #[sealed_test(files = ["minimal-config-example.toml"])]
+    fn test_validation_rejects_zero_metrics_port() {
+        let mut minimal_config: toml::Value = toml::from_str(
+            fs::read_to_string("minimal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+
+        let mut metrics = toml::value::Table::new();
+        metrics.insert("port".to_string(), toml::Value::Integer(0));
+        minimal_config
+            .as_table_mut()
+            .unwrap()
+            .insert("metrics".to_string(), toml::Value::Table(metrics));
+
+        let temp_config_path = tempfile::NamedTempFile::new().unwrap();
+        fs::write(
+            temp_config_path.path(),
+            toml::to_string(&minimal_config).unwrap(),
+        )
+        .unwrap();
+
+        let result = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from(temp_config_path.path())).as_ref(),
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("metrics.port"));
     }
 
     // === DIPS Startup Validation Tests ===
