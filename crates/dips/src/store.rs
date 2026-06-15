@@ -5,7 +5,7 @@
 //! proposals to the shared `pending_rca_proposals` table; indexer-rs writes them
 //! and the indexer-agent reads them and advances `status`. See the migration.
 
-use std::any::Any;
+use std::{any::Any, time::Duration};
 
 use async_trait::async_trait;
 use uuid::Uuid;
@@ -47,6 +47,11 @@ pub trait RcaStore: Sync + Send + std::fmt::Debug {
     /// when absent. The early replay check calls this before the IPFS fetch so a
     /// re-sent proposal skips the download.
     async fn lookup(&self, agreement_id: Uuid) -> Result<Option<StoredProposal>, DipsError>;
+
+    /// Count live agreements (status `pending` or `accepted`) within the trailing
+    /// `window`; rejected and expired proposals are excluded. The in-memory test
+    /// store has no status, so it ignores the window and counts every entry.
+    async fn count_since(&self, window: Duration) -> Result<u64, DipsError>;
 
     /// Downcast to concrete type for testing.
     fn as_any(&self) -> &dyn Any;
@@ -95,6 +100,10 @@ impl RcaStore for InMemoryRcaStore {
             }))
     }
 
+    async fn count_since(&self, _window: Duration) -> Result<u64, DipsError> {
+        Ok(self.data.read().await.len() as u64)
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -118,6 +127,12 @@ impl RcaStore for FailingRcaStore {
     }
 
     async fn lookup(&self, _agreement_id: Uuid) -> Result<Option<StoredProposal>, DipsError> {
+        Err(DipsError::UnknownError(anyhow::anyhow!(
+            "database connection failed (test store)"
+        )))
+    }
+
+    async fn count_since(&self, _window: Duration) -> Result<u64, DipsError> {
         Err(DipsError::UnknownError(anyhow::anyhow!(
             "database connection failed (test store)"
         )))
@@ -148,6 +163,10 @@ impl RcaStore for LookupFailsStore {
         Err(DipsError::UnknownError(anyhow::anyhow!(
             "lookup failed (test store)"
         )))
+    }
+
+    async fn count_since(&self, _window: Duration) -> Result<u64, DipsError> {
+        Ok(0)
     }
 
     fn as_any(&self) -> &dyn Any {
