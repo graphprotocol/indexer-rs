@@ -426,7 +426,7 @@ mod tests {
             true,
             Address::ZERO, // collector address; mock ignores query variables
             "100000000000000000".to_string(),
-            0,
+            None, // no signer-per-payer cap
         )
         .await
         .unwrap();
