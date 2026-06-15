@@ -5,7 +5,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     env,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    num::NonZeroUsize,
+    num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
     time::Duration,
 };
@@ -510,13 +510,11 @@ pub struct NetworkSubgraphConfig {
     #[serde_as(as = "DurationSecondsWithFrac<f64>")]
     pub recently_closed_allocation_buffer_secs: Duration,
 
-    /// Maximum allowed age of network subgraph data in minutes.
-    /// Responses older than this are rejected to prevent stale data from replacing fresh data.
-    /// This protects against Gateway routing queries to indexers that are significantly behind.
-    /// Set to 0 to disable staleness checking.
-    /// Default: 30 (minutes)
+    /// Maximum allowed age of network subgraph data in minutes; responses older than
+    /// this are rejected so stale data can't replace fresh data or hide an indexer
+    /// that is significantly behind. Must be positive. Default: 30 (minutes).
     #[serde(default = "default_max_data_staleness_mins")]
-    pub max_data_staleness_mins: u64,
+    pub max_data_staleness_mins: NonZeroU64,
 
     /// Minimum escrow balance (GRT wei) for the V2 escrow query. Filters dust
     /// deposits to raise the cost of crowding attacks. Default: 0.1 GRT.
@@ -530,8 +528,8 @@ pub struct NetworkSubgraphConfig {
     pub max_signers_per_payer: Option<NonZeroUsize>,
 }
 
-fn default_max_data_staleness_mins() -> u64 {
-    30
+fn default_max_data_staleness_mins() -> NonZeroU64 {
+    NonZeroU64::new(30).expect("30 is non-zero")
 }
 
 fn default_escrow_min_balance_grt_wei() -> String {
@@ -703,8 +701,8 @@ pub struct DipsConfig {
     /// while refreshes fail, before the gate fails closed (the fail-open window).
     pub role_failopen_grace_secs: u64,
     /// Max seconds the role subgraph head may lag wall-clock before its data is
-    /// treated as unreliable. 0 disables the check.
-    pub role_subgraph_max_lag_secs: u64,
+    /// treated as unreliable. Must be positive.
+    pub role_subgraph_max_lag_secs: NonZeroU64,
     /// Ethereum JSON-RPC endpoint used to fetch the EIP-712 domain from the
     /// RecurringCollector at startup (EIP-5267). Unset: built-in domain constants.
     pub rpc_url: Option<Url>,
@@ -726,7 +724,7 @@ impl Default for DipsConfig {
             recurring_collector: None,
             role_refresh_interval_secs: 86_400,
             role_failopen_grace_secs: 3_600,
-            role_subgraph_max_lag_secs: 1_800,
+            role_subgraph_max_lag_secs: NonZeroU64::new(1_800).expect("1800 is non-zero"),
             rpc_url: None,
             max_new_agreements_per_24h: None,
         }

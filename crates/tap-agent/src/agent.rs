@@ -140,7 +140,7 @@ pub async fn start_agent(
         *indexer_address,
         *network_sync_interval,
         *recently_closed_allocation_buffer,
-        *max_data_staleness_mins,
+        max_data_staleness_mins.get(),
     )
     .await
     .with_context(|| "Failed to initialize indexer_allocations watcher")?;

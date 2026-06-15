@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, num::NonZeroU64, time::Duration};
 
 use axum::{body::to_bytes, extract::ConnectInfo, http::Request, Extension};
 use axum_extra::headers::Header;
@@ -86,7 +86,9 @@ fn build_service_router(inputs: RouterInputs) -> ServiceRouter {
             NetworkSubgraphConfig {
                 config: inputs.network_subgraph_config,
                 recently_closed_allocation_buffer_secs: Duration::from_secs(0),
-                max_data_staleness_mins: 0,
+                // Effectively unbounded: this routing test uses a placeholder block
+                // timestamp and does not exercise staleness checking.
+                max_data_staleness_mins: NonZeroU64::new(1_000_000_000).unwrap(),
                 escrow_min_balance_grt_wei: "100000000000000000".to_string(),
                 max_signers_per_payer: None,
             },

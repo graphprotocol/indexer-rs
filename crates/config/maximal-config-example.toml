@@ -79,10 +79,9 @@ syncing_interval_secs = 60
 # So that we can keep serving queries while the information about the allocation closure
 # propagates to all the consumers.
 recently_closed_allocation_buffer_secs = 3600
-# Maximum allowed age of network subgraph data in minutes.
-# Responses older than this are rejected to prevent stale data from replacing fresh data.
-# This protects against Gateway routing queries to indexers that are significantly behind.
-# Set to 0 to disable staleness checking.
+# Maximum allowed age of network subgraph data in minutes; responses older than this are
+# rejected so stale data can't replace fresh data or hide an indexer that's behind.
+# Must be positive. Default 30.
 max_data_staleness_mins = 30
 # Minimum escrow balance (GRT wei) for V2 escrow queries. Filters dust deposits
 # to raise the cost of crowding attacks. Default: 0.1 GRT.
@@ -238,7 +237,7 @@ role_refresh_interval_secs = 86400
 role_failopen_grace_secs = 3600
 # Safety check on subgraph freshness: if the subgraph has fallen more than this many seconds
 # behind the chain, its sender list is treated as untrustworthy and proposals are rejected as
-# "try again later" rather than risk stale data. 0 turns the check off. Default 1800 (30 min).
+# "try again later" rather than risk stale data. Must be positive. Default 1800 (30 min).
 role_subgraph_max_lag_secs = 1800
 # Startup chain RPC for the RecurringCollector's EIP-712 signing domain. Unset uses built-in
 # values (correct on standard networks); set on local/dev or upgraded chains, else every proposal fails.

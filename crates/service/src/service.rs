@@ -381,7 +381,7 @@ async fn start_dips(
         indexing_payments_subgraph,
         Duration::from_secs(*role_refresh_interval_secs),
         Duration::from_secs(*role_failopen_grace_secs),
-        Duration::from_secs(*role_subgraph_max_lag_secs),
+        Duration::from_secs(role_subgraph_max_lag_secs.get()),
     )
     .await;
 
