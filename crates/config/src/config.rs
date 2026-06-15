@@ -712,6 +712,10 @@ pub struct DipsConfig {
     /// Ethereum JSON-RPC endpoint used to fetch the EIP-712 domain from the
     /// RecurringCollector at startup (EIP-5267). Unset: built-in domain constants.
     pub rpc_url: Option<Url>,
+    /// Max live DIPs agreements (awaiting acceptance or accepted) per rolling 24h
+    /// window; rejected and expired proposals don't count. None (unset) disables the
+    /// cap; a best-effort safeguard, not a security control.
+    pub max_new_agreements_per_24h: Option<u64>,
 }
 
 impl Default for DipsConfig {
@@ -728,6 +732,7 @@ impl Default for DipsConfig {
             role_failopen_grace_secs: 3_600,
             role_subgraph_max_lag_secs: 1_800,
             rpc_url: None,
+            max_new_agreements_per_24h: None,
         }
     }
 }

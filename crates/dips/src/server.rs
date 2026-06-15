@@ -84,6 +84,8 @@ pub struct DipsServerContext {
     pub rca_domain: Eip712Domain,
     /// Authorises the recovered signer against the on-chain agreement-manager role.
     pub trusted_signers: Arc<dyn TrustedSignerSource>,
+    /// Max live DIPs agreements (pending or accepted) per rolling 24h window. None disables the cap.
+    pub max_new_agreements_per_24h: Option<u64>,
 }
 
 /// DIPS server implementing RCA protocol.
@@ -118,6 +120,7 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
         DipsError::UnexpectedServiceProvider { .. } => RejectReason::UnexpectedServiceProvider,
         DipsError::UnsupportedMetadataVersion(_) => RejectReason::UnsupportedMetadataVersion,
         DipsError::ManifestTooLarge { .. } => RejectReason::ManifestTooLarge,
+        DipsError::CapacityExceeded { .. } => RejectReason::CapacityExceeded,
         // Malformed proposals with no dedicated reason map to the catch-all; the
         // detail carries the specifics.
         DipsError::AbiDecoding(_)
@@ -262,6 +265,7 @@ mod tests {
                 additional_networks: Arc::new(BTreeMap::new()),
                 rca_domain: crate::rca_eip712_domain(1337, Address::repeat_byte(0xCC)),
                 trusted_signers: Arc::new(StaticTrustedSigners::default()),
+                max_new_agreements_per_24h: None,
             })
         }
     }
@@ -499,6 +503,18 @@ mod tests {
 
         // Assert
         assert_eq!(reason, RejectReason::ManifestTooLarge);
+    }
+
+    #[test]
+    fn test_reject_reason_capacity_exceeded() {
+        // Arrange
+        let err = DipsError::CapacityExceeded { limit: 30 };
+
+        // Act
+        let reason = super::reject_reason_from_error(&err);
+
+        // Assert
+        assert_eq!(reason, RejectReason::CapacityExceeded);
     }
 
     #[test]

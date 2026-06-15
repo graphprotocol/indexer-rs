@@ -25,7 +25,7 @@
 //! - [`InMemoryRcaStore`] - In-memory store for unit tests
 //! - [`PsqlRcaStore`](crate::database::PsqlRcaStore) - PostgreSQL implementation
 
-use std::any::Any;
+use std::{any::Any, time::Duration};
 
 use async_trait::async_trait;
 use uuid::Uuid;
@@ -54,6 +54,11 @@ pub trait RcaStore: Sync + Send + std::fmt::Debug {
         version: u64,
     ) -> Result<(), DipsError>;
 
+    /// Count live agreements (status `pending` or `accepted`) within the trailing
+    /// `window`; rejected and expired proposals are excluded. The in-memory test
+    /// store has no status, so it ignores the window and counts every entry.
+    async fn count_since(&self, window: Duration) -> Result<u64, DipsError>;
+
     /// Downcast to concrete type for testing.
     fn as_any(&self) -> &dyn Any;
 }
@@ -80,6 +85,10 @@ impl RcaStore for InMemoryRcaStore {
         Ok(())
     }
 
+    async fn count_since(&self, _window: Duration) -> Result<u64, DipsError> {
+        Ok(self.data.read().await.len() as u64)
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -97,6 +106,12 @@ impl RcaStore for FailingRcaStore {
         _signed_rca: Vec<u8>,
         _version: u64,
     ) -> Result<(), DipsError> {
+        Err(DipsError::UnknownError(anyhow::anyhow!(
+            "database connection failed (test store)"
+        )))
+    }
+
+    async fn count_since(&self, _window: Duration) -> Result<u64, DipsError> {
         Err(DipsError::UnknownError(anyhow::anyhow!(
             "database connection failed (test store)"
         )))
