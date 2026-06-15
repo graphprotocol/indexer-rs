@@ -20,7 +20,10 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_repr::Deserialize_repr;
 use serde_with::{serde_as, DurationSecondsWithFrac};
-use thegraph_core::{alloy::primitives::Address, DeploymentId};
+use thegraph_core::{
+    alloy::primitives::{Address, U256},
+    DeploymentId,
+};
 use url::Url;
 
 use crate::{NonZeroGRT, GRT};
@@ -276,6 +279,21 @@ impl Config {
         if self.tap.allocation_reconciliation_interval_secs == Duration::ZERO {
             return Err(
                 "tap.allocation_reconciliation_interval_secs must be greater than 0".to_string(),
+            );
+        }
+
+        // The escrow dust floor is sent to the subgraph as an integer; reject a
+        // non-numeric value at load rather than failing later at query time.
+        if self
+            .subgraphs
+            .network
+            .escrow_min_balance_grt_wei
+            .parse::<U256>()
+            .is_err()
+        {
+            return Err(
+                "subgraphs.network.escrow_min_balance_grt_wei must be a non-negative integer (wei)"
+                    .to_string(),
             );
         }
 
@@ -1345,6 +1363,44 @@ mod tests {
         assert!(result
             .unwrap_err()
             .contains("No operator mnemonic configured"));
+    }
+
+    /// Test that config validation rejects a non-numeric escrow dust floor.
+    #[sealed_test(files = ["minimal-config-example.toml"])]
+    fn test_validation_rejects_non_numeric_escrow_min_balance() {
+        let mut minimal_config: toml::Value = toml::from_str(
+            fs::read_to_string("minimal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+
+        minimal_config
+            .get_mut("subgraphs")
+            .unwrap()
+            .get_mut("network")
+            .unwrap()
+            .as_table_mut()
+            .unwrap()
+            .insert(
+                "escrow_min_balance_grt_wei".to_string(),
+                toml::Value::String("not-a-number".to_string()),
+            );
+
+        let temp_config_path = tempfile::NamedTempFile::new().unwrap();
+        fs::write(
+            temp_config_path.path(),
+            toml::to_string(&minimal_config).unwrap(),
+        )
+        .unwrap();
+
+        let result = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from(temp_config_path.path())).as_ref(),
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("escrow_min_balance_grt_wei"));
     }
 
     // === DIPS Startup Validation Tests ===
