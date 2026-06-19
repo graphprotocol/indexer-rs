@@ -276,6 +276,17 @@ impl SignedRecurringCollectionAgreement {
     pub fn encode_vec(&self) -> Vec<u8> {
         self.abi_encode()
     }
+
+    /// ABI-encode the same agreement but with an empty signature. The signature
+    /// only authenticates the sender at proposal time; the indexer-agent rejects
+    /// any stored proposal that still carries one (acceptance is offer-based).
+    pub fn encode_without_signature(&self) -> Vec<u8> {
+        SignedRecurringCollectionAgreement {
+            agreement: self.agreement.clone(),
+            signature: Default::default(),
+        }
+        .abi_encode()
+    }
 }
 
 /// Convert bytes32 subgraph deployment ID to IPFS CIDv0 string.
@@ -366,6 +377,11 @@ pub async fn validate_and_create_rca(
     // Derive agreement ID deterministically from the RCA fields
     let agreement_id = derive_agreement_id(&signed_rca.agreement);
 
+    // Persist and compare proposals with the signature stripped: the agent
+    // rejects any stored row that still carries one, so a re-send (which always
+    // arrives signed) must compare against this form, not the raw incoming bytes.
+    let stored_bytes = signed_rca.encode_without_signature();
+
     // Early replay/idempotency check, ahead of the capacity cap and the IPFS
     // fetch: a recorded proposal's retry is resolved from the store, never
     // capacity-rejected or charged for the download. Failing open is best-effort.
@@ -373,7 +389,7 @@ pub async fn validate_and_create_rca(
         Ok(None) => {}
         Ok(Some(prior)) => {
             // A different payload reusing the same id is the only true conflict.
-            if prior.signed_payload != rca_bytes {
+            if prior.signed_payload != stored_bytes {
                 tracing::warn!(
                     %agreement_id,
                     "replay conflict: agreement id re-sent with a different payload"
@@ -515,9 +531,9 @@ pub async fn validate_and_create_rca(
         "creating RCA agreement"
     );
 
-    // Store the raw signed RCA bytes
+    // Store the RCA with an empty signature (see encode_without_signature).
     rca_store
-        .store_rca(agreement_id, rca_bytes, PROTOCOL_VERSION)
+        .store_rca(agreement_id, stored_bytes, PROTOCOL_VERSION)
         .await
         .map_err(|error| {
             tracing::error!(%agreement_id, %error, "failed to store RCA");
@@ -624,6 +640,16 @@ mod test {
         rca.sign(&test_rca_domain(), test_signer())
             .expect("signing test RCA")
             .abi_encode()
+    }
+
+    /// The sig-stripped form `validate_and_create_rca` actually persists. Replay
+    /// tests seed the store with this so a re-send compares as identical.
+    fn rca_to_stored_bytes(rca: RecurringCollectionAgreement) -> Vec<u8> {
+        SignedRecurringCollectionAgreement {
+            agreement: rca,
+            signature: Default::default(),
+        }
+        .abi_encode()
     }
 
     fn create_test_rca(
@@ -796,6 +822,18 @@ mod test {
         let data = in_memory.data.read().await;
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].0, agreement_id);
+
+        // The persisted payload must carry an empty signature: the agent rejects
+        // any stored proposal that still has one. Decode the stored bytes back
+        // and confirm the signature field is empty while the agreement survives.
+        let stored = SignedRecurringCollectionAgreement::abi_decode(data[0].1.as_ref())
+            .expect("stored payload decodes");
+        assert!(
+            stored.signature.is_empty(),
+            "stored payload must have an empty signature, got {} bytes",
+            stored.signature.len()
+        );
+        assert_eq!(derive_agreement_id(&stored.agreement), agreement_id);
     }
 
     #[test]
@@ -1402,16 +1440,17 @@ mod test {
 
     #[tokio::test]
     async fn test_replay_identical_pending_accepts_without_fetch() {
-        // Arrange: seed the identical bytes as a pending row.
+        // Arrange: seed the sig-stripped form (what gets stored) as a pending row,
+        // then re-send the same proposal signed.
         let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
         let agreement_id = derive_agreement_id(&rca);
-        let rca_bytes = rca_to_wire_bytes(rca);
+        let rca_bytes = rca_to_wire_bytes(rca.clone());
 
         let store = Arc::new(InMemoryRcaStore::default());
         store
-            .store_rca(agreement_id, rca_bytes.clone(), PROTOCOL_VERSION)
+            .store_rca(agreement_id, rca_to_stored_bytes(rca), PROTOCOL_VERSION)
             .await
             .unwrap();
         let ctx = context_with_store_and_panic_fetcher(store);
@@ -1425,16 +1464,16 @@ mod test {
 
     #[tokio::test]
     async fn test_replay_identical_accepted_accepts_without_fetch() {
-        // Arrange: seed identical bytes, then promote the row to accepted.
+        // Arrange: seed the sig-stripped form, then promote the row to accepted.
         let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
         let agreement_id = derive_agreement_id(&rca);
-        let rca_bytes = rca_to_wire_bytes(rca);
+        let rca_bytes = rca_to_wire_bytes(rca.clone());
 
         let store = Arc::new(InMemoryRcaStore::default());
         store
-            .store_rca(agreement_id, rca_bytes.clone(), PROTOCOL_VERSION)
+            .store_rca(agreement_id, rca_to_stored_bytes(rca), PROTOCOL_VERSION)
             .await
             .unwrap();
         set_status(&store, "accepted").await;
@@ -1455,11 +1494,11 @@ mod test {
         let service_provider = Address::repeat_byte(0x11);
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
         let agreement_id = derive_agreement_id(&rca);
-        let rca_bytes = rca_to_wire_bytes(rca);
+        let rca_bytes = rca_to_wire_bytes(rca.clone());
 
         let store = Arc::new(InMemoryRcaStore::default());
         store
-            .store_rca(agreement_id, rca_bytes.clone(), PROTOCOL_VERSION)
+            .store_rca(agreement_id, rca_to_stored_bytes(rca), PROTOCOL_VERSION)
             .await
             .unwrap();
         set_status(&store, "completed").await;
@@ -1474,16 +1513,16 @@ mod test {
 
     #[tokio::test]
     async fn test_replay_identical_rejected_rerejects_without_fetch() {
-        // Arrange: seed identical bytes, then mark the row rejected.
+        // Arrange: seed the sig-stripped form, then mark the row rejected.
         let payer = Address::repeat_byte(0x42);
         let service_provider = Address::repeat_byte(0x11);
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
         let agreement_id = derive_agreement_id(&rca);
-        let rca_bytes = rca_to_wire_bytes(rca);
+        let rca_bytes = rca_to_wire_bytes(rca.clone());
 
         let store = Arc::new(InMemoryRcaStore::default());
         store
-            .store_rca(agreement_id, rca_bytes.clone(), PROTOCOL_VERSION)
+            .store_rca(agreement_id, rca_to_stored_bytes(rca), PROTOCOL_VERSION)
             .await
             .unwrap();
         set_status(&store, "rejected").await;
@@ -1510,13 +1549,15 @@ mod test {
         let agreement_id = derive_agreement_id(&seeded);
         assert_eq!(agreement_id, derive_agreement_id(&conflicting));
 
-        let seeded_bytes = rca_to_wire_bytes(seeded);
+        // Seed the sig-stripped form, matching what production stores, so the
+        // conflict comes from the differing terms rather than the signature.
+        let seeded_stored = rca_to_stored_bytes(seeded);
         let conflicting_bytes = rca_to_wire_bytes(conflicting);
-        assert_ne!(seeded_bytes, conflicting_bytes);
+        assert_ne!(seeded_stored, conflicting_bytes);
 
         let store = Arc::new(InMemoryRcaStore::default());
         store
-            .store_rca(agreement_id, seeded_bytes.clone(), PROTOCOL_VERSION)
+            .store_rca(agreement_id, seeded_stored.clone(), PROTOCOL_VERSION)
             .await
             .unwrap();
         let ctx = context_with_store_and_panic_fetcher(store.clone());
@@ -1528,7 +1569,7 @@ mod test {
         // Assert: conflict reported and the stored row is left unchanged.
         assert!(matches!(result, Err(DipsError::ReplayConflict { .. })));
         let stored = store.lookup(agreement_id).await.unwrap().unwrap();
-        assert_eq!(stored.signed_payload, seeded_bytes);
+        assert_eq!(stored.signed_payload, seeded_stored);
     }
 
     #[tokio::test]
@@ -1573,11 +1614,11 @@ mod test {
         let service_provider = Address::repeat_byte(0x11);
         let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
         let agreement_id = derive_agreement_id(&rca);
-        let rca_bytes = rca_to_wire_bytes(rca);
+        let rca_bytes = rca_to_wire_bytes(rca.clone());
 
         let store = Arc::new(InMemoryRcaStore::default());
         store
-            .store_rca(agreement_id, rca_bytes.clone(), PROTOCOL_VERSION)
+            .store_rca(agreement_id, rca_to_stored_bytes(rca), PROTOCOL_VERSION)
             .await
             .unwrap();
         let ctx = Arc::new(DipsServerContext {
