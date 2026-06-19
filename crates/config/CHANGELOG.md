@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v2.1.0...indexer-config-v2.2.0) (2026-06-03)
+
+
+### Features
+
+* advertise DIPs prices via /dips/info endpoint ([#1037](https://github.com/graphprotocol/indexer-rs/issues/1037)) ([6abdf97](https://github.com/graphprotocol/indexer-rs/commit/6abdf97f949a23d91fa890c082417f7d17cc9b3d))
+
 ## [2.1.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v2.0.2...indexer-config-v2.1.0) (2026-04-20)
 
 

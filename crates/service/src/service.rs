@@ -503,7 +503,7 @@ async fn start_dips_server(
         .serve_with_shutdown(addr, shutdown)
         .await
     {
-        tracing::error!(error = %e, "DIPS gRPC server error");
+        tracing::error!(error = %e, "DIPs gRPC server error");
     }
 }
 

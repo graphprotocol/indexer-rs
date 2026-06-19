@@ -69,6 +69,16 @@ pub(crate) static RAVS_FAILED_BY_VERSION: LazyLock<CounterVec> = LazyLock::new(|
     )
     .unwrap()
 });
+pub(crate) static INVALID_RECEIPTS_STORE_FAILED_BY_VERSION: LazyLock<CounterVec> =
+    LazyLock::new(|| {
+        register_counter_vec!(
+            "tap_invalid_receipts_store_failed_total_by_version",
+            "Best-effort writes of invalid receipts that failed while the RAV for the valid \
+             receipts was still stored, per sender allocation and TAP version",
+            &["sender", "allocation", "version"]
+        )
+        .unwrap()
+    });
 pub(crate) static RAV_RESPONSE_TIME_BY_VERSION: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         "tap_rav_response_time_seconds_by_version",
@@ -112,12 +122,9 @@ type TapManager<T> = tap_core::manager::Manager<TapAgentContext<T>, TapReceipt>;
 
 const TAP_VERSION: &str = "v2";
 
-/// Manages unaggregated fees and the TAP lifecyle for a specific (allocation, sender) pair.
+/// Manages unaggregated fees and the TAP lifecycle for a specific (allocation, sender) pair.
 ///
-/// We use PhantomData to be able to add bounds to T while implementing the Actor trait
-///
-/// T is used in SenderAllocationState<T> and SenderAllocationArgs<T> to store the
-/// correct Rav type and the correct aggregator client
+/// `PhantomData<T>` carries the network version so the `Actor` impl can pin the Rav type.
 pub struct SenderAllocation<T>(PhantomData<T>);
 impl<T: NetworkVersion> Default for SenderAllocation<T> {
     fn default() -> Self {
@@ -131,10 +138,7 @@ pub struct SenderAllocationState<T: NetworkVersion> {
     unaggregated_fees: UnaggregatedReceipts,
     /// Sum of all invalid receipts for the current allocation
     invalid_receipts_fees: UnaggregatedReceipts,
-    /// Last sent RAV
-    ///
-    /// This is used to together with a list of receipts to aggregate
-    /// into a new RAV
+    /// Last sent RAV, aggregated together with new receipts into the next RAV
     latest_rav: Option<Eip712SignedMessage<T::Rav>>,
     /// Database connection
     pgpool: PgPool,
@@ -243,10 +247,8 @@ pub enum SenderAllocationMessage {
     ),
 }
 
-/// Actor implementation for [SenderAllocation]
-///
-/// We use some bounds so [TapAgentContext] implements all parts needed for the given
-/// [crate::tap::context::NetworkVersion]
+/// Actor implementation for [SenderAllocation]. The bounds make [TapAgentContext] satisfy
+/// every part needed for the given [crate::tap::context::NetworkVersion].
 #[async_trait::async_trait]
 impl<T> Actor for SenderAllocation<T>
 where
@@ -303,11 +305,8 @@ where
         Ok(state)
     }
 
-    /// This method only runs on graceful stop (real close allocation)
-    /// if the actor crashes, this is not ran
-    ///
-    /// It's used to flush all remaining receipts while creating Ravs
-    /// and marking it as last to be redeemed by indexer-agent
+    /// Runs only on graceful stop (real close allocation), not on crash. Flushes the remaining
+    /// receipts into RAVs and marks the last one for indexer-agent to redeem.
     async fn post_stop(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -564,10 +563,8 @@ where
         }
     }
 
-    /// Request a RAV from the sender's TAP aggregator. Only one RAV request will be running at a
-    /// time because actors run one message at a time.
-    ///
-    /// Yet, multiple different [SenderAllocation] can run a request in parallel.
+    /// Request a RAV from the sender's TAP aggregator. One actor handles one message at a time, so
+    /// an allocation runs a single request at once, though different allocations run in parallel.
     async fn rav_requester_single(&mut self) -> Result<Eip712SignedMessage<T::Rav>, RavError> {
         tracing::trace!("rav_requester_single()");
         let RavRequest {
@@ -608,10 +605,22 @@ where
                     .max()
                     .expect("invalid receipts should not be empty");
 
-                self.store_invalid_receipts(invalid_receipts).await?;
+                // Resolve the sender's signers before opening the transaction, so it isn't
+                // held open across that await.
                 let signers = signers_trimmed(self.escrow_accounts.clone(), self.sender).await?;
-                self.delete_receipts_between(&signers, min_timestamp, max_timestamp)
+
+                // Record the invalid receipts and delete them from the live table in one
+                // transaction, so a crash or delete failure can't leave them in both tables
+                // or delete them without a record.
+                let pool = self.pgpool.clone();
+                let mut tx = pool.begin().await?;
+                let fees = self
+                    .store_invalid_receipts(invalid_receipts, &mut tx)
                     .await?;
+                self.delete_receipts_between(&signers, min_timestamp, max_timestamp, &mut tx)
+                    .await?;
+                tx.commit().await?;
+                self.account_invalid_receipts_fees(fees);
                 Err(RavError::AllReceiptsInvalid)
             }
             // When it receives both valid and invalid receipts or just valid
@@ -649,16 +658,39 @@ where
                 //
                 // store them before we call remove_obsolete_receipts()
                 if !invalid_receipts.is_empty() {
+                    let invalid_count = invalid_receipts.len();
                     tracing::warn!(
-                        invalid_count = invalid_receipts.len(),
+                        invalid_count,
                         allocation_id = %self.allocation_id,
                         sender = %self.sender,
                         "Found invalid receipts",
                     );
 
-                    // Save invalid receipts to the database for logs.
-                    // TODO: consider doing that in a spawned task?
-                    self.store_invalid_receipts(invalid_receipts).await?;
+                    // Recording invalid receipts is best-effort logging; a failed write must
+                    // not drop the RAV the valid receipts earned, so we log and meter it and
+                    // only advance the in-memory total when the write actually committed.
+                    match self
+                        .store_and_commit_invalid_receipts(invalid_receipts)
+                        .await
+                    {
+                        Ok(fees) => self.account_invalid_receipts_fees(fees),
+                        Err(err) => {
+                            tracing::error!(
+                                %err,
+                                invalid_count,
+                                allocation_id = %self.allocation_id,
+                                sender = %self.sender,
+                                "Failed to record invalid receipts; storing the RAV anyway",
+                            );
+                            INVALID_RECEIPTS_STORE_FAILED_BY_VERSION
+                                .with_label_values(&[
+                                    &self.sender.to_string(),
+                                    &self.allocation_id.to_string(),
+                                    TAP_VERSION,
+                                ])
+                                .inc();
+                        }
+                    }
                 }
 
                 match self
@@ -723,10 +755,28 @@ where
         }
     }
 
+    /// Store invalid receipts in their own committed transaction and return their total
+    /// value. Used by the mixed valid+invalid path, where recording is best-effort and must
+    /// not share a transaction with the RAV being stored for the valid receipts.
+    async fn store_and_commit_invalid_receipts(
+        &mut self,
+        receipts: Vec<ReceiptWithState<Failed, TapReceipt>>,
+    ) -> anyhow::Result<u128> {
+        let pool = self.pgpool.clone();
+        let mut tx = pool.begin().await?;
+        let fees = self.store_invalid_receipts(receipts, &mut tx).await?;
+        tx.commit().await?;
+        Ok(fees)
+    }
+
+    /// Store invalid receipts on the caller's transaction and return their total value.
+    /// The caller commits, then records that value via [`Self::account_invalid_receipts_fees`],
+    /// so the in-memory accounting only advances once the database write is durable.
     async fn store_invalid_receipts(
         &mut self,
         receipts: Vec<ReceiptWithState<Failed, TapReceipt>>,
-    ) -> anyhow::Result<()> {
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> anyhow::Result<u128> {
         let fees = receipts
             .iter()
             .map(|receipt| receipt.signed_receipt().value())
@@ -739,10 +789,15 @@ where
             receipts_v2.push((receipt, error));
         }
 
-        if let Err(err) = self.store_v2_invalid_receipts(receipts_v2).await {
-            tracing::error!(%err, "There was an error while storing invalid v2 receipts.");
-        }
+        self.store_v2_invalid_receipts(receipts_v2, tx).await?;
 
+        Ok(fees)
+    }
+
+    /// Add `fees` (the rejected receipts' total value) to the running invalid-receipt total
+    /// and report it to the sender account. Call only after the store commits, so the total
+    /// never runs ahead of what was durably written.
+    fn account_invalid_receipts_fees(&mut self, fees: u128) {
         self.invalid_receipts_fees.value = self
             .invalid_receipts_fees
             .value
@@ -760,21 +815,31 @@ where
                 );
                 u128::MAX
             });
-        self.sender_account_ref
-            .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
-                T::to_allocation_id_enum(&self.allocation_id),
-                self.invalid_receipts_fees,
-            ))?;
-
-        Ok(())
+        // Notifying the sender account is best-effort: a failed cast means that actor is
+        // already gone, so log it rather than masking the caller's actual outcome.
+        if let Err(err) =
+            self.sender_account_ref
+                .cast(SenderAccountMessage::UpdateInvalidReceiptFees(
+                    T::to_allocation_id_enum(&self.allocation_id),
+                    self.invalid_receipts_fees,
+                ))
+        {
+            tracing::error!(
+                %err,
+                sender = %self.sender,
+                allocation_id = %self.allocation_id,
+                "Failed to notify sender account of invalid receipt fees",
+            );
+        }
     }
 
     async fn store_v2_invalid_receipts(
         &self,
         receipts: Vec<(tap_graph::v2::SignedReceipt, String)>,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> anyhow::Result<()> {
         let receipts_len = receipts.len();
-        let mut reciepts_signers = Vec::with_capacity(receipts_len);
+        let mut receipts_signers = Vec::with_capacity(receipts_len);
         let mut encoded_signatures = Vec::with_capacity(receipts_len);
         let mut collection_ids = Vec::with_capacity(receipts_len);
         let mut payers = Vec::with_capacity(receipts_len);
@@ -803,7 +868,7 @@ where
                 reason = %receipt_error,
                 "Invalid receipt stored",
             );
-            reciepts_signers.push(receipt_signer.encode_hex());
+            receipts_signers.push(receipt_signer.encode_hex());
             encoded_signatures.push(encoded_signature);
             collection_ids.push(collection_id.encode_hex());
             payers.push(payer.encode_hex());
@@ -839,7 +904,7 @@ where
                 $10::TEXT[]
             )"#,
         )
-        .bind(&reciepts_signers)
+        .bind(&receipts_signers)
         .bind(&encoded_signatures)
         .bind(&collection_ids)
         .bind(&payers)
@@ -849,7 +914,7 @@ where
         .bind(&nonces)
         .bind(&values)
         .bind(&error_logs)
-        .execute(&self.pgpool)
+        .execute(&mut **tx)
         .await
         .map_err(|e: sqlx::Error| {
             tracing::error!(error = %e, "Failed to store invalid receipt");
@@ -901,6 +966,7 @@ pub trait DatabaseInteractions {
         signers: &[String],
         min_timestamp: u64,
         max_timestamp: u64,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
     /// Calculates fees for invalid receipts
     fn calculate_invalid_receipts_fee(
@@ -925,6 +991,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
         signers: &[String],
         min_timestamp: u64,
         max_timestamp: u64,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> anyhow::Result<()> {
         sqlx::query(
             r#"
@@ -949,7 +1016,7 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
                 .encode_hex(),
         )
         .bind(signers)
-        .execute(&self.pgpool)
+        .execute(&mut **tx)
         .await?;
         Ok(())
     }
@@ -1128,15 +1195,14 @@ impl DatabaseInteractions for SenderAllocationState<Horizon> {
     }
 }
 
-/// Force initialization of all LazyLock metrics in this module.
-///
-/// This ensures metrics are registered with Prometheus at startup,
-/// even if no SenderAllocation actors have been created yet.
+/// Force initialization of all LazyLock metrics in this module, so they register with
+/// Prometheus at startup even before any SenderAllocation actor exists.
 pub fn init_metrics() {
     // Dereference each LazyLock to force initialization
     let _ = &*CLOSED_SENDER_ALLOCATIONS;
     let _ = &*RAVS_CREATED_BY_VERSION;
     let _ = &*RAVS_FAILED_BY_VERSION;
+    let _ = &*INVALID_RECEIPTS_STORE_FAILED_BY_VERSION;
     let _ = &*RAV_RESPONSE_TIME_BY_VERSION;
 }
 
@@ -1244,6 +1310,38 @@ mod tests {
                 .unwrap();
         flush_messages(&mut receiver).await;
         (sender_allocation, receiver)
+    }
+
+    /// Two receipts forced into the `Failed` state by a check that always fails, for
+    /// exercising invalid-receipt storage. Their values (1 and 2) sum to 3.
+    async fn make_failing_receipts() -> Vec<ReceiptWithState<Failed, TapReceipt>> {
+        struct FailingCheck;
+        #[async_trait::async_trait]
+        impl Check<TapReceipt> for FailingCheck {
+            async fn check(
+                &self,
+                _: &tap_core::receipt::Context,
+                _receipt: &CheckingReceipt,
+            ) -> tap_core::receipt::checks::CheckResult {
+                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
+                    "Failing check"
+                )))
+            }
+        }
+
+        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
+        let checking_receipts = vec![
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
+            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
+        ];
+        join_all(checking_receipts.into_iter().map(|receipt| async {
+            receipt
+                .finalize_receipt_checks(&Context::new(), &checks)
+                .await
+                .unwrap()
+                .unwrap_err()
+        }))
+        .await
     }
 
     #[tokio::test]
@@ -1419,41 +1517,15 @@ mod tests {
         ));
         let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
 
-        struct FailingCheck;
-        #[async_trait::async_trait]
-        impl Check<TapReceipt> for FailingCheck {
-            async fn check(
-                &self,
-                _: &tap_core::receipt::Context,
-                _receipt: &CheckingReceipt,
-            ) -> tap_core::receipt::checks::CheckResult {
-                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
-                    "Failing check"
-                )))
-            }
-        }
+        let failing_receipts = make_failing_receipts().await;
 
-        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
-        let checking_receipts = vec![
-            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
-            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
-        ];
-        let failing_receipts = checking_receipts
-            .into_iter()
-            .map(|receipt| async {
-                receipt
-                    .finalize_receipt_checks(&Context::new(), &checks)
-                    .await
-                    .unwrap()
-                    .unwrap_err()
-            })
-            .collect::<Vec<_>>();
-        let failing_receipts = join_all(failing_receipts).await;
-
+        let pool = test_db.pool.clone();
+        let mut tx = pool.begin().await.unwrap();
         state
-            .store_invalid_receipts(failing_receipts)
+            .store_invalid_receipts(failing_receipts, &mut tx)
             .await
             .unwrap();
+        tx.commit().await.unwrap();
         let total_invalid_receipts = state.calculate_invalid_receipts_fee().await.unwrap();
         assert_eq!(total_invalid_receipts.value, 3u128);
     }
@@ -1533,39 +1605,51 @@ mod tests {
         ));
         let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
 
-        struct FailingCheck;
-        #[async_trait::async_trait]
-        impl Check<TapReceipt> for FailingCheck {
-            async fn check(
-                &self,
-                _: &tap_core::receipt::Context,
-                _receipt: &CheckingReceipt,
-            ) -> tap_core::receipt::checks::CheckResult {
-                Err(tap_core::receipt::checks::CheckError::Failed(anyhow!(
-                    "Failing check"
-                )))
-            }
-        }
+        let failing_receipts = make_failing_receipts().await;
 
-        let checks = CheckList::new(vec![Arc::new(FailingCheck)]);
-        let checking_receipts = vec![
-            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1u128),
-            create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 2, 2, 2u128),
-        ];
-        let failing_receipts = checking_receipts
-            .into_iter()
-            .map(|receipt| async {
-                receipt
-                    .finalize_receipt_checks(&Context::new(), &checks)
-                    .await
-                    .unwrap()
-                    .unwrap_err()
-            })
-            .collect::<Vec<_>>();
-        let failing_receipts = join_all(failing_receipts).await;
-
-        let result = state.store_invalid_receipts(failing_receipts).await;
+        let pool = test_db.pool.clone();
+        let mut tx = pool.begin().await.unwrap();
+        let result = state
+            .store_invalid_receipts(failing_receipts, &mut tx)
+            .await;
         assert!(result.is_ok());
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_store_invalid_receipts_rolls_back_with_transaction() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        let network_mock = setup_network_subgraph(false).await;
+        let network_subgraph = Box::leak(Box::new(
+            SubgraphClient::new(
+                reqwest::Client::new(),
+                None,
+                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
+            )
+            .await,
+        ));
+        let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
+
+        let failing_receipts = make_failing_receipts().await;
+
+        // Store the invalid receipts inside a transaction, then roll it back. Because the
+        // store now runs on the caller's transaction instead of autocommitting, the rows
+        // must not survive the rollback.
+        let pool = test_db.pool.clone();
+        let mut tx = pool.begin().await.unwrap();
+        state
+            .store_invalid_receipts(failing_receipts, &mut tx)
+            .await
+            .unwrap();
+        tx.rollback().await.unwrap();
+
+        let count: i64 = sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_receipts_invalid")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap()
+            .try_get("count")
+            .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[tokio::test]
@@ -1669,6 +1753,15 @@ mod tests {
             .unwrap();
 
         let _ = receiver.recv().await;
+
+        // The actor handles one message at a time, so this round-trip can't return
+        // until TriggerRavRequest finished moving the receipts (insert-invalid then
+        // delete-from-main). Without it, recv() can wake mid-move and the counts race.
+        let _ = call!(
+            sender_allocation,
+            SenderAllocationMessage::GetUnaggregatedReceipts
+        )
+        .unwrap();
 
         let invalid_receipts =
             sqlx::query("SELECT COUNT(*) AS count FROM tap_horizon_receipts_invalid")

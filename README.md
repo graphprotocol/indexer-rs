@@ -240,7 +240,7 @@ The TAP Agent is an actor-based system powered by [ractor](https://crates.io/cra
 | `indexer-allocation`     | Shared structs and logic related to subgraph allocations in The Graph.                       |
 | `indexer-attestation`    | Provides tools for generating and verifying attestations for requests and responses.         |
 | `indexer-config`         | Parses shared configuration used by both `indexer-service-rs` and `indexer-tap-agent`.       |
-| `indexer-dips`           | (WIP) Library for managing DIPS (Distributed Indexing Payment System).                       |
+| `indexer-dips`           | (WIP) Library for managing DIPs (Direct Indexing Payments).                       |
 | `indexer-monitor`        | Monitors subgraphs through polling and updates shared state with reactive components.        |
 | `indexer-query`          | Type-safe GraphQL queries, leveraging [graphql-client](https://github.com/graphql-rust/graphql-client). |
 | `indexer-service-rs`     | Subgraph service application that handles payments, routes queries to graph-node, and creates attestations. |

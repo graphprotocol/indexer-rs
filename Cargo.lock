@@ -1868,11 +1868,11 @@ dependencies = [
 
 [[package]]
 name = "bon"
-version = "3.9.1"
+version = "3.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f47dbe92550676ee653353c310dfb9cf6ba17ee70396e1f7cf0a2020ad49b2fe"
+checksum = "b2f04f6fef12d70d42a77b1433c9e0f065238479a6cefc4f5bab105e9873a3c3"
 dependencies = [
- "bon-macros 3.9.1",
+ "bon-macros 3.9.2",
  "rustversion",
 ]
 
@@ -1891,11 +1891,11 @@ dependencies = [
 
 [[package]]
 name = "bon-macros"
-version = "3.9.1"
+version = "3.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "519bd3116aeeb42d5372c29d982d16d0170d3d4a5ed85fc7dd91642ffff3c67c"
+checksum = "7d0bd4c2f75335ad98052a37efb54f428b492f64340257143b3429c8a508fa7b"
 dependencies = [
- "darling 0.23.0",
+ "darling 0.20.11",
  "ident_case",
  "prettyplease",
  "proc-macro2",
@@ -2059,9 +2059,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.11.1"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
+checksum = "8ae3f5d315924270530207e2a68396c3cc547f6dca3fbdca317cfb1a51edb593"
 dependencies = [
  "serde",
 ]
@@ -4306,7 +4306,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-config"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "bigdecimal",
  "bip39",
@@ -4412,7 +4412,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-service-rs"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -4424,7 +4424,7 @@ dependencies = [
  "base64 0.22.1",
  "bigdecimal",
  "bip39",
- "bon 3.9.1",
+ "bon 3.9.2",
  "build-info",
  "build-info-build",
  "clap",
@@ -4478,13 +4478,13 @@ dependencies = [
 
 [[package]]
 name = "indexer-tap-agent"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
  "bigdecimal",
- "bon 3.9.1",
+ "bon 3.9.2",
  "clap",
  "educe",
  "futures",
@@ -8726,7 +8726,7 @@ name = "test-assets"
 version = "0.1.0"
 dependencies = [
  "bip39",
- "bon 3.9.1",
+ "bon 3.9.2",
  "indexer-allocation",
  "rstest",
  "sqlx",
