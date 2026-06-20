@@ -45,10 +45,14 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
-use thegraph_core::alloy::{primitives::Address, sol_types::Eip712Domain};
+use thegraph_core::alloy::{
+    primitives::{Address, U256},
+    sol_types::Eip712Domain,
+};
 use tonic::{Request, Response, Status};
 
 use crate::{
+    escrow::EscrowSource,
     inflight::{InflightCounter, InflightGuard},
     ipfs::IpfsFetcher,
     price::PriceCalculator,
@@ -86,6 +90,10 @@ pub struct DipsServerContext {
     pub trusted_signers: Arc<dyn TrustedSignerSource>,
     /// Max live DIPs agreements (pending or accepted) per rolling 24h window. None disables the cap.
     pub max_new_agreements_per_24h: Option<u64>,
+    /// Escrow snapshot used to admit senders that are not agreement managers.
+    pub escrow_source: Arc<dyn EscrowSource>,
+    /// Minimum escrow balance (wei) an untrusted sender's signer must hold.
+    pub min_escrow_wei: U256,
 }
 
 /// DIPS server implementing RCA protocol.
@@ -127,11 +135,13 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
         | DipsError::InvalidSubgraphManifest(_)
         | DipsError::InvalidRca(_) => RejectReason::Unspecified,
         DipsError::SenderNotTrusted { .. } => RejectReason::SenderNotTrusted,
-        // A store failure or an unverifiable role set means a valid proposal the
-        // indexer couldn't act on -- tell dipper it's transient so it retries.
-        DipsError::TrustVerificationUnavailable(_) | DipsError::UnknownError(_) => {
-            RejectReason::IndexerUnavailable
-        }
+        DipsError::InsufficientEscrow { .. } => RejectReason::InsufficientEscrow,
+        // A store failure, an unverifiable role set, or an empty escrow snapshot
+        // means a valid proposal the indexer couldn't act on -- tell dipper it's
+        // transient so it retries.
+        DipsError::TrustVerificationUnavailable(_)
+        | DipsError::EscrowVerificationUnavailable(_)
+        | DipsError::UnknownError(_) => RejectReason::IndexerUnavailable,
     }
 }
 
@@ -251,7 +261,7 @@ mod tests {
 
             use thegraph_core::alloy::primitives::U256;
 
-            use crate::trusted_signers::StaticTrustedSigners;
+            use crate::{escrow::StaticEscrow, trusted_signers::StaticTrustedSigners};
 
             Arc::new(Self {
                 rca_store: Arc::new(InMemoryRcaStore::default()),
@@ -266,6 +276,8 @@ mod tests {
                 rca_domain: crate::rca_eip712_domain(1337, Address::repeat_byte(0xCC)),
                 trusted_signers: Arc::new(StaticTrustedSigners::default()),
                 max_new_agreements_per_24h: None,
+                escrow_source: Arc::new(StaticEscrow::default()),
+                min_escrow_wei: U256::ZERO,
             })
         }
     }
@@ -545,6 +557,28 @@ mod tests {
     #[test]
     fn test_reject_reason_trust_unverifiable_is_transient() {
         let err = DipsError::TrustVerificationUnavailable("role subgraph down".to_string());
+
+        assert_eq!(
+            super::reject_reason_from_error(&err),
+            RejectReason::IndexerUnavailable
+        );
+    }
+
+    #[test]
+    fn test_reject_reason_insufficient_escrow() {
+        let err = DipsError::InsufficientEscrow {
+            signer: Address::repeat_byte(0x55),
+        };
+
+        assert_eq!(
+            super::reject_reason_from_error(&err),
+            RejectReason::InsufficientEscrow
+        );
+    }
+
+    #[test]
+    fn test_reject_reason_escrow_unverifiable_is_transient() {
+        let err = DipsError::EscrowVerificationUnavailable("escrow snapshot empty".to_string());
 
         assert_eq!(
             super::reject_reason_from_error(&err),

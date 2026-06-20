@@ -705,6 +705,10 @@ pub struct DipsConfig {
     /// window; rejected and expired proposals don't count. None (unset) disables the
     /// cap; a best-effort safeguard, not a security control.
     pub max_new_agreements_per_24h: Option<u64>,
+    /// Minimum escrow balance an untrusted sender's recovered signer must hold to
+    /// pass the escrow fallback. TODO: derive from the configured price minimum
+    /// plus a buffer for unknown entity counts instead of using a flat floor.
+    pub min_escrow_grt: GRT,
 }
 
 impl Default for DipsConfig {
@@ -722,6 +726,7 @@ impl Default for DipsConfig {
             role_subgraph_max_lag_secs: NonZeroU64::new(1_800).expect("1800 is non-zero"),
             rpc_url: None,
             max_new_agreements_per_24h: None,
+            min_escrow_grt: GRT::ONE,
         }
     }
 }

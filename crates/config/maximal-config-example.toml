@@ -253,6 +253,10 @@ role_subgraph_max_lag_secs = 1800
 # rolling 24h; rejected and expired proposals don't count. Unset = no cap; 0 rejects all.
 # max_new_agreements_per_24h = 30
 
+# Escrow floor (GRT) admitting a sender that lacks the agreement-manager role: if its recovered
+# signer holds at least this much escrow, the proposal proceeds to pricing/manifest checks. Default 1.
+# min_escrow_grt = "1"
+
 [dips.min_grt_per_30_days]  # base rate component (per-network)
 # arbitrum-one = "450"
 # matic = "300"

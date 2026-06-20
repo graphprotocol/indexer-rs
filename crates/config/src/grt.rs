@@ -19,6 +19,8 @@ pub struct GRT(u128);
 
 impl GRT {
     pub const ZERO: GRT = GRT(0);
+    /// One GRT in wei (10^18).
+    pub const ONE: GRT = GRT(1_000_000_000_000_000_000);
 
     /// Convert GRT string to wei for test construction.
     /// Panics on invalid input - only use in tests.
