@@ -577,6 +577,14 @@ mod test {
             .unwrap()
     }
 
+    /// A second fixed key, distinct from `test_signer`, so a re-send can carry a
+    /// genuinely different signature over identical terms.
+    fn second_test_signer() -> PrivateKeySigner {
+        "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+            .parse()
+            .unwrap()
+    }
+
     fn test_rca_domain() -> Eip712Domain {
         rca_eip712_domain(1337, Address::repeat_byte(0xCC))
     }
@@ -1397,14 +1405,16 @@ mod test {
         }
     }
 
-    /// Build a context whose store is the supplied seeded one and whose IPFS
-    /// fetcher panics if called, so a reached download surfaces as a test panic.
-    fn context_with_store_and_panic_fetcher(
+    /// Build a context over the given store, IPFS fetcher, and trusted-signer set,
+    /// holding the price calculator, registry, and domain fixed across tests.
+    fn context_with(
         store: Arc<InMemoryRcaStore>,
+        ipfs_fetcher: Arc<dyn IpfsFetcher>,
+        trusted_signers: Arc<dyn TrustedSignerSource>,
     ) -> Arc<DipsServerContext> {
         Arc::new(DipsServerContext {
             rca_store: store,
-            ipfs_fetcher: Arc::new(PanicIpfsFetcher),
+            ipfs_fetcher,
             price_calculator: Arc::new(PriceCalculator::new(
                 HashSet::from(["mainnet".to_string()]),
                 BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
@@ -1413,9 +1423,21 @@ mod test {
             registry: Arc::new(crate::registry::test_registry()),
             additional_networks: Arc::new(BTreeMap::new()),
             rca_domain: test_rca_domain(),
-            trusted_signers: trusted_signers_for_test(),
+            trusted_signers,
             max_new_agreements_per_24h: None,
         })
+    }
+
+    /// Build a context whose store is the supplied seeded one and whose IPFS
+    /// fetcher panics if called, so a reached download surfaces as a test panic.
+    fn context_with_store_and_panic_fetcher(
+        store: Arc<InMemoryRcaStore>,
+    ) -> Arc<DipsServerContext> {
+        context_with(
+            store,
+            Arc::new(PanicIpfsFetcher),
+            trusted_signers_for_test(),
+        )
     }
 
     /// Overwrite the status of the single seeded row, for the accepted/rejected cases.
@@ -1573,6 +1595,51 @@ mod test {
         assert!(matches!(result, Err(DipsError::ReplayConflict { .. })));
         let stored = store.lookup(agreement_id).await.unwrap().unwrap();
         assert_eq!(stored.signed_payload, seeded_stored);
+    }
+
+    #[tokio::test]
+    async fn test_replay_same_terms_different_signature_is_idempotent() {
+        // The behaviour this PR exists for: a re-send signed by a different key
+        // over identical terms must replay as idempotent, not ReplayConflict,
+        // because the stored form has the signature stripped.
+        let payer = Address::repeat_byte(0x42);
+        let service_provider = Address::repeat_byte(0x11);
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+        let agreement_id = derive_agreement_id(&rca);
+
+        // Two distinct trusted signers yield two distinct signatures over one RCA.
+        let trusted: Arc<dyn TrustedSignerSource> =
+            Arc::new(StaticTrustedSigners(HashSet::from([
+                test_signer().address(),
+                second_test_signer().address(),
+            ])));
+        let signed_a = rca.sign(&test_rca_domain(), test_signer()).unwrap();
+        let signed_b = rca.sign(&test_rca_domain(), second_test_signer()).unwrap();
+        assert_ne!(signed_a.signature, signed_b.signature);
+
+        // Store the first proposal through the full pipeline (real fetcher).
+        let store = Arc::new(InMemoryRcaStore::default());
+        let ctx_first = context_with(
+            store.clone(),
+            Arc::new(MockIpfsFetcher::default()),
+            trusted.clone(),
+        );
+        let first =
+            super::validate_and_create_rca(ctx_first, &service_provider, signed_a.abi_encode())
+                .await;
+        assert_eq!(first.unwrap(), agreement_id);
+
+        // Re-send the same terms signed by the other key; the panicking fetcher
+        // proves the replay short-circuits before any IPFS download.
+        let ctx_replay = context_with(store, Arc::new(PanicIpfsFetcher), trusted);
+        let replay =
+            super::validate_and_create_rca(ctx_replay, &service_provider, signed_b.abi_encode())
+                .await;
+        assert_eq!(
+            replay.unwrap(),
+            agreement_id,
+            "differently-signed re-send must replay idempotently"
+        );
     }
 
     #[tokio::test]
