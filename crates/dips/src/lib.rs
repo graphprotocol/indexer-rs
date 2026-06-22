@@ -28,18 +28,21 @@
 //! # Validation Flow
 //!
 //! When an RCA arrives, this crate validates:
-//! 1. **Service provider** - RCA is addressed to this indexer
-//! 2. **Timestamps** - Deadline and end time haven't passed
-//! 3. **Replay/idempotency** - Once the deterministic agreement id is derived,
+//! 1. **Signer** - The EIP-712 signature recovers a trusted signer (one holding
+//!    the on-chain agreement-manager role); a missing or untrusted one is rejected
+//! 2. **Service provider** - RCA is addressed to this indexer
+//! 3. **Timestamps** - Deadline and end time haven't passed
+//! 4. **Replay/idempotency** - Once the deterministic agreement id is derived,
 //!    a re-sent proposal is resolved against the store before any IPFS fetch
-//! 4. **IPFS manifest** - Subgraph deployment exists and is parseable
-//! 5. **Network** - Subgraph's network is supported by this indexer
-//! 6. **Pricing** - Offered price meets indexer's minimum
+//! 5. **IPFS manifest** - Subgraph deployment exists and is parseable
+//! 6. **Network** - Subgraph's network is supported by this indexer
+//! 7. **Pricing** - Offered price meets indexer's minimum
 //!
-//! Signature and signer-authorization checks are NOT performed here. With the
-//! switch to offer-based authorization, the on-chain `acceptIndexingAgreement`
-//! call verifies the signer (via either an ECDSA signature or a pre-stored
-//! payer offer) when the indexer-agent submits the acceptance transaction.
+//! The signature only authenticates the sender at proposal time. Once the signer
+//! is recovered and authorized it is stripped from the stored proposal, because
+//! acceptance is offer-based: the indexer-agent later calls `acceptIndexingAgreement`
+//! against the payer's on-chain offer (with an empty signature), and the contract
+//! verifies the signer at that point.
 //!
 //! # Modules
 //!
