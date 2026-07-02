@@ -64,12 +64,13 @@ status_url = "http://graph-node:8000/graphql"
 [subgraphs.network]
 # Query URL for the Graph Network subgraph.
 query_url = "http://example.com/network-subgraph"
-# Optional, Auth token will used a "bearer auth"
+# Bearer token sent with queries to query_url. Set only if that endpoint needs auth (e.g. a
+# hosted/gateway URL); leave unset for an open or self-hosted graph-node. Default unset.
 # query_auth_token = "super-secret"
 
-# Optional, deployment to look for in the local `graph-node`, if locally indexed.
-# Locally indexing the subgraph is recommended.
-# NOTE: Use `query_url` or `deployment_id` only
+# Optional: index this subgraph on your own graph-node and put its deployment id here -- queries
+# then prefer your local node (free) and fall back to query_url only if it is unsynced or errors.
+# query_url stays required as that fallback. Indexing locally is recommended.
 deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 # Refreshing interval for the Graph contracts information from the Graph Network
 # subgraph.
@@ -78,18 +79,32 @@ syncing_interval_secs = 60
 # So that we can keep serving queries while the information about the allocation closure
 # propagates to all the consumers.
 recently_closed_allocation_buffer_secs = 3600
-# Maximum allowed age of network subgraph data in minutes.
-# Responses older than this are rejected to prevent stale data from replacing fresh data.
-# This protects against Gateway routing queries to indexers that are significantly behind.
-# Set to 0 to disable staleness checking.
+# Maximum allowed age of network subgraph data in minutes; responses older than this are
+# rejected so stale data can't replace fresh data or hide an indexer that's behind.
+# Must be positive. Default 30.
 max_data_staleness_mins = 30
 # Minimum escrow balance (GRT wei) for V2 escrow queries. Filters dust deposits
 # to raise the cost of crowding attacks. Default: 0.1 GRT.
 escrow_min_balance_grt_wei = "100000000000000000"
-# Maximum signers to fetch per payer. 0 = no limit (recommended).
-# A positive value caps pagination but allows attackers to crowd out legitimate
-# signers, orphaning receipts and enabling free queries.
-max_signers_per_payer = 0
+# Maximum signers to fetch per payer. Unset = no limit (recommended); a positive
+# value caps pagination but lets attackers crowd out legitimate signers.
+# max_signers_per_payer = 1000
+
+# Indexing-payments subgraph, read for the set of accounts allowed to send DIPs
+# agreement proposals (the agreement-manager role). Required when [dips] is set.
+[subgraphs.indexing_payments]
+# Query URL for the indexing-payments subgraph -- a SEPARATE deployment from [subgraphs.network].
+query_url = "http://example.com/indexing-payments-subgraph"
+# Required when this section is present (no default). How often to refresh from this subgraph, in
+# seconds. Distinct from dips.role_refresh_interval_secs, which governs the role-set pull.
+syncing_interval_secs = 60
+# Bearer token sent with queries to query_url. Set only if that endpoint needs auth; leave unset
+# for an open or self-hosted graph-node. Default unset.
+# query_auth_token = "super-secret"
+
+# Optional: index this subgraph yourself and set its deployment id -- queries then prefer your
+# local node (free) and fall back to query_url if it is unsynced. query_url stays required.
+# deployment_id = "Qmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 [blockchain]
 # The chain ID of the network that the graph network is running on
@@ -110,9 +125,11 @@ url_prefix = "/"
 # Serve the network subgraph on `common.server.host_and_port`/network
 serve_network_subgraph = false
 #### OPTIONAL VALUES ####
-## use this to add a layer while serving network/escrow subgraph
+
+# Bearer token that gates the served network/escrow subgraph endpoint (serve_network_subgraph).
 # serve_auth_token = "token"
-## allow queries using this token
+
+# Lets anyone presenting this token query for FREE -- no TAP receipt required. Share sparingly.
 # free_query_auth_token = "i-am-authorized-right?"
 ipfs_url = "https://api.thegraph.com/ipfs/"
 # Maximum number of deployments allowed in a single /cost GraphQL batch query.
@@ -122,7 +139,6 @@ max_cost_model_batch_size = 200
 # Prevents DoS attacks via unbounded request buffering.
 # Default: 2MB (2097152 bytes). Increase if you need to support larger GraphQL queries.
 max_request_body_size = 2097152
-
 
 [service.tap]
 # Maximum value of a receipt, in GRT wei.
@@ -144,10 +160,10 @@ max_receipt_value_grt = "0.001" # 0.001 GRT. We use strings to prevent rounding 
 # max_amount_willing_to_lose_grt = "0.1"
 max_amount_willing_to_lose_grt = 20
 
-# List of Senders that are allowed to spend up to `max_amount_willing_to_lose_grt`
-# over the escrow balance
+# Senders allowed to spend up to `max_amount_willing_to_lose_grt` beyond their escrow balance.
+# This is unsecured credit: if such a sender stops aggregating you may never recover those fees,
+# so only list senders you trust to settle. Default empty.
 trusted_senders = ["0xdeadbeefcafebabedeadbeefcafebabedeadbeef"]
-
 
 # Receipts query timeout
 sender_timeout_secs = 30
@@ -174,35 +190,70 @@ max_receipts_per_request = 10000
 0xDDE4cfFd3D9052A9cb618fC05a1Cd02be1f2F467 = "https://tap-aggregator.network.thegraph.com"
 0xDD6a6f76eb36B873C1C184e8b9b9e762FE216490 = "https://tap-aggregator-arbitrum-one.graphops.xyz"
 
-# DIPs (Direct Indexing Payments)
-# These fields are consumed by the public `/dips/info` HTTP endpoint. External
-# tooling reads them to discover which networks you are willing to index and at
-# what minimum price, ahead of any indexing agreement actually being offered.
-#
-# Pricing uses human-readable GRT values (not wei), e.g. "100" = 100 GRT per 30 days.
-# Pricing a chain in [dips.min_grt_per_30_days] is also your public declaration
-# of support for that chain.
-# See https://github.com/graphprotocol/networks-registry/blob/main/docs/networks-table.md
+# DIPs (Direct Indexer Payments). Each proposal's recovered EIP-712 signer is checked against
+# the on-chain agreement-manager role set, read off the indexing-payments subgraph at proposal
+# time -- not the payer, not on-chain at acceptance. Prices below are GRT, not wei.
+
+# To enable DIPs you must set: recurring_collector, [subgraphs.indexing_payments] (query_url +
+# syncing_interval_secs), and at least one supported_networks entry with a matching price under
+# [dips.min_grt_per_30_days]. Everything else here has a default.
+
+# Failure modes: an empty role set, or a subgraph outage past role_failopen_grace_secs, rejects
+# all proposals; if DIPs init fails the service keeps serving queries but runs WITHOUT DIPs
+# (check the /dips/info endpoint and the dips_enabled metric). Per-field consequences below.
+
 [dips]
+# Address/port the DIPs gRPC server binds to, where the dipper sends proposals; needs ingress
+# reachable by the dipper. port is a quoted string. Defaults: "0.0.0.0" / "7601".
 host = "0.0.0.0"
 port = "7601"
+
+# Networks you support indexing. REQUIRED to accept anything: list at least one here AND set its
+# price under [dips.min_grt_per_30_days]; empty = ALL proposals rejected (not "accept all").
+# Names: https://github.com/graphprotocol/networks-registry (e.g. ["mainnet", "arbitrum-one"]).
+supported_networks = []
 
 # Minimum payment you are willing to accept, expressed as GRT per 30 days. Two parts add up:
 #   - min_grt_per_30_days[network]:             flat base rate, per chain
 #   - min_grt_per_billion_entities_per_30_days: scaled by the subgraph's entity count
-#
+
 # For a subgraph with N entities, your 30-day minimum is:
 #   min_grt_per_30_days[network] + min_grt_per_billion_entities_per_30_days * (N / 1_000_000_000)
-#
+
 # Payment is metered per second (not per block), so a shorter agreement earns the
 # matching fraction of this 30-day figure.
-#
+
 # For reference: analysis of subgraphs indexed by the upgrade indexer in Q1 2025 found
 # the average entity size to be ~0.759 KiB. At this size, 1 billion entities ≈ 0.707 TiB.
 # Your own observations may differ - adjust pricing accordingly.
-# min_grt_per_billion_entities_per_30_days = "200"  # entity-based component (global)
+min_grt_per_billion_entities_per_30_days = "200"  # entity-based component (global)
 
-[dips.min_grt_per_30_days]  # base rate component (per-network); keys = supported chains
+# RecurringCollector contract address: the EIP-712 verifying contract used to recover each
+# proposal's signer, which is then checked against the agreement-manager role set. Also the
+# contract rpc_url reads the domain from. Required when DIPs is enabled.
+recurring_collector = "0xcccccccccccccccccccccccccccccccccccccccc"
+
+# How often (seconds) to re-read the indexing-payments subgraph for which addresses may send you
+# agreements. New senders are picked up within seconds anyway; this mainly sets how fast a REVOKED
+# sender stops being accepted, so lower it to apply revocations sooner. Must be > 0. Default 86400.
+role_refresh_interval_secs = 86400
+# What happens during a subgraph outage. If re-reads keep failing, senders already on the last
+# good list stay accepted for this many extra seconds (brand-new senders never are); once it
+# elapses, every proposal is rejected until the subgraph recovers. Default 3600 (1 hour).
+role_failopen_grace_secs = 3600
+# Safety check on subgraph freshness: if the subgraph has fallen more than this many seconds
+# behind the chain, its sender list is treated as untrustworthy and proposals are rejected as
+# "try again later" rather than risk stale data. Must be positive. Default 1800 (30 min).
+role_subgraph_max_lag_secs = 1800
+# Startup chain RPC for the RecurringCollector's EIP-712 signing domain. Unset uses built-in
+# values (correct on standard networks); set on local/dev or upgraded chains, else every proposal fails.
+# rpc_url = "https://arb1.arbitrum.io/rpc"
+
+# Optional safeguard: cap live DIPs agreements (awaiting acceptance or accepted) per
+# rolling 24h; rejected and expired proposals don't count. Unset = no cap; 0 rejects all.
+# max_new_agreements_per_24h = 30
+
+[dips.min_grt_per_30_days]  # base rate component (per-network)
 # arbitrum-one = "450"
 # matic = "300"
 # avalanche = "225"
@@ -212,3 +263,7 @@ port = "7601"
 # optimism = "30"
 # base-sepolia = "15"
 # sepolia = "5"
+
+# Custom or test networks not in the global networks-registry: maps network name to CAIP-2
+# chain id so proposals for them pass the registry check. Default empty. e.g. hardhat = "eip155:1337"
+[dips.additional_networks]

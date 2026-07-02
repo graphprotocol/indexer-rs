@@ -5,6 +5,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     env,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
     time::Duration,
 };
@@ -19,10 +20,7 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_repr::Deserialize_repr;
 use serde_with::{serde_as, DurationSecondsWithFrac};
-use thegraph_core::{
-    alloy::primitives::{Address, U256},
-    DeploymentId,
-};
+use thegraph_core::{alloy::primitives::Address, DeploymentId};
 use url::Url;
 
 use crate::{NonZeroGRT, GRT};
@@ -283,6 +281,23 @@ impl Config {
             );
         }
 
+        // Validate DIPs settings up front rather than partway through boot. A zero
+        // refresh interval panics the refresh task (tokio rejects a zero period); the
+        // collector address and indexing-payments subgraph are both needed to authorise.
+        if let Some(dips) = &self.dips {
+            if dips.role_refresh_interval_secs == 0 {
+                return Err("dips.role_refresh_interval_secs must be greater than 0".to_string());
+            }
+            if dips.recurring_collector.is_none() {
+                return Err("dips.recurring_collector must be set when DIPs is enabled".to_string());
+            }
+            if self.subgraphs.indexing_payments.is_none() {
+                return Err(
+                    "subgraphs.indexing_payments must be set when DIPs is enabled".to_string(),
+                );
+            }
+        }
+
         // Warn about auth tokens over cleartext HTTP (TRST-L-3)
         // This is a security risk as tokens can be intercepted
         Self::warn_if_token_over_http(
@@ -470,6 +485,10 @@ impl MetricsConfig {
 #[allow(deprecated)] // Allow using deprecated EscrowSubgraphConfig type
 pub struct SubgraphsConfig {
     pub network: NetworkSubgraphConfig,
+    /// Indexing-payments subgraph, read for the DIPs agreement-manager role set.
+    /// Required when DIPs is enabled.
+    #[serde(default)]
+    pub indexing_payments: Option<SubgraphConfig>,
     #[deprecated(note = "V2 escrow accounts are in the network subgraph; this field is ignored.")]
     #[serde(default)]
     pub escrow: Option<EscrowSubgraphConfig>,
@@ -485,37 +504,30 @@ pub struct NetworkSubgraphConfig {
     #[serde_as(as = "DurationSecondsWithFrac<f64>")]
     pub recently_closed_allocation_buffer_secs: Duration,
 
-    /// Maximum allowed age of network subgraph data in minutes.
-    /// Responses older than this are rejected to prevent stale data from replacing fresh data.
-    /// This protects against Gateway routing queries to indexers that are significantly behind.
-    /// Set to 0 to disable staleness checking.
-    /// Default: 30 (minutes)
+    /// Maximum allowed age of network subgraph data in minutes; responses older than
+    /// this are rejected so stale data can't replace fresh data or hide an indexer
+    /// that is significantly behind. Must be positive. Default: 30 (minutes).
     #[serde(default = "default_max_data_staleness_mins")]
-    pub max_data_staleness_mins: u64,
+    pub max_data_staleness_mins: NonZeroU64,
 
     /// Minimum escrow balance (GRT wei) for the V2 escrow query. Filters dust
     /// deposits to raise the cost of crowding attacks. Default: 0.1 GRT.
     #[serde(default = "default_escrow_min_balance_grt_wei")]
     pub escrow_min_balance_grt_wei: String,
 
-    /// Maximum signers to fetch per payer. 0 = no limit (recommended).
-    /// Setting a positive value caps pagination but allows attackers to crowd out
-    /// legitimate signers, orphaning receipts and enabling free queries.
-    /// Default: 0.
-    #[serde(default = "default_max_signers_per_payer")]
-    pub max_signers_per_payer: usize,
+    /// Maximum signers to fetch per payer. Leave unset for no limit (recommended);
+    /// a positive cap lets attackers crowd out legitimate signers, orphaning
+    /// receipts and enabling free queries.
+    #[serde(default)]
+    pub max_signers_per_payer: Option<NonZeroUsize>,
 }
 
-fn default_max_data_staleness_mins() -> u64 {
-    30
+fn default_max_data_staleness_mins() -> NonZeroU64 {
+    NonZeroU64::new(30).expect("30 is non-zero")
 }
 
 fn default_escrow_min_balance_grt_wei() -> String {
     "100000000000000000".to_string() // 0.1 GRT
-}
-
-fn default_max_signers_per_payer() -> usize {
-    0
 }
 
 #[deprecated(note = "V2 escrow accounts are in the network subgraph; escrow config is ignored.")]
@@ -658,47 +670,41 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
     Duration::from_secs(300)
 }
 
+/// DIPs configuration. Authorises proposal senders -- recovers each agreement's EIP-712 signer
+/// and requires it to hold the on-chain agreement-manager role (from the indexing-payments
+/// subgraph) -- then validates accepted proposals before storing them for the indexer-agent.
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DipsConfig {
     /// Network interface the DIPs gRPC server binds to (e.g. `"0.0.0.0"` for all interfaces).
     pub host: String,
-
-    /// Port the DIPs gRPC server listens on.
     pub port: String,
-
-    /// Fallback mapping for chains the on-chain networks registry does not
-    /// know about. Keys are chain identifiers in the form `eip155:<chain-id>`;
-    /// values must match the network name declared in subgraph manifests
-    /// (e.g. `"eip155:1337" = "hardhat"`).
-    #[serde(default)]
-    pub additional_networks: HashMap<String, String>,
-
-    // Legacy gRPC handler fields. Scheduled for removal when the on-chain
-    // agreement validation path lands. Kept here with serde defaults so
-    // configs predating the signalling surface continue to parse.
-    #[serde(default)]
-    pub allowed_payers: Vec<Address>,
-    #[serde(default = "default_price_per_entity")]
-    pub price_per_entity: U256,
-    #[serde(default)]
-    pub price_per_epoch: BTreeMap<String, U256>,
-
-    /// Per-network base price floor in GRT per 30 days. The set of map keys
-    /// is also this indexer's public declaration of supported chains —
-    /// pricing a chain here means committing to support it. Surfaced via
-    /// `/dips/info`.
-    #[serde(default)]
+    /// Networks this indexer explicitly supports. Proposals for other networks are rejected.
+    pub supported_networks: HashSet<String>,
+    /// Minimum acceptable GRT per 30 days, per network. Converted to wei/second internally.
     pub min_grt_per_30_days: BTreeMap<String, GRT>,
-
-    /// Global per-entity price floor in GRT per billion entities per 30 days.
-    /// Surfaced via `/dips/info`.
-    #[serde(default)]
+    /// Minimum acceptable GRT per billion entities per 30 days.
     pub min_grt_per_billion_entities_per_30_days: GRT,
-}
-
-fn default_price_per_entity() -> U256 {
-    U256::from(100)
+    pub additional_networks: BTreeMap<String, String>,
+    /// RecurringCollector address: the EIP-712 verifying contract used to recover
+    /// the signer of incoming RCA proposals. Required when DIPs is enabled.
+    pub recurring_collector: Option<Address>,
+    /// How often to re-pull the agreement-manager role set from the subgraph.
+    pub role_refresh_interval_secs: u64,
+    /// Extra time past the refresh interval that a cached role set stays trusted
+    /// while refreshes fail, before the gate fails closed (the fail-open window).
+    pub role_failopen_grace_secs: u64,
+    /// Max seconds the role subgraph head may lag wall-clock before its data is
+    /// treated as unreliable. Must be positive.
+    pub role_subgraph_max_lag_secs: NonZeroU64,
+    /// Ethereum JSON-RPC endpoint used to fetch the EIP-712 domain from the
+    /// RecurringCollector at startup (EIP-5267). Unset: built-in domain constants.
+    pub rpc_url: Option<Url>,
+    /// Max live DIPs agreements (awaiting acceptance or accepted) per rolling 24h
+    /// window; rejected and expired proposals don't count. None (unset) disables the
+    /// cap; a best-effort safeguard, not a security control.
+    pub max_new_agreements_per_24h: Option<u64>,
 }
 
 impl Default for DipsConfig {
@@ -706,12 +712,16 @@ impl Default for DipsConfig {
         DipsConfig {
             host: "0.0.0.0".to_string(),
             port: "7601".to_string(),
-            allowed_payers: vec![],
-            price_per_entity: U256::from(100),
-            price_per_epoch: BTreeMap::new(),
-            additional_networks: HashMap::new(),
+            supported_networks: HashSet::new(),
             min_grt_per_30_days: BTreeMap::new(),
             min_grt_per_billion_entities_per_30_days: GRT::ZERO,
+            additional_networks: BTreeMap::new(),
+            recurring_collector: None,
+            role_refresh_interval_secs: 86_400,
+            role_failopen_grace_secs: 3_600,
+            role_subgraph_max_lag_secs: NonZeroU64::new(1_800).expect("1800 is non-zero"),
+            rpc_url: None,
+            max_new_agreements_per_24h: None,
         }
     }
 }
@@ -785,7 +795,17 @@ mod tests {
         max_config.tap.trusted_senders =
             HashSet::from([address!("deadbeefcafebabedeadbeefcafebabedeadbeef")]);
         max_config.dips = Some(crate::DipsConfig {
+            min_grt_per_billion_entities_per_30_days: crate::GRT::from_grt("200"),
+            recurring_collector: Some(address!("cccccccccccccccccccccccccccccccccccccccc")),
             ..Default::default()
+        });
+        max_config.subgraphs.indexing_payments = Some(crate::SubgraphConfig {
+            query_url: "http://example.com/indexing-payments-subgraph"
+                .parse()
+                .unwrap(),
+            query_auth_token: None,
+            deployment_id: None,
+            syncing_interval_secs: std::time::Duration::from_secs(60),
         });
 
         let max_config_file: Config = toml::from_str(
@@ -1318,5 +1338,62 @@ mod tests {
         assert!(result
             .unwrap_err()
             .contains("No operator mnemonic configured"));
+    }
+
+    // === DIPS Startup Validation Tests ===
+
+    /// Test that minimal config has no DIPS section (safe default for existing indexers).
+    #[test]
+    fn test_dips_absent_in_minimal_config() {
+        // Arrange & Act
+        let config = Config::parse(
+            ConfigPrefix::Service,
+            Some(PathBuf::from("minimal-config-example.toml")).as_ref(),
+        )
+        .unwrap();
+
+        // Assert
+        assert!(
+            config.dips.is_none(),
+            "Minimal config should not have DIPS enabled"
+        );
+    }
+
+    /// Test that DipsConfig defaults have empty supported_networks.
+    /// This triggers a warning at startup that all proposals will be rejected.
+    #[test]
+    fn test_dips_config_defaults_empty_supported_networks() {
+        // Arrange & Act
+        let dips_config = crate::DipsConfig::default();
+
+        // Assert
+        assert!(
+            dips_config.supported_networks.is_empty(),
+            "Default supported_networks should be empty"
+        );
+        assert!(
+            dips_config.min_grt_per_30_days.is_empty(),
+            "Default min_grt_per_30_days should be empty"
+        );
+    }
+
+    /// Test that maximal config with DIPS section parses correctly.
+    #[test]
+    fn test_dips_maximal_config_parses() {
+        // Arrange & Act
+        let config: Config = toml::from_str(
+            fs::read_to_string("maximal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+
+        // Assert
+        let dips = config.dips.expect("maximal config should have DIPS");
+        assert_eq!(
+            dips.min_grt_per_billion_entities_per_30_days,
+            crate::GRT::from_grt("200"),
+            "min_grt_per_billion_entities_per_30_days should be set in maximal config"
+        );
     }
 }

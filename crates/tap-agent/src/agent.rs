@@ -104,7 +104,8 @@ pub async fn start_agent(
                         ref escrow_min_balance_grt_wei,
                         max_signers_per_payer,
                     },
-                escrow: _, // Deprecated and ignored
+                indexing_payments: _, // DIPs only; not used by tap-agent
+                escrow: _,            // Deprecated and ignored
             },
         tap: TapConfig {
             sender_aggregator_endpoints,
@@ -139,7 +140,7 @@ pub async fn start_agent(
         *indexer_address,
         *network_sync_interval,
         *recently_closed_allocation_buffer,
-        *max_data_staleness_mins,
+        max_data_staleness_mins.get(),
     )
     .await
     .with_context(|| "Failed to initialize indexer_allocations watcher")?;

@@ -51,7 +51,7 @@ use crate::{
     },
     routes::{
         self, dips_info, health, healthz, request_handler, static_subgraph_request_handler,
-        DipsInfo, HealthzState,
+        DipsInfoState, HealthzState,
     },
     tap::{IndexerTapContext, TapChecksConfig},
     wallet::public_key,
@@ -85,10 +85,9 @@ pub struct ServiceRouter {
     network_subgraph: Option<(&'static SubgraphClient, NetworkSubgraphConfig)>,
     allocations: Option<AllocationWatcher>,
     dispute_manager: Option<DisputeManagerWatcher>,
-    // Optional state for the public `/dips/info` endpoint. Populated only when
-    // `[dips]` is set in config; consumed purely for signalling indexer pricing
-    // and supported networks, never feeds the gRPC proposal handler.
-    dips_info: Option<DipsInfo>,
+
+    // optional DIPS info for /dips/info endpoint
+    dips_info: Option<DipsInfoState>,
 }
 
 impl ServiceRouter {
@@ -132,7 +131,7 @@ impl ServiceRouter {
                 indexer_address,
                 network.config.syncing_interval_secs,
                 network.recently_closed_allocation_buffer_secs,
-                network.max_data_staleness_mins,
+                network.max_data_staleness_mins.get(),
             )
             .await
             .expect("Failed to initialize indexer_allocations watcher"),
@@ -224,7 +223,6 @@ impl ServiceRouter {
                     indexer_allocations: allocations.clone(),
                     escrow_accounts_v2: self.escrow_accounts_v2.clone(),
                     network_subgraph: network_subgraph_client,
-                    indexer_address: self.indexer.indexer_address,
                     timestamp_error_tolerance,
                     receipt_max_value,
                     allowed_data_services,

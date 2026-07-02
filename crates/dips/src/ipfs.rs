@@ -1,7 +1,54 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+//! IPFS client for fetching subgraph manifests.
+//!
+//! When validating an RCA, we need to verify that the referenced subgraph
+//! deployment actually exists and determine which network it indexes.
+//! The subgraph deployment ID in the RCA is a bytes32 that maps to an IPFS
+//! CIDv0 hash pointing to the subgraph manifest.
+//!
+//! # Manifest Structure
+//!
+//! Subgraph manifests are YAML files containing data source definitions.
+//! We extract the `network` field to validate that this indexer supports
+//! the chain the subgraph indexes:
+//!
+//! ```yaml
+//! dataSources:
+//!   - network: mainnet    # <-- This is what we extract
+//!     kind: ethereum/contract
+//!     ...
+//! ```
+//!
+//! # Timeout, Retry, and Size Limits
+//!
+//! IPFS fetches have a 30-second timeout per attempt. On failure, the client
+//! retries up to 3 times with exponential backoff (10s, 20s, 40s delays). This
+//! gives IPFS meaningful recovery time between attempts.
+//!
+//! Worst case timing: 30s + 10s + 30s + 20s + 30s + 40s + 30s = 190 seconds.
+//!
+//! Dipper's gRPC timeout should be at least 220 seconds (190s + 30s buffer)
+//! to avoid timing out while indexer-rs is still retrying IPFS.
+//!
+//! Each fetch is also capped at `IPFS_MAX_MANIFEST_BYTES`. Real manifests
+//! are tens of KB; the cap exists so a caller-supplied CID cannot force
+//! an unbounded download from attacker-controlled content.
+//!
+//! # What This Proves
+//!
+//! Successfully fetching a manifest proves:
+//! - The deployment ID maps to real content on IPFS
+//! - The content is a valid, parseable subgraph manifest
+//!
+//! What it does NOT prove:
+//! - The subgraph is published on The Graph Network (GNS)
+//! - The subgraph is not deprecated
+//!
+//! Those checks are the indexer-agent's responsibility.
+
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use derivative::Derivative;
@@ -9,7 +56,30 @@ use futures::TryStreamExt;
 use ipfs_api_backend_hyper::{IpfsApi, TryFromUri};
 use serde::Deserialize;
 
-use crate::DipsError;
+use crate::{
+    inflight::{self, InflightCounter},
+    DipsError,
+};
+
+/// Timeout for a single IPFS fetch attempt.
+const IPFS_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Maximum number of IPFS fetch attempts (1 initial + 3 retries).
+const IPFS_MAX_ATTEMPTS: u32 = 4;
+
+/// Base delay for exponential backoff between retries (10s, 20s, 40s).
+const IPFS_RETRY_BASE_DELAY: Duration = Duration::from_secs(10);
+
+/// Upper bound on bytes read from a single manifest fetch. Real manifests are
+/// tens of KB; this 25 MiB cap (aligned with Graph Node's default) bounds the
+/// per-request bandwidth cost of a caller-chosen CID resolving to hostile content.
+pub(crate) const IPFS_MAX_MANIFEST_BYTES: usize = 25 * 1024 * 1024;
+
+/// When the in-flight request count exceeds this threshold, IPFS fetches
+/// stop retrying — a single attempt only. The fewer-retries mode frees
+/// handler slots faster when the service is under load, at the cost of
+/// failing proposals whose first IPFS attempt has a transient error.
+pub(crate) const IPFS_DURESS_THRESHOLD: usize = 200;
 
 #[async_trait]
 pub trait IpfsFetcher: Send + Sync + std::fmt::Debug {
@@ -28,35 +98,99 @@ impl<T: IpfsFetcher> IpfsFetcher for Arc<T> {
 pub struct IpfsClient {
     #[derivative(Debug = "ignore")]
     client: ipfs_api_backend_hyper::IpfsClient,
+    inflight: InflightCounter,
 }
 
 impl IpfsClient {
-    pub fn new(url: &str) -> anyhow::Result<Self> {
+    pub fn new(url: &str, inflight: InflightCounter) -> anyhow::Result<Self> {
         let client = ipfs_api_backend_hyper::IpfsClient::from_str(url)?;
-        Ok(Self { client })
+        Ok(Self { client, inflight })
+    }
+
+    pub(crate) fn max_attempts(&self) -> u32 {
+        if inflight::snapshot(&self.inflight) > IPFS_DURESS_THRESHOLD {
+            1
+        } else {
+            IPFS_MAX_ATTEMPTS
+        }
     }
 }
 
 #[async_trait]
 impl IpfsFetcher for IpfsClient {
     async fn fetch(&self, file: &str) -> Result<GraphManifest, DipsError> {
-        let content = self
-            .client
-            .cat(file.as_ref())
-            .map_ok(|chunk| chunk.to_vec())
-            .try_concat()
+        let mut last_error = None;
+        let max_attempts = self.max_attempts();
+
+        for attempt in 0..max_attempts {
+            if attempt > 0 {
+                // Exponential backoff: 10s, 20s, 40s
+                let delay = IPFS_RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
+                tracing::debug!(
+                    file = %file,
+                    attempt = attempt + 1,
+                    delay_ms = delay.as_millis(),
+                    "Retrying IPFS fetch after backoff"
+                );
+                tokio::time::sleep(delay).await;
+            }
+
+            match self.fetch_with_timeout(file).await {
+                Ok(manifest) => return Ok(manifest),
+                Err(e) => {
+                    tracing::warn!(
+                        file = %file,
+                        attempt = attempt + 1,
+                        max_attempts,
+                        error = %e,
+                        "IPFS fetch attempt failed"
+                    );
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        // All attempts failed
+        Err(last_error.unwrap_or_else(|| {
+            DipsError::SubgraphManifestUnavailable(format!("{file}: all attempts failed"))
+        }))
+    }
+}
+
+impl IpfsClient {
+    /// Fetch with timeout wrapper.
+    async fn fetch_with_timeout(&self, file: &str) -> Result<GraphManifest, DipsError> {
+        let fetch_future = async {
+            let mut stream = self.client.cat(file.as_ref());
+            let mut content: Vec<u8> = Vec::new();
+            while let Some(chunk) = stream
+                .try_next()
+                .await
+                .map_err(|e| DipsError::SubgraphManifestUnavailable(format!("{file}: {e}")))?
+            {
+                content.extend_from_slice(&chunk);
+                if content.len() > IPFS_MAX_MANIFEST_BYTES {
+                    return Err(DipsError::ManifestTooLarge {
+                        file: file.to_string(),
+                        limit_bytes: IPFS_MAX_MANIFEST_BYTES,
+                    });
+                }
+            }
+
+            let manifest: GraphManifest = serde_yaml::from_slice(&content)
+                .map_err(|e| DipsError::InvalidSubgraphManifest(format!("{file}: {e}")))?;
+
+            Ok(manifest)
+        };
+
+        tokio::time::timeout(IPFS_FETCH_TIMEOUT, fetch_future)
             .await
-            .map_err(|e| {
-                tracing::warn!("Failed to fetch subgraph manifest {}: {}", file, e);
-                DipsError::SubgraphManifestUnavailable(format!("{file}: {e}"))
-            })?;
-
-        let manifest: GraphManifest = serde_yaml::from_slice(&content).map_err(|e| {
-            tracing::warn!("Failed to parse subgraph manifest {}: {}", file, e);
-            DipsError::InvalidSubgraphManifest(format!("{file}: {e}"))
-        })?;
-
-        Ok(manifest)
+            .map_err(|_| {
+                DipsError::SubgraphManifestUnavailable(format!(
+                    "{file}: timeout after {}s",
+                    IPFS_FETCH_TIMEOUT.as_secs()
+                ))
+            })?
     }
 }
 
@@ -73,52 +207,101 @@ pub struct GraphManifest {
 }
 
 impl GraphManifest {
-    pub fn network(&self) -> Option<String> {
-        self.data_sources.first().map(|ds| ds.network.clone())
+    pub fn network(&self) -> Option<&str> {
+        self.data_sources.first().map(|ds| ds.network.as_str())
     }
 }
 
-#[cfg(test)]
-#[derive(Debug)]
-pub struct TestIpfsClient {
-    manifest: GraphManifest,
+/// Mock IPFS fetcher for testing with configurable network.
+#[derive(Debug, Clone)]
+pub struct MockIpfsFetcher {
+    pub network: String,
 }
 
-#[cfg(test)]
-impl TestIpfsClient {
-    pub fn mainnet() -> Self {
-        Self {
-            manifest: GraphManifest {
-                data_sources: vec![DataSource {
-                    network: "mainnet".to_string(),
-                }],
-            },
-        }
-    }
+impl MockIpfsFetcher {
+    /// Creates a fetcher that returns a manifest with no network field.
     pub fn no_network() -> Self {
         Self {
-            manifest: GraphManifest {
-                data_sources: vec![],
-            },
+            network: String::new(),
         }
     }
 }
 
-#[cfg(test)]
+/// Test IPFS fetcher that always fails.
+#[derive(Debug, Clone, Default)]
+pub struct FailingIpfsFetcher;
+
 #[async_trait]
-impl IpfsFetcher for TestIpfsClient {
+impl IpfsFetcher for FailingIpfsFetcher {
+    async fn fetch(&self, file: &str) -> Result<GraphManifest, DipsError> {
+        Err(DipsError::SubgraphManifestUnavailable(format!(
+            "{file}: connection refused (test fetcher)"
+        )))
+    }
+}
+
+/// Test IPFS fetcher returning a manifest whose single data source has an
+/// empty network field, to exercise the malformed-manifest path.
+#[derive(Debug, Clone, Default)]
+pub struct EmptyNetworkIpfsFetcher;
+
+#[async_trait]
+impl IpfsFetcher for EmptyNetworkIpfsFetcher {
     async fn fetch(&self, _file: &str) -> Result<GraphManifest, DipsError> {
-        Ok(self.manifest.clone())
+        Ok(GraphManifest {
+            data_sources: vec![DataSource {
+                network: String::new(),
+            }],
+        })
+    }
+}
+
+impl Default for MockIpfsFetcher {
+    fn default() -> Self {
+        Self {
+            network: "mainnet".to_string(),
+        }
+    }
+}
+
+#[async_trait]
+impl IpfsFetcher for MockIpfsFetcher {
+    async fn fetch(&self, _file: &str) -> Result<GraphManifest, DipsError> {
+        if self.network.is_empty() {
+            Ok(GraphManifest {
+                data_sources: vec![],
+            })
+        } else {
+            Ok(GraphManifest {
+                data_sources: vec![DataSource {
+                    network: self.network.clone(),
+                }],
+            })
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::ipfs::{DataSource, GraphManifest};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use crate::ipfs::{
+        DataSource, FailingIpfsFetcher, GraphManifest, IpfsClient, IpfsFetcher, MockIpfsFetcher,
+        IPFS_DURESS_THRESHOLD, IPFS_MAX_ATTEMPTS,
+    };
 
     #[test]
     fn test_deserialize_manifest() {
-        let manifest: GraphManifest = serde_yaml::from_str(MANIFEST).unwrap();
+        // Arrange
+        let yaml = MANIFEST;
+
+        // Act
+        let manifest: GraphManifest = serde_yaml::from_str(yaml).unwrap();
+
+        // Assert
         assert_eq!(
             manifest,
             GraphManifest {
@@ -132,6 +315,92 @@ mod test {
                 ],
             }
         )
+    }
+
+    #[test]
+    fn test_manifest_network_extraction() {
+        // Arrange
+        let manifest = GraphManifest {
+            data_sources: vec![DataSource {
+                network: "mainnet".to_string(),
+            }],
+        };
+
+        // Act
+        let network = manifest.network();
+
+        // Assert
+        assert_eq!(network, Some("mainnet"));
+    }
+
+    #[test]
+    fn test_manifest_network_empty_sources() {
+        // Arrange
+        let manifest = GraphManifest {
+            data_sources: vec![],
+        };
+
+        // Act
+        let network = manifest.network();
+
+        // Assert
+        assert_eq!(network, None);
+    }
+
+    #[tokio::test]
+    async fn test_mock_ipfs_fetcher_default() {
+        // Arrange
+        let fetcher = MockIpfsFetcher::default();
+
+        // Act
+        let manifest = fetcher.fetch("QmSomeHash").await.unwrap();
+
+        // Assert
+        assert_eq!(manifest.network(), Some("mainnet"));
+    }
+
+    #[tokio::test]
+    async fn test_mock_ipfs_fetcher_custom_network() {
+        // Arrange
+        let fetcher = MockIpfsFetcher {
+            network: "arbitrum-one".to_string(),
+        };
+
+        // Act
+        let manifest = fetcher.fetch("QmSomeHash").await.unwrap();
+
+        // Assert
+        assert_eq!(manifest.network(), Some("arbitrum-one"));
+    }
+
+    #[tokio::test]
+    async fn test_mock_ipfs_fetcher_no_network() {
+        // Arrange
+        let fetcher = MockIpfsFetcher::no_network();
+
+        // Act
+        let manifest = fetcher.fetch("QmSomeHash").await.unwrap();
+
+        // Assert
+        assert_eq!(manifest.network(), None);
+    }
+
+    #[tokio::test]
+    async fn test_failing_ipfs_fetcher() {
+        // Arrange
+        let fetcher = FailingIpfsFetcher;
+
+        // Act
+        let result = fetcher.fetch("QmSomeHash").await;
+
+        // Assert
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, crate::DipsError::SubgraphManifestUnavailable(_)),
+            "Expected SubgraphManifestUnavailable, got: {:?}",
+            err
+        );
     }
 
     const MANIFEST: &str = "
@@ -239,4 +508,32 @@ templates:
       abi: Pool
 
     ";
+
+    #[test]
+    fn max_attempts_uses_full_budget_below_threshold() {
+        // Arrange
+        let inflight = Arc::new(AtomicUsize::new(0));
+        let client = IpfsClient::new("http://localhost:5001", inflight.clone()).unwrap();
+
+        // Act + Assert
+        assert_eq!(client.max_attempts(), IPFS_MAX_ATTEMPTS);
+
+        // Right at the threshold still counts as below — the check is `>`.
+        inflight.store(IPFS_DURESS_THRESHOLD, Ordering::Relaxed);
+        assert_eq!(client.max_attempts(), IPFS_MAX_ATTEMPTS);
+    }
+
+    #[test]
+    fn max_attempts_drops_to_one_above_threshold() {
+        // Arrange
+        let inflight = Arc::new(AtomicUsize::new(IPFS_DURESS_THRESHOLD + 1));
+        let client = IpfsClient::new("http://localhost:5001", inflight.clone()).unwrap();
+
+        // Act + Assert
+        assert_eq!(client.max_attempts(), 1);
+
+        // And recovers when the counter falls back.
+        inflight.store(0, Ordering::Relaxed);
+        assert_eq!(client.max_attempts(), IPFS_MAX_ATTEMPTS);
+    }
 }

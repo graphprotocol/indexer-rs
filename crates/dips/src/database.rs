@@ -1,366 +1,202 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::str::FromStr;
+//! PostgreSQL implementation of [`RcaStore`](crate::store::RcaStore).
+//!
+//! This module provides [`PsqlRcaStore`], which persists validated RCA proposals
+//! to the `pending_rca_proposals` table. The indexer-agent queries this table
+//! directly to find pending proposals and decide on-chain acceptance.
+//!
+//! # Shared Database
+//!
+//! indexer-rs (Rust) and indexer-agent (TypeScript) share the same PostgreSQL
+//! database. This module only writes; the agent reads and updates status:
+//!
+//! ```text
+//! indexer-rs ──INSERT──> pending_rca_proposals <──SELECT/UPDATE── indexer-agent
+//! ```
+//!
+//! # Status Lifecycle
+//!
+//! 1. indexer-rs inserts with status = "pending"
+//! 2. indexer-agent queries pending proposals
+//! 3. Agent validates allocation availability, accepts on-chain
+//! 4. Agent updates status to "accepted" or "rejected"
+//!
+//! # Idempotency
+//!
+//! The `store_rca` operation is idempotent: inserting the same agreement ID twice
+//! succeeds both times. This handles retry scenarios where Dipper re-sends an RCA
+//! after a timeout (network partition, crash after INSERT but before response, etc.).
+//!
+//! Without idempotency, the retry would fail with a duplicate key error, causing
+//! Dipper to mark the agreement as failed even though it was successfully stored.
+
+use std::{any::Any, time::Duration};
 
 use async_trait::async_trait;
-use build_info::chrono::{DateTime, Utc};
-use sqlx::{types::BigDecimal, PgPool, Row};
-use thegraph_core::alloy::{core::primitives::U256 as uint256, hex::ToHexExt, sol_types::SolType};
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use crate::{
-    store::{AgreementStore, StoredIndexingAgreement},
-    DipsError, SignedCancellationRequest, SignedIndexingAgreementVoucher,
-    SubgraphIndexingVoucherMetadata,
+    store::{RcaStore, StoredProposal},
+    DipsError,
 };
 
+/// PostgreSQL implementation of RcaStore for RecurringCollectionAgreement.
 #[derive(Debug)]
-pub struct PsqlAgreementStore {
+pub struct PsqlRcaStore {
     pub pool: PgPool,
 }
 
-fn uint256_to_bigdecimal(value: &uint256, field: &str) -> Result<BigDecimal, DipsError> {
-    BigDecimal::from_str(&value.to_string())
-        .map_err(|e| DipsError::InvalidVoucher(format!("{field}: {e}")))
-}
-
 #[async_trait]
-impl AgreementStore for PsqlAgreementStore {
-    async fn get_by_id(&self, id: Uuid) -> Result<Option<StoredIndexingAgreement>, DipsError> {
-        let item = sqlx::query("SELECT * FROM indexing_agreements WHERE id=$1")
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await;
-
-        let item = match item {
-            Ok(item) => item,
-            Err(sqlx::Error::RowNotFound) => return Ok(None),
-            Err(err) => return Err(DipsError::UnknownError(err.into())),
-        };
-
-        let signed_payload: Vec<u8> = item
-            .try_get("signed_payload")
-            .map_err(|e| DipsError::UnknownError(e.into()))?;
-        let signed = SignedIndexingAgreementVoucher::abi_decode(signed_payload.as_ref())
-            .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
-        let metadata =
-            SubgraphIndexingVoucherMetadata::abi_decode(signed.voucher.metadata.as_ref())
-                .map_err(|e| DipsError::AbiDecoding(e.to_string()))?;
-        let cancelled_at: Option<DateTime<Utc>> = item
-            .try_get("cancelled_at")
-            .map_err(|e| DipsError::UnknownError(e.into()))?;
-        let cancelled = cancelled_at.is_some();
-        let current_allocation_id: Option<String> = item
-            .try_get("current_allocation_id")
-            .map_err(|e| DipsError::UnknownError(e.into()))?;
-        let last_allocation_id: Option<String> = item
-            .try_get("last_allocation_id")
-            .map_err(|e| DipsError::UnknownError(e.into()))?;
-        let last_payment_collected_at: Option<DateTime<Utc>> = item
-            .try_get("last_payment_collected_at")
-            .map_err(|e| DipsError::UnknownError(e.into()))?;
-        Ok(Some(StoredIndexingAgreement {
-            voucher: signed,
-            metadata,
-            cancelled,
-            current_allocation_id,
-            last_allocation_id,
-            last_payment_collected_at,
-        }))
-    }
-    async fn create_agreement(
+impl RcaStore for PsqlRcaStore {
+    async fn store_rca(
         &self,
-        agreement: SignedIndexingAgreementVoucher,
-        metadata: SubgraphIndexingVoucherMetadata,
+        agreement_id: Uuid,
+        signed_rca: Vec<u8>,
+        version: u64,
     ) -> Result<(), DipsError> {
-        let id = Uuid::from_bytes(agreement.voucher.agreement_id.into());
-        let bs = agreement.encode_vec();
-        let now = Utc::now();
-        let deadline_i64: i64 = agreement
-            .voucher
-            .deadline
-            .try_into()
-            .map_err(|_| DipsError::InvalidVoucher("deadline".to_string()))?;
-        let deadline = DateTime::from_timestamp(deadline_i64, 0)
-            .ok_or(DipsError::InvalidVoucher("deadline".to_string()))?;
-        let base_price_per_epoch =
-            uint256_to_bigdecimal(&metadata.basePricePerEpoch, "basePricePerEpoch")?;
-        let price_per_entity = uint256_to_bigdecimal(&metadata.pricePerEntity, "pricePerEntity")?;
-        let duration_epochs: i64 = agreement.voucher.durationEpochs.into();
-        let max_initial_amount =
-            uint256_to_bigdecimal(&agreement.voucher.maxInitialAmount, "maxInitialAmount")?;
-        let max_ongoing_amount_per_epoch = uint256_to_bigdecimal(
-            &agreement.voucher.maxOngoingAmountPerEpoch,
-            "maxOngoingAmountPerEpoch",
-        )?;
-        let min_epochs_per_collection: i64 = agreement.voucher.minEpochsPerCollection.into();
-        let max_epochs_per_collection: i64 = agreement.voucher.maxEpochsPerCollection.into();
+        // ON CONFLICT DO NOTHING makes this idempotent: retries with the same
+        // agreement_id succeed without error, enabling safe Dipper retries.
         sqlx::query(
-            "INSERT INTO indexing_agreements VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,null,null,null,null,null)",
+            "INSERT INTO pending_rca_proposals (id, signed_payload, version, status, created_at, updated_at)
+             VALUES ($1, $2, $3, 'pending', NOW(), NOW())
+             ON CONFLICT (id) DO NOTHING",
         )
-        .bind(id)
-        .bind(agreement.signature.as_ref())
-        .bind(bs)
-        .bind(metadata.protocolNetwork)
-        .bind(metadata.chainId)
-        .bind(base_price_per_epoch)
-        .bind(price_per_entity)
-        .bind(metadata.subgraphDeploymentId)
-        .bind(agreement.voucher.service.encode_hex())
-        .bind(agreement.voucher.recipient.encode_hex())
-        .bind(agreement.voucher.payer.encode_hex())
-        .bind(deadline)
-        .bind(duration_epochs)
-        .bind(max_initial_amount)
-        .bind(max_ongoing_amount_per_epoch)
-        .bind(min_epochs_per_collection)
-        .bind(max_epochs_per_collection)
-        .bind(now)
-        .bind(now)
+        .bind(agreement_id)
+        .bind(signed_rca)
+        .bind(version as i16)
         .execute(&self.pool)
         .await
         .map_err(|e| DipsError::UnknownError(e.into()))?;
 
         Ok(())
     }
-    async fn cancel_agreement(
-        &self,
-        signed_cancellation: SignedCancellationRequest,
-    ) -> Result<Uuid, DipsError> {
-        let id = Uuid::from_bytes(signed_cancellation.request.agreement_id.into());
-        let bs = signed_cancellation.encode_vec();
-        let now = Utc::now();
 
-        sqlx::query(
-            "UPDATE indexing_agreements SET updated_at=$1, cancelled_at=$1, signed_cancellation_payload=$2 WHERE id=$3",
+    async fn lookup(&self, agreement_id: Uuid) -> Result<Option<StoredProposal>, DipsError> {
+        let row =
+            sqlx::query("SELECT status, signed_payload FROM pending_rca_proposals WHERE id = $1")
+                .bind(agreement_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| DipsError::UnknownError(e.into()))?;
+
+        Ok(row.map(|row| StoredProposal {
+            status: row.get("status"),
+            signed_payload: row.get("signed_payload"),
+        }))
+    }
+
+    async fn count_since(&self, window: Duration) -> Result<u64, DipsError> {
+        // Count live agreements only: 'pending' (awaiting the agent) and 'accepted'.
+        // The agent records rejected and expired proposals as 'rejected', so they
+        // drop out. NOW() is the DB clock, so the window ignores host clock skew.
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pending_rca_proposals
+             WHERE status IN ('pending', 'accepted')
+               AND created_at >= NOW() - ($1 * interval '1 second')",
         )
-        .bind(now)
-        .bind(bs)
-        .bind(id)
-        .execute(&self.pool)
+        .bind(window.as_secs() as i64)
+        .fetch_one(&self.pool)
         .await
-        .map_err(|_| DipsError::AgreementNotFound)?;
+        .map_err(|e| DipsError::UnknownError(e.into()))?;
 
-        Ok(id)
+        Ok(count.max(0) as u64)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
 #[cfg(test)]
-pub(crate) mod test {
-    use std::sync::Arc;
-
-    use build_info::chrono::Duration;
-    use sqlx::Row;
-    use thegraph_core::alloy::{
-        primitives::{ruint::aliases::U256, Address},
-        sol_types::SolValue,
-    };
-    use uuid::Uuid;
+mod tests {
+    use std::time::Duration;
 
     use super::*;
-    use crate::{CancellationRequest, IndexingAgreementVoucher};
+    use crate::PROTOCOL_VERSION;
 
+    /// Insert a proposal row with `status`, created `hours_ago` before the DB clock.
+    async fn insert_at(pool: &PgPool, id: Uuid, hours_ago: i64, status: &str) {
+        sqlx::query(
+            "INSERT INTO pending_rca_proposals (id, signed_payload, version, status, created_at, updated_at)
+             VALUES ($1, $2, 2, $4, NOW() - ($3 * interval '1 hour'), NOW())",
+        )
+        .bind(id)
+        .bind(vec![1u8, 2, 3])
+        .bind(hours_ago)
+        .bind(status)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    // Needs Docker; skipped locally, runs on CI.
     #[tokio::test]
-    async fn test_store_agreement() {
+    async fn test_lookup_roundtrip() {
+        // Arrange
         let test_db = test_assets::setup_shared_test_db().await;
-        let store = Arc::new(PsqlAgreementStore { pool: test_db.pool });
+        let store = PsqlRcaStore {
+            pool: test_db.pool.clone(),
+        };
         let id = Uuid::now_v7();
+        let payload = vec![1u8, 2, 3, 4, 5];
 
-        // Create metadata first
-        let metadata = SubgraphIndexingVoucherMetadata {
-            protocolNetwork: "eip155:42161".to_string(),
-            chainId: "eip155:1".to_string(),
-            basePricePerEpoch: U256::from(5000),
-            pricePerEntity: U256::from(10),
-            subgraphDeploymentId: "Qm123".to_string(),
-        };
+        // Act + Assert: absent id resolves to None.
+        assert!(store.lookup(id).await.unwrap().is_none());
 
-        // Create agreement with encoded metadata
-        let agreement = SignedIndexingAgreementVoucher {
-            signature: vec![1, 2, 3].into(),
-            voucher: IndexingAgreementVoucher {
-                agreement_id: id.as_bytes().into(),
-                deadline: (Utc::now() + Duration::days(30)).timestamp() as u64,
-                payer: Address::from_str("1234567890123456789012345678901234567890").unwrap(),
-                recipient: Address::from_str("2345678901234567890123456789012345678901").unwrap(),
-                service: Address::from_str("3456789012345678901234567890123456789012").unwrap(),
-                durationEpochs: 30, // 30 epochs duration
-                maxInitialAmount: U256::from(1000),
-                maxOngoingAmountPerEpoch: U256::from(100),
-                maxEpochsPerCollection: 5,
-                minEpochsPerCollection: 1,
-                metadata: metadata.abi_encode().into(), // Convert Vec<u8> to Bytes
-            },
-        };
-
-        // Store agreement
+        // Act + Assert: after store_rca the row is found with default status.
         store
-            .create_agreement(agreement.clone(), metadata)
+            .store_rca(id, payload.clone(), PROTOCOL_VERSION)
             .await
             .unwrap();
-
-        // Verify stored agreement
-        let row = sqlx::query("SELECT * FROM indexing_agreements WHERE id = $1")
-            .bind(id)
-            .fetch_one(&store.pool)
-            .await
-            .unwrap();
-
-        let row_id: Uuid = row.try_get("id").unwrap();
-        let signature: Vec<u8> = row.try_get("signature").unwrap();
-        let protocol_network: String = row.try_get("protocol_network").unwrap();
-        let chain_id: String = row.try_get("chain_id").unwrap();
-        let subgraph_deployment_id: String = row.try_get("subgraph_deployment_id").unwrap();
-
-        assert_eq!(row_id, id);
-        assert_eq!(signature, agreement.signature);
-        assert_eq!(protocol_network, "eip155:42161");
-        assert_eq!(chain_id, "eip155:1");
-        assert_eq!(subgraph_deployment_id, "Qm123");
+        let found = store.lookup(id).await.unwrap();
+        assert_eq!(
+            found,
+            Some(StoredProposal {
+                status: "pending".to_string(),
+                signed_payload: payload,
+            })
+        );
     }
 
+    // Exercises the rolling-window SQL against a real Postgres (testcontainers);
+    // the in-memory store can't, since it ignores the window.
     #[tokio::test]
-    async fn test_get_agreement_by_id() {
+    async fn count_since_excludes_rows_outside_the_window() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let store = Arc::new(PsqlAgreementStore { pool: test_db.pool });
-        let id = Uuid::parse_str("a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7d9").unwrap();
-
-        // Create metadata first
-        let metadata = SubgraphIndexingVoucherMetadata {
-            protocolNetwork: "eip155:42161".to_string(),
-            chainId: "eip155:1".to_string(),
-            basePricePerEpoch: U256::from(5000),
-            pricePerEntity: U256::from(10),
-            subgraphDeploymentId: "Qm123".to_string(),
+        let store = PsqlRcaStore {
+            pool: test_db.pool.clone(),
         };
+        insert_at(&test_db.pool, Uuid::from_u128(1), 1, "pending").await; // inside 24h
+        insert_at(&test_db.pool, Uuid::from_u128(2), 25, "pending").await; // outside 24h
 
-        // Create agreement with encoded metadata
-        let agreement = SignedIndexingAgreementVoucher {
-            signature: vec![1, 2, 3].into(),
-            voucher: IndexingAgreementVoucher {
-                agreement_id: id.as_bytes().into(),
-                deadline: (Utc::now() + Duration::days(30)).timestamp() as u64,
-                payer: Address::from_str("1234567890123456789012345678901234567890").unwrap(),
-                recipient: Address::from_str("2345678901234567890123456789012345678901").unwrap(),
-                service: Address::from_str("3456789012345678901234567890123456789012").unwrap(),
-                durationEpochs: 30,
-                maxInitialAmount: U256::from(1000),
-                maxOngoingAmountPerEpoch: U256::from(100),
-                maxEpochsPerCollection: 5,
-                minEpochsPerCollection: 1,
-                metadata: metadata.abi_encode().into(),
-            },
-        };
-
-        // Store agreement
-        store
-            .create_agreement(agreement.clone(), metadata.clone())
+        let count = store
+            .count_since(Duration::from_secs(24 * 60 * 60))
             .await
             .unwrap();
 
-        // Retrieve agreement
-        let stored_agreement = store.get_by_id(id).await.unwrap().unwrap();
-
-        let retrieved_voucher = &stored_agreement.voucher;
-        let retrieved_metadata = stored_agreement.metadata;
-
-        // Verify retrieved agreement matches original
-        assert_eq!(retrieved_voucher.signature, agreement.signature);
-        assert_eq!(
-            retrieved_voucher.voucher.durationEpochs,
-            agreement.voucher.durationEpochs
-        );
-        assert_eq!(retrieved_metadata.protocolNetwork, metadata.protocolNetwork);
-        assert_eq!(retrieved_metadata.chainId, metadata.chainId);
-        assert_eq!(
-            retrieved_metadata.subgraphDeploymentId,
-            metadata.subgraphDeploymentId
-        );
-        assert_eq!(retrieved_voucher.voucher.payer, agreement.voucher.payer);
-        assert_eq!(
-            retrieved_voucher.voucher.recipient,
-            agreement.voucher.recipient
-        );
-        assert_eq!(retrieved_voucher.voucher.service, agreement.voucher.service);
-        assert_eq!(
-            retrieved_voucher.voucher.maxInitialAmount,
-            agreement.voucher.maxInitialAmount
-        );
-        assert_eq!(
-            retrieved_voucher.voucher.maxOngoingAmountPerEpoch,
-            agreement.voucher.maxOngoingAmountPerEpoch
-        );
-        assert_eq!(
-            retrieved_voucher.voucher.maxEpochsPerCollection,
-            agreement.voucher.maxEpochsPerCollection
-        );
-        assert_eq!(
-            retrieved_voucher.voucher.minEpochsPerCollection,
-            agreement.voucher.minEpochsPerCollection
-        );
-        assert!(!stored_agreement.cancelled);
+        assert_eq!(count, 1, "only the row inside the window should count");
     }
 
+    // The cap counts live agreements only; the agent records both rejected and
+    // expired proposals as 'rejected', so neither should count toward the cap.
     #[tokio::test]
-    async fn test_cancel_agreement() {
+    async fn count_since_counts_only_pending_and_accepted() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let store = Arc::new(PsqlAgreementStore { pool: test_db.pool });
-        let id = Uuid::parse_str("a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7e9").unwrap();
-
-        // Create metadata first
-        let metadata = SubgraphIndexingVoucherMetadata {
-            protocolNetwork: "eip155:42161".to_string(),
-            chainId: "eip155:1".to_string(),
-            basePricePerEpoch: U256::from(5000),
-            pricePerEntity: U256::from(10),
-            subgraphDeploymentId: "Qm123".to_string(),
+        let store = PsqlRcaStore {
+            pool: test_db.pool.clone(),
         };
+        insert_at(&test_db.pool, Uuid::from_u128(1), 1, "pending").await;
+        insert_at(&test_db.pool, Uuid::from_u128(2), 1, "accepted").await;
+        insert_at(&test_db.pool, Uuid::from_u128(3), 1, "rejected").await;
 
-        // Create agreement with encoded metadata
-        let agreement = SignedIndexingAgreementVoucher {
-            signature: vec![1, 2, 3].into(),
-            voucher: IndexingAgreementVoucher {
-                agreement_id: id.as_bytes().into(),
-                deadline: (Utc::now() + Duration::days(30)).timestamp() as u64,
-                payer: Address::from_str("1234567890123456789012345678901234567890").unwrap(),
-                recipient: Address::from_str("2345678901234567890123456789012345678901").unwrap(),
-                service: Address::from_str("3456789012345678901234567890123456789012").unwrap(),
-                durationEpochs: 30,
-                maxInitialAmount: U256::from(1000),
-                maxOngoingAmountPerEpoch: U256::from(100),
-                maxEpochsPerCollection: 5,
-                minEpochsPerCollection: 1,
-                metadata: metadata.abi_encode().into(),
-            },
-        };
-
-        // Store agreement
-        store
-            .create_agreement(agreement.clone(), metadata)
+        let count = store
+            .count_since(Duration::from_secs(24 * 60 * 60))
             .await
             .unwrap();
 
-        // Cancel agreement
-        let cancellation = SignedCancellationRequest {
-            signature: vec![1, 2, 3].into(),
-            request: CancellationRequest {
-                agreement_id: id.as_bytes().into(),
-            },
-        };
-        store.cancel_agreement(cancellation.clone()).await.unwrap();
-
-        // Verify stored agreement
-        let row = sqlx::query("SELECT * FROM indexing_agreements WHERE id = $1")
-            .bind(id)
-            .fetch_one(&store.pool)
-            .await
-            .unwrap();
-
-        let cancelled_at: Option<DateTime<Utc>> = row.try_get("cancelled_at").unwrap();
-        let signed_cancellation_payload: Option<Vec<u8>> =
-            row.try_get("signed_cancellation_payload").unwrap();
-        assert!(cancelled_at.is_some());
-        assert_eq!(signed_cancellation_payload, Some(cancellation.encode_vec()));
+        assert_eq!(count, 2, "only pending and accepted rows should count");
     }
 }

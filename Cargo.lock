@@ -4332,17 +4332,19 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bs58",
  "build-info",
  "bytes",
  "derivative",
  "futures",
  "graph-networks-registry",
- "http 0.2.12",
  "indexer-monitor",
- "indexer-watcher",
+ "indexer-query",
  "ipfs-api-backend-hyper",
+ "prometheus 0.13.4",
  "prost 0.14.3",
- "rand 0.9.4",
+ "rand 0.8.5",
+ "reqwest 0.12.24",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -4358,6 +4360,7 @@ dependencies = [
  "tonic-prost-build",
  "tracing",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]

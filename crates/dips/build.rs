@@ -13,13 +13,5 @@ fn main() {
             .protoc_arg("--experimental_allow_proto3_optional")
             .compile_protos(&["proto/indexer.proto"], &["proto/"])
             .expect("Failed to compile DIPs indexer RPC proto(s)");
-
-        tonic_prost_build::configure()
-            .build_server(true)
-            .out_dir("src/proto")
-            .include_file("gateway.rs")
-            .protoc_arg("--experimental_allow_proto3_optional")
-            .compile_protos(&["proto/gateway.proto"], &["proto"])
-            .expect("Failed to compile DIPs gateway RPC proto(s)");
     }
 }
