@@ -213,7 +213,11 @@ impl IndexerDipsService for DipsServer {
                 crate::metrics::PROPOSAL_OUTCOMES
                     .with_label_values(&["accepted"])
                     .inc();
-                tracing::info!(%agreement_id, "RCA accepted");
+                tracing::info!(
+                    %agreement_id,
+                    deployment_id = deployment_id.as_deref().unwrap_or("unknown"),
+                    "RCA accepted"
+                );
                 Ok(Response::new(SubmitAgreementProposalResponse {
                     outcome: Some(Outcome::Accepted(Accepted {})),
                 }))
