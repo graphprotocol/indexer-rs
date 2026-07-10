@@ -123,7 +123,9 @@ impl IndexerTapContext {
     pub async fn get_checks(config: TapChecksConfig) -> Vec<ReceiptCheck<TapReceipt>> {
         let mut checks: Vec<ReceiptCheck<TapReceipt>> = vec![
             Arc::new(AllocationEligible::new(config.indexer_allocations)),
-            Arc::new(AllocationRedeemedCheck::new(config.pgpool.clone()).await),
+            Arc::new(
+                AllocationRedeemedCheck::new(config.pgpool.clone(), config.service_provider).await,
+            ),
             Arc::new(SenderBalanceCheck::new(config.escrow_accounts_v2)),
             Arc::new(TimestampCheck::new(config.timestamp_error_tolerance)),
             Arc::new(DenyListCheck::new(config.pgpool.clone()).await),
