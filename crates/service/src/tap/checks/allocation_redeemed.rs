@@ -103,6 +103,19 @@ impl AllocationRedeemedCheck {
         Ok(())
     }
 
+    async fn reload_with_retry(
+        pgpool: &PgPool,
+        service_provider: Address,
+        redeemed_ravs: &Arc<RwLock<HashSet<RavKey>>>,
+    ) {
+        while let Err(error) =
+            Self::redeemed_ravs_reload(pgpool, service_provider, redeemed_ravs).await
+        {
+            tracing::error!(%error, "Failed to reload redeemed RAVs; retrying");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    }
+
     async fn redeemed_ravs_watcher(
         pgpool: PgPool,
         service_provider: Address,
@@ -126,22 +139,25 @@ impl AllocationRedeemedCheck {
                                 &redeemed_ravs,
                             );
                         }
-                        // The connection dropped and notifications may have been lost while
-                        // it was down; resync the whole set once it is back.
+                        // The connection dropped and notifications may have been lost. sqlx
+                        // reconnects lazily, so LISTEN again (a no-op in Postgres) to force
+                        // it, then resync: startup's listen-before-load order.
                         Ok(None) => {
                             tracing::warn!(
                                 "Lost the Postgres notification connection; reloading redeemed RAVs"
                             );
-                            while let Err(error) =
-                                Self::redeemed_ravs_reload(&pgpool, service_provider, &redeemed_ravs)
-                                    .await
+                            while let Err(error) = pglistener
+                                .listen("tap_horizon_rav_redeemed_notification")
+                                .await
                             {
                                 tracing::error!(
                                     %error,
-                                    "Failed to reload redeemed RAVs after reconnect; retrying"
+                                    "Failed to re-establish the Postgres notification connection; retrying"
                                 );
                                 tokio::time::sleep(Duration::from_secs(5)).await;
                             }
+                            Self::reload_with_retry(&pgpool, service_provider, &redeemed_ravs)
+                                .await;
                         }
                         Err(error) => {
                             tracing::error!(
