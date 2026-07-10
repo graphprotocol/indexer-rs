@@ -88,7 +88,6 @@ pub struct TapChecksConfig {
     pub pgpool: PgPool,
     pub indexer_allocations: Receiver<HashMap<Address, Allocation>>,
     pub escrow_accounts_v2: Receiver<EscrowAccounts>,
-    pub redeemed_allocations: indexer_monitor::RedeemedAllocationsWatcher,
     pub timestamp_error_tolerance: Duration,
     pub receipt_max_value: u128,
     pub allowed_data_services: Option<Vec<Address>>,
@@ -124,7 +123,7 @@ impl IndexerTapContext {
     pub async fn get_checks(config: TapChecksConfig) -> Vec<ReceiptCheck<TapReceipt>> {
         let mut checks: Vec<ReceiptCheck<TapReceipt>> = vec![
             Arc::new(AllocationEligible::new(config.indexer_allocations)),
-            Arc::new(AllocationRedeemedCheck::new(config.redeemed_allocations)),
+            Arc::new(AllocationRedeemedCheck::new(config.pgpool.clone()).await),
             Arc::new(SenderBalanceCheck::new(config.escrow_accounts_v2)),
             Arc::new(TimestampCheck::new(config.timestamp_error_tolerance)),
             Arc::new(DenyListCheck::new(config.pgpool.clone()).await),

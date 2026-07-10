@@ -8,7 +8,6 @@ mod deployment_to_allocation;
 mod dispute_manager;
 mod escrow_accounts;
 mod freshness;
-mod redeemed_allocations;
 
 pub use crate::{
     allocations::{indexer_allocations, AllocationWatcher},
@@ -19,9 +18,5 @@ pub use crate::{
     escrow_accounts::{
         empty_escrow_accounts_watcher, escrow_accounts_v2, EscrowAccounts, EscrowAccountsError,
         EscrowAccountsWatcher,
-    },
-    redeemed_allocations::{
-        empty_redeemed_allocations_watcher, redeemed_allocations, RedeemedAllocations,
-        RedeemedAllocationsWatcher,
     },
 };

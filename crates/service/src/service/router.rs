@@ -203,20 +203,6 @@ impl ServiceRouter {
             _ => Router::new(),
         };
 
-        // Track redeemed (payer, allocation) pairs in the background so the redeemed
-        // check never blocks a receipt on a live subgraph query.
-        let redeemed_allocations = match self.network_subgraph.as_ref() {
-            Some((network_subgraph, network)) => indexer_monitor::redeemed_allocations(
-                network_subgraph,
-                indexer_address,
-                allocations.clone(),
-                network.config.syncing_interval_secs,
-            )
-            .await
-            .expect("Failed to initialize redeemed_allocations watcher"),
-            None => indexer_monitor::empty_redeemed_allocations_watcher(),
-        };
-
         let post_request_handler = {
             // Create tap manager to validate receipts
             let tap_manager_v2 = {
@@ -235,7 +221,6 @@ impl ServiceRouter {
                     pgpool: self.database.clone(),
                     indexer_allocations: allocations.clone(),
                     escrow_accounts_v2: self.escrow_accounts_v2.clone(),
-                    redeemed_allocations,
                     timestamp_error_tolerance,
                     receipt_max_value,
                     allowed_data_services,

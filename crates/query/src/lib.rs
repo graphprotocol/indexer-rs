@@ -190,20 +190,3 @@ pub mod payments_escrow_transactions_redeem {
 
     pub use payments_escrow_transactions_redeem_query::*;
 }
-
-pub mod redeemed_allocations {
-    use graphql_client::GraphQLQuery;
-    type BigInt = String;
-    type Bytes = String;
-
-    #[derive(GraphQLQuery)]
-    #[graphql(
-        schema_path = "graphql/network.schema.graphql",
-        query_path = "graphql/redeemed_allocations.query.graphql",
-        response_derives = "Debug",
-        variables_derives = "Clone"
-    )]
-    pub struct RedeemedAllocationsQuery;
-
-    pub use redeemed_allocations_query::*;
-}
