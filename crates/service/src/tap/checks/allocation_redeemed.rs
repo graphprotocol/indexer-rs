@@ -132,12 +132,23 @@ impl AllocationRedeemedCheck {
 
                 pg_notification = pglistener.try_recv() => {
                     match pg_notification {
+                        // A payload our own trigger wrote but we cannot parse means the
+                        // trigger and this code drifted apart, and every later notification
+                        // would fail too; resync from the table instead of freezing the set.
                         Ok(Some(notification)) => {
-                            Self::apply_notification(
+                            if let Err(error) = Self::apply_notification(
                                 notification.payload(),
                                 service_provider,
                                 &redeemed_ravs,
-                            );
+                            ) {
+                                tracing::error!(
+                                    %error,
+                                    payload = notification.payload(),
+                                    "Unparsable RAV redemption notification; resyncing from the DB"
+                                );
+                                Self::reload_with_retry(&pgpool, service_provider, &redeemed_ravs)
+                                    .await;
+                            }
                         }
                         // The connection dropped and notifications may have been lost. sqlx
                         // reconnects lazily, so LISTEN again (a no-op in Postgres) to force
@@ -178,7 +189,7 @@ impl AllocationRedeemedCheck {
         payload: &str,
         service_provider: Address,
         redeemed_ravs: &Arc<RwLock<HashSet<RavKey>>>,
-    ) {
+    ) -> anyhow::Result<()> {
         #[derive(serde::Deserialize)]
         struct RavRedeemedNotification {
             // False when a redemption reorgs out and indexer-agent clears redeemed_at.
@@ -189,24 +200,15 @@ impl AllocationRedeemedCheck {
             collection_id: String,
         }
 
-        let Ok(notification) = serde_json::from_str::<RavRedeemedNotification>(payload) else {
-            tracing::error!(payload, "Unparsable RAV redemption notification; ignoring");
-            return;
-        };
-        let parsed = (
-            Address::from_str(notification.service_provider.trim()),
-            Address::from_str(notification.payer.trim()),
-            Address::from_str(notification.data_service.trim()),
-            CollectionId::from_str(notification.collection_id.trim()),
-        );
-        let (Ok(provider), Ok(payer), Ok(data_service), Ok(collection)) = parsed else {
-            tracing::error!(payload, "Unparsable RAV redemption notification; ignoring");
-            return;
-        };
+        let notification = serde_json::from_str::<RavRedeemedNotification>(payload)?;
+        let provider = Address::from_str(notification.service_provider.trim())?;
+        let payer = Address::from_str(notification.payer.trim())?;
+        let data_service = Address::from_str(notification.data_service.trim())?;
+        let collection = CollectionId::from_str(notification.collection_id.trim())?;
 
         // RAVs for another service provider are not receipts this service can see.
         if provider != service_provider {
-            return;
+            return Ok(());
         }
 
         let key = (payer, data_service, collection);
@@ -215,6 +217,7 @@ impl AllocationRedeemedCheck {
         } else {
             redeemed_ravs.write().unwrap().remove(&key);
         }
+        Ok(())
     }
 }
 
@@ -369,6 +372,32 @@ mod tests {
         agent_sets_redeemed_at(&test_db.pool, false).await;
         check.notify.notified().await;
         assert!(check.check(&sender_ctx(), &receipt).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn garbage_notification_triggers_resync() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        insert_last_rav(&test_db.pool, INDEXER_ADDRESS, false).await;
+
+        let check = AllocationRedeemedCheck::new(test_db.pool.clone(), INDEXER_ADDRESS).await;
+
+        let receipt = checking_receipt().await;
+        assert!(check.check(&sender_ctx(), &receipt).await.is_ok());
+
+        // Redeem the RAV with the trigger dropped, so the watcher gets no usable
+        // notification; only the resync on the garbage payload can catch it.
+        sqlx::query("DROP TRIGGER rav_redeemed_notify ON tap_horizon_ravs")
+            .execute(&test_db.pool)
+            .await
+            .unwrap();
+        agent_sets_redeemed_at(&test_db.pool, true).await;
+        sqlx::query("SELECT pg_notify('tap_horizon_rav_redeemed_notification', 'not json')")
+            .execute(&test_db.pool)
+            .await
+            .unwrap();
+
+        check.notify.notified().await;
+        assert!(check.check(&sender_ctx(), &receipt).await.is_err());
     }
 
     #[tokio::test]
