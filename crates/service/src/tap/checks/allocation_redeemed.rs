@@ -20,9 +20,9 @@ use crate::{
 /// A (payer, data_service, collection) whose closing RAV state is tracked.
 type RavKey = (Address, Address, CollectionId);
 
-/// Rejects receipts for a (payer, data_service, collection) whose closing RAV was redeemed
-/// on-chain. tap-agent marks the closing RAV as `last`, and indexer-agent sets `redeemed_at`
-/// when its redemption lands; receipts arriving after that can never be aggregated and paid.
+/// Rejects receipts whose (payer, data_service, collection) closing RAV was already redeemed
+/// on-chain; such receipts can never be paid. Eligibility routinely rejects first (redemption
+/// follows the same buffer), so this is insurance against out-of-band redemptions and skew.
 pub struct AllocationRedeemedCheck {
     redeemed_ravs: Arc<RwLock<HashSet<RavKey>>>,
     watcher_cancel_token: tokio_util::sync::CancellationToken,
