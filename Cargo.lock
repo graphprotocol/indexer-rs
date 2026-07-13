@@ -358,7 +358,7 @@ dependencies = [
  "keccak-asm",
  "paste",
  "proptest",
- "rand 0.9.4",
+ "rand 0.9.5",
  "ruint",
  "rustc-hash",
  "serde",
@@ -814,9 +814,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.102"
+version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "anymap3"
@@ -1868,11 +1868,11 @@ dependencies = [
 
 [[package]]
 name = "bon"
-version = "3.9.2"
+version = "3.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2f04f6fef12d70d42a77b1433c9e0f065238479a6cefc4f5bab105e9873a3c3"
+checksum = "a602c73c7b0148ec6d12af6fd5cc7a46e2eacc8878271a999abac56eed12f561"
 dependencies = [
- "bon-macros 3.9.2",
+ "bon-macros 3.9.3",
  "rustversion",
 ]
 
@@ -1891,11 +1891,11 @@ dependencies = [
 
 [[package]]
 name = "bon-macros"
-version = "3.9.2"
+version = "3.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d0bd4c2f75335ad98052a37efb54f428b492f64340257143b3429c8a508fa7b"
+checksum = "6dee98b0db6a962de883bf5d20362dee4d7ca0d12fe39a7c6c73c844e1cd7c1f"
 dependencies = [
- "darling 0.20.11",
+ "darling 0.21.3",
  "ident_case",
  "prettyplease",
  "proc-macro2",
@@ -2059,9 +2059,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.12.0"
+version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ae3f5d315924270530207e2a68396c3cc547f6dca3fbdca317cfb1a51edb593"
+checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 dependencies = [
  "serde",
 ]
@@ -2161,9 +2161,9 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chrono"
-version = "0.4.44"
+version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c673075a2e0e5f4a1dde27ce9dee1ea4558c7ffe648f576438a20ca1d2acc4b0"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
  "js-sys",
@@ -3556,7 +3556,7 @@ dependencies = [
  "parking_lot",
  "portable-atomic",
  "quanta 0.12.6",
- "rand 0.9.4",
+ "rand 0.9.5",
  "smallvec",
  "spinning_top",
  "web-time",
@@ -4424,7 +4424,7 @@ dependencies = [
  "base64 0.22.1",
  "bigdecimal",
  "bip39",
- "bon 3.9.2",
+ "bon 3.9.3",
  "build-info",
  "build-info-build",
  "clap",
@@ -4484,7 +4484,7 @@ dependencies = [
  "async-trait",
  "axum",
  "bigdecimal",
- "bon 3.9.2",
+ "bon 3.9.3",
  "clap",
  "educe",
  "futures",
@@ -4503,7 +4503,7 @@ dependencies = [
  "profiler",
  "prometheus 0.13.4",
  "ractor",
- "rand 0.9.4",
+ "rand 0.9.5",
  "reqwest 0.12.24",
  "rstest",
  "ruint",
@@ -4608,7 +4608,7 @@ dependencies = [
  "indexer-receipt",
  "num_cpus",
  "prost 0.14.3",
- "rand 0.9.4",
+ "rand 0.9.5",
  "rdkafka 0.38.0",
  "regex",
  "reqwest 0.12.24",
@@ -4865,7 +4865,7 @@ dependencies = [
  "jsonrpsee-types 0.25.1",
  "parking_lot",
  "pin-project 1.1.11",
- "rand 0.9.4",
+ "rand 0.9.5",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -6366,7 +6366,7 @@ dependencies = [
  "bit-vec",
  "bitflags 2.10.0",
  "num-traits",
- "rand 0.9.4",
+ "rand 0.9.5",
  "rand_chacha 0.9.0",
  "rand_xorshift",
  "regex-syntax",
@@ -6653,7 +6653,7 @@ dependencies = [
  "bytes",
  "getrandom 0.3.4",
  "lru-slab",
- "rand 0.9.4",
+ "rand 0.9.5",
  "ring",
  "rustc-hash",
  "rustls 0.23.34",
@@ -6735,9 +6735,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44c5af06bb1b7d3216d91932aed5265164bf384dc89cd6ba05cf59a35f5f76ea"
+checksum = "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
@@ -7232,7 +7232,7 @@ dependencies = [
  "primitive-types",
  "proptest",
  "rand 0.8.5",
- "rand 0.9.4",
+ "rand 0.9.5",
  "rlp",
  "ruint-macro",
  "serde_core",
@@ -8660,7 +8660,7 @@ checksum = "ee580051c083d026d65249338e04641d52926943f4534ec15f153db6d88fb012"
 dependencies = [
  "anyhow",
  "async-trait",
- "rand 0.9.4",
+ "rand 0.9.5",
  "tap_eip712_message",
  "tap_graph",
  "tap_receipt",
@@ -8686,7 +8686,7 @@ version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8e7675a0dbc2fb3304bf0571c29e4a27dc0fd4cdaaad6d40f9bd5d43d6b919a"
 dependencies = [
- "rand 0.9.4",
+ "rand 0.9.5",
  "serde",
  "tap_eip712_message",
  "tap_receipt",
@@ -8726,7 +8726,7 @@ name = "test-assets"
 version = "0.1.0"
 dependencies = [
  "bip39",
- "bon 3.9.2",
+ "bon 3.9.3",
  "indexer-allocation",
  "rstest",
  "sqlx",
@@ -9539,7 +9539,7 @@ dependencies = [
  "http 1.3.1",
  "httparse",
  "log",
- "rand 0.9.4",
+ "rand 0.9.5",
  "sha1",
  "thiserror 2.0.18",
 ]
