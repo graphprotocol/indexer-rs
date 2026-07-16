@@ -6,6 +6,13 @@
 
 
 
+## [2.2.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v2.2.0...indexer-service-rs-v2.2.1) (2026-07-16)
+
+
+### Performance Improvements
+
+* stop querying the network subgraph on every TAP receipt ([#1069](https://github.com/graphprotocol/indexer-rs/issues/1069)) ([60c3314](https://github.com/graphprotocol/indexer-rs/commit/60c3314f38a20dd0fa85b70596e74b82f32caa03))
+
 ## [2.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-service-rs-v2.1.0...indexer-service-rs-v2.2.0) (2026-06-03)
 
 
