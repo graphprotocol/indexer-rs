@@ -203,8 +203,6 @@ impl ServiceRouter {
             _ => Router::new(),
         };
 
-        let network_subgraph_client = self.network_subgraph.as_ref().map(|(client, _)| *client);
-
         let post_request_handler = {
             // Create tap manager to validate receipts
             let tap_manager_v2 = {
@@ -223,8 +221,6 @@ impl ServiceRouter {
                     pgpool: self.database.clone(),
                     indexer_allocations: allocations.clone(),
                     escrow_accounts_v2: self.escrow_accounts_v2.clone(),
-                    network_subgraph: network_subgraph_client,
-                    indexer_address: self.indexer.indexer_address,
                     timestamp_error_tolerance,
                     receipt_max_value,
                     allowed_data_services,
