@@ -4,6 +4,14 @@
 
 
 
+## [2.2.1](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v2.2.0...indexer-tap-agent-v2.2.1) (2026-07-16)
+
+
+### Bug Fixes
+
+* stop losing invalid payment receipts on a failed write ([#1047](https://github.com/graphprotocol/indexer-rs/issues/1047)) ([1947b18](https://github.com/graphprotocol/indexer-rs/commit/1947b18c934d3b9de91b734c413fd01c3154f341))
+* **tap:** wait for RAV processing to finish before counting receipts ([#1046](https://github.com/graphprotocol/indexer-rs/issues/1046)) ([b8a5b04](https://github.com/graphprotocol/indexer-rs/commit/b8a5b04bda7b448002033880420a7baf23f94bdc))
+
 ## [2.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-tap-agent-v2.1.0...indexer-tap-agent-v2.2.0) (2026-06-03)
 
 
