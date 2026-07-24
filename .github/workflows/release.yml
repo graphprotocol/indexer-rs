@@ -78,7 +78,7 @@ jobs:
             type=sha
 
       - name: Log in to the Container registry
-        uses: docker/login-action@3227f5311cb93ffd14d13e65d8cc400d30f4dd8a # v4
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
