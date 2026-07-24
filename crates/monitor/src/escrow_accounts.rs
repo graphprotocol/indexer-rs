@@ -3,6 +3,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    num::NonZeroUsize,
     str::FromStr,
     time::Duration,
 };
@@ -116,7 +117,7 @@ pub async fn escrow_accounts_v2(
     reject_thawing_signers: bool,
     collector_address: Address,
     min_balance_grt_wei: String,
-    max_signers_per_payer: usize,
+    max_signers_per_payer: Option<NonZeroUsize>,
 ) -> Result<EscrowAccountsWatcher, anyhow::Error> {
     indexer_watcher::new_watcher(interval, move || {
         get_escrow_accounts_v2(
@@ -137,7 +138,7 @@ async fn get_escrow_accounts_v2(
     reject_thawing_signers: bool,
     collector_address: Address,
     min_balance_grt_wei: String,
-    max_signers_per_payer: usize,
+    max_signers_per_payer: Option<NonZeroUsize>,
 ) -> anyhow::Result<EscrowAccounts> {
     tracing::trace!(
         indexer_address = ?indexer_address,
@@ -149,6 +150,9 @@ async fn get_escrow_accounts_v2(
         self as network_escrow_account_v2, Block_height, NetworkEscrowAccountQueryV2,
     };
     use indexer_query::signers_by_payer::{self as signers_by_payer, SignersByPayerQuery};
+
+    // Cap on signers fetched per payer; None means no limit.
+    let max_signers = max_signers_per_payer.map(NonZeroUsize::get);
 
     let page_size: i64 = 200;
     let mut last: Option<String> = None;
@@ -191,15 +195,17 @@ async fn get_escrow_accounts_v2(
         // Paginate additional signers for any payer that hit the 1000-per-payer nested cap
         let mut response = response;
         for account in &mut response.payments_escrow_accounts {
-            if max_signers_per_payer > 0 && account.payer.signers.len() >= max_signers_per_payer {
-                tracing::warn!(
-                    payer = %account.payer.id,
-                    signers = account.payer.signers.len(),
-                    max = max_signers_per_payer,
-                    "Payer signers already at or above max_signers_per_payer cap; skipping follow-up pagination"
-                );
-                account.payer.signers.truncate(max_signers_per_payer);
-                continue;
+            if let Some(max) = max_signers {
+                if account.payer.signers.len() >= max {
+                    tracing::warn!(
+                        payer = %account.payer.id,
+                        signers = account.payer.signers.len(),
+                        max,
+                        "Payer signers already at or above max_signers_per_payer cap; skipping follow-up pagination"
+                    );
+                    account.payer.signers.truncate(max);
+                    continue;
+                }
             }
 
             if account.payer.signers.len() < 1000 {
@@ -245,8 +251,7 @@ async fn get_escrow_accounts_v2(
                 }
 
                 if page_len < 1000
-                    || (max_signers_per_payer > 0
-                        && account.payer.signers.len() >= max_signers_per_payer)
+                    || max_signers.is_some_and(|max| account.payer.signers.len() >= max)
                 {
                     break;
                 }
@@ -258,14 +263,16 @@ async fn get_escrow_accounts_v2(
                     .unwrap_or_default();
             }
 
-            if max_signers_per_payer > 0 && account.payer.signers.len() >= max_signers_per_payer {
-                tracing::warn!(
-                    payer = %account.payer.id,
-                    signers = account.payer.signers.len(),
-                    max = max_signers_per_payer,
-                    "Payer signers capped at max_signers_per_payer"
-                );
-                account.payer.signers.truncate(max_signers_per_payer);
+            if let Some(max) = max_signers {
+                if account.payer.signers.len() >= max {
+                    tracing::warn!(
+                        payer = %account.payer.id,
+                        signers = account.payer.signers.len(),
+                        max,
+                        "Payer signers capped at max_signers_per_payer"
+                    );
+                    account.payer.signers.truncate(max);
+                }
             }
 
             if account.payer.signers.len() > 1000 {
@@ -419,7 +426,7 @@ mod tests {
             true,
             Address::ZERO, // collector address; mock ignores query variables
             "100000000000000000".to_string(),
-            0,
+            None, // no signer-per-payer cap
         )
         .await
         .unwrap();

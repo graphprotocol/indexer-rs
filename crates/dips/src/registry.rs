@@ -1,6 +1,15 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Test helpers for network registry validation.
+//!
+//! The Graph maintains a registry of supported networks. During RCA validation,
+//! we check that the subgraph's network is in this registry (or in the indexer's
+//! `additional_networks` config for custom/test networks).
+//!
+//! This module provides [`test_registry`] which returns a minimal registry
+//! containing "mainnet" and "hardhat" for use in unit tests.
+
 use graph_networks_registry::NetworksRegistry;
 
 pub fn test_registry() -> NetworksRegistry {

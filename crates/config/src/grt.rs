@@ -20,7 +20,16 @@ pub struct GRT(u128);
 impl GRT {
     pub const ZERO: GRT = GRT(0);
 
-    pub fn new(wei: u128) -> Self {
+    /// Convert GRT string to wei for test construction.
+    /// Panics on invalid input - only use in tests.
+    #[cfg(test)]
+    pub fn from_grt(grt: &str) -> Self {
+        use bigdecimal::{BigDecimal, ToPrimitive};
+        use std::str::FromStr;
+        let v = BigDecimal::from_str(grt).expect("invalid GRT value");
+        let wei = (v * BigDecimal::from(10u64.pow(18)))
+            .to_u128()
+            .expect("GRT value too large");
         GRT(wei)
     }
 

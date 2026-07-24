@@ -1,89 +1,101 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use axum::{extract::State, Json};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-/// Indexer DIPs pricing signal. Derived from `DipsConfig`
-/// at startup and served as-is on every request.
-#[derive(Clone, Debug, Serialize)]
-pub struct DipsInfo {
+/// State for the /dips/info endpoint. `Failed` deliberately carries no error
+/// detail: init errors can reference the operator's RPC endpoint (which may
+/// embed credentials), so the cause stays in logs and metrics only.
+#[derive(Clone, Debug)]
+pub enum DipsInfoState {
+    Available {
+        min_grt_per_30_days: BTreeMap<String, String>,
+        min_grt_per_billion_entities_per_30_days: String,
+    },
+    Failed,
+}
+
+#[derive(Serialize)]
+pub struct DipsInfoPricing {
     pub min_grt_per_30_days: BTreeMap<String, String>,
     pub min_grt_per_billion_entities_per_30_days: String,
+}
+
+#[derive(Serialize)]
+pub struct DipsInfoResponse {
+    pub pricing: DipsInfoPricing,
     pub supported_networks: Vec<String>,
 }
 
-pub async fn dips_info(State(state): State<DipsInfo>) -> Json<DipsInfo> {
-    Json(state)
+#[derive(Serialize)]
+pub struct DipsInfoUnavailable {
+    pub status: &'static str,
+    pub error: &'static str,
+}
+
+pub async fn dips_info(State(state): State<DipsInfoState>) -> Response {
+    match state {
+        DipsInfoState::Available {
+            min_grt_per_30_days,
+            min_grt_per_billion_entities_per_30_days,
+        } => {
+            let supported_networks: Vec<String> = min_grt_per_30_days.keys().cloned().collect();
+
+            Json(DipsInfoResponse {
+                pricing: DipsInfoPricing {
+                    min_grt_per_30_days,
+                    min_grt_per_billion_entities_per_30_days,
+                },
+                supported_networks,
+            })
+            .into_response()
+        }
+        DipsInfoState::Failed => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(DipsInfoUnavailable {
+                status: "unavailable",
+                error: "DIPs initialization failed; check the indexer-service logs",
+            }),
+        )
+            .into_response(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::extract::State;
-
-    fn sample_state() -> DipsInfo {
-        DipsInfo {
-            min_grt_per_30_days: BTreeMap::from_iter([
-                ("arbitrum-one".to_string(), "450".to_string()),
-                ("mainnet".to_string(), "45".to_string()),
-            ]),
-            min_grt_per_billion_entities_per_30_days: "200".to_string(),
-            supported_networks: vec!["arbitrum-one".to_string(), "mainnet".to_string()],
-        }
-    }
 
     #[tokio::test]
-    async fn returns_state_verbatim() {
+    async fn test_dips_info_available_returns_pricing() {
         // Arrange
-        let state = sample_state();
-        let expected = state.clone();
-
-        // Act
-        let response = dips_info(State(state)).await;
-
-        // Assert
-        assert_eq!(response.min_grt_per_30_days, expected.min_grt_per_30_days);
-        assert_eq!(
-            response.min_grt_per_billion_entities_per_30_days,
-            expected.min_grt_per_billion_entities_per_30_days
-        );
-        assert_eq!(response.supported_networks, expected.supported_networks);
-    }
-
-    #[tokio::test]
-    async fn empty_state_renders_empty_lists_and_zero() {
-        // Arrange: indexer has [dips] configured but priced nothing.
-        let state = DipsInfo {
-            min_grt_per_30_days: BTreeMap::new(),
-            min_grt_per_billion_entities_per_30_days: "0".to_string(),
-            supported_networks: vec![],
+        let state = DipsInfoState::Available {
+            min_grt_per_30_days: BTreeMap::from([("mainnet".to_string(), "450".to_string())]),
+            min_grt_per_billion_entities_per_30_days: "200".to_string(),
         };
 
         // Act
         let response = dips_info(State(state)).await;
 
         // Assert
-        assert!(response.min_grt_per_30_days.is_empty());
-        assert!(response.supported_networks.is_empty());
-        assert_eq!(response.min_grt_per_billion_entities_per_30_days, "0");
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
-    #[test]
-    fn json_shape_is_flat_with_three_top_level_fields() {
+    #[tokio::test]
+    async fn test_dips_info_failed_returns_service_unavailable() {
         // Arrange
-        let state = sample_state();
+        let state = DipsInfoState::Failed;
 
         // Act
-        let json = serde_json::to_value(&state).expect("serializes");
+        let response = dips_info(State(state)).await;
 
-        // Assert: three top-level keys, no `pricing` nesting.
-        let obj = json.as_object().expect("object");
-        assert!(obj.contains_key("min_grt_per_30_days"));
-        assert!(obj.contains_key("min_grt_per_billion_entities_per_30_days"));
-        assert!(obj.contains_key("supported_networks"));
-        assert_eq!(obj.len(), 3);
-        assert!(!obj.contains_key("pricing"));
+        // Assert
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }

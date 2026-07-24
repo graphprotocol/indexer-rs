@@ -8,70 +8,146 @@
 pub struct SubmitAgreementProposalRequest {
     #[prost(uint64, tag = "1")]
     pub version: u64,
-    /// / An ERC-712 signed indexing agreement voucher
+    /// / ABI-encoded SignedRCA (RecurringCollectionAgreement plus signature).
     #[prost(bytes = "vec", tag = "2")]
-    pub signed_voucher: ::prost::alloc::vec::Vec<u8>,
+    pub signed_rca: ::prost::alloc::vec::Vec<u8>,
 }
 /// *
 ///
 /// A response to a request to propose a new *indexing agreement* to an *indexer*.
 ///
+/// The outcome is either `accepted` or `rejected` -- exactly one is set. A
+/// rejection carries a `RejectReason` plus an optional free-text detail.
+///
 /// See the `DipsService.SubmitAgreementProposal` method.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct SubmitAgreementProposalResponse {
-    /// / The response to the agreement proposal.
-    #[prost(enumeration = "ProposalResponse", tag = "1")]
-    pub response: i32,
-}
-/// *
-///
-/// A request to cancel an *indexing agreement*.
-///
-/// See the `DipsService.CancelAgreement` method.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct CancelAgreementRequest {
-    #[prost(uint64, tag = "1")]
-    pub version: u64,
-    /// / a signed ERC-712 message cancelling an agreement
-    #[prost(bytes = "vec", tag = "2")]
-    pub signed_cancellation: ::prost::alloc::vec::Vec<u8>,
+pub struct SubmitAgreementProposalResponse {
+    #[prost(oneof = "submit_agreement_proposal_response::Outcome", tags = "1, 2")]
+    pub outcome: ::core::option::Option<submit_agreement_proposal_response::Outcome>,
+}
+/// Nested message and enum types in `SubmitAgreementProposalResponse`.
+pub mod submit_agreement_proposal_response {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Outcome {
+        /// / Set when the proposal was accepted.
+        #[prost(message, tag = "1")]
+        Accepted(super::Accepted),
+        /// / Set when the proposal was rejected.
+        #[prost(message, tag = "2")]
+        Rejected(super::Rejected),
+    }
 }
 /// *
 ///
-/// A response to a request to cancel an existing *indexing agreement*.
-///
-/// See the `DipsService.CancelAgreement` method.
-///
-/// Empty message, eventually we may add custom status codes
+/// An accepted *indexing agreement* proposal. Empty for now; accept-only fields
+/// can be added later without disturbing the reject path.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct CancelAgreementResponse {}
+pub struct Accepted {}
 /// *
 ///
-/// The response to an *indexing agreement* proposal.
+/// A rejected *indexing agreement* proposal.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Rejected {
+    /// / Why the proposal was rejected.
+    #[prost(enumeration = "RejectReason", tag = "1")]
+    pub reason: i32,
+    /// / Optional human-readable detail; may be empty.
+    #[prost(string, tag = "2")]
+    pub detail: ::prost::alloc::string::String,
+}
+/// *
+///
+/// The reason an *indexer* rejected an *indexing agreement* proposal. Values may
+/// be added over time; an older reader should treat an unrecognised reason as
+/// UNSPECIFIED (the catch-all).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum ProposalResponse {
-    /// / The agreement proposal was accepted.
-    Accept = 0,
-    /// / The agreement proposal was rejected.
-    Reject = 1,
+pub enum RejectReason {
+    /// / Rejected for a reason not covered below (the catch-all).
+    Unspecified = 0,
+    /// / The offered price is below the indexer's minimum.
+    PriceTooLow = 1,
+    /// / The proposal deadline has already passed.
+    DeadlineExpired = 2,
+    /// / The subgraph's network is not supported by this indexer.
+    UnsupportedNetwork = 3,
+    /// / The subgraph manifest could not be fetched from IPFS.
+    SubgraphManifestUnavailable = 4,
+    /// / The RCA names a different indexer as service provider.
+    UnexpectedServiceProvider = 5,
+    /// / The agreement end time has already passed.
+    AgreementExpired = 6,
+    /// / The agreement metadata version is not supported.
+    UnsupportedMetadataVersion = 7,
+    /// / The proposal's signature failed to verify.
+    InvalidSignature = 8,
+    /// / The signer is not an authorised agreement manager.
+    SenderNotTrusted = 9,
+    /// / The indexer is at its DIPs capacity; may resolve later.
+    CapacityExceeded = 10,
+    /// / The subgraph manifest exceeds the indexer's size cap.
+    ManifestTooLarge = 11,
+    /// / A re-sent proposal: an exact replay of one already rejected, or a different payload reusing an already-seen agreement id.
+    ReplayDetected = 12,
+    /// / The payer has insufficient escrow to back the agreement.
+    InsufficientEscrow = 13,
+    /// / A transient internal error; the proposal may be resent.
+    IndexerUnavailable = 14,
 }
-impl ProposalResponse {
+impl RejectReason {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Self::Accept => "ACCEPT",
-            Self::Reject => "REJECT",
+            Self::Unspecified => "REJECT_REASON_UNSPECIFIED",
+            Self::PriceTooLow => "REJECT_REASON_PRICE_TOO_LOW",
+            Self::DeadlineExpired => "REJECT_REASON_DEADLINE_EXPIRED",
+            Self::UnsupportedNetwork => "REJECT_REASON_UNSUPPORTED_NETWORK",
+            Self::SubgraphManifestUnavailable => {
+                "REJECT_REASON_SUBGRAPH_MANIFEST_UNAVAILABLE"
+            }
+            Self::UnexpectedServiceProvider => {
+                "REJECT_REASON_UNEXPECTED_SERVICE_PROVIDER"
+            }
+            Self::AgreementExpired => "REJECT_REASON_AGREEMENT_EXPIRED",
+            Self::UnsupportedMetadataVersion => {
+                "REJECT_REASON_UNSUPPORTED_METADATA_VERSION"
+            }
+            Self::InvalidSignature => "REJECT_REASON_INVALID_SIGNATURE",
+            Self::SenderNotTrusted => "REJECT_REASON_SENDER_NOT_TRUSTED",
+            Self::CapacityExceeded => "REJECT_REASON_CAPACITY_EXCEEDED",
+            Self::ManifestTooLarge => "REJECT_REASON_MANIFEST_TOO_LARGE",
+            Self::ReplayDetected => "REJECT_REASON_REPLAY_DETECTED",
+            Self::InsufficientEscrow => "REJECT_REASON_INSUFFICIENT_ESCROW",
+            Self::IndexerUnavailable => "REJECT_REASON_INDEXER_UNAVAILABLE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "ACCEPT" => Some(Self::Accept),
-            "REJECT" => Some(Self::Reject),
+            "REJECT_REASON_UNSPECIFIED" => Some(Self::Unspecified),
+            "REJECT_REASON_PRICE_TOO_LOW" => Some(Self::PriceTooLow),
+            "REJECT_REASON_DEADLINE_EXPIRED" => Some(Self::DeadlineExpired),
+            "REJECT_REASON_UNSUPPORTED_NETWORK" => Some(Self::UnsupportedNetwork),
+            "REJECT_REASON_SUBGRAPH_MANIFEST_UNAVAILABLE" => {
+                Some(Self::SubgraphManifestUnavailable)
+            }
+            "REJECT_REASON_UNEXPECTED_SERVICE_PROVIDER" => {
+                Some(Self::UnexpectedServiceProvider)
+            }
+            "REJECT_REASON_AGREEMENT_EXPIRED" => Some(Self::AgreementExpired),
+            "REJECT_REASON_UNSUPPORTED_METADATA_VERSION" => {
+                Some(Self::UnsupportedMetadataVersion)
+            }
+            "REJECT_REASON_INVALID_SIGNATURE" => Some(Self::InvalidSignature),
+            "REJECT_REASON_SENDER_NOT_TRUSTED" => Some(Self::SenderNotTrusted),
+            "REJECT_REASON_CAPACITY_EXCEEDED" => Some(Self::CapacityExceeded),
+            "REJECT_REASON_MANIFEST_TOO_LARGE" => Some(Self::ManifestTooLarge),
+            "REJECT_REASON_REPLAY_DETECTED" => Some(Self::ReplayDetected),
+            "REJECT_REASON_INSUFFICIENT_ESCROW" => Some(Self::InsufficientEscrow),
+            "REJECT_REASON_INDEXER_UNAVAILABLE" => Some(Self::IndexerUnavailable),
             _ => None,
         }
     }
@@ -201,38 +277,6 @@ pub mod indexer_dips_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// *
-        ///
-        /// Request to cancel an existing *indexing agreement*.
-        pub async fn cancel_agreement(
-            &mut self,
-            request: impl tonic::IntoRequest<super::CancelAgreementRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CancelAgreementResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/graphprotocol.indexer.dips.IndexerDipsService/CancelAgreement",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "graphprotocol.indexer.dips.IndexerDipsService",
-                        "CancelAgreement",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
     }
 }
 /// Generated server implementations.
@@ -258,16 +302,6 @@ pub mod indexer_dips_service_server {
             request: tonic::Request<super::SubmitAgreementProposalRequest>,
         ) -> std::result::Result<
             tonic::Response<super::SubmitAgreementProposalResponse>,
-            tonic::Status,
-        >;
-        /// *
-        ///
-        /// Request to cancel an existing *indexing agreement*.
-        async fn cancel_agreement(
-            &self,
-            request: tonic::Request<super::CancelAgreementRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CancelAgreementResponse>,
             tonic::Status,
         >;
     }
@@ -383,52 +417,6 @@ pub mod indexer_dips_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = SubmitAgreementProposalSvc(inner);
-                        let codec = tonic_prost::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/graphprotocol.indexer.dips.IndexerDipsService/CancelAgreement" => {
-                    #[allow(non_camel_case_types)]
-                    struct CancelAgreementSvc<T: IndexerDipsService>(pub Arc<T>);
-                    impl<
-                        T: IndexerDipsService,
-                    > tonic::server::UnaryService<super::CancelAgreementRequest>
-                    for CancelAgreementSvc<T> {
-                        type Response = super::CancelAgreementResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::CancelAgreementRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as IndexerDipsService>::cancel_agreement(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = CancelAgreementSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
