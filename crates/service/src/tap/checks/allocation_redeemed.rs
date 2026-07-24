@@ -1,58 +1,223 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use indexer_monitor::{SubgraphClient, SubgraphQueryError};
-use indexer_query::closed_allocations::{self, ClosedAllocations};
+use std::{
+    collections::HashSet,
+    str::FromStr,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
+
+use sqlx::{postgres::PgListener, PgPool, Row};
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
-use thegraph_core::{alloy::hex::ToHexExt, CollectionId};
+use thegraph_core::{alloy::primitives::Address, CollectionId};
 
-use crate::tap::{CheckingReceipt, TapReceipt};
+use crate::{
+    middleware::Sender,
+    tap::{CheckingReceipt, TapReceipt},
+};
 
-/// Errors that can occur during allocation redemption checks.
-#[derive(Debug, thiserror::Error)]
-pub enum AllocationCheckError {
-    #[error("Missing network subgraph client for v2 receipts")]
-    MissingNetworkSubgraph,
+/// A (payer, data_service, collection) whose closing RAV state is tracked.
+type RavKey = (Address, Address, CollectionId);
 
-    #[error("Subgraph query failed")]
-    SubgraphQuery(#[from] SubgraphQueryError),
-}
-
+/// Rejects receipts whose (payer, data_service, collection) closing RAV was already redeemed
+/// on-chain; such receipts can never be paid. Eligibility routinely rejects first (redemption
+/// follows the same buffer), so this is insurance against out-of-band redemptions and skew.
 pub struct AllocationRedeemedCheck {
-    network_subgraph: Option<&'static SubgraphClient>,
+    redeemed_ravs: Arc<RwLock<HashSet<RavKey>>>,
+    watcher_cancel_token: tokio_util::sync::CancellationToken,
+
+    #[cfg(test)]
+    notify: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl AllocationRedeemedCheck {
-    pub fn new(network_subgraph: Option<&'static SubgraphClient>) -> Self {
-        Self { network_subgraph }
+    pub async fn new(pgpool: PgPool, service_provider: Address) -> Self {
+        // Listen before the initial load so no notification is missed; Postgres buffers
+        // notifications until we start consuming them.
+        let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
+        pglistener
+            .listen("tap_horizon_rav_redeemed_notification")
+            .await
+            .expect(
+                "should be able to subscribe to Postgres Notify events on the channel \
+                'tap_horizon_rav_redeemed_notification'",
+            );
+
+        let redeemed_ravs = Arc::new(RwLock::new(HashSet::new()));
+        Self::redeemed_ravs_reload(&pgpool, service_provider, &redeemed_ravs)
+            .await
+            .expect("should be able to fetch redeemed closing RAVs from the DB on startup");
+
+        #[cfg(test)]
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+
+        let watcher_cancel_token = tokio_util::sync::CancellationToken::new();
+        tokio::spawn(Self::redeemed_ravs_watcher(
+            pgpool.clone(),
+            service_provider,
+            pglistener,
+            redeemed_ravs.clone(),
+            watcher_cancel_token.clone(),
+            #[cfg(test)]
+            notify.clone(),
+        ));
+
+        Self {
+            redeemed_ravs,
+            watcher_cancel_token,
+            #[cfg(test)]
+            notify,
+        }
     }
 
-    async fn v2_allocation_closed(
-        &self,
-        collection_id: CollectionId,
-    ) -> Result<bool, AllocationCheckError> {
-        let network_subgraph = self
-            .network_subgraph
-            .ok_or(AllocationCheckError::MissingNetworkSubgraph)?;
-
-        // Horizon network subgraph stores allocationId as the 20-byte address derived
-        // from the 32-byte collection_id (rightmost 20 bytes).
-        let allocation_id = collection_id.as_address().encode_hex_with_prefix();
-
-        // Only reject receipts if the allocation is actually closed on-chain.
-        // In the continuous collection model, active allocations get collected
-        // from periodically — redeem transactions existing doesn't mean the
-        // allocation is done.
-        let closed_response = network_subgraph
-            .query::<ClosedAllocations, _>(closed_allocations::Variables {
-                allocation_ids: vec![allocation_id],
-                block: None,
-                first: 1,
-                last: String::new(),
+    async fn redeemed_ravs_reload(
+        pgpool: &PgPool,
+        service_provider: Address,
+        redeemed_rwlock: &Arc<RwLock<HashSet<RavKey>>>,
+    ) -> anyhow::Result<()> {
+        use thegraph_core::alloy::hex::ToHexExt;
+        let rows = sqlx::query(
+            r#"
+                SELECT payer, data_service, collection_id FROM tap_horizon_ravs
+                WHERE last = TRUE AND redeemed_at IS NOT NULL AND service_provider = $1
+            "#,
+        )
+        .bind(service_provider.encode_hex())
+        .fetch_all(pgpool)
+        .await?;
+        let redeemed = rows
+            .iter()
+            .map(|row| {
+                let payer = Address::from_str(row.try_get::<String, _>("payer")?.trim())?;
+                let data_service =
+                    Address::from_str(row.try_get::<String, _>("data_service")?.trim())?;
+                let collection =
+                    CollectionId::from_str(row.try_get::<String, _>("collection_id")?.trim())?;
+                Ok((payer, data_service, collection))
             })
-            .await?;
+            .collect::<anyhow::Result<HashSet<_>>>()?;
 
-        Ok(!closed_response.allocations.is_empty())
+        *(redeemed_rwlock.write().unwrap()) = redeemed;
+
+        Ok(())
+    }
+
+    async fn reload_with_retry(
+        pgpool: &PgPool,
+        service_provider: Address,
+        redeemed_ravs: &Arc<RwLock<HashSet<RavKey>>>,
+    ) {
+        while let Err(error) =
+            Self::redeemed_ravs_reload(pgpool, service_provider, redeemed_ravs).await
+        {
+            tracing::error!(%error, "Failed to reload redeemed RAVs; retrying");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    }
+
+    async fn redeemed_ravs_watcher(
+        pgpool: PgPool,
+        service_provider: Address,
+        mut pglistener: PgListener,
+        redeemed_ravs: Arc<RwLock<HashSet<RavKey>>>,
+        cancel_token: tokio_util::sync::CancellationToken,
+        #[cfg(test)] notify: std::sync::Arc<tokio::sync::Notify>,
+    ) {
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+
+                pg_notification = pglistener.try_recv() => {
+                    match pg_notification {
+                        // A payload our own trigger wrote but we cannot parse means the
+                        // trigger and this code drifted apart, and every later notification
+                        // would fail too; resync from the table instead of freezing the set.
+                        Ok(Some(notification)) => {
+                            if let Err(error) = Self::apply_notification(
+                                notification.payload(),
+                                service_provider,
+                                &redeemed_ravs,
+                            ) {
+                                tracing::error!(
+                                    %error,
+                                    payload = notification.payload(),
+                                    "Unparsable RAV redemption notification; resyncing from the DB"
+                                );
+                                Self::reload_with_retry(&pgpool, service_provider, &redeemed_ravs)
+                                    .await;
+                            }
+                        }
+                        // The connection dropped and notifications may have been lost. sqlx
+                        // reconnects lazily, so LISTEN again (a no-op in Postgres) to force
+                        // it, then resync: startup's listen-before-load order.
+                        Ok(None) => {
+                            tracing::warn!(
+                                "Lost the Postgres notification connection; reloading redeemed RAVs"
+                            );
+                            while let Err(error) = pglistener
+                                .listen("tap_horizon_rav_redeemed_notification")
+                                .await
+                            {
+                                tracing::error!(
+                                    %error,
+                                    "Failed to re-establish the Postgres notification connection; retrying"
+                                );
+                                tokio::time::sleep(Duration::from_secs(5)).await;
+                            }
+                            Self::reload_with_retry(&pgpool, service_provider, &redeemed_ravs)
+                                .await;
+                        }
+                        Err(error) => {
+                            tracing::error!(
+                                %error,
+                                "Error receiving Postgres notifications for redeemed RAVs; retrying"
+                            );
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                        }
+                    }
+                    #[cfg(test)]
+                    notify.notify_one();
+                }
+            }
+        }
+    }
+
+    fn apply_notification(
+        payload: &str,
+        service_provider: Address,
+        redeemed_ravs: &Arc<RwLock<HashSet<RavKey>>>,
+    ) -> anyhow::Result<()> {
+        #[derive(serde::Deserialize)]
+        struct RavRedeemedNotification {
+            // False when a redemption reorgs out and indexer-agent clears redeemed_at.
+            redeemed: bool,
+            payer: String,
+            data_service: String,
+            service_provider: String,
+            collection_id: String,
+        }
+
+        let notification = serde_json::from_str::<RavRedeemedNotification>(payload)?;
+        let provider = Address::from_str(notification.service_provider.trim())?;
+        let payer = Address::from_str(notification.payer.trim())?;
+        let data_service = Address::from_str(notification.data_service.trim())?;
+        let collection = CollectionId::from_str(notification.collection_id.trim())?;
+
+        // RAVs for another service provider are not receipts this service can see.
+        if provider != service_provider {
+            return Ok(());
+        }
+
+        let key = (payer, data_service, collection);
+        if notification.redeemed {
+            redeemed_ravs.write().unwrap().insert(key);
+        } else {
+            redeemed_ravs.write().unwrap().remove(&key);
+        }
+        Ok(())
     }
 }
 
@@ -60,137 +225,192 @@ impl AllocationRedeemedCheck {
 impl Check<TapReceipt> for AllocationRedeemedCheck {
     async fn check(
         &self,
-        _ctx: &tap_core::receipt::Context,
+        ctx: &tap_core::receipt::Context,
         receipt: &CheckingReceipt,
     ) -> CheckResult {
-        let collection_id =
-            CollectionId::from(receipt.signed_receipt().as_ref().message.collection_id);
-        let closed = self
-            .v2_allocation_closed(collection_id)
-            .await
-            .map_err(|e| CheckError::Failed(anyhow::anyhow!(e)))?;
-        if closed {
+        let Sender(sender) = ctx
+            .get::<Sender>()
+            .ok_or_else(|| CheckError::Failed(anyhow::anyhow!("Missing sender in context")))?;
+
+        let message = &receipt.signed_receipt().as_ref().message;
+        let collection = CollectionId::from(message.collection_id);
+        let key = (*sender, message.data_service, collection);
+
+        if self.redeemed_ravs.read().unwrap().contains(&key) {
             return Err(CheckError::Failed(anyhow::anyhow!(
-                "Allocation is closed (v2): {}",
-                collection_id.as_address()
+                "Closing RAV already redeemed for collection {} of payer {sender}",
+                collection.as_address()
             )));
         }
         Ok(())
     }
 }
 
+impl Drop for AllocationRedeemedCheck {
+    fn drop(&mut self) {
+        self.watcher_cancel_token.cancel();
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use indexer_monitor::{DeploymentDetails, SubgraphClient};
-    use serde_json::json;
-    use tap_core::{
-        receipt::{checks::Check, Context},
-        signed_message::Eip712SignedMessage,
-        tap_eip712_domain, TapVersion,
+    use sqlx::PgPool;
+    use tap_core::receipt::{checks::Check, Context};
+    use test_assets::{
+        create_signed_receipt_v2, COLLECTION_ID_0, INDEXER_ADDRESS, TAP_SENDER, VERIFIER_ADDRESS,
     };
-    use tap_graph::v2::Receipt as ReceiptV2;
-    use test_assets::TAP_SIGNER;
-    use thegraph_core::alloy::{
-        primitives::{Address, FixedBytes},
-        signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner},
-    };
-    use wiremock::{matchers::body_string_contains, Mock, MockServer, ResponseTemplate};
+    use thegraph_core::alloy::hex::ToHexExt;
 
-    use super::AllocationRedeemedCheck;
-    use crate::tap::TapReceipt;
+    use super::*;
 
-    fn create_wallet() -> PrivateKeySigner {
-        MnemonicBuilder::<English>::default()
-            .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
-            .index(0)
-            .unwrap()
-            .build()
-            .unwrap()
+    async fn insert_last_rav(pgpool: &PgPool, service_provider: Address, redeemed: bool) {
+        sqlx::query(
+            r#"
+                INSERT INTO tap_horizon_ravs (
+                    signature, collection_id, payer, data_service, service_provider,
+                    timestamp_ns, value_aggregate, metadata, last, redeemed_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, CASE WHEN $9 THEN NOW() ELSE NULL END)
+            "#,
+        )
+        .bind(vec![0u8; 65])
+        .bind(COLLECTION_ID_0.encode_hex())
+        .bind(TAP_SENDER.1.encode_hex())
+        .bind(VERIFIER_ADDRESS.encode_hex())
+        .bind(service_provider.encode_hex())
+        .bind(1_000_000_000i64)
+        .bind(100i64)
+        .bind(vec![0u8; 1])
+        .bind(redeemed)
+        .execute(pgpool)
+        .await
+        .unwrap();
     }
 
-    fn create_v2_receipt(payer: Address) -> TapReceipt {
-        let wallet = create_wallet();
-        let eip712_domain = tap_eip712_domain(1, Address::from([0x11u8; 20]), TapVersion::V2);
-        let receipt = ReceiptV2 {
-            payer,
-            data_service: Address::ZERO,
-            service_provider: Address::ZERO,
-            collection_id: FixedBytes::ZERO,
-            timestamp_ns: 1000,
-            nonce: 1,
-            value: 100,
-        };
-        let signed = Eip712SignedMessage::new(&eip712_domain, receipt, &wallet).unwrap();
-        TapReceipt(signed)
+    // The statement shape indexer-agent runs when a redemption lands or reorgs out.
+    async fn agent_sets_redeemed_at(pgpool: &PgPool, redeemed: bool) {
+        let set = if redeemed { "NOW()" } else { "NULL" };
+        sqlx::query(&format!(
+            "UPDATE tap_horizon_ravs SET redeemed_at = {set} WHERE payer = $1 AND collection_id = $2"
+        ))
+        .bind(TAP_SENDER.1.encode_hex())
+        .bind(COLLECTION_ID_0.encode_hex())
+        .execute(pgpool)
+        .await
+        .unwrap();
+    }
+
+    async fn checking_receipt() -> CheckingReceipt {
+        let receipt = create_signed_receipt_v2()
+            .collection_id(COLLECTION_ID_0)
+            .call()
+            .await;
+        CheckingReceipt::new(TapReceipt(receipt))
+    }
+
+    fn sender_ctx() -> Context {
+        let mut ctx = Context::new();
+        ctx.insert(Sender(TAP_SENDER.1));
+        ctx
     }
 
     #[tokio::test]
-    async fn v2_closed_allocation_rejects() {
-        let mock_server: MockServer = MockServer::start().await;
-        mock_server
-            .register(
-                Mock::given(body_string_contains("allocations")).respond_with(
-                    ResponseTemplate::new(200).set_body_json(json!({
-                        "data": {
-                            "meta": { "block": { "number": 1, "hash": "0x00", "timestamp": 1 } },
-                            "allocations": [ { "id": "0x01" } ]
-                        }
-                    })),
-                ),
-            )
-            .await;
+    async fn redeemed_closing_rav_rejects_receipt() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        insert_last_rav(&test_db.pool, INDEXER_ADDRESS, true).await;
 
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
-            )
-            .await,
-        ));
+        let check = AllocationRedeemedCheck::new(test_db.pool.clone(), INDEXER_ADDRESS).await;
 
-        let check = AllocationRedeemedCheck::new(Some(network_subgraph));
-
-        let ctx = Context::default();
-        let receipt = create_v2_receipt(TAP_SIGNER.1);
-        let checking = crate::tap::CheckingReceipt::new(receipt);
-
-        let result = check.check(&ctx, &checking).await;
+        let result = check.check(&sender_ctx(), &checking_receipt().await).await;
         assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already redeemed"));
     }
 
     #[tokio::test]
-    async fn v2_open_allocation_passes() {
-        let mock_server: MockServer = MockServer::start().await;
-        mock_server
-            .register(
-                Mock::given(body_string_contains("allocations")).respond_with(
-                    ResponseTemplate::new(200).set_body_json(json!({
-                        "data": {
-                            "meta": { "block": { "number": 1, "hash": "0x00", "timestamp": 1 } },
-                            "allocations": []
-                        }
-                    })),
-                ),
-            )
+    async fn unredeemed_rav_passes_receipt() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        insert_last_rav(&test_db.pool, INDEXER_ADDRESS, false).await;
+
+        let check = AllocationRedeemedCheck::new(test_db.pool.clone(), INDEXER_ADDRESS).await;
+
+        assert!(check
+            .check(&sender_ctx(), &checking_receipt().await)
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn other_service_provider_rav_passes_receipt() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        insert_last_rav(&test_db.pool, Address::from([0x33u8; 20]), true).await;
+
+        let check = AllocationRedeemedCheck::new(test_db.pool.clone(), INDEXER_ADDRESS).await;
+
+        assert!(check
+            .check(&sender_ctx(), &checking_receipt().await)
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn redemption_and_reorg_are_picked_up_live() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        insert_last_rav(&test_db.pool, INDEXER_ADDRESS, false).await;
+
+        let check = AllocationRedeemedCheck::new(test_db.pool.clone(), INDEXER_ADDRESS).await;
+
+        let receipt = checking_receipt().await;
+        assert!(check.check(&sender_ctx(), &receipt).await.is_ok());
+
+        // Redemption lands on-chain: receipts start being rejected.
+        agent_sets_redeemed_at(&test_db.pool, true).await;
+        check.notify.notified().await;
+        assert!(check.check(&sender_ctx(), &receipt).await.is_err());
+
+        // The redemption reorgs out and indexer-agent clears redeemed_at:
+        // receipts are accepted again.
+        agent_sets_redeemed_at(&test_db.pool, false).await;
+        check.notify.notified().await;
+        assert!(check.check(&sender_ctx(), &receipt).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn garbage_notification_triggers_resync() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        insert_last_rav(&test_db.pool, INDEXER_ADDRESS, false).await;
+
+        let check = AllocationRedeemedCheck::new(test_db.pool.clone(), INDEXER_ADDRESS).await;
+
+        let receipt = checking_receipt().await;
+        assert!(check.check(&sender_ctx(), &receipt).await.is_ok());
+
+        // Redeem the RAV with the trigger dropped, so the watcher gets no usable
+        // notification; only the resync on the garbage payload can catch it.
+        sqlx::query("DROP TRIGGER rav_redeemed_notify ON tap_horizon_ravs")
+            .execute(&test_db.pool)
+            .await
+            .unwrap();
+        agent_sets_redeemed_at(&test_db.pool, true).await;
+        sqlx::query("SELECT pg_notify('tap_horizon_rav_redeemed_notification', 'not json')")
+            .execute(&test_db.pool)
+            .await
+            .unwrap();
+
+        check.notify.notified().await;
+        assert!(check.check(&sender_ctx(), &receipt).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn missing_sender_in_context_rejects() {
+        let test_db = test_assets::setup_shared_test_db().await;
+        insert_last_rav(&test_db.pool, INDEXER_ADDRESS, true).await;
+
+        let check = AllocationRedeemedCheck::new(test_db.pool.clone(), INDEXER_ADDRESS).await;
+
+        let result = check
+            .check(&Context::new(), &checking_receipt().await)
             .await;
-
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
-            )
-            .await,
-        ));
-
-        let check = AllocationRedeemedCheck::new(Some(network_subgraph));
-
-        let ctx = Context::default();
-        let receipt = create_v2_receipt(TAP_SIGNER.1);
-        let checking = crate::tap::CheckingReceipt::new(receipt);
-
-        let result = check.check(&ctx, &checking).await;
-        assert!(result.is_ok());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Missing sender"));
     }
 }
