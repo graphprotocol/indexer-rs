@@ -703,9 +703,9 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
     Duration::from_secs(300)
 }
 
-/// DIPs configuration. Authorises proposal senders -- recovers each agreement's EIP-712 signer
-/// and requires it to hold the on-chain agreement-manager role (from the indexing-payments
-/// subgraph) -- then validates accepted proposals before storing them for the indexer-agent.
+/// DIPs configuration. Authorises proposal senders by recovering each agreement's EIP-712
+/// signer and requiring it to hold the agreement-manager role (read from the indexing-payments
+/// subgraph), then validates accepted proposals before storing them for the indexer-agent.
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -713,12 +713,18 @@ pub struct DipsConfig {
     /// Network interface the DIPs gRPC server binds to (e.g. `"0.0.0.0"` for all interfaces).
     pub host: String,
     pub port: String,
-    /// Networks this indexer explicitly supports. Proposals for other networks are rejected.
+    /// Networks this indexer explicitly supports. A network is accepted only when it
+    /// appears here AND has a `min_grt_per_30_days` entry; listing it without a price
+    /// still rejects every proposal. Proposals for other networks are rejected.
     pub supported_networks: HashSet<String>,
     /// Minimum acceptable GRT per 30 days, per network. Converted to wei/second internally.
+    /// A network priced here is still rejected unless it also appears in `supported_networks`.
     pub min_grt_per_30_days: BTreeMap<String, GRT>,
     /// Minimum acceptable GRT per billion entities per 30 days.
     pub min_grt_per_billion_entities_per_30_days: GRT,
+    /// CAIP-2 chain id per network name, for chains the global networks registry does not
+    /// cover. Used only to resolve the chain id logged with a price rejection; it grants no
+    /// network access on its own.
     pub additional_networks: BTreeMap<String, String>,
     /// RecurringCollector address: the EIP-712 verifying contract used to recover
     /// the signer of incoming RCA proposals. Required when DIPs is enabled.

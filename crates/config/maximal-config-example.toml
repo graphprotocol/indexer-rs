@@ -68,7 +68,7 @@ query_url = "http://example.com/network-subgraph"
 # hosted/gateway URL); leave unset for an open or self-hosted graph-node. Default unset.
 # query_auth_token = "super-secret"
 
-# Optional: index this subgraph on your own graph-node and put its deployment id here -- queries
+# Optional: index this subgraph on your own graph-node and put its deployment id here; queries
 # then prefer your local node (free) and fall back to query_url only if it is unsynced or errors.
 # query_url stays required as that fallback. Indexing locally is recommended.
 deployment_id = "Qmaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -93,7 +93,7 @@ escrow_min_balance_grt_wei = "100000000000000000"
 # Indexing-payments subgraph, read for the set of accounts allowed to send DIPs
 # agreement proposals (the agreement-manager role). Required when [dips] is set.
 [subgraphs.indexing_payments]
-# Query URL for the indexing-payments subgraph -- a SEPARATE deployment from [subgraphs.network].
+# Query URL for the indexing-payments subgraph, a SEPARATE deployment from [subgraphs.network].
 query_url = "http://example.com/indexing-payments-subgraph"
 # Required when this section is present (no default). How often to refresh from this subgraph, in
 # seconds. Distinct from dips.role_refresh_interval_secs, which governs the role-set pull.
@@ -102,7 +102,7 @@ syncing_interval_secs = 60
 # for an open or self-hosted graph-node. Default unset.
 # query_auth_token = "super-secret"
 
-# Optional: index this subgraph yourself and set its deployment id -- queries then prefer your
+# Optional: index this subgraph yourself and set its deployment id; queries then prefer your
 # local node (free) and fall back to query_url if it is unsynced. query_url stays required.
 # deployment_id = "Qmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
@@ -126,10 +126,10 @@ url_prefix = "/"
 serve_network_subgraph = false
 #### OPTIONAL VALUES ####
 
-# Bearer token that gates the served network/escrow subgraph endpoint (serve_network_subgraph).
+# Bearer token that gates the served network subgraph endpoint (serve_network_subgraph).
 # serve_auth_token = "token"
 
-# Lets anyone presenting this token query for FREE -- no TAP receipt required. Share sparingly.
+# Lets anyone presenting this token query for FREE, with no TAP receipt required. Share sparingly.
 # free_query_auth_token = "i-am-authorized-right?"
 ipfs_url = "https://api.thegraph.com/ipfs/"
 # Maximum number of deployments allowed in a single /cost GraphQL batch query.
@@ -192,7 +192,7 @@ max_receipts_per_request = 10000
 
 # DIPs (Direct Indexer Payments). Each proposal's recovered EIP-712 signer is checked against
 # the on-chain agreement-manager role set, read off the indexing-payments subgraph at proposal
-# time -- not the payer, not on-chain at acceptance. Prices below are GRT, not wei.
+# time, not the payer and not on-chain at acceptance. Prices below are GRT, not wei.
 
 # To enable DIPs you must set: recurring_collector, [subgraphs.indexing_payments] (query_url +
 # syncing_interval_secs), and at least one supported_networks entry with a matching price under
@@ -264,6 +264,9 @@ role_subgraph_max_lag_secs = 1800
 # base-sepolia = "15"
 # sepolia = "5"
 
-# Custom or test networks not in the global networks-registry: maps network name to CAIP-2
-# chain id so proposals for them pass the registry check. Default empty. e.g. hardhat = "eip155:1337"
+# Custom or test networks not in the global networks-registry: maps network name to CAIP-2 chain id.
+# Its only effect is the chain_id field on the price-rejection logs, which reads "unknown" without it.
+# It blocks nothing: acceptance needs supported_networks plus a [dips.min_grt_per_30_days] price, and
+# a network missing from those is rejected before any chain_id is resolved.
+# Default empty. e.g. hardhat = "eip155:1337"
 [dips.additional_networks]
