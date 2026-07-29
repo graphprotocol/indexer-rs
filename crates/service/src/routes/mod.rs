@@ -7,15 +7,10 @@
 //!
 //! ## Route Overview
 //!
-//! | Route | Handler | Description |
-//! |-------|---------|-------------|
-//! | `POST /subgraphs/id/:id` | [`request_handler`] | Main query endpoint for paid queries |
-//! | `GET /health/:deployment` | [`health`] | Deployment health status from graph-node |
-//! | `GET /healthz` | [`healthz`] | Service dependency health check |
-//! | `POST /status` | [`status`] | Indexing status queries (allowlisted fields) |
-//! | `GET /cost` | [`cost::cost_handler`] | Cost model information |
-//! | `POST /network` | [`static_subgraph_request_handler`] | Network subgraph proxy |
-//! | `POST /escrow` | [`static_subgraph_request_handler`] | Escrow subgraph proxy |
+//! The route list lives in `docs/Routes.md`, and the registrations themselves in
+//! `crate::service::router`. Keeping it in one place stops this list drifting from
+//! what the service actually serves, which is how a since-removed `/escrow` route
+//! survived here long after it stopped being registered.
 //!
 //! ## Query Flow
 //!
