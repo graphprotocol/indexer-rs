@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 use prometheus::{register_counter_vec, register_int_gauge, CounterVec, IntGauge};
 
 /// Incoming agreement proposals by outcome: `accepted`, `untrusted` (signer is
-/// not a role holder), `transient` (couldn't verify -- sender should retry), or
+/// not a role holder), `transient` (couldn't verify, so the sender should retry), or
 /// `rejected` (other validation failure).
 pub static PROPOSAL_OUTCOMES: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(

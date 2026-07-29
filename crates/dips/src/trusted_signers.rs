@@ -370,8 +370,8 @@ mod subgraph {
     }
 
     /// What `verify_trusted` should do once it holds the freshest cache state.
-    /// Pulled out as a pure function so every branch -- including the fail-open
-    /// admit, which otherwise only fires on a rare race -- is unit-testable.
+    /// Pulled out as a pure function so every branch (including the fail-open
+    /// admit, which otherwise only fires on a rare race) is unit-testable.
     enum Decision {
         Trusted,
         Untrusted,
@@ -413,7 +413,7 @@ mod subgraph {
 
             // A new or stale-cache signer: refresh on demand to catch a just-granted
             // manager, but skip the refetch when the last success is recent and still
-            // fresh -- bounds a distinct-unknown-signer flood to one fetch per window.
+            // fresh; that bounds a distinct-unknown-signer flood to one fetch per window.
             let recently_refreshed = {
                 let cache = self.cache.read().unwrap();
                 cache.last_success.is_some_and(|t| {
