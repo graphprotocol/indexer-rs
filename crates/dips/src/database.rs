@@ -24,6 +24,9 @@
 //! 4. Agent updates status to "accepted" or "rejected"
 //! 5. Once an accepted agreement finishes, the agent marks it "completed"
 //!
+//! Steps 2 to 5 are the indexer-agent's side of the contract and live in that
+//! separate repository; the only status this crate ever writes is "pending".
+//!
 //! The optional `max_new_agreements_per_24h` cap counts only "pending" and
 //! "accepted" rows from the last 24 hours, so reaching "completed" or "rejected"
 //! frees capacity again.
