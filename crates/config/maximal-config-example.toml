@@ -203,11 +203,10 @@ max_receipts_per_request = 10000
 # (check the /dips/info endpoint and the indexer_dips_enabled metric). Per-field consequences below.
 
 [dips]
-# Address/port the DIPs gRPC server binds to. The dipper dials port 7602 on the URL you
-# registered on chain, so that port needs public ingress; move it and proposals silently
-# stop arriving. port is a quoted string. Defaults: "0.0.0.0" / "7602".
+# Interface the DIPs gRPC server binds to. The port is fixed at 7602 and not configurable:
+# the dipper dials 7602 on the URL you registered on chain, so it needs public ingress. Bind
+# elsewhere and forward 7602 to it if a proxy fronts this service. Default: "0.0.0.0".
 host = "0.0.0.0"
-port = "7602"
 
 # Networks you support indexing. REQUIRED to accept anything: list at least one here AND set its
 # price under [dips.min_grt_per_30_days]; empty = ALL proposals rejected (not "accept all").

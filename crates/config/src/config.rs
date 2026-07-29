@@ -324,6 +324,15 @@ impl Config {
             if dips.recurring_collector.is_none() {
                 return Err("dips.recurring_collector must be set when DIPs is enabled".to_string());
             }
+            if dips.port.is_some() {
+                return Err(format!(
+                    "dips.port is no longer configurable. The payer delivers agreement proposals \
+                     to port {DIPS_GRPC_PORT}, so setting a different one here only makes this \
+                     indexer unreachable, with no error on either side. Remove the line. If a \
+                     proxy fronts this service, forward port {DIPS_GRPC_PORT} to it and bind \
+                     where you like with dips.host."
+                ));
+            }
             if self.subgraphs.indexing_payments.is_none() {
                 return Err(
                     "subgraphs.indexing_payments must be set when DIPs is enabled".to_string(),
@@ -703,6 +712,11 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
     Duration::from_secs(300)
 }
 
+/// Port the DIPs gRPC server listens on. The payer delivers agreement proposals here, at the
+/// URL the indexer registered on chain, and dials this port whatever an indexer configures,
+/// so it is fixed rather than settable.
+pub const DIPS_GRPC_PORT: u16 = 7602;
+
 /// DIPs configuration. Authorises proposal senders by recovering each agreement's EIP-712
 /// signer and requiring it to hold the agreement-manager role (read from the indexing-payments
 /// subgraph), then validates accepted proposals before storing them for the indexer-agent.
@@ -712,10 +726,10 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
 pub struct DipsConfig {
     /// Network interface the DIPs gRPC server binds to (e.g. `"0.0.0.0"` for all interfaces).
     pub host: String,
-    /// Port the DIPs gRPC server binds to. The payer dials this port on the URL the indexer
-    /// registered on chain, so changing it makes this indexer unreachable for DIPs unless
-    /// something forwards the default port to it.
-    pub port: String,
+    /// Removed: the port is half of a wire contract, not a local choice, so it is now fixed
+    /// at [`DIPS_GRPC_PORT`]. Kept only so a config that still sets it fails with an
+    /// explanation instead of binding somewhere the payer never dials.
+    pub port: Option<String>,
     /// Networks this indexer explicitly supports. A network is accepted only when it
     /// appears here AND has a `min_grt_per_30_days` entry; listing it without a price
     /// still rejects every proposal. Proposals for other networks are rejected.
@@ -753,7 +767,7 @@ impl Default for DipsConfig {
     fn default() -> Self {
         DipsConfig {
             host: "0.0.0.0".to_string(),
-            port: "7602".to_string(),
+            port: None,
             supported_networks: HashSet::new(),
             min_grt_per_30_days: BTreeMap::new(),
             min_grt_per_billion_entities_per_30_days: GRT::ZERO,
@@ -1490,6 +1504,31 @@ mod tests {
         );
     }
 
+    /// A config that still sets the removed `dips.port` must fail loudly, rather than bind
+    /// somewhere the payer never dials and receive nothing.
+    #[test]
+    fn test_dips_port_is_rejected() {
+        // Arrange
+        let mut config: Config = toml::from_str(
+            fs::read_to_string("maximal-config-example.toml")
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        config.dips.as_mut().unwrap().port = Some("7601".to_string());
+
+        // Act
+        let result = config.validate();
+
+        // Assert
+        let err = result.expect_err("a config setting dips.port should be rejected");
+        assert!(
+            err.contains("dips.port is no longer configurable")
+                && err.contains(&super::DIPS_GRPC_PORT.to_string()),
+            "the error should name the removed field and the port the payer dials, got: {err}"
+        );
+    }
+
     /// Test that maximal config with DIPS section parses correctly.
     #[test]
     fn test_dips_maximal_config_parses() {
@@ -1509,10 +1548,9 @@ mod tests {
             "min_grt_per_billion_entities_per_30_days should be set in maximal config"
         );
         assert_eq!(
-            dips.port,
-            super::DipsConfig::default().port,
-            "the example config must document the default DIPs port: the payer dials the \
-             default, so an indexer copying a stale example silently receives no proposals"
+            dips.port, None,
+            "the example config must not set dips.port: it is fixed at the port the payer \
+             dials, and a config that sets it is rejected at startup"
         );
     }
 }
