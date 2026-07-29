@@ -33,6 +33,17 @@
 | `indexer_cost_model_batch_failed_total`     | Total number of failed batch `cost_model` queries.                                          | -               |
 | `indexer_cost_model_batch_invalid_total`    | Total number of batch `cost_model` queries with invalid deployment IDs.                     | -               |
 
+### DIPs
+
+Only 1 of these 4 carries the `indexer_` prefix, so a dashboard or alert selector has to cover both spellings.
+
+| Metric Name                                          | Description                                                                                 | Labels          |
+|------------------------------------------------------|---------------------------------------------------------------------------------------------|-----------------|
+| `indexer_dips_enabled`                               | The outcome of DIPs startup: 1 when initialization succeeded and the gRPC server was started, 0 when DIPs is configured but initialization failed. Set once and never updated afterwards, so a listener that later fails to bind or exits leaves it at 1; watch for the `DIPs gRPC server error` log line to catch that. Not exported at all when `[dips]` is absent. | -               |
+| `dips_proposal_outcomes_total`                       | Incoming DIPs agreement proposals by outcome. The `outcome` label is `accepted`, `untrusted` (the signer does not hold the agreement-manager role), `transient` (the role list could not be read, or the database write failed, so the sender should retry) or `rejected` (any other validation failure). Counting starts after the gRPC argument checks, so a proposal with the wrong envelope version, an empty payload or a payload over 10,000 bytes never appears here. | outcome         |
+| `dips_agreement_manager_role_holders`                | Agreement-manager role holders in the last successful subgraph fetch. 0 means no address is authorised to send you proposals, so every proposal is rejected: alert on `dips_agreement_manager_role_holders == 0`. | -               |
+| `dips_agreement_manager_role_last_refresh_timestamp` | Unix time of the last successful agreement-manager role fetch. Alert when `time() - dips_agreement_manager_role_last_refresh_timestamp` exceeds `role_refresh_interval_secs` (default 86,400) plus `role_failopen_grace_secs` (default 3,600), the point past which the cached role list has expired and all proposals are rejected. Both role metrics only appear after the first successful fetch, so pair that with `absent(dips_agreement_manager_role_last_refresh_timestamp)` to catch a fetch that has never succeeded. | -               |
+
 ---
 
 ## Tap Agent Metrics
