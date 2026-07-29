@@ -9,8 +9,7 @@
 //!
 //! The route list lives in `docs/Routes.md`, and the registrations themselves in
 //! `crate::service::router`. Keeping it in one place stops this list drifting from
-//! what the service actually serves, which is how a since-removed `/escrow` route
-//! survived here long after it stopped being registered.
+//! what the service actually serves.
 //!
 //! ## Query Flow
 //!
