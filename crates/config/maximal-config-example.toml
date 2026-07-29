@@ -200,7 +200,7 @@ max_receipts_per_request = 10000
 
 # Failure modes: an empty role set, or a subgraph outage past role_failopen_grace_secs, rejects
 # all proposals; if DIPs init fails the service keeps serving queries but runs WITHOUT DIPs
-# (check the /dips/info endpoint and the dips_enabled metric). Per-field consequences below.
+# (check the /dips/info endpoint and the indexer_dips_enabled metric). Per-field consequences below.
 
 [dips]
 # Address/port the DIPs gRPC server binds to, where the dipper sends proposals; needs ingress
