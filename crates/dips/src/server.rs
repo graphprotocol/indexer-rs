@@ -11,11 +11,15 @@
 //! ```text
 //! Dipper ──gRPC──> DipsServer::submit_agreement_proposal()
 //!                        │
-//!                        ├─ Version check (must be 2)
-//!                        ├─ Size validation (non-empty, max 10KB)
+//!                        ├─ Request envelope version (must be 2)  ─┐ answered with
+//!                        ├─ Size validation (non-empty, max 10KB) ─┘ InvalidArgument
+//!                        │
+//!                        ├─ Signer recovery (EIP-712) and trusted-signer check
 //!                        ├─ Service-provider match
 //!                        ├─ Timestamp validation (deadline, endsAt)
 //!                        ├─ Replay/idempotency check (before any IPFS fetch)
+//!                        ├─ Capacity cap (live agreements per rolling 24h)
+//!                        ├─ Agreement terms version (V1 only)
 //!                        ├─ IPFS manifest fetch
 //!                        ├─ Network validation
 //!                        ├─ Price validation
@@ -25,16 +29,27 @@
 //!                                    └─> Return Accept/Reject
 //! ```
 //!
-//! Signature and signer-authorization checks are not performed here. The
-//! on-chain `acceptIndexingAgreement` call verifies the signer (via either
-//! an ECDSA signature or a pre-stored payer offer) when the indexer-agent
-//! submits the acceptance transaction.
+//! This is the one ordered list of the validation steps. The doc comments below
+//! point back here rather than repeating a subset, so they cannot drift from it.
+//!
+//! The signer is checked here: the EIP-712 signature recovers the signer's
+//! address, which must hold the agreement-manager role. Authorization is never
+//! decided on the `payer` address carried inside the proposal. That check runs
+//! before anything in the agreement is validated, and any other address is
+//! rejected with `RejectReason::SenderNotTrusted`. If the role set itself cannot
+//! be read, the proposal is rejected with `RejectReason::IndexerUnavailable`
+//! instead, telling the sender to retry rather than to try another indexer.
 //!
 //! # Response Behavior
 //!
-//! Returns `Accept` if the RCA passes all validation and is stored successfully.
-//! Returns `Reject` if any validation fails. This enables the Dipper to reassign
-//! the indexing request to another indexer on rejection.
+//! Returns `Accept` if the RCA passes all validation and is stored successfully,
+//! and `Reject` if a check on the decoded agreement fails. This enables the
+//! Dipper to reassign the indexing request to another indexer on rejection.
+//!
+//! The first 2 steps are the exception. A request whose envelope version is not
+//! 2, or whose payload is empty or over 10KB, is answered with a gRPC
+//! `InvalidArgument` status rather than a rejection, so the Dipper sees a
+//! malformed call rather than an indexer declining the work.
 //!
 //! # Cancellation
 //!
@@ -63,12 +78,11 @@ use crate::{
     DipsError,
 };
 
-/// Context for DIPS server with all validation dependencies.
-///
-/// Used for RCA validation:
-/// - IPFS manifest fetching
-/// - Price minimum enforcement
-/// - Network registry lookups
+/// Context for DIPS server with all validation dependencies: the trusted-signer
+/// source, the proposal store, the IPFS fetcher and the price calculator, which
+/// also holds the `supported_networks` list. A network is accepted only if it is
+/// in that list AND has a configured price. See the module docs for the order
+/// the checks run in.
 #[derive(Debug, Clone)]
 pub struct DipsServerContext {
     /// RCA store (seconds-based RCA)
@@ -77,9 +91,9 @@ pub struct DipsServerContext {
     pub ipfs_fetcher: Arc<dyn IpfsFetcher>,
     /// Price calculator for validating minimum prices
     pub price_calculator: Arc<PriceCalculator>,
-    /// Network registry for supported networks
+    /// Network registry, read only to resolve a chain ID for log context.
     pub registry: Arc<graph_networks_registry::NetworksRegistry>,
-    /// Additional networks beyond the registry
+    /// Chain IDs for networks the registry doesn't cover, also log context only.
     pub additional_networks: Arc<BTreeMap<String, String>>,
     /// EIP-712 domain for recovering the RCA signer (RecurringCollector).
     pub rca_domain: Eip712Domain,
@@ -91,12 +105,9 @@ pub struct DipsServerContext {
 
 /// DIPS server implementing RCA protocol.
 ///
-/// Validates RecurringCollectionAgreement proposals before storage:
-/// - Service-provider match
-/// - IPFS manifest fetching and network validation
-/// - Price minimum enforcement
-///
-/// Returns Accept/Reject to enable Dipper reassignment on rejection.
+/// Validates RecurringCollectionAgreement proposals before storage, in the order
+/// the module docs set out, and returns Accept/Reject so the Dipper can reassign
+/// the request to another indexer on rejection.
 #[derive(Debug)]
 pub struct DipsServer {
     pub ctx: Arc<DipsServerContext>,
@@ -134,7 +145,7 @@ fn reject_reason_from_error(err: &DipsError) -> RejectReason {
         | DipsError::InvalidRca(_) => RejectReason::Unspecified,
         DipsError::SenderNotTrusted { .. } => RejectReason::SenderNotTrusted,
         // A store failure or an unverifiable role set means a valid proposal the
-        // indexer couldn't act on -- tell dipper it's transient so it retries.
+        // indexer couldn't act on: tell dipper it's transient so it retries.
         DipsError::TrustVerificationUnavailable(_) | DipsError::UnknownError(_) => {
             RejectReason::IndexerUnavailable
         }
@@ -164,16 +175,11 @@ fn outcome_label(err: &DipsError) -> &'static str {
 impl IndexerDipsService for DipsServer {
     /// Submit an RCA proposal.
     ///
-    /// Validates:
-    /// - Version 2 only
-    /// - Service provider match
-    /// - IPFS manifest and network compatibility
-    /// - Price minimums
+    /// Runs the checks listed in the module docs, in that order, starting with
+    /// the request envelope and the trusted-signer check.
     ///
-    /// On-chain offer existence is NOT checked — the offer doesn't exist yet
+    /// On-chain offer existence is NOT checked: the offer doesn't exist yet
     /// at proposal time. The contract enforces it at `acceptIndexingAgreement`.
-    ///
-    /// Returns Accept/Reject based on validation results.
     async fn submit_agreement_proposal(
         &self,
         request: Request<SubmitAgreementProposalRequest>,
