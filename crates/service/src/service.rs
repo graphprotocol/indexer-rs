@@ -133,7 +133,7 @@ pub async fn run() -> anyhow::Result<()> {
     // (graphprotocol/indexer, TypeScript) owns schema migrations to avoid
     // conflicting DDL from two processes sharing one database. The SQL files
     // in indexer-rs/migrations/ exist for local development (`sqlx migrate
-    // run`) and tests only -- they are not executed by any production binary.
+    // run`) and tests only; they are not executed by any production binary.
     //
     // For new tables (e.g. pending_rca_proposals), a corresponding migration
     // must be added to the agent before the feature ships to production.

@@ -27,7 +27,14 @@
 //! retries up to 3 times with exponential backoff (10s, 20s, 40s delays). This
 //! gives IPFS meaningful recovery time between attempts.
 //!
-//! Worst case timing: 30s + 10s + 30s + 20s + 30s + 40s + 30s = 190 seconds.
+//! Retries are skipped when the service is busy: if more than 200 proposal
+//! requests are in flight (`IPFS_DURESS_THRESHOLD`) as a fetch starts, that
+//! fetch gets a single attempt and no retries. A loaded indexer frees handler
+//! slots faster, at the cost of rejecting proposals whose one attempt hits a
+//! transient error. Dipper can resend those.
+//!
+//! Worst case timing while retrying: 30s + 10s + 30s + 20s + 30s + 40s + 30s =
+//! 190 seconds. A busy indexer's single attempt is capped at 30 seconds.
 //!
 //! Dipper's gRPC timeout should be at least 220 seconds (190s + 30s buffer)
 //! to avoid timing out while indexer-rs is still retrying IPFS.
@@ -76,7 +83,7 @@ const IPFS_RETRY_BASE_DELAY: Duration = Duration::from_secs(10);
 pub(crate) const IPFS_MAX_MANIFEST_BYTES: usize = 25 * 1024 * 1024;
 
 /// When the in-flight request count exceeds this threshold, IPFS fetches
-/// stop retrying — a single attempt only. The fewer-retries mode frees
+/// stop retrying: a single attempt only. The fewer-retries mode frees
 /// handler slots faster when the service is under load, at the cost of
 /// failing proposals whose first IPFS attempt has a transient error.
 pub(crate) const IPFS_DURESS_THRESHOLD: usize = 200;
@@ -518,7 +525,7 @@ templates:
         // Act + Assert
         assert_eq!(client.max_attempts(), IPFS_MAX_ATTEMPTS);
 
-        // Right at the threshold still counts as below — the check is `>`.
+        // Right at the threshold still counts as below, because the check is `>`.
         inflight.store(IPFS_DURESS_THRESHOLD, Ordering::Relaxed);
         assert_eq!(client.max_attempts(), IPFS_MAX_ATTEMPTS);
     }

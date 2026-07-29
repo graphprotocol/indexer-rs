@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-//! PostgreSQL implementation of [`RcaStore`](crate::store::RcaStore).
+//! PostgreSQL implementation of [`RcaStore`].
 //!
 //! This module provides [`PsqlRcaStore`], which persists validated RCA proposals
 //! to the `pending_rca_proposals` table. The indexer-agent queries this table
@@ -22,6 +22,14 @@
 //! 2. indexer-agent queries pending proposals
 //! 3. Agent validates allocation availability, accepts on-chain
 //! 4. Agent updates status to "accepted" or "rejected"
+//! 5. Once an accepted agreement finishes, the agent marks it "completed"
+//!
+//! Steps 2 to 5 are the indexer-agent's side of the contract and live in that
+//! separate repository; the only status this crate ever writes is "pending".
+//!
+//! The optional `max_new_agreements_per_24h` cap counts only "pending" and
+//! "accepted" rows from the last 24 hours, so reaching "completed" or "rejected"
+//! frees capacity again.
 //!
 //! # Idempotency
 //!
@@ -90,8 +98,9 @@ impl RcaStore for PsqlRcaStore {
 
     async fn count_since(&self, window: Duration) -> Result<u64, DipsError> {
         // Count live agreements only: 'pending' (awaiting the agent) and 'accepted'.
-        // The agent records rejected and expired proposals as 'rejected', so they
-        // drop out. NOW() is the DB clock, so the window ignores host clock skew.
+        // The agent records rejected and expired proposals as 'rejected' and finished
+        // ones as 'completed', so neither counts. NOW() is the DB clock, so the window
+        // ignores host clock skew.
         let count: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM pending_rca_proposals
              WHERE status IN ('pending', 'accepted')
