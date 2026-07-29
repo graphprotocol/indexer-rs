@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-//! DIPS (Direct Indexer Payments) for The Graph.
+//! DIPS (Direct Indexing Payments) for The Graph.
 //!
 //! This crate implements the indexer-side handling of RecurringCollectionAgreement (RCA)
 //! proposals. When a payer wants indexing services, the Dipper service creates and signs
