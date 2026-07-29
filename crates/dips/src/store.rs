@@ -49,8 +49,8 @@ pub trait RcaStore: Sync + Send + std::fmt::Debug {
     async fn lookup(&self, agreement_id: Uuid) -> Result<Option<StoredProposal>, DipsError>;
 
     /// Count live agreements (status `pending` or `accepted`) within the trailing
-    /// `window`; rejected and expired proposals are excluded. The in-memory test
-    /// store has no status, so it ignores the window and counts every entry.
+    /// `window`; `rejected` and `completed` proposals are excluded. The in-memory
+    /// test store has no status, so it ignores the window and counts every entry.
     async fn count_since(&self, window: Duration) -> Result<u64, DipsError>;
 
     /// Downcast to concrete type for testing.
