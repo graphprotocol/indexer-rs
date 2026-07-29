@@ -319,15 +319,8 @@ const CAPACITY_WINDOW: std::time::Duration = std::time::Duration::from_secs(24 *
 
 /// Validate and create a RecurringCollectionAgreement.
 ///
-/// Performs validation:
-/// - Signer recovery, then the agreement-manager role check on the recovered address
-/// - Service provider match
-/// - Deadline and expiry checks
-/// - Replay/idempotency check on the derived agreement id (before any IPFS fetch)
-/// - Capacity cap on live agreements from the last 24 hours, when one is configured
-/// - Agreement terms version (only V1 terms are supported)
-/// - IPFS manifest fetching and network validation
-/// - Price minimum enforcement
+/// Runs the 9 validation steps in the order the crate-level docs list them, from
+/// the signer check through to the price minimum.
 ///
 /// On-chain offer existence is NOT checked here: the offer doesn't exist
 /// yet at proposal time. The contract enforces it at `acceptIndexingAgreement`.

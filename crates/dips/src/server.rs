@@ -14,23 +14,15 @@
 //!                        ├─ Request envelope version (must be 2)  ─┐ answered with
 //!                        ├─ Size validation (non-empty, max 10KB) ─┘ InvalidArgument
 //!                        │
-//!                        ├─ Signer recovery (EIP-712) and trusted-signer check
-//!                        ├─ Service-provider match
-//!                        ├─ Timestamp validation (deadline, endsAt)
-//!                        ├─ Replay/idempotency check (before any IPFS fetch)
-//!                        ├─ Capacity cap (live agreements per rolling 24h)
-//!                        ├─ Agreement terms version (V1 only)
-//!                        ├─ IPFS manifest fetch
-//!                        ├─ Network validation
-//!                        ├─ Price validation
+//!                        ├─ validate_and_create_rca() runs the 9 checks the crate docs list
 //!                        │
 //!                        └─> Store in pending_rca_proposals table
 //!                                    │
 //!                                    └─> Return Accept/Reject
 //! ```
 //!
-//! This is the one ordered list of the validation steps. The doc comments below
-//! point back here rather than repeating a subset, so they cannot drift from it.
+//! The ordered list of validation steps lives in the crate-level docs. This
+//! module only adds the gRPC envelope handling around it.
 //!
 //! The signer is checked here: the EIP-712 signature recovers the signer's
 //! address, which must hold the agreement-manager role. Authorization is never
@@ -81,8 +73,8 @@ use crate::{
 /// Context for DIPS server with all validation dependencies: the trusted-signer
 /// source, the proposal store, the IPFS fetcher and the price calculator, which
 /// also holds the `supported_networks` list. A network is accepted only if it is
-/// in that list AND has a configured price. See the module docs for the order
-/// the checks run in.
+/// in that list AND has a configured price. See the crate-level docs for the
+/// order the checks run in.
 #[derive(Debug, Clone)]
 pub struct DipsServerContext {
     /// RCA store (seconds-based RCA)
@@ -106,8 +98,8 @@ pub struct DipsServerContext {
 /// DIPS server implementing RCA protocol.
 ///
 /// Validates RecurringCollectionAgreement proposals before storage, in the order
-/// the module docs set out, and returns Accept/Reject so the Dipper can reassign
-/// the request to another indexer on rejection.
+/// the crate-level docs set out, and returns Accept/Reject so the Dipper can
+/// reassign the request to another indexer on rejection.
 #[derive(Debug)]
 pub struct DipsServer {
     pub ctx: Arc<DipsServerContext>,
@@ -175,8 +167,8 @@ fn outcome_label(err: &DipsError) -> &'static str {
 impl IndexerDipsService for DipsServer {
     /// Submit an RCA proposal.
     ///
-    /// Runs the checks listed in the module docs, in that order, starting with
-    /// the request envelope and the trusted-signer check.
+    /// Runs the checks listed in the crate-level docs, in that order, starting
+    /// with the request envelope and the trusted-signer check.
     ///
     /// On-chain offer existence is NOT checked: the offer doesn't exist yet
     /// at proposal time. The contract enforces it at `acceptIndexingAgreement`.
