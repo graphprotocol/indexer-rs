@@ -341,6 +341,17 @@ async fn start_dips(
         .parse()
         .with_context(|| format!("Invalid DIPS host:port '{host}:{port}'"))?;
 
+    // Warn rather than fail: a loopback bind is a legitimate choice when a reverse proxy
+    // forwards the port to it, and the service cannot tell whether one is in front of it.
+    if addr.ip().is_loopback() {
+        tracing::warn!(
+            address = %addr,
+            "DIPs gRPC server is bound to a loopback address, which the payer cannot reach \
+             directly. No agreement proposals will arrive unless a proxy forwards this port \
+             to it, and the failure is silent on this side."
+        );
+    }
+
     // Shared counter of in-flight gRPC requests. The IPFS client reads
     // it to decide whether to use the full retry budget or fall back to
     // a single attempt when the service is under load.

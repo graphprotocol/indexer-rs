@@ -712,6 +712,9 @@ fn default_allocation_reconciliation_interval_secs() -> Duration {
 pub struct DipsConfig {
     /// Network interface the DIPs gRPC server binds to (e.g. `"0.0.0.0"` for all interfaces).
     pub host: String,
+    /// Port the DIPs gRPC server binds to. The payer dials this port on the URL the indexer
+    /// registered on chain, so changing it makes this indexer unreachable for DIPs unless
+    /// something forwards the default port to it.
     pub port: String,
     /// Networks this indexer explicitly supports. A network is accepted only when it
     /// appears here AND has a `min_grt_per_30_days` entry; listing it without a price
@@ -750,7 +753,7 @@ impl Default for DipsConfig {
     fn default() -> Self {
         DipsConfig {
             host: "0.0.0.0".to_string(),
-            port: "7601".to_string(),
+            port: "7602".to_string(),
             supported_networks: HashSet::new(),
             min_grt_per_30_days: BTreeMap::new(),
             min_grt_per_billion_entities_per_30_days: GRT::ZERO,
@@ -1504,6 +1507,12 @@ mod tests {
             dips.min_grt_per_billion_entities_per_30_days,
             crate::GRT::from_grt("200"),
             "min_grt_per_billion_entities_per_30_days should be set in maximal config"
+        );
+        assert_eq!(
+            dips.port,
+            super::DipsConfig::default().port,
+            "the example config must document the default DIPs port: the payer dials the \
+             default, so an indexer copying a stale example silently receives no proposals"
         );
     }
 }
