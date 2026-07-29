@@ -10,45 +10,57 @@
 //! # Architecture
 //!
 //! ```text
-//! Payer (user) ──deposits──> PaymentsEscrow contract
-//!       │                           │
-//!       │ authorizes signer         │ escrow data indexed
-//!       ▼                           ▼
-//!    Dipper ───SignedRCA───> indexer-rs (this crate)
-//!       │                           │
-//!       │                           │ validates & stores
-//!       │                           ▼
-//!       │                    pending_rca_proposals table
-//!       │                           │
-//!       │                           │ agent queries & decides
-//!       │                           ▼
-//!       └──────────────────> on-chain acceptance
+//! AGREEMENT_MANAGER_ROLE (on-chain) ──indexed by──> indexing-payments subgraph
+//!           │                                              │
+//!           │ granted to Dipper's signing key              │ role holders read
+//!           ▼                                              ▼
+//!        Dipper ──────────SignedRCA───────────────> indexer-rs (this crate)
+//!                                                          │
+//!                                                          │ validates & stores
+//!                                                          ▼
+//!                                             pending_rca_proposals table
+//!                                                          │
+//!                                                          │ agent queries & decides
+//!                                                          ▼
+//!                                                 on-chain acceptance
 //! ```
 //!
 //! # Validation Flow
 //!
 //! When an RCA arrives, this crate validates:
-//! 1. **Service provider** - RCA is addressed to this indexer
-//! 2. **Timestamps** - Deadline and end time haven't passed
-//! 3. **Replay/idempotency** - Once the deterministic agreement id is derived,
+//! 1. **Signer** - The EIP-712 signature recovers to an address that holds the
+//!    agreement-manager role; this runs before anything in the agreement is
+//!    validated. The role set is read from the indexing-payments subgraph on an
+//!    interval and cached rather than read from chain per proposal, so subgraph
+//!    outages and lag change the answer (see [`trusted_signers`])
+//! 2. **Service provider** - RCA is addressed to this indexer
+//! 3. **Timestamps** - Deadline and end time haven't passed
+//! 4. **Replay/idempotency** - Once the deterministic agreement id is derived,
 //!    a re-sent proposal is resolved against the store before any IPFS fetch
-//! 4. **IPFS manifest** - Subgraph deployment exists and is parseable
-//! 5. **Network** - Subgraph's network is supported by this indexer
-//! 6. **Pricing** - Offered price meets indexer's minimum
+//! 5. **Capacity** - When a cap is configured, live agreements (pending or
+//!    accepted) from the last 24 hours must stay under it
+//! 6. **Terms version** - The agreement metadata declares V1 terms
+//! 7. **IPFS manifest** - Subgraph deployment exists and is parseable
+//! 8. **Network** - Subgraph's network is supported by this indexer
+//! 9. **Pricing** - Offered price meets indexer's minimum
 //!
-//! Signature and signer-authorization checks are NOT performed here. With the
-//! switch to offer-based authorization, the on-chain `acceptIndexingAgreement`
-//! call verifies the signer (via either an ECDSA signature or a pre-stored
-//! payer offer) when the indexer-agent submits the acceptance transaction.
+//! Authorization is decided on the recovered signer, not on the payer address
+//! carried in the proposal. On-chain offer existence is not checked here: the
+//! offer does not exist yet at proposal time, so the contract enforces it when
+//! the indexer-agent submits the `acceptIndexingAgreement` transaction.
 //!
 //! # Modules
 //!
 //! - [`server`] - gRPC server handling RCA proposals
 //! - [`store`] - Storage trait for RCA proposals
 //! - [`database`] - PostgreSQL implementation
-//! - [`signers`] - Signer authorization via escrow accounts
+//! - [`trusted_signers`] - Signer authorization against the on-chain role holders
+//! - [`eip5267`] - EIP-5267 discovery of the RCA signing domain from RecurringCollector
 //! - [`ipfs`] - IPFS client for subgraph manifests
 //! - [`price`] - Minimum price enforcement
+//! - [`inflight`] - Shared counter of in-flight proposal requests
+//! - [`metrics`] - Prometheus metrics for the proposal path
+//! - [`proto`] - Generated protobuf types for the gRPC service
 
 use std::sync::Arc;
 
@@ -245,7 +257,8 @@ impl RecurringCollectionAgreement {
 impl SignedRecurringCollectionAgreement {
     /// Recover the EIP-712 signer of the RCA over the RecurringCollector domain.
     /// An empty, malformed, or non-recovering signature is rejected as
-    /// InvalidSignature. The recovered address is what PR B gates on.
+    /// InvalidSignature. The recovered address is what the trusted-signer check
+    /// is applied to, in `validate_and_create_rca`.
     pub fn recover_signer(&self, domain: &Eip712Domain) -> Result<Address, DipsError> {
         if self.signature.is_empty() {
             return Err(DipsError::InvalidSignature("missing signature".to_string()));
@@ -260,7 +273,7 @@ impl SignedRecurringCollectionAgreement {
     /// Validate proposal-time fields.
     ///
     /// Checks that the service provider matches the expected indexer
-    /// address. On-chain offer existence is NOT checked here — the offer
+    /// address. On-chain offer existence is NOT checked here: the offer
     /// does not exist yet at proposal time. The contract enforces offer
     /// existence when the indexer-agent calls `acceptIndexingAgreement`.
     pub fn validate(&self, expected_service_provider: &Address) -> Result<(), DipsError> {
@@ -307,13 +320,16 @@ const CAPACITY_WINDOW: std::time::Duration = std::time::Duration::from_secs(24 *
 /// Validate and create a RecurringCollectionAgreement.
 ///
 /// Performs validation:
+/// - Signer recovery, then the agreement-manager role check on the recovered address
 /// - Service provider match
 /// - Deadline and expiry checks
 /// - Replay/idempotency check on the derived agreement id (before any IPFS fetch)
+/// - Capacity cap on live agreements from the last 24 hours, when one is configured
+/// - Agreement terms version (only V1 terms are supported)
 /// - IPFS manifest fetching and network validation
 /// - Price minimum enforcement
 ///
-/// On-chain offer existence is NOT checked here — the offer doesn't exist
+/// On-chain offer existence is NOT checked here: the offer doesn't exist
 /// yet at proposal time. The contract enforces it at `acceptIndexingAgreement`.
 ///
 /// Returns the agreement ID if successful, stores in database.
@@ -697,7 +713,7 @@ mod test {
     /// Shared test vector with dipper (dipper-rpc/src/indexer.rs).
     /// Both repos must produce the same bytes16 for this input.
     /// If this test fails, the derivation has drifted from the on-chain
-    /// contract and/or from dipper -- cancellations and agreement
+    /// contract and/or from dipper: cancellations and agreement
     /// matching will break silently.
     #[test]
     fn test_derive_agreement_id_shared_vector() {
