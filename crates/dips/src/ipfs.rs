@@ -34,10 +34,11 @@
 //!
 //! # Timeout, Retry, and Size Limits
 //!
-//! IPFS fetches have a 30-second timeout per attempt and retry up to 3 times
-//! with exponential backoff (5s, 10s, 20s delays), but the whole phase is
-//! bounded by `IPFS_PHASE_BUDGET`: 40 seconds for the manifest and its linked
-//! files together, so validation answers inside the 60-second gRPC stream
+//! IPFS fetches get 2 attempts of 15 seconds each with a 2-second pause
+//! between them; a fetch that succeeds at all almost always does so well
+//! inside 15 seconds. Both attempts and the pause fit inside
+//! `IPFS_PHASE_BUDGET`: 40 seconds for the manifest and its linked files
+//! together, so validation answers inside the 60-second gRPC stream
 //! timeout most reverse proxies default to. A proxy that kills the stream
 //! turns a rejection into a dead call the payer cannot interpret, which is
 //! worse than rejecting a slow-but-alive subgraph: rejections are not
@@ -89,8 +90,10 @@ use crate::{
     DipsError,
 };
 
-/// Timeout for a single IPFS fetch attempt.
-pub(crate) const IPFS_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+/// Timeout for a single IPFS fetch attempt. Fetches that succeed at all
+/// almost always do so well inside this; longer waits mostly cover content
+/// still propagating, which a later proposal resend handles better.
+pub(crate) const IPFS_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Ceiling on all IPFS work for one proposal, manifest and linked files together,
 /// sized so validation answers inside the 60-second gRPC stream timeout most
@@ -101,11 +104,12 @@ pub(crate) const IPFS_PHASE_BUDGET: Duration = Duration::from_secs(40);
 /// whole budget, so a slow manifest cannot starve it to zero.
 pub(crate) const IPFS_FILE_PHASE_FLOOR: Duration = Duration::from_secs(10);
 
-/// Maximum number of IPFS fetch attempts (1 initial + 3 retries).
-const IPFS_MAX_ATTEMPTS: u32 = 4;
+/// Maximum number of IPFS fetch attempts (1 initial + 1 retry), sized with
+/// `IPFS_FETCH_TIMEOUT` so every attempt completes inside `IPFS_PHASE_BUDGET`.
+const IPFS_MAX_ATTEMPTS: u32 = 2;
 
-/// Base delay for exponential backoff between retries (5s, 10s, 20s).
-const IPFS_RETRY_BASE_DELAY: Duration = Duration::from_secs(5);
+/// Delay before retrying a failed fetch attempt.
+const IPFS_RETRY_BASE_DELAY: Duration = Duration::from_secs(2);
 
 /// Upper bound on bytes read from a single manifest fetch. Real manifests are
 /// tens of KB; this 25 MiB cap (aligned with Graph Node's default) bounds the
@@ -174,7 +178,7 @@ impl IpfsFetcher for IpfsClient {
 
 impl IpfsClient {
     /// Run one IPFS operation under the shared retry policy: up to
-    /// `max_attempts()` tries with 10s/20s/40s backoff between them.
+    /// `max_attempts()` tries with `IPFS_RETRY_BASE_DELAY` between them.
     async fn with_retries<T, F, Fut>(&self, file: &str, op: F) -> Result<T, DipsError>
     where
         F: Fn() -> Fut,
@@ -185,7 +189,6 @@ impl IpfsClient {
 
         for attempt in 0..max_attempts {
             if attempt > 0 {
-                // Exponential backoff: 10s, 20s, 40s
                 let delay = IPFS_RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
                 tracing::debug!(
                     file = %file,
@@ -490,7 +493,8 @@ mod test {
 
     use crate::ipfs::{
         DataSource, FailingIpfsFetcher, GraphManifest, IpfsClient, IpfsFetcher, MockIpfsFetcher,
-        IPFS_DURESS_THRESHOLD, IPFS_FILE_PHASE_FLOOR, IPFS_MAX_ATTEMPTS, IPFS_PHASE_BUDGET,
+        IPFS_DURESS_THRESHOLD, IPFS_FETCH_TIMEOUT, IPFS_FILE_PHASE_FLOOR, IPFS_MAX_ATTEMPTS,
+        IPFS_PHASE_BUDGET, IPFS_RETRY_BASE_DELAY,
     };
 
     #[test]
@@ -499,6 +503,18 @@ mod test {
         // the gRPC stream timeout nginx and friends default to, and 50s leaves
         // margin for the non-IPFS validation steps around it.
         assert!(IPFS_PHASE_BUDGET + IPFS_FILE_PHASE_FLOOR <= std::time::Duration::from_secs(50));
+    }
+
+    #[test]
+    fn retry_schedule_fits_inside_phase_budget() {
+        // Every attempt must be able to run to its own timeout, backoff pauses
+        // included, before the phase budget cuts the whole fetch off; otherwise
+        // later attempts exist in the code but can never complete in practice.
+        let attempts = IPFS_FETCH_TIMEOUT * IPFS_MAX_ATTEMPTS;
+        let backoff: std::time::Duration = (1..IPFS_MAX_ATTEMPTS)
+            .map(|attempt| IPFS_RETRY_BASE_DELAY * 2u32.pow(attempt - 1))
+            .sum();
+        assert!(attempts + backoff <= IPFS_PHASE_BUDGET);
     }
 
     #[test]
