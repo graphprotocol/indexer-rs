@@ -1,7 +1,7 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-//! IPFS client for fetching subgraph manifests.
+//! IPFS client for fetching subgraph manifests and verifying the files they link.
 //!
 //! When validating an RCA, we need to verify that the referenced subgraph
 //! deployment actually exists and determine which network it indexes.
@@ -12,14 +12,25 @@
 //!
 //! Subgraph manifests are YAML files containing data source definitions.
 //! We extract the `network` field to validate that this indexer supports
-//! the chain the subgraph indexes:
+//! the chain the subgraph indexes, and every `file` link (the schema, each
+//! mapping's WASM, each ABI) so those can be verified retrievable too:
 //!
 //! ```yaml
+//! schema:
+//!   file:
+//!     /: /ipfs/Qm...      # <-- linked file, verified
 //! dataSources:
-//!   - network: mainnet    # <-- This is what we extract
-//!     kind: ethereum/contract
-//!     ...
+//!   - network: mainnet    # <-- validated against supported networks
+//!     mapping:
+//!       file:
+//!         /: /ipfs/Qm...  # <-- linked file, verified
 //! ```
+//!
+//! Linked files are verified because graph-node resolves all of them at
+//! deploy time, so a subgraph with any one missing can never be deployed,
+//! and accepting its agreement leaves the indexer holding a paid obligation
+//! it cannot serve. Only retrievability is checked: content is streamed,
+//! counted against the size cap, and discarded.
 //!
 //! # Timeout, Retry, and Size Limits
 //!
@@ -33,25 +44,32 @@
 //! slots faster, at the cost of rejecting proposals whose one attempt hits a
 //! transient error. Dipper can resend those.
 //!
-//! Worst case timing while retrying: 30s + 10s + 30s + 20s + 30s + 40s + 30s =
-//! 190 seconds. A busy indexer's single attempt is capped at 30 seconds.
+//! All IPFS work for one proposal shares `IPFS_PHASE_BUDGET`, sized to the
+//! manifest fetch's own worst case while retrying: 30s + 10s + 30s + 20s +
+//! 30s + 40s + 30s = 190 seconds. Linked files are verified in parallel
+//! inside whatever remains, floored at one attempt's 30 seconds so a slow
+//! manifest cannot starve them to zero: overall worst case 220 seconds.
 //!
-//! Dipper's gRPC timeout should be at least 220 seconds (190s + 30s buffer)
+//! Dipper's gRPC timeout should be at least 250 seconds (220s + 30s buffer)
 //! to avoid timing out while indexer-rs is still retrying IPFS.
 //!
-//! Each fetch is also capped at `IPFS_MAX_MANIFEST_BYTES`. Real manifests
-//! are tens of KB; the cap exists so a caller-supplied CID cannot force
-//! an unbounded download from attacker-controlled content.
+//! Every fetch, linked files included, is capped at `IPFS_MAX_MANIFEST_BYTES`
+//! so a caller-supplied CID cannot force an unbounded download from
+//! attacker-controlled content.
 //!
 //! # What This Proves
 //!
-//! Successfully fetching a manifest proves:
+//! Successfully fetching a manifest and verifying its linked files proves:
 //! - The deployment ID maps to real content on IPFS
 //! - The content is a valid, parseable subgraph manifest
+//! - Every file the manifest links resolved on IPFS just now, so graph-node
+//!   can be expected to deploy it
 //!
 //! What it does NOT prove:
 //! - The subgraph is published on The Graph Network (GNS)
 //! - The subgraph is not deprecated
+//! - A grafted subgraph's base deployment is also retrievable (graft bases
+//!   are not walked)
 //!
 //! Those checks are the indexer-agent's responsibility.
 
@@ -69,7 +87,12 @@ use crate::{
 };
 
 /// Timeout for a single IPFS fetch attempt.
-const IPFS_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const IPFS_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Ceiling on all IPFS work for one proposal, manifest and linked files together;
+/// equals the manifest fetch's own retrying worst case (30+10+30+20+30+40+30s),
+/// so adding linked-file verification did not grow the documented budget.
+pub(crate) const IPFS_PHASE_BUDGET: Duration = Duration::from_secs(190);
 
 /// Maximum number of IPFS fetch attempts (1 initial + 3 retries).
 const IPFS_MAX_ATTEMPTS: u32 = 4;
@@ -82,21 +105,27 @@ const IPFS_RETRY_BASE_DELAY: Duration = Duration::from_secs(10);
 /// per-request bandwidth cost of a caller-chosen CID resolving to hostile content.
 pub(crate) const IPFS_MAX_MANIFEST_BYTES: usize = 25 * 1024 * 1024;
 
-/// When the in-flight request count exceeds this threshold, IPFS fetches
-/// stop retrying: a single attempt only. The fewer-retries mode frees
-/// handler slots faster when the service is under load, at the cost of
-/// failing proposals whose first IPFS attempt has a transient error.
+/// When the in-flight request count exceeds this threshold, IPFS fetches get a
+/// single attempt and no retries, freeing handler slots faster under load at
+/// the cost of failing proposals whose one attempt hits a transient error.
 pub(crate) const IPFS_DURESS_THRESHOLD: usize = 200;
 
 #[async_trait]
 pub trait IpfsFetcher: Send + Sync + std::fmt::Debug {
     async fn fetch(&self, file: &str) -> Result<GraphManifest, DipsError>;
+
+    /// Prove a manifest-linked file is retrievable; the content is discarded.
+    async fn verify_file(&self, file: &str) -> Result<(), DipsError>;
 }
 
 #[async_trait]
 impl<T: IpfsFetcher> IpfsFetcher for Arc<T> {
     async fn fetch(&self, file: &str) -> Result<GraphManifest, DipsError> {
         self.as_ref().fetch(file).await
+    }
+
+    async fn verify_file(&self, file: &str) -> Result<(), DipsError> {
+        self.as_ref().verify_file(file).await
     }
 }
 
@@ -126,6 +155,24 @@ impl IpfsClient {
 #[async_trait]
 impl IpfsFetcher for IpfsClient {
     async fn fetch(&self, file: &str) -> Result<GraphManifest, DipsError> {
+        self.with_retries(file, || self.fetch_with_timeout(file))
+            .await
+    }
+
+    async fn verify_file(&self, file: &str) -> Result<(), DipsError> {
+        self.with_retries(file, || self.verify_with_timeout(file))
+            .await
+    }
+}
+
+impl IpfsClient {
+    /// Run one IPFS operation under the shared retry policy: up to
+    /// `max_attempts()` tries with 10s/20s/40s backoff between them.
+    async fn with_retries<T, F, Fut>(&self, file: &str, op: F) -> Result<T, DipsError>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<T, DipsError>>,
+    {
         let mut last_error = None;
         let max_attempts = self.max_attempts();
 
@@ -142,8 +189,8 @@ impl IpfsFetcher for IpfsClient {
                 tokio::time::sleep(delay).await;
             }
 
-            match self.fetch_with_timeout(file).await {
-                Ok(manifest) => return Ok(manifest),
+            match op().await {
+                Ok(value) => return Ok(value),
                 Err(e) => {
                     tracing::warn!(
                         file = %file,
@@ -199,30 +246,137 @@ impl IpfsClient {
                 ))
             })?
     }
+
+    /// Stream a linked file to prove it is retrievable, counting bytes against
+    /// the cap and discarding them so peak memory is one chunk, not the file.
+    async fn verify_with_timeout(&self, file: &str) -> Result<(), DipsError> {
+        let verify_future = async {
+            let mut stream = self.client.cat(file.as_ref());
+            let mut total: usize = 0;
+            while let Some(chunk) = stream
+                .try_next()
+                .await
+                .map_err(|e| DipsError::SubgraphManifestUnavailable(format!("{file}: {e}")))?
+            {
+                total += chunk.len();
+                if total > IPFS_MAX_MANIFEST_BYTES {
+                    return Err(DipsError::ManifestTooLarge {
+                        file: file.to_string(),
+                        limit_bytes: IPFS_MAX_MANIFEST_BYTES,
+                    });
+                }
+            }
+            Ok(())
+        };
+
+        tokio::time::timeout(IPFS_FETCH_TIMEOUT, verify_future)
+            .await
+            .map_err(|_| {
+                DipsError::SubgraphManifestUnavailable(format!(
+                    "{file}: timeout after {}s",
+                    IPFS_FETCH_TIMEOUT.as_secs()
+                ))
+            })?
+    }
+}
+
+/// An IPFS link in a manifest: `file: { "/": "/ipfs/Qm..." }`.
+#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
+pub struct FileLink {
+    #[serde(rename = "/", default)]
+    path: String,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AbiRef {
+    #[serde(default)]
+    file: Option<FileLink>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mapping {
+    #[serde(default)]
+    file: Option<FileLink>,
+    #[serde(default)]
+    abis: Vec<AbiRef>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaRef {
+    #[serde(default)]
+    file: Option<FileLink>,
+}
+
+/// A template data source; unlike `DataSource` its network may be absent.
+#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Template {
+    #[serde(default)]
+    mapping: Option<Mapping>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DataSource {
     network: String,
+    #[serde(default)]
+    mapping: Option<Mapping>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphManifest {
+    #[serde(default)]
+    schema: Option<SchemaRef>,
     data_sources: Vec<DataSource>,
+    #[serde(default)]
+    templates: Vec<Template>,
 }
 
 impl GraphManifest {
     pub fn network(&self) -> Option<&str> {
         self.data_sources.first().map(|ds| ds.network.as_str())
     }
+
+    /// Every file the manifest links (schema, mapping WASM, ABIs) as bare CIDs,
+    /// deduplicated. graph-node resolves all of these at deploy time, so each
+    /// must be retrievable for the subgraph to be deployable at all.
+    pub fn linked_files(&self) -> Vec<&str> {
+        let mappings = self
+            .data_sources
+            .iter()
+            .filter_map(|ds| ds.mapping.as_ref())
+            .chain(self.templates.iter().filter_map(|t| t.mapping.as_ref()));
+
+        let schema_link = self.schema.iter().filter_map(|s| s.file.as_ref());
+        let mapping_links = mappings.clone().filter_map(|m| m.file.as_ref());
+        let abi_links = mappings
+            .flat_map(|m| m.abis.iter())
+            .filter_map(|a| a.file.as_ref());
+
+        let mut seen: Vec<&str> = Vec::new();
+        for link in schema_link.chain(mapping_links).chain(abi_links) {
+            let cid = link.path.strip_prefix("/ipfs/").unwrap_or(&link.path);
+            if !cid.is_empty() && !seen.contains(&cid) {
+                seen.push(cid);
+            }
+        }
+        seen
+    }
 }
 
-/// Mock IPFS fetcher for testing with configurable network.
+/// Mock IPFS fetcher for testing with configurable network, manifest links,
+/// and files whose verification should fail as if gone from IPFS.
 #[derive(Debug, Clone)]
 pub struct MockIpfsFetcher {
     pub network: String,
+    /// CIDs embedded in the returned manifest as ABI links.
+    pub linked_files: Vec<String>,
+    /// CIDs whose `verify_file` fails, as content gone from IPFS would.
+    pub missing_files: Vec<String>,
 }
 
 impl MockIpfsFetcher {
@@ -230,6 +384,7 @@ impl MockIpfsFetcher {
     pub fn no_network() -> Self {
         Self {
             network: String::new(),
+            ..Default::default()
         }
     }
 }
@@ -241,6 +396,12 @@ pub struct FailingIpfsFetcher;
 #[async_trait]
 impl IpfsFetcher for FailingIpfsFetcher {
     async fn fetch(&self, file: &str) -> Result<GraphManifest, DipsError> {
+        Err(DipsError::SubgraphManifestUnavailable(format!(
+            "{file}: connection refused (test fetcher)"
+        )))
+    }
+
+    async fn verify_file(&self, file: &str) -> Result<(), DipsError> {
         Err(DipsError::SubgraphManifestUnavailable(format!(
             "{file}: connection refused (test fetcher)"
         )))
@@ -258,8 +419,14 @@ impl IpfsFetcher for EmptyNetworkIpfsFetcher {
         Ok(GraphManifest {
             data_sources: vec![DataSource {
                 network: String::new(),
+                ..Default::default()
             }],
+            ..Default::default()
         })
+    }
+
+    async fn verify_file(&self, _file: &str) -> Result<(), DipsError> {
+        Ok(())
     }
 }
 
@@ -267,6 +434,8 @@ impl Default for MockIpfsFetcher {
     fn default() -> Self {
         Self {
             network: "mainnet".to_string(),
+            linked_files: vec![],
+            missing_files: vec![],
         }
     }
 }
@@ -275,16 +444,33 @@ impl Default for MockIpfsFetcher {
 impl IpfsFetcher for MockIpfsFetcher {
     async fn fetch(&self, _file: &str) -> Result<GraphManifest, DipsError> {
         if self.network.is_empty() {
-            Ok(GraphManifest {
-                data_sources: vec![],
-            })
-        } else {
-            Ok(GraphManifest {
-                data_sources: vec![DataSource {
-                    network: self.network.clone(),
-                }],
-            })
+            return Ok(GraphManifest::default());
         }
+        Ok(GraphManifest {
+            data_sources: vec![DataSource {
+                network: self.network.clone(),
+                mapping: Some(Mapping {
+                    file: None,
+                    abis: self
+                        .linked_files
+                        .iter()
+                        .map(|f| AbiRef {
+                            file: Some(FileLink { path: f.clone() }),
+                        })
+                        .collect(),
+                }),
+            }],
+            ..Default::default()
+        })
+    }
+
+    async fn verify_file(&self, file: &str) -> Result<(), DipsError> {
+        if self.missing_files.iter().any(|f| f == file) {
+            return Err(DipsError::SubgraphManifestUnavailable(format!(
+                "{file}: not found (mock)"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -309,19 +495,65 @@ mod test {
         let manifest: GraphManifest = serde_yaml::from_str(yaml).unwrap();
 
         // Assert
+        assert_eq!(manifest.network(), Some("scroll"));
+        assert_eq!(manifest.data_sources.len(), 2);
+        assert_eq!(manifest.templates.len(), 1);
+    }
+
+    #[test]
+    fn test_linked_files_extraction() {
+        // Arrange
+        let manifest: GraphManifest = serde_yaml::from_str(MANIFEST).unwrap();
+
+        // Act
+        let files = manifest.linked_files();
+
+        // Assert: schema first, then mapping files (data sources, then
+        // templates), then ABI files in the same order; the Factory ABI
+        // appears twice in the manifest and must be deduplicated.
         assert_eq!(
-            manifest,
-            GraphManifest {
-                data_sources: vec![
-                    DataSource {
-                        network: "scroll".to_string()
-                    },
-                    DataSource {
-                        network: "scroll".to_string()
-                    }
-                ],
-            }
-        )
+            files,
+            vec![
+                "QmSCM39NPLAjNQXsnkqq6H8z8KBi5YkfYyApPYLQbbC2kb",
+                "Qmbj3ituUaFRnTuahJ8yCG9GPiPqsRYq2T7umucZzPpLFn",
+                "QmcWrYawVufpST4u2Ed8Jz6jxFFaYXxERGwqstrpniY8C5",
+                "QmPtcuzBcWWBGXFKGdfUgqZLJov4c4Crt85ANbER2eHdCb",
+                "QmTU8eKx6pCgtff6Uvc7srAwR8BPiM3jTMBw9ahrXBjRzY",
+                "QmaxxqQ7xzbGDPWu184uoq2g5sofazB9B9tEDrpPjmRZ8q",
+                "QmULRc8Ac1J6YFy11z7JRpyThb6f7nmL5mMTQvN7LKj2Vy",
+                "QmXuTbDkNrN27VydxbS2huvKRk62PMgUTdPDWkxcr2w7j2",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_linked_files_empty_manifest() {
+        // Arrange: no schema, no mappings, nothing linked.
+        let manifest = GraphManifest::default();
+
+        // Act + Assert
+        assert!(manifest.linked_files().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_mock_fetcher_embeds_links_and_fails_missing_files() {
+        // Arrange
+        let fetcher = MockIpfsFetcher {
+            linked_files: vec!["QmPresent".to_string(), "QmGone".to_string()],
+            missing_files: vec!["QmGone".to_string()],
+            ..Default::default()
+        };
+
+        // Act
+        let manifest = fetcher.fetch("QmSomeHash").await.unwrap();
+
+        // Assert
+        assert_eq!(manifest.linked_files(), vec!["QmPresent", "QmGone"]);
+        assert!(fetcher.verify_file("QmPresent").await.is_ok());
+        assert!(matches!(
+            fetcher.verify_file("QmGone").await,
+            Err(crate::DipsError::SubgraphManifestUnavailable(_))
+        ));
     }
 
     #[test]
@@ -330,7 +562,9 @@ mod test {
         let manifest = GraphManifest {
             data_sources: vec![DataSource {
                 network: "mainnet".to_string(),
+                ..Default::default()
             }],
+            ..Default::default()
         };
 
         // Act
@@ -343,9 +577,7 @@ mod test {
     #[test]
     fn test_manifest_network_empty_sources() {
         // Arrange
-        let manifest = GraphManifest {
-            data_sources: vec![],
-        };
+        let manifest = GraphManifest::default();
 
         // Act
         let network = manifest.network();
@@ -371,6 +603,7 @@ mod test {
         // Arrange
         let fetcher = MockIpfsFetcher {
             network: "arbitrum-one".to_string(),
+            ..Default::default()
         };
 
         // Act
