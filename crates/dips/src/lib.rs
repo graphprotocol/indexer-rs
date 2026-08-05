@@ -43,6 +43,8 @@
 //! 7. **IPFS manifest** - Subgraph deployment exists and is parseable
 //! 8. **Network** - Subgraph's network is supported by this indexer
 //! 9. **Pricing** - Offered price meets indexer's minimum
+//! 10. **Linked files** - Every file the manifest links (schema, mappings,
+//!     ABIs) is retrievable on IPFS, so graph-node can actually deploy it
 //!
 //! Authorization is decided on the recovered signer, not on the payer address
 //! carried in the proposal. On-chain offer existence is not checked here: the
@@ -319,8 +321,8 @@ const CAPACITY_WINDOW: std::time::Duration = std::time::Duration::from_secs(24 *
 
 /// Validate and create a RecurringCollectionAgreement.
 ///
-/// Runs the 9 validation steps in the order the crate-level docs list them, from
-/// the signer check through to the price minimum.
+/// Runs the 10 validation steps in the order the crate-level docs list them, from
+/// the signer check through to the linked-file verification.
 ///
 /// On-chain offer existence is NOT checked here: the offer doesn't exist
 /// yet at proposal time. The contract enforces it at `acceptIndexingAgreement`.
@@ -439,7 +441,9 @@ pub async fn validate_and_create_rca(
     // Convert bytes32 deployment ID to IPFS hash
     let deployment_id = bytes32_to_ipfs_hash(&metadata.subgraphDeploymentId.0);
 
-    // Fetch IPFS manifest
+    // Fetch IPFS manifest. The clock starts here because the manifest fetch and
+    // the linked-file verification further down share one IPFS time budget.
+    let ipfs_phase_start = std::time::Instant::now();
     let manifest = ipfs_fetcher.fetch(&deployment_id).await?;
 
     // Get network from manifest; an empty network field is a malformed manifest.
@@ -515,6 +519,31 @@ pub async fn validate_and_create_rca(
             minimum: price_calculator.entity_price(),
             offered: offered_entity_price,
         });
+    }
+
+    // Files graph-node resolves at deploy time must be retrievable now, or accepting
+    // creates an agreement the indexer can never serve. Checked last so cheaper
+    // rejections come first; in parallel, within what remains of the IPFS budget.
+    let linked_files = manifest.linked_files();
+    if !linked_files.is_empty() {
+        let remaining = ipfs::IPFS_PHASE_BUDGET
+            .saturating_sub(ipfs_phase_start.elapsed())
+            .max(ipfs::IPFS_FETCH_TIMEOUT);
+        tokio::time::timeout(
+            remaining,
+            futures::future::try_join_all(
+                linked_files
+                    .iter()
+                    .map(|file| ipfs_fetcher.verify_file(file)),
+            ),
+        )
+        .await
+        .map_err(|_| {
+            DipsError::SubgraphManifestUnavailable(format!(
+                "{deployment_id}: linked files not verified within the {}s IPFS budget",
+                ipfs::IPFS_PHASE_BUDGET.as_secs()
+            ))
+        })??;
     }
 
     tracing::debug!(
@@ -960,6 +989,7 @@ mod test {
             rca_store: Arc::new(InMemoryRcaStore::default()),
             ipfs_fetcher: Arc::new(MockIpfsFetcher {
                 network: "unsupported-network".to_string(),
+                ..Default::default()
             }),
             price_calculator: Arc::new(PriceCalculator::new(
                 HashSet::from(["mainnet".to_string()]),
@@ -1163,6 +1193,81 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_validate_and_create_rca_missing_linked_file() {
+        // Arrange: manifest resolves, but one file it links is gone from IPFS.
+        let payer = Address::repeat_byte(0x42);
+        let service_provider = Address::repeat_byte(0x11);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher {
+                linked_files: vec!["QmSchema".to_string(), "QmMapping".to_string()],
+                missing_files: vec!["QmMapping".to_string()],
+                ..Default::default()
+            }),
+            price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
+            trusted_signers: trusted_signers_for_test(),
+            max_new_agreements_per_24h: None,
+        });
+
+        let rca_bytes = rca_to_wire_bytes(rca);
+
+        // Act
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(
+            matches!(result, Err(DipsError::SubgraphManifestUnavailable(_))),
+            "Expected SubgraphManifestUnavailable error, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_create_rca_all_linked_files_resolve() {
+        // Arrange: manifest links files and every one is retrievable.
+        let payer = Address::repeat_byte(0x42);
+        let service_provider = Address::repeat_byte(0x11);
+
+        let rca = create_test_rca(payer, service_provider, U256::from(200), U256::from(100));
+
+        let ctx = Arc::new(DipsServerContext {
+            rca_store: Arc::new(InMemoryRcaStore::default()),
+            ipfs_fetcher: Arc::new(MockIpfsFetcher {
+                linked_files: vec!["QmSchema".to_string(), "QmMapping".to_string()],
+                ..Default::default()
+            }),
+            price_calculator: Arc::new(PriceCalculator::new(
+                HashSet::from(["mainnet".to_string()]),
+                BTreeMap::from([("mainnet".to_string(), U256::from(100))]),
+                U256::from(50),
+            )),
+            registry: Arc::new(crate::registry::test_registry()),
+            additional_networks: Arc::new(BTreeMap::new()),
+            rca_domain: test_rca_domain(),
+            trusted_signers: trusted_signers_for_test(),
+            max_new_agreements_per_24h: None,
+        });
+
+        let rca_bytes = rca_to_wire_bytes(rca);
+
+        // Act
+        let result = super::validate_and_create_rca(ctx, &service_provider, rca_bytes).await;
+
+        // Assert
+        assert!(result.is_ok(), "Expected acceptance, got: {:?}", result);
+    }
+
+    #[tokio::test]
     async fn test_validate_and_create_rca_manifest_no_network() {
         // Arrange
         let payer = Address::repeat_byte(0x42);
@@ -1362,6 +1467,10 @@ mod test {
     impl IpfsFetcher for PanicIpfsFetcher {
         async fn fetch(&self, _file: &str) -> Result<GraphManifest, DipsError> {
             panic!("IPFS fetch must not run on the replay short-circuit path");
+        }
+
+        async fn verify_file(&self, _file: &str) -> Result<(), DipsError> {
+            panic!("IPFS verification must not run on the replay short-circuit path");
         }
     }
 

@@ -71,7 +71,7 @@ pub enum RejectReason {
     DeadlineExpired = 2,
     /// / The subgraph's network is not supported by this indexer.
     UnsupportedNetwork = 3,
-    /// / The subgraph manifest could not be fetched from IPFS.
+    /// / The subgraph manifest, or a file it links (schema, mapping, ABI), could not be fetched from IPFS.
     SubgraphManifestUnavailable = 4,
     /// / The RCA names a different indexer as service provider.
     UnexpectedServiceProvider = 5,
