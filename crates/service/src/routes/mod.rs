@@ -7,15 +7,9 @@
 //!
 //! ## Route Overview
 //!
-//! | Route | Handler | Description |
-//! |-------|---------|-------------|
-//! | `POST /subgraphs/id/:id` | [`request_handler`] | Main query endpoint for paid queries |
-//! | `GET /health/:deployment` | [`health`] | Deployment health status from graph-node |
-//! | `GET /healthz` | [`healthz`] | Service dependency health check |
-//! | `POST /status` | [`status`] | Indexing status queries (allowlisted fields) |
-//! | `GET /cost` | [`cost::cost_handler`] | Cost model information |
-//! | `POST /network` | [`static_subgraph_request_handler`] | Network subgraph proxy |
-//! | `POST /escrow` | [`static_subgraph_request_handler`] | Escrow subgraph proxy |
+//! The route list lives in `docs/Routes.md`, and the registrations themselves in
+//! `crate::service::router`. Keeping it in one place stops this list drifting from
+//! what the service actually serves.
 //!
 //! ## Query Flow
 //!
@@ -30,14 +24,14 @@
 //! - [`healthz`]: Checks connectivity to database and graph-node dependencies
 
 pub mod cost;
-mod dips_info;
+pub mod dips_info;
 mod health;
 mod healthz;
 mod request_handler;
 mod static_subgraph;
 mod status;
 
-pub use dips_info::{dips_info, DipsInfo};
+pub use dips_info::{dips_info, DipsInfoState};
 pub use health::health;
 pub use healthz::{healthz, HealthzState};
 pub use request_handler::request_handler;

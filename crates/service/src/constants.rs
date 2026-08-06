@@ -39,17 +39,6 @@ use std::time::Duration;
 /// - Graph-node processing time
 pub const HTTP_CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Timeout for DIPs HTTP client requests.
-///
-/// DIPs (Direct Indexing Payments) operations involve:
-/// - IPFS content fetching
-/// - Agreement validation and storage
-/// - Network registry lookups
-///
-/// 60 seconds provides additional headroom for these heavier operations
-/// compared to standard graph-node queries.
-pub const DIPS_HTTP_CLIENT_TIMEOUT: Duration = Duration::from_secs(60);
-
 // =============================================================================
 // DATABASE CONFIGURATION
 // =============================================================================

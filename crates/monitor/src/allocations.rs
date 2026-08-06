@@ -39,7 +39,7 @@ pub struct AllocationQueryResponse {
 /// * `indexer_address` - The indexer's address
 /// * `interval` - How often to poll for updates
 /// * `recently_closed_allocation_buffer` - How long to keep closed allocations
-/// * `max_data_staleness_mins` - Maximum allowed age of data in minutes. Set to 0 to disable.
+/// * `max_data_staleness_mins` - Maximum allowed age of data in minutes (must be positive).
 ///   When data is older than this threshold, the update is rejected unless it's fresher than
 ///   the current best data. This protects against Gateway routing to stale indexers.
 ///

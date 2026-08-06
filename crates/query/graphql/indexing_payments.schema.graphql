@@ -1,0 +1,64 @@
+# Subset of the indexing-payments subgraph's graph-node API schema, holding only
+# the RoleAssignment and _meta fields the agreement-manager-role query reads.
+# graphql_client uses it for compile-time type generation; grow it with the query.
+
+scalar Bytes
+
+type _Block_ {
+  hash: Bytes
+  number: Int!
+  timestamp: Int
+}
+
+type _Meta_ {
+  block: _Block_!
+  deployment: String!
+  hasIndexingErrors: Boolean!
+}
+
+input Block_height {
+  hash: Bytes
+  number: Int
+  number_gte: Int
+}
+
+enum OrderDirection {
+  asc
+  desc
+}
+
+type RoleAssignment {
+  id: ID!
+  role: Bytes!
+  account: Bytes!
+  active: Boolean!
+}
+
+enum RoleAssignment_orderBy {
+  id
+  role
+  account
+  active
+}
+
+input RoleAssignment_filter {
+  id_gt: ID
+  role: Bytes
+  active: Boolean
+}
+
+type Query {
+  _meta(block: Block_height): _Meta_
+  roleAssignments(
+    skip: Int
+    first: Int
+    orderBy: RoleAssignment_orderBy
+    orderDirection: OrderDirection
+    where: RoleAssignment_filter
+    block: Block_height
+  ): [RoleAssignment!]!
+}
+
+schema {
+  query: Query
+}

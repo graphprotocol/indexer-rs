@@ -1,8 +1,16 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Test helpers for the network registry. RCA validation never uses the registry to decide
+//! whether a network is allowed (that comes from the indexer's `supported_networks` plus a
+//! configured price); it reads the registry afterwards to resolve a chain ID for logging.
+//!
+//! That describes how the registry is read per proposal, not how load-bearing it is at boot:
+//! the service downloads it when DIPs starts and a failed download aborts DIPs initialisation.
+
 use graph_networks_registry::NetworksRegistry;
 
+/// Minimal registry containing "mainnet" and "hardhat" for use in unit tests.
 pub fn test_registry() -> NetworksRegistry {
     use graph_networks_registry::{Network, NetworkType, Services};
 
