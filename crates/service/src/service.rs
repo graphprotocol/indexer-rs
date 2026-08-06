@@ -11,7 +11,7 @@ use anyhow::{anyhow, Context};
 use axum::{extract::Request, serve, ServiceExt};
 use clap::Parser;
 use graph_networks_registry::NetworksRegistry;
-use indexer_config::{Config, DipsConfig, GraphNodeConfig, SubgraphConfig};
+use indexer_config::{Config, DipsConfig, GraphNodeConfig, SubgraphConfig, DIPS_GRPC_PORT};
 use indexer_dips::{
     database::PsqlRcaStore,
     ipfs::IpfsClient,
@@ -276,7 +276,7 @@ async fn start_dips(
 ) -> anyhow::Result<()> {
     let DipsConfig {
         host,
-        port,
+        port: _,
         supported_networks,
         min_grt_per_30_days,
         min_grt_per_billion_entities_per_30_days,
@@ -337,9 +337,9 @@ async fn start_dips(
         "DIPs entity pricing"
     );
 
-    let addr: SocketAddr = format!("{host}:{port}")
+    let addr: SocketAddr = format!("{host}:{DIPS_GRPC_PORT}")
         .parse()
-        .with_context(|| format!("Invalid DIPS host:port '{host}:{port}'"))?;
+        .with_context(|| format!("Invalid DIPS host '{host}'"))?;
 
     // Warn rather than fail: a loopback bind is a legitimate choice when a reverse proxy
     // forwards the port to it, and the service cannot tell whether one is in front of it.
