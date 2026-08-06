@@ -444,7 +444,15 @@ pub async fn validate_and_create_rca(
     // Fetch IPFS manifest. The clock starts here because the manifest fetch and
     // the linked-file verification further down share one IPFS time budget.
     let ipfs_phase_start = std::time::Instant::now();
-    let manifest = ipfs_fetcher.fetch(&deployment_id).await?;
+    let manifest =
+        tokio::time::timeout(ipfs::IPFS_PHASE_BUDGET, ipfs_fetcher.fetch(&deployment_id))
+            .await
+            .map_err(|_| {
+                DipsError::SubgraphManifestUnavailable(format!(
+                    "{deployment_id}: manifest not fetched within the {}s IPFS budget",
+                    ipfs::IPFS_PHASE_BUDGET.as_secs()
+                ))
+            })??;
 
     // Get network from manifest; an empty network field is a malformed manifest.
     let network_name = manifest
@@ -528,7 +536,7 @@ pub async fn validate_and_create_rca(
     if !linked_files.is_empty() {
         let remaining = ipfs::IPFS_PHASE_BUDGET
             .saturating_sub(ipfs_phase_start.elapsed())
-            .max(ipfs::IPFS_FETCH_TIMEOUT);
+            .max(ipfs::IPFS_FILE_PHASE_FLOOR);
         tokio::time::timeout(
             remaining,
             futures::future::try_join_all(
