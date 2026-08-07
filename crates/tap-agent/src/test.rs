@@ -13,7 +13,10 @@ use actors::TestableActor;
 use bigdecimal::num_bigint::BigInt;
 use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
-use rand::{distr::Alphanumeric, rng, Rng};
+use rand::{
+    distr::{Alphanumeric, Distribution},
+    rng,
+};
 use reqwest::Url;
 use sqlx::{types::BigDecimal, PgPool, Row};
 use tap_aggregator::server::run_server;
@@ -72,8 +75,8 @@ const ESCROW_POLLING_INTERVAL: Duration = Duration::from_secs(30);
 /// Generates a random prefix to be used for actor registry
 pub fn generate_random_prefix() -> String {
     const SIZE: usize = 16;
-    rng()
-        .sample_iter(&Alphanumeric)
+    Alphanumeric
+        .sample_iter(rng())
         .take(SIZE)
         .map(char::from)
         .collect()

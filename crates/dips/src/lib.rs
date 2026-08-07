@@ -464,7 +464,7 @@ mod test {
     };
 
     use indexer_monitor::EscrowAccounts;
-    use rand::{distr::Alphanumeric, Rng};
+    use rand::distr::{Alphanumeric, Distribution};
     use thegraph_core::alloy::{
         primitives::{Address, ChainId, FixedBytes, U256},
         signers::local::PrivateKeySigner,
@@ -695,8 +695,8 @@ mod test {
             Self {
                 payee: PrivateKeySigner::random(),
                 payer: PrivateKeySigner::random(),
-                deployment_id: rand::rng()
-                    .sample_iter(&Alphanumeric)
+                deployment_id: Alphanumeric
+                    .sample_iter(rand::rng())
                     .take(32)
                     .map(char::from)
                     .collect(),
