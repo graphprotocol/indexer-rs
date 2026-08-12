@@ -540,8 +540,8 @@ where
                 self.latest_rav = Some(rav);
                 RAVS_CREATED_BY_VERSION
                     .with_label_values(&[
-                        &self.sender.to_string(),
-                        &self.allocation_id.to_string(),
+                        self.sender.to_string().as_str(),
+                        self.allocation_id.to_string().as_str(),
                         TAP_VERSION,
                     ])
                     .inc();
@@ -553,8 +553,8 @@ where
                 }
                 RAVS_FAILED_BY_VERSION
                     .with_label_values(&[
-                        &self.sender.to_string(),
-                        &self.allocation_id.to_string(),
+                        self.sender.to_string().as_str(),
+                        self.allocation_id.to_string().as_str(),
                         TAP_VERSION,
                     ])
                     .inc();
@@ -652,7 +652,7 @@ where
 
                 let rav_response_time = rav_response_time_start.elapsed();
                 RAV_RESPONSE_TIME_BY_VERSION
-                    .with_label_values(&[&self.sender.to_string(), TAP_VERSION])
+                    .with_label_values(&[self.sender.to_string().as_str(), TAP_VERSION])
                     .observe(rav_response_time.as_secs_f64());
                 // we only save invalid receipts when we are about to store our rav
                 //
@@ -684,8 +684,8 @@ where
                             );
                             INVALID_RECEIPTS_STORE_FAILED_BY_VERSION
                                 .with_label_values(&[
-                                    &self.sender.to_string(),
-                                    &self.allocation_id.to_string(),
+                                    self.sender.to_string().as_str(),
+                                    self.allocation_id.to_string().as_str(),
                                     TAP_VERSION,
                                 ])
                                 .inc();
