@@ -1,52 +1,29 @@
 // Copyright 2023-, Edge & Node, GraphOps, and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
-
 use anyhow::anyhow;
-use indexer_monitor::SubgraphClient;
-use indexer_query::payments_escrow_transactions_redeem;
-use indexer_watcher::new_watcher;
 use tap_core::receipt::checks::{Check, CheckError, CheckResult};
-use thegraph_core::{
-    alloy::{hex::ToHexExt, primitives::Address},
-    CollectionId,
-};
-use tokio::sync::watch::Receiver;
+use thegraph_core::{alloy::primitives::Address, CollectionId};
 
 use crate::tap::{CheckingReceipt, TapReceipt};
 
 /// AllocationId check
 ///
-/// Verifies if the allocation is already redeemed.
+/// Verifies that a receipt is addressed to the allocation this actor serves.
+///
+/// Replay protection is deliberately not done here. `tap_core` only collects receipts newer than
+/// the last RAV, the sender's aggregator refuses to sign a RAV containing a receipt at or below
+/// the previous RAV's timestamp, and `GraphTallyCollector` pays out only the delta over what it
+/// has already collected for the collection.
 pub struct AllocationId {
-    tap_allocation_redeemed: Receiver<bool>,
     allocation_id: Address,
     collection_id: CollectionId,
 }
 
 impl AllocationId {
     /// Creates a new allocation id check
-    pub async fn new(
-        indexer_address: Address,
-        escrow_polling_interval: Duration,
-        sender_id: Address,
-        allocation_id: Address,
-        collection_id: CollectionId,
-        network_subgraph: &'static SubgraphClient,
-    ) -> Self {
-        let tap_allocation_redeemed = tap_allocation_redeemed_watcher(
-            collection_id,
-            sender_id,
-            indexer_address,
-            network_subgraph,
-            escrow_polling_interval,
-        )
-        .await
-        .expect("Failed to initialize tap_allocation_redeemed_watcher");
-
+    pub fn new(allocation_id: Address, collection_id: CollectionId) -> Self {
         Self {
-            tap_allocation_redeemed,
             allocation_id,
             collection_id,
         }
@@ -79,189 +56,62 @@ impl Check<TapReceipt> for AllocationId {
             return Err(CheckError::Failed(anyhow!("Receipt allocation_id different from expected: allocation_id: {:?}, expected_allocation_id: {}", allocation_id, self.allocation_id)));
         };
 
-        // Check that the allocation ID is not redeemed yet for this consumer
-        match *self.tap_allocation_redeemed.borrow() {
-            false => Ok(()),
-            true => Err(CheckError::Failed(anyhow!(
-                "Allocation {:?} already redeemed",
-                self.collection_id.encode_hex()
-            ))),
-        }
+        Ok(())
     }
-}
-
-async fn tap_allocation_redeemed_watcher(
-    collection_id: CollectionId,
-    sender_address: Address,
-    indexer_address: Address,
-    network_subgraph: &'static SubgraphClient,
-    escrow_polling_interval: Duration,
-) -> anyhow::Result<Receiver<bool>> {
-    new_watcher(escrow_polling_interval, move || async move {
-        query_network_redeem_transactions(
-            collection_id,
-            sender_address,
-            indexer_address,
-            network_subgraph,
-        )
-        .await
-    })
-    .await
-}
-
-async fn query_network_redeem_transactions(
-    collection_id: CollectionId,
-    sender_address: Address,
-    indexer_address: Address,
-    network_subgraph: &'static SubgraphClient,
-) -> anyhow::Result<bool> {
-    // Horizon network subgraph stores allocationId as the 20-byte address derived
-    // from the 32-byte collection_id (rightmost 20 bytes).
-    let allocation_ids = vec![collection_id.as_address().encode_hex()];
-    let data = network_subgraph
-        .query::<payments_escrow_transactions_redeem::PaymentsEscrowTransactionsRedeemQuery, _>(
-            payments_escrow_transactions_redeem::Variables {
-                payer: sender_address.encode_hex(),
-                receiver: indexer_address.encode_hex(),
-                allocation_ids: Some(allocation_ids),
-            },
-        )
-        .await?;
-
-    Ok(!data.payments_escrow_transactions.is_empty())
 }
 
 #[cfg(test)]
 mod tests {
-    use indexer_monitor::{DeploymentDetails, SubgraphClient};
-    use serde_json::json;
-    use thegraph_core::{alloy::hex::ToHexExt, CollectionId};
-    use wiremock::{matchers::body_string_contains, Mock, MockServer, ResponseTemplate};
+    use tap_core::receipt::{checks::Check, Context};
+    use test_assets::{ALLOCATION_ID_0, ALLOCATION_ID_1, COLLECTION_ID_0, TAP_SIGNER as SIGNER};
+    use thegraph_core::CollectionId;
+
+    use crate::test::create_received_receipt_v2;
 
     #[tokio::test]
-    async fn test_network_redeem_transactions_true_when_present() {
-        let mock_server: MockServer = MockServer::start().await;
-        let sender_address = "0x21fed3c4340f67dbf2b78c670ebd1940668ca03e";
-        let indexer_address = "0x54d7db28ce0d0e2e87764cd09298f9e4e913e567";
-        let collection_id = CollectionId::from(
-            sender_address
-                .parse::<thegraph_core::alloy::primitives::Address>()
-                .unwrap(),
+    async fn test_receipt_for_this_allocation_is_accepted() {
+        let check = super::AllocationId::new(ALLOCATION_ID_0, COLLECTION_ID_0);
+        let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 1, 1);
+
+        let result = check.check(&Context::new(), &receipt).await;
+
+        assert!(
+            result.is_ok(),
+            "expected a receipt for this allocation to be accepted, got {result:?}"
         );
-
-        mock_server
-            .register(
-                Mock::given(body_string_contains("paymentsEscrowTransactions"))
-                    .and(body_string_contains(collection_id.as_address().encode_hex()))
-                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                        "data": {
-                            "paymentsEscrowTransactions": [
-                                { "id": "0x01", "allocationId": collection_id.as_address().encode_hex(), "timestamp": "1" }
-                            ]
-                        }
-                    }))),
-            )
-            .await;
-
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
-            )
-            .await,
-        ));
-
-        let result = super::query_network_redeem_transactions(
-            collection_id,
-            sender_address.parse().unwrap(),
-            indexer_address.parse().unwrap(),
-            network_subgraph,
-        )
-        .await
-        .unwrap();
-
-        assert!(result);
     }
 
     #[tokio::test]
-    async fn test_network_redeem_transactions_false_when_empty() {
-        let mock_server: MockServer = MockServer::start().await;
-        let sender_address = "0x21fed3c4340f67dbf2b78c670ebd1940668ca03e";
-        let indexer_address = "0x54d7db28ce0d0e2e87764cd09298f9e4e913e567";
-        let collection_id = CollectionId::from(
-            sender_address
-                .parse::<thegraph_core::alloy::primitives::Address>()
-                .unwrap(),
+    async fn test_receipt_for_another_allocation_is_rejected() {
+        let check = super::AllocationId::new(ALLOCATION_ID_0, COLLECTION_ID_0);
+        let receipt = create_received_receipt_v2(&ALLOCATION_ID_1, &SIGNER.0, 1, 1, 1);
+
+        let result = check.check(&Context::new(), &receipt).await;
+
+        assert!(
+            result.is_err(),
+            "expected a receipt carrying another allocation's collection_id to be rejected"
         );
-
-        mock_server
-            .register(
-                Mock::given(body_string_contains("paymentsEscrowTransactions")).respond_with(
-                    ResponseTemplate::new(200)
-                        .set_body_json(json!({ "data": { "paymentsEscrowTransactions": [] } })),
-                ),
-            )
-            .await;
-
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
-            )
-            .await,
-        ));
-
-        let result = super::query_network_redeem_transactions(
-            collection_id,
-            sender_address.parse().unwrap(),
-            indexer_address.parse().unwrap(),
-            network_subgraph,
-        )
-        .await
-        .unwrap();
-
-        assert!(!result);
     }
 
     #[tokio::test]
-    async fn test_network_redeem_transactions_error_when_subgraph_fails() {
-        let mock_server: MockServer = MockServer::start().await;
-        let sender_address = "0x21fed3c4340f67dbf2b78c670ebd1940668ca03e";
-        let indexer_address = "0x54d7db28ce0d0e2e87764cd09298f9e4e913e567";
-        let collection_id = CollectionId::from(
-            sender_address
-                .parse::<thegraph_core::alloy::primitives::Address>()
-                .unwrap(),
+    async fn test_receipt_is_accepted_regardless_of_timestamp() {
+        // Anti-replay is enforced by tap_core's min_timestamp, the sender's aggregator and the
+        // collector contract -- never by this check. An old receipt is not this check's problem.
+        let check = super::AllocationId::new(ALLOCATION_ID_0, COLLECTION_ID_0);
+        let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, 1, 0, 1);
+
+        let result = check.check(&Context::new(), &receipt).await;
+
+        assert!(
+            result.is_ok(),
+            "expected timestamp to be irrelevant to the allocation id check, got {result:?}"
         );
+    }
 
-        mock_server
-            .register(
-                Mock::given(body_string_contains("paymentsEscrowTransactions")).respond_with(
-                    ResponseTemplate::new(200)
-                        .set_body_json(json!({ "errors": [{ "message": "boom" }] })),
-                ),
-            )
-            .await;
-
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&mock_server.uri()).unwrap(),
-            )
-            .await,
-        ));
-
-        let result = super::query_network_redeem_transactions(
-            collection_id,
-            sender_address.parse().unwrap(),
-            indexer_address.parse().unwrap(),
-            network_subgraph,
-        )
-        .await;
-
-        assert!(result.is_err());
+    #[test]
+    fn test_collection_id_0_matches_allocation_id_0() {
+        // The two tests above only mean anything if these agree.
+        assert_eq!(COLLECTION_ID_0, CollectionId::from(ALLOCATION_ID_0));
     }
 }

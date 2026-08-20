@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{anyhow, ensure};
 use bigdecimal::{num_bigint::BigInt, ToPrimitive};
-use indexer_monitor::{EscrowAccounts, SubgraphClient};
+use indexer_monitor::EscrowAccounts;
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use sqlx::{types::BigDecimal, PgPool, Row};
@@ -179,8 +179,6 @@ pub struct AllocationConfig {
     pub rav_request_receipt_limit: u64,
     /// Current indexer address
     pub indexer_address: Address,
-    /// Polling interval for escrow subgraph
-    pub escrow_polling_interval: Duration,
     /// SubgraphService contract address
     pub subgraph_service_address: Address,
 }
@@ -192,7 +190,6 @@ impl AllocationConfig {
             timestamp_buffer_ns: config.rav_request_buffer.as_nanos() as u64,
             rav_request_receipt_limit: config.rav_request_receipt_limit,
             indexer_address: config.indexer_address,
-            escrow_polling_interval: config.escrow_polling_interval,
             subgraph_service_address: config.subgraph_service_address,
         }
     }
@@ -212,8 +209,6 @@ pub struct SenderAllocationArgs<T: NetworkVersion> {
     /// Watcher containing escrow accounts with strict signer filtering
     /// (excludes thawing signers, used for RAV signature verification)
     pub escrow_accounts_strict: Receiver<EscrowAccounts>,
-    /// SubgraphClient of the network subgraph
-    pub network_subgraph: &'static SubgraphClient,
     /// Domain separator used for tap
     pub domain_separator: Eip712Domain,
     /// Reference to [super::sender_account::SenderAccount] actor
@@ -461,7 +456,6 @@ where
             sender,
             escrow_accounts,
             escrow_accounts_strict,
-            network_subgraph,
             domain_separator,
             sender_account_ref,
             sender_aggregator,
@@ -470,17 +464,10 @@ where
     ) -> anyhow::Result<Self> {
         let collection_id = T::to_allocation_id_enum(&allocation_id).0;
         let required_checks: Vec<Arc<dyn Check<TapReceipt> + Send + Sync>> = vec![
-            Arc::new(
-                AllocationId::new(
-                    config.indexer_address,
-                    config.escrow_polling_interval,
-                    sender,
-                    T::allocation_id_to_address(&allocation_id),
-                    collection_id,
-                    network_subgraph,
-                )
-                .await,
-            ),
+            Arc::new(AllocationId::new(
+                T::allocation_id_to_address(&allocation_id),
+                collection_id,
+            )),
             Arc::new(Signature::new(
                 domain_separator.clone(),
                 escrow_accounts.clone(),
@@ -1211,14 +1198,12 @@ mod tests {
     use std::collections::HashMap;
 
     use futures::future::join_all;
-    use indexer_monitor::{DeploymentDetails, EscrowAccounts, SubgraphClient};
+    use indexer_monitor::EscrowAccounts;
     use ractor::{call, ActorStatus};
-    use serde_json::json;
     use tap_aggregator::grpc::v2::tap_aggregator_client::TapAggregatorClient;
     use test_assets::{flush_messages, TAP_SENDER as SENDER, TAP_SIGNER as SIGNER};
     use thegraph_core::{alloy::primitives::U256, CollectionId};
     use tokio::sync::watch;
-    use wiremock::{matchers::body_string_contains, Mock, MockServer, ResponseTemplate};
 
     use super::*;
     use crate::tap::CheckingReceipt;
@@ -1228,39 +1213,24 @@ mod tests {
         ALLOCATION_ID_0, ESCROW_VALUE, TAP_EIP712_DOMAIN_SEPARATOR_V2,
     };
 
-    async fn setup_network_subgraph(redeemed: bool) -> MockServer {
-        let mock_server = MockServer::start().await;
-        let response = if redeemed {
-            json!({
-                "data": {
-                    "paymentsEscrowTransactions": [
-                        { "id": "0x01", "allocationId": ALLOCATION_ID_0.encode_hex(), "timestamp": "1" }
-                    ]
-                }
-            })
-        } else {
-            json!({ "data": { "paymentsEscrowTransactions": [] } })
-        };
-
-        mock_server
-            .register(
-                Mock::given(body_string_contains("paymentsEscrowTransactions"))
-                    .respond_with(ResponseTemplate::new(200).set_body_json(response)),
-            )
-            .await;
-
-        mock_server
-    }
-
     async fn build_sender_allocation_args(
         pgpool: PgPool,
-        network_subgraph: &'static SubgraphClient,
         sender_account_ref: ActorRef<SenderAccountMessage>,
+    ) -> SenderAllocationArgs<Horizon> {
+        build_sender_allocation_args_with_balance(pgpool, sender_account_ref, ESCROW_VALUE).await
+    }
+
+    /// SIGNER stays an authorized signer whatever the balance, so receipts are still retrieved
+    /// for a RAV request -- a zero balance fails them in the signature check instead.
+    async fn build_sender_allocation_args_with_balance(
+        pgpool: PgPool,
+        sender_account_ref: ActorRef<SenderAccountMessage>,
+        escrow_balance: u128,
     ) -> SenderAllocationArgs<Horizon> {
         let (escrow_accounts_tx, escrow_accounts_rx) = watch::channel(EscrowAccounts::default());
         escrow_accounts_tx
             .send(EscrowAccounts::new(
-                HashMap::from([(SENDER.1, U256::from(ESCROW_VALUE))]),
+                HashMap::from([(SENDER.1, U256::from(escrow_balance))]),
                 HashMap::from([(SENDER.1, vec![SIGNER.1])]),
             ))
             .unwrap();
@@ -1276,7 +1246,6 @@ mod tests {
             .sender(SENDER.1)
             .escrow_accounts(escrow_accounts_rx.clone())
             .escrow_accounts_strict(escrow_accounts_rx)
-            .network_subgraph(network_subgraph)
             .domain_separator(TAP_EIP712_DOMAIN_SEPARATOR_V2.clone())
             .sender_account_ref(sender_account_ref)
             .sender_aggregator(sender_aggregator)
@@ -1286,24 +1255,32 @@ mod tests {
             .build()
     }
 
-    async fn build_state(
-        pgpool: PgPool,
-        network_subgraph: &'static SubgraphClient,
-    ) -> SenderAllocationState<Horizon> {
+    async fn build_state(pgpool: PgPool) -> SenderAllocationState<Horizon> {
         let (_receiver, sender_account_ref) = create_mock_sender_account().await;
-        let args = build_sender_allocation_args(pgpool, network_subgraph, sender_account_ref).await;
+        let args = build_sender_allocation_args(pgpool, sender_account_ref).await;
         SenderAllocationState::new(args).await.unwrap()
     }
 
     async fn spawn_sender_allocation(
         pgpool: PgPool,
-        network_subgraph: &'static SubgraphClient,
+    ) -> (
+        ActorRef<SenderAllocationMessage>,
+        tokio::sync::mpsc::Receiver<SenderAccountMessage>,
+    ) {
+        spawn_sender_allocation_with_balance(pgpool, ESCROW_VALUE).await
+    }
+
+    async fn spawn_sender_allocation_with_balance(
+        pgpool: PgPool,
+        escrow_balance: u128,
     ) -> (
         ActorRef<SenderAllocationMessage>,
         tokio::sync::mpsc::Receiver<SenderAccountMessage>,
     ) {
         let (mut receiver, sender_account_ref) = create_mock_sender_account().await;
-        let args = build_sender_allocation_args(pgpool, network_subgraph, sender_account_ref).await;
+        let args =
+            build_sender_allocation_args_with_balance(pgpool, sender_account_ref, escrow_balance)
+                .await;
         let (sender_allocation, _) =
             SenderAllocation::<Horizon>::spawn(None, SenderAllocation::default(), args)
                 .await
@@ -1347,18 +1324,8 @@ mod tests {
     #[tokio::test]
     async fn test_several_receipts_rav_request() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
 
-        let (sender_allocation, mut receiver) =
-            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+        let (sender_allocation, mut receiver) = spawn_sender_allocation(test_db.pool.clone()).await;
 
         const AMOUNT_OF_RECEIPTS: u64 = 1000;
         for i in 0..AMOUNT_OF_RECEIPTS {
@@ -1384,18 +1351,8 @@ mod tests {
     #[tokio::test]
     async fn test_several_receipts_batch_insert_rav_request() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
 
-        let (sender_allocation, mut receiver) =
-            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+        let (sender_allocation, mut receiver) = spawn_sender_allocation(test_db.pool.clone()).await;
 
         const AMOUNT_OF_RECEIPTS: u64 = 1000;
         for i in 0..AMOUNT_OF_RECEIPTS {
@@ -1421,18 +1378,8 @@ mod tests {
     #[tokio::test]
     async fn test_close_allocation_no_pending_fees() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
 
-        let (sender_allocation, _receiver) =
-            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+        let (sender_allocation, _receiver) = spawn_sender_allocation(test_db.pool.clone()).await;
 
         sender_allocation.stop_and_wait(None, None).await.unwrap();
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
@@ -1448,15 +1395,6 @@ mod tests {
     #[tokio::test]
     async fn test_close_allocation_with_pending_fees() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
 
         for i in 0..10 {
             let receipt =
@@ -1465,8 +1403,7 @@ mod tests {
             store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
-        let (sender_allocation, _receiver) =
-            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+        let (sender_allocation, _receiver) = spawn_sender_allocation(test_db.pool.clone()).await;
 
         sender_allocation.stop_and_wait(None, None).await.unwrap();
         assert_eq!(sender_allocation.get_status(), ActorStatus::Stopped);
@@ -1482,16 +1419,7 @@ mod tests {
     #[tokio::test]
     async fn should_return_unaggregated_fees_without_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
-        let state = build_state(test_db.pool.clone(), network_subgraph).await;
+        let state = build_state(test_db.pool.clone()).await;
 
         for i in 1..10 {
             let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
@@ -1506,16 +1434,7 @@ mod tests {
     #[tokio::test]
     async fn should_calculate_invalid_receipts_fee() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
-        let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
+        let mut state = build_state(test_db.pool.clone()).await;
 
         let failing_receipts = make_failing_receipts().await;
 
@@ -1533,15 +1452,6 @@ mod tests {
     #[tokio::test]
     async fn should_return_unaggregated_fees_with_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
 
         let signed_rav = create_rav_v2(
             *CollectionId::from(ALLOCATION_ID_0),
@@ -1553,7 +1463,7 @@ mod tests {
             .await
             .unwrap();
 
-        let state = build_state(test_db.pool.clone(), network_subgraph).await;
+        let state = build_state(test_db.pool.clone()).await;
 
         for i in 1..10 {
             let receipt = create_received_receipt_v2(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
@@ -1568,16 +1478,7 @@ mod tests {
     #[tokio::test]
     async fn test_store_failed_rav() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
-        let state = build_state(test_db.pool.clone(), network_subgraph).await;
+        let state = build_state(test_db.pool.clone()).await;
 
         let signed_rav = create_rav_v2(
             *CollectionId::from(ALLOCATION_ID_0),
@@ -1594,16 +1495,7 @@ mod tests {
     #[tokio::test]
     async fn test_store_invalid_receipts() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
-        let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
+        let mut state = build_state(test_db.pool.clone()).await;
 
         let failing_receipts = make_failing_receipts().await;
 
@@ -1619,16 +1511,7 @@ mod tests {
     #[tokio::test]
     async fn test_store_invalid_receipts_rolls_back_with_transaction() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
-        let mut state = build_state(test_db.pool.clone(), network_subgraph).await;
+        let mut state = build_state(test_db.pool.clone()).await;
 
         let failing_receipts = make_failing_receipts().await;
 
@@ -1655,16 +1538,7 @@ mod tests {
     #[tokio::test]
     async fn test_mark_rav_last() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
-        let state = build_state(test_db.pool.clone(), network_subgraph).await;
+        let state = build_state(test_db.pool.clone()).await;
 
         let signed_rav = create_rav_v2(
             *CollectionId::from(ALLOCATION_ID_0),
@@ -1683,15 +1557,6 @@ mod tests {
     #[tokio::test]
     async fn test_failed_rav_request() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(false).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
 
         // Use receipts signed by a wallet not in escrow_accounts to force invalid receipts.
         for i in 0..10 {
@@ -1706,8 +1571,7 @@ mod tests {
             store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
-        let (sender_allocation, mut receiver) =
-            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+        let (sender_allocation, mut receiver) = spawn_sender_allocation(test_db.pool.clone()).await;
 
         sender_allocation
             .cast(SenderAllocationMessage::TriggerRavRequest)
@@ -1720,15 +1584,6 @@ mod tests {
     #[tokio::test]
     async fn test_rav_request_when_all_receipts_invalid() {
         let test_db = test_assets::setup_shared_test_db().await;
-        let network_mock = setup_network_subgraph(true).await;
-        let network_subgraph = Box::leak(Box::new(
-            SubgraphClient::new(
-                reqwest::Client::new(),
-                None,
-                DeploymentDetails::for_query_url(&network_mock.uri()).unwrap(),
-            )
-            .await,
-        ));
 
         let timestamp = 1u64;
         const RECEIPT_VALUE: u128 = 10;
@@ -1745,8 +1600,9 @@ mod tests {
             store_receipt(&test_db.pool, &signed).await.unwrap();
         }
 
+        // Zero escrow balance fails every receipt in the signature check.
         let (sender_allocation, mut receiver) =
-            spawn_sender_allocation(test_db.pool.clone(), network_subgraph).await;
+            spawn_sender_allocation_with_balance(test_db.pool.clone(), 0).await;
 
         sender_allocation
             .cast(SenderAllocationMessage::TriggerRavRequest)
