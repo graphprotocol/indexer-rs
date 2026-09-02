@@ -211,7 +211,7 @@ mod tests {
                 .unwrap()
                 .get_metric()
                 .iter()
-                .filter(|a| a.get_label()[3].get_value() == status.to_string())
+                .filter(|a| a.get_label()[3].value() == status.to_string())
                 .count()
         };
 
