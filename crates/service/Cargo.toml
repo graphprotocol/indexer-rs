@@ -44,7 +44,7 @@ tap_aggregator.workspace = true
 uuid.workspace = true
 bon.workspace = true
 tower_governor = { version = "0.7.0", features = ["axum"] }
-governor = "0.8.0"
+governor = "0.10.0"
 tower-http = { version = "0.6.2", features = [
     "auth",
     "cors",
