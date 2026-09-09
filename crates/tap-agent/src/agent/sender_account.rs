@@ -595,8 +595,8 @@ impl State {
         let version = TAP_V2;
         UNAGGREGATED_FEES_BY_VERSION
             .with_label_values(&[
-                &self.sender.to_string(),
-                &allocation_id.to_string(),
+                self.sender.to_string().as_str(),
+                allocation_id.to_string().as_str(),
                 version,
             ])
             .set(unaggregated_fees.value as f64);
@@ -1141,8 +1141,8 @@ impl Actor for SenderAccount {
                             .set(state.sender_fee_tracker.get_total_fee() as f64);
                         UNAGGREGATED_FEES_BY_VERSION
                             .with_label_values(&[
-                                &state.sender.to_string(),
-                                &allocation_id.to_string(),
+                                state.sender.to_string().as_str(),
+                                allocation_id.to_string().as_str(),
                                 TAP_V2,
                             ])
                             .set(
@@ -1456,8 +1456,8 @@ impl Actor for SenderAccount {
 
                 let version = TAP_V2;
                 let _ = UNAGGREGATED_FEES_BY_VERSION.remove_label_values(&[
-                    &state.sender.to_string(),
-                    &allocation_id.to_string(),
+                    state.sender.to_string().as_str(),
+                    allocation_id.to_string().as_str(),
                     version,
                 ]);
                 let _ = INVALID_RECEIPT_FEES
@@ -1557,8 +1557,8 @@ impl Actor for SenderAccount {
         for allocation_id in &state.allocation_ids {
             let allocation_label = allocation_id.address().to_string();
             let _ = UNAGGREGATED_FEES_BY_VERSION.remove_label_values(&[
-                &sender_label,
-                &allocation_label,
+                sender_label.as_str(),
+                allocation_label.as_str(),
                 version,
             ]);
             let _ = INVALID_RECEIPT_FEES.remove_label_values(&[&sender_label, &allocation_label]);
@@ -3070,12 +3070,16 @@ pub mod tests {
         let sender_label = SENDER.1.to_string();
         let allocation_label = unique_allocation.to_string();
         UNAGGREGATED_FEES_BY_VERSION
-            .with_label_values(&[&sender_label, &allocation_label, TAP_V2])
+            .with_label_values(&[sender_label.as_str(), allocation_label.as_str(), TAP_V2])
             .set(1000.0);
 
         // Verify metric was set
         let metric_value = UNAGGREGATED_FEES_BY_VERSION
-            .get_metric_with_label_values(&[&sender_label, &allocation_label, TAP_V2])
+            .get_metric_with_label_values(&[
+                sender_label.as_str(),
+                allocation_label.as_str(),
+                TAP_V2,
+            ])
             .expect("Metric should exist after being set")
             .get();
         assert_eq!(
@@ -3096,7 +3100,7 @@ pub mod tests {
         // proves the old metric was removed.
         // See: https://docs.rs/prometheus/latest/prometheus/core/struct.MetricVec.html
         let metric_value_after = UNAGGREGATED_FEES_BY_VERSION
-            .with_label_values(&[&sender_label, &allocation_label, TAP_V2])
+            .with_label_values(&[sender_label.as_str(), allocation_label.as_str(), TAP_V2])
             .get();
         assert_eq!(
             metric_value_after, 0.0,
