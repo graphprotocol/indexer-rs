@@ -4026,7 +4026,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -4412,7 +4412,7 @@ dependencies = [
  "indexer-monitor",
  "indexer-watcher",
  "ipfs-api-backend-hyper",
- "prost 0.14.3",
+ "prost 0.14.4",
  "rand 0.9.5",
  "serde",
  "serde_json",
@@ -4423,7 +4423,7 @@ dependencies = [
  "thegraph-core",
  "thiserror 2.0.20",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tonic-build",
  "tonic-prost",
  "tonic-prost-build",
@@ -4515,7 +4515,7 @@ dependencies = [
  "pin-project 1.1.13",
  "profiler",
  "prometheus 0.13.4",
- "prost 0.14.3",
+ "prost 0.14.4",
  "reqwest 0.12.24",
  "rstest",
  "serde",
@@ -4532,7 +4532,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tokio-util",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tower 0.5.3",
  "tower-http",
  "tower-service",
@@ -4589,7 +4589,7 @@ dependencies = [
  "thegraph-core",
  "thiserror 2.0.20",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tracing",
  "tracing-subscriber",
  "wiremock",
@@ -4675,7 +4675,7 @@ dependencies = [
  "clap",
  "indexer-receipt",
  "num_cpus",
- "prost 0.14.3",
+ "prost 0.14.4",
  "rand 0.9.5",
  "rdkafka 0.38.0",
  "regex",
@@ -5662,7 +5662,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6571,12 +6571,12 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
+checksum = "528ac67416ff8646872a3c02cad9cc4ee5dc9f9540c9b10771855c95cb2e5ae1"
 dependencies = [
  "bytes",
- "prost-derive 0.14.3",
+ "prost-derive 0.14.4",
 ]
 
 [[package]]
@@ -6585,15 +6585,15 @@ version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac6c3320f9abac597dcbc668774ef006702672474aad53c6d596b62e487b40b1"
 dependencies = [
- "heck 0.4.1",
- "itertools 0.14.0",
+ "heck 0.5.0",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "once_cell",
  "petgraph",
  "prettyplease",
- "prost 0.14.3",
- "prost-types 0.14.3",
+ "prost 0.14.4",
+ "prost-types 0.14.4",
  "pulldown-cmark",
  "pulldown-cmark-to-cmark",
  "regex",
@@ -6621,7 +6621,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -6629,12 +6629,12 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
+checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -6660,11 +6660,11 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
+checksum = "f94967dc7688f3054c7fac87473ffae4cc4c3904800e2d9f5b857246d8963b0a"
 dependencies = [
- "prost 0.14.3",
+ "prost 0.14.4",
 ]
 
 [[package]]
@@ -7580,7 +7580,7 @@ dependencies = [
  "security-framework 3.5.1",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7801,8 +7801,8 @@ version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "662c7f8e99d46c9d3a87561d771a970c29efaccbab4bbdc6ab65d099d2358077"
 dependencies = [
- "prost 0.14.3",
- "prost-types 0.14.3",
+ "prost 0.14.4",
+ "prost-types 0.14.4",
  "serde",
  "serde_json",
  "zeroize",
@@ -8821,7 +8821,7 @@ dependencies = [
  "lazy_static",
  "log",
  "prometheus 0.14.0",
- "prost 0.14.3",
+ "prost 0.14.4",
  "rayon",
  "rdkafka 0.37.0",
  "serde",
@@ -8831,7 +8831,7 @@ dependencies = [
  "tap_graph",
  "thegraph-core",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tonic-build",
  "tonic-prost",
  "tonic-prost-build",
@@ -9435,9 +9435,9 @@ dependencies = [
 
 [[package]]
 name = "tonic"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fec7c61a0695dc1887c1b53952990f3ad2e3a31453e1f49f10e75424943a93ec"
+checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
 dependencies = [
  "async-trait",
  "axum",
@@ -9468,9 +9468,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-build"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1882ac3bf5ef12877d7ed57aad87e75154c11931c2ba7e6cde5e22d63522c734"
+checksum = "c68f61875ac5293cf72e6c8cf0158086428c82c37229e98c840878f1706b0322"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -9480,25 +9480,25 @@ dependencies = [
 
 [[package]]
 name = "tonic-prost"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a55376a0bbaa4975a3f10d009ad763d8f4108f067c7c2e74f3001fb49778d309"
+checksum = "50849f68853be452acf590cde0b146665b8d507b3b8af17261df47e02c209ea0"
 dependencies = [
  "bytes",
- "prost 0.14.3",
- "tonic 0.14.5",
+ "prost 0.14.4",
+ "tonic 0.14.6",
 ]
 
 [[package]]
 name = "tonic-prost-build"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3144df636917574672e93d0f56d7edec49f90305749c668df5101751bb8f95a"
+checksum = "654e5643eff75d7f8c99197ce1440ed19a3474eada74c12bbac488b2cafdae27"
 dependencies = [
  "prettyplease",
  "proc-macro2",
  "prost-build",
- "prost-types 0.14.3",
+ "prost-types 0.14.4",
  "quote",
  "syn 2.0.117",
  "tempfile",
@@ -10663,10 +10663,10 @@ source = "git+https://github.com/suchapalaver/wiremock-grpc-rs.git?branch=main#c
 dependencies = [
  "http-body 1.0.1",
  "log",
- "prost 0.14.3",
+ "prost 0.14.4",
  "rand 0.8.5",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.6",
  "tonic-build",
  "tonic-prost",
  "tonic-prost-build",
