@@ -4489,7 +4489,7 @@ dependencies = [
  "autometrics",
  "axum",
  "axum-extra",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bigdecimal",
  "bip39",
  "bon 3.9.3",
@@ -4669,7 +4669,7 @@ name = "integration-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bigdecimal",
  "bip39",
  "clap",
