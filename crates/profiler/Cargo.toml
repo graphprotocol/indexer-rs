@@ -14,6 +14,6 @@ tempfile.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 
-pprof = { version = "0.14", default-features = false }
+pprof = { version = "0.15", default-features = false }
 timer = { version = "0.2" }
 chrono = { version = "0.4" }
