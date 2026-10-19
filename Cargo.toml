@@ -50,7 +50,7 @@ graph-networks-registry = "0.6.1"
 hex-literal = "0.4.1"
 insta = "1.42.2"
 itertools = "0.14.0"
-jsonrpsee = { version = "0.24.0", features = ["http-client", "tracing"] }
+jsonrpsee = { version = "0.26.0", features = ["http-client", "tracing"] }
 prometheus = "0.13.3"
 prost = "0.14.1"
 prost-types = "0.14.1"
