@@ -202,6 +202,8 @@ port = "7601"
 # Your own observations may differ - adjust pricing accordingly.
 # min_grt_per_billion_entities_per_30_days = "200"  # entity-based component (global)
 
+# The figures below are suggestions. suggested-min-grt-per-30-days.json, next to this file,
+# holds the same figures for dipper, which reads them to decide how high a price it accepts.
 [dips.min_grt_per_30_days]  # base rate component (per-network); keys = supported chains
 # arbitrum-one = "450"
 # matic = "300"
