@@ -9,8 +9,9 @@
     "selection any indexer whose base price is more than a fixed multiple of the figure for the",
     "chain. So a change merged here changes what dipper will accept within hours of merging.",
     "",
-    "Dipper keeps the figures it had, and raises an alert, when a version of this file drops a",
-    "chain, moves a figure by more than 10 times, or holds anything but positive numbers."
+    "A running dipper keeps the figures it had, and raises an alert, when a version of this file",
+    "drops a chain, moves a figure by more than 10 times, adds a chain above the highest figure or",
+    "below a tenth of the lowest, lists a chain twice, or holds anything but positive numbers."
   ],
   "min_grt_per_30_days": {
     "arbitrum-one": 450,
