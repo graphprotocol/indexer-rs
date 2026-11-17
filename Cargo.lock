@@ -4314,6 +4314,7 @@ dependencies = [
  "sealed_test",
  "serde",
  "serde_ignored",
+ "serde_json",
  "serde_repr",
  "serde_test",
  "serde_with",

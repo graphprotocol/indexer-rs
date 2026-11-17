@@ -253,6 +253,8 @@ role_subgraph_max_lag_secs = 1800
 # rolling 24h; rejected and expired proposals don't count. Unset = no cap; 0 rejects all.
 # max_new_agreements_per_24h = 30
 
+# The figures below are suggestions. suggested-min-grt-per-30-days.json, next to this file,
+# holds the same figures for dipper, which reads them to decide how high a price it accepts.
 [dips.min_grt_per_30_days]  # base rate component (per-network)
 # arbitrum-one = "450"
 # matic = "300"

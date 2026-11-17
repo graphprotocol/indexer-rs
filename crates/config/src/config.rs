@@ -820,7 +820,12 @@ pub struct HorizonConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, env, fs, path::PathBuf, str::FromStr};
+    use std::{
+        collections::{BTreeMap, HashSet},
+        env, fs,
+        path::PathBuf,
+        str::FromStr,
+    };
 
     use bip39::Mnemonic;
     use figment::value::Uncased;
@@ -830,6 +835,50 @@ mod tests {
 
     use super::{DatabaseConfig, IndexerConfig, SHARED_PREFIX};
     use crate::{Config, ConfigPrefix};
+
+    /// The suggested minimum prices are published twice: commented out in the maximal example,
+    /// for operators to copy, and in a data file that dipper reads to set its price ceilings.
+    #[test]
+    fn test_suggested_min_prices_file_matches_maximal_config_example() {
+        const DATA_FILE: &str = "suggested-min-grt-per-30-days.json";
+        let example = fs::read_to_string("maximal-config-example.toml").unwrap();
+        assert!(
+            example.contains(DATA_FILE),
+            "the example should point operators at {DATA_FILE}"
+        );
+
+        // In the example the prices are the commented-out lines under the table's header.
+        let commented_out: String = example
+            .lines()
+            .skip_while(|line| !line.starts_with("[dips.min_grt_per_30_days]"))
+            .skip(1)
+            .map_while(|line| line.strip_prefix("# "))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let in_example: BTreeMap<String, String> = toml::from_str(&commented_out).unwrap();
+        let in_example: BTreeMap<String, f64> = in_example
+            .into_iter()
+            .map(|(chain, price)| (chain, price.parse().unwrap()))
+            .collect();
+        assert!(!in_example.is_empty(), "no prices found in the example");
+
+        let file: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(DATA_FILE).unwrap()).unwrap();
+        let in_file: BTreeMap<String, f64> = file["min_grt_per_30_days"]
+            .as_object()
+            .expect("min_grt_per_30_days should be an object")
+            .iter()
+            .map(|(chain, price)| {
+                let price = price.as_f64().expect("each price should be a number");
+                (chain.clone(), price)
+            })
+            .collect();
+
+        assert_eq!(
+            in_file, in_example,
+            "{DATA_FILE} (left) and maximal-config-example.toml (right) disagree"
+        );
+    }
 
     #[test]
     fn test_minimal_config() {

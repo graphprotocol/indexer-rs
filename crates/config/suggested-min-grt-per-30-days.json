@@ -1,0 +1,26 @@
+{
+  "about": [
+    "The suggested minimum base price for each chain, in GRT per 30 days. These are the figures",
+    "shown commented out under [dips.min_grt_per_30_days] in maximal-config-example.toml, and a",
+    "test in this crate fails if the 2 disagree.",
+    "",
+    "Dipper, the service that offers indexing agreements to indexers, reads this file from the",
+    "main branch while it runs and sets its price ceilings from it: by default it leaves out of",
+    "selection any indexer whose base price is more than a fixed multiple of the figure for the",
+    "chain. So a change merged here changes what dipper will accept within hours of merging.",
+    "",
+    "Dipper keeps the figures it had, and raises an alert, when a version of this file drops a",
+    "chain, moves a figure by more than 10 times, or holds anything but positive numbers."
+  ],
+  "min_grt_per_30_days": {
+    "arbitrum-one": 450,
+    "matic": 300,
+    "avalanche": 225,
+    "bsc": 200,
+    "base": 80,
+    "mainnet": 45,
+    "optimism": 30,
+    "base-sepolia": 15,
+    "sepolia": 5
+  }
+}
