@@ -781,37 +781,168 @@ mod tests {
             "the example should point operators at {DATA_FILE}"
         );
 
-        // In the example the prices are the commented-out lines under the table's header.
-        let commented_out: String = example
-            .lines()
-            .skip_while(|line| !line.starts_with("[dips.min_grt_per_30_days]"))
-            .skip(1)
-            .map_while(|line| line.strip_prefix("# "))
-            .map(|line| format!("{line}\n"))
-            .collect();
-        let in_example: BTreeMap<String, String> = toml::from_str(&commented_out).unwrap();
-        let in_example: BTreeMap<String, f64> = in_example
-            .into_iter()
-            .map(|(chain, price)| (chain, price.parse().unwrap()))
-            .collect();
+        let in_example = commented_out_prices(&example).unwrap();
         assert!(!in_example.is_empty(), "no prices found in the example");
-
-        let file: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(DATA_FILE).unwrap()).unwrap();
-        let in_file: BTreeMap<String, f64> = file["min_grt_per_30_days"]
-            .as_object()
-            .expect("min_grt_per_30_days should be an object")
-            .iter()
-            .map(|(chain, price)| {
-                let price = price.as_f64().expect("each price should be a number");
-                (chain.clone(), price)
-            })
-            .collect();
+        let in_file = published_prices(&fs::read_to_string(DATA_FILE).unwrap()).unwrap();
 
         assert_eq!(
             in_file, in_example,
             "{DATA_FILE} (left) and maximal-config-example.toml (right) disagree"
         );
+    }
+
+    /// The prices commented out under `[dips.min_grt_per_30_days]` in the example: every line
+    /// from that header to the next one or the end of the file. Blank lines are skipped, and
+    /// any other line that is not a commented-out price is an error, as is a chain given twice.
+    fn commented_out_prices(example: &str) -> Result<BTreeMap<String, f64>, String> {
+        let table = example
+            .lines()
+            .skip_while(|line| !line.starts_with("[dips.min_grt_per_30_days]"))
+            .skip(1)
+            .map(str::trim)
+            .take_while(|line| !line.starts_with('['));
+        let mut prices = BTreeMap::new();
+        for line in table.filter(|line| !line.is_empty()) {
+            let not_a_price = || format!("not a commented-out price: {line}");
+            let entry = line.strip_prefix('#').ok_or_else(not_a_price)?;
+            let entry: BTreeMap<String, String> =
+                toml::from_str(entry).map_err(|_| not_a_price())?;
+            let mut entry = entry.into_iter();
+            let (Some((chain, price)), None) = (entry.next(), entry.next()) else {
+                return Err(not_a_price());
+            };
+            let price = price.parse().map_err(|_| not_a_price())?;
+            if prices.insert(chain.clone(), price).is_some() {
+                return Err(format!("{chain} is listed twice in the example"));
+            }
+        }
+        Ok(prices)
+    }
+
+    /// The prices in the data file, by chain. A chain given twice is an error.
+    fn published_prices(file: &str) -> Result<BTreeMap<String, f64>, String> {
+        #[derive(serde::Deserialize)]
+        struct Published {
+            min_grt_per_30_days: Listed,
+        }
+        /// The entries in the order written, where a map would keep only the last of 2.
+        struct Listed(Vec<(String, f64)>);
+        impl<'de> serde::Deserialize<'de> for Listed {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                struct Entries;
+                impl<'de> serde::de::Visitor<'de> for Entries {
+                    type Value = Listed;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        formatter.write_str("a price for each chain")
+                    }
+
+                    fn visit_map<A: serde::de::MapAccess<'de>>(
+                        self,
+                        mut map: A,
+                    ) -> Result<Listed, A::Error> {
+                        let mut entries = Vec::new();
+                        while let Some(entry) = map.next_entry::<String, f64>()? {
+                            entries.push(entry);
+                        }
+                        Ok(Listed(entries))
+                    }
+                }
+                deserializer.deserialize_map(Entries)
+            }
+        }
+
+        let published: Published = serde_json::from_str(file).map_err(|error| error.to_string())?;
+        let mut prices = BTreeMap::new();
+        for (chain, price) in published.min_grt_per_30_days.0 {
+            if prices.insert(chain.clone(), price).is_some() {
+                return Err(format!("{chain} is listed twice in the data file"));
+            }
+        }
+        Ok(prices)
+    }
+
+    fn prices(listed: &[(&str, f64)]) -> BTreeMap<String, f64> {
+        listed
+            .iter()
+            .map(|(chain, price)| ((*chain).to_string(), *price))
+            .collect()
+    }
+
+    /// A chain added to the example below a blank line, or commented out with no space after
+    /// the hash, is still a suggested price, so the comparison with the data file reads it.
+    #[test]
+    fn test_commented_out_prices_are_read_to_the_end_of_their_table() {
+        let example = r#"
+[dips]
+# min_grt_per_billion_entities_per_30_days = "200"
+
+[dips.min_grt_per_30_days]  # base rate component (per-network)
+# mainnet = "45"
+# sepolia = "5"
+
+#gnosis = "100"
+  # base = "80"
+
+[dips.something_else]
+# fantom = "300"
+"#;
+
+        assert_eq!(
+            commented_out_prices(example),
+            Ok(prices(&[
+                ("mainnet", 45.0),
+                ("sepolia", 5.0),
+                ("gnosis", 100.0),
+                ("base", 80.0)
+            ]))
+        );
+    }
+
+    /// Anything else between the header and the next one could hide a price from the
+    /// comparison, so the table may hold nothing but commented-out prices and blank lines.
+    #[test]
+    fn test_a_line_under_the_prices_header_that_is_not_a_commented_out_price_fails() {
+        let not_prices = [
+            "#",
+            "# testnets",
+            "gnosis = \"100\"",
+            "# gnosis = 100",
+            "# gnosis = \"cheap\"",
+            "# gnosis = \"100\", base = \"80\"",
+        ];
+        for line in not_prices {
+            let example = format!("[dips.min_grt_per_30_days]\n# mainnet = \"45\"\n{line}\n");
+
+            let read = commented_out_prices(&example);
+
+            assert!(read.is_err(), "{line}: {read:?}");
+        }
+    }
+
+    /// JSON lets a name appear twice and most readers keep the last, so a stale entry could
+    /// sit above a current one unseen. Dipper refuses such a file outright.
+    #[test]
+    fn test_a_chain_listed_twice_fails() {
+        let file = r#"{"min_grt_per_30_days": {"mainnet": 45, "sepolia": 5, "mainnet": 60}}"#;
+        let example = "[dips.min_grt_per_30_days]\n# mainnet = \"45\"\n# mainnet = \"60\"\n";
+
+        let (in_file, in_example) = (published_prices(file), commented_out_prices(example));
+
+        assert!(in_file.is_err(), "{in_file:?}");
+        assert!(in_example.is_err(), "{in_example:?}");
+    }
+
+    #[test]
+    fn test_the_data_file_is_read_as_published() {
+        let file = r#"{"about": ["Notes."], "min_grt_per_30_days": {"mainnet": 45, "base": 80.5}}"#;
+
+        assert_eq!(
+            published_prices(file),
+            Ok(prices(&[("mainnet", 45.0), ("base", 80.5)]))
+        );
+        assert!(published_prices(r#"{"min_grt_per_30_days": {"mainnet": "45"}}"#).is_err());
+        assert!(published_prices(r#"{"about": []}"#).is_err());
     }
 
     #[test]
