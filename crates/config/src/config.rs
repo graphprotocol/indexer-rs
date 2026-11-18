@@ -857,32 +857,62 @@ mod tests {
         );
     }
 
-    /// The prices commented out under `[dips.min_grt_per_30_days]` in the example: every line
-    /// from that header to the next one or the end of the file. Blank lines are skipped, and
-    /// any other line that is not a commented-out price is an error, as is a chain given twice.
+    /// The prices commented out under `[dips.min_grt_per_30_days]`, to the next header or the end
+    /// of the file. A chain given twice is an error, and so is any other line, unless it is blank
+    /// or part of the comment directly above the next header, with a blank line above that.
     fn commented_out_prices(example: &str) -> Result<BTreeMap<String, f64>, String> {
-        let table = example
+        let lines = example
             .lines()
             .skip_while(|line| !line.starts_with("[dips.min_grt_per_30_days]"))
             .skip(1)
-            .map(str::trim)
-            .take_while(|line| !line.starts_with('['));
+            .map(str::trim);
+        let mut table = Vec::new();
+        let mut another_table_follows = false;
+        for line in lines {
+            if line.starts_with('[') {
+                another_table_follows = true;
+                break;
+            }
+            table.push(line);
+        }
+        let last_block = table
+            .iter()
+            .rev()
+            .take_while(|line| !line.is_empty())
+            .count();
+        // With no blank line above it, the last block is the prices and not that comment.
+        let next_table_comment = if another_table_follows && last_block < table.len() {
+            table.len() - last_block
+        } else {
+            table.len()
+        };
+
         let mut prices = BTreeMap::new();
-        for line in table.filter(|line| !line.is_empty()) {
-            let not_a_price = || format!("not a commented-out price: {line}");
-            let entry = line.strip_prefix('#').ok_or_else(not_a_price)?;
-            let entry: BTreeMap<String, String> =
-                toml::from_str(entry).map_err(|_| not_a_price())?;
-            let mut entry = entry.into_iter();
-            let (Some((chain, price)), None) = (entry.next(), entry.next()) else {
-                return Err(not_a_price());
+        for (index, line) in table.iter().enumerate() {
+            if line.is_empty() {
+                continue;
+            }
+            let Some((chain, price)) = commented_out_price(line) else {
+                if index >= next_table_comment && line.starts_with('#') {
+                    continue;
+                }
+                return Err(format!("not a commented-out price: {line}"));
             };
-            let price = price.parse().map_err(|_| not_a_price())?;
             if prices.insert(chain.clone(), price).is_some() {
                 return Err(format!("{chain} is listed twice in the example"));
             }
         }
         Ok(prices)
+    }
+
+    /// The chain and price in `# chain = "price"`, or nothing for any other line.
+    fn commented_out_price(line: &str) -> Option<(String, f64)> {
+        let entry: BTreeMap<String, String> = toml::from_str(line.strip_prefix('#')?).ok()?;
+        let mut entry = entry.into_iter();
+        let (Some((chain, price)), None) = (entry.next(), entry.next()) else {
+            return None;
+        };
+        Some((chain, price.parse().ok()?))
     }
 
     /// The prices in the data file, by chain. A chain given twice is an error.
@@ -983,6 +1013,54 @@ mod tests {
             let read = commented_out_prices(&example);
 
             assert!(read.is_err(), "{line}: {read:?}");
+        }
+    }
+
+    /// The comment written directly above the next table's header describes that table. It
+    /// follows the prices in the example, so the comparison passes over it, and still reads a
+    /// price found in it.
+    #[test]
+    fn test_the_comment_introducing_the_next_table_is_not_read_as_prices() {
+        let example = r#"
+[dips.min_grt_per_30_days]  # base rate component (per-network)
+# mainnet = "45"
+# sepolia = "5"
+
+# Custom or test networks: maps a network name to its chain id.
+#
+# gnosis = "100"
+# Default empty. e.g. hardhat = "eip155:1337"
+[dips.additional_networks]
+# fantom = "300"
+"#;
+
+        assert_eq!(
+            commented_out_prices(example),
+            Ok(prices(&[
+                ("mainnet", 45.0),
+                ("sepolia", 5.0),
+                ("gnosis", 100.0)
+            ]))
+        );
+    }
+
+    /// Only that comment is passed over: one with a blank line between it and the next header,
+    /// one with no blank line above it, one at the end of the file, and a price that is not
+    /// commented out all still fail.
+    #[test]
+    fn test_a_comment_elsewhere_under_the_prices_header_still_fails() {
+        let not_introductions = [
+            "# mainnet = \"45\"\n\n# testnets\n\n[dips.next]\n",
+            "# mainnet = \"45\"\n# testnets\n[dips.next]\n",
+            "# mainnet = \"45\"\n\n# testnets\n",
+            "# mainnet = \"45\"\n\n# testnets\ngnosis = \"100\"\n[dips.next]\n",
+        ];
+        for lines in not_introductions {
+            let example = format!("[dips.min_grt_per_30_days]\n{lines}");
+
+            let read = commented_out_prices(&example);
+
+            assert!(read.is_err(), "{lines}: {read:?}");
         }
     }
 
