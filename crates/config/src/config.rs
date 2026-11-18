@@ -851,6 +851,14 @@ mod tests {
         assert!(!in_example.is_empty(), "no prices found in the example");
         let in_file = published_prices(&fs::read_to_string(DATA_FILE).unwrap()).unwrap();
 
+        // Dipper refuses the whole table over 1 such figure, and then follows no later change.
+        for (chain, price) in &in_file {
+            assert!(
+                !chain.is_empty() && price.is_finite() && *price > 0.0,
+                "{chain:?} = {price}: dipper takes only a named chain with a positive price"
+            );
+        }
+
         assert_eq!(
             in_file, in_example,
             "{DATA_FILE} (left) and maximal-config-example.toml (right) disagree"
