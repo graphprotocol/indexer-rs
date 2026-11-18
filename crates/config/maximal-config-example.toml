@@ -266,9 +266,9 @@ role_subgraph_max_lag_secs = 1800
 # base-sepolia = "15"
 # sepolia = "5"
 
+[dips.additional_networks]
 # Custom or test networks not in the global networks-registry: maps network name to CAIP-2 chain id.
 # Its only effect is the chain_id field on the price-rejection logs, which reads "unknown" without it.
 # It blocks nothing: acceptance needs supported_networks plus a [dips.min_grt_per_30_days] price, and
 # a network missing from those is rejected before any chain_id is resolved.
 # Default empty. e.g. hardhat = "eip155:1337"
-[dips.additional_networks]
