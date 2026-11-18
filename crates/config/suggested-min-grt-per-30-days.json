@@ -8,6 +8,8 @@
     "GitHub while it runs and sets its price ceilings from it: by default it leaves out of",
     "selection any indexer whose base price is more than a fixed multiple of the figure for the",
     "chain. So a change merged here changes what dipper will accept within hours of merging.",
+    "Dipper fetches the file by its branch and path: moving or renaming it, or leaving it out of",
+    "a rebuilt branch, stops dipper following it until dipper's own address changes too.",
     "",
     "Dipper keeps the figures it had, and raises an alert, when a version of this file lists no",
     "chain, lists a chain twice, holds anything but positive numbers, or holds a figure high",
