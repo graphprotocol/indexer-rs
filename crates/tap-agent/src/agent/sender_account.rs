@@ -472,7 +472,6 @@ impl State {
             .sender(self.sender)
             .escrow_accounts(self.escrow_accounts.clone())
             .escrow_accounts_strict(self.escrow_accounts_strict.clone())
-            .network_subgraph(self.network_subgraph)
             .domain_separator(self.domain_separator_v2.clone())
             .sender_account_ref(sender_account_ref.clone())
             .sender_aggregator(self.aggregator_v2.clone())
