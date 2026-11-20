@@ -1,4 +1,4 @@
-FROM rust:1.90-bookworm as build
+FROM rust:1.90-trixie@sha256:e227f20ec42af3ea9a3c9c1dd1b2012aa15f12279b5e9d5fb890ca1c2bb5726c AS build
 
 WORKDIR /root
 COPY . .
@@ -9,10 +9,13 @@ RUN cargo build --release --bin indexer-tap-agent
 
 ########################################################################################
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 
+# Runtime needs libssl/libcrypto (dynamically linked via openssl-sys) and the CA
+# bundle for outbound TLS. libsasl2 is for rdkafka's gssapi feature (via
+# tap_aggregator), in case the binary links librdkafka.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssl ca-certificates protobuf-compiler libsasl2-2 \
+    ca-certificates libssl3t64 libsasl2-2 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /root/target/release/indexer-tap-agent /usr/local/bin/indexer-tap-agent
 
