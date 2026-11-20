@@ -11,10 +11,11 @@ RUN cargo build --release --bin indexer-service-rs
 
 FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 
-# Runtime needs only libssl/libcrypto (dynamically linked via native-tls) and
-# the CA bundle for outbound TLS.
+# Runtime needs libssl/libcrypto (dynamically linked via native-tls) and the CA
+# bundle for outbound TLS. libsasl2 is for rdkafka's gssapi feature (via
+# tap_aggregator), in case the binary links librdkafka.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3t64 \
+    ca-certificates libssl3t64 libsasl2-2 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /root/target/release/indexer-service-rs /usr/local/bin/indexer-service-rs
 
