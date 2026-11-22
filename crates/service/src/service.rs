@@ -204,6 +204,7 @@ pub async fn run() -> anyhow::Result<()> {
             Ok(()) => {
                 DIPS_ENABLED.set(1);
                 Some(DipsInfoState::Available {
+                    supported_networks: dips.supported_networks.clone(),
                     min_grt_per_30_days: dips
                         .min_grt_per_30_days
                         .iter()
