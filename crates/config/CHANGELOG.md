@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.2](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v2.2.0...indexer-config-v2.2.2) (2026-11-23)
+
+
+### Bug Fixes
+
+* ship Debian trixie runtime images ([#1127](https://github.com/graphprotocol/indexer-rs/issues/1127)) ([e1df064](https://github.com/graphprotocol/indexer-rs/commit/e1df064c1657fad811580bd23d2dce43b5aa4161))
+
 ## [2.2.0](https://github.com/graphprotocol/indexer-rs/compare/indexer-config-v2.1.0...indexer-config-v2.2.0) (2026-06-03)
 
 
